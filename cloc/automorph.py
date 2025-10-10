@@ -1,1 +1,0 @@
-../automorph.py

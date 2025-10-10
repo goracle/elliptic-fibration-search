@@ -1,1 +1,0 @@
-../diagnostics2.py
