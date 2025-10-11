@@ -10,7 +10,7 @@ import shlex
 import multiprocessing, time, traceback
 
 import search_common
-from search_common import SEED_INT
+from search_common import SEED_INT, DEBUG
 
 # ==============================================================================
 # === High-Level Integration Function ==========================================
@@ -46,7 +46,7 @@ def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, 
 # === Utility and Helper Functions =============================================
 # ==============================================================================
 
-def build_split_poly_from_cd(cd, debug=False):
+def build_split_poly_from_cd(cd, debug=DEBUG):
     """
     Given a CurveDataExt object, returns a QQ[m] polynomial whose roots are the
     singular fiber m-values (i.e., the numerator of the discriminant Delta).
@@ -71,7 +71,7 @@ def build_split_poly_from_cd(cd, debug=False):
         raise RuntimeError(f"Could not coerce Delta numerator to QQ['m'] polynomial. Error: {e}")
 
 
-def compute_poly_diagnostics(poly, run_heavy=False, debug=False):
+def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
     """
     Computes diagnostics for a Sage polynomial over QQ.
 
@@ -191,7 +191,7 @@ def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, 
 
 
 # ---- paste this into bounds.py, replacing the old functions ----
-def modulus_needed_from_canonical_height(h_can, scale_const=2.0, max_modulus=None, debug=False):
+def modulus_needed_from_canonical_height(h_can, scale_const=2.0, max_modulus=None, debug=DEBUG):
     """
     Safe translation from canonical height h_can to modulus bound B.
     - Uses log-space to avoid math.exp overflow.
@@ -239,7 +239,7 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
                                      max_subsets=2000,
                                      max_modulus=None,
                                      scale_const=2.0,
-                                     debug=False):
+                                     debug=DEBUG):
     """
     Recommends subset-size / number-of-subsets.
     - max_modulus: upper cap for the modulus B (defaults to search_common.MAX_MODULUS).
@@ -458,7 +458,7 @@ def _worker_splitting_field(poly, q):
 
 
 # ==== safe subprocess-based splitting-field helper ====
-def safe_compute_splitting_field_info_subprocess(poly, timeout=30, debug=False):
+def safe_compute_splitting_field_info_subprocess(poly, timeout=30, debug=DEBUG):
     """
     Compute basic splitting-field info by launching a separate Sage process.
     Returns a dict possibly containing keys:
@@ -581,7 +581,7 @@ except Exception:
 
 # === Replace recommend_and_update_prime_pool ===
 def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
-                                    grh_fudge=10, debug=False,
+                                    grh_fudge=10, debug=DEBUG,
                                     update_search_common=False):
     """
     Build SPLIT_POLY diagnostics and return a filtered list of primes.
@@ -671,7 +671,7 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
 
 # === Better canonical-height estimate from x-height ===
-def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_const=None, debug=False):
+def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_const=None, debug=DEBUG):
     """
     Conservative estimate of canonical height hat{h} from naive x-height h_x = log max(|num_x|,|den_x|).
     We use the classical heuristic
@@ -701,7 +701,7 @@ def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_c
 
 
 # === Replace modulus_needed_from_canonical_height with safer default scale ===
-def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=None, debug=False):
+def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=None, debug=DEBUG):
     """
     Translate canonical height to modulus bound B:
       log(B) := scale_const * h_can
@@ -738,7 +738,7 @@ def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=Non
 
 
 # === Automatic choice of small primes for Galois signature testing ===
-def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=False):
+def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
     """
     Choose small primes from prime_pool (or from small primes list) suitable for mod-p factorization diagnostics.
     Excludes 2,3 and primes dividing leading coefficient / discriminant.
@@ -768,7 +768,7 @@ def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=False):
 
 
 # === Dynamic estimate for tmax ===
-def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=False):
+def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=DEBUG):
     """
     Heuristic: tmax should scale mildly with log(B) and inversely with density (smaller density -> larger tmax).
     Formula used:
@@ -790,7 +790,7 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
 
 # === Recommend subset strategy but do not pick magic numbers ===
 def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
-                                       num_subsets_hint=250, min_size_hint=3, max_size_hint=9, debug=False):
+                                        num_subsets_hint=250, min_size_hint=3, max_size_hint=9, debug=DEBUG):
     """
     Returns an adaptive plan for subset generation: number of subsets, size ranges, and picks.
     Uses residue_counts to adaptively alter min/max and number of subsets.
@@ -848,7 +848,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
                           max_modulus=10**9,
                           update_search_common=False,
                           num_subsets_hint=1000,
-                          debug=False):
+                          debug=DEBUG):
     """
     SIMPLIFIED automatic configuration for search.
     
@@ -1025,7 +1025,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     return sconf
 
 
-def estimate_galois_signature_modp(poly, primes_to_test=None, debug=False):
+def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     """
     Empirical proxy for Galois/splitting-field complexity.
     Factors poly mod primes and deduplicates factorization patterns.
@@ -1096,8 +1096,9 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=False):
         'num_primes_tested': primes_used,
     }
 
-    print("")
-    print("DEBUG: RET:", ret)
-    print("")
+    if DEBUG:
+        print("")
+        print("DEBUG: RET:", ret)
+        print("")
 
     return ret
