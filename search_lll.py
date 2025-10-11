@@ -127,68 +127,6 @@ def archimedean_height_QQ(x):
     return math.log(val)
 
 # ---------- Utility: local search for best t ----------
-def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, patience=6):
-    """
-    Given residue class m = m0 (mod M), search over m = m0 + t*M to find integer t that minimizes
-    archimedean height of x = r_m(m) - shift.
-
-    Returns list of (m_candidate (QQ), score (float)) for the best few t values.
-    """
-    best = []
-
-    def eval_for_t(t):
-        m_candidate = m0 + t * M
-        if abs(t) > max_abs_t:
-            return None
-        try:
-            x_val = r_m_func(m=QQ(m_candidate)) - shift
-            if not (hasattr(x_val, 'numerator') and hasattr(x_val, 'denominator')):
-                return None
-            score = archimedean_height_QQ(x_val)
-            return (QQ(m_candidate), float(score))
-        except (ZeroDivisionError, TypeError, ArithmeticError):
-            print("we're here, for some reason")
-            return None
-
-    center = eval_for_t(0)
-    if center is not None:
-        best.append(center)
-
-    steps = 0
-    no_improve = 0
-    current_best_score = best[0][1] if best else float('inf')
-    t = 1
-    while steps < max_steps and no_improve < patience:
-        for s in (t, -t):
-            res = eval_for_t(s)
-            steps += 1
-            if res is None:
-                continue
-            m_cand, score = res
-            best.append((m_cand, score))
-            if score + 1e-12 < current_best_score:
-                current_best_score = score
-                no_improve = 0
-            else:
-                no_improve += 1
-            if abs(s) >= max_abs_t:
-                no_improve = patience
-                break
-        t += 1
-
-    # Deduplicate using exact rational key (num, den)
-    unique = {}
-    for m_cand, score in best:
-        num = int(m_cand.numerator())
-        den = int(m_cand.denominator())
-        key = (num, den)
-        if key not in unique or score < unique[key]:
-            unique[key] = score
-
-    sorted_candidates = sorted(((QQ(num) / QQ(den), sc) for (num, den), sc in unique.items()),
-                               key=lambda z: z[1])
-    return sorted_candidates[:8]
-
 # --- Top-level Worker Function for Parallel Processing ---
 
 def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, max_abs_t):
@@ -655,262 +593,6 @@ def _get_coeff_data(poly):
 
 # --- LLL Reduction Functions ---
 
-def lll_reduce_basis_modp(p, sections, curve_modp,
-                                   truncate_deg=TRUNCATE_MAX_DEG,
-                                   lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
-                                   max_k_abs=MAX_K_ABS):
-    """
-    Improved LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
-    Returns (new_basis, Uinv) similar to previous function.
-    """
-    r = len(sections)
-    if r == 0:
-        return [], identity_matrix(ZZ, 0)
-
-    poly_coords = []
-    max_deg = 0
-
-    # Extract integer coefficient lists (trim tails)
-    for P in sections:
-        Pp = reduce_point_hom(P, curve_modp, p)
-        if Pp is None or Pp.is_zero():  # <- handle None safely
-            poly_coords.append(([0], [0], [1]))
-            continue
-
-        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
-        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
-        Xp = Xr.numerator() * (den // Xr.denominator())
-        Yp = Yr.numerator() * (den // Yr.denominator())
-        Zp = Zr.numerator() * (den // Zr.denominator())
-
-        xc, dx = _get_coeff_data(Xp)
-        yc, dy = _get_coeff_data(Yp)
-        zc, dz = _get_coeff_data(Zp)
-
-        # Trim high-degree tails
-        xc = _trim_poly_coeffs(xc, truncate_deg)
-        yc = _trim_poly_coeffs(yc, truncate_deg)
-        zc = _trim_poly_coeffs(zc, truncate_deg)
-
-        poly_coords.append((xc, yc, zc))
-        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
-
-    poly_len = max_deg + 1
-    coeff_vecs = []
-    for xc, yc, zc in poly_coords:
-        xc_padded = list(xc) + [0] * (poly_len - len(xc))
-        yc_padded = list(yc) + [0] * (poly_len - len(yc))
-        zc_padded = list(zc) + [0] * (poly_len - len(zc))
-        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
-        coeff_vecs.append(vector(ZZ, row))
-
-    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
-        if DEBUG: print("All coefficient vectors are zero or truncated away, using identity transformation")
-        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
-
-    M = matrix(ZZ, coeff_vecs)
-    
-    # *** FIXED PART ***
-    # The BKZ/LLL implementations in Sage can fail on matrices with only one row.
-    # If there's only one section, the basis is trivially reduced, so we can
-    # skip the complex reduction step entirely and use an identity transformation.
-    if M.nrows() <= 1:
-        Uinv = identity_matrix(ZZ, r)
-        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-        # With an identity transformation, the new basis is the same as the old one.
-        return reduced_sections_mod_p, Uinv
-    # *** END FIXED PART ***
-
-    if M.rank() < min(M.nrows(), M.ncols()):
-        if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
-
-    # Column scaling to balance magnitudes
-    try:
-        scales = _compute_integer_scales_for_columns(M)
-        M_scaled, D = _scale_matrix_columns_int(M, scales)
-    except Exception as e:
-        if DEBUG: print("Column scaling failed, proceeding without scaling:", e)
-        M_scaled = M
-        D = diagonal_matrix([1]*M.ncols())
-
-    # Try BKZ first if available (improves shortness for moderate dims)
-    U = None
-    B = None
-    try:
-        # prefer BKZ if available on matrix
-        if hasattr(M_scaled, "BKZ"):
-            # choose blocksize heuristically but not larger than dimension
-            block = min(bkz_block, max(2, M_scaled.ncols()//2))
-            U, B = M_scaled.BKZ(block_size=block, transformation=True)
-        else:
-            # fallback to LLL with chosen delta
-            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
-    except (TypeError, ValueError):
-        # different signatures in some Sage versions, or value error from BKZ, fall back
-        try:
-            U, B = M_scaled.LLL(transformation=True)
-        except Exception as e:
-            if DEBUG:
-                print("LLL/BKZ reduction failed, falling back to identity:", e)
-            U = identity_matrix(ZZ, r)
-            B = M_scaled.copy()
-
-    # Validate U is unimodular (invertible over ZZ)
-    Uinv = None
-    try:
-        if U.is_square() and U.det() != 0:
-            Uinv = U.inverse()  # exact inverse over ZZ
-        else:
-            raise ValueError("U not square or singular")
-    except Exception as e:
-        # try Hermite Normal Form based approach as fallback to get a valid transform
-        if DEBUG:
-            print("U inverse failed; attempting HNF-based fallback:", e)
-        try:
-            # compute HNF of M_scaled and find transformation approx
-            H, U_hnf = M_scaled.hermite_form(transformation=True)
-            # U_hnf is unimodular so invertible
-            Uinv = U_hnf.inverse()
-            U = U_hnf
-        except Exception as e2:
-            if DEBUG: print("HNF fallback failed:", e2)
-            U = identity_matrix(ZZ, r)
-            Uinv = U  # identity
-
-    # Build reduced basis points by applying U to reduced sections (but we scaled columns earlier)
-    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-    # U acts on rows (combines sections). Unscaling D isn't necessary for row ops.
-    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
-
-    # Filter required ks to a bounded range to avoid explosion in mults
-    # Note: caller must check mults limits
-    return new_basis, Uinv
-
-
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, search_primes=None):
-    """
-    Prepare modular data for LLL-based search across multiple primes.
-    Ensures we only publish per-prime data after successful processing for that prime.
-    """
-    if search_primes is None:
-        search_primes = prime_pool
-
-    r = len(current_sections)
-    if r == 0:
-        return {}, [], {}, {}
-
-    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
-    multiplies_lll, vecs_lll = {}, {}
-    PR_m = PolynomialRing(QQ, 'm')
-
-    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
-    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
-    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
-
-    for p in search_primes:
-        try:
-            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
-            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
-                continue
-            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
-                continue
-            
-            Rp = PolynomialRing(GF(p), 'm')
-            Fp_m = Rp.fraction_field()
-
-            # denominators zero mod p -> skip
-            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
-                continue
-
-            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
-            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-            Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
-
-            # build rhs_modp for this prime (but don't publish until success)
-            rhs_modp_for_p = {}
-            for i, rhs_data in enumerate(processed_rhs_list):
-                if rhs_data['den'].change_ring(GF(p)).is_zero():
-                    continue
-                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
-
-            # run reduction (may raise) and build transformed vectors
-            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
-
-            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
-            if Uinv is None:
-                Uinv_mat = identity_matrix(ZZ, r)
-            else:
-                try:
-                    # ensure integral matrix
-                    nonint = False
-                    for i_row in range(Uinv.nrows()):
-                        for j_col in range(Uinv.ncols()):
-                            entry = Uinv[i_row, j_col]
-                            if hasattr(entry, 'denominator'):
-                                if int(entry.denominator()) != 1:
-                                    nonint = True
-                                    break
-                            else:
-                                if QQ(entry) != Integer(entry):
-                                    nonint = True
-                                    break
-                        if nonint:
-                            break
-                    if nonint:
-                        Uinv_mat = identity_matrix(ZZ, r)
-                    else:
-                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
-                except Exception:
-                    Uinv_mat = identity_matrix(ZZ, r)
-
-            # Transform vecs into the LLL basis (always produce an entry for each input vec)
-            vecs_transformed_for_p = []
-            for v in vecs:
-                # ensure v is integer-coercible
-                vZ = vector(ZZ, [int(c) for c in v])
-                try:
-                    transformed = vZ * Uinv_mat
-                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
-                except Exception:
-                    # fallback: store original integer tuple
-                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
-                    raise
-
-            # Build required multiplier indices (bounded)
-            raw_required_ks = set()
-            for v_trans in vecs_transformed_for_p:
-                for k in v_trans:
-                    raw_required_ks.add(int(k))
-            required_ks = {k for k in raw_required_ks if abs(k) <= MAX_K_ABS}
-            if not required_ks:
-                required_ks = set(range(-3, 4))
-
-            # compute multiples for this prime (exact arithmetic)
-            mults = [{} for _ in range(r)]
-            for i_sec in range(r):
-                Pi = new_basis[i_sec]
-                for k in required_ks:
-                    try:
-                        mults[i_sec][k] = k * Pi
-                    except Exception:
-                        # skip multipliers that fail for this prime
-                        continue
-
-            # Success for this prime -> publish all data
-            Ep_dict[p] = Ep_local
-            for i, rhs_p_val in rhs_modp_for_p.items():
-                rhs_modp_list[i][p] = rhs_p_val
-            multiplies_lll[p] = mults
-            vecs_lll[p] = vecs_transformed_for_p
-
-        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if p != 2:
-                print(f"Skipping prime {p} due to error during preparation: {e}")
-                raise
-            # do not publish partial data for p; continue to next prime
-            continue
-
-    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
 
 
 def process_candidate(m_val, v_tuple, r_m, shift, rationality_test_func, current_sections):
@@ -1132,7 +814,8 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
     print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
 
     #xvals = [(r_m(m=mval)-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
-    xvals = [(QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
+    #xvals = [(QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
+    xvals = [(r_m(m=mval) - shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
 
     #
     #with multiprocessing.Pool() as pool:
@@ -1155,12 +838,12 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
                 sample_pts.append((xval, yval))
                 #processed_m_vals[m_val] = v
 
-                continue
+                #continue
 
                 # Construct the potential new section from the successful vector
-                #if any(c != 0 for c in v): # Ensure it's not the zero section
-                #    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                #    new_sections_raw.append(new_sec)
+                if any(c != 0 for c in v): # Ensure it's not the zero section
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    new_sections_raw.append(new_sec)
 
         except (TypeError, ZeroDivisionError, ArithmeticError):
             continue
@@ -1221,6 +904,8 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
 
     Controlled by the SYMBOLIC_SEARCH flag from search_common.py.  If SYMBOLIC_SEARCH is False,
     this is a no-op and returns empty results quickly.
+
+    DEAR AI:  i know there are raises before continues.  leave it alone, it is fine.
     """
     # Respect the global flag; search_common.py should define SYMBOLIC_SEARCH (all-caps).
     # We do not import here; search_common is already imported at top of file.
@@ -1401,3 +1086,351 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
     # OPTIONAL ASSERT: if the user expects the base m to be discovered, allow caller to check
     # The assert function lives in this module: assert_base_m_found(...)
     return newly_found_x, new_sections
+
+
+
+
+def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150):
+    """
+    Given residue class m = m0 (mod M), search over m = m0 + t*M to find best t
+    that minimizes archimedean height of x = r_m(m) - shift.
+    Returns list of (m_candidate, score) for the best few t values, sorted by score.
+    """
+    best = []
+
+    def eval_for_t(t):
+        m_candidate = m0 + t * M
+        if abs(t) > max_abs_t:
+            return None
+        try:
+            x_val = r_m_func(m=QQ(m_candidate)) - shift
+            if not (hasattr(x_val, 'numerator') and hasattr(x_val, 'denominator')):
+                return None
+            score = archimedean_height_QQ(x_val)
+            return (QQ(m_candidate), float(score))
+        except (ZeroDivisionError, TypeError, ArithmeticError):
+            return None
+
+    center = eval_for_t(0)
+    if center is not None:
+        best.append(center)
+
+    steps = 0
+    t = 1
+    while steps < max_steps and abs(t) <= max_abs_t:
+        for s in (t, -t):
+            res = eval_for_t(s)
+            steps += 1
+            if res is not None:
+                best.append(res)
+        t += 1
+
+    if not best:
+        return []
+
+    unique = {}
+    for m_cand, score in best:
+        num = int(m_cand.numerator())
+        den = int(m_cand.denominator())
+        key = (num, den)
+        if key not in unique or score < unique[key]:
+            unique[key] = score
+
+    sorted_candidates = sorted(((QQ(num) / QQ(den), sc) for (num, den), sc in unique.items()),
+                               key=lambda z: z[1])
+    return sorted_candidates[:8]
+
+
+def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, max_abs_t):
+    """
+    Worker function to find m-candidates for a single subset of primes.
+    Returns a set of (m_candidate, originating_vector) tuples.
+    """
+    if not p_subset:
+        return set()
+
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=p_subset
+    )
+
+    if not Ep_dict:
+        return set()
+
+    found_candidates_for_subset = set()
+    r = len(current_sections)
+
+    for idx, v_orig in enumerate(vecs):
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        residue_map = {}
+        for p in p_subset:
+            if p not in Ep_dict:
+                continue
+
+            v_p_list = vecs_lll.get(p)
+            if v_p_list is None or idx >= len(v_p_list):
+                continue
+
+            v_p_transformed = v_p_list[idx]
+            mults = mult_lll.get(p)
+            if mults is None:
+                continue
+
+            Ep = Ep_dict[p]
+
+            Pm = Ep(0)
+            for j, coeff in enumerate(v_p_transformed):
+                if int(coeff) in mults[j]:
+                    Pm += mults[j][int(coeff)]
+
+            if Pm.is_zero():
+                continue
+
+            roots_for_p = set()
+            for i, rhs_ff in enumerate(rhs_list):
+                if p not in rhs_modp_list[i]:
+                    continue
+
+                rhs_p = rhs_modp_list[i][p]
+                try:
+                    num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
+                    if not num_modp.is_zero():
+                        roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                        roots_for_p.update(roots)
+                except (ZeroDivisionError, ArithmeticError):
+                    continue
+
+            if roots_for_p:
+                residue_map[p] = roots_for_p
+
+        primes_for_crt = [p for p in p_subset if p in residue_map]
+        if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+            continue
+
+        lists = [residue_map[p] for p in primes_for_crt]
+        for combo in itertools.product(*lists):
+            M = reduce(mul, primes_for_crt, 1)
+
+            if M > MAX_MODULUS:
+                continue
+
+            m0 = crt_cached(combo, tuple(primes_for_crt))
+
+            try:
+                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+                for m_cand, _score in best_ms:
+                    found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
+            except TypeError:
+                for t in (-1, 0, 1):
+                    found_candidates_for_subset.add((QQ(m0 + t * M), v_orig_tuple))
+
+    return found_candidates_for_subset
+
+
+def lll_reduce_basis_modp(p, sections, curve_modp,
+                          truncate_deg=TRUNCATE_MAX_DEG,
+                          lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
+                          max_k_abs=MAX_K_ABS):
+    """
+    LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
+    Returns (new_basis, Uinv).
+    """
+    r = len(sections)
+    if r == 0:
+        return [], identity_matrix(ZZ, 0)
+
+    poly_coords = []
+    max_deg = 0
+
+    for P in sections:
+        Pp = reduce_point_hom(P, curve_modp, p)
+        if Pp is None or Pp.is_zero():
+            poly_coords.append(([0], [0], [1]))
+            continue
+
+        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
+        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
+        Xp = Xr.numerator() * (den // Xr.denominator())
+        Yp = Yr.numerator() * (den // Yr.denominator())
+        Zp = Zr.numerator() * (den // Zr.denominator())
+
+        xc, dx = _get_coeff_data(Xp)
+        yc, dy = _get_coeff_data(Yp)
+        zc, dz = _get_coeff_data(Zp)
+
+        xc = _trim_poly_coeffs(xc, truncate_deg)
+        yc = _trim_poly_coeffs(yc, truncate_deg)
+        zc = _trim_poly_coeffs(zc, truncate_deg)
+
+        poly_coords.append((xc, yc, zc))
+        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
+
+    poly_len = max_deg + 1
+    coeff_vecs = []
+    for xc, yc, zc in poly_coords:
+        xc_padded = list(xc) + [0] * (poly_len - len(xc))
+        yc_padded = list(yc) + [0] * (poly_len - len(yc))
+        zc_padded = list(zc) + [0] * (poly_len - len(zc))
+        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
+        coeff_vecs.append(vector(ZZ, row))
+
+    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
+        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
+
+    M = matrix(ZZ, coeff_vecs)
+
+    if M.nrows() <= 1:
+        Uinv = identity_matrix(ZZ, r)
+        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
+        return reduced_sections_mod_p, Uinv
+
+    try:
+        scales = _compute_integer_scales_for_columns(M)
+        M_scaled, D = _scale_matrix_columns_int(M, scales)
+    except Exception:
+        M_scaled = M
+        D = diagonal_matrix([1]*M.ncols())
+
+    U = None
+    try:
+        if hasattr(M_scaled, "BKZ"):
+            block = min(bkz_block, max(2, M_scaled.ncols()//2))
+            U, B = M_scaled.BKZ(block_size=block, transformation=True)
+        else:
+            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
+    except (TypeError, ValueError):
+        try:
+            U, B = M_scaled.LLL(transformation=True)
+        except Exception:
+            U = identity_matrix(ZZ, r)
+            B = M_scaled.copy()
+
+    Uinv = None
+    try:
+        if U.is_square() and U.det() != 0:
+            Uinv = U.inverse()
+        else:
+            raise ValueError("U not square or singular")
+    except Exception:
+        try:
+            H, U_hnf = M_scaled.hermite_form(transformation=True)
+            Uinv = U_hnf.inverse()
+            U = U_hnf
+        except Exception:
+            U = identity_matrix(ZZ, r)
+            Uinv = U
+
+    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
+    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
+
+    return new_basis, Uinv
+
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, search_primes=None):
+    """
+    Prepare modular data for LLL-based search across multiple primes.
+    Only publishes per-prime data after successful processing for that prime.
+    """
+    if search_primes is None:
+        search_primes = prime_pool
+
+    r = len(current_sections)
+    if r == 0:
+        return {}, [], {}, {}
+
+    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
+    multiplies_lll, vecs_lll = {}, {}
+    PR_m = PolynomialRing(QQ, 'm')
+
+    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
+    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
+    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
+
+    for p in search_primes:
+        try:
+            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
+                continue
+            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
+                continue
+
+            Rp = PolynomialRing(GF(p), 'm')
+            Fp_m = Rp.fraction_field()
+
+            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
+                continue
+
+            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
+            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
+            Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+
+            rhs_modp_for_p = {}
+            for i, rhs_data in enumerate(processed_rhs_list):
+                if rhs_data['den'].change_ring(GF(p)).is_zero():
+                    continue
+                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+
+            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+
+            if Uinv is None:
+                Uinv_mat = identity_matrix(ZZ, r)
+            else:
+                try:
+                    nonint = False
+                    for i_row in range(Uinv.nrows()):
+                        for j_col in range(Uinv.ncols()):
+                            entry = Uinv[i_row, j_col]
+                            if hasattr(entry, 'denominator'):
+                                if int(entry.denominator()) != 1:
+                                    nonint = True
+                                    break
+                            else:
+                                if QQ(entry) != Integer(entry):
+                                    nonint = True
+                                    break
+                        if nonint:
+                            break
+                    if nonint:
+                        Uinv_mat = identity_matrix(ZZ, r)
+                    else:
+                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
+                except Exception:
+                    Uinv_mat = identity_matrix(ZZ, r)
+
+            vecs_transformed_for_p = []
+            for v in vecs:
+                vZ = vector(ZZ, [int(c) for c in v])
+                try:
+                    transformed = vZ * Uinv_mat
+                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
+                except Exception:
+                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
+
+            raw_required_ks = set()
+            for v_trans in vecs_transformed_for_p:
+                for k in v_trans:
+                    raw_required_ks.add(int(k))
+            required_ks = {k for k in raw_required_ks if abs(k) <= MAX_K_ABS}
+            if not required_ks:
+                required_ks = set(range(-3, 4))
+
+            mults = [{} for _ in range(r)]
+            for i_sec in range(r):
+                Pi = new_basis[i_sec]
+                for k in required_ks:
+                    try:
+                        mults[i_sec][k] = k * Pi
+                    except Exception:
+                        continue
+
+            Ep_dict[p] = Ep_local
+            for i, rhs_p_val in rhs_modp_for_p.items():
+                rhs_modp_list[i][p] = rhs_p_val
+            multiplies_lll[p] = mults
+            vecs_lll[p] = vecs_transformed_for_p
+
+        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError):
+            continue
+
+    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
