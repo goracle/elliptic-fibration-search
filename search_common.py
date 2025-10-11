@@ -101,6 +101,14 @@ DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
 
+COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 4
+
+COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-12), QQ(-4), QQ(12), QQ(8), QQ(-7)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
 
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
@@ -116,7 +124,7 @@ PRIME_POOL = list(primes(90))   # All primes less than N, excluding 2,3; >=50 sh
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
 NUM_PRIME_SUBSETS = 1000 # important for stability under different seeds, must be large enough >= 250 should be good...
-MAX_MODULUS = 10**9 # idk
+MAX_MODULUS = 10**15 # idk
 NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 ###### END STATIC CONFIG
