@@ -32,7 +32,7 @@ This project implements a sophisticated (*cough* overly complicated *cough*) alg
 sage -pip install tqdm colorama
 ```
 
-### Basic Usage
+### Basic Usage (configure stuff in search_common.py)
 
 **Example 1: Genus 2 Curve**
 
@@ -117,7 +117,7 @@ The system automatically determines:
 - **`picard.py`**: Picard number computation via van Luijk's method
 - **`yau.py`**: Rational curve counting (Yau-Zaslow formula)
 - **`nslattice.py`**: Néron-Severi lattice operations
-- **`search_common.py`**: Shared configuration and utilities
+- **`search_common.py`**: Shared configuration and utilities; contains test curves sourced from LMFDB.org
 - **`diagnostics2.py`**: Singular fiber analysis
 - **`automorph.py`**: looks for section automorphisms
 - **`sat.py`**: saturation analysis
@@ -312,7 +312,7 @@ If you use this code in your research, please cite:
 
 ## Acknowledgments
 
-Built with SageMath. Special thanks to the computational number theory community for foundational algorithms.
+Built with SageMath and data from LMFDB.org. Special thanks to the computational number theory community for foundational algorithms.
 Built with LLM models including:
 Chatgpt-4o,5,3.5,...; Gemini 2.5 pro, 2.5 flash; Claude 3.5,4,4.5,
 and to a much lesser extent:
