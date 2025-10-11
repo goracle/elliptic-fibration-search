@@ -57,6 +57,9 @@ DATA_PTS = [(QQ(0), QQ(1))] # finds all known rational points
 TERMINATE_WHEN = 4
 
 
+##### TEST CURVES (from lmfdb.org) ######
+
+
 # --- Configuration, deg x = 6---
 # y^2 = a0*x^6 + a1*x^5 + ... + a6
 # old curves
@@ -109,6 +112,11 @@ COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-12), QQ(-4), QQ(12), QQ(8), QQ(-7)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
 
+COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(-11), QQ(-12), QQ(56), QQ(16), QQ(-116)]
+DATA_PTS_GENUS2 = [QQ(-3)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
+##### END TEST CURVES ######
 
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
