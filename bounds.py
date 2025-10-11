@@ -16,109 +16,6 @@ from search_common import SEED_INT
 # === High-Level Integration Function ==========================================
 # ==============================================================================
 
-def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=False, grh_fudge=10, debug=False):
-    """
-    High-level convenience function to build SPLIT_POLY from cd, compute diagnostics,
-    and filter the prime pool based on ramification and a GRH-based bound.
-
-    This function updates search_common.PRIME_POOL in-place.
-
-    Args:
-        cd (CurveDataExt): The curve data object for the fibration.
-        prime_pool (list, optional): A list of primes to start with.
-                                     If None, uses search_common.PRIME_POOL.
-        run_heavy (bool): If True, runs expensive Galois group and splitting field computations.
-        grh_fudge (int): A fudge factor for the GRH prime bound.
-        debug (bool): If True, prints verbose diagnostic information.
-
-    Returns:
-        list: The new, filtered list of primes.
-    """
-    # 1. Use search_common.PRIME_POOL as the default source
-    src_pool = list(prime_pool) if prime_pool is not None else list(getattr(search_common, 'PRIME_POOL', []))
-    if debug:
-        print(f"[bounds] Starting with prime pool of {len(src_pool)} primes (max: {max(src_pool) if src_pool else 'N/A'})")
-
-    # 2. Build the polynomial whose roots are singular m-values
-    try:
-        SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
-    except RuntimeError as e:
-        print(f"[bounds] Could not build SPLIT_POLY, cannot filter primes. Error: {e}")
-        # Return original pool if we can't proceed
-        return src_pool
-
-    # 3. Compute diagnostics of the polynomial
-
-    # compute cheap diag first
-    diag = compute_poly_diagnostics(SPLIT_POLY, run_heavy=False, debug=debug)
-
-    # if user asked for heavy, try safe wrapper with timeout and merge results:
-    if run_heavy:
-        diag.update(estimate_galois_signature_modp(SPLIT_POLY, debug=debug))
-        #heavy_info = safe_compute_splitting_field_info_subprocess(SPLIT_POLY, timeout=90, debug=debug)
-        #if heavy_info:
-        #    diag.update(heavy_info)
-        #else:
-        #if debug:
-        #    print("[bounds] splitting_field / galois query timed out or failed; continuing with empirical heuristics.")
-
-
-    #diag = compute_poly_diagnostics(SPLIT_POLY, run_heavy=run_heavy, debug=debug)
-    if debug:
-        print("[bounds] Diagnostics summary:", diag)
-
-    # 4. Filter out ramified primes (divisors of the discriminant)
-    D = diag.get('discriminant')
-    if D is not None and D != 0 and False: # somehow this bad, so we disable it
-        bad_primes = {int(p) for p in prime_divisors(ZZ(D))}
-        filtered_pool = [p for p in src_pool if p not in bad_primes]
-        if debug:
-            print(f"[bounds] Removed {len(bad_primes)} ramified primes. Pool size: {len(filtered_pool)}")
-    else:
-        filtered_pool = list(src_pool)
-
-    # 5. Apply optional GRH-based cap on prime size
-    grh_bound = simple_grh_prime_bound(
-        splitting_field_disc=diag.get('splitting_field_discriminant'),
-        splitting_field_deg=diag.get('splitting_field_degree'),
-        fudge=grh_fudge
-    )
-    if grh_bound is not None:
-        if debug:
-            print(f"[bounds] Applying GRH-inspired prime bound: p <= {grh_bound}")
-        filtered_pool = [p for p in filtered_pool if p <= grh_bound]
-        if debug:
-            print(f"[bounds] After GRH cap, pool size: {len(filtered_pool)} (max: {max(filtered_pool) if filtered_pool else 'N/A'})")
-
-    # 6. Filter by search_common.is_good_prime_for_surface
-    final_pool = []
-    if hasattr(search_common, 'is_good_prime_for_surface'):
-        for p in filtered_pool:
-            try:
-                if search_common.is_good_prime_for_surface(cd, p):
-                    final_pool.append(p)
-                elif debug:
-                    print(f"[bounds] is_good_prime_for_surface rejected prime {p}")
-            except Exception as e:
-                if debug:
-                    print(f"[bounds] is_good_prime_for_surface check failed for p={p}: {e}. Keeping prime.")
-                final_pool.append(p)
-        if debug:
-            print(f"[bounds] After is_good_prime_for_surface filter, pool size: {len(final_pool)}")
-    else:
-        final_pool = filtered_pool
-
-    # 7. Update search_common.PRIME_POOL in-place
-    new_pool = sorted(list(set(final_pool)))
-    try:
-        search_common.PRIME_POOL = new_pool
-        if debug:
-            print(f"[bounds] Successfully updated search_common.PRIME_POOL.")
-    except Exception as e:
-        raise RuntimeError(f"[bounds] Failed to update search_common.PRIME_POOL: {e}")
-
-    return new_pool
-
 
 # ==============================================================================
 # === Core Heuristics ==========================================================
@@ -719,55 +616,9 @@ except Exception:
     return result
 
 
-def estimate_galois_signature_modp(poly, primes_to_test=None, debug=False):
-    """
-    Cheap empirical proxy for Galois/splitting-field complexity.
-    Factors poly mod small primes and summarizes cycle-type distribution.
-
-    Returns:
-        dict with keys:
-          - splitting_field_degree_est
-          - avg_factor_count
-          - unique_patterns (list of tuples)
-    """
-    from sage.all import GF
-
-    if primes_to_test is None:
-        primes_to_test = [5,7,11,13,17,19,23,29] # DO NOT MODIFY
-
-    deg = poly.degree()
-    patterns = []
-    total_factors = 0
-    for p in primes_to_test:
-        try:
-            fp = poly.change_ring(GF(p))
-            facs = [f[0].degree() for f in fp.factor()]
-            total_factors += len(facs)
-            patterns.append(tuple(sorted(facs)))
-            if debug:
-                print(f"[bounds] mod {p} factor pattern:", facs)
-        except Exception as e:
-            if debug:
-                print(f"[bounds] mod {p} factorization failed: {e}")
-            continue
-
-    unique_patterns = sorted(set(patterns))
-    avg_factor_count = total_factors / max(1, len(patterns))
-    # rough proxy: typical splitting field degree is lcm of factor degrees
-    from math import lcm
-    deg_est = 1
-    for pat in unique_patterns:
-        for d in pat:
-            deg_est = lcm(deg_est, d)
-    return {
-        'splitting_field_degree_est': deg_est,
-        'avg_factor_count': avg_factor_count,
-        'unique_patterns': unique_patterns,
-    }
-
 
 # === Replace recommend_and_update_prime_pool ===
-def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=False,
+def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
                                     grh_fudge=10, debug=False,
                                     update_search_common=False):
     """
@@ -799,9 +650,9 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=False,
     if run_heavy:
         # attempt heavier diagnostics (may fail/timeout)
         diag.update(estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=src_pool, debug=debug))
-        heavy = safe_compute_splitting_field_info_subprocess(SPLIT_POLY, timeout=90, debug=debug)
-        if heavy:
-            diag.update(heavy)
+        #heavy = safe_compute_splitting_field_info_subprocess(SPLIT_POLY, timeout=90, debug=debug)
+        #if heavy:
+        #    diag.update(heavy)
 
     if debug:
         print("[bounds] Diagnostics:", {k: diag.get(k) for k in ('discriminant','splitting_field_degree','splitting_field_discriminant')})
@@ -1051,7 +902,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
     try:
         pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
-                                                        run_heavy=False, debug=debug,
+                                                        run_heavy=True, debug=debug,
                                                         update_search_common=update_search_common)
     except Exception as e:
         if debug:
@@ -1104,6 +955,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         if debug:
             print(f"[auto_cfg] residue count computation failed: {e}")
         residue_counts = {p: max(1, p // 4) for p in pool_filtered}
+        raise
     
     avg_density = sum((residue_counts.get(p, 1) / float(p)) for p in pool_filtered) / max(1, len(pool_filtered))
 
@@ -1209,3 +1061,81 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         print(f"  Sample subsets: {prime_subsets[:3]}")
 
     return sconf
+
+
+def estimate_galois_signature_modp(poly, primes_to_test=None, debug=False):
+    """
+    Empirical proxy for Galois/splitting-field complexity.
+    Factors poly mod primes and deduplicates factorization patterns.
+    
+    The splitting-field degree is estimated as the LCM of all distinct
+    cycle-type patterns observed. This avoids magic numbers and scales
+    with whatever primes you provide.
+
+    Args:
+        poly: A Sage polynomial over QQ
+        primes_to_test: List of primes to factor mod. If None, uses first 20 odd primes.
+        debug: If True, prints diagnostic info
+    
+    Returns:
+        dict with keys:
+          - splitting_field_degree_est (int): LCM of distinct cycle patterns
+          - unique_patterns (list of tuples): sorted unique factorization patterns
+          - num_primes_tested (int): how many primes were actually used
+    """
+    from sage.all import GF, lcm as sage_lcm
+
+    if primes_to_test is None:
+        from sage.all import primes
+        primes_to_test = list(primes(100))[:20]
+
+    patterns_seen = set()
+    primes_used = 0
+
+    for p in primes_to_test:
+        try:
+            fp = poly.change_ring(GF(p))
+            facs = [f[0].degree() for f in fp.factor()]
+            pattern = tuple(sorted(facs))
+            patterns_seen.add(pattern)
+            primes_used += 1
+
+            if debug:
+                print(f"[bounds] mod {p} factorization: {facs} -> pattern {pattern}")
+
+        except Exception as e:
+            if debug:
+                print(f"[bounds] mod {p} factorization failed: {e}")
+            continue
+
+    unique_patterns = sorted(patterns_seen)
+
+    if unique_patterns:
+        from math import gcd
+        from functools import reduce
+
+        def lcm(a, b):
+            return abs(a * b) // gcd(a, b)
+
+        deg_est = 1
+        for pattern in unique_patterns:
+            for cycle_deg in pattern:
+                deg_est = lcm(deg_est, cycle_deg)
+    else:
+        deg_est = poly.degree()
+
+    if debug:
+        print(f"[bounds] Unique patterns from {primes_used} primes: {unique_patterns}")
+        print(f"[bounds] Estimated splitting field degree: {deg_est}")
+
+    ret = {
+        'splitting_field_degree_est': deg_est,
+        'unique_patterns': unique_patterns,
+        'num_primes_tested': primes_used,
+    }
+
+    print("")
+    print("DEBUG: RET:", ret)
+    print("")
+
+    return ret

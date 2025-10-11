@@ -165,7 +165,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
 
     # Recompute prime pool with possible heavier diagnostics (optional)
     prime_pool = PRIME_POOL
-    prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=False,
+    prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True,
                                                         grh_fudge=10, debug=True)
     # Always keep 3, idk why, magic.  2 is bad tho.
     if 3 not in prime_pool:
