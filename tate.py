@@ -993,60 +993,6 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
 
 # ---------- PATCH for tate.py ----------
 
-def tates_algorithm(a4, a6, var_sym, center=None, debug=False, minimal=True, g=None, at_infinity=False):
-    """
-    If g is given (irreducible in QQ[m]), we work at that algebraic place.
-    Else if center in QQ -> rational place. Else if at_infinity -> infinity.
-    """
-    # 1) local valuations via exact prime-ideal method
-    if center is None:
-        assert at_infinity
-
-    if g is not None:
-        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(a4, a6, at_infinity=at_infinity, g=g, minimal=minimal)
-        root_type = 'irrational'  # the whole conjugacy class of roots of g
-        center_display = 'root(g)'
-    elif at_infinity:
-        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(a4, a6, at_infinity=at_infinity, minimal=minimal)
-        root_type = 'infinity'
-        center_display = None
-    else:
-        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(a4, a6, at_infinity=at_infinity, center=center, minimal=minimal)
-        root_type = 'rational'
-        center_display = center
-
-    if debug:
-        print(f"[tate] P=({('∞' if at_infinity else ('g' if g is not None else center))}) "
-              f"v=(c4 {v4}, c6 {v6}, Δ {vD}) -> n={n} ; minimal ( {v4m}, {v6m}, {vDm} )")
-
-    # 2) smooth quick exit
-    if vD <= 0:
-        return {'symbol': 'I0', 'v_c4': v4m, 'v_c6': v6m, 'v_D': vDm,
-                'center': center_display, 'r': 0, 'minimal_used': bool(minimal),
-                'type': 'smooth' if vD < 0 else 'multiplicative', 'n': n, 'split': None,
-                'root_type': root_type}
-
-    # 3) classify from minimal valuations (use your existing table if you have one)
-    def classify_from_minimal_vals(v4, v6, vD):
-        if v4 == 0 and v6 == 0 and vD >= 1:
-            return f"I{vD}", 'multiplicative'
-        tbl = [
-            ('II',   (1,1,2)), ('III', (1,2,3)), ('IV', (2,3,4)),
-            ('I0*',  (2,3,6)), ('IV*', (3,4,8)), ('III*',(3,5,9)), ('II*',(4,5,10)),
-        ]
-        for sym,(a,b,c) in tbl:
-            if v4 >= a and v6 >= b and vD == c:
-                return sym, 'additive'
-        if v4 >= 2 and v6 >= 3 and vD >= 6:
-            return f"I{vD-6}*", 'additive'
-        return 'additive?', 'additive'
-
-    symbol, typ = classify_from_minimal_vals(v4m, v6m, vDm)
-    return {'symbol': symbol, 'v_c4': v4m, 'v_c6': v6m, 'v_D': vDm,
-            'center': center_display, 'r': 0, 'minimal_used': bool(minimal),
-            'type': typ, 'n': n, 'split': (typ=='multiplicative'),
-            'root_type': root_type}
-
 
 # Put near top of tate.py (imports already in your file assumed)
 # add near top of file
@@ -1214,6 +1160,114 @@ def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagn
         return rank, {'sum_contributions': total_contrib, 'euler_characteristic': euler_sum, 'fibers': fiber_info}, diagnostics
 
     return rank, {'sum_contributions': total_contrib, 'euler_characteristic': euler_sum, 'fibers': fiber_info}
+
+
+
+
+def classify_from_minimal_vals(v4, v6, vD):
+    """
+    Classify fiber type from minimal valuations (v_c4, v_c6, v_D).
+    This uses the standard Kodaira classification table.
+    """
+    # Smooth fiber
+    if vD <= 0:
+        return 'I0', 'smooth'
+    
+    # Multiplicative I_n: v_c4 = v_c6 = 0, v_D >= 1
+    if v4 == 0 and v6 == 0 and vD >= 1:
+        return f'I{vD}', 'multiplicative'
+    
+    # Additive fibers - match against standard table
+    # Key: (v_c4, v_c6, v_D) -> symbol
+    additive_table = {
+        (1, 1, 2): 'II',
+        (1, 2, 3): 'III',
+        (2, 3, 4): 'IV',
+        (2, 3, 6): 'I0*',
+        (3, 4, 8): 'IV*',
+        (3, 5, 9): 'III*',
+        (4, 5, 10): 'II*',
+    }
+    
+    key = (v4, v6, vD)
+    if key in additive_table:
+        return additive_table[key], 'additive'
+    
+    # I_n* pattern: v_c4 >= 2, v_c6 >= 3, v_D >= 6
+    # General I_n* has v_D = n + 6
+    if v4 >= 2 and v6 >= 3 and vD >= 6:
+        n = vD - 6
+        return f'I{n}*', 'additive'
+    
+    # Fallback for unrecognized additive pattern
+    # Return a placeholder that will be caught during height pairing
+    return f'AdditiveFiber({v4},{v6},{vD})', 'additive'
+
+
+# Then in tates_algorithm, use it like this:
+
+def tates_algorithm(a4, a6, var_sym, center=None, debug=False, minimal=True, g=None, at_infinity=False):
+    """
+    Core Tate's algorithm for fiber classification.
+    """
+    # 1) Compute local valuations via exact prime-ideal method
+    if center is None:
+        assert at_infinity
+
+    if g is not None:
+        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(
+            a4, a6, at_infinity=at_infinity, g=g, minimal=minimal
+        )
+        root_type = 'irrational'
+        center_display = 'root(g)'
+    elif at_infinity:
+        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(
+            a4, a6, at_infinity=at_infinity, minimal=minimal
+        )
+        root_type = 'infinity'
+        center_display = None
+    else:
+        v4, v6, vD, n, (v4m, v6m, vDm) = local_vals_driver(
+            a4, a6, at_infinity=at_infinity, center=center, minimal=minimal
+        )
+        root_type = 'rational'
+        center_display = center
+
+    if debug:
+        print(f"[tate] P=({('∞' if at_infinity else ('g' if g is not None else center))}) "
+              f"v=(c4 {v4}, c6 {v6}, Δ {vD}) -> n={n} ; minimal ( {v4m}, {v6m}, {vDm} )")
+
+    # 2) Quick exit for smooth fibers
+    if vDm <= 0:
+        return {
+            'symbol': 'I0',
+            'v_c4': v4m, 'v_c6': v6m, 'v_D': vDm,
+            'center': center_display, 'r': center_display,
+            'minimal_used': bool(minimal),
+            'type': 'smooth' if vDm < 0 else 'multiplicative',
+            'n': n,
+            'split': None,
+            'root_type': root_type
+        }
+
+    # 3) Classify from minimal valuations
+    symbol, typ = classify_from_minimal_vals(v4m, v6m, vDm)
+
+    result = {
+        'symbol': symbol,
+        'v_c4': v4m, 'v_c6': v6m, 'v_D': vDm,
+        'center': center_display, 'r': center_display,
+        'minimal_used': bool(minimal),
+        'type': typ,
+        'n': n,
+        'split': (typ == 'multiplicative'),
+        'root_type': root_type
+    }
+
+    if debug:
+        print(f"[tate] -> classified as: {symbol} ({typ})")
+
+    return result
 
 
 if __name__ == '__main__':
