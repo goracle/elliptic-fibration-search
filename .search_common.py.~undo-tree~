@@ -1,5 +1,5 @@
 (undo-tree-save-format-version . 1)
-"98d92baa7d1aa358182c3fb09c1103442a4876c5"
+"0608b100aae166d9fd769f4893d0f393647b1764"
 [nil nil nil nil (26858 55713 141975 116000) 0 nil]
 ([nil nil ((nil rear-nonsticky nil 2741 . 2742) (nil fontified nil 2546 . 2742) (2546 . 2742) (t 26854 57212 116492 757000)) nil (26858 55713 141974 423000) 0 nil])
 ([nil nil ((2618 . 2619) (#("1" 0 1 (fontified t)) . 2618)) nil (26858 55713 141974 61000) 0 nil])
@@ -16,5 +16,20 @@
 ([nil nil ((2659 . 2660)) nil (26858 55713 141967 702000) 0 nil])
 ([nil nil ((#(", QQ(1)" 0 7 (fontified t)) . 2661) (undo-tree-id2 . -6) (undo-tree-id3 . -6) (undo-tree-id4 . -6) (undo-tree-id5 . -6) 2667) nil (26858 55713 141967 255000) 0 nil])
 ([nil nil ((2685 . 2686)) nil (26858 55713 141965 293000) 0 nil])
-([nil current ((#("1" 0 1 (fontified t)) . 2733) (undo-tree-id0 . -1) (undo-tree-id1 . -1)) nil (26858 55713 141962 758000) 0 nil])
+([nil nil ((#("1" 0 1 (fontified t)) . 2733) (undo-tree-id0 . -1) (undo-tree-id1 . -1)) nil (26858 55713 141962 758000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 2874 . 2875) (nil fontified nil 2737 . 2875) (2737 . 2875) (t 26858 55713 146768 501000)) nil (26858 56409 181565 909000) 0 nil])
+([nil nil ((#("# takes two fibrations to find all the points, why?
+" 0 2 (face font-lock-comment-delimiter-face fontified t) 2 52 (face font-lock-comment-face fontified t)) . 2546) (undo-tree-id20 . -52) (undo-tree-id21 . -52) (undo-tree-id22 . -51) (undo-tree-id23 . -52)) nil (26858 56409 181565 481000) 0 nil])
+([nil nil ((2545 . 2546) 2545) nil (26858 56409 181563 768000) 0 nil])
+([nil nil ((2546 . 2553)) nil (26858 56409 181563 557000) 0 nil])
+([nil nil ((2713 . 2714) (#("4" 0 1 (fontified t)) . 2713)) nil (26858 56409 181563 389000) 0 nil])
+([nil nil ((2781 . 2782) (#("1" 0 1 (fontified t)) . 2781)) nil (26858 56409 181563 179000) 0 nil])
+([nil nil ((#("-" 0 1 (face font-lock-operator-face fontified t)) . 2727)) nil (26858 56409 181562 977000) 0 nil])
+([nil nil ((2728 . 2729) (#("6" 0 1 (fontified t)) . 2728)) nil (26858 56409 181562 796000) 0 nil])
+([nil nil ((#("-" 0 1 (face font-lock-operator-face fontified t)) . 2735)) nil (26858 56409 181562 519000) 0 nil])
+([nil nil ((2736 . 2737) (#("9" 0 1 (fontified t)) . 2736)) nil (26858 56409 181562 174000) 0 nil])
+([nil nil ((2743 . 2744)) nil (26858 56409 181561 826000) 0 nil])
+([nil nil ((2745 . 2746) (#("6" 0 1 (fontified t)) . 2745) (undo-tree-id19 . -1)) nil (26858 56409 181561 210000) 0 nil])
+([nil nil ((2752 . 2753)) nil (26858 56409 181554 374000) 0 nil])
+([nil current ((2756 . 2764)) nil (26858 56409 181546 696000) 0 nil])
 nil
