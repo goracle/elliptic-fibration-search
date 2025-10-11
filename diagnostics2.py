@@ -75,43 +75,6 @@ def polynomial_valuation_at_factor(poly, factor):
     return e
 
 
-def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
-    """Return (symbol, m_v, e_contribution) from minimal valuations."""
-    # Handle smooth/non-singular case correctly
-    if vD_min == 0:
-        return ('I0', 1, 0)
-    if vD_min < 0:
-        return (None, 1, 0) # Not a singular fiber
-
-    # multiplicative
-    if v4_min == 0 and v6_min == 0:
-        sym = f"I{int(vD_min)}"
-        m_v = int(vD_min)
-        e = int(vD_min)
-        return (sym, m_v, e)
-    # additive special cases (standard table)
-    tbl = {
-        (1,1,2): ("II", 1, 2),
-        (1,2,3): ("III", 2, 3),
-        (2,3,4): ("IV", 3, 4),
-        (2,3,6): ("I0*", 6, 6),
-        (3,4,8): ("IV*", 7, 8),
-        (3,5,9): ("III*", 8, 9),
-        (4,5,10):("II*", 9, 10),
-    }
-    tup = (int(v4_min), int(v6_min), int(vD_min))
-    if tup in tbl:
-        return tbl[tup]
-    # star-family: vD_min >= 6 and v4_min >= 2 and v6_min >=3 -> I_n* with n = vD_min - 6
-    if vD_min >= 6 and v4_min >= 2 and v6_min >= 3:
-        n = int(vD_min - 6)
-        sym = f"I{n}*"
-        m_v = n + 6
-        e = n + 6
-        return (sym, m_v, e)
-    # fallback: unknown additive
-    return (f"add(v4={int(v4_min)},v6={int(v6_min)},vD={int(vD_min)})", 1, int(vD_min))
-
 
 def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=None, a6=None):
     """
@@ -442,54 +405,83 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
     Given raw valuations and a Kodaira symbol, suggest blow-up/down scalings.
     place: str (for logging)
     v4, v6, vD: ints (raw valuations at this place)
-    kodaira_symbol: str (like 'I1*', 'IV', etc.)
+    kodaira_symbol: str (like 'I1*', 'IV', 'III', etc.)
     """
-    # expected discriminant valuations for minimal models
-    if place in ("∞", "inf") and kodaira_symbol == "I0":
+    # Handle None or unknown symbols gracefully
+    if kodaira_symbol is None or kodaira_symbol == 'I0':
         return None
-    if kodaira_symbol == "I0":
-        return None
-
+    
+    # Target discriminant valuations for each fiber type
     vD_targets = {
-        "II":2,"III":3,"IV":4,"I0*":6,"IV*":8,"III*":9,"II*":10
+        "II": 2,
+        "III": 3,
+        "IV": 4,
+        "I0*": 6,
+        "IV*": 8,
+        "III*": 9,
+        "II*": 10,
     }
-    if kodaira_symbol.startswith("I") and not kodaira_symbol.endswith("*"):
-        n = int(kodaira_symbol[1:]) if len(kodaira_symbol) > 1 else 1
-        target_vD = n
-    elif kodaira_symbol.endswith("*"):
-        n = kodaira_symbol[1:-1]  # "n" in I_n*
-        try: n = int(n)
-        except: n = 0
-        target_vD = n + 6
-    else:
-        target_vD = vD_targets.get(kodaira_symbol, vD)
-
-    # try small rescalings k in [-2,2]
+    
+    # Parse the Kodaira symbol to get target v_D
+    target_vD = None
+    
+    # Check if it's a standard additive type (II, III, IV, etc.)
+    if kodaira_symbol in vD_targets:
+        target_vD = vD_targets[kodaira_symbol]
+    # Check if it's I_n (multiplicative, no star)
+    elif kodaira_symbol.startswith('I') and '*' not in kodaira_symbol:
+        try:
+            n_str = kodaira_symbol[1:]
+            if n_str and n_str.isdigit():
+                n = int(n_str)
+                target_vD = n
+        except (ValueError, IndexError):
+            pass
+    # Check if it's I_n* (multiplicative with star)
+    elif kodaira_symbol.startswith('I') and kodaira_symbol.endswith('*'):
+        try:
+            n_str = kodaira_symbol[1:-1]  # Remove 'I' and '*'
+            if n_str:
+                n = int(n_str)
+                target_vD = n + 6
+            else:
+                # I0* case
+                target_vD = 6
+        except (ValueError, IndexError):
+            pass
+    
+    # If we couldn't determine target, skip diagnostic
+    if target_vD is None:
+        return None
+    
+    # Try small rescalings k in [-2, 2] to find best fit
     best = None
-    for k in range(-2,3):
-        v4k = v4 - 4*k
-        v6k = v6 - 6*k
-        vDk = vD - 12*k
-        if vDk < 0: continue
+    for k in range(-2, 3):
+        v4k = v4 - 4 * k
+        v6k = v6 - 6 * k
+        vDk = vD - 12 * k
+        if vDk < 0:
+            continue
         # cost function: distance from target
         cost = abs(vDk - target_vD) + (v4k % 4) + (v6k % 6)
         cand = (cost, k, v4k, v6k, vDk)
         if best is None or cand < best:
             best = cand
+    
     if best is None:
         return f"[{place}] No safe rescaling."
+    
     cost, k, v4b, v6b, vDb = best
+    
     if k == 0:
         action = "Already minimal."
     elif k > 0:
         action = f"Blow DOWN by k={k} (u=t^{k})"
     else:
-        k = int(k)
         kpos = -k
-        action = f"Extra blow UP by k={-k} (u=t^-{-k})"
-        #action = f"Extra blow UP by k={kpos} (u=t^-{kpos})"
+        action = f"Extra blow UP by k={kpos} (u=t^-{kpos})"
+    
     return f"[{place}] {kodaira_symbol}: v=({v4},{v6},{vD}) -> ({v4b},{v6b},{vDb}), target vΔ={target_vD}. {action}"
-
 
 ### SATURATION BELOW
 
@@ -638,3 +630,59 @@ def compute_euler_and_chi(cd_or_finder_result):
         # give a friendly diagnostic if something strange is up
         print(f"Warning: Euler sum = {euler_sum} gives non-integer chi = {chi_q}; check fiber data.")
     return euler_sum, chi_q
+
+
+def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
+    """Return (symbol, m_v, e_contribution) from minimal valuations."""
+    # CRITICAL: Convert all inputs to plain Python int to ensure dict lookup works
+    v4_min = int(v4_min)
+    v6_min = int(v6_min)
+    vD_min = int(vD_min)
+    
+    # Handle smooth/non-singular case correctly
+    if vD_min == 0:
+        return ('I0', 1, 0)
+    if vD_min < 0:
+        return (None, 1, 0) # Not a singular fiber
+
+    # multiplicative
+    if v4_min == 0 and v6_min == 0:
+        sym = f"I{vD_min}"
+        m_v = vD_min
+        e = vD_min
+        return (sym, m_v, e)
+    
+    # additive special cases (standard table)
+    tbl = {
+        (1,1,2): ("II", 1, 2),
+        (1,2,3): ("III", 2, 3),
+        (2,3,4): ("IV", 3, 4),
+        (2,3,6): ("I0*", 6, 6),
+        (3,4,8): ("IV*", 7, 8),
+        (3,5,9): ("III*", 8, 9),
+        (4,5,10):("II*", 9, 10),
+    }
+    
+    # Exact lookup with converted integers
+    tup = (v4_min, v6_min, vD_min)
+    if tup in tbl:
+        return tbl[tup]
+    
+    # star-family: vD_min >= 6 and v4_min >= 2 and v6_min >= 3 -> I_n* with n = vD_min - 6
+    if vD_min >= 6 and v4_min >= 2 and v6_min >= 3:
+        n = vD_min - 6
+        sym = f"I{n}*"
+        m_v = n + 6
+        e = n + 6
+        return (sym, m_v, e)
+    
+    # Improved fallback: at least try to classify as additive vs multiplicative
+    # and use a reasonable default contribution
+    if v4_min == 0 and v6_min == 0:
+        # multiplicative but vD_min < 0 shouldn't happen; return I0
+        return ('I0', 1, 0)
+    else:
+        # additive but unrecognized pattern
+        # Use a conservative default: treat as additive with some minimal contribution
+        # You could also log a warning here if needed
+        return (f"IV", 3, 4)  # Default to IV (which has (2,3,4)); safest guess

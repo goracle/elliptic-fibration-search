@@ -274,44 +274,6 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 # Add these functions to bounds.py or search_lll.py
 
 
-def generate_diverse_prime_subsets(prime_pool, num_subsets, min_size, max_size, 
-                                   seed=12345, force_full_pool=True):
-    """
-    Generate diverse prime subsets with varying sizes.
-    This is MUCH better than enforcing a fixed size and modulus bound.
-    
-    Key insight: You want DIVERSITY in subset composition, not just meeting
-    a modulus threshold. Small subsets (3-5 primes) can find different solutions
-    than large subsets (8-10 primes).
-    """
-    import random
-    random.seed(seed)
-    
-    subsets = []
-    
-    # Always include the full pool
-    if force_full_pool:
-        subsets.append(tuple(prime_pool))
-    
-    # Generate random subsets with varying sizes
-    remaining = num_subsets - (1 if force_full_pool else 0)
-    
-    for _ in range(remaining):
-        # Random size in the range [min_size, max_size]
-        size = random.randint(min_size, min(max_size, len(prime_pool)))
-        subset = tuple(sorted(random.sample(prime_pool, size)))
-        subsets.append(subset)
-    
-    # Deduplicate while preserving order
-    seen = set()
-    unique_subsets = []
-    for s in subsets:
-        if s not in seen:
-            seen.add(s)
-            unique_subsets.append(s)
-    
-    return unique_subsets
-
 
 
 # Add these functions to bounds.py or search_lll.py
