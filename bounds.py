@@ -10,7 +10,7 @@ import shlex
 import multiprocessing, time, traceback
 
 import search_common
-from search_common import SEED_INT, DEBUG
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS
 
 # ==============================================================================
 # === High-Level Integration Function ==========================================
@@ -633,7 +633,7 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
     # filter primes dividing the polynomial discriminant (ramified)
     D = diag.get('discriminant')
-    if D is not None and D != 0:
+    if D is not None and D != 0 and False:
         try:
             bad = {int(p) for p in prime_divisors(ZZ(D))}
             filtered_pool = [p for p in filtered_pool if p not in bad]
@@ -845,9 +845,9 @@ def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expec
 
 def auto_configure_search(cd, known_pts, prime_pool=None,
                           existing_height_bound=None,
-                          max_modulus=10**9,
+                          max_modulus=10**15,
                           update_search_common=False,
-                          num_subsets_hint=1000,
+                          num_subsets_hint=NUM_PRIME_SUBSETS,
                           debug=DEBUG):
     """
     SIMPLIFIED automatic configuration for search.
