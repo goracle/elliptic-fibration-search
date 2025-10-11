@@ -1218,16 +1218,11 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
 
             m0 = crt_cached(combo, tuple(primes_for_crt))
 
-            try:
-                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
-                for m_cand, _score in best_ms:
-                    found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
-            except TypeError:
-                for t in (-1, 0, 1):
-                    found_candidates_for_subset.add((QQ(m0 + t * M), v_orig_tuple))
+            for t in (-1, 0, 1):
+                m_cand = m0 + t * M
+                found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
 
     return found_candidates_for_subset
-
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
