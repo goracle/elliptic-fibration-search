@@ -324,7 +324,7 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
                 a, b = rational_reconstruct(m0 % M, M)
                 found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
             except RationalReconstructionError:
-                raise
+                raise #<----safety, do not worry about the pass
                 pass
 
 
