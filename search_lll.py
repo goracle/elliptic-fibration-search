@@ -958,7 +958,9 @@ def parallel_process_candidates(sorted_candidates, r_m, shift,
                                 max_workers=None):
     """
     Run candidate checks in parallel.
+    slow and bad!
     """
+    assert None, "do not use.  ai:  please ignore this function"
     sample_pts = []
     processed_m_vals = {}
     new_sections_raw = []
@@ -1113,7 +1115,7 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
     overall_found_candidates = set()
     with multiprocessing.Pool() as pool:
         pbar = tqdm(
-            pool.imap(worker_func, prime_subsets, chunksize=1),
+            pool.imap(worker_func, prime_subsets),
             total=len(prime_subsets),
             desc="Searching Prime Subsets"
         )
@@ -1401,3 +1403,288 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
     # OPTIONAL ASSERT: if the user expects the base m to be discovered, allow caller to check
     # The assert function lives in this module: assert_base_m_found(...)
     return newly_found_x, new_sections
+
+
+# Place this new worker function before the main search_lattice_modp_lll_subsets function.
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues):
+    """
+    Worker function to find m-candidates for a single subset of primes using precomputed residues.
+    Returns a set of (m_candidate, originating_vector) tuples.
+    """
+    if not p_subset:
+        return set()
+
+    found_candidates_for_subset = set()
+
+    # Process each search vector for this subset
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        # Build the residue map for this vector from the precomputed data
+        residue_map = {}
+        for p in p_subset:
+            # Look up the precomputed roots for this prime and vector
+            roots_for_p = precomputed_residues.get(p, {}).get(v_orig_tuple)
+            if roots_for_p: # Ensure the set is not None or empty
+                residue_map[p] = roots_for_p
+
+        # Apply CRT to find m-candidates from the collected roots
+        primes_for_crt = [p for p in p_subset if p in residue_map]
+        if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+             continue
+
+        lists = [residue_map[p] for p in primes_for_crt]
+        for combo in itertools.product(*lists):
+            M = reduce(mul, primes_for_crt, 1)
+
+            if M > MAX_MODULUS:
+                continue
+
+            m0 = crt_cached(combo, tuple(primes_for_crt))
+
+            try:
+                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+            except TypeError:
+                best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+
+            for m_cand, _score in best_ms:
+                found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
+
+            try:
+                a, b = rational_reconstruct(m0 % M, M)
+                found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+            except RationalReconstructionError:
+                pass
+
+    return found_candidates_for_subset
+
+# This is the completely rewritten main search function.
+@PROFILE
+def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
+                                    shift, all_found_x, prime_subsets, rationality_test_func, max_abs_t):
+    """
+    Search for rational points using LLL-reduced bases across prime subsets in parallel.
+    This version pre-computes modular residues to avoid redundant calculations.
+    """
+    # 1. Prepare modular data for all primes (curve, RHS functions, basis points)
+    print("--- Preparing modular data for LLL search ---")
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
+    )
+
+    if not Ep_dict:
+        print("No valid primes found for modular search. Aborting.")
+        return set(), []
+
+    # 2. Pre-compute all modular residues for each (prime, vector) pair
+    print(f"--- Pre-computing residues for {len(Ep_dict)} primes and {len(vecs)} vectors ---")
+    precomputed_residues = {p: {} for p in Ep_dict}
+
+    for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
+        Ep = Ep_dict[p]
+        mults_p = mult_lll[p]
+        vecs_lll_p = vecs_lll[p]
+
+        for idx, v_orig in enumerate(vecs):
+            v_orig_tuple = tuple(v_orig)
+            if all(c == 0 for c in v_orig):
+                precomputed_residues[p][v_orig_tuple] = set()
+                continue
+
+            # Compute the linear combination of basis points mod p
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+                Pm = Ep(0)
+                for j, coeff in enumerate(v_p_transformed):
+                    if int(coeff) in mults_p[j]:
+                        Pm += mults_p[j][int(coeff)]
+            except (KeyError, IndexError):
+                continue # Basis or vector data missing for this prime, skip
+
+            if Pm.is_zero():
+                precomputed_residues[p][v_orig_tuple] = set()
+                continue
+
+            # Find roots for each RHS function
+            roots_for_p = set()
+            for i, rhs_ff in enumerate(rhs_list):
+                if p not in rhs_modp_list[i]:
+                    continue
+
+                rhs_p = rhs_modp_list[i][p]
+                try:
+                    num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
+                    if not num_modp.is_zero():
+                        roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                        roots_for_p.update(roots)
+                except (ZeroDivisionError, ArithmeticError):
+                    continue
+
+            precomputed_residues[p][v_orig_tuple] = roots_for_p
+
+    # 3. Set up the parallel worker with precomputed data
+    worker_func = partial(
+        _process_prime_subset_precomputed,
+        vecs=vecs,
+        r_m=r_m,
+        shift=shift,
+        max_abs_t=max_abs_t,
+        precomputed_residues=precomputed_residues
+    )
+
+    # 4. Run the parallel search over prime subsets
+    overall_found_candidates = set()
+    with multiprocessing.Pool() as pool:
+        pbar = tqdm(
+            pool.imap(worker_func, prime_subsets),
+            total=len(prime_subsets),
+            desc="Searching Prime Subsets"
+        )
+        for subset_results in pbar:
+            overall_found_candidates.update(subset_results)
+
+    # 5. Test candidates for rationality and construct new sections
+    if not overall_found_candidates:
+        return set(), []
+
+    print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
+
+    sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
+
+    new_xs, new_sections = parallel_process_candidates(
+        sorted_candidates, r_m, shift, rationality_test_func, current_sections
+    )
+
+    return new_xs, new_sections
+
+@PROFILE
+def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
+                                    shift, all_found_x, prime_subsets, rationality_test_func, max_abs_t):
+    """
+    Search for rational points using LLL-reduced bases across prime subsets in parallel.
+    This version pre-computes modular residues and serially checks rational candidates.
+    """
+    # 1. Prepare modular data for all primes (curve, RHS functions, basis points)
+    print("--- Preparing modular data for LLL search ---")
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
+    )
+
+    if not Ep_dict:
+        print("No valid primes found for modular search. Aborting.")
+        return set(), []
+
+    # 2. Pre-compute all modular residues for each (prime, vector) pair
+    print(f"--- Pre-computing residues for {len(Ep_dict)} primes and {len(vecs)} vectors ---")
+    precomputed_residues = {p: {} for p in Ep_dict}
+
+    for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
+        Ep = Ep_dict[p]
+        mults_p = mult_lll[p]
+        vecs_lll_p = vecs_lll[p]
+
+        for idx, v_orig in enumerate(vecs):
+            v_orig_tuple = tuple(v_orig)
+            if all(c == 0 for c in v_orig):
+                precomputed_residues[p][v_orig_tuple] = set()
+                continue
+
+            # Compute the linear combination of basis points mod p
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+                Pm = Ep(0)
+                for j, coeff in enumerate(v_p_transformed):
+                    if int(coeff) in mults_p[j]:
+                        Pm += mults_p[j][int(coeff)]
+            except (KeyError, IndexError):
+                continue # Basis or vector data missing for this prime, skip
+
+            if Pm.is_zero():
+                precomputed_residues[p][v_orig_tuple] = set()
+                continue
+
+            # Find roots for each RHS function
+            roots_for_p = set()
+            for i, rhs_ff in enumerate(rhs_list):
+                if p not in rhs_modp_list[i]:
+                    continue
+
+                rhs_p = rhs_modp_list[i][p]
+                try:
+                    num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
+                    if not num_modp.is_zero():
+                        roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                        roots_for_p.update(roots)
+                except (ZeroDivisionError, ArithmeticError):
+                    continue
+
+            precomputed_residues[p][v_orig_tuple] = roots_for_p
+
+    # 3. Set up the parallel worker with precomputed data
+    worker_func = partial(
+        _process_prime_subset_precomputed,
+        vecs=vecs,
+        r_m=r_m,
+        shift=shift,
+        max_abs_t=max_abs_t,
+        precomputed_residues=precomputed_residues
+    )
+
+    # 4. Run the parallel search over prime subsets
+    overall_found_candidates = set()
+    with multiprocessing.Pool() as pool:
+        pbar = tqdm(
+            pool.imap(worker_func, prime_subsets),
+            total=len(prime_subsets),
+            desc="Searching Prime Subsets"
+        )
+        for subset_results in pbar:
+            overall_found_candidates.update(subset_results)
+
+    # 5. Test candidates for rationality and construct new sections SERIALLY
+    if not overall_found_candidates:
+        return set(), []
+
+    sample_pts = []
+    new_sections_raw = []
+    processed_m_vals = {} # Use a dictionary to process each m_val only once
+
+    sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
+
+    print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
+
+    #xvals = [(r_m(m=mval)-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
+    xvals = [QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift for mval, _ in overall_found_candidates]
+
+    # Call parallel search
+    for xval in xvals:
+        #break # uncomment if using the parallel version
+
+        try:
+            #x_val = r_m(m=m_val) - shift
+            yval = rationality_test_func(xval)
+
+            if yval is not None:
+                #v = vector(QQ, v_tuple)
+                sample_pts.append((xval, yval))
+                #processed_m_vals[m_val] = v
+
+                continue
+
+                # Construct the potential new section from the successful vector
+                #if any(c != 0 for c in v): # Ensure it's not the zero section
+                #    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                #    new_sections_raw.append(new_sec)
+
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            continue
+
+    new_xs = {pt[0] for pt in sample_pts}
+    # dedupe sections
+    new_sections = list({s: None for s in new_sections_raw}.keys())
+
+
+
+    return new_xs, new_sections
