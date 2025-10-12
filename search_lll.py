@@ -1979,7 +1979,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
         return set()
 
     num_extra_primes = 2  # A small number is sufficient, 2 is seemingly optimal.
-    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][:num_extra_primes]
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][10:num_extra_primes]
 
     found_candidates_for_subset = set()
 
