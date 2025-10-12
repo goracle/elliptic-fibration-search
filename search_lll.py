@@ -1094,85 +1094,6 @@ def expected_density(residue_sets, subset_size, prime_pool, max_samples=2000):
     return avg_density, min(densities), max(densities)
 
 
-# --- Main Search Functions ---
-@PROFILE
-def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
-                                    shift, all_found_x, prime_subsets, rationality_test_func, max_abs_t):
-    """
-    Search for rational points using LLL-reduced bases across prime subsets in parallel.
-    This version correctly generates new sections from found points.
-    """
-    worker_func = partial(
-        _process_prime_subset,
-        cd=cd,
-        current_sections=current_sections,
-        prime_pool=prime_pool, r_m=r_m, shift=shift,
-        rhs_list=rhs_list,
-        vecs=vecs,
-        max_abs_t=max_abs_t
-    )
-
-    overall_found_candidates = set()
-    with multiprocessing.Pool() as pool:
-        pbar = tqdm(
-            pool.imap(worker_func, prime_subsets),
-            total=len(prime_subsets),
-            desc="Searching Prime Subsets"
-        )
-        for subset_results in pbar:
-            overall_found_candidates.update(subset_results)
-
-    # Test candidates for rationality and construct new sections
-    sample_pts = []
-    new_sections_raw = []
-    # Use a dictionary to process each m_val only once, preventing duplicate work
-    processed_m_vals = {}
-
-    # Sort to make the process deterministic
-    sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
-
-    print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
-
-    #xvals = [(r_m(m=mval)-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
-    xvals = [(QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
-
-    #
-    #with multiprocessing.Pool() as pool:
-    #    results = pool.map(test_xval_worker, xvals)
-    #    for result in results:
-    #        if result is not None:
-    #            xval, yval = result
-    #            sample_pts.append((xval, yval))
-
-    # Call parallel search
-    for xval, v_tuple, _ in xvals:
-        #break # uncomment if using the parallel version
-
-        try:
-            #x_val = r_m(m=m_val) - shift
-            yval = rationality_test_func(xval)
-
-            if yval is not None:
-                v = vector(QQ, v_tuple)
-                sample_pts.append((xval, yval))
-                #processed_m_vals[m_val] = v
-
-                continue
-
-                # Construct the potential new section from the successful vector
-                #if any(c != 0 for c in v): # Ensure it's not the zero section
-                #    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                #    new_sections_raw.append(new_sec)
-
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            continue
-
-    new_xs = {pt[0] for pt in sample_pts}
-    # dedupe sections
-    new_sections = list({s: None for s in new_sections_raw}.keys())
-
-    return new_xs, new_sections
-
 
 # --- Helper: assert that a given base-m produces an x that symbolic search should have found ---
 def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=True):
@@ -1460,104 +1381,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
 
     return found_candidates_for_subset
 
-# This is the completely rewritten main search function.
-@PROFILE
-def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
-                                    shift, all_found_x, prime_subsets, rationality_test_func, max_abs_t):
-    """
-    Search for rational points using LLL-reduced bases across prime subsets in parallel.
-    This version pre-computes modular residues to avoid redundant calculations.
-    """
-    # 1. Prepare modular data for all primes (curve, RHS functions, basis points)
-    print("--- Preparing modular data for LLL search ---")
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
-    )
 
-    if not Ep_dict:
-        print("No valid primes found for modular search. Aborting.")
-        return set(), []
-
-    # 2. Pre-compute all modular residues for each (prime, vector) pair
-    print(f"--- Pre-computing residues for {len(Ep_dict)} primes and {len(vecs)} vectors ---")
-    precomputed_residues = {p: {} for p in Ep_dict}
-
-    for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
-        Ep = Ep_dict[p]
-        mults_p = mult_lll[p]
-        vecs_lll_p = vecs_lll[p]
-
-        for idx, v_orig in enumerate(vecs):
-            v_orig_tuple = tuple(v_orig)
-            if all(c == 0 for c in v_orig):
-                precomputed_residues[p][v_orig_tuple] = set()
-                continue
-
-            # Compute the linear combination of basis points mod p
-            try:
-                v_p_transformed = vecs_lll_p[idx]
-                Pm = Ep(0)
-                for j, coeff in enumerate(v_p_transformed):
-                    if int(coeff) in mults_p[j]:
-                        Pm += mults_p[j][int(coeff)]
-            except (KeyError, IndexError):
-                continue # Basis or vector data missing for this prime, skip
-
-            if Pm.is_zero():
-                precomputed_residues[p][v_orig_tuple] = set()
-                continue
-
-            # Find roots for each RHS function
-            roots_for_p = set()
-            for i, rhs_ff in enumerate(rhs_list):
-                if p not in rhs_modp_list[i]:
-                    continue
-
-                rhs_p = rhs_modp_list[i][p]
-                try:
-                    num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
-                    if not num_modp.is_zero():
-                        roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
-                        roots_for_p.update(roots)
-                except (ZeroDivisionError, ArithmeticError):
-                    continue
-
-            precomputed_residues[p][v_orig_tuple] = roots_for_p
-
-    # 3. Set up the parallel worker with precomputed data
-    worker_func = partial(
-        _process_prime_subset_precomputed,
-        vecs=vecs,
-        r_m=r_m,
-        shift=shift,
-        max_abs_t=max_abs_t,
-        precomputed_residues=precomputed_residues
-    )
-
-    # 4. Run the parallel search over prime subsets
-    overall_found_candidates = set()
-    with multiprocessing.Pool() as pool:
-        pbar = tqdm(
-            pool.imap(worker_func, prime_subsets),
-            total=len(prime_subsets),
-            desc="Searching Prime Subsets"
-        )
-        for subset_results in pbar:
-            overall_found_candidates.update(subset_results)
-
-    # 5. Test candidates for rationality and construct new sections
-    if not overall_found_candidates:
-        return set(), []
-
-    print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
-
-    sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
-
-    new_xs, new_sections = parallel_process_candidates(
-        sorted_candidates, r_m, shift, rationality_test_func, current_sections
-    )
-
-    return new_xs, new_sections
 
 @PROFILE
 def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
@@ -1651,16 +1475,22 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
     new_sections_raw = []
     processed_m_vals = {} # Use a dictionary to process each m_val only once
 
-    sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
+    #sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
+    sorted_candidates = list(overall_found_candidates)
 
     print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
 
     #xvals = [(r_m(m=mval)-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
     xvals = [QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift for mval, _ in overall_found_candidates]
 
+    #with Pool(processes=cpu_count()) as pool:
+    with multiprocessing.Pool() as pool:
+        results = pool.map(rationality_test_func, xvals) # use a larger chunksize for 1000 items
+        sample_pts = [(xvals[i], yval) for i, yval in enumerate(results) if yval is not None]
+
     # Call parallel search
     for xval in xvals:
-        #break # uncomment if using the parallel version
+        break # uncomment if using the parallel version
 
         try:
             #x_val = r_m(m=m_val) - shift
