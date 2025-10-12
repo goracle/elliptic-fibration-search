@@ -297,10 +297,10 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
 
             # quick pre-filter: does any small prime forbid any t in [-T,T]?
             # doesn't appear to filter anything... something wrong with it... skip for now...
-            #if not candidate_passes_extra_primes(m0, M, residue_map):
-            #    print("HEEERRE")
-            #    raise ValueError
-            #    continue  # reject this CRT combo cheaply, exact check
+            if not candidate_passes_extra_primes(m0, M, residue_map):
+                #    print("HEEERRE")
+                #    raise ValueError
+                continue  # reject this CRT combo cheaply, exact check
 
             # OLD: only check t in (-1,0,1)
             # for t in (-1, 0, 1):
@@ -383,7 +383,6 @@ def candidate_passes_extra_primes(m0, M, extra_residue_map, small_primes, max_ab
     This is NOT a CRT problem! We need to find the intersection of allowed t values
     across all primes.
     """
-    assert None, "deprecated"
     if verbose:
         print(f"=== FIXED Debug: m0={m0}, M={M}, T={max_abs_t} ===")
         print(f"small_primes: {list(small_primes)}")
@@ -1327,7 +1326,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
 
 
 # Place this new worker function before the main search_lattice_modp_lll_subsets function.
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues):
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues, prime_pool):
     """
     Worker function to find m-candidates for a single subset of primes using precomputed residues.
     Returns a set of (m_candidate, originating_vector) tuples.
@@ -1364,6 +1363,13 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 continue
 
             m0 = crt_cached(combo, tuple(primes_for_crt))
+
+            # quick pre-filter: does any small prime forbid any t in [-T,T]?
+            # doesn't appear to filter anything... something wrong with it... skip for now...
+            if not candidate_passes_extra_primes(m0, M, residue_map, prime_pool[:floor(len(prime_pool)/2)], max_abs_t):
+                #    print("HEEERRE")
+                #    raise ValueError
+                continue  # reject this CRT combo cheaply, exact check
 
             try:
                 best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
@@ -1454,7 +1460,8 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
         r_m=r_m,
         shift=shift,
         max_abs_t=max_abs_t,
-        precomputed_residues=precomputed_residues
+        precomputed_residues=precomputed_residues,
+        prime_pool=prime_pool
     )
 
     # 4. Run the parallel search over prime subsets
@@ -1520,3 +1527,320 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
 
 
     return new_xs, new_sections
+
+
+def candidate_passes_extra_primes(m0, M, extra_residue_map, small_primes, max_abs_t, verbose=False):
+    """
+    Checks if there exists an integer t with |t| <= max_abs_t such that for every prime q,
+    (m0 + t*M) mod q is in the set of allowed residues extra_residue_map[q].
+
+    This is an efficient, iterative implementation that avoids combinatorial explosion.
+    """
+    m0 = int(m0)
+    M = int(M)
+
+    # 1. Pre-calculate the allowed 't' residues for each prime
+    t_constraints = {}
+    for q in small_primes:
+        if q not in extra_residue_map or not extra_residue_map[q]:
+            # If a prime has no allowed residues for m, no solution is possible.
+            return False
+
+        Rq = extra_residue_map[q]
+        m0q, Mq = m0 % q, M % q
+
+        if Mq == 0:
+            # If M is 0 mod q, t has no effect. The condition is just m0q in Rq.
+            if m0q not in Rq:
+                return False
+            # This prime imposes no constraint on t, so we can ignore it for filtering.
+            continue
+
+        try:
+            inv_Mq = pow(Mq, -1, q)
+        except ValueError:
+            # Should not happen for a prime q unless Mq is 0, which is handled above.
+            return False
+
+        # We need m0 + t*M ≡ r (mod q) => t ≡ (r - m0) * inv(M) (mod q)
+        allowed_t_mod_q = {((r - m0q) * inv_Mq) % q for r in Rq}
+        t_constraints[q] = allowed_t_mod_q
+
+    if not t_constraints:
+        # No primes imposed any constraints on t, so any t works.
+        # Since we are checking for |t|<=T, and t=0 is a candidate, this passes.
+        return True
+
+    # 2. Start with the most restrictive prime (fewest allowed t residues)
+    # This minimizes the number of t values we need to test.
+    sorted_primes = sorted(t_constraints.keys(), key=lambda q: len(t_constraints[q]))
+    start_q = sorted_primes[0]
+    other_primes = sorted_primes[1:]
+
+    # 3. Iterate through candidate t values generated from the most restrictive prime
+    for t_residue in t_constraints[start_q]:
+        # Test t values in the arithmetic progression: t_residue, t_residue + q, t_residue - q, ...
+        # up to the bound max_abs_t.
+        for k in range(max_abs_t // start_q + 2):
+            for t_candidate in {t_residue + k * start_q, t_residue - k * start_q}:
+                if abs(t_candidate) > max_abs_t:
+                    continue
+
+                # 4. Check this t_candidate against all other prime constraints
+                is_valid = True
+                for other_q in other_primes:
+                    if (t_candidate % other_q) not in t_constraints[other_q]:
+                        is_valid = False
+                        break # Fails condition for other_q, try next t
+
+                if is_valid:
+                    # Found a t that satisfies all constraints
+                    if verbose:
+                        print(f"Found valid t = {t_candidate} for m0={m0}, M={M}")
+                    return True
+
+    # If we exhaust all possibilities without finding a valid t
+    return False
+
+# Place this corrected version in search_lll.py, replacing both existing definitions.
+
+def candidate_passes_extra_primes(m0, M, full_residue_map, extra_primes, max_abs_t, verbose=False):
+    """
+    Checks if there exists an integer t with |t| <= max_abs_t such that for every extra prime q,
+    the value (m0 + t*M) mod q is in the set of allowed m-residues for that prime.
+
+    Args:
+        m0 (int): The integer residue from CRT.
+        M (int): The modulus from CRT.
+        full_residue_map (dict): A map from {prime: {vector: {residues...}}}.
+                                 This should be the complete precomputed residue map.
+        extra_primes (list): A list of primes to use for this check. These should NOT
+                             be the primes used to construct m0 and M.
+        max_abs_t (int): The maximum absolute value of t to search.
+        verbose (bool): If True, print detailed debugging information.
+    """
+    m0 = int(m0)
+    M = int(M)
+
+    # 1. For each extra prime, determine the constraints it imposes on t.
+    t_constraints = {}
+    for q in extra_primes:
+        # We need to know the allowed residues for 'm' for the specific vector that produced m0.
+        # Since this check is generic, we find the union of all allowed residues for prime q.
+        # This is a slight simplification but is much faster and still a very effective filter.
+        allowed_m_residues = full_residue_map.get(q, {}).get(v_orig_tuple) # ASSUMES v_orig_tuple is in scope
+        
+        if not allowed_m_residues:
+            # If this extra prime forbids all m-values for this vector, then no solution is possible.
+            if verbose: print(f"Filter fail: Prime {q} has no allowed m-residues for this vector.")
+            return False
+
+        m0q, Mq = m0 % q, M % q
+
+        if Mq == 0:
+            # If M is 0 mod q, t has no effect. The condition is just m0q being in the allowed set.
+            if m0q not in allowed_m_residues:
+                if verbose: print(f"Filter fail: M=0 mod {q} and m0={m0q} is not in allowed set {allowed_m_residues}.")
+                return False
+            # This prime imposes no constraint on t, so we skip it.
+            continue
+
+        try:
+            inv_Mq = pow(Mq, -1, q)
+        except ValueError:
+            # Should not happen for a prime q if Mq != 0.
+            return False
+
+        # We need m0 + t*M ≡ r (mod q)  =>  t ≡ (r - m0) * inv(M) (mod q)
+        allowed_t_mod_q = {((r - m0q) * inv_Mq) % q for r in allowed_m_residues}
+        if not allowed_t_mod_q:
+            return False # Should not happen if allowed_m_residues is non-empty
+            
+        t_constraints[q] = allowed_t_mod_q
+
+    if not t_constraints:
+        # No extra primes imposed any constraints on t, so the candidate passes.
+        return True
+
+    # 2. Sort primes by how restrictive they are to check the hardest constraints first.
+    sorted_primes = sorted(t_constraints.keys(), key=lambda q: len(t_constraints[q]))
+    start_q = sorted_primes[0]
+    other_primes = sorted_primes[1:]
+
+    # 3. Iterate through candidate t values generated from the most restrictive prime.
+    for t_residue in t_constraints[start_q]:
+        # Test t values in the arithmetic progression: t_residue, t_residue ± q, t_residue ± 2q, ...
+        # up to the bound max_abs_t. Check t=0 and expand outwards.
+        for k in range(max_abs_t // start_q + 2):
+            for sign in ([1, -1] if k > 0 else [1]):
+                t_candidate = t_residue + (sign * k * start_q)
+
+                if abs(t_candidate) > max_abs_t:
+                    continue
+
+                # 4. Check this t_candidate against all other prime constraints.
+                is_valid = True
+                for other_q in other_primes:
+                    if (t_candidate % other_q) not in t_constraints[other_q]:
+                        is_valid = False
+                        break  # Fails constraint for other_q, try next t
+
+                if is_valid:
+                    # Found a 't' that satisfies all constraints.
+                    if verbose: print(f"Filter pass: Found valid t={t_candidate} for m0={m0}, M={M}")
+                    return True
+
+    # If we exhaust all possibilities without finding a valid t, the candidate fails.
+    if verbose: print(f"Filter fail: No t in [-{max_abs_t}, {max_abs_t}] found for m0={m0}, M={M}")
+    return False
+
+
+# In search_lll.py, modify this worker function.
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues, prime_pool):
+    """
+    Worker function to find m-candidates for a single subset of primes using precomputed residues.
+    Returns a set of (m_candidate, originating_vector) tuples.
+    """
+    if not p_subset:
+        return set()
+
+    # Define a small set of extra primes for cheap filtering.
+    # Choose the first few primes from the main pool that are NOT in our current CRT subset.
+    num_extra_primes = 5 
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][:num_extra_primes]
+
+    found_candidates_for_subset = set()
+
+    # Process each search vector for this subset
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        # Build the residue map for this vector from the precomputed data
+        residue_map_for_crt = {}
+        for p in p_subset:
+            roots_for_p = precomputed_residues.get(p, {}).get(v_orig_tuple)
+            if roots_for_p:
+                residue_map_for_crt[p] = roots_for_p
+
+        # Apply CRT to find m-candidates from the collected roots
+        primes_for_crt = list(residue_map_for_crt.keys())
+        if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+             continue
+
+        lists = [residue_map_for_crt[p] for p in primes_for_crt]
+        for combo in itertools.product(*lists):
+            M = reduce(mul, primes_for_crt, 1)
+
+            if M > MAX_MODULUS:
+                continue
+
+            m0 = crt_cached(combo, tuple(primes_for_crt))
+
+            # *** CORRECTED FILTERING CALL ***
+            # Pass the FULL precomputed_residues map and the chosen extra_primes.
+            # The filter also needs the vector to look up the correct residues.
+            # We will pass it via a partial or lambda if needed, but for simplicity, we assume
+            # the corrected filter can access `v_orig_tuple` from its scope or is modified to accept it.
+            # Let's adapt the call to pass the vector-specific map.
+            
+            # Build the map needed for the filter
+            full_residue_map_for_vector = {p: precomputed_residues.get(p, {}).get(v_orig_tuple, set()) for p in extra_primes_for_filtering}
+
+            if not candidate_passes_extra_primes(m0, M, full_residue_map_for_vector, extra_primes_for_filtering, max_abs_t):
+                continue  # This CRT combo was successfully filtered out.
+
+            try:
+                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+            except TypeError:
+                best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+                # This fallback might indicate a deeper issue if it happens frequently.
+
+            for m_cand, _score in best_ms:
+                found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
+
+            try:
+                a, b = rational_reconstruct(m0 % M, M)
+                found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+            except RationalReconstructionError:
+                pass # This is an expected failure, not an error.
+
+    return found_candidates_for_subset
+
+
+# In search_lll.py
+
+def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, max_abs_t, verbose=False):
+    """
+    Checks if there exists an integer t with |t| <= max_abs_t such that for every extra prime q,
+    the value (m0 + t*M) mod q is in the set of allowed m-residues for that prime.
+    
+    Args:
+        m0 (int): The integer residue from CRT.
+        M (int): The modulus from CRT.
+        residue_map_for_vector (dict): A map of {prime: {allowed_residues}} for a single vector.
+        extra_primes (list): A list of primes to use for this check.
+        max_abs_t (int): The maximum absolute value of t to search.
+        verbose (bool): If True, print detailed debugging information.
+    """
+    m0 = int(m0)
+    M = int(M)
+
+    t_constraints = {}
+    for q in extra_primes:
+        # --- THIS IS THE CORRECTED LINE ---
+        # The incoming map is already specific to the vector, so we just get the set of residues for the prime.
+        allowed_m_residues = residue_map_for_vector.get(q)
+
+        if not allowed_m_residues:
+            if verbose: print(f"Filter fail: Prime {q} has no allowed m-residues for this vector.")
+            return False
+
+        m0q, Mq = m0 % q, M % q
+
+        if Mq == 0:
+            if m0q not in allowed_m_residues:
+                if verbose: print(f"Filter fail: M=0 mod {q} and m0={m0q} is not in allowed set.")
+                return False
+            continue
+
+        try:
+            inv_Mq = pow(Mq, -1, q)
+        except ValueError:
+            return False
+
+        allowed_t_mod_q = {((r - m0q) * inv_Mq) % q for r in allowed_m_residues}
+        if not allowed_t_mod_q:
+            return False
+            
+        t_constraints[q] = allowed_t_mod_q
+
+    if not t_constraints:
+        return True
+
+    sorted_primes = sorted(t_constraints.keys(), key=lambda q: len(t_constraints[q]))
+    start_q = sorted_primes[0]
+    other_primes = sorted_primes[1:]
+
+    for t_residue in t_constraints[start_q]:
+        for k in range(max_abs_t // start_q + 2):
+            for sign in ([1, -1] if k > 0 else [1]):
+                t_candidate = t_residue + (sign * k * start_q)
+
+                if abs(t_candidate) > max_abs_t:
+                    continue
+
+                is_valid = True
+                for other_q in other_primes:
+                    if (t_candidate % other_q) not in t_constraints[other_q]:
+                        is_valid = False
+                        break
+
+                if is_valid:
+                    if verbose: print(f"Filter pass: Found valid t={t_candidate} for m0={m0}, M={M}")
+                    return True
+
+    if verbose: print(f"Filter fail: No t in [-{max_abs_t}, {max_abs_t}] found for m0={m0}, M={M}")
+    return False
