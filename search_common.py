@@ -99,10 +99,6 @@ DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
 
-COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
 COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-12), QQ(-4), QQ(12), QQ(8), QQ(-7)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
@@ -143,6 +139,10 @@ TERMINATE_WHEN_6 = 12
 COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(3), QQ(2), QQ(5), QQ(8), QQ(-4)]
 DATA_PTS_GENUS2 = [QQ(-5)/QQ(3)] # just the x values lol
 TERMINATE_WHEN_6 = 3
+
+COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 4
 
 
 
