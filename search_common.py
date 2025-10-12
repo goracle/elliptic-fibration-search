@@ -123,10 +123,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(1), QQ(-6), QQ(2), QQ(8), QQ(-7)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(3), QQ(2), QQ(5), QQ(8), QQ(-4)]
-DATA_PTS_GENUS2 = [QQ(-5)/QQ(3)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-18), QQ(21), QQ(-10), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
@@ -143,6 +139,10 @@ TERMINATE_WHEN_6 = 2
 COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 12
+
+COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(3), QQ(2), QQ(5), QQ(8), QQ(-4)]
+DATA_PTS_GENUS2 = [QQ(-5)/QQ(3)] # just the x values lol
+TERMINATE_WHEN_6 = 3
 
 
 
@@ -161,8 +161,8 @@ HEIGHT_BOUND = 370 # not that important, mostly, it seems
 PRIME_POOL = list(primes(90))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
-NUM_PRIME_SUBSETS = 1000 # important for stability under different seeds, must be large enough >= 250 should be good...
-MAX_MODULUS = 10**8 # idk
+NUM_PRIME_SUBSETS = 2000 # important for stability under different seeds, must be large enough >= 250 should be good...
+MAX_MODULUS = 10**10 # idk
 NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 ###### END STATIC CONFIG
