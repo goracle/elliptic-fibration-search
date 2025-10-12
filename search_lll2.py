@@ -187,7 +187,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
     sorted_candidates = sorted(((QQ(num) / QQ(den), sc) for (num, den), sc in unique.items()),
                                key=lambda z: z[1])
-    return sorted_candidates[:3]
+    return sorted_candidates[:8]
 
 # --- Top-level Worker Function for Parallel Processing ---
 
