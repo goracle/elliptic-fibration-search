@@ -83,17 +83,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-4), QQ(10), QQ(-24), QQ(24), QQ(-7)]
 DATA_PTS_GENUS2 = [QQ(2)] # just the x values lol
 TERMINATE_WHEN_6 = 3
 
-# prestige curve lol
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
-
-# deg 5
-COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(12), QQ(16), QQ(-12), QQ(-20), QQ(12)]
 DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
 TERMINATE_WHEN_6 = 2
@@ -143,6 +132,17 @@ TERMINATE_WHEN_6 = 3
 COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(3), QQ(2), QQ(5), QQ(8), QQ(-4)]
 DATA_PTS_GENUS2 = [QQ(-5)/QQ(3)] # just the x values lol
 TERMINATE_WHEN_6 = 3
+
+# deg 5
+COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 2
+
+# prestige curve lol
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 11
+
 
 
 
