@@ -187,7 +187,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
     sorted_candidates = sorted(((QQ(num) / QQ(den), sc) for (num, den), sc in unique.items()),
                                key=lambda z: z[1])
-    return sorted_candidates[:3]
+    return sorted_candidates[:8]
 
 # --- Top-level Worker Function for Parallel Processing ---
 
@@ -1707,7 +1707,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
 
     # Define a small set of extra primes for cheap filtering.
     # Choose the first few primes from the main pool that are NOT in our current CRT subset.
-    num_extra_primes = 5 
+    num_extra_primes = 2
     extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][:num_extra_primes]
 
     found_candidates_for_subset = set()
@@ -1844,3 +1844,198 @@ def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, m
 
     if verbose: print(f"Filter fail: No t in [-{max_abs_t}, {max_abs_t}] found for m0={m0}, M={M}")
     return False
+
+
+# In search_lll.py, replace the existing function
+
+@PROFILE
+def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
+                                    shift, all_found_x, prime_subsets, rationality_test_func, max_abs_t):
+    """
+    Search for rational points using LLL-reduced bases across prime subsets in parallel.
+    This version keeps residues from different RHS functions separate to avoid logical errors.
+    """
+    # 1. Prepare modular data (no changes here)
+    print("--- Preparing modular data for LLL search ---")
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
+    )
+
+    if not Ep_dict:
+        print("No valid primes found for modular search. Aborting.")
+        return set(), []
+
+    # 2. Pre-compute modular residues, keeping RHS functions separate
+    print(f"--- Pre-computing residues for {len(Ep_dict)} primes and {len(vecs)} vectors ---")
+    precomputed_residues = {p: {} for p in Ep_dict}
+
+    for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
+        Ep = Ep_dict[p]
+        mults_p = mult_lll[p]
+        vecs_lll_p = vecs_lll[p]
+
+        for idx, v_orig in enumerate(vecs):
+            v_orig_tuple = tuple(v_orig)
+            if all(c == 0 for c in v_orig):
+                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
+                continue
+
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+                Pm = Ep(0)
+                for j, coeff in enumerate(v_p_transformed):
+                    if int(coeff) in mults_p[j]:
+                        Pm += mults_p[j][int(coeff)]
+            except (KeyError, IndexError):
+                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
+                continue
+
+            if Pm.is_zero():
+                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
+                continue
+
+            # *** MODIFIED PART ***
+            # Store roots in a list, one entry per RHS function.
+            roots_by_rhs = []
+            for i, rhs_ff in enumerate(rhs_list):
+                roots_for_p_and_rhs = set()
+                if p in rhs_modp_list[i]:
+                    rhs_p = rhs_modp_list[i][p]
+                    try:
+                        num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
+                        if not num_modp.is_zero():
+                            roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                            roots_for_p_and_rhs.update(roots)
+                    except (ZeroDivisionError, ArithmeticError):
+                        pass
+                roots_by_rhs.append(roots_for_p_and_rhs)
+            
+            precomputed_residues[p][v_orig_tuple] = roots_by_rhs
+
+    # 3. Set up and run the parallel worker (no changes here)
+    worker_func = partial(
+        _process_prime_subset_precomputed,
+        vecs=vecs,
+        r_m=r_m,
+        shift=shift,
+        max_abs_t=max_abs_t,
+        precomputed_residues=precomputed_residues,
+        prime_pool=prime_pool,
+        num_rhs_fns=len(rhs_list)
+    )
+
+    overall_found_candidates = set()
+    with multiprocessing.Pool() as pool:
+        pbar = tqdm(
+            pool.imap(worker_func, prime_subsets),
+            total=len(prime_subsets),
+            desc="Searching Prime Subsets"
+        )
+        for subset_results in pbar:
+            overall_found_candidates.update(subset_results)
+
+    # 4. Test candidates serially (no changes needed from here down)
+    if not overall_found_candidates:
+        return set(), []
+
+    print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
+    
+    sample_pts = []
+    new_sections_raw = []
+    processed_m_vals = {}
+
+    for m_val, v_tuple in overall_found_candidates:
+        if m_val in processed_m_vals:
+            continue
+        
+        try:
+            x_val = r_m(m=m_val) - shift
+            y_val = rationality_test_func(x_val)
+
+            if y_val is not None:
+                v = vector(QQ, v_tuple)
+                sample_pts.append((x_val, y_val))
+                processed_m_vals[m_val] = v
+
+                if any(c != 0 for c in v):
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    new_sections_raw.append(new_sec)
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            continue
+
+    new_xs = {pt[0] for pt in sample_pts}
+    new_sections = list({s: None for s in new_sections_raw}.keys())
+
+    return new_xs, new_sections
+
+# In search_lll.py, replace the existing worker function
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues, prime_pool, num_rhs_fns):
+    """
+    Worker function to find m-candidates for a single subset of primes.
+    This version processes each RHS function independently.
+    """
+    if not p_subset:
+        return set()
+
+    num_extra_primes = 2  # A small number is sufficient
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][:num_extra_primes]
+
+    found_candidates_for_subset = set()
+
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        # *** MODIFIED PART ***
+        # Loop over each RHS function index
+        for rhs_idx in range(num_rhs_fns):
+            
+            # Build residue map for CRT using only roots from the current RHS function
+            residue_map_for_crt = {}
+            for p in p_subset:
+                # precomputed_residues[p][v_tuple] is now a list of sets
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
+
+            primes_for_crt = list(residue_map_for_crt.keys())
+            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+                continue
+
+            # Create the residue map for the filter, also for this specific RHS function
+            residue_map_for_filter = {}
+            for p in extra_primes_for_filtering:
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
+
+            # Now perform CRT and filtering
+            lists = [residue_map_for_crt[p] for p in primes_for_crt]
+            for combo in itertools.product(*lists):
+                M = reduce(mul, primes_for_crt, 1)
+
+                if M > MAX_MODULUS:
+                    continue
+
+                m0 = crt_cached(combo, tuple(primes_for_crt))
+
+                if not candidate_passes_extra_primes(m0, M, residue_map_for_filter, extra_primes_for_filtering, max_abs_t):
+                    continue
+
+                try:
+                    best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+                except TypeError:
+                    best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+
+                for m_cand, _score in best_ms:
+                    found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
+
+                try:
+                    a, b = rational_reconstruct(m0 % M, M)
+                    found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+                except RationalReconstructionError:
+                    pass
+
+    return found_candidates_for_subset
