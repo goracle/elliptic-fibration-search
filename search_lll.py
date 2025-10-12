@@ -187,7 +187,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
     sorted_candidates = sorted(((QQ(num) / QQ(den), sc) for (num, den), sc in unique.items()),
                                key=lambda z: z[1])
-    return sorted_candidates[:8]
+    return sorted_candidates[:3]
 
 # --- Top-level Worker Function for Parallel Processing ---
 
@@ -1978,8 +1978,8 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
     if not p_subset:
         return set()
 
-    num_extra_primes = 2  # A small number is sufficient, 2 is seemingly optimal.
-    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][10:num_extra_primes]
+    num_extra_primes = 3  # A small number is sufficient, 2 is seemingly optimal.
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][5:num_extra_primes]
 
     found_candidates_for_subset = set()
 
