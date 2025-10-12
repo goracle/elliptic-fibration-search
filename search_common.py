@@ -88,11 +88,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
-# takes two fibrations to find all the points, why?
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
 # deg 5
 COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
@@ -144,6 +139,13 @@ COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-16), QQ(24), QQ(-16), QQ(5)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
+# takes two fibrations to find all the points, why?
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
+
+
+
 ##### END TEST CURVES ######
 
 
@@ -160,7 +162,7 @@ PRIME_POOL = list(primes(90))   # All primes less than N, excluding 2,3; >=50 sh
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
 NUM_PRIME_SUBSETS = 1000 # important for stability under different seeds, must be large enough >= 250 should be good...
-MAX_MODULUS = 10**9 # idk
+MAX_MODULUS = 10**8 # idk
 NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 ###### END STATIC CONFIG
