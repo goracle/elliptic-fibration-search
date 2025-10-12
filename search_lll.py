@@ -1369,6 +1369,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
             except TypeError:
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+                raise
 
             for m_cand, _score in best_ms:
                 found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
@@ -1377,7 +1378,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 a, b = rational_reconstruct(m0 % M, M)
                 found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
             except RationalReconstructionError:
-                pass
+                raise
 
     return found_candidates_for_subset
 
@@ -1476,12 +1477,13 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
     processed_m_vals = {} # Use a dictionary to process each m_val only once
 
     #sorted_candidates = sorted(list(overall_found_candidates), key=lambda x: (x[0], x[1]))
-    sorted_candidates = list(overall_found_candidates)
+    #sorted_candidates = list(overall_found_candidates)
 
     print(f"\nFound {len(overall_found_candidates)} potential (m, vector) pairs. Testing for rationality...")
 
+    const = DATA_PTS_GENUS2[0]-shift
     #xvals = [(r_m(m=mval)-shift, v_tuple, rationality_test_func) for mval, v_tuple in overall_found_candidates]
-    xvals = [QQ(-1)*mval+DATA_PTS_GENUS2[0]-shift for mval, _ in overall_found_candidates]
+    xvals = [QQ(-1)*mval+const for mval, _ in overall_found_candidates]
 
     #with Pool(processes=cpu_count()) as pool:
     with multiprocessing.Pool() as pool:
