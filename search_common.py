@@ -160,9 +160,9 @@ HEIGHT_BOUND = 370 # not that important, mostly, it seems
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
 PRIME_POOL = list(primes(90))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
-MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
+MIN_MAX_PRIME_SUBSET_SIZE = 19 # safe is 7-9; above 15 is too stringent
 NUM_PRIME_SUBSETS = 2000 # important for stability under different seeds, must be large enough >= 250 should be good...
-MAX_MODULUS = 10**10 # idk
+MAX_MODULUS = 10**9 # idk
 NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 ###### END STATIC CONFIG
