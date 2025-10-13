@@ -152,7 +152,7 @@ TERMINATE_WHEN_6 = 11
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
 
-HEIGHT_BOUND = 370 # not that important, mostly, it seems
+HEIGHT_BOUND = 10*370 # not that important, mostly, it seems
 
 # prime config
 # magic prime settings, chosen empirically.
@@ -1373,6 +1373,7 @@ def compute_base_sections_m(cd, base_pts):
             print("--- END DEBUGGING ---")
 
         P = cd.E_weier([X_aff, Y_aff, Z_aff])
+        print("section weierstrass coordinates:", P)
         ret.append(P)
         seen.add((xi, yi))
     return ret

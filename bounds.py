@@ -161,7 +161,7 @@ def expected_survivors_per_subset(residue_counts, primes):
     return density
 
 
-def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, seed=12345):
+def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, seed=SEED_INT):
     """
     Generate random, distinct prime subsets of a given size whose product exceeds B.
     """
@@ -332,7 +332,7 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None)
 
 
 def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
-                                   min_size, max_size, seed=12345, 
+                                   min_size, max_size, seed=SEED_INT, 
                                    force_full_pool=False):
     """
     Generate diverse prime subsets with varying sizes.
