@@ -482,7 +482,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
 
     # --- Yau-Zaslow Rational Curve Counts ---
     _, chi = compute_euler_and_chi(cd)
-    if picard_report['rho'] is not None and chi != 1: # skip for RES, trivial
+    if picard_report['rho'] is not None and chi != 1 and False: # skip for RES, trivial # disabled
         rho = picard_report['rho']
         print("\n--- Rational Curve Counts (Yau-Zaslow) ---")
 
