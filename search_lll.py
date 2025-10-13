@@ -1246,8 +1246,46 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
         return set(), []
 
     # 2. Pre-compute modular residues, keeping RHS functions separate
-    print(f"--- Pre-computing residues for {len(Ep_dict)} primes and {len(vecs)} vectors ---")
-    precomputed_residues = {p: {} for p in Ep_dict}
+    # ---------- inside search_lattice_modp_lll_subsets ----------
+    # Build args list for primes we will compute
+    primes_to_compute = list(Ep_dict.keys())
+    num_rhs_fns = len(rhs_list)
+
+    # Pre-create local copies for pickling (reduce closure size)
+    rhs_modp_list_local = rhs_modp_list  # it's a small list of per-rhs dicts
+    vecs_list = list(vecs)
+
+    args_list = []
+    for p in primes_to_compute:
+        Ep_local = Ep_dict[p]
+        mults_p = mult_lll.get(p, {})
+        vecs_lll_p = vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list])
+        args_list.append((p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs_fns))
+
+    precomputed_residues = {}
+    # Choose executor: prefer processes but fall back to threads if fork unavailable
+    try:
+        ctx = multiprocessing.get_context("fork")
+        Exec = ProcessPoolExecutor
+        exec_kwargs = {"max_workers": PARALLEL_PRIME_WORKERS, "mp_context": ctx}
+    except Exception:
+        Exec = ThreadPoolExecutor
+        exec_kwargs = {"max_workers": PARALLEL_PRIME_WORKERS}
+
+    with Exec(**exec_kwargs) as executor:
+        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
+            p = futures[future]
+            try:
+                p_ret, mapping = future.result()
+                # mapping may be empty on failure
+                precomputed_residues[p_ret] = mapping
+            except Exception as e:
+                # If the worker crashed, record an empty mapping to keep behavior consistent.
+                if DEBUG:
+                    print(f"Precompute failed for prime {p}: {e}")
+                precomputed_residues[p] = {}
+
 
     for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
         Ep = Ep_dict[p]
@@ -1419,3 +1457,60 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                     pass
 
     return found_candidates_for_subset
+
+
+
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+
+def _compute_residues_for_prime_worker(args):
+    """
+    Worker to compute residues for a single prime.
+    Input args is a tuple: (p, Ep_dict_p, mults_p, vecs_lll_p, vecs, rhs_modp_list, rhs_list_len)
+    Returns (p, dict mapping v_orig_tuple -> list_of_rhs_root_sets)
+    """
+    p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
+    result_for_p = {}
+    try:
+        for idx, v_orig in enumerate(vecs_list):
+            v_orig_tuple = tuple(v_orig)
+            if all(c == 0 for c in v_orig):
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+            except Exception:
+                # If transformed vectors missing, record empty lists
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            Pm = Ep_local(0)
+            for j, coeff in enumerate(v_p_transformed):
+                if int(coeff) in mults_p[j]:
+                    Pm += mults_p[j][int(coeff)]
+
+            if Pm.is_zero():
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            roots_by_rhs = []
+            for i_rhs in range(num_rhs):
+                roots_for_rhs = set()
+                if p in rhs_modp_list_local[i_rhs]:
+                    rhs_p = rhs_modp_list_local[i_rhs][p]
+                    try:
+                        num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
+                        if not num_modp.is_zero():
+                            roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                            roots_for_rhs.update(roots)
+                    except (ZeroDivisionError, ArithmeticError):
+                        pass
+                roots_by_rhs.append(roots_for_rhs)
+            result_for_p[v_orig_tuple] = roots_by_rhs
+    except Exception as e:
+        # Propagate failure to caller; return an empty mapping to avoid crash in pool consumer.
+        if DEBUG:
+            print(f"Prime worker failed for p={p}: {e}")
+        return p, {}
+    return p, result_for_p
+
+
