@@ -50,6 +50,19 @@ TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to 
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 MAX_ABS_T = 500
 
+
+# ==============================================================
+# === Auto-Tune / Residue Filter Parameters ====================
+# ==============================================================
+
+EXTRA_PRIME_TARGET_DENSITY = 1e-5   # desired survivor fraction after extras
+EXTRA_PRIME_MAX = 6                 # cap on number of extra primes
+EXTRA_PRIME_SKIP = {2, 3, 5}        # avoid small degenerates
+EXTRA_PRIME_SAMPLE_SIZE = 300       # sample vectors for stats
+EXTRA_PRIME_MIN_R = 1e-4            # ignore primes with r_p < this
+EXTRA_PRIME_MAX_R = 0.9             # ignore primes with r_p > this
+
+
 def _compute_column_norms(M):
     """
     Compute L2 norm per column of integer matrix M (sage matrix).
@@ -1245,14 +1258,10 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
         print("No valid primes found for modular search. Aborting.")
         return set(), []
 
-    # 2. Pre-compute modular residues, keeping RHS functions separate
-    # ---------- inside search_lattice_modp_lll_subsets ----------
-    # Build args list for primes we will compute
+    # === Parallelized residue precomputation ===
     primes_to_compute = list(Ep_dict.keys())
     num_rhs_fns = len(rhs_list)
-
-    # Pre-create local copies for pickling (reduce closure size)
-    rhs_modp_list_local = rhs_modp_list  # it's a small list of per-rhs dicts
+    rhs_modp_list_local = rhs_modp_list
     vecs_list = list(vecs)
 
     args_list = []
@@ -1263,7 +1272,6 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
         args_list.append((p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs_fns))
 
     precomputed_residues = {}
-    # Choose executor: prefer processes but fall back to threads if fork unavailable
     try:
         ctx = multiprocessing.get_context("fork")
         Exec = ProcessPoolExecutor
@@ -1278,57 +1286,29 @@ def search_lattice_modp_lll_subsets(cd, current_sections, prime_pool, vecs, rhs_
             p = futures[future]
             try:
                 p_ret, mapping = future.result()
-                # mapping may be empty on failure
                 precomputed_residues[p_ret] = mapping
             except Exception as e:
-                # If the worker crashed, record an empty mapping to keep behavior consistent.
                 if DEBUG:
-                    print(f"Precompute failed for prime {p}: {e}")
+                    print(f"[precompute fail] p={p}: {e}")
                 precomputed_residues[p] = {}
 
 
-    for p in tqdm(Ep_dict.keys(), desc="Pre-computing residues"):
-        Ep = Ep_dict[p]
-        mults_p = mult_lll[p]
-        vecs_lll_p = vecs_lll[p]
 
-        for idx, v_orig in enumerate(vecs):
-            v_orig_tuple = tuple(v_orig)
-            if all(c == 0 for c in v_orig):
-                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
-                continue
+    # === Auto-tune extra residue filter primes ===
+    if vecs_list:
+        sample_vecs = random.sample(vecs_list, min(EXTRA_PRIME_SAMPLE_SIZE, len(vecs_list)))
+        prime_stats = estimate_prime_stats(Ep_dict.keys(), precomputed_residues,
+                                        sample_vecs, num_rhs=len(rhs_list))
+        auto_extra_primes = choose_extra_primes(prime_stats,
+                                                target_density=EXTRA_PRIME_TARGET_DENSITY,
+                                                max_extra=EXTRA_PRIME_MAX,
+                                                skip_small=EXTRA_PRIME_SKIP)
+    else:
+        auto_extra_primes = []
 
-            try:
-                v_p_transformed = vecs_lll_p[idx]
-                Pm = Ep(0)
-                for j, coeff in enumerate(v_p_transformed):
-                    if int(coeff) in mults_p[j]:
-                        Pm += mults_p[j][int(coeff)]
-            except (KeyError, IndexError):
-                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
-                continue
+    # replace your manual offset selection with this:
+    extra_primes_for_filtering = auto_extra_primes
 
-            if Pm.is_zero():
-                precomputed_residues[p][v_orig_tuple] = [set() for _ in rhs_list]
-                continue
-
-            # *** MODIFIED PART ***
-            # Store roots in a list, one entry per RHS function.
-            roots_by_rhs = []
-            for i, rhs_ff in enumerate(rhs_list):
-                roots_for_p_and_rhs = set()
-                if p in rhs_modp_list[i]:
-                    rhs_p = rhs_modp_list[i][p]
-                    try:
-                        num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
-                        if not num_modp.is_zero():
-                            roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
-                            roots_for_p_and_rhs.update(roots)
-                    except (ZeroDivisionError, ArithmeticError):
-                        pass
-                roots_by_rhs.append(roots_for_p_and_rhs)
-            
-            precomputed_residues[p][v_orig_tuple] = roots_by_rhs
 
     # 3. Set up and run the parallel worker (no changes here)
     worker_func = partial(
@@ -1459,15 +1439,51 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
     return found_candidates_for_subset
 
 
+def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
+    """Estimate average residue survival ratio r_p for each prime."""
+    stats = {}
+    for p in prime_pool:
+        mapping = precomputed_residues.get(p, {})
+        if not mapping:
+            continue
+        total = count = 0
+        for v in sample_vecs:
+            v_t = tuple(v)
+            roots_list = mapping.get(v_t, [])
+            if not roots_list:
+                continue
+            # combine across RHSs
+            if num_rhs > 1:
+                roots_union = set().union(*roots_list)
+            else:
+                roots_union = roots_list[0] if roots_list else set()
+            total += len(roots_union)
+            count += p
+        stats[p] = (total / count) if count else 0.0
+    return stats
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+
+def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3,5}):
+    """Select extra primes based on measured r_p values."""
+    cand = [(p, r) for p, r in stats.items()
+            if p not in skip_small and EXTRA_PRIME_MIN_R < r < EXTRA_PRIME_MAX_R]
+    # sort by discriminatory power (entropy-like)
+    cand.sort(key=lambda t: -(t[1] * (1 - t[1])))
+    chosen, prod = [], 1.0
+    for p, r in cand:
+        if len(chosen) >= max_extra:
+            break
+        prod *= r
+        chosen.append(p)
+        if prod <= target_density:
+            break
+    if DEBUG:
+        print(f"[auto-tune] selected extra primes {chosen} with expected density {prod:.2e}")
+    return chosen
+
 
 def _compute_residues_for_prime_worker(args):
-    """
-    Worker to compute residues for a single prime.
-    Input args is a tuple: (p, Ep_dict_p, mults_p, vecs_lll_p, vecs, rhs_modp_list, rhs_list_len)
-    Returns (p, dict mapping v_orig_tuple -> list_of_rhs_root_sets)
-    """
+    """Worker function computing residues for one prime."""
     p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
     result_for_p = {}
     try:
@@ -1476,10 +1492,10 @@ def _compute_residues_for_prime_worker(args):
             if all(c == 0 for c in v_orig):
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
+
             try:
                 v_p_transformed = vecs_lll_p[idx]
             except Exception:
-                # If transformed vectors missing, record empty lists
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
 
@@ -1502,15 +1518,12 @@ def _compute_residues_for_prime_worker(args):
                         if not num_modp.is_zero():
                             roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
                             roots_for_rhs.update(roots)
-                    except (ZeroDivisionError, ArithmeticError):
+                    except Exception:
                         pass
                 roots_by_rhs.append(roots_for_rhs)
             result_for_p[v_orig_tuple] = roots_by_rhs
     except Exception as e:
-        # Propagate failure to caller; return an empty mapping to avoid crash in pool consumer.
         if DEBUG:
-            print(f"Prime worker failed for p={p}: {e}")
+            print(f"[worker fail] p={p}: {e}")
         return p, {}
     return p, result_for_p
-
-

@@ -171,8 +171,8 @@ HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, ju
 # random seed for reproducibility.
 SEED_INT = random.randint(-10**6, 10**6)
 
-DEBUG = True
 DEBUG = False
+DEBUG = True
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
