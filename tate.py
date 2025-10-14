@@ -393,6 +393,38 @@ def kodaira_symbol(v_c4, v_c6, v_D):
     # fallback
     return 'Unknown'
 
+def kodaira_components_count(sym):
+    s = str(sym).strip()
+    if s.startswith('I') and not s.endswith('*'):
+        try:
+            n = int(s[1:])
+            return max(1, n)
+        except Exception:
+            return 1
+    if s.startswith('I') and s.endswith('*'):
+        # I_n* has (n + 5) irreducible components (I0* has 5)
+        try:
+            n = int(s[1:-1]) if s[1:-1] else 0
+            return n + 5
+        except Exception:
+            return 5
+    mapping = {'II':1, 'III':2, 'IV':3, 'II*':9, 'III*':8, 'IV*':7}
+    return mapping.get(s, 1)
+
+def kodaira_euler_number(s):
+    if s is None:
+        return 0
+    s = s.strip()
+    m = re.match(r'^I(\d+)(\*)?$', s)
+    if m:
+        n = int(m.group(1))
+        if m.group(2):  # I_n*
+            return n + 6
+        return n
+    roman_map = {'II':2, 'III':3, 'IV':4, 'II*':10, 'III*':9, 'IV*':8}
+    if s in roman_map:
+        return roman_map[s]
+    raise ValueError(f"Unknown Kodaira symbol: {s}")
 
 
 @PROFILE
@@ -566,33 +598,72 @@ def get_section_specialization_additive(curve_data, section, center, symbol, var
 # Values are the rational numbers one typically adds to the naive height matrix
 # at an additive fiber (these are the usual local correction contributions).
 # If you later need other fiber-specific metadata, add nested dict entries.
+# old
+#FIBER_LOCAL_CORRECTION = {
+    #'I0':     {'local_height': QQ(0)},      # Good reduction
+    #'I1':     {'local_height': QQ(0)},      # Add this line
+    #'II':     {'local_height': QQ(1)/6},
+    #'III':    {'local_height': QQ(1)/3},
+    #'IV':     {'local_height': QQ(1)/2},
+    #'I0*':    {'local_height': QQ(1)/2},
+    #'I1*':    {'local_height': QQ(7)/12},   # matches your earlier run's pattern
+    #'I2*':    {'local_height': QQ(2)/3},    # important: I2* -> 2/3
+    #'I3*':    {'local_height': QQ(3)/4},
+    #'I6*':    {'local_height': QQ(1)}, # needs to be checked?
+    #'I4*':    {'local_height': QQ(5)/6},
+    #'IV*':    {'local_height': QQ(1)/2},
+    #'III*':   {'local_height': QQ(2)/3},
+    #'II*':    {'local_height': QQ(5)/6},
+    #}
+####
+
+# keep existing explicit table for common non-starred/additive types
+# --- robust local correction resolver ---
+# minimal canonical table for non-star / small additive types
 FIBER_LOCAL_CORRECTION = {
-    'I0':     {'local_height': QQ(0)},      # Good reduction
-    'I1':     {'local_height': QQ(0)},      # Add this line
-    'II':     {'local_height': QQ(1)/6},
-    'III':    {'local_height': QQ(1)/3},
-    'IV':     {'local_height': QQ(1)/2},
-    'I0*':    {'local_height': QQ(1)/2},
-    'I1*':    {'local_height': QQ(7)/12},   # matches your earlier run's pattern
-    'I2*':    {'local_height': QQ(2)/3},    # important: I2* -> 2/3
-    'I3*':    {'local_height': QQ(3)/4},
-    'I6*':    {'local_height': QQ(1)}, # needs to be checked?
-    'I4*':    {'local_height': QQ(5)/6},
-    'IV*':    {'local_height': QQ(1)/2},
-    'III*':   {'local_height': QQ(2)/3},
-    'II*':    {'local_height': QQ(5)/6},
+    'I0':   {'local_height': QQ(0)},
+    'I1':   {'local_height': QQ(0)},
+    'II':   {'local_height': QQ(1)/6},
+    'III':  {'local_height': QQ(1)/3},
+    'IV':   {'local_height': QQ(1)/2},
+    'I0*':  {'local_height': QQ(1)/2},
+    'IV*':  {'local_height': QQ(1)/2},
+    'III*': {'local_height': QQ(2)/3},
+    'II*':  {'local_height': QQ(5)/6},
+    # do not enumerate every I_n* here; handle them generically below
 }
 
-# Helper accessor to avoid repeated indexing elsewhere
 def local_correction_value(symbol):
     """
-    Return the QQ local height correction for Kodaira symbol `symbol`.
-    Raises KeyError for unknown symbols to force explicit handling.
+    Resolve local height correction for Kodaira symbol `symbol`.
+    - Handles I_n* generically via formula (n + 6) / 12
+    - Returns QQ rational; multiplicative I_n -> 0
+    - Unknown additive symbols produce a warning and a conservative default.
     """
-    meta = FIBER_LOCAL_CORRECTION.get(symbol)
-    if meta is None:
-        raise KeyError(f"No local height correction defined for fiber symbol '{symbol}'")
-    return meta['local_height']
+    if symbol is None:
+        return QQ(0)
+
+    sym = str(symbol).strip()
+
+    # direct explicit table lookup first
+    meta = FIBER_LOCAL_CORRECTION.get(sym)
+    if meta is not None:
+        return meta['local_height']
+
+    # generic I_n* handling: (n + 6)/12
+    m = re.match(r'^I(\d+)\*$', sym)
+    if m:
+        n = int(m.group(1))
+        return QQ(n + 6) / QQ(12)
+
+    # multiplicative I_n (no star) have zero additive correction
+    if re.match(r'^I\d+$', sym):
+        return QQ(0)
+
+    # last resort: warn and pick a conservative default (1/3)
+    warnings.warn(f"local_correction_value: unknown Kodaira symbol '{sym}' -- using fallback correction 1/3")
+    return QQ(1) / QQ(3)
+
 
 
 @PROFILE
