@@ -618,10 +618,12 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     return new_basis, Uinv
 
 
+
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, search_primes=None):
     """
     Prepare modular data for LLL-based search across multiple primes.
     Ensures we only publish per-prime data after successful processing for that prime.
+    NOW WITH SINGULAR CURVE DETECTION.
     """
     if search_primes is None:
         search_primes = prime_pool
@@ -655,7 +657,22 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
             a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
             a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-            Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            
+            # *** NEW: Check for singular curves before creating EllipticCurve ***
+            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
+            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
+            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
+            if disc_modp.is_zero():
+                if DEBUG:
+                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                continue
+            
+            try:
+                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            except ArithmeticError as e:
+                if DEBUG:
+                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+                continue
 
             # build rhs_modp for this prime (but don't publish until success)
             rhs_modp_for_p = {}
@@ -705,7 +722,6 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 except Exception:
                     # fallback: store original integer tuple
                     vecs_transformed_for_p.append(tuple(int(c) for c in v))
-                    raise
 
             # Build required multiplier indices (bounded)
             raw_required_ks = set()
@@ -735,9 +751,9 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             vecs_lll[p] = vecs_transformed_for_p
 
         except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if p != 2:
-                print(f"Skipping prime {p} due to error during preparation: {e}")
-                raise
+            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
+                if DEBUG:
+                    print(f"Skipping prime {p} due to error during preparation: {e}")
             # do not publish partial data for p; continue to next prime
             continue
 

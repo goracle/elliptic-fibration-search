@@ -141,8 +141,12 @@ TERMINATE_WHEN_6 = 12
 # genus 3 test curve
 COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(0), QQ(0), QQ(2), QQ(0), QQ(-4), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4
+TERMINATE_WHEN_6 = 4 # only 3 points, but set to 4 to demonstrate the search
 
+#Y² = -20x^7 - 15x^6 - 10x^5 - 5x^4 + 4x^3 + 3x^2 + 2x + 1
+COEFFS_GENUS2 = [QQ(-20), QQ(-15), QQ(-10), QQ(-5), QQ(4), QQ(3), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 4 # only 3 points, but set to 4 to demonstrate the search
 
 
 ##### END TEST CURVES ######
