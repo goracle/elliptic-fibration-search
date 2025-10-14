@@ -20,7 +20,7 @@ from math import gcd
 def parse_hyperelliptic_db_entry(db_string):
     """
     Parse a hyperelliptic curve entry from the MIT database and extract coefficients.
-    
+    https://math.mit.edu/~drew/gce_genus3_hyperelliptic.txt    
     Input format: D:N:[f(x),h(x)]
     where the curve is: y^2 + h(x)*y = f(x)
     
@@ -269,6 +269,29 @@ db_entry = '9998993:9998993:[x^7+x^6-4*x^5+x^4+4*x^3-3*x^2-x+1,x^2]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 2
+
+db_entry = '9998809:9998809:[x^7-3*x^6-3*x^5+5*x^4-2*x^3-4*x^2+2*x-1,x^2+x+1]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 2
+
+db_entry='9998659:9998659:[-x^6+3*x^4-7*x^2-12*x-9,x^4+x^3+x^2+x+1]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 3
+
+db_entry = '9998263:9998263:[3*x^7+x^6-3*x^5-2*x^4+10*x^3-12*x^2+5*x-1,x^4+x^2+1]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 2
+
+db_entry = '9998039:9998039:[x^4+2*x^3+x^2+x+1,x^4+x^3+x^2]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 2
+
+
+
 
 
 
