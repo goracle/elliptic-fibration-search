@@ -57,7 +57,7 @@ MAX_ABS_T = 500
 
 EXTRA_PRIME_TARGET_DENSITY = 1e-5   # desired survivor fraction after extras
 EXTRA_PRIME_MAX = 6                 # cap on number of extra primes
-EXTRA_PRIME_SKIP = {2, 3, 5}        # avoid small degenerates
+EXTRA_PRIME_SKIP = {2, 3}        # avoid small degenerates
 EXTRA_PRIME_SAMPLE_SIZE = 300       # sample vectors for stats
 EXTRA_PRIME_MIN_R = 1e-4            # ignore primes with r_p < this
 EXTRA_PRIME_MAX_R = 0.9             # ignore primes with r_p > this
