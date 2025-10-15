@@ -1046,7 +1046,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     max_p = max(base_pool)
     
     log_height = float(log(max(height_bound, 1.0), 2))
-    num_primes_to_add = max(0, int(ceil(1.5 * log_height)))
+    num_primes_to_add = max(0, int(ceil(2.5 * log_height)))
     
     if verbose:
         print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
