@@ -437,12 +437,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             print(f"Base section {i} does not appear to be small order torsion.")
 
     ### Saturation Diagnostics ###
-    run_saturation_checks(cd, current_sections, prime_pool)
+    run_saturation_checks(cd, current_sections, prime_pool[:30])
 
     # --- END: Restored Diagnostic Sections ---
 
     ### Picard Analysis (using corrected prime list) ###
-    ell_candidates = [p for p in prime_pool if p not in cd.bad_primes]
+    ell_candidates = [p for p in prime_pool if p not in cd.bad_primes][:30]
     print(f"\n--- Running Picard-Van Luijk Analysis ---")
     print(f"Using {len(ell_candidates)} good prime candidates for reduction: {ell_candidates}")
 

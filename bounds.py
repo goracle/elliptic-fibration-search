@@ -1046,7 +1046,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     max_p = max(base_pool)
     
     log_height = float(log(max(height_bound, 1.0), 2))
-    num_primes_to_add = max(0, int(ceil(2.5 * log_height)))
+    num_primes_to_add = max(0, int(ceil(1.5 * log_height)))
     
     if verbose:
         print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
@@ -1077,14 +1077,14 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
                                        base_height=100, target_survivors_per_subset=1.0,
                                        base_num_subsets=250, debug=DEBUG):
     """
-    Adaptive subset strategy that also increases NUM_PRIME_SUBSETS as height grows.
+    Adaptive subset strategy that increases NUM_PRIME_SUBSETS as height grows.
     
-    Rationale: If more primes filter better, we still want enough subsets to explore
-    the configuration space. A denser prime pool used in smaller subsets can be as
-    powerful as a sparser pool in larger subsets, but we need more of them.
+    Subset sizes are fixed at [3, 9] (empirically optimal for this search method):
+    - Minimum 3: Below this, residue product filtering is too sparse
+    - Maximum 9: Above this, compute overhead and diminishing returns dominate
     
     Args:
-        prime_pool (list): Primes to use (ideally from adaptive_prime_pool_for_height_bound)
+        prime_pool (list): Primes to use
         residue_counts (dict): {p: count_of_roots_mod_p}
         height_bound (float): The HEIGHT_BOUND parameter
         base_height (float): Reference height (default 100)
@@ -1095,8 +1095,8 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     Returns:
         dict with keys:
           - 'num_subsets': Recommended number of subsets
-          - 'min_size': Min size of subsets
-          - 'max_size': Max size of subsets
+          - 'min_size': Min size of subsets (fixed at 3)
+          - 'max_size': Max size of subsets (fixed at 9)
           - 'adjustment_factor': How much we scaled num_subsets relative to base
     """
     height_ratio = float(height_bound) / float(max(base_height, 1.0))
@@ -1104,19 +1104,8 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     new_num_subsets = max(base_num_subsets, int(round(base_num_subsets * subset_scale)))
     new_num_subsets = min(new_num_subsets, 2000)
     
-    pool_size = len(prime_pool)
-    
-    if pool_size <= 30:
-        min_size, max_size = 3, 7
-    elif pool_size <= 50:
-        min_size, max_size = 4, 9
-    else:
-        min_size, max_size = 5, 11
-    
-    min_size = min(min_size, pool_size)
-    max_size = min(max_size, pool_size)
-    if min_size > max_size:
-        min_size, max_size = max_size, min_size
+    min_size = 3
+    max_size = 9
     
     adjustment = new_num_subsets / float(base_num_subsets)
     
@@ -1124,7 +1113,7 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
         print(f"[adaptive_subsets] height_bound={height_bound}, height_ratio={height_ratio:.2f}")
         print(f"[adaptive_subsets] subset_scale={subset_scale:.2f}, adjustment={adjustment:.2f}x")
         print(f"[adaptive_subsets] num_subsets: {base_num_subsets} -> {new_num_subsets}")
-        print(f"[adaptive_subsets] subset sizes: [{min_size}, {max_size}]")
+        print(f"[adaptive_subsets] subset sizes: fixed at [{min_size}, {max_size}]")
     
     return {
         'num_subsets': new_num_subsets,
