@@ -1102,7 +1102,7 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     height_ratio = float(height_bound) / float(max(base_height, 1.0))
     subset_scale = float(log(max(height_ratio, 1.0), 2))
     new_num_subsets = max(base_num_subsets, int(round(base_num_subsets * subset_scale)))
-    new_num_subsets = min(new_num_subsets, 2000)
+    #new_num_subsets = min(new_num_subsets, 2000)
     
     min_size = 3
     max_size = 9
