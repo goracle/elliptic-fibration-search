@@ -1014,6 +1014,65 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
     }
 
 
+def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verbose=DEBUG):
+    """
+    Aggressively expand prime pool based on HEIGHT_BOUND.
+    
+    Principled approach: False positives from CRT grow as ~height_bound^α where α ≈ 1.5-2
+    (from 2D lattice enumeration × RHS evaluation). True solutions decay as ~1/n.
+    To maintain constant true-to-false ratio, filtering power must scale as α*log(height_bound).
+    
+    Each prime contributes ~log(p) bits of filtering. So we need:
+        num_primes_to_add ≈ 1.5 * log2(height_bound)
+    
+    This is principled from information-theoretic filtering bounds.
+    
+    Args:
+        base_pool (list): Initial prime list
+        height_bound (float): HEIGHT_BOUND parameter
+        base_height (float): Reference height (default 100)
+        verbose (bool): Print diagnostics
+    
+    Returns:
+        dict with keys:
+          - 'pool': Extended prime pool
+          - 'num_primes_added': Primes added
+          - 'scale_factor': Ratio of final to base pool size
+    """
+    if not base_pool:
+        base_pool = list(primes(200))[:30]
+    
+    base_size = len(base_pool)
+    max_p = max(base_pool)
+    
+    log_height = float(log(max(height_bound, 1.0), 2))
+    num_primes_to_add = max(0, int(ceil(1.5 * log_height)))
+    
+    if verbose:
+        print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
+        print(f"[adaptive_height] requesting +{num_primes_to_add} primes (1.5 * log scaling)")
+    
+    extended_pool = list(base_pool)
+    p = next_prime(max_p)
+    for _ in range(num_primes_to_add):
+        extended_pool.append(int(p))
+        p = next_prime(p)
+    
+    num_added = len(extended_pool) - base_size
+    scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
+    
+    if verbose:
+        print(f"[adaptive_height] added {num_added} primes -> final pool size {len(extended_pool)}")
+        print(f"[adaptive_height] scale_factor = {scale_factor:.2f}x")
+        print(f"[adaptive_height] final pool: up to {max(extended_pool)}")
+    
+    return {
+        'pool': extended_pool,
+        'num_primes_added': num_added,
+        'scale_factor': scale_factor,
+    }
+
+
 def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
                                        base_height=100, target_survivors_per_subset=1.0,
                                        base_num_subsets=250, debug=DEBUG):
@@ -1180,12 +1239,9 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             print(f"[auto_cfg] Galois degree estimation failed: {e}")
         galois_degree = None
 
-    adapt_result = adaptive_prime_pool_by_survivor_density(
-        pool_filtered, residue_counts,
-        target_survivors_per_subset=50,
-        typical_subset_size=5,
-        num_vectors=len(vecs) if 'vecs' in locals() else 12,
-        verbose=debug
+    adapt_result = adaptive_prime_pool_by_height(
+        pool_filtered, height_bound,
+        base_height=base_height_bound, verbose=debug
     )
     pool_adapted = adapt_result['pool']
 
