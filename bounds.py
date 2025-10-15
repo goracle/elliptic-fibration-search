@@ -827,19 +827,21 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     return ret
 
 
-def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts, base_height=100, verbose=DEBUG):
+def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts, base_height=100, galois_degree=None, verbose=DEBUG):
     """
-    Scales prime pool size (and optionally extends it) based on HEIGHT_BOUND.
+    Scales prime pool size (and optionally extends it) based on HEIGHT_BOUND and Galois complexity.
     
     Key insight: As HEIGHT_BOUND grows, the number of spurious m-candidates via CRT 
     grows (false positives from sparse priming). To maintain filtering power, we need 
-    roughly O(log(HEIGHT_BOUND)) more primes or a denser subset coverage.
+    roughly O(log(HEIGHT_BOUND)) more primes. If the discriminant polynomial is 
+    Galois-complex (large splitting field degree), increase growth slightly.
     
     Args:
         base_pool (list): Initial prime list (e.g., from bounds.recommend_and_update_prime_pool)
         height_bound (float): The HEIGHT_BOUND parameter (controls max n in [n]P)
         residue_counts (dict): {p: count_of_roots_mod_p} from compute_residue_counts_for_primes
         base_height (float): Reference height at which base_pool was calibrated (default 100)
+        galois_degree (int, optional): Estimated splitting field degree of discriminant polynomial
         verbose (bool): Print diagnostics
     
     Returns:
@@ -857,11 +859,18 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
     
     height_ratio = float(height_bound) / float(max(base_height, 1.0))
     log_scale = float(log(max(height_ratio, 1.0), 2))
-    num_primes_to_add = max(0, int(ceil(2 * log_scale)))
+    
+    galois_factor = 1.0
+    if galois_degree is not None and galois_degree > 100:
+        galois_factor = 1.0 + 0.3 * float(log(galois_degree)) / 100.0
+    
+    num_primes_to_add = max(0, int(ceil(2 * log_scale * galois_factor)))
     
     if verbose:
         print(f"[adaptive_pool] height_bound={height_bound}, base_height={base_height}")
         print(f"[adaptive_pool] height_ratio={height_ratio:.2f}, log_scale={log_scale:.2f}")
+        if galois_degree is not None:
+            print(f"[adaptive_pool] galois_degree={galois_degree}, galois_factor={galois_factor:.3f}")
         print(f"[adaptive_pool] requesting +{num_primes_to_add} primes beyond base pool of size {base_size}")
     
     extended_pool = list(base_pool)
@@ -921,7 +930,7 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
           - 'adjustment_factor': How much we scaled num_subsets relative to base
     """
     height_ratio = float(height_bound) / float(max(base_height, 1.0))
-    subset_scale = sqrt(height_ratio)
+    subset_scale = float(log(max(height_ratio, 1.0), 2))
     new_num_subsets = max(base_num_subsets, int(round(base_num_subsets * subset_scale)))
     new_num_subsets = min(new_num_subsets, 2000)
     
@@ -990,6 +999,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     if debug:
         print("[auto_cfg] starting prime pool size:", len(src_pool))
 
+    galois_degree = None
     try:
         pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
                                                         run_heavy=True, debug=debug,
@@ -1045,9 +1055,18 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             print(f"[auto_cfg] residue count computation failed: {e}")
         residue_counts = {p: max(1, p // 4) for p in pool_filtered}
 
+    try:
+        SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
+        galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
+        galois_degree = galois_diag.get('splitting_field_degree_est')
+    except Exception as e:
+        if debug:
+            print(f"[auto_cfg] Galois degree estimation failed: {e}")
+        galois_degree = None
+
     adapt_result = adaptive_prime_pool_for_height_bound(
         pool_filtered, height_bound, residue_counts,
-        base_height=base_height_bound, verbose=debug
+        base_height=base_height_bound, galois_degree=galois_degree, verbose=debug
     )
     pool_adapted = adapt_result['pool']
 
