@@ -368,7 +368,7 @@ TERMINATE_WHEN_6 = 12
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
 
-HEIGHT_BOUND = 370 # not that important, mostly, it seems
+HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 
 # prime config
 # magic prime settings, chosen empirically.
