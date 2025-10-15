@@ -1165,6 +1165,11 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         if debug:
             print(f"[auto_cfg] residue count computation failed: {e}")
         residue_counts = {p: max(1, p // 4) for p in pool_filtered}
+    
+    if debug:
+        sample_primes = pool_filtered[:min(10, len(pool_filtered))]
+        print(f"[auto_cfg] residue_counts sample: {[(p, residue_counts.get(p)) for p in sample_primes]}")
+        print(f"[auto_cfg] residue_counts all: {residue_counts}")
 
     try:
         SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
