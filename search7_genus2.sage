@@ -358,6 +358,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
         iteration += 1
 
     # --- START: Restored Diagnostic Sections ---
+    sys.exit()
 
     ### test that the base point is found by the search
     xtest = base_pts[0][0]  # This is the shifted x (equals r)
@@ -442,7 +443,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     # --- END: Restored Diagnostic Sections ---
 
     ### Picard Analysis (using corrected prime list) ###
-    ell_candidates = [p for p in prime_pool if p not in cd.bad_primes][:30]
+    ell_candidates = [p for p in prime_pool if p not in cd.bad_primes][:10]
     print(f"\n--- Running Picard-Van Luijk Analysis ---")
     print(f"Using {len(ell_candidates)} good prime candidates for reduction: {ell_candidates}")
 
