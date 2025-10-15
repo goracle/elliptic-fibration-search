@@ -694,7 +694,7 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
 
 
 # === Recommend subset strategy but do not pick magic numbers ===
-def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=2.0,
+def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
                                         num_subsets_hint=250, min_size_hint=3, max_size_hint=9, debug=DEBUG):
     """
     Returns an adaptive plan for subset generation: number of subsets, size ranges, and picks.
@@ -1046,7 +1046,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     max_p = max(base_pool)
     
     log_height = float(log(max(height_bound, 1.0), 2))
-    num_primes_to_add = max(0, int(ceil(10 * log_height)))
+    num_primes_to_add = max(0, int(ceil(5 * log_height)))
     
     if verbose:
         print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
