@@ -23,7 +23,6 @@ from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS
 
 
 
-def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, fudge=10):
     """
     Rough GRH-inspired bound for how large primes might be needed to see all conjugacy classes.
     Returns an integer bound or None if inputs are missing.
@@ -46,7 +45,6 @@ def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, 
 # === Utility and Helper Functions =============================================
 # ==============================================================================
 
-def build_split_poly_from_cd(cd, debug=DEBUG):
     """
     Given a CurveDataExt object, returns a QQ[m] polynomial whose roots are the
     singular fiber m-values (i.e., the numerator of the discriminant Delta).
@@ -71,7 +69,6 @@ def build_split_poly_from_cd(cd, debug=DEBUG):
         raise RuntimeError(f"Could not coerce Delta numerator to QQ['m'] polynomial. Error: {e}")
 
 
-def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
     """
     Computes diagnostics for a Sage polynomial over QQ.
 
@@ -127,7 +124,6 @@ def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
 
 
 
-def choose_primes_for_modulus(prime_pool, B, ascending=True):
     """
     Greedily chooses primes from the pool whose product exceeds B.
     """
@@ -148,7 +144,6 @@ def choose_primes_for_modulus(prime_pool, B, ascending=True):
     return chosen, M
 
 
-def expected_survivors_per_subset(residue_counts, primes):
     """
     Estimates the density of solutions surviving CRT filtering for a given set of primes.
     residue_counts: dict of {prime: num_solutions_mod_prime}.
@@ -161,7 +156,6 @@ def expected_survivors_per_subset(residue_counts, primes):
     return density
 
 
-def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, seed=SEED_INT):
     """
     Generate random, distinct prime subsets of a given size whose product exceeds B.
     """
@@ -191,7 +185,6 @@ def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, 
 
 
 # ---- paste this into bounds.py, replacing the old functions ----
-def modulus_needed_from_canonical_height(h_can, scale_const=2.0, max_modulus=None, debug=DEBUG):
     """
     Safe translation from canonical height h_can to modulus bound B.
     - Uses log-space to avoid math.exp overflow.
@@ -234,7 +227,6 @@ def modulus_needed_from_canonical_height(h_can, scale_const=2.0, max_modulus=Non
     return B
 
 
-def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
                                      target_expected_survivors=1.0,
                                      max_subsets=2000,
                                      max_modulus=None,
@@ -278,7 +270,6 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 
 # Add these functions to bounds.py or search_lll.py
 
-def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None):
     """
     Compute how many residue classes mod p satisfy the search equations.
     Returns dict {p: count} for density estimation.
@@ -331,7 +322,6 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None)
     return residue_counts
 
 
-def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
                                    min_size, max_size, seed=SEED_INT, 
                                    force_full_pool=False):
     """
@@ -371,7 +361,6 @@ def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets,
     return unique_subsets
 
 
-def recommend_subset_strategy_empirical(prime_pool, residue_counts, 
                                        num_subsets=250,
                                        min_size=3, max_size=9):
     """
@@ -423,7 +412,6 @@ def recommend_subset_strategy_empirical(prime_pool, residue_counts,
     }
 
 
-def _worker_splitting_field(poly, q):
     """
     Worker to run in separate process. Puts a tuple (success_flag, result_dict_or_error) in queue q.
     Only basic serializable info returned: degree and discriminant (int) and optional gal_group_order if available.
@@ -458,7 +446,6 @@ def _worker_splitting_field(poly, q):
 
 
 # ==== safe subprocess-based splitting-field helper ====
-def safe_compute_splitting_field_info_subprocess(poly, timeout=30, debug=DEBUG):
     """
     Compute basic splitting-field info by launching a separate Sage process.
     Returns a dict possibly containing keys:
@@ -580,7 +567,6 @@ except Exception:
 
 
 # === Replace recommend_and_update_prime_pool ===
-def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
                                     grh_fudge=10, debug=DEBUG,
                                     update_search_common=False):
     """
@@ -671,7 +657,6 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
 
 # === Better canonical-height estimate from x-height ===
-def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_const=None, debug=DEBUG):
     """
     Conservative estimate of canonical height hat{h} from naive x-height h_x = log max(|num_x|,|den_x|).
     We use the classical heuristic
@@ -701,7 +686,6 @@ def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_c
 
 
 # === Replace modulus_needed_from_canonical_height with safer default scale ===
-def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=None, debug=DEBUG):
     """
     Translate canonical height to modulus bound B:
       log(B) := scale_const * h_can
@@ -738,7 +722,6 @@ def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=Non
 
 
 # === Automatic choice of small primes for Galois signature testing ===
-def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
     """
     Choose small primes from prime_pool (or from small primes list) suitable for mod-p factorization diagnostics.
     Excludes 2,3 and primes dividing leading coefficient / discriminant.
@@ -768,7 +751,6 @@ def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
 
 
 # === Dynamic estimate for tmax ===
-def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=DEBUG):
     """
     Heuristic: tmax should scale mildly with log(B) and inversely with density (smaller density -> larger tmax).
     Formula used:
@@ -789,7 +771,6 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
 
 
 # === Recommend subset strategy but do not pick magic numbers ===
-def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
                                         num_subsets_hint=250, min_size_hint=3, max_size_hint=9, debug=DEBUG):
     """
     Returns an adaptive plan for subset generation: number of subsets, size ranges, and picks.
@@ -843,7 +824,6 @@ def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expec
     }
 
 
-def auto_configure_search(cd, known_pts, prime_pool=None,
                           existing_height_bound=None,
                           max_modulus=10**15,
                           update_search_common=False,
@@ -1025,7 +1005,6 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     return sconf
 
 
-def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     """
     Empirical proxy for Galois/splitting-field complexity.
     Factors poly mod primes and deduplicates factorization patterns.
