@@ -140,8 +140,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
         known_pts = [(pt[0], pt[1]) for pt in base_pts if pt[0] is not None]
 
         # Run auto configuration (defined in bounds.py)
-        #sconf = bounds.auto_configure_search(cd, known_pts, existing_height_bound=HEIGHT_BOUND, debug=True)
         sconf = bounds.auto_configure_search(cd, known_pts, debug=True)
+        #sconf = bounds.auto_configure_search(cd, known_pts, debug=True)
 
         # Extract parameters into local scope
         #height_bound = max(sconf['HEIGHT_BOUND'], HEIGHT_BOUND)
@@ -159,6 +159,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
 
     except Exception as e:
         print("[auto-config] Failed, reverting to static defaults:", e)
+        raise
 
     # 6. Diagnostic check: confirm the modulus capping works safely
     _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0,
