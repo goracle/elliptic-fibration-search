@@ -903,6 +903,88 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
     }
 
 
+def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_survivors_per_subset=50,
+                                            typical_subset_size=5, num_vectors=12, verbose=DEBUG):
+    """
+    Grow prime pool until expected survivors per CRT subset hits a target.
+    
+    Instead of scaling by height heuristics, directly measure: for a random prime subset
+    of size typical_subset_size, what's the expected number of (m, v) pairs surviving CRT?
+    
+    Expected survivors ≈ product_p(residue_count[p] / p) * num_vectors
+    
+    Keep adding primes until this drops to target_survivors_per_subset.
+    
+    Args:
+        base_pool (list): Initial prime list
+        residue_counts (dict): {p: count_of_roots_mod_p}
+        target_survivors_per_subset (float): Target number of survivors per subset
+        typical_subset_size (int): Size of random subsets to sample
+        num_vectors (int): Rough number of search vectors
+        verbose (bool): Print diagnostics
+    
+    Returns:
+        dict with keys:
+          - 'pool': Extended prime pool
+          - 'num_primes_added': Primes added
+          - 'final_expected_survivors': Expected survivors with final pool
+    """
+    if not base_pool:
+        base_pool = list(primes(200))[:30]
+    
+    base_size = len(base_pool)
+    extended_pool = list(base_pool)
+    max_p = max(extended_pool)
+    
+    max_expansion = 30
+    iterations = 0
+    
+    while iterations < max_expansion:
+        densities = []
+        num_samples = 10
+        
+        for _ in range(num_samples):
+            subset = random.sample(extended_pool, min(typical_subset_size, len(extended_pool)))
+            d = 1.0
+            for p in subset:
+                rc = residue_counts.get(p, max(1, p // 4))
+                d *= float(rc) / float(p)
+            densities.append(d)
+        
+        avg_density = sum(densities) / len(densities) if densities else 0.0
+        expected_survivors = avg_density * num_vectors
+        
+        if verbose:
+            print(f"[adaptive_density] pool_size={len(extended_pool)}, avg_density={avg_density:.2e}, "
+                  f"expected_survivors={expected_survivors:.0f}")
+        
+        if expected_survivors <= target_survivors_per_subset:
+            if verbose:
+                print(f"[adaptive_density] target reached. stopping.")
+            break
+        
+        p = next_prime(max_p)
+        extended_pool.append(int(p))
+        max_p = p
+        iterations += 1
+    
+    num_added = len(extended_pool) - base_size
+    scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
+    
+    if verbose:
+        print(f"[adaptive_density] added {num_added} primes -> final pool size {len(extended_pool)}")
+        print(f"[adaptive_density] scale_factor = {scale_factor:.2f}x")
+        print(f"[adaptive_density] final pool: up to {max(extended_pool)}")
+        print(f"[adaptive_density] final expected_survivors per subset: {expected_survivors:.0f}")
+    
+    return {
+        'pool': extended_pool,
+        'num_primes_added': num_added,
+        'scale_factor': scale_factor,
+        'final_expected_survivors': expected_survivors,
+    }
+
+
 def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
                                        base_height=100, target_survivors_per_subset=1.0,
                                        base_num_subsets=250, debug=DEBUG):
@@ -1064,9 +1146,12 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             print(f"[auto_cfg] Galois degree estimation failed: {e}")
         galois_degree = None
 
-    adapt_result = adaptive_prime_pool_for_height_bound(
-        pool_filtered, height_bound, residue_counts,
-        base_height=base_height_bound, galois_degree=galois_degree, verbose=debug
+    adapt_result = adaptive_prime_pool_by_survivor_density(
+        pool_filtered, residue_counts,
+        target_survivors_per_subset=50,
+        typical_subset_size=5,
+        num_vectors=len(vecs) if 'vecs' in locals() else 12,
+        verbose=debug
     )
     pool_adapted = adapt_result['pool']
 
