@@ -13,6 +13,7 @@ from torsion import *
 from nslattice import *
 from yau import *
 from bounds import *
+from selmer import *
 from sympy import symbols, expand
 load('tower.sage')
 
@@ -507,6 +508,23 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     print(f"Total Euler Characteristic: {euler}")
     print(f"Sum of Fiber Contributions (Σ(m_v - 1)): {details['sum_contributions']}")
 
+    # --- After picard_report is computed and printed ---
+
+    print("\n" + "="*70)
+    print("RUNNING 2-SELMER ANALYSIS")
+    print("="*70)
+
+    selmer_results = run_selmer_analysis(
+        cd, 
+        current_sections,
+        picard_report['rho'],
+        rank_guess,
+        verbose=True
+    )
+
+    # Use results for candidate point hunting
+    rank_upper = selmer_results['rank_bounds']['upper']
+    print(f"\n*** Upper bound on S²(E/ℚ) rank: {rank_upper} ***")
 
     # --- Yau-Zaslow Rational Curve Counts ---
     _, chi = compute_euler_and_chi(cd)
