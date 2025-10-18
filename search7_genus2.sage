@@ -325,7 +325,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             print(f"[bounds] Using {len(prime_subsets)} precomputed prime subsets from sconf. Size dist: {dict(sorted(size_dist.items()))}")
 
             # call the modular LLL/subset search with precomputed subsets
-            newly_found_x, new_sections = search_lattice_modp_lll_subsets(
+            newly_found_x, new_sections, precomputed_residues = search_lattice_modp_lll_subsets(
                 cd,
                 current_sections,
                 prime_pool,
@@ -338,6 +338,33 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                 get_y_unshifted_genus2,
                 TMAX
             )
+            if len(newly_found_x) < len(vecs) // 4:
+                if DEBUG:
+                    print("\n[recovery] Low survivor count; attempting targeted recovery...")
+
+                near_misses = detect_near_miss_candidates(
+                    precomputed_residues, 
+                    prime_pool, 
+                    vecs,
+                    coverage_threshold=0.70,
+                    max_candidates=3
+                )
+
+                if near_misses:
+                    print(f"[recovery] Detected {len(near_misses)} near-miss candidates")
+                    recovery_xs = targeted_recovery_search(
+                        cd,
+                        current_sections,
+                        near_misses,
+                        prime_pool,
+                        r_m,
+                        shift,
+                        get_y_unshifted_genus2,
+                        max_abs_t=TMAX,
+                        debug=DEBUG
+                    )
+                    newly_found_x.update(recovery_xs)
+                    print(f"[recovery] Recovery found {len(recovery_xs)} additional point(s)")
         # ***** END MODIFIED SECTION *****
 
 
@@ -358,7 +385,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
         iteration += 1
 
     # --- START: Restored Diagnostic Sections ---
-    sys.exit()
 
     ### test that the base point is found by the search
     xtest = base_pts[0][0]  # This is the shifted x (equals r)
