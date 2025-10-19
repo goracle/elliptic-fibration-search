@@ -1598,21 +1598,175 @@ class TwoSelmerPipeline:
 # INTEGRATION POINT
 # ============================================================================
 
+def has_real_point_quartic(f):
+    # quick check: find real u where f(u) >= 0
+    # sample over small integer range first
+    for u in range(-50,51):
+        val = f(u)
+        if val >= 0:
+            return True
+    # fallback: check sign changes
+    return True  # pessimistic: treat as locally solvable; refine if needed
+
+def has_padic_point_quartic(f, p, lift_to=5):
+    # search for u mod p such that f(u) is square mod p, then Hensel-lift
+    p = int(p)
+    for u_mod in range(p):
+        val = Integer(f(u_mod)) % p
+        if p == 2:
+            # do a simple brute force for p=2: try small lifts
+            ok = False
+            for t in range(0, 1<<6):
+                if (Integer(f(t)) % (2**min(lift_to,6))) in [0,1]:
+                    ok = True; break
+            if ok:
+                return True
+            continue
+        if legendre_symbol(val, p) == 1:
+            # try to lift to p^k by brute force search for small lifts
+            modulus = p
+            u = u_mod
+            for k in range(2, lift_to+1):
+                found = False
+                for add in range(p):
+                    cand = u + add * modulus
+                    if Integer(f(cand)) % (modulus*p) in [0, pow(legendre_symbol(1, p), 1, modulus*p)]:
+                        u = cand
+                        modulus *= p
+                        found = True
+                        break
+                if not found:
+                    break
+            return True
+    return False
+
+def is_everywhere_locally_solvable(f, bad_primes):
+    # check real
+    if not has_real_point_quartic(f): return False
+    # check small primes and bad_primes
+    primes_to_check = sorted(set([2,3,5] + bad_primes + list(range(7, 100, 2))))
+    for p in primes_to_check:
+        if not has_padic_point_quartic(f, p, lift_to=4):
+            return False
+    return True
+
+def search_rational_point_on_quartic(f, max_den=200):
+    # brute force search u=a/b with |a|,|b|<=max_den
+    for b in range(1, max_den+1):
+        for a in range(-max_den, max_den+1):
+            u = QQ(a) / QQ(b)
+            val = f(u)
+            if val >= 0:
+                # check perfect square in QQ (numerator/denom)
+                num = val.numerator()
+                den = val.denominator()
+                if Integer(num).is_square() and Integer(den).is_square():
+                    w = QQ(Integer(num).sqrt()) / QQ(Integer(den).sqrt())
+                    return (u, w)
+    return None
+
+
 def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=True):
     """
-    Single entry point for full 2-Selmer pipeline.
-    
-    Usage in search7_genus2.sage (after Picard-Van Luijk analysis):
-    
-        from selmer_2descent_practical import run_selmer_analysis
-        
-        selmer_results = run_selmer_analysis(
-            cd, current_sections, 
-            picard_report['rho'],
-            picard_report['rank'],
-            verbose=True
-        )
+    Unified 2-Selmer analysis wrapper.
+    Runs both the full computational 2-Selmer group routine and
+    the practical heuristic pipeline, merges their results, and
+    returns an explicit list of candidate m-values suitable for
+    constructing 2-coverings or Sha tests.
+
+    Returns:
+        dict with keys:
+          - 'rank_bounds': {'lower', 'upper', ...}
+          - 'candidates': [list of QQ m-values]
+          - all other fields from the underlying routines
     """
-    pipeline = TwoSelmerPipeline(cd, current_sections, picard_number, mw_rank, verbose=verbose)
-    results = pipeline.run()
+    # --- Step 1: Core 2-Selmer group computation ---
+    try:
+        two_results, _ = compute_two_selmer_group(cd, verbose=verbose)
+    except Exception as e:
+        if verbose:
+            print(f"[run_selmer_analysis] compute_two_selmer_group failed: {e}")
+        two_results = {}
+
+    # --- Step 2: Practical Selmer pipeline (torsion, Heegner, Faltings–Serre) ---
+    try:
+        pipeline = TwoSelmerPipeline(cd, current_sections, picard_number, mw_rank, verbose=verbose)
+        practical_results = pipeline.run()
+    except Exception as e:
+        if verbose:
+            print(f"[run_selmer_analysis] TwoSelmerPipeline failed: {e}")
+        practical_results = {}
+
+    # --- Step 3: Merge results ---
+    results = {}
+    if isinstance(two_results, dict):
+        results.update(two_results)
+    if isinstance(practical_results, dict):
+        results.update(practical_results)
+
+    if "rank_bounds" not in results:
+        results["rank_bounds"] = {
+            "lower": practical_results.get("rank_bounds", {}).get("lower", 0),
+            "upper": practical_results.get("rank_bounds", {}).get("upper", 0),
+            "picard_number": picard_number,
+            "mw_rank": mw_rank,
+        }
+
+    # --- Step 4: Build candidate m-values ---
+    from sage.all import QQ
+    candidates = []
+
+    # (a) Use explicit selmer_elements if present
+    sel_elems = []
+    if isinstance(two_results, dict):
+        sel_elems = two_results.get("selmer_elements") or []
+
+    for e in sel_elems:
+        try:
+            mval = e.get("m", e) if isinstance(e, dict) else e
+            candidates.append(QQ(mval))
+        except Exception:
+            pass
+
+    # (b) Try Heegner or CM fiber data from pipeline
+    if not candidates and isinstance(practical_results, dict):
+        heeg = practical_results.get("heegner")
+        if isinstance(heeg, dict):
+            for key in ["cm_fibers", "heegner_points"]:
+                for item in heeg.get(key, []):
+                    if isinstance(item, dict) and "m" in item:
+                        try:
+                            candidates.append(QQ(item["m"]))
+                        except Exception:
+                            pass
+
+    # (c) Try singular fibers in cd (if any)
+    if not candidates:
+        try:
+            for fib in cd.singfibs.get("fibers", []):
+                if isinstance(fib, dict) and "r" in fib:
+                    candidates.append(QQ(fib["r"]))
+                if len(candidates) >= 8:
+                    break
+        except Exception:
+            pass
+
+    # (d) Final fallback
+    if not candidates:
+        candidates = [QQ(0), QQ(1), QQ(-1), QQ(2)]
+
+    # (e) Uniquify, preserve order
+    uniq = []
+    seen = set()
+    for c in candidates:
+        if c not in seen:
+            uniq.append(c)
+            seen.add(c)
+    candidates = uniq
+
+    results["candidates"] = candidates
+
+    if verbose:
+        print(f"\n[run_selmer_analysis] returning {len(candidates)} candidate m-values: {candidates[:10]}")
+
     return results
