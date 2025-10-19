@@ -1250,15 +1250,17 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     )
 
     try:
-        prime_subsets = generate_diverse_prime_subsets(
+        prime_subsets = generate_diverse_prime_subsets_biased_by_residues(
             prime_pool=pool_adapted,
             residue_counts=residue_counts,
             num_subsets=subset_plan['num_subsets'],
             min_size=subset_plan['min_size'],
             max_size=subset_plan['max_size'],
             seed=SEED_INT,
-            force_full_pool=False
+            force_full_pool=False,
+            debug=debug
         )
+
         prime_subsets = sorted({tuple(sorted(s)) for s in prime_subsets}, key=lambda t: (len(t), t))
         prime_subsets = [list(t) for t in prime_subsets]
     except Exception as e:
@@ -1315,3 +1317,66 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         print(f"  Sample subsets: {prime_subsets[:3]}")
 
     return sconf
+
+def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts, num_subsets, 
+                                                      min_size, max_size, seed=SEED_INT, 
+                                                      force_full_pool=False, debug=DEBUG):
+    """
+    Generate diverse prime subsets with varying sizes, biased by residue counts.
+    
+    Primes with more roots (larger residue_counts[p]) are weighted higher in random sampling.
+    This increases the likelihood that generated subsets will produce CRT survivors.
+    
+    Args:
+        prime_pool (list): Available primes
+        residue_counts (dict): {p: num_roots_mod_p} for weighting
+        num_subsets (int): Number of subsets to generate
+        min_size (int): Minimum subset size
+        max_size (int): Maximum subset size
+        seed (int): Random seed for reproducibility
+        force_full_pool (bool): If True, always include the full pool as one subset
+        debug (bool): Print diagnostics
+    
+    Returns:
+        list of lists: Prime subsets, each sorted
+    """
+    import random
+    random.seed(seed)
+    
+    subsets = []
+    
+    if force_full_pool:
+        subsets.append(list(prime_pool))
+    
+    remaining = num_subsets - (1 if force_full_pool else 0)
+    
+    # Compute weights: use residue count as weight, with fallback
+    weights = []
+    for p in prime_pool:
+        w = residue_counts.get(p, max(1, p // 4))
+        weights.append(float(w))
+    
+    if debug:
+        sample_primes = prime_pool[:min(5, len(prime_pool))]
+        sample_weights = [weights[prime_pool.index(p)] for p in sample_primes]
+        print(f"[generate_diverse_biased] Sample weights for first 5 primes: {list(zip(sample_primes, sample_weights))}")
+    
+    # Generate subsets using weighted random sampling
+    for _ in range(remaining):
+        size = random.randint(min_size, min(max_size, len(prime_pool)))
+        subset = tuple(sorted(random.choices(prime_pool, weights=weights, k=size)))
+        subsets.append(subset)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_subsets = []
+    for s in subsets:
+        if s not in seen:
+            seen.add(s)
+            unique_subsets.append(list(s))
+    
+    if debug:
+        print(f"[generate_diverse_biased] Generated {len(unique_subsets)} unique subsets from {len(subsets)} attempts")
+        print(f"[generate_diverse_biased] Sample subsets: {unique_subsets[:3]}")
+    
+    return unique_subsets
