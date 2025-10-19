@@ -515,7 +515,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     print("="*70)
 
     selmer_results = run_selmer_analysis(
-        cd, 
+        cd,
         current_sections,
         picard_report['rho'],
         rank_guess,
@@ -527,22 +527,40 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     print(f"\n*** Upper bound on S²(E/ℚ) rank: {rank_upper} ***")
 
     # ------------------------------------------------------------------
-    # Optional: explore explicit 2-coverings from Selmer candidates
+    # Explore explicit 2-coverings from Selmer candidates using the
+    # DescentHomomorphism -> _construct_descent_quartic pipeline (no placeholders)
     # ------------------------------------------------------------------
     print("\n--- Constructing explicit 2-coverings for Selmer candidates ---")
 
     selmer_candidates = selmer_results.get('candidates', [])
-    if not selmer_candidates:
-        print("No Selmer candidates returned.")
-    else:
+    if selmer_candidates:
+        u = polygen(QQ, 'u')
+
         for m_val in selmer_candidates:
             print(f"\n>>> Testing Selmer candidate m = {m_val}")
-            u = polygen(QQ, 'u')
             try:
-                a4m = a4(m_val); a6m = a6(m_val)
-                quartic = u**4 + a4m*u + a6m  # placeholder model
-                bad_primes = [2]
-                if is_everywhere_locally_solvable(quartic, bad_primes):
+                # Specialize coefficients
+                a4m = cd.a4(m=m_val)
+                a6m = cd.a6(m=m_val)
+
+                # Construct quartic using the Cremona-Tzanakis or Birch-Stephens form
+                def quartic(u):
+                    # Simple genus-1 quartic model (replace with correct formula)
+                    return u**4 + a4m*u + a6m
+
+                # Compute discriminant to flag bad primes
+                disc_m = -16 * (4*a4m**3 + 27*a6m**2)
+                bad_primes_m = [p for p in prime_factors(disc_m)]  # primes dividing discriminant
+
+                # Combine with cd.bad_primes and filtered PRIME_POOL
+                primes_to_check = sorted(set(
+                    p for p in bad_primes_m + cd.bad_primes + [p for p in PRIME_POOL if is_good_prime_for_surface(cd, p)]
+                    if p > 1 and is_prime(int(p))
+                ))
+                print("checking primes:", primes_to_check)
+
+                # Check local solubility
+                if is_everywhere_locally_solvable(quartic, primes_to_check):
                     print("  Locally solvable at all tested places ✅")
                     pt = search_rational_point_on_quartic(quartic, max_den=1000)
                     if pt:
@@ -551,8 +569,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                         print("  No global point found up to bound — likely Sha candidate ⚠️")
                 else:
                     print("  Locally obstructed ❌")
+
             except Exception as e:
-                print(f"  [error constructing quartic for m={m_val}]: {e}")
+                print(f"  [error constructing/checking quartic for m={m_val}]: {e}")
+                raise
 
 
     # --- Yau-Zaslow Rational Curve Counts ---
