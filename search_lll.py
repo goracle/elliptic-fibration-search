@@ -488,48 +488,6 @@ def reduce_point_hom(P, Ep, p_mod):
 
 
 
-def compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS):
-    """
-    Compute k*Pi for all k in required_ks.
-    Uses memoization: if we've already computed 2*Pi, reuse it for 4*Pi = 2*(2*Pi).
-    """
-    mults = {}
-    computed = {0: Pi.curve()(0), 1: Pi}  # Start with 0 and 1
-    
-    # Sort by absolute value to compute small multiples first
-    sorted_ks = sorted(required_ks, key=abs)
-    
-    for k in sorted_ks:
-        if k in computed:
-            mults[k] = computed[k]
-            continue
-        
-        abs_k = abs(k)
-        
-        # Try to build from smaller multiples (binary decomposition)
-        # E.g., 7*Pi = 4*Pi + 2*Pi + Pi if 4 and 2 are already computed
-        if abs_k // 2 in computed:
-            half_k = abs_k // 2
-            base = computed[half_k]
-            if abs_k % 2 == 0:
-                result = base + base  # double
-            else:
-                result = base + base + Pi  # 2*(k//2) + Pi
-            
-            if k < 0:
-                result = -result
-            computed[k] = result
-            mults[k] = result
-        else:
-            # Fallback: direct computation
-            try:
-                mults[k] = k * Pi
-                computed[k] = mults[k]
-            except Exception:
-                pass
-    
-    return mults
-
 def _get_coeff_data(poly):
     """Helper to safely extract coefficient list and degree from a polynomial-like object."""
     if hasattr(poly, 'list') and hasattr(poly, 'degree'):
@@ -794,7 +752,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             mults = [{} for _ in range(r)]
             for i_sec in range(r):
                 Pi = new_basis[i_sec]
-                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS)
+                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS, debug=(r>1))
 
                 #for k in required_ks:
                 #    try:
@@ -2322,6 +2280,52 @@ def _assert_rhs_consistency(precomputed_residues, prime_pool, vecs, num_rhs_fns,
             f"Found {len(errors)} error(s). See output above for details."
         )
 
+def compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS, debug=False):
+    mults = {}
+    computed = {0: Pi.curve()(0), 1: Pi}
+    
+    sorted_ks = sorted(required_ks, key=abs)
+    
+    for i, k in enumerate(sorted_ks):
+        if debug and i % 10 == 0:
+            print(f"  [mults] Computing k={k} ({i}/{len(sorted_ks)})", flush=True)
+        
+        if k in computed:
+            mults[k] = computed[k]
+            continue
+        
+        abs_k = abs(k)
+        
+        if abs_k // 2 in computed:
+            half_k = abs_k // 2
+            base = computed[half_k]
+            if debug:
+                print(f"    [mults] k={k}: building from {half_k}*Pi", flush=True)
+            
+            if abs_k % 2 == 0:
+                if debug:
+                    print(f"      [mults] Doubling {half_k}*Pi...", flush=True)
+                result = base + base
+            else:
+                if debug:
+                    print(f"      [mults] Adding {half_k}*Pi + {half_k}*Pi + Pi...", flush=True)
+                result = base + base + Pi
+            
+            if k < 0:
+                result = -result
+            computed[k] = result
+            mults[k] = result
+        else:
+            if debug:
+                print(f"    [mults] k={k}: direct multiplication", flush=True)
+            try:
+                mults[k] = k * Pi
+                computed[k] = mults[k]
+            except Exception as e:
+                if debug:
+                    print(f"      [mults] Failed: {e}", flush=True)
+    
+    return mults
 
 # ============================================================================
 # Integration point: call this after precomputation completes
