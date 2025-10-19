@@ -8,11 +8,7 @@ Uses your existing infrastructure:
   - diagnostics2.py for Euler characteristic and component analysis
 """
 
-from sage.all import (
-    QQ, ZZ, GF, PolynomialRing, var, sqrt, lcm, gcd,
-    EllipticCurve, matrix, vector, Matrix, crt, primes,
-    floor, ceil
-)
+from sage.all import *
 from functools import lru_cache
 import itertools
 from collections import defaultdict
@@ -117,6 +113,7 @@ class TwoSelmerComputation:
                             self.fibers_by_prime[p].append(fiber)
                             break
                 except:
+                    raise
                     pass
         
         if self.verbose:
@@ -208,6 +205,7 @@ class TwoSelmerComputation:
                 n = int(s[1:]) if len(s) > 1 else 0
                 return 1 if n == 0 else gcd(n, 2)
             except ValueError:
+                raise
                 return 1
         
         # I_n*: c_p = 2 for all n
@@ -282,6 +280,7 @@ class TwoSelmerComputation:
                 m_mod_N = crt(combo, tuple(primes_for_crt))
                 m_candidates.append(m_mod_N)
             except:
+                raise
                 continue
         
         if self.verbose:
@@ -305,6 +304,7 @@ class TwoSelmerComputation:
                         'a6': a6_val
                     })
             except (TypeError, ZeroDivisionError):
+                raise
                 continue
         
         if self.verbose:
@@ -328,6 +328,7 @@ class TwoSelmerComputation:
                 if int(disc_p) % p != 0:
                     valid.append(r)
             except:
+                raise
                 continue
         
         return valid
@@ -341,6 +342,7 @@ class TwoSelmerComputation:
             # Over ℝ, odd-degree cubic always has real root
             return True
         except:
+            raise
             return False
     
     def _estimate_rank_bounds(self):
@@ -527,6 +529,7 @@ class DescentHomomorphism:
             except (TypeError, ZeroDivisionError) as e:
                 if self.verbose:
                     print(f"    Error constructing descent curve for P_{i}: {e}")
+                raise
                 continue
         
         if self.verbose:
@@ -574,6 +577,7 @@ class DescentHomomorphism:
             }
         
         except Exception as e:
+            raise
             return None
     
     def find_kernel(self):
@@ -627,6 +631,7 @@ class DescentHomomorphism:
                 for root in roots:
                     rational_2torsion.append((root, m_test))
             except:
+                raise
                 continue
         
         return rational_2torsion
@@ -695,7 +700,7 @@ class HeegnerPointFinder:
                             'type': 'j=0 (potential CM by ℚ(√-3))'
                         })
                 except:
-                    pass
+                    raise
             
             elif j_target == 1728:
                 # These are singular fibers (from discriminant zeros)
@@ -718,7 +723,7 @@ class HeegnerPointFinder:
                             'type': f'CM fiber (j={j_target})'
                         })
                 except:
-                    pass
+                    raise
         
         if self.verbose:
             print(f"Found {len(self.cm_fibers)} CM fibers")
@@ -776,7 +781,7 @@ class HeegnerPointFinder:
                                     'source': 'CM point (j=0)'
                                 })
                     except:
-                        pass
+                        raise
                 
                 # For all j-values, try to find points via height optimization
                 # (Heegner points are characterized by minimal height in the isogeny class)
@@ -795,9 +800,10 @@ class HeegnerPointFinder:
                                 'source': 'Rank computation at CM fiber'
                             })
                 except:
-                    pass
+                    raise
             
             except (TypeError, ZeroDivisionError):
+                raise
                 continue
         
         if self.verbose:
@@ -949,6 +955,7 @@ class FaltingsSerreBounds:
             bound_from_j = 1 + deg_j
         except:
             bound_from_j = 10  # Conservative fallback
+            raise
         
         return bound_from_j
     
@@ -1183,7 +1190,7 @@ class TwoSelmerPipeline:
                     if disc != 0:
                         rational_2torsion.append((root, m0))
             except:
-                pass
+                raise
         
         return rational_2torsion
     
@@ -1224,7 +1231,7 @@ class TwoSelmerPipeline:
                             'generator_of_rank': True
                         })
             except:
-                pass
+                raise
         
         self.results['heegner'] = {
             'cm_fibers': cm_fibers,
@@ -1246,7 +1253,7 @@ class TwoSelmerPipeline:
             for m0 in a4_zeros:
                 cm_fibers.append({'m': m0, 'j': 0, 'type': 'j=0'})
         except:
-            pass
+            raise
         
         # j = 1728: happens when 4a4³ + 27a6² = 0 (i.e., singular, skip)
         # but nearby fibers have high CM
@@ -1458,7 +1465,7 @@ class TwoSelmerPipeline:
                     if disc != 0:
                         rational_2torsion.append((root, m0))
             except:
-                pass
+                raise
         
         return rational_2torsion
     
@@ -1499,7 +1506,7 @@ class TwoSelmerPipeline:
                             'generator_of_rank': True
                         })
             except:
-                pass
+                raise
         
         self.results['heegner'] = {
             'cm_fibers': cm_fibers,
@@ -1521,7 +1528,7 @@ class TwoSelmerPipeline:
             for m0 in a4_zeros:
                 cm_fibers.append({'m': m0, 'j': 0, 'type': 'j=0'})
         except:
-            pass
+            raise
         
         # j = 1728: happens when 4a4³ + 27a6² = 0 (i.e., singular, skip)
         # but nearby fibers have high CM
@@ -1608,38 +1615,6 @@ def has_real_point_quartic(f):
     # fallback: check sign changes
     return True  # pessimistic: treat as locally solvable; refine if needed
 
-def has_padic_point_quartic(f, p, lift_to=5):
-    # search for u mod p such that f(u) is square mod p, then Hensel-lift
-    p = int(p)
-    for u_mod in range(p):
-        val = Integer(f(u_mod)) % p
-        if p == 2:
-            # do a simple brute force for p=2: try small lifts
-            ok = False
-            for t in range(0, 1<<6):
-                if (Integer(f(t)) % (2**min(lift_to,6))) in [0,1]:
-                    ok = True; break
-            if ok:
-                return True
-            continue
-        if legendre_symbol(val, p) == 1:
-            # try to lift to p^k by brute force search for small lifts
-            modulus = p
-            u = u_mod
-            for k in range(2, lift_to+1):
-                found = False
-                for add in range(p):
-                    cand = u + add * modulus
-                    if Integer(f(cand)) % (modulus*p) in [0, pow(legendre_symbol(1, p), 1, modulus*p)]:
-                        u = cand
-                        modulus *= p
-                        found = True
-                        break
-                if not found:
-                    break
-            return True
-    return False
-
 def is_everywhere_locally_solvable(f, bad_primes):
     # check real
     if not has_real_point_quartic(f): return False
@@ -1666,19 +1641,87 @@ def search_rational_point_on_quartic(f, max_den=200):
     return None
 
 
+def has_padic_point_quartic(f, p, lift_to=5):
+    """
+    Check if quartic f(u) has a p-adic solution, lifting to p^lift_to.
+
+    Works correctly when f(u) returns rational numbers.
+    """
+    p = int(p)
+    if p < 2 or not is_prime(p):
+        return False  # skip non-primes
+    for u_mod in range(p):
+        val = f(u_mod)
+        # reduce val mod p
+        num = val.numerator()
+        den = val.denominator()
+        try:
+            den_inv = inverse_mod(Integer(den), p)
+        except ZeroDivisionError:
+            raise
+            continue  # skip if denominator divisible by p
+        val_mod_p = (Integer(num) * den_inv) % p
+
+        if p == 2:
+            # brute force lift for p=2
+            ok = False
+            modulus = 2
+            for t in range(0, 1 << lift_to):
+                val_t = f(t)
+                num_t = val_t.numerator()
+                den_t = val_t.denominator()
+                try:
+                    den_inv_t = inverse_mod(Integer(den_t), modulus)
+                except ZeroDivisionError:
+                    raise
+                    continue
+                val_mod = (Integer(num_t) * den_inv_t) % modulus
+                if val_mod in [0, 1]:
+                    ok = True
+                    break
+            if ok:
+                return True
+            continue
+
+        if legendre_symbol(val_mod_p, p) == 1:
+            # attempt Hensel lift to higher powers of p
+            modulus = p
+            u = u_mod
+            success = True
+            for k in range(2, lift_to+1):
+                found = False
+                for add in range(p):
+                    cand = u + add * modulus
+                    val_cand = f(cand)
+                    num_cand = val_cand.numerator()
+                    den_cand = val_cand.denominator()
+                    try:
+                        den_inv_cand = inverse_mod(Integer(den_cand), modulus*p)
+                    except ZeroDivisionError:
+                        raise
+                        continue
+                    val_mod = (Integer(num_cand) * den_inv_cand) % (modulus*p)
+                    # check quadratic residue mod p
+                    if legendre_symbol(val_mod % p, p) in [0, 1]:
+                        u = cand
+                        modulus *= p
+                        found = True
+                        break
+                if not found:
+                    success = False
+                    break
+            if success:
+                return True
+    return False
+
 def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=True):
     """
-    Unified 2-Selmer analysis wrapper.
-    Runs both the full computational 2-Selmer group routine and
-    the practical heuristic pipeline, merges their results, and
-    returns an explicit list of candidate m-values suitable for
-    constructing 2-coverings or Sha tests.
+    Unified 2-Selmer analysis wrapper (patched).
 
-    Returns:
-        dict with keys:
-          - 'rank_bounds': {'lower', 'upper', ...}
-          - 'candidates': [list of QQ m-values]
-          - all other fields from the underlying routines
+    Behaviour unchanged except:
+      - use find_singular_fibers(cd) to get fiber data when available
+      - skip symbolic fiber roots (strings containing 'm'/'^' etc.)
+      - do not attempt to coerce symbolic factors into QQ (avoids TypeError)
     """
     # --- Step 1: Core 2-Selmer group computation ---
     try:
@@ -1687,6 +1730,7 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
         if verbose:
             print(f"[run_selmer_analysis] compute_two_selmer_group failed: {e}")
         two_results = {}
+        raise
 
     # --- Step 2: Practical Selmer pipeline (torsion, Heegner, Faltings–Serre) ---
     try:
@@ -1696,6 +1740,7 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
         if verbose:
             print(f"[run_selmer_analysis] TwoSelmerPipeline failed: {e}")
         practical_results = {}
+        raise
 
     # --- Step 3: Merge results ---
     results = {}
@@ -1713,7 +1758,6 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
         }
 
     # --- Step 4: Build candidate m-values ---
-    from sage.all import QQ
     candidates = []
 
     # (a) Use explicit selmer_elements if present
@@ -1726,34 +1770,104 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
             mval = e.get("m", e) if isinstance(e, dict) else e
             candidates.append(QQ(mval))
         except Exception:
-            pass
+            if verbose:
+                print(f"[run_selmer_analysis] skipping selmer element (non-QQ): {e}")
+            raise
+            continue
 
     # (b) Try Heegner or CM fiber data from pipeline
     if not candidates and isinstance(practical_results, dict):
         heeg = practical_results.get("heegner")
         if isinstance(heeg, dict):
-            for key in ["cm_fibers", "heegner_points"]:
+            for key in ("cm_fibers", "heegner_points"):
                 for item in heeg.get(key, []):
                     if isinstance(item, dict) and "m" in item:
                         try:
                             candidates.append(QQ(item["m"]))
                         except Exception:
-                            pass
+                            if verbose:
+                                print(f"[run_selmer_analysis] skipping heegner item (non-QQ): {item}")
+                            raise
 
-    # (c) Try singular fibers in cd (if any)
+    # (c) Try singular fibers in cd (if any) -- use find_singular_fibers and only accept numeric roots
     if not candidates:
         try:
-            for fib in cd.singfibs.get("fibers", []):
-                if isinstance(fib, dict) and "r" in fib:
-                    candidates.append(QQ(fib["r"]))
-                if len(candidates) >= 8:
-                    break
-        except Exception:
-            pass
+            sf_info = None
+            # prefer the dedicated finder if available
+            try:
+                sf_info = find_singular_fibers(cd)
+            except Exception:
+                # fall back to cd.singfibs if present
+                sf_info = getattr(cd, "singfibs", None) or {}
+                # raise # This is a fallback, not an error.
 
+            fibers = sf_info.get("fibers", []) if isinstance(sf_info, dict) else []
+            for fib in fibers:
+                if not isinstance(fib, dict):
+                    continue
+                if "r" not in fib:
+                    continue
+                r = fib["r"]
+
+                # 1. Handle 'inf' string
+                if isinstance(r, str) and r == "inf":
+                    if verbose:
+                        print(f"[run_selmer_analysis] skipping 'inf' fiber root")
+                    continue
+                
+                # 2. Check if it's a symbolic object (like a Polynomial)
+                # We can't check 'm' in str(r) because 'r' might be QQ(5) -> "5"
+                is_symbolic_obj = False
+                if not isinstance(r, (str, int, Integer)):
+                    try:
+                        # Test for Sage's Rational type
+                        _ = QQ(r) 
+                    except TypeError:
+                        # If QQ(r) fails, it's likely symbolic (e.g., Polynomial)
+                        is_symbolic_obj = True
+                    except Exception:
+                        # Other failure
+                        is_symbolic_obj = True
+
+                if is_symbolic_obj:
+                    if verbose:
+                         print(f"[run_selmer_analysis] skipping symbolic fiber root (object type {type(r).__name__}): {str(r)[:80]}")
+                    continue
+
+                # 3. Handle strings
+                if isinstance(r, str):
+                    s = r
+                    # 3a. Symbolic string (contains 'm', '^', or letters)
+                    # We check for letters but exclude 'inf' (which is handled above)
+                    if "m" in s or "^" in s or any(c.isalpha() for c in s if c not in 'inf'):
+                        if verbose:
+                            print(f"[run_selmer_analysis] skipping symbolic fiber root (string): {s[:80]}")
+                        continue
+                    # 3b. String is 'inf' (already handled, but good to double check)
+                    if s == "inf":
+                        continue
+                
+                # 4. At this point, r is (or should be) QQ-coercible
+                # (e.g., int, Integer, QQ, or a simple string like "1/2", "5")
+                try:
+                    q = QQ(r)
+                    candidates.append(q)
+                except Exception:
+                    if verbose:
+                        print(f"[run_selmer_analysis] skipped non-coercible fiber root (type {type(r).__name__}): {str(r)[:80]}")
+                    # Don't raise, just skip this fiber
+                    continue
+
+        except Exception as e:
+            if verbose:
+                print(f"[run_selmer_analysis] error extracting singular fiber m-values: {e}")
+
+            raise
+        
     # (d) Final fallback
     if not candidates:
-        candidates = [QQ(0), QQ(1), QQ(-1), QQ(2)]
+        #candidates = [QQ(0), QQ(1), QQ(-1), QQ(2)]
+        candidates = []
 
     # (e) Uniquify, preserve order
     uniq = []
@@ -1770,3 +1884,7 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
         print(f"\n[run_selmer_analysis] returning {len(candidates)} candidate m-values: {candidates[:10]}")
 
     return results
+
+
+# [DELETED] Removed the entire second, duplicate definition of run_selmer_analysis
+# that was here (from line 2068 to 2234).
