@@ -526,6 +526,35 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     rank_upper = selmer_results['rank_bounds']['upper']
     print(f"\n*** Upper bound on S²(E/ℚ) rank: {rank_upper} ***")
 
+    # ------------------------------------------------------------------
+    # Optional: explore explicit 2-coverings from Selmer candidates
+    # ------------------------------------------------------------------
+    print("\n--- Constructing explicit 2-coverings for Selmer candidates ---")
+
+    selmer_candidates = selmer_results.get('candidates', [])
+    if not selmer_candidates:
+        print("No Selmer candidates returned.")
+    else:
+        for m_val in selmer_candidates:
+            print(f"\n>>> Testing Selmer candidate m = {m_val}")
+            u = polygen(QQ, 'u')
+            try:
+                a4m = a4(m_val); a6m = a6(m_val)
+                quartic = u**4 + a4m*u + a6m  # placeholder model
+                bad_primes = [2]
+                if is_everywhere_locally_solvable(quartic, bad_primes):
+                    print("  Locally solvable at all tested places ✅")
+                    pt = search_rational_point_on_quartic(quartic, max_den=1000)
+                    if pt:
+                        print(f"  Found global rational point: {pt}")
+                    else:
+                        print("  No global point found up to bound — likely Sha candidate ⚠️")
+                else:
+                    print("  Locally obstructed ❌")
+            except Exception as e:
+                print(f"  [error constructing quartic for m={m_val}]: {e}")
+
+
     # --- Yau-Zaslow Rational Curve Counts ---
     _, chi = compute_euler_and_chi(cd)
     if picard_report['rho'] is not None and chi != 1 and False: # skip for RES, trivial # disabled
