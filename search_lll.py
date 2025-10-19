@@ -10,7 +10,8 @@ import sys
 import random
 import itertools
 import multiprocessing
-from math import floor, sqrt, gcd, ceil
+import math
+from math import floor, sqrt, gcd, ceil, log
 from fractions import Fraction
 from functools import reduce, lru_cache, partial
 from operator import mul
@@ -330,7 +331,7 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
             # New: minimize archimedean height in the residue class (cheap local search)
 
             try:
-                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
             except TypeError:
                 # If r_m is not numeric/coercible here, fall back to small neighbors
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
@@ -1421,7 +1422,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
     if not p_subset:
         return set()
 
-    num_extra_primes = 6  # A small number is sufficient, 2 is seemingly optimal.
+    num_extra_primes = 4  # A small number is sufficient, 2 is seemingly optimal.
     offset = 2
     extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
 
@@ -1469,7 +1470,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                     continue
 
                 try:
-                    best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
                 except TypeError:
                     best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
 
@@ -1765,7 +1766,7 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates, prime_p
 
             # Minimize archimedean height in this residue class
             try:
-                best_ms = minimize_archimedean_t(int(m0), int(M), r_m, shift, max_abs_t)
+                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
             except TypeError:
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
 
@@ -1926,6 +1927,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     Processes subsets as they complete (streaming), doesn't early-terminate,
     but batches rationality checks so you see results in real-time.
     """
+    print("prime pool used for search:", prime_pool)
     print("--- Preparing modular data for LLL search ---")
     Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
         cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
@@ -2123,3 +2125,32 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 
     return overall_found
 
+def archimedean_height_of_integer(n):
+    # crude but sufficient proxy for ordering: H(n) ~ log(max(|n|,1))
+    return float(math.log(max(abs(int(n)), 1)))
+
+
+# def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, patience=6):
+def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, max_abs_t):
+    """
+    For r_m(m) = -m - const_C, find t minimizing archimedean height of x = r_m(m) - shift.
+    Returns list of (t, m, x, score) sorted by score (smallest first).
+    """
+    const_C = r_m_func(m=QQ(0))
+    target = - (m0 + const_C + shift) / float(M)
+
+    cand_t = set([math.floor(target), math.ceil(target), int(round(target))])
+
+    # Clamp to allowed range
+    cand_t = {max(-max_abs_t, min(max_abs_t, t)) for t in cand_t}
+
+    results = []
+    for t in sorted(cand_t):
+        m_try = int(m0) + int(t) * int(M)
+        x = -m_try - const_C - shift
+        score = float(math.log(max(abs(x), 1)))
+        results.append((t, m_try, int(x), score))
+
+    # sort by score then by |x|
+    results.sort(key=lambda z: (z[3], abs(z[2])))
+    return results
