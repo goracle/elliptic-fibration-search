@@ -235,59 +235,6 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 
 # Add these functions to bounds.py or search_lll.py
 
-def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None):
-    """
-    Compute how many residue classes mod p satisfy the search equations.
-    Returns dict {p: count} for density estimation.
-    
-    This counts solutions to the quartic polynomial mod p.
-    """
-    from sage.all import PolynomialRing, GF, QQ
-    
-    if max_primes is not None:
-        prime_pool = prime_pool[:max_primes]
-    
-    PR_m = PolynomialRing(QQ, 'm')
-    residue_counts = {}
-    
-    # Process the first RHS (usually sufficient for density estimation)
-    rhs = rhs_list[0] if rhs_list else None
-    if rhs is None:
-        # Fallback: assume uniform distribution
-        return {p: p//4 for p in prime_pool}
-    
-    rhs_num = PR_m(rhs.numerator())
-    rhs_den = PR_m(rhs.denominator())
-    
-    for p in prime_pool:
-        try:
-            # Check if coefficients are p-adic integers
-            if any(QQ(c).denominator() % p == 0 for c in rhs_num.coefficients(sparse=False)):
-                residue_counts[p] = p // 4  # conservative guess
-                continue
-            if any(QQ(c).denominator() % p == 0 for c in rhs_den.coefficients(sparse=False)):
-                residue_counts[p] = p // 4
-                continue
-            
-            Rp = PolynomialRing(GF(p), 'm')
-            
-            # Check if denominator vanishes
-            if rhs_den.change_ring(GF(p)).is_zero():
-                residue_counts[p] = p // 4
-                continue
-            
-            # Count roots of the numerator polynomial mod p
-            rhs_num_p = rhs_num.change_ring(GF(p))
-            roots = rhs_num_p.roots(multiplicities=False)
-            residue_counts[p] = len(roots)
-            
-        except Exception as e:
-            # On any error, use conservative estimate
-            residue_counts[p] = max(1, p // 4)
-    
-    return residue_counts
-
-
 def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
                                    min_size, max_size, seed=SEED_INT, 
                                    force_full_pool=False):
@@ -1380,3 +1327,218 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
         print(f"[generate_diverse_biased] Sample subsets: {unique_subsets[:3]}")
     
     return unique_subsets
+
+
+# ========== Galois + Chebotarev-informed residue estimation ==========
+
+from sage.all import primes, GF, PolynomialRing, QQ
+import math
+import time
+
+def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_primes=50, debug=DEBUG):
+    """
+    Try to obtain Galois group info for `poly` and also produce an empirical
+    estimate of average # linear factors (roots) modulo p by factoring `poly`
+    over several small primes. Returns a dict with keys:
+      - 'galois_group_info' (str) or None
+      - 'galois_group_order' (int) or None
+      - 'avg_roots' (float): empirical average number of roots mod p (>=0)
+      - 'num_primes_tested' (int)
+      - 'unique_patterns' (list) optional factorization patterns seen
+    This is designed to be robust: if Galois-group computation fails or is slow,
+    we still return empirical statistics derived from factoring mod primes.
+    """
+    result = {
+        'galois_group_info': None,
+        'galois_group_order': None,
+        'avg_roots': 0.0,
+        'num_primes_tested': 0,
+        'unique_patterns': []
+    }
+
+    # 1) Try to compute lightweight Galois metadata
+    try:
+        if debug:
+            print("[galois] Attempting poly.galois_group() (may be slow)...")
+        t0 = time.time()
+        G = poly.galois_group()  # often a PermutationGroup; may be expensive
+        if G is not None:
+            try:
+                result['galois_group_info'] = str(G)
+            except Exception:
+                result['galois_group_info'] = repr(G)
+            try:
+                result['galois_group_order'] = int(G.order())
+            except Exception:
+                result['galois_group_order'] = None
+        if debug:
+            print(f"[galois] poly.galois_group() took {time.time()-t0:.2f}s, info={result['galois_group_info']}")
+    except Exception as e:
+        if debug:
+            print(f"[galois] poly.galois_group() failed: {e}")
+        result['galois_group_info'] = None
+        result['galois_group_order'] = None
+
+    # 2) Empirical factorization over small primes to estimate #linear factors
+    if primes_to_test is None:
+        # skip 2, 3 (sometimes pathological) and use a handful of small primes
+        primes_to_test = list(primes(500))[2:2 + max_primes]
+
+    total_roots = 0
+    patterns = set()
+    primes_used = 0
+    PR_QQ = PolynomialRing(QQ, poly.parent().variable_name() if hasattr(poly.parent(), 'variable_name') else 'm')
+
+    deg = int(poly.degree()) if hasattr(poly, 'degree') else None
+
+    for p in primes_to_test:
+        if primes_used >= max_primes:
+            break
+        try:
+            Rp = PolynomialRing(GF(p), poly.parent().variable_name() if hasattr(poly.parent(), 'variable_name') else 'm')
+            poly_mod_p = Rp(poly.change_ring(GF(p)))
+            # skip primes dividing all denominators/coefs if polynomial not integral mod p
+            # factor and count linear factors (roots)
+            fac = poly_mod_p.factor()
+            # count linear factors (degree-1 factors)
+            linear_count = sum(1 for f, mult in fac if f.degree() == 1)
+            total_roots += linear_count
+            # record factor pattern
+            pattern = tuple(sorted([int(f.degree()) for f, mult in fac]))
+            patterns.add(pattern)
+            primes_used += 1
+        except Exception as e:
+            # skip primes where factoring fails (rare)
+            if debug:
+                # keep noise minimal
+                pass
+            continue
+
+    avg_roots = float(total_roots) / max(1, primes_used) if primes_used > 0 else 0.0
+    result['avg_roots'] = avg_roots
+    result['num_primes_tested'] = primes_used
+    result['unique_patterns'] = sorted(patterns)
+
+    if debug:
+        print(f"[galois/empirical] Tested {primes_used} primes -> avg_roots={avg_roots:.4g}, patterns_sample={result['unique_patterns'][:6]}")
+
+    return result
+
+
+def chebotarev_linear_factor_expectation_from_galois_info(galois_info):
+    """
+    Given galois_info from compute_galois_and_empirical_root_stats, attempt to
+    produce an expected number of linear factors (average fixed points) using
+    Galois group data if available. If not available, fall back to empirical avg_roots.
+    """
+    # Prefer empirical statistic (robust)
+    avg_empirical = galois_info.get('avg_roots', 0.0)
+    # If we have explicit Galois group order and (string) info, we might be able
+    # to refine; but enumerating group elements can be expensive and brittle.
+    # For now, return empirical average unless there's a clear reason to override.
+    return float(avg_empirical)
+
+# ========== Updated compute_residue_counts_for_primes using Galois info ==========
+def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None, debug=DEBUG):
+    """
+    Compute how many residue classes mod p satisfy the search equations.
+    Uses the discriminant numerator polynomial (SPLIT_POLY) diagnostics and
+    Chebotarev-inspired empirical statistics to form a safe fallback when
+    direct counting fails.
+
+    Returns dict {p: count} where count is the expected number of residue classes
+    modulo p that make the RHS numerator vanish (an integer typically between 0 and degree).
+    """
+    PR = PolynomialRing(QQ, 'm')
+
+    if max_primes is not None:
+        prime_pool = prime_pool[:max_primes]
+
+    # Determine the polynomial to study: prefer discriminant numerator (singular fibers)
+    try:
+        split_poly = build_split_poly_from_cd(cd, debug=debug)
+        if debug:
+            print(f"[residue_counts] Using split_poly degree={split_poly.degree()}")
+    except Exception as e:
+        if debug:
+            print("[residue_counts] Could not build split_poly from cd; falling back to RHS numerator approach:", e)
+        split_poly = None
+
+    # If split_poly available, compute Galois/empirical stats once to get a fallback avg_roots
+    fallback_avg_roots = 1.0
+    galois_info = {}
+    if split_poly is not None:
+        try:
+            galois_info = compute_galois_and_empirical_root_stats(split_poly, max_primes=min(40, len(prime_pool)), debug=debug)
+            fallback_avg_roots = max(0.0, galois_info.get('avg_roots', 0.0))
+        except Exception as e:
+            if debug:
+                print("[residue_counts] galois/empirical stats failed:", e)
+            fallback_avg_roots = 1.0
+
+    residue_counts = {}
+    # If specific RHS functions are provided, prefer counting their numerator roots mod p
+    # Otherwise, fall back to split_poly's empirical stats
+    rhs = rhs_list[0] if rhs_list else None
+
+    # helper to safe-integerify counts (ensuring at least 0)
+    def safe_count(x):
+        try:
+            xi = int(round(float(x)))
+            return max(0, xi)
+        except Exception:
+            return 0
+
+    for p in prime_pool:
+        try:
+            # Try to compute exact number of roots if we have an RHS numerator
+            if rhs is not None:
+                # Attempt to coerce to polynomial over QQ then reduce mod p
+                try:
+                    rhs_num = PR(rhs.numerator())
+                    rhs_den = PR(rhs.denominator())
+                    # If denominator vanishes mod p, skip and use fallback
+                    den_mod = rhs_den.change_ring(GF(p))
+                    if den_mod.is_zero():
+                        # denominator vanishes identically mod p - fall back
+                        if debug:
+                            print(f"[residue_counts] denom zero mod {p}; using fallback")
+                        residue_counts[p] = max(1, safe_count(round(fallback_avg_roots)))
+                        continue
+
+                    # Now reduce numerator mod p and count roots
+                    num_mod = rhs_num.change_ring(GF(p))
+                    roots = num_mod.roots(multiplicities=False)
+                    residue_counts[p] = len(roots)
+                    continue
+                except Exception as e_inner:
+                    if debug:
+                        # keep terse but useful
+                        print(f"[residue_counts] exact count failed mod {p}: {e_inner}; using fallback")
+                    residue_counts[p] = max(1, safe_count(round(fallback_avg_roots)))
+                    continue
+
+            # If no RHS or exact counting failed, but we have split_poly & empirical avg:
+            if split_poly is not None:
+                # expected number of linear factors approx = fallback_avg_roots (a small float)
+                val = safe_count(round(fallback_avg_roots))
+                # keep at least 1 to be conservative, but cap at degree
+                deg = int(split_poly.degree()) if hasattr(split_poly, 'degree') else 1
+                residue_counts[p] = max(1, min(deg, val if val > 0 else 1))
+            else:
+                # absolute fallback (rare): assume ~1 root on average
+                residue_counts[p] = 1
+
+        except Exception as e:
+            # ultimate fallback to avoid crashing entire pipeline
+            if debug:
+                print(f"[residue_counts] unexpected error for p={p}: {e}")
+            residue_counts[p] = 1
+
+    if debug:
+        sample = list(prime_pool)[:min(10, len(prime_pool))]
+        print("[residue_counts] sample:", [(p, residue_counts.get(p)) for p in sample])
+        if galois_info:
+            print("[residue_counts] galois_info:", {k: galois_info.get(k) for k in ('galois_group_info','galois_group_order','avg_roots')})
+
+    return residue_counts
