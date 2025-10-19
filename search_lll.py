@@ -1925,7 +1925,7 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
 
 
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
-                                         shift, all_found_x, rationality_test_func, max_abs_t,
+                                         shift, all_found_x, num_subsets, rationality_test_func, max_abs_t,
                                          num_workers=8, debug=DEBUG):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
@@ -2001,7 +2001,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         prime_pool=prime_pool,
         precomputed_residues=precomputed_residues,
         vecs=vecs_list,
-        num_subsets=len(prime_pool) * 20,  # Heuristic: ~20 per prime
+        num_subsets=num_subsets,
         min_size=3,
         max_size=9,
         seed=SEED_INT,

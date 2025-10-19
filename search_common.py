@@ -211,11 +211,6 @@ COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
-# prestige curve lol
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
-
 
 # genus 3 test curve
 COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(0), QQ(0), QQ(2), QQ(0), QQ(-4), QQ(0), QQ(1)]
@@ -359,6 +354,11 @@ TERMINATE_WHEN_6 = 4
 COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 12
+
+# prestige curve lol
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 11
 
 
 
