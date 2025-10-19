@@ -325,20 +325,35 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             size_dist = Counter(len(s) for s in prime_subsets)
             print(f"[bounds] Using {len(prime_subsets)} precomputed prime subsets from sconf. Size dist: {dict(sorted(size_dist.items()))}")
 
-            # call the modular LLL/subset search with precomputed subsets
-            newly_found_x, new_sections, precomputed_residues = search_lattice_modp_lll_subsets(
-                cd,
-                current_sections,
-                prime_pool,
-                vecs,
-                search_rhs_list,
-                r_m,
-                shift,
-                all_known_x,
-                prime_subsets,
-                get_y_unshifted_genus2,
-                TMAX
-            )
+            if True:
+                newly_found_x, new_sections, precomputed_residues = search_lattice_modp_unified_parallel(
+                    cd, current_sections,
+                    prime_pool,
+                    vecs,
+                    search_rhs_list,
+                    r_m,
+                    shift,
+                    all_known_x,
+                    get_y_unshifted_genus2,
+                    TMAX
+                    )
+
+            if False:
+                # call the modular LLL/subset search with precomputed subsets
+                newly_found_x, new_sections, precomputed_residues = search_lattice_modp_lll_subsets(
+                    cd,
+                    current_sections,
+                    prime_pool,
+                    vecs,
+                    search_rhs_list,
+                    r_m,
+                    shift,
+                    all_known_x,
+                    prime_subsets,
+                    get_y_unshifted_genus2,
+                    TMAX
+                )
+
             if len(newly_found_x) < len(vecs) // 4:
                 if DEBUG:
                     print("\n[recovery] Low survivor count; attempting targeted recovery...")

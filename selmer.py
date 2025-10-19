@@ -272,12 +272,14 @@ class TwoSelmerComputation:
             return
         
         primes_for_crt = list(local_m_residues.keys())
+        print("DEBUG: primes_for_crt:", primes_for_crt)
         residue_lists = [local_m_residues[p] for p in primes_for_crt]
         
         m_candidates = []
         for combo in itertools.product(*residue_lists):
             try:
-                m_mod_N = crt(combo, tuple(primes_for_crt))
+                print("DEBUG: primes_for_crt:", list(primes_for_crt), combo)
+                m_mod_N = crt(list(combo), list(primes_for_crt))
                 m_candidates.append(m_mod_N)
             except:
                 raise
