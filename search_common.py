@@ -1354,6 +1354,34 @@ def get_y_unshifted_genus2(x):
         return QQ(num.sqrt()) / QQ(den.sqrt())
     return None
 
+@lru_cache(maxsize=None)
+def get_y_unshifted_genus2(x):
+    """
+    Test if x gives a rational y on the genus-2 curve y^2 = G(x).
+    Returns y if rational, None otherwise.
+    """
+    x = QQ(x)
+    
+    # Evaluate G(x) = sum of coeffs * x^i
+    # Horner's method is faster than repeated exponentiation
+    rhs = COEFFS_GENUS2[0]
+    for coeff in COEFFS_GENUS2[1:]:
+        rhs = rhs * x + coeff
+    
+    # Quick checks before expensive square root test
+    num = ZZ(rhs.numerator())
+    den = ZZ(rhs.denominator())
+    
+    if num < 0 or den <= 0:
+        return None
+    
+    # Check if num and den are both perfect squares
+    # Use Sage's is_square() which is optimized
+    if not num.is_square() or not den.is_square():
+        return None
+    
+    return QQ(num.sqrt()) / QQ(den.sqrt())
+
 @PROFILE
 def get_data_pts(known_pts, excluded):
     """
