@@ -1250,15 +1250,15 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     )
 
     try:
-        prime_subsets = generate_diverse_prime_subsets_biased_by_residues(
+
+        prime_subsets = generate_diverse_prime_subsets(
             prime_pool=pool_adapted,
             residue_counts=residue_counts,
             num_subsets=subset_plan['num_subsets'],
             min_size=subset_plan['min_size'],
             max_size=subset_plan['max_size'],
             seed=SEED_INT,
-            force_full_pool=False,
-            debug=debug
+            force_full_pool=False
         )
 
         prime_subsets = sorted({tuple(sorted(s)) for s in prime_subsets}, key=lambda t: (len(t), t))
