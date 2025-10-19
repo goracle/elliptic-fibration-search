@@ -1440,6 +1440,11 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
             # Build residue map for CRT using only roots from the current RHS function
             residue_map_for_crt = {}
             for p in p_subset:
+
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                assert len(roots_for_this_rhs) == num_rhs_fns, \
+                    f"p={p}, v={v_orig_tuple[:2]}: expected {num_rhs_fns} RHS entries, got {len(roots_for_this_rhs)}"
+
                 # precomputed_residues[p][v_tuple] is now a list of sets
                 roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
                 if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
@@ -1481,7 +1486,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                     a, b = rational_reconstruct(m0 % M, M)
                     found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
                 except RationalReconstructionError:
-                    pass
+                    raise
 
     return found_candidates_for_subset
 
@@ -1979,6 +1984,18 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
                                             skip_small=EXTRA_PRIME_SKIP)
     extra_primes_for_filtering = auto_extra_primes
 
+    # Filter out primes with no precomputed data
+    usable_primes = [p for p in prime_pool if p in precomputed_residues and precomputed_residues[p]]
+    if not usable_primes:
+        print("No primes have precomputed residues. Aborting.")
+        return set(), [], precomputed_residues
+
+    if len(usable_primes) < len(prime_pool):
+        if debug:
+            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no data. "
+                f"Using {len(usable_primes)} usable primes.")
+        prime_pool = usable_primes
+
     # Generate prime subsets (biased by coverage)
     prime_subsets = generate_biased_prime_subsets_by_coverage(
         prime_pool=prime_pool,
@@ -2154,3 +2171,108 @@ def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, max_abs_t):
     # sort by score then by |x|
     results.sort(key=lambda z: (z[3], abs(z[2])))
     return results
+
+
+def _assert_rhs_consistency(precomputed_residues, prime_pool, vecs, num_rhs_fns, debug=True):
+    """
+    Validate that precomputed_residues has consistent structure across all primes and vectors.
+    
+    Specifically, for each (prime p, vector v), the entry precomputed_residues[p][v_tuple]
+    must be a list of exactly num_rhs_fns sets (one per RHS function).
+    
+    Raises AssertionError if structure is malformed. This catches silent data corruption
+    from worker failures or incomplete precomputation.
+    
+    Args:
+        precomputed_residues (dict): {p: {v_tuple: [roots_set_0, roots_set_1, ...]}}
+        prime_pool (list): All primes that should have entries
+        vecs (list): All search vectors
+        num_rhs_fns (int): Expected number of RHS functions (length of inner lists)
+        debug (bool): Print diagnostics before asserting
+    
+    Raises:
+        AssertionError: If any inconsistency is found
+    """
+    errors = []
+    
+    # Check: every prime in prime_pool should be in precomputed_residues
+    missing_primes = [p for p in prime_pool if p not in precomputed_residues]
+    if missing_primes:
+        errors.append(f"Missing primes in precomputed_residues: {missing_primes[:5]}{'...' if len(missing_primes) > 5 else ''}")
+    
+    # Check: for each prime p that exists, verify structure
+    for p in precomputed_residues:
+        p_data = precomputed_residues[p]
+        
+        if not isinstance(p_data, dict):
+            errors.append(f"Prime p={p}: expected dict, got {type(p_data)}")
+            continue
+        
+        # Sample a few vectors to avoid O(n*m) validation time
+        sample_vecs = vecs[:min(5, len(vecs))]
+        for v in sample_vecs:
+            v_tuple = tuple(v)
+            
+            if v_tuple not in p_data:
+                # Missing vector is OK (can happen if prep failed), but log it
+                continue
+            
+            roots_list = p_data[v_tuple]
+            
+            # roots_list must be a list (or tuple) of exactly num_rhs_fns sets
+            if not isinstance(roots_list, (list, tuple)):
+                errors.append(f"Prime p={p}, vector {v_tuple[:2]}...: expected list/tuple, got {type(roots_list)}")
+                continue
+            
+            if len(roots_list) != num_rhs_fns:
+                errors.append(
+                    f"Prime p={p}, vector {v_tuple[:2]}...: "
+                    f"expected {num_rhs_fns} RHS entries, got {len(roots_list)}"
+                )
+                continue
+            
+            # Each entry should be a set (or frozenset) of integers
+            for rhs_idx, roots_set in enumerate(roots_list):
+                if not isinstance(roots_set, (set, frozenset)):
+                    errors.append(
+                        f"Prime p={p}, vector {v_tuple[:2]}..., RHS {rhs_idx}: "
+                        f"expected set, got {type(roots_set)}"
+                    )
+                    continue
+                
+                # Spot-check: all elements should be integers in [0, p)
+                for root in roots_set:
+                    if not isinstance(root, (int, Integer)):
+                        errors.append(
+                            f"Prime p={p}, vector {v_tuple[:2]}..., RHS {rhs_idx}: "
+                            f"root {root} is not an integer (type {type(root)})"
+                        )
+                        break
+                    if not (0 <= int(root) < p):
+                        errors.append(
+                            f"Prime p={p}, vector {v_tuple[:2]}..., RHS {rhs_idx}: "
+                            f"root {root} out of range [0, {p})"
+                        )
+                        break
+    
+    # Report and raise
+    if errors:
+        if debug:
+            print("\n" + "="*70)
+            print("RHS CONSISTENCY CHECK FAILED")
+            print("="*70)
+            for i, err in enumerate(errors[:10], 1):
+                print(f"{i}. {err}")
+            if len(errors) > 10:
+                print(f"... and {len(errors) - 10} more errors")
+            print("="*70 + "\n")
+        
+        raise AssertionError(
+            f"precomputed_residues structure is malformed. "
+            f"Found {len(errors)} error(s). See output above for details."
+        )
+
+
+# ============================================================================
+# Integration point: call this after precomputation completes
+# ============================================================================
