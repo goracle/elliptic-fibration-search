@@ -486,6 +486,50 @@ def reduce_point_hom(P, Ep, p_mod):
         raise # should be handled in the can_reduce_point_mod_p function
         return Ep(0)
 
+
+
+def compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS):
+    """
+    Compute k*Pi for all k in required_ks.
+    Uses memoization: if we've already computed 2*Pi, reuse it for 4*Pi = 2*(2*Pi).
+    """
+    mults = {}
+    computed = {0: Pi.curve()(0), 1: Pi}  # Start with 0 and 1
+    
+    # Sort by absolute value to compute small multiples first
+    sorted_ks = sorted(required_ks, key=abs)
+    
+    for k in sorted_ks:
+        if k in computed:
+            mults[k] = computed[k]
+            continue
+        
+        abs_k = abs(k)
+        
+        # Try to build from smaller multiples (binary decomposition)
+        # E.g., 7*Pi = 4*Pi + 2*Pi + Pi if 4 and 2 are already computed
+        if abs_k // 2 in computed:
+            half_k = abs_k // 2
+            base = computed[half_k]
+            if abs_k % 2 == 0:
+                result = base + base  # double
+            else:
+                result = base + base + Pi  # 2*(k//2) + Pi
+            
+            if k < 0:
+                result = -result
+            computed[k] = result
+            mults[k] = result
+        else:
+            # Fallback: direct computation
+            try:
+                mults[k] = k * Pi
+                computed[k] = mults[k]
+            except Exception:
+                pass
+    
+    return mults
+
 def _get_coeff_data(poly):
     """Helper to safely extract coefficient list and degree from a polynomial-like object."""
     if hasattr(poly, 'list') and hasattr(poly, 'degree'):
@@ -742,16 +786,22 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             if not required_ks:
                 required_ks = set(range(-3, 4))
 
+            # debug the 2pt fibrations, which hang on the mults
+            if r > 1:
+                print("p, max k:", p, max(required_ks))
+
             # compute multiples for this prime (exact arithmetic)
             mults = [{} for _ in range(r)]
             for i_sec in range(r):
                 Pi = new_basis[i_sec]
-                for k in required_ks:
-                    try:
-                        mults[i_sec][k] = k * Pi
-                    except Exception:
+                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS)
+
+                #for k in required_ks:
+                #    try:
+                #        mults[i_sec][k] = k * Pi # 2pt fibrations hang here
+                #    except Exception:
                         # skip multipliers that fail for this prime
-                        continue
+               #         continue
 
             # Success for this prime -> publish all data
             Ep_dict[p] = Ep_local
