@@ -311,11 +311,6 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 2
 
-db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
 db_entry = '9995673:9995673:[-x^7+4*x^6-7*x^5+4*x^4-x^3-2*x^2,x^3+x+1]'
 db_entry = '9996294:9996294:[2*x^8+x^6-6*x^5+2*x^2-2*x,x^3+x+1]'
 db_entry = '9995549:9995549:[x^8+3*x^7+2*x^6+x^5+3*x^4+x^3+x,x]'
@@ -353,13 +348,18 @@ TERMINATE_WHEN_6 = 11
 db_entry = '9994635:3331545:[x^7+2*x^6-x^5+8*x^3+3*x^2-5*x-2,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4 # fast
+TERMINATE_WHEN_6 = 4
 
 db_entry = '9995456:2498864:[2*x^7-4*x^6-5*x^5+10*x^4+5*x^3-8*x^2-3*x+1,x^2+x]'
 db_entry = '9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 5 # slow
+TERMINATE_WHEN_6 = 5
+
+db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 3
 
 
 ##### END TEST CURVES ######
