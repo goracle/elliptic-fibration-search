@@ -13,9 +13,9 @@ from multiprocessing import TimeoutError
 from sage.all import (
     QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor,
     Curve, Jacobian, EllipticCurve, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
-    is_prime, Integer
+    is_prime, Integer, log
 )
-from math import gcd
+from math import gcd, log
 
 def parse_hyperelliptic_db_entry(db_string):
     """
@@ -2080,5 +2080,52 @@ def _kodaira_adjacency_and_mv(symbol, m_v):
             except ValueError: n = m_v if m_v else 1
             return _adjacency_In(n), n
     return {}, m_v if m_v is not None else 1
+
+# Add this helper function near the top of search_common.py
+# (Ensure necessary imports like QQ, Integer, log, math are present)
+import math
+
+def point_height(pt):
+    """Calculates a simple height for a point (x, y). Uses x-height."""
+    x, y = pt
+    try:
+        # Ensure x is QQ before accessing numerator/denominator
+        x_qq = QQ(x)
+        num = abs(Integer(x_qq.numerator()))
+        den = abs(Integer(x_qq.denominator()))
+        # Use log(max(1, |num|, |den|)) for stability at (0, y) or (1, y) etc.
+        h = float(log(max(1, num, den)))
+        return h
+    except Exception as e:
+        # Handle potential errors during conversion or calculation
+        # Assign effectively infinite height to prioritize valid points
+        print(f"Warning: Could not compute height for point {pt}: {e}")
+        raise
+        return float('inf')
+
+# Replace the existing get_data_pts function with this one:
+@PROFILE
+def get_data_pts(known_pts, excluded):
+    """
+    Gets the next combination of 1, 2, or 3 points for a fibration.
+    Prioritizes combinations made from lower height points first.
+    """
+    # Convert set to list and sort known_pts by height (ascending)
+    # Points with calculation errors will be pushed to the end
+    sorted_pts = sorted(list(known_pts), key=point_height)
+
+    # Iterate through r (number of points in combination: 1, 2, 3)
+    for r in range(1, 4):
+        # Generate combinations from the sorted list.
+        # itertools.combinations preserves the input order, so combinations
+        # using points earlier in the sorted list (lower height) are yielded first.
+        for combo in itertools.combinations(sorted_pts, r):
+            # Check if this combination has already been excluded
+            if frozenset(combo) not in excluded:
+                # Return the first valid combination found
+                return combo
+
+    # If all combinations have been checked and excluded
+    return None
 
 
