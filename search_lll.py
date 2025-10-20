@@ -51,6 +51,7 @@ TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to 
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 MAX_ABS_T = 500
 
+COMBO_CAP = 50000 # too many residues for this prime subset, too many possibilities, modular constraints are too loose
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
@@ -1947,6 +1948,19 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
                 p = random.choices(prime_pool, weights=weights, k=1)[0]
                 if p not in subset:
                     subset.append(p)
+
+                # compute rough explosion estimate
+                est = 1
+                roots_threshold = 12
+                for p in subset:
+                    mapping = precomputed_residues.get(p)
+                    roots_total = sum(len(rl) for roots_lists in mapping.values() for rl in roots_lists) if mapping else 0
+                    if roots_total > roots_threshold:
+                        est *= roots_total
+                if est > COMBO_CAP:
+                    # skip this subset
+                    continue
+
                 attempts += 1
             if len(subset) < size:
                 subset.extend(random.sample([p for p in prime_pool if p not in subset], 
@@ -2286,7 +2300,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     )
 
     # Compute rough explosion estimate and drop pathological subsets
-    combo_cap = 50000
+    combo_cap = COMBO_CAP
     roots_threshold = 12
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
@@ -2374,3 +2388,167 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     new_xs = {pt[0] for pt in sample_pts}
     new_sections = list({s: None for s in new_sections_raw}.keys())
     return new_xs, new_sections, precomputed_residues
+
+
+def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
+                                              num_subsets, min_size, max_size, 
+                                              seed=SEED_INT, force_full_pool=False, debug=DEBUG,
+                                              combo_cap=COMBO_CAP, roots_threshold=12):
+    """
+    Generate diverse prime subsets biased toward high-coverage primes, but skip
+    combinatorially-pathological subsets whose estimated Cartesian-product of
+    roots would exceed combo_cap.
+
+    Arguments and return semantics unchanged from the original function. Two
+    extra optional parameters control the filtering:
+      - combo_cap: maximum allowed rough-product of root-multiplicities per subset
+      - roots_threshold: only multiply primes' root counts into the estimate when
+                         the total roots for that prime exceed this threshold
+
+    REQUIREMENTS:
+      - The module must import 'random' at top level (not inside this function).
+        If 'random' is not available in globals(), this function raises.
+      - compute_prime_coverage(...) must exist and follow the same interface.
+    """
+    # basic assertions
+    assert isinstance(prime_pool, (list, tuple))
+    assert isinstance(vecs, (list, tuple))
+    assert num_subsets >= 1
+    assert 1 <= min_size <= max_size
+    assert max_size <= len(prime_pool)
+
+    # random must be imported at module scope; fail loudly if not
+    if 'random' not in globals():
+        raise ImportError("module 'random' must be imported at module scope (add 'import random' at file top)")
+
+    random.seed(seed)
+
+    # compute coverage per prime (fraction of vectors with at least one root)
+    coverage = compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=debug)
+
+    # build sampling weights from coverage (floor at 0.05)
+    weights = []
+    for p in prime_pool:
+        w = coverage.get(p, 0.0)
+        if w < 0.05:
+            w = 0.05
+        weights.append(w)
+
+    if debug:
+        total_weight = sum(weights)
+        avg_weight = total_weight / len(weights) if weights else 0
+        print("generate_biased_coverage: avg weight =", avg_weight, "min =", min(weights), "max =", max(weights))
+
+    subsets = []
+    if force_full_pool:
+        subsets.append(list(prime_pool))
+
+    remaining = num_subsets - (1 if force_full_pool else 0)
+    if remaining <= 0:
+        # dedupe and return early
+        seen = set()
+        unique = []
+        for s in subsets:
+            t = tuple(sorted(s))
+            if t not in seen:
+                seen.add(t)
+                unique.append(list(t))
+        if debug:
+            print("generate_biased_coverage: Generated", len(unique), "unique subsets")
+        return unique
+
+    # helper to estimate root-product for a candidate subset
+    def _estimate_subset_explosion(subset):
+        est = 1
+        for p in subset:
+            mapping = precomputed_residues.get(p)
+            if not mapping:
+                # no roots for this prime -> this subset is useless (estimate 0)
+                return 0
+            roots_total = 0
+            for roots_lists in mapping.values():
+                for rl in roots_lists:
+                    roots_total += len(rl)
+            if roots_total == 0:
+                return 0
+            # only multiply when prime is sufficiently "loose"
+            if roots_total > roots_threshold:
+                est *= roots_total
+                # short-circuit if est already too large
+                if est > combo_cap:
+                    return est
+        return est
+
+    # produce subsets by weighted sampling, skipping heavy ones
+    max_attempts_per_subset = 200
+    attempts_total = 0
+    for _ in range(remaining):
+        attempts = 0
+        chosen = None
+        while attempts < max_attempts_per_subset:
+            attempts += 1
+            attempts_total += 1
+            size = random.randint(min_size, min(max_size, len(prime_pool)))
+
+            # try Python 3.9+ style weighted sample without replacement if available
+            subset = None
+            try:
+                # if Python supports 'random.sample' with 'counts' param this won't raise,
+                # but preserve the fallback logic below for older Pythons.
+                subset = random.sample(prime_pool, k=size)
+            except TypeError:
+                # fallback: weighted draw with deduplication
+                subset = []
+                tries_inner = 0
+                while len(subset) < size and tries_inner < size * 20:
+                    p = random.choices(prime_pool, weights=weights, k=1)[0]
+                    if p not in subset:
+                        subset.append(p)
+                    tries_inner += 1
+                if len(subset) < size:
+                    # fill remaining deterministically
+                    remaining_primes = [p for p in prime_pool if p not in subset]
+                    need = min(size - len(subset), len(remaining_primes))
+                    if need > 0:
+                        subset.extend(random.sample(remaining_primes, k=need))
+
+            subset = tuple(sorted(subset))
+
+            # estimate explosion and skip if too heavy
+            est = _estimate_subset_explosion(subset)
+            if est == 0:
+                # no modular roots at all -> skip
+                continue
+            if est > combo_cap:
+                # heavy; skip and resample
+                continue
+
+            chosen = list(subset)
+            break
+
+        if chosen is None:
+            # failed to sample a light subset after many attempts; fall back to an unfiltered random subset
+            # (this preserves behavior that we always attempt to fill num_subsets).
+            # keep fallback minimal and obvious.
+            chosen = list(random.sample(prime_pool, k=min(max_size, len(prime_pool))))
+            if debug:
+                print("generate_biased_coverage: fallback subset used after attempts")
+
+        subsets.append(tuple(sorted(chosen)))
+
+    # deduplicate preserving order
+    seen = set()
+    unique_subsets = []
+    for s in subsets:
+        if s not in seen:
+            seen.add(s)
+            unique_subsets.append(list(s))
+
+    if debug:
+        print("generate_biased_coverage: Generated", len(unique_subsets), "unique subsets")
+        if unique_subsets:
+            # show up to 3 samples
+            sample_show = unique_subsets[:3]
+            print("generate_biased_coverage: Sample subsets:", sample_show)
+
+    return unique_subsets
