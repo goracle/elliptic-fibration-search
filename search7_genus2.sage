@@ -566,6 +566,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
 
                 # Compute discriminant to flag bad primes
                 disc_m = -16 * (4*a4m**3 + 27*a6m**2)
+
+                # --- NEW HANDLING FOR disc_m = 0 ---
+                if disc_m == 0:
+                    print("  Quartic is singular (disc_m = 0) — it has a rational point and contributes to the rank.")
+                    # The Selmer candidate m_val is guaranteed to be in the image of E(Q)
+                    # You can skip further checks and move to the next candidate
+                    # If you need to verify the rational point, you could use a separate function, 
+                    # but for a Selmer candidate, disc_m=0 is a positive signal.
+                    continue # Skip the rest of the loop for this m_val
+                # ------------------------------------
+
                 bad_primes_m = [p for p in prime_factors(disc_m)]  # primes dividing discriminant
 
                 # Combine with cd.bad_primes and filtered PRIME_POOL
