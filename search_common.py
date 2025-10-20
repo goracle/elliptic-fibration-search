@@ -339,12 +339,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 12
 
-# prestige curve lol
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
-
-
 db_entry = '9994635:3331545:[x^7+2*x^6-x^5+8*x^3+3*x^2-5*x-2,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
@@ -360,6 +354,12 @@ db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 3
+
+# prestige curve lol
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 11
+
 
 
 ##### END TEST CURVES ######
