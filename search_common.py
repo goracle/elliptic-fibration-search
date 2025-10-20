@@ -1388,7 +1388,7 @@ def get_data_pts(known_pts, excluded):
     Gets the next combination of 1, 2, or 3 points for a fibration.
     Prioritizes more points as they are more constraining.
     """
-    for r in [1, 2, 3]: # search the fastest fibrations first
+    for r in range(1,4): # search the fastest fibrations first
         if r == 1:
             for pt in known_pts:
                 combo = (pt,)
