@@ -1462,12 +1462,17 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
         return set()
 
     # these are now skipped!  this shouldn't print anymore!
+
+
     if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
         est = 1
         for p in p_subset:
             vks = precomputed_residues[p]
-            est *= sum(len(roots) for roots in vks.values())
-        if est > 100000 and DEBUG:
+            for roots_list in vks.values():
+                # roots_list is a list of sets per RHS function
+                if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
+                    est *= sum(len(roots) for roots in roots_list)
+        if est > COMBO_CAP and DEBUG:
             print("[heavy subset]", p_subset, "estimated combos:", est)
 
 
@@ -2240,7 +2245,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
     overall_found_candidates = set()
     batched_candidates = []
-    batch_size = 50
+    batch_size = 500
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
         futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
