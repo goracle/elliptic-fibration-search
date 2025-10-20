@@ -186,10 +186,6 @@ COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-16), QQ(24), QQ(-16), QQ(5)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-18), QQ(21), QQ(-10), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
@@ -360,6 +356,10 @@ COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
+
+COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 4
 
 
 ##### END TEST CURVES ######
