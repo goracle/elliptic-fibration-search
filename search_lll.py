@@ -52,6 +52,7 @@ PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 MAX_ABS_T = 500
 
 COMBO_CAP = 50000 # too many residues for this prime subset, too many possibilities, modular constraints are too loose
+ROOTS_THRESHOLD = 12 # only multiply primes' root counts into the estimate when the total roots for that prime exceed this threshold
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
@@ -1812,7 +1813,7 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates, prime_p
         for combo in itertools.product(*residue_lists):
             M = reduce(mul, primes_for_crt, 1)
 
-            if M > 10**15:  # Safety cap
+            if M > MAX_MODULUS:  # Safety cap
                 continue
 
             m0 = crt_cached(combo, tuple(primes_for_crt))
@@ -2201,7 +2202,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
     # Compute rough explosion estimate and drop pathological subsets
     combo_cap = COMBO_CAP
-    roots_threshold = 12
+    roots_threshold = ROOTS_THRESHOLD
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
     filtered_subsets = []
@@ -2293,7 +2294,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
                                               num_subsets, min_size, max_size, 
                                               seed=SEED_INT, force_full_pool=False, debug=DEBUG,
-                                              combo_cap=COMBO_CAP, roots_threshold=12):
+                                              combo_cap=COMBO_CAP, roots_threshold=ROOTS_THRESHOLD):
     """
     Generate diverse prime subsets biased toward high-coverage primes, but skip
     combinatorially-pathological subsets whose estimated Cartesian-product of
