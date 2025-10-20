@@ -567,6 +567,11 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     if M.rank() < min(M.nrows(), M.ncols()):
         if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
 
+    if M.ncols() > 5 * M.nrows():
+        if DEBUG:
+            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
+        return [reduce_point_hom(P, curve_modp, p) for P in sections], identity_matrix(ZZ, r)
+
     # Column scaling to balance magnitudes
     try:
         scales = _compute_integer_scales_for_columns(M)
@@ -597,6 +602,32 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
                 print("LLL/BKZ reduction failed, falling back to identity:", e)
             U = identity_matrix(ZZ, r)
             B = M_scaled.copy()
+    
+
+
+    try:
+        if hasattr(M_scaled, "BKZ"):
+            block = min(bkz_block, max(2, M_scaled.ncols()//2))
+            U, B = M_scaled.BKZ(block_size=block, transformation=True)
+        else:
+            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
+    except (TypeError, ValueError):
+        try:
+            U, B = M_scaled.LLL(transformation=True)
+        except Exception as e:
+            if DEBUG:
+                print("LLL/BKZ reduction failed, falling back to identity:", e)
+            U = identity_matrix(ZZ, r)
+            B = M_scaled.copy()
+
+    # DEBUG OUTPUT
+    print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
+    print(f"[LLL_DEBUG] U type: {type(U).__name__}, has nrows: {hasattr(U, 'nrows')}")
+    if hasattr(U, 'nrows'):
+        print(f"[LLL_DEBUG] U shape: {U.nrows()}x{U.ncols()}")
+    else:
+        print(f"[LLL_DEBUG] U is not a matrix. repr (first 100 chars): {repr(U)[:100]}")
+    print(f"[LLL_DEBUG] B type: {type(B).__name__}")
 
     # Validate U is unimodular (invertible over ZZ)
     Uinv = None
@@ -609,6 +640,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
         # try Hermite Normal Form based approach as fallback to get a valid transform
         if DEBUG:
             print("U inverse failed; attempting HNF-based fallback:", e)
+            print("U=", U)
         try:
             # compute HNF of M_scaled and find transformation approx
             H, U_hnf = M_scaled.hermite_form(transformation=True)
@@ -735,24 +767,21 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     # fallback: store original integer tuple
                     vecs_transformed_for_p.append(tuple(int(c) for c in v))
 
-            # Build required multiplier indices (bounded)
-            raw_required_ks = set()
+            # Build required multiplier indices: union across ALL vectors for this section
+            required_ks_per_section = [set() for _ in range(r)]
             for v_trans in vecs_transformed_for_p:
-                for k in v_trans:
-                    raw_required_ks.add(int(k))
-            required_ks = {k for k in raw_required_ks if abs(k) <= MAX_K_ABS}
-            if not required_ks:
-                required_ks = set(range(-3, 4))
+                for j, coeff in enumerate(v_trans):
+                    required_ks_per_section[j].add(int(coeff))
 
-            # debug the 2pt fibrations, which hang on the mults
-            if r > 1:
-                print("p, max k:", p, max(required_ks))
-
-            # compute multiples for this prime (exact arithmetic)
+            # Now compute mults per section with only what's needed
             mults = [{} for _ in range(r)]
             for i_sec in range(r):
                 Pi = new_basis[i_sec]
-                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS, debug=(r>1))
+                required_ks = required_ks_per_section[i_sec]
+                if not required_ks:
+                    required_ks = {-1, 0, 1}
+
+                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=max((abs(k) for k in required_ks), default=1), debug=(r>1))
 
                 #for k in required_ks:
                 #    try:
