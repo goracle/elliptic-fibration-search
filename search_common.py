@@ -1344,18 +1344,6 @@ def min_order_in_m(expr, m):
 # The rationality test stays the same (cached)
 @lru_cache(maxsize=None)
 def get_y_unshifted_genus2(x):
-    x = QQ(x)
-    rhs = sum([a * x**(len(COEFFS_GENUS2)-1-i) for i, a in enumerate(COEFFS_GENUS2)])
-    num = ZZ(rhs.numerator())
-    den = ZZ(rhs.denominator())
-    if num < 0 or den <= 0:
-        return None
-    if num.is_square() and den.is_square():
-        return QQ(num.sqrt()) / QQ(den.sqrt())
-    return None
-
-@lru_cache(maxsize=None)
-def get_y_unshifted_genus2(x):
     """
     Test if x gives a rational y on the genus-2 curve y^2 = G(x).
     Returns y if rational, None otherwise.
@@ -1381,24 +1369,6 @@ def get_y_unshifted_genus2(x):
         return None
     
     return QQ(num.sqrt()) / QQ(den.sqrt())
-
-@PROFILE
-def get_data_pts(known_pts, excluded):
-    """
-    Gets the next combination of 1, 2, or 3 points for a fibration.
-    Prioritizes more points as they are more constraining.
-    """
-    for r in range(1,4): # search the fastest fibrations first
-        if r == 1:
-            for pt in known_pts:
-                combo = (pt,)
-                if frozenset(combo) not in excluded:
-                    return combo
-        else:
-            for combo in itertools.combinations(known_pts, r):
-                if frozenset(combo) not in excluded:
-                    return combo
-    return None
 
 @PROFILE
 def compute_morphism(E_rhs):
