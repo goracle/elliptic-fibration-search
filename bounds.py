@@ -95,7 +95,7 @@ def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
     }
 
     try:
-        out['discriminant'] = ZZ(poly.discriminant())
+        out['discriminant'] = poly.discriminant()
     except Exception as e:
         if debug:
             print(f"[bounds] Failed to compute polynomial discriminant: {e}")
@@ -1051,8 +1051,8 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     new_num_subsets = max(base_num_subsets, int(round(base_num_subsets * subset_scale)))
     #new_num_subsets = min(new_num_subsets, 2000)
     
-    min_size = 3
-    max_size = 11 
+    min_size = 5
+    max_size = 13 
     
     adjustment = new_num_subsets / float(base_num_subsets)
     
@@ -2153,3 +2153,129 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         print(f"  Sample subsets: {prime_subsets[:3]}")
 
     return sconf
+
+
+# In bounds.py, REPLACE the existing recommend_subset_strategy_adaptive function with this:
+
+def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
+                                       base_height=100, target_survivors_per_subset=1.0, # Target survivors not used here
+                                       base_num_subsets=250,
+                                       min_size_hint=3, # Default min size hint
+                                       max_size_hint=9, # Default max size hint
+                                       debug=DEBUG):
+    """
+    Adaptive subset strategy combining density/zero-ratio heuristics for size
+    and height-based scaling for the number of subsets.
+
+    Subset sizes [min_size, max_size] adapt based on residue counts:
+    - High zero-ratio -> smaller min, capped max, more subsets (base)
+    - Low average density -> larger min/max
+    - High average density -> smaller min/max, fewer subsets (base)
+
+    Number of subsets scales based on height_bound relative to base_height.
+
+    Args:
+        prime_pool (list): Primes to use
+        residue_counts (dict): {p: count_of_roots_mod_p}
+        height_bound (float): The HEIGHT_BOUND parameter
+        base_height (float): Reference height (default 100)
+        target_survivors_per_subset (float): Target # of m-candidates (currently unused)
+        base_num_subsets (int): Base number of subsets to generate (before height scaling)
+        min_size_hint (int): Base minimum subset size suggestion
+        max_size_hint (int): Base maximum subset size suggestion
+        debug (bool): Print diagnostics
+
+    Returns:
+        dict with keys:
+          - 'num_subsets': Recommended number of subsets (scaled by height)
+          - 'min_size': Recommended min size of subsets (based on density)
+          - 'max_size': Recommended max size of subsets (based on density)
+          - 'adjustment_factor': How much num_subsets was scaled relative to base_num_subsets
+          - 'size_bias': Qualitative indicator of size heuristic trigger
+          - 'avg_density': Calculated average density
+          - 'zero_ratio': Calculated zero ratio
+    """
+    # --- Adapt min/max size based on density/zeros (logic from recommend_subset_strategy_empirical) ---
+    num_total = len(prime_pool) if prime_pool else 0
+    # Use default 0 for residue count to accurately count primes with zero roots
+    usable_primes = [p for p in prime_pool if residue_counts.get(p, 0) > 0]
+    num_usable = len(usable_primes)
+
+    zero_ratio = 1.0 - (num_usable / float(num_total)) if num_total > 0 else 0.0
+    # Calculate avg_density using all primes in the pool
+    avg_density = sum(residue_counts.get(p, 1) / float(p) for p in prime_pool) / float(max(1, num_total))
+
+    # Determine base min/max/num based on density characteristics
+    num_subsets_density_adjusted = base_num_subsets # Start with base hint before height scaling
+
+    if zero_ratio > 0.7:
+        recommended_min = min_size_hint
+        # Cap max size by number of usable primes, ensure it's at least min_size or 3
+        recommended_max = max( min(max_size_hint, max(3, num_usable)), recommended_min )
+        num_subsets_density_adjusted = min(base_num_subsets * 2, 2000) # Increase base subsets
+        size_bias = "degenerate (high zero ratio)"
+    elif avg_density < 0.08:
+        recommended_min = max(min_size_hint, 5) # Use larger minimum size
+        recommended_max = max_size_hint
+        # num_subsets_density_adjusted remains base_num_subsets
+        size_bias = "large (low density)"
+    elif avg_density > 0.25:
+        recommended_min = min_size_hint
+        recommended_max = min(max_size_hint, 7) # Use smaller maximum size
+        num_subsets_density_adjusted = max(50, base_num_subsets // 2) # Decrease base subsets
+        size_bias = "small (high density)"
+    else: # Mixed density
+        recommended_min = min_size_hint
+        recommended_max = max_size_hint
+        # num_subsets_density_adjusted remains base_num_subsets
+        size_bias = "mixed (moderate density)"
+
+    # --- Scale number of subsets based on height ---
+    height_ratio = float(height_bound) / float(max(base_height, 1.0))
+    # Use sqrt scaling for height adjustment - log seemed too aggressive in logs
+    subset_scale_factor = float(sqrt(max(height_ratio, 1.0)))
+
+    # Apply height scaling to the density-adjusted number of subsets
+    # Ensure it doesn't drop too low if density suggested fewer subsets
+    final_num_subsets = max(int(round(num_subsets_density_adjusted * subset_scale_factor)), base_num_subsets // 4)
+
+    # --- Final Safeguards ---
+    # Ensure min is at least 3
+    recommended_min = max(3, int(recommended_min))
+    # Ensure max is at least min, and not more than pool size
+    recommended_max = min(max(recommended_min, int(recommended_max)), num_total)
+    # Ensure min isn't greater than max (can happen if pool is tiny or max_size_hint is small)
+    recommended_min = min(recommended_min, recommended_max)
+    # Ensure max is at least min (redundant given previous line, but safe)
+    recommended_max = max(recommended_min, recommended_max)
+
+
+    # Final cap on num_subsets
+    final_num_subsets = max(10, min(int(final_num_subsets), 2000))
+
+    # Calculate final adjustment factor relative to the original base hint provided
+    adjustment = final_num_subsets / float(base_num_subsets) if base_num_subsets > 0 else 1.0
+
+    if debug:
+        print(f"[adaptive_subsets] height_bound={height_bound:.1f}, base_height={base_height}, height_ratio={height_ratio:.2f}")
+        print(f"[adaptive_subsets] zero_ratio={zero_ratio:.2f}, avg_density={avg_density:.4f} -> size_bias='{size_bias}'")
+        print(f"[adaptive_subsets] Density-adjusted base num_subsets: {num_subsets_density_adjusted}")
+        print(f"[adaptive_subsets] Height scale factor (sqrt): {subset_scale_factor:.2f}")
+        print(f"[adaptive_subsets] Final num_subsets: {num_subsets_density_adjusted} * {subset_scale_factor:.2f} ≈ {final_num_subsets} (overall adj: {adjustment:.2f}x vs base {base_num_subsets})")
+        print(f"[adaptive_subsets] Final subset sizes: [{recommended_min}, {recommended_max}]")
+
+    return {
+        'num_subsets': final_num_subsets,
+        'min_size': recommended_min,
+        'max_size': recommended_max,
+        'adjustment_factor': adjustment,
+        'size_bias': size_bias,
+        'avg_density': avg_density,
+        'zero_ratio': zero_ratio,
+    }
+
+# Make sure auto_configure_search uses the min/max sizes returned by this function.
+# The current auto_configure_search code already does this correctly:
+# It calls recommend_subset_strategy_adaptive, stores the result in subset_plan,
+# and then passes subset_plan['min_size'] and subset_plan['max_size']
+# to the subset generator function.
