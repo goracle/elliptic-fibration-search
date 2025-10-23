@@ -1253,53 +1253,6 @@ def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3
     return chosen
 
 
-def _compute_residues_for_prime_worker(args):
-    """Worker function computing residues for one prime."""
-    p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
-    result_for_p = {}
-    try:
-        for idx, v_orig in enumerate(vecs_list):
-            v_orig_tuple = tuple(v_orig)
-            if all(c == 0 for c in v_orig):
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            try:
-                v_p_transformed = vecs_lll_p[idx]
-            except Exception:
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            Pm = Ep_local(0)
-            for j, coeff in enumerate(v_p_transformed):
-                if int(coeff) in mults_p[j]:
-                    Pm += mults_p[j][int(coeff)]
-
-            if Pm.is_zero():
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            roots_by_rhs = []
-            for i_rhs in range(num_rhs):
-                roots_for_rhs = set()
-                if p in rhs_modp_list_local[i_rhs]:
-                    rhs_p = rhs_modp_list_local[i_rhs][p]
-                    try:
-                        num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
-                        if not num_modp.is_zero():
-                            roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
-                            roots_for_rhs.update(roots)
-                    except Exception:
-                        pass
-                roots_by_rhs.append(roots_for_rhs)
-            result_for_p[v_orig_tuple] = roots_by_rhs
-    except Exception as e:
-        if DEBUG:
-            print(f"[worker fail] p={p}: {e}")
-        return p, {}
-    return p, result_for_p
-
-
 def detect_near_miss_candidates(precomputed_residues, prime_pool, vecs, 
                                  coverage_threshold=0.75, max_candidates=5):
     """
