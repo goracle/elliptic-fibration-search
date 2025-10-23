@@ -666,150 +666,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
 
 
 
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, search_primes=None):
-    """
-    Prepare modular data for LLL-based search across multiple primes.
-    Ensures we only publish per-prime data after successful processing for that prime.
-    NOW WITH SINGULAR CURVE DETECTION.
-    """
-    if search_primes is None:
-        search_primes = prime_pool
-
-    r = len(current_sections)
-    if r == 0:
-        return {}, [], {}, {}
-
-    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
-    multiplies_lll, vecs_lll = {}, {}
-    PR_m = PolynomialRing(QQ, 'm')
-
-    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
-    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
-    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
-
-    for p in search_primes:
-        try:
-            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
-            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
-                continue
-            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
-                continue
-            
-            Rp = PolynomialRing(GF(p), 'm')
-            Fp_m = Rp.fraction_field()
-
-            # denominators zero mod p -> skip
-            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
-                continue
-
-            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
-            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-            
-            # *** NEW: Check for singular curves before creating EllipticCurve ***
-            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
-            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
-            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
-            if disc_modp.is_zero():
-                if DEBUG:
-                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
-                continue
-            
-            try:
-                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
-            except ArithmeticError as e:
-                if DEBUG:
-                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
-                continue
-
-            # build rhs_modp for this prime (but don't publish until success)
-            rhs_modp_for_p = {}
-            for i, rhs_data in enumerate(processed_rhs_list):
-                if rhs_data['den'].change_ring(GF(p)).is_zero():
-                    continue
-                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
-
-            # run reduction (may raise) and build transformed vectors
-            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
-
-            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
-            if Uinv is None:
-                Uinv_mat = identity_matrix(ZZ, r)
-            else:
-                try:
-                    # ensure integral matrix
-                    nonint = False
-                    for i_row in range(Uinv.nrows()):
-                        for j_col in range(Uinv.ncols()):
-                            entry = Uinv[i_row, j_col]
-                            if hasattr(entry, 'denominator'):
-                                if int(entry.denominator()) != 1:
-                                    nonint = True
-                                    break
-                            else:
-                                if QQ(entry) != Integer(entry):
-                                    nonint = True
-                                    break
-                        if nonint:
-                            break
-                    if nonint:
-                        Uinv_mat = identity_matrix(ZZ, r)
-                    else:
-                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
-                except Exception:
-                    Uinv_mat = identity_matrix(ZZ, r)
-
-            # Transform vecs into the LLL basis (always produce an entry for each input vec)
-            vecs_transformed_for_p = []
-            for v in vecs:
-                # ensure v is integer-coercible
-                vZ = vector(ZZ, [int(c) for c in v])
-                try:
-                    transformed = vZ * Uinv_mat
-                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
-                except Exception:
-                    # fallback: store original integer tuple
-                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
-
-            # Build required multiplier indices: union across ALL vectors for this section
-            required_ks_per_section = [set() for _ in range(r)]
-            for v_trans in vecs_transformed_for_p:
-                for j, coeff in enumerate(v_trans):
-                    required_ks_per_section[j].add(int(coeff))
-
-            # Now compute mults per section with only what's needed
-            mults = [{} for _ in range(r)]
-            for i_sec in range(r):
-                Pi = new_basis[i_sec]
-                required_ks = required_ks_per_section[i_sec]
-                if not required_ks:
-                    required_ks = {-1, 0, 1}
-
-                mults[i_sec] = compute_all_mults_for_section(Pi, required_ks, max_k=max((abs(k) for k in required_ks), default=1), debug=(r>1))
-
-                #for k in required_ks:
-                #    try:
-                #        mults[i_sec][k] = k * Pi # 2pt fibrations hang here
-                #    except Exception:
-                        # skip multipliers that fail for this prime
-               #         continue
-
-            # Success for this prime -> publish all data
-            Ep_dict[p] = Ep_local
-            for i, rhs_p_val in rhs_modp_for_p.items():
-                rhs_modp_list[i][p] = rhs_p_val
-            multiplies_lll[p] = mults
-            vecs_lll[p] = vecs_transformed_for_p
-
-        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
-                if DEBUG:
-                    print(f"Skipping prime {p} due to error during preparation: {e}")
-            # do not publish partial data for p; continue to next prime
-            continue
-
-    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
-
-
 def process_candidate(m_val, v_tuple, r_m, shift, rationality_test_func, current_sections):
     """
     Single candidate check: returns (m_val, x_val, y_val, new_section) or None.
@@ -1033,203 +889,6 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=Tru
 """
 Elliptic Curve Rational Point Search using Symbolic Methods over QQ.
 """
-
-def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
-                            all_found_x, rationality_test_func):
-    """
-    Symbolic search for rational points via solving x_sv == rhs(m) over QQ(m).
-
-    Controlled by the SYMBOLIC_SEARCH flag from search_common.py.  If SYMBOLIC_SEARCH is False,
-    this is a no-op and returns empty results quickly.
-    """
-    # Respect the global flag; search_common.py should define SYMBOLIC_SEARCH (all-caps).
-    # We do not import here; search_common is already imported at top of file.
-    SYMBOLIC_ENABLED = globals().get('SYMBOLIC_SEARCH', False)
-    if not SYMBOLIC_ENABLED:
-        if DEBUG:
-            print("Symbolic search disabled by SYMBOLIC_SEARCH flag.")
-        return set(), []
-
-    if not current_sections:
-        if DEBUG:
-            print("Symbolic search: no current sections provided, skipping.")
-        return set(), []
-
-    print("--- Starting symbolic search over QQ ---")
-
-    # Canonical setup for m (use PR_m and its fraction field so arithmetic stays in QQ(m))
-    PR_m = PolynomialRing(QQ, 'm')
-    SR_m = var('m')
-    Fm = PR_m.fraction_field()
-
-    newly_found_x = set()
-    new_sections = []
-    found_x_to_section_map = {}
-
-    # Quick sanity: ensure sections are projective-like and have x/z
-    # (use assert to make developer intent explicit)
-    assert all(len(sec) >= 3 for sec in current_sections), "current_sections entries must be 3-coord sections"
-
-    # Main search: iterate over integer vectors (vecs) and solve numerator==0 over QQ
-    # NOTE: we do NOT loop over rational m values; instead we solve for m via polynomial roots.
-    for v_tuple in tqdm(vecs, desc="Symbolic Search"):
-        if all(int(c) == 0 for c in v_tuple):
-            continue
-
-        v = vector(ZZ, [int(c) for c in v_tuple])
-        print("trying search vector:", v)
-        S_v = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-
-        # skip degenerate/new-section-zero cases
-        if S_v.is_zero():
-            print("search section is zero; skipping.")
-            continue
-        if S_v[2].is_zero():
-            # projective z==0 (point at infinity) — skip
-            print("search section is point at infinity; skipping.")
-            continue
-
-        # Affine x-coordinate in QQ(m) (attempt to coerce)
-        try:
-            x_sv_raw = S_v[0] / S_v[2]
-            x_coerced = Fm(SR(x_sv_raw))
-        except Exception:
-            # If coercion fails, skip this vector (diagnostic if DEBUG)
-            if DEBUG:
-                print("Symbolic coercion failed for a section; skipping vector:", v_tuple)
-            raise
-            continue
-        #print("search x:", x_coerced)
-
-        for rhs_func in rhs_list:
-            try:
-                rhs_coerced = Fm(SR(rhs_func))
-                diff = x_coerced - rhs_coerced
-                num = diff.numerator()
-            except Exception:
-                if DEBUG:
-                    print("Symbolic coercion of rhs failed; skipping this rhs.")
-                raise
-                continue
-
-            # If numerator is constant, there is no m-solution
-            if num.degree() == 0:
-                print("numerator is constant; no solution")
-                continue
-
-            # Build polynomial in PR_m and get rational roots
-            try:
-                num_poly = PR_m(num)   # coerce numerator into QQ[m]
-            except Exception:
-                if DEBUG:
-                    print("Could not coerce numerator into PR_m; skipping.")
-                raise
-                continue
-
-            try:
-                roots = num_poly.roots(ring=QQ, multiplicities=False)
-            except Exception:
-                # If root-finding over QQ fails, skip (better to fail loudly during debugging)
-                if DEBUG:
-                    print("num_poly.roots(...) failed for polynomial:", num_poly)
-                raise
-                continue
-
-            if not roots:
-                print("no roots found")
-
-            else:
-                print("found root(s):", roots)
-
-            # For each rational root m0, verify equality by evaluation (clearing denominators),
-            # then test rationality and add the point.
-            for m_val in roots:
-                m_q = QQ(m_val)   # ensure rational
-
-                # Evaluate LHS and RHS using SR substitution to get exact rationals where possible
-                try:
-                    lhs_at = SR(x_sv_raw).subs({SR_m: m_q})
-                    rhs_at = SR(rhs_func).subs({SR_m: m_q})
-                except Exception:
-                    if DEBUG:
-                        print("SR substitution failed at m=", m_q)
-                    raise
-                    continue
-
-                # Try coercion to QQ for reliable equality checks
-                try:
-                    lhs_q = QQ(lhs_at)
-                    rhs_q = QQ(rhs_at)
-                except Exception:
-                    # If we cannot coerce either side, fall back to clearing denominators
-                    try:
-                        lhs_q = QQ(r_m(m=m_q) - shift)
-                    except Exception:
-                        if DEBUG:
-                            print("Failed to compute numeric r_m at m=", m_q)
-                        raise
-                        continue
-                    # We cannot easily compute rhs numeric without r_m; but if lhs_q is defined,
-                    # we can proceed to rationality test as before.
-                    rhs_q = None
-
-                # If we have both sides as QQ check equality; otherwise trust the root machinery but still verify via r_m
-                if rhs_q is not None and lhs_q != rhs_q:
-                    if DEBUG:
-                        print("Symbolic-match FAIL for root m =", m_q, "; lhs != rhs after coercion.")
-                    raise
-                    continue
-
-                # Compute x via r_m (exact rational) and apply shift
-                try:
-                    x_val = r_m(m=m_q) - shift
-                except Exception:
-                    if DEBUG:
-                        print("r_m evaluation failed at m=", m_q)
-                    raise
-                    continue
-
-                # Avoid duplicates
-                try:
-                    x_val_q = QQ(x_val)
-                except Exception:
-                    # if not rational-coercible, skip
-                    if DEBUG:
-                        print("x_val not coercible to QQ at m=", m_q, "; skipping")
-                    raise
-                    continue
-
-                if x_val_q in all_found_x or x_val_q in newly_found_x:
-                    print("found x already seen:", x_val_q)
-                    continue
-
-                # Check rationality of y via rationality_test_func
-                y_val = rationality_test_func(x_val_q)
-                if y_val is None:
-                    print("yval is None; x value found does not give rational point.")
-                    # not a rational point
-                    continue
-
-                # Found a new rational point
-                newly_found_x.add(x_val_q)
-                found_x_to_section_map[x_val_q] = S_v
-                new_sections.append(S_v)
-
-                if DEBUG:
-                    print("Found new rational point via m =", m_q, " x =", x_val_q)
-
-    # OPTIONAL ASSERT: if the user expects the base m to be discovered, allow caller to check
-    # The assert function lives in this module: assert_base_m_found(...)
-    return newly_found_x, new_sections
-
-
-
-
-
-# In search_lll.py, modify this worker function.
-
-
-# In search_lll.py
 
 def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, max_abs_t, verbose=False):
     """
@@ -1924,50 +1583,6 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
 
 
 
-def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debug=DEBUG):
-    """
-    Process prime subsets in parallel using ProcessPoolExecutor (unified).
-    Replaces the multiprocessing.Pool call in search_lattice_modp_lll_subsets.
-    
-    Args:
-        prime_subsets (list): Prime subsets to search
-        worker_func (callable): Worker function (from functools.partial)
-        num_workers (int): Number of workers
-        debug (bool): Print diagnostics
-    
-    Returns:
-        set: All (m, vector) candidates found
-        Counter: Merged stats_counter dict from all workers
-    """
-    try:
-        ctx = multiprocessing.get_context("fork")
-        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-    except Exception:
-        exec_kwargs = {"max_workers": num_workers}
-
-    overall_found = set()
-    merged_stats = Counter() # <-- STATS collector
-
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
-
-        with tqdm(total=len(futures), desc="Searching Prime Subsets") as pbar:
-            for future in as_completed(futures):
-                try:
-                    # Worker now returns two items
-                    subset_results, stats_dict = future.result() 
-                    overall_found.update(subset_results)
-                    merged_stats.update(stats_dict) # <-- STATS
-                except Exception as e:
-                    if debug:
-                        print(f"Subset worker failed: {e}")
-                finally:
-                    pbar.update(1)
-
-    return overall_found, merged_stats # <-- Return stats
-
-
-
 def archimedean_height_of_integer(n):
     # crude but sufficient proxy for ordering: H(n) ~ log(max(|n|,1))
     return float(math.log(max(abs(int(n)), 1)))
@@ -2098,56 +1713,6 @@ def _assert_rhs_consistency(precomputed_residues, prime_pool, vecs, num_rhs_fns,
             f"Found {len(errors)} error(s). See output above for details."
         )
 
-def compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS, debug=False):
-    mults = {}
-    computed = {0: Pi.curve()(0), 1: Pi}
-    
-    sorted_ks = sorted(required_ks, key=abs)
-    
-    for i, k in enumerate(sorted_ks):
-        if debug and i % 10 == 0:
-            print(f"  [mults] Computing k={k} ({i}/{len(sorted_ks)})", flush=True)
-        
-        if k in computed:
-            mults[k] = computed[k]
-            continue
-        
-        abs_k = abs(k)
-        
-        if abs_k // 2 in computed:
-            half_k = abs_k // 2
-            base = computed[half_k]
-            if debug:
-                print(f"    [mults] k={k}: building from {half_k}*Pi", flush=True)
-            
-            if abs_k % 2 == 0:
-                if debug:
-                    print(f"      [mults] Doubling {half_k}*Pi...", flush=True)
-                result = base + base
-            else:
-                if debug:
-                    print(f"      [mults] Adding {half_k}*Pi + {half_k}*Pi + Pi...", flush=True)
-                result = base + base + Pi
-            
-            if k < 0:
-                result = -result
-            computed[k] = result
-            mults[k] = result
-        else:
-            if debug:
-                print(f"    [mults] k={k}: direct multiplication", flush=True)
-            try:
-                mults[k] = k * Pi
-                computed[k] = mults[k]
-            except Exception as e:
-                if debug:
-                    print(f"      [mults] Failed: {e}", flush=True)
-    
-    return mults
-
-# ============================================================================
-# Integration point: call this after precomputation completes
-# ============================================================================
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
                                               num_subsets, min_size, max_size, 
                                               seed=SEED_INT, force_full_pool=False, debug=DEBUG,
@@ -2346,6 +1911,458 @@ def _print_subset_productivity_stats(productive, all_subsets):
         print(f"  {p['primes']}: {p['candidates']} candidates")
 
 
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
+    """
+    Prepare modular data for LLL-based search across multiple primes.
+    Ensures we only publish per-prime data after successful processing for that prime.
+    NOW WITH SINGULAR CURVE DETECTION.
+    """
+    if search_primes is None:
+        search_primes = prime_pool
+
+    r = len(current_sections)
+    if r == 0:
+        return {}, [], {}, {}
+
+    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
+    multiplies_lll, vecs_lll = {}, {}
+    PR_m = PolynomialRing(QQ, 'm')
+
+    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
+    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
+    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
+
+    for p in search_primes:
+        try:
+            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
+            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
+                continue
+            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
+                continue
+
+            Rp = PolynomialRing(GF(p), 'm')
+            Fp_m = Rp.fraction_field()
+
+            # denominators zero mod p -> skip
+            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
+                continue
+
+            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
+            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
+
+            # *** NEW: Check for singular curves before creating EllipticCurve ***
+            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
+            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
+            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
+            if disc_modp.is_zero():
+                if DEBUG:
+                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                continue
+
+            try:
+                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            except ArithmeticError as e:
+                if DEBUG:
+                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+                continue
+
+            # build rhs_modp for this prime (but don't publish until success)
+            rhs_modp_for_p = {}
+            for i, rhs_data in enumerate(processed_rhs_list):
+                if rhs_data['den'].change_ring(GF(p)).is_zero():
+                    continue
+                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+
+            # run reduction (may raise) and build transformed vectors
+            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+
+            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
+            if Uinv is None:
+                Uinv_mat = identity_matrix(ZZ, r)
+            else:
+                try:
+                    # ensure integral matrix
+                    nonint = False
+                    for i_row in range(Uinv.nrows()):
+                        for j_col in range(Uinv.ncols()):
+                            entry = Uinv[i_row, j_col]
+                            if hasattr(entry, 'denominator'):
+                                if int(entry.denominator()) != 1:
+                                    nonint = True
+                                    break
+                            else:
+                                if QQ(entry) != Integer(entry):
+                                    nonint = True
+                                    break
+                        if nonint:
+                            break
+                    if nonint:
+                        Uinv_mat = identity_matrix(ZZ, r)
+                    else:
+                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
+                except Exception:
+                    Uinv_mat = identity_matrix(ZZ, r)
+
+            # Transform vecs into the LLL basis (always produce an entry for each input vec)
+            vecs_transformed_for_p = []
+            for v in vecs:
+                # ensure v is integer-coercible
+                vZ = vector(ZZ, [int(c) for c in v])
+                try:
+                    transformed = vZ * Uinv_mat
+                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
+                except Exception:
+                    # fallback: store original integer tuple
+                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
+
+            # Build required multiplier indices: union across ALL vectors for this section
+            required_ks_per_section = [set() for _ in range(r)]
+            for v_trans in vecs_transformed_for_p:
+                for j, coeff in enumerate(v_trans):
+                    required_ks_per_section[j].add(int(coeff))
+
+            # Now compute mults per section with only what's needed
+            mults = [{} for _ in range(r)]
+            for i_sec in range(r):
+                Pi = new_basis[i_sec]
+                required_ks = required_ks_per_section[i_sec]
+                if not required_ks:
+                    required_ks = {-1, 0, 1}
+
+                # Pass 'stats' object here
+                mults[i_sec] = compute_all_mults_for_section(
+                    Pi, required_ks, stats, # <-- Pass stats
+                    max_k=max((abs(k) for k in required_ks), default=1),
+                    debug=(r>1)
+                )
+
+
+            # Success for this prime -> publish all data
+            Ep_dict[p] = Ep_local
+            for i, rhs_p_val in rhs_modp_for_p.items():
+                rhs_modp_list[i][p] = rhs_p_val
+            multiplies_lll[p] = mults
+            vecs_lll[p] = vecs_transformed_for_p
+
+        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
+            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
+                if DEBUG:
+                    print(f"Skipping prime {p} due to error during preparation: {e}")
+            # do not publish partial data for p; continue to next prime
+            continue
+
+    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
+
+# In search_lll.py
+
+# Add 'stats' to the signature
+def compute_all_mults_for_section(Pi, required_ks, stats, max_k=MAX_K_ABS, debug=False):
+    mults = {}
+    computed = {0: Pi.curve()(0), 1: Pi}
+
+    sorted_ks = sorted(required_ks, key=abs)
+
+    for i, k in enumerate(sorted_ks):
+        if debug and i % 10 == 0:
+            print(f"  [mults] Computing k={k} ({i}/{len(sorted_ks)})", flush=True)
+
+        if k in computed:
+            mults[k] = computed[k]
+            continue
+
+        abs_k = abs(k)
+
+        if abs_k // 2 in computed:
+            half_k = abs_k // 2
+            base = computed[half_k]
+            if debug:
+                print(f"    [mults] k={k}: building from {half_k}*Pi", flush=True)
+
+            if abs_k % 2 == 0:
+                if debug:
+                    print(f"      [mults] Doubling {half_k}*Pi...", flush=True)
+                result = base + base
+                stats.incr('multiply_ops') # <-- STATS (doubling)
+            else:
+                if debug:
+                    print(f"      [mults] Adding {half_k}*Pi + {half_k}*Pi + Pi...", flush=True)
+                result = base + base + Pi
+                stats.incr('multiply_ops', n=2) # <-- STATS (doubling + addition)
+
+            if k < 0:
+                result = -result
+                # We don't count negation as an op here, could add if needed
+            computed[k] = result
+            mults[k] = result
+        else:
+            # Fallback to direct multiplication (less efficient, counts as one op)
+            if debug:
+                print(f"    [mults] k={k}: direct multiplication", flush=True)
+            try:
+                mults[k] = k * Pi
+                stats.incr('multiply_ops') # <-- STATS (direct multiplication)
+                computed[k] = mults[k]
+            except Exception as e:
+                if debug:
+                    print(f"      [mults] Failed: {e}", flush=True)
+
+    return mults
+
+# In search_lll.py
+
+# Add 'stats' to the signature
+def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
+                            all_found_x, rationality_test_func, stats):
+    """
+    Symbolic search for rational points via solving x_sv == rhs(m) over QQ(m).
+
+    Controlled by the SYMBOLIC_SEARCH flag from search_common.py. If SYMBOLIC_SEARCH is False,
+    this is a no-op and returns empty results quickly.
+    """
+    # Respect the global flag; search_common.py should define SYMBOLIC_SEARCH (all-caps).
+    # We do not import here; search_common is already imported at top of file.
+    SYMBOLIC_ENABLED = globals().get('SYMBOLIC_SEARCH', False)
+    if not SYMBOLIC_ENABLED:
+        if DEBUG:
+            print("Symbolic search disabled by SYMBOLIC_SEARCH flag.")
+        return set(), []
+
+    if not current_sections:
+        if DEBUG:
+            print("Symbolic search: no current sections provided, skipping.")
+        return set(), []
+
+    print("--- Starting symbolic search over QQ ---")
+    stats.start_phase('symbolic_search') # <-- STATS
+
+    # Canonical setup for m (use PR_m and its fraction field so arithmetic stays in QQ(m))
+    PR_m = PolynomialRing(QQ, 'm')
+    SR_m = var('m')
+    Fm = PR_m.fraction_field()
+
+    newly_found_x = set()
+    new_sections = []
+    found_x_to_section_map = {}
+
+    # Quick sanity: ensure sections are projective-like and have x/z
+    # (use assert to make developer intent explicit)
+    assert all(len(sec) >= 3 for sec in current_sections), "current_sections entries must be 3-coord sections"
+
+    # Main search: iterate over integer vectors (vecs) and solve numerator==0 over QQ
+    # NOTE: we do NOT loop over rational m values; instead we solve for m via polynomial roots.
+    for v_tuple in tqdm(vecs, desc="Symbolic Search"):
+        if all(int(c) == 0 for c in v_tuple):
+            continue
+
+        v = vector(ZZ, [int(c) for c in v_tuple])
+        #print("trying search vector:", v) # Reduced verbosity
+        S_v = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+
+        # skip degenerate/new-section-zero cases
+        if S_v.is_zero():
+            #print("search section is zero; skipping.")
+            continue
+        if S_v[2].is_zero():
+            # projective z==0 (point at infinity) — skip
+            #print("search section is point at infinity; skipping.")
+            continue
+
+        # Affine x-coordinate in QQ(m) (attempt to coerce)
+        try:
+            x_sv_raw = S_v[0] / S_v[2]
+            x_coerced = Fm(SR(x_sv_raw))
+        except Exception:
+            # If coercion fails, skip this vector (diagnostic if DEBUG)
+            if DEBUG:
+                print("Symbolic coercion failed for a section; skipping vector:", v_tuple)
+            # raise # Let's not raise here unless debugging is critical
+            continue
+        #print("search x:", x_coerced)
+
+        for rhs_func in rhs_list:
+            stats.incr('symbolic_solves_attempted') # <-- STATS
+            try:
+                rhs_coerced = Fm(SR(rhs_func))
+                diff = x_coerced - rhs_coerced
+                num = diff.numerator()
+            except Exception:
+                if DEBUG:
+                    print("Symbolic coercion of rhs failed; skipping this rhs.")
+                # raise
+                continue
+
+            # If numerator is constant, there is no m-solution
+            if num.degree() == 0:
+                #print("numerator is constant; no solution")
+                continue
+
+            # Build polynomial in PR_m and get rational roots
+            try:
+                num_poly = PR_m(num)   # coerce numerator into QQ[m]
+            except Exception:
+                if DEBUG:
+                    print("Could not coerce numerator into PR_m; skipping.")
+                # raise
+                continue
+
+            try:
+                roots = num_poly.roots(ring=QQ, multiplicities=False)
+            except Exception:
+                # If root-finding over QQ fails, skip (better to fail loudly during debugging)
+                if DEBUG:
+                    print("num_poly.roots(...) failed for polynomial:", num_poly)
+                # raise
+                continue
+
+            if not roots:
+                #print("no roots found")
+                pass # This happens often, no need to print
+            else:
+                stats.incr('symbolic_solves_success', n=len(roots)) # <-- STATS
+                if DEBUG: print("Symbolic solve success! Found root(s):", roots)
+
+            # For each rational root m0, verify equality by evaluation (clearing denominators),
+            # then test rationality and add the point.
+            for m_val in roots:
+                m_q = QQ(m_val)   # ensure rational
+
+                # Evaluate LHS and RHS using SR substitution to get exact rationals where possible
+                try:
+                    lhs_at = SR(x_sv_raw).subs({SR_m: m_q})
+                    rhs_at = SR(rhs_func).subs({SR_m: m_q})
+                except Exception:
+                    if DEBUG:
+                        print("SR substitution failed at m=", m_q)
+                    # raise
+                    continue
+
+                # Try coercion to QQ for reliable equality checks
+                try:
+                    lhs_q = QQ(lhs_at)
+                    rhs_q = QQ(rhs_at)
+                except Exception:
+                    # If we cannot coerce either side, fall back to clearing denominators
+                    try:
+                        lhs_q = QQ(r_m(m=m_q) - shift)
+                    except Exception:
+                        if DEBUG:
+                            print("Failed to compute numeric r_m at m=", m_q)
+                        # raise
+                        continue
+                    # We cannot easily compute rhs numeric without r_m; but if lhs_q is defined,
+                    # we can proceed to rationality test as before.
+                    rhs_q = None
+
+                # If we have both sides as QQ check equality; otherwise trust the root machinery but still verify via r_m
+                if rhs_q is not None and lhs_q != rhs_q:
+                    if DEBUG:
+                        print("Symbolic-match FAIL for root m =", m_q, "; lhs != rhs after coercion.")
+                    # raise
+                    continue
+
+                # Compute x via r_m (exact rational) and apply shift
+                try:
+                    x_val = r_m(m=m_q) - shift
+                except Exception:
+                    if DEBUG:
+                        print("r_m evaluation failed at m=", m_q)
+                    # raise
+                    continue
+
+                # Avoid duplicates
+                try:
+                    x_val_q = QQ(x_val)
+                except Exception:
+                    # if not rational-coercible, skip
+                    if DEBUG:
+                        print("x_val not coercible to QQ at m=", m_q, "; skipping")
+                    # raise
+                    continue
+
+                if x_val_q in all_found_x or x_val_q in newly_found_x:
+                    #print("found x already seen:", x_val_q)
+                    continue
+
+                # Check rationality of y via rationality_test_func
+                stats.incr('rationality_tests_total') # <-- STATS (Symbolic path)
+                y_val = rationality_test_func(x_val_q)
+                if y_val is None:
+                    stats.record_failure(m_q, reason='y_not_rational_symbolic') # <-- STATS
+                    #print("yval is None; x value found does not give rational point.")
+                    # not a rational point
+                    continue
+
+                # Found a new rational point
+                stats.record_success(m_q, point=x_val_q) # <-- STATS (Symbolic path)
+                newly_found_x.add(x_val_q)
+                found_x_to_section_map[x_val_q] = S_v
+                new_sections.append(S_v)
+
+                if DEBUG:
+                    print("Found new rational point via symbolic m =", m_q, " x =", x_val_q)
+
+    # OPTIONAL ASSERT: if the user expects the base m to be discovered, allow caller to check
+    # The assert function lives in this module: assert_base_m_found(...)
+    stats.end_phase('symbolic_search') # <-- STATS
+    return newly_found_x, new_sections, stats
+
+# In search_lll.py
+
+def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debug=DEBUG):
+    """
+    Process prime subsets in parallel using ProcessPoolExecutor (unified).
+    Replaces the multiprocessing.Pool call in search_lattice_modp_lll_subsets.
+
+    Args:
+        prime_subsets (list): Prime subsets to search
+        worker_func (callable): Worker function (from functools.partial)
+        num_workers (int): Number of workers
+        debug (bool): Print diagnostics
+
+    Returns:
+        list: A list of tuples, one for each subset processed:
+              [(subset, candidates_set, worker_stats_dict), ...]
+        Counter: Merged stats_counter dict from all workers (Redundant, can be rebuilt from list)
+    """
+    try:
+        ctx = multiprocessing.get_context("fork")
+        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+    except Exception:
+        exec_kwargs = {"max_workers": num_workers}
+
+    # List to store results per subset
+    subset_results_list = []
+    merged_stats = Counter() # Keep merging stats here too for now
+
+    with ProcessPoolExecutor(**exec_kwargs) as executor:
+        futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
+
+        with tqdm(total=len(futures), desc="Searching Prime Subsets") as pbar:
+            for future in as_completed(futures):
+                original_subset = futures[future]
+                try:
+                    # Worker now returns two items
+                    candidates_set, stats_dict = future.result()
+                    # Append the result tuple to the list
+                    subset_results_list.append((original_subset, candidates_set, stats_dict))
+                    merged_stats.update(stats_dict) # Keep merging here
+                except Exception as e:
+                    if debug:
+                        print(f"Subset worker failed for subset {original_subset}: {e}")
+                    # Append a failure placeholder if needed, or just skip
+                    subset_results_list.append((original_subset, set(), Counter()))
+                finally:
+                    pbar.update(1)
+
+    # Return the list of per-subset results and the merged stats
+    return subset_results_list, merged_stats
+
+
+# In search_lll.py
+
+# ============================================================================
+# Integration point: call this after precomputation completes
+# ============================================================================
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
                                          shift, all_found_x, num_subsets, rationality_test_func, max_abs_t,
                                          num_workers=8, debug=DEBUG):
@@ -2355,17 +2372,18 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     """
     # === STATS: INIT ===
     stats = SearchStats()
-    
+
     print("prime pool used for search:", prime_pool)
-    
+
     # === PHASE: PREP MOD DATA ===
     stats.start_phase('prep_mod_data')
     print("--- Preparing modular data for LLL search ---")
+    # Pass stats down
     Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
+        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
     )
     stats.end_phase('prep_mod_data')
-    
+
     if not Ep_dict:
         print("No valid primes found for modular search. Aborting.")
         return set(), [], {}, stats # <-- Return stats
@@ -2387,7 +2405,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
     except Exception:
         exec_kwargs = {"max_workers": num_workers}
-        raise
+        # Don't raise here, let ProcessPoolExecutor handle fallback
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
         futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
@@ -2400,7 +2418,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
                 if debug:
                     print(f"[precompute fail] p={p}: {e}")
                 precomputed_residues[p] = {}
-                raise
+                # Don't raise here, allow continuation with fewer primes
     stats.end_phase('precompute_residues')
 
     # === PHASE: AUTOTUNE PRIMES ===
@@ -2425,18 +2443,19 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
     # === PHASE: GEN SUBSETS ===
     stats.start_phase('gen_subsets')
-    prime_subsets = generate_biased_prime_subsets_by_coverage(
+    # Use the provided num_subsets argument, not a potentially different global
+    prime_subsets_initial = generate_biased_prime_subsets_by_coverage(
         prime_pool=prime_pool,
         precomputed_residues=precomputed_residues,
         vecs=vecs_list,
-        num_subsets=num_subsets,
+        num_subsets=num_subsets, # Use argument
         min_size=3,
         max_size=9,
         seed=SEED_INT,
         force_full_pool=False,
         debug=debug
     )
-    stats.incr('subsets_generated_initial', n=len(prime_subsets))
+    stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
 
     # Compute rough explosion estimate and drop pathological subsets
     combo_cap = COMBO_CAP
@@ -2444,8 +2463,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
     filtered_subsets = []
-    for subset in prime_subsets:
+    for subset in prime_subsets_initial: # Iterate over initially generated subsets
         est = 1
+        is_viable = True # Flag to track if subset is usable
         for p in subset:
             roots_total = 0
             mapping = precomputed_residues.get(p)
@@ -2453,20 +2473,36 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
                 for roots_lists in mapping.values():
                     for rl in roots_lists:
                         roots_total += len(rl)
-            if roots_total == 0:
-                est = 0
+            else: # If a prime has no precomputed data, the subset is not viable
+                is_viable = False
+                break
+            if roots_total == 0: # If any prime yields zero roots, the subset is useless
+                is_viable = False
                 break
             if roots_total > roots_threshold:
                 est *= roots_total
-        if est <= combo_cap:
+                if est > combo_cap:
+                    break # Stop calculating est if already over cap
+
+        if is_viable and est <= combo_cap: # Check viability and combo cap
             filtered_subsets.append(subset)
-            
-    filtered_out_count = len(prime_subsets) - len(filtered_subsets)
+
+    filtered_out_count = len(prime_subsets_initial) - len(filtered_subsets)
     stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
     if debug:
-        print("Generated", len(prime_subsets), "prime_subsets -> filtered to", len(filtered_subsets))
-    prime_subsets = filtered_subsets
+        print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
+    prime_subsets_to_process = filtered_subsets # Use the filtered list
+
+    # Ensure we have subsets to process
+    if not prime_subsets_to_process:
+        print("No viable prime subsets generated or remaining after filtering. Aborting.")
+        stats.end_phase('gen_subsets')
+        print("\n--- Search Statistics (No Subsets) ---")
+        print(stats.summary_string())
+        return set(), [], precomputed_residues, stats
+
     stats.end_phase('gen_subsets')
+
 
     # === PHASE: SEARCH & CHECK ===
     stats.start_phase('search_subsets_and_check')
@@ -2477,56 +2513,67 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         shift=shift,
         max_abs_t=max_abs_t,
         precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,
+        prime_pool=prime_pool, # Pass the current (possibly filtered) prime_pool
         num_rhs_fns=len(rhs_list)
     )
 
-    overall_found_candidates = set()
+    # Call the modified parallel manager
+    subset_results_list, worker_stats_dict = search_prime_subsets_unified(
+        prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
+    )
+
+    # Merge worker stats collected by the manager
+    stats.merge_dict(worker_stats_dict)
+    stats.incr('subsets_processed', n=len(subset_results_list)) # Count processed subsets
+
+    # Aggregate candidates and prepare for batch checking
+    overall_found_candidates_from_workers = set()
+    productive_subsets_data = [] # For productivity stats
     batched_candidates = []
     batch_size = 500
 
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
-        
-        # This will hold the merged stats from all workers
-        worker_stats_dict = Counter()
+    for subset, candidates_set, _ in subset_results_list: # Ignore stats_dict here, already merged
+        overall_found_candidates_from_workers.update(candidates_set)
+        if candidates_set:
+            productive_subsets_data.append({
+                'primes': subset,
+                'size': len(subset),
+                'candidates': len(candidates_set)
+            })
 
-        for i, future in enumerate(tqdm(as_completed(futures), total=len(futures), desc="Searching Prime Subsets")):
-            stats.incr('subsets_processed')
-            
-            # Get candidates AND worker stats
-            subset_results, stats_dict = future.result() 
-            worker_stats_dict.update(stats_dict) # <-- Merge worker stats
-            
-            stats.incr('crt_candidates_found', n=len(subset_results))
-            batched_candidates.extend(subset_results)
-            
-            if (i + 1) % batch_size == 0 or (i + 1) == len(futures):
-                newly_rational = _batch_check_rationality(
-                    batched_candidates, r_m, shift, rationality_test_func, current_sections, stats
-                )
-                overall_found_candidates.update(newly_rational)
-                batched_candidates = []
-                if debug:
-                    print(f"[progress flush] processed {i+1} of {len(futures)} found so far {len(overall_found_candidates)}")
+    stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
 
-    if batched_candidates:
+    # Batch check rationality
+    print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
+    final_rational_candidates = set() # Store (m, v_tuple) pairs passing check
+
+    # Process in batches to manage memory/progress updates
+    candidate_list = list(overall_found_candidates_from_workers)
+    for i in range(0, len(candidate_list), batch_size):
+        batch = candidate_list[i:i+batch_size]
         newly_rational = _batch_check_rationality(
-            batched_candidates, r_m, shift, rationality_test_func, current_sections, stats
+            batch, r_m, shift, rationality_test_func, current_sections, stats
         )
-        overall_found_candidates.update(newly_rational)
-        
-    # Merge all collected worker stats into the main stats object
-    stats.merge_dict(worker_stats_dict)
+        final_rational_candidates.update(newly_rational)
+        if debug:
+            print(f"[batch check] processed {min(i+batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
+
     stats.end_phase('search_subsets_and_check')
 
-    if not overall_found_candidates:
+    # --- Print Productivity Stats ---
+    try:
+        _print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
+    except Exception as e:
+        if debug: print(f"Failed to print productivity stats: {e}")
+    # -----------------------------
+
+    if not final_rational_candidates:
         # === PRINT STATS SUMMARY (FAILURE) ===
         print("\n--- Search Statistics (No Points Found) ---")
         print(stats.summary_string())
         return set(), [], precomputed_residues, stats # <-- Return stats
 
-    print(f"\nProcessed all subsets. Found {len(overall_found_candidates)} rational candidates.")
+    print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
 
     # === PHASE: POST PROCESS ===
     stats.start_phase('post_process')
@@ -2534,15 +2581,15 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     new_sections_raw = []
     processed_m_vals = {}
 
-    # This loop just collates the results from the batch checker
-    for m_val, v_tuple in overall_found_candidates:
+    # This loop collates the FINAL rational results
+    for m_val, v_tuple in final_rational_candidates: # Iterate over checked candidates
         if m_val in processed_m_vals:
             continue
         try:
             # Re-compute x_val (already checked, but needed for list)
             x_val = r_m(m=m_val) - shift
             y_val = rationality_test_func(x_val) # This should not be None
-            
+
             if y_val is not None:
                 v = vector(QQ, v_tuple)
                 sample_pts.append((x_val, y_val))
@@ -2564,4 +2611,3 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     print(stats.summary_string())
 
     return new_xs, new_sections, precomputed_residues, stats # <-- Return stats
-

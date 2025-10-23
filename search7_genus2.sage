@@ -288,7 +288,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         # ***** MODIFIED SECTION *****
         # The modular search is replaced with the direct symbolic search.
         if SYMBOLIC_SEARCH:
-            newly_found_x, new_sections = search_lattice_symbolic(
+            newly_found_x, new_sections, iter_stats = search_lattice_symbolic(
                 cd,
                 current_sections,
                 vecs,
@@ -297,7 +297,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 shift=shift,
                 all_found_x=all_known_x,
                 rationality_test_func=get_y_unshifted_genus2
+                stats=cumulative_stats # <-- Pass stats object
             )
+            cumulative_stats.merge(iter_stats)
         else:
 
             # --- ALL CONFIG (PRIMES / SUBSETS / RESIDUE COUNTS) COMES FROM sconf ---
@@ -696,7 +698,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
 
 
-    return all_known_x
+    return all_known_x, cumulative_stats
+
 
 @PROFILE
 def main_genus2():
@@ -741,7 +744,7 @@ def main_genus2():
         print("========================================================\n")
 
         # --- Pass cumulative_stats to doloop ---
-        found_from_fibration = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats)
+        found_from_fibration, cumulative_stats = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats)
         all_found_x.update(found_from_fibration)
 
         excluded.add(frozenset(data_pts))
@@ -753,6 +756,8 @@ def main_genus2():
     print("\n--- Final Results ---")
     print(f"Final list of known points: {sorted(list(known_pts))}")
     
+
+# In search7_genus2.sage
 
 if __name__ == '__main__':
     main_genus2()
