@@ -32,6 +32,16 @@ class SearchStats:
         self.successes = []
         self.failures = []
 
+        # In SearchStats.__init__:
+        self.crt_classes_tested = set()  # set of tuples (m mod M, M)
+
+    # When you test a candidate:
+    def record_crt_class(self, m_mod_M, M):
+        """Record that we tested m ≡ m_mod_M (mod M)"""
+        # Normalize to canonical representative
+        canonical = (int(m_mod_M) % int(M), int(M))
+        self.crt_classes_tested.add(canonical)
+
     # timing helpers
     def start_phase(self, name):
         self._phase_start[name] = time.time()
@@ -115,3 +125,166 @@ class SearchStats:
     def to_json(self, path):
         with open(path, 'w') as fh:
             json.dump(self.summary(), fh, indent=2, default=int)
+
+    def crt_coverage_exact(self, prime_subsets_used):
+        """
+        Compute fraction of CRT classes tested for the subsets we actually used.
+        """
+        total_classes_possible = 0
+        for subset in prime_subsets_used:
+            M = reduce(mul, subset, 1)
+            total_classes_possible += M
+
+        # Count unique m values tested (modulo their respective M)
+        classes_tested = len(self.crt_classes_tested)
+
+        return classes_tested / total_classes_possible if total_classes_possible > 0 else 0
+
+    def expected_runs_for_coverage(self, target_coverage=0.99):
+        """
+        Estimate runs needed to achieve target_coverage of CRT space.
+
+        Assumes: Each run samples a random subset of CRT classes with 
+        coverage p = (classes_tested / total_classes_possible).
+
+        Classic coupon collector: E[runs] ≈ log(1 - target) / log(1 - p)
+        """
+        coverage_per_run = self.crt_coverage_exact(...)
+        if coverage_per_run >= target_coverage:
+            return 1
+
+        # Coupon collector approximation
+        p = coverage_per_run
+        expected_runs = math.log(1 - target_coverage) / math.log(1 - p)
+        return math.ceil(expected_runs)
+
+
+class BenchmarkStats:
+    def __init__(self, known_ground_truth):
+        """
+        Args:
+            known_ground_truth: set of x-coordinates we expect to find
+        """
+        self.ground_truth = frozenset(known_ground_truth)
+        self.start_time = time.time()
+        
+        # Discovery timeline
+        self.discoveries = []  # [(timestamp, x_coord), ...]
+        self.found_so_far = set()
+        
+        # Efficiency metrics
+        self.total_crt_candidates = 0
+        self.total_vectors_checked = 0
+        self.total_prime_subsets_used = 0
+        
+        # Per-fibration tracking
+        self.fibration_stats = []
+        self.current_fib = None
+    
+    def start_fibration(self, base_pts, height_bound):
+        self.current_fib = {
+            'base_pts': tuple(sorted(base_pts)),
+            'height_bound': height_bound,
+            'start_time': time.time(),
+            'vectors': 0,
+            'crt_candidates': 0,
+            'found_here': set(),
+        }
+    
+    def record_discovery(self, x_coord):
+        """Called when a new rational point is found"""
+        if x_coord not in self.found_so_far:
+            t = time.time() - self.start_time
+            self.discoveries.append((t, x_coord))
+            self.found_so_far.add(x_coord)
+            if self.current_fib:
+                self.current_fib['found_here'].add(x_coord)
+    
+    def record_crt_candidate(self):
+        self.total_crt_candidates += 1
+        if self.current_fib:
+            self.current_fib['crt_candidates'] += 1
+    
+    def end_fibration(self):
+        if self.current_fib:
+            self.current_fib['duration'] = time.time() - self.current_fib['start_time']
+            self.fibration_stats.append(self.current_fib)
+            self.current_fib = None
+    
+    def efficiency_report(self):
+        """Key metrics for benchmarking"""
+        total_time = time.time() - self.start_time
+        found = len(self.found_so_far)
+        expected = len(self.ground_truth)
+        
+        # Calculate cumulative discovery times
+        discovery_times = [t for t, x in self.discoveries]
+        
+        return {
+            'total_time': total_time,
+            'points_found': found,
+            'points_expected': expected,
+            'recall': found / expected if expected > 0 else 0,
+            'crt_candidates_tested': self.total_crt_candidates,
+            'candidates_per_point': (self.total_crt_candidates / found 
+                                    if found > 0 else float('inf')),
+            'hit_rate': found / self.total_crt_candidates if self.total_crt_candidates > 0 else 0,
+            'time_to_first_new_point': discovery_times[0] if discovery_times else None,
+            'time_to_all_points': discovery_times[-1] if len(discovery_times) == expected else None,
+            'fibrations_needed': len([f for f in self.fibration_stats if f['found_here']]),
+            'avg_time_per_fibration': total_time / len(self.fibration_stats) if self.fibration_stats else 0,
+        }
+    
+    def print_report(self):
+        report = self.efficiency_report()
+        
+        print("\n" + "="*70)
+        print("BENCHMARK REPORT")
+        print("="*70)
+        print(f"Time: {report['total_time']:.2f}s")
+        print(f"Points: {report['points_found']}/{report['points_expected']} "
+              f"({report['recall']:.0%} recall)")
+        print(f"Efficiency: {report['candidates_per_point']:.1f} CRT candidates per point found")
+        print(f"Hit rate: {report['hit_rate']:.1%}")
+        
+        if report['time_to_all_points']:
+            print(f"Time to find all points: {report['time_to_all_points']:.2f}s")
+        
+        print(f"\nFibrations used: {report['fibrations_needed']} / {len(self.fibration_stats)} tried")
+        print(f"Avg time per fibration: {report['avg_time_per_fibration']:.2f}s")
+        
+        # Show discovery timeline
+        print("\nDiscovery timeline:")
+        for t, x in self.discoveries:
+            print(f"  {t:6.2f}s: x = {x}")
+        
+        # Per-fibration breakdown
+        print("\nPer-fibration breakdown:")
+        for i, fib in enumerate(self.fibration_stats):
+            if fib['found_here']:
+                print(f"  Fib {i} ({fib['base_pts']}): "
+                      f"found {fib['found_here']} in {fib['duration']:.2f}s "
+                      f"({fib['crt_candidates']} candidates)")
+
+
+# Minimal benchmark tracking (no invasive changes)
+class QuickBench:
+    def __init__(self):
+        self.runs = []  # List of {curve_id, time, candidates, points_found}
+    
+    def record(self, curve_id, time, candidates, points):
+        self.runs.append({
+            'curve': curve_id,
+            'time': time,
+            'candidates': candidates,
+            'points': points,
+            'hit_rate': points / candidates if candidates > 0 else 0,
+        })
+    
+    def summary(self):
+        avg_time = sum(r['time'] for r in self.runs) / len(self.runs)
+        avg_hit_rate = sum(r['hit_rate'] for r in self.runs) / len(self.runs)
+        
+        print(f"Avg time: {avg_time:.1f}s")
+        print(f"Avg hit rate: {100*avg_hit_rate:.1f}%")
+        print(f"Curves tested: {len(self.runs)}")

@@ -1626,8 +1626,9 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
     h_x = naive_x_height_from_pts(known_pts)
     
-    h_can = estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, 
-                                                   fudge_const=3.0, debug=debug)
+    #h_can = estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, 
+    #                                               fudge_const=3.0, debug=debug)
+    h_can = estimate_canonical_height_from_xheight(h_x, fudge_const=1.5)
     
     if debug:
         print(f"[auto_cfg] h_x={h_x:.2f}, h_can≈{h_can:.2f}")
@@ -1659,7 +1660,8 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
     try:
         SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
-        galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
+        galois_diag = _cached_galois_stats(str(SPLIT_POLY))
+        #galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
         galois_degree = galois_diag.get('splitting_field_degree_est')
     except Exception as e:
         if debug:
@@ -1896,3 +1898,21 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
 # It calls recommend_subset_strategy_adaptive, stores the result in subset_plan,
 # and then passes subset_plan['min_size'] and subset_plan['max_size']
 # to the subset generator function.
+
+def estimate_canonical_height_from_xheight(h_x, curve_discriminant, fudge=1.5):
+    """
+    Canonical height estimate using Silverman's bounds:
+    ĥ(P) ≤ h_x(P)/2 + (1/12)*log|Δ| + log(2) + fudge
+    """
+    c_curve = 0.0
+    if curve_discriminant is not None:
+        c_curve = (1/12) * float(log(abs(int(curve_discriminant)) + 1))
+
+    return max(0, 0.5 * h_x + c_curve + log(2) + fudge)
+
+
+# In bounds.py:auto_configure_search
+@lru_cache(maxsize=16)
+def _cached_galois_stats(poly_str):
+    """Cache Galois stats keyed by polynomial string"""
+    return estimate_galois_signature_modp(poly_from_str(poly_str), ...)

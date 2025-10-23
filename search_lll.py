@@ -2458,3 +2458,37 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
             print("generate_biased_coverage: Sample subsets:", sample_show)
 
     return unique_subsets
+
+
+# Add to search_lll.py (after the main function)
+
+def _print_subset_productivity_stats(productive, all_subsets):
+    """Print quick stats on which prime subsets were productive"""
+    from collections import Counter
+    
+    total = len(all_subsets)
+    productive_count = len(productive)
+    total_candidates = sum(p['candidates'] for p in productive)
+    
+    print(f"\n[subset stats] {productive_count}/{total} subsets produced candidates "
+          f"({100*productive_count/total:.1f}%)")
+    print(f"[subset stats] {total_candidates} total candidates from productive subsets")
+    
+    # By size
+    by_size = Counter(p['size'] for p in productive)
+    all_by_size = Counter(len(s) for s in all_subsets)
+    
+    print(f"[subset stats] Productivity by size:")
+    for size in sorted(all_by_size.keys()):
+        prod_count = by_size.get(size, 0)
+        total_count = all_by_size[size]
+        rate = 100 * prod_count / total_count if total_count > 0 else 0
+        cands = sum(p['candidates'] for p in productive if p['size'] == size)
+        print(f"  Size {size}: {prod_count}/{total_count} productive ({rate:.1f}%), "
+              f"{cands} candidates")
+    
+    # Top productive subsets
+    top = sorted(productive, key=lambda x: x['candidates'], reverse=True)[:5]
+    print(f"[subset stats] Top 5 productive subsets:")
+    for p in top:
+        print(f"  {p['primes']}: {p['candidates']} candidates")
