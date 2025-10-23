@@ -16,6 +16,7 @@ from bounds import *
 from selmer import *
 from sympy import symbols, expand
 load('tower.sage')
+from stats import SearchStats # <-- Make sure stats is imported
 
 # -------------------------
 # Tower builder adapter for search (lightweight, deterministic, no tests)
@@ -26,6 +27,7 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
     """
     Find all rational points (x,0) on the genus 2 curve y^2 = G(x).
     For y=0, we need G(x) = 0.
+  
     
     Args:
         sextic_coeffs: List of coefficients [a6, a5, a4, a3, a2, a1, a0] 
@@ -38,8 +40,9 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
         print("\n--- Searching for y=0 points ---")
     
     # Build the sextic polynomial G(x)
-    R.<x> = QQ[]
-    G = sum(a * x^(len(sextic_coeffs)-1-i) for i, a in enumerate(sextic_coeffs))
+    
+    R_x = QQ['x']
+    G = sum(a * R_x.gen()**(len(sextic_coeffs)-1-i) for i, a in enumerate(sextic_coeffs))
     
     if verbose:
         print(f"hyper elliptic curve: y^2(x) = {G}")
@@ -67,8 +70,11 @@ def add_y_zero_points_to_known(known_pts, sextic_coeffs):
     return known_pts
 
 @PROFILE
-def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
-    """Main search loop adapted for the genus-2 strategy."""
+def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
+    """
+    Main search loop adapted for the genus-2 strategy.
+    Now accepts and merges into a cumulative_stats object.
+    """
 
     # 1. Initial Setup and Shifting
     # at top of function
@@ -140,6 +146,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
         # Build known point list in (x,y) form for height estimation
         known_pts = [(pt[0], pt[1]) for pt in base_pts if pt[0] is not None]
 
+        
         # Run auto configuration (defined in bounds.py)
         sconf = bounds.auto_configure_search(cd, known_pts, height_bound=HEIGHT_BOUND, debug=True)
         #sconf = bounds.auto_configure_search(cd, known_pts, debug=True)
@@ -162,6 +169,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
         print("[auto-config] Failed, reverting to static defaults:", e)
         raise
 
+   
     # 6. Diagnostic check: confirm the modulus capping works safely
     _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0,
                                                     max_modulus=MAX_MODULUS, debug=True)
@@ -170,7 +178,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     prime_pool = PRIME_POOL
     prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True,
                                                         grh_fudge=10, debug=True)
-    # Always keep 3, idk why, magic.  2 is bad tho.
+    # Always keep 3, idk why, magic. 2 is bad tho.
     if 3 not in prime_pool:
         prime_pool = [3] + prime_pool
     PRIME_POOL = sorted(set(prime_pool))
@@ -184,6 +192,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
     m_sym = cd.a4.parent().gen()
     total_x_scale_factor = m_sym ** (2 * n - 2 * blowup)
 
+  
     # --- BUILD search_rhs_list with symbolic SR consistency ---
     # canonical symbolic m
     SR_m = var('m')
@@ -260,6 +269,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             print("No independent sections to search with. Stopping.")
             break
 
+        
         independent, H = check_independence(current_sections, E_curve_m, cd)
         if not independent:
             print("Warning: Section basis is linearly dependent. Stopping search.")
@@ -277,7 +287,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
 
         # ***** MODIFIED SECTION *****
         # The modular search is replaced with the direct symbolic search.
-        # Note that `prime_subsets` and `F` are no longer needed.
         if SYMBOLIC_SEARCH:
             newly_found_x, new_sections = search_lattice_symbolic(
                 cd,
@@ -314,8 +323,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                         block = prime_pool[start:start+w]
                         if len(block) == w:
                             prime_subsets.append(block)
-                    if len(prime_subsets) >= 200:
-                        break
+                        if len(prime_subsets) >= 200:
+                            break
                 # dedupe & sort
                 prime_subsets = sorted({tuple(s) for s in prime_subsets}, key=lambda t: (len(t), t))
                 prime_subsets = [list(t) for t in prime_subsets]
@@ -326,7 +335,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             print(f"[bounds] Using {len(prime_subsets)} precomputed prime subsets from sconf. Size dist: {dict(sorted(size_dist.items()))}")
 
             if True:
-                newly_found_x, new_sections, precomputed_residues = search_lattice_modp_unified_parallel(
+                # --- MODIFIED CALL to get stats object ---
+                newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
                     cd, current_sections,
                     prime_pool,
                     vecs,
@@ -338,6 +348,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                     get_y_unshifted_genus2,
                     TMAX
                     )
+                # --- MERGE STATS ---
+                cumulative_stats.merge(iter_stats)
 
             if False:
                 # call the modular LLL/subset search with precomputed subsets
@@ -349,7 +361,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                     search_rhs_list,
                     r_m,
                     shift,
-                    all_known_x,
+                    all_found_x,
                     prime_subsets,
                     get_y_unshifted_genus2,
                     TMAX
@@ -586,6 +598,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                 ))
                 print("checking primes:", primes_to_check)
 
+            
                 # Check local solubility
                 if is_everywhere_locally_solvable(quartic, primes_to_check):
                     print("  Locally solvable at all tested places ✅")
@@ -594,6 +607,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
                         print(f"  Found global rational point: {pt}")
                     else:
                         print("  No global point found up to bound — likely Sha candidate ⚠️")
+                
                 else:
                     print("  Locally obstructed ❌")
 
@@ -654,6 +668,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x):
             print(f"\nCould not run section-component detection: {e}")
             raise
 
+        
         # Construct the q-series (generating function) from the curve counts.
         qseries = build_qseries_from_counts(counts, rho, max_degree=20)
         print("\nQ-series (up to q^12):", qseries)
@@ -688,11 +703,15 @@ def main_genus2():
     initial_xs = DATA_PTS_GENUS2
     known_pts = { (QQ(x), get_y_unshifted_genus2(x)) for x in initial_xs if get_y_unshifted_genus2(x) is not None }
     # Add y=0 points to initial known points
+    
     known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
     print("known_pts start:", known_pts)
 
     excluded = set()
     all_found_x = {pt[0] for pt in known_pts}
+    
+    # --- Create Cumulative Stats Object ---
+    cumulative_stats = SearchStats()
 
     while True:
         if len(known_pts) >= TERMINATE_WHEN_6:
@@ -721,7 +740,8 @@ def main_genus2():
         print(f"found {len(known_pts)} / {TERMINATE_WHEN_6}")
         print("========================================================\n")
 
-        found_from_fibration = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x)
+        # --- Pass cumulative_stats to doloop ---
+        found_from_fibration = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats)
         all_found_x.update(found_from_fibration)
 
         excluded.add(frozenset(data_pts))
@@ -729,6 +749,10 @@ def main_genus2():
 
     print("\n--- Final Results ---")
     print(f"Final list of known points: {sorted(list(known_pts))}")
+    
+    print("\n--- Cumulative Run Statistics ---")
+    print(cumulative_stats.summary_string())
+
 
 if __name__ == '__main__':
     main_genus2()

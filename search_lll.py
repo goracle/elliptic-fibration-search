@@ -15,7 +15,7 @@ from math import floor, sqrt, gcd, ceil, log
 from fractions import Fraction
 from functools import reduce, lru_cache, partial
 from operator import mul
-from collections import namedtuple
+from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 # Third-party imports
@@ -34,6 +34,7 @@ from sage.rings.fraction_field_element import FractionFieldElement
 # Local imports (assuming these exist in your project)
 from search_common import *
 from search_common import DEBUG, PROFILE
+from stats import SearchStats # <-- ADDED IMPORT
 
 # Constants
 DEFAULT_MAX_CACHE_SIZE = 10000
@@ -1481,6 +1482,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
     extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
 
     found_candidates_for_subset = set()
+    stats_counter = Counter() # <-- Stats collector for this worker
 
     for v_orig in vecs:
         if all(c == 0 for c in v_orig):
@@ -1518,6 +1520,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
             # Now perform CRT and filtering
             lists = [residue_map_for_crt[p] for p in primes_for_crt]
             for combo in itertools.product(*lists):
+                stats_counter['crt_lift_attempts'] += 1 # <-- STATS
                 M = reduce(mul, primes_for_crt, 1)
 
                 if M > MAX_MODULUS:
@@ -1536,13 +1539,16 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 for m_cand, _score in best_ms:
                     found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
 
+                stats_counter['rational_recon_attempts_worker'] += 1 # <-- STATS
                 try:
                     a, b = rational_reconstruct(m0 % M, M)
                     found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+                    stats_counter['rational_recon_success_worker'] += 1 # <-- STATS
                 except RationalReconstructionError:
+                    stats_counter['rational_recon_failure_worker'] += 1 # <-- STATS
                     raise
 
-    return found_candidates_for_subset
+    return found_candidates_for_subset, stats_counter
 
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
@@ -1891,23 +1897,31 @@ def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
     return coverage
 
 
-def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections):
+def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections, stats):
     """
     Test a batch of (m, v_tuple) candidates for rationality in parallel.
     Returns set of (m, v_tuple) pairs that produced rational points.
+    UPDATED to accept and use a stats object with new counter names.
     """
     rational_candidates = set()
 
     for m_val, v_tuple in candidates:
+        stats.incr('rationality_tests_total') # <-- STATS
         try:
             x_val = r_m(m=m_val) - shift
             y_val = rationality_test_func(x_val)
             if y_val is not None:
+                stats.record_success(m_val, point=x_val) # <-- STATS (increments rationality_tests_success)
                 rational_candidates.add((m_val, v_tuple))
+            else:
+                stats.record_failure(m_val, reason='y_not_rational') # <-- STATS (increments rationality_tests_failure)
         except (TypeError, ZeroDivisionError, ArithmeticError):
+            stats.record_failure(m_val, reason='rationality_test_error') # <-- STATS (increments rationality_tests_failure)
             continue
 
     return rational_candidates
+
+
 
 
 def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debug=DEBUG):
@@ -1922,7 +1936,8 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
         debug (bool): Print diagnostics
     
     Returns:
-        set: All (m, vector) candidates found across all subsets
+        set: All (m, vector) candidates found
+        Counter: Merged stats_counter dict from all workers
     """
     try:
         ctx = multiprocessing.get_context("fork")
@@ -1931,6 +1946,7 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
         exec_kwargs = {"max_workers": num_workers}
 
     overall_found = set()
+    merged_stats = Counter() # <-- STATS collector
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
         futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
@@ -1938,15 +1954,19 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
         with tqdm(total=len(futures), desc="Searching Prime Subsets") as pbar:
             for future in as_completed(futures):
                 try:
-                    subset_results = future.result()
+                    # Worker now returns two items
+                    subset_results, stats_dict = future.result() 
                     overall_found.update(subset_results)
+                    merged_stats.update(stats_dict) # <-- STATS
                 except Exception as e:
                     if debug:
                         print(f"Subset worker failed: {e}")
                 finally:
                     pbar.update(1)
 
-    return overall_found
+    return overall_found, merged_stats # <-- Return stats
+
+
 
 def archimedean_height_of_integer(n):
     # crude but sufficient proxy for ordering: H(n) ~ log(max(|n|,1))
@@ -2128,174 +2148,6 @@ def compute_all_mults_for_section(Pi, required_ks, max_k=MAX_K_ABS, debug=False)
 # ============================================================================
 # Integration point: call this after precomputation completes
 # ============================================================================
-def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
-                                         shift, all_found_x, num_subsets, rationality_test_func, max_abs_t,
-                                         num_workers=8, debug=DEBUG):
-    """
-    Unified parallel search using ProcessPoolExecutor throughout.
-    Skips combinatorially heavy prime subsets that would explode runtime.
-    """
-    print("prime pool used for search:", prime_pool)
-    print("--- Preparing modular data for LLL search ---")
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
-    )
-    if not Ep_dict:
-        print("No valid primes found for modular search. Aborting.")
-        return set(), [], {}
-
-    primes_to_compute = list(Ep_dict.keys())
-    num_rhs_fns = len(rhs_list)
-    vecs_list = list(vecs)
-    args_list = [
-        (p, Ep_dict[p], mult_lll.get(p, {}), vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list]),
-         vecs_list, rhs_modp_list, num_rhs_fns)
-        for p in primes_to_compute
-    ]
-
-    precomputed_residues = {}
-    try:
-        ctx = multiprocessing.get_context("fork")
-        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-    except Exception:
-        exec_kwargs = {"max_workers": num_workers}
-        raise
-
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
-            p = futures[future]
-            try:
-                p_ret, mapping = future.result()
-                precomputed_residues[p_ret] = mapping
-            except Exception as e:
-                if debug:
-                    print(f"[precompute fail] p={p}: {e}")
-                precomputed_residues[p] = {}
-                raise
-
-    # Auto-tune extra primes
-    prime_stats = estimate_prime_stats(Ep_dict.keys(), precomputed_residues, vecs_list, num_rhs=len(rhs_list))
-    auto_extra_primes = choose_extra_primes(prime_stats,
-                                            target_density=EXTRA_PRIME_TARGET_DENSITY,
-                                            max_extra=EXTRA_PRIME_MAX,
-                                            skip_small=EXTRA_PRIME_SKIP)
-    extra_primes_for_filtering = auto_extra_primes
-
-    usable_primes = [p for p in prime_pool if p in precomputed_residues and precomputed_residues[p]]
-    if not usable_primes:
-        print("No primes have precomputed residues. Aborting.")
-        return set(), [], precomputed_residues
-    if len(usable_primes) < len(prime_pool):
-        if debug:
-            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no data. "
-                  f"Using {len(usable_primes)} usable primes.")
-        prime_pool = usable_primes
-
-    # --- Generate and filter subsets ---
-    prime_subsets = generate_biased_prime_subsets_by_coverage(
-        prime_pool=prime_pool,
-        precomputed_residues=precomputed_residues,
-        vecs=vecs_list,
-        num_subsets=num_subsets,
-        min_size=3,
-        max_size=9,
-        seed=SEED_INT,
-        force_full_pool=False,
-        debug=debug
-    )
-
-    # Compute rough explosion estimate and drop pathological subsets
-    combo_cap = COMBO_CAP
-    roots_threshold = ROOTS_THRESHOLD
-    if debug:
-        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
-    filtered_subsets = []
-    for subset in prime_subsets:
-        est = 1
-        for p in subset:
-            roots_total = 0
-            mapping = precomputed_residues.get(p)
-            if mapping:
-                for roots_lists in mapping.values():
-                    for rl in roots_lists:
-                        roots_total += len(rl)
-            if roots_total == 0:
-                est = 0
-                break
-            if roots_total > roots_threshold:
-                est *= roots_total
-        if est <= combo_cap:
-            filtered_subsets.append(subset)
-    if debug:
-        print("Generated", len(prime_subsets), "prime_subsets -> filtered to", len(filtered_subsets))
-    prime_subsets = filtered_subsets
-
-    # Parallel subset processing
-    worker_func = partial(
-        _process_prime_subset_precomputed,
-        vecs=vecs_list,
-        r_m=r_m,
-        shift=shift,
-        max_abs_t=max_abs_t,
-        precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,
-        num_rhs_fns=len(rhs_list)
-    )
-
-    overall_found_candidates = set()
-    batched_candidates = []
-    batch_size = 500
-
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
-        for i, future in enumerate(tqdm(as_completed(futures), total=len(futures), desc="Searching Prime Subsets")):
-            subset_results = future.result()
-            batched_candidates.extend(subset_results)
-            if (i + 1) % batch_size == 0 or (i + 1) == len(futures):
-                newly_rational = _batch_check_rationality(
-                    batched_candidates, r_m, shift, rationality_test_func, current_sections
-                )
-                overall_found_candidates.update(newly_rational)
-                batched_candidates = []
-                if debug:
-                    print(f"[progress flush] processed {i+1} of {len(futures)} found so far {len(overall_found_candidates)}")
-
-    if batched_candidates:
-        newly_rational = _batch_check_rationality(
-            batched_candidates, r_m, shift, rationality_test_func, current_sections
-        )
-        overall_found_candidates.update(newly_rational)
-
-    if not overall_found_candidates:
-        return set(), [], precomputed_residues
-
-    print(f"\nProcessed all subsets. Testing {len(overall_found_candidates)} candidates for rationality...")
-    sample_pts = []
-    new_sections_raw = []
-    processed_m_vals = {}
-
-    for m_val, v_tuple in overall_found_candidates:
-        if m_val in processed_m_vals:
-            continue
-        try:
-            x_val = r_m(m=m_val) - shift
-            y_val = rationality_test_func(x_val)
-            if y_val is not None:
-                v = vector(QQ, v_tuple)
-                sample_pts.append((x_val, y_val))
-                processed_m_vals[m_val] = v
-                if any(c != 0 for c in v):
-                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                    new_sections_raw.append(new_sec)
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            continue
-
-    new_xs = {pt[0] for pt in sample_pts}
-    new_sections = list({s: None for s in new_sections_raw}.keys())
-    return new_xs, new_sections, precomputed_residues
-
-
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
                                               num_subsets, min_size, max_size, 
                                               seed=SEED_INT, force_full_pool=False, debug=DEBUG,
@@ -2492,3 +2344,224 @@ def _print_subset_productivity_stats(productive, all_subsets):
     print(f"[subset stats] Top 5 productive subsets:")
     for p in top:
         print(f"  {p['primes']}: {p['candidates']} candidates")
+
+
+def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
+                                         shift, all_found_x, num_subsets, rationality_test_func, max_abs_t,
+                                         num_workers=8, debug=DEBUG):
+    """
+    Unified parallel search using ProcessPoolExecutor throughout.
+    Skips combinatorially heavy prime subsets that would explode runtime.
+    """
+    # === STATS: INIT ===
+    stats = SearchStats()
+    
+    print("prime pool used for search:", prime_pool)
+    
+    # === PHASE: PREP MOD DATA ===
+    stats.start_phase('prep_mod_data')
+    print("--- Preparing modular data for LLL search ---")
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, search_primes=prime_pool
+    )
+    stats.end_phase('prep_mod_data')
+    
+    if not Ep_dict:
+        print("No valid primes found for modular search. Aborting.")
+        return set(), [], {}, stats # <-- Return stats
+
+    # === PHASE: PRECOMPUTE RESIDUES ===
+    stats.start_phase('precompute_residues')
+    primes_to_compute = list(Ep_dict.keys())
+    num_rhs_fns = len(rhs_list)
+    vecs_list = list(vecs)
+    args_list = [
+        (p, Ep_dict[p], mult_lll.get(p, {}), vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list]),
+         vecs_list, rhs_modp_list, num_rhs_fns)
+        for p in primes_to_compute
+    ]
+
+    precomputed_residues = {}
+    try:
+        ctx = multiprocessing.get_context("fork")
+        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+    except Exception:
+        exec_kwargs = {"max_workers": num_workers}
+        raise
+
+    with ProcessPoolExecutor(**exec_kwargs) as executor:
+        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
+            p = futures[future]
+            try:
+                p_ret, mapping = future.result()
+                precomputed_residues[p_ret] = mapping
+            except Exception as e:
+                if debug:
+                    print(f"[precompute fail] p={p}: {e}")
+                precomputed_residues[p] = {}
+                raise
+    stats.end_phase('precompute_residues')
+
+    # === PHASE: AUTOTUNE PRIMES ===
+    stats.start_phase('autotune_primes')
+    prime_stats = estimate_prime_stats(Ep_dict.keys(), precomputed_residues, vecs_list, num_rhs=len(rhs_list))
+    auto_extra_primes = choose_extra_primes(prime_stats,
+                                            target_density=EXTRA_PRIME_TARGET_DENSITY,
+                                            max_extra=EXTRA_PRIME_MAX,
+                                            skip_small=EXTRA_PRIME_SKIP)
+    extra_primes_for_filtering = auto_extra_primes
+    stats.end_phase('autotune_primes')
+
+    usable_primes = [p for p in prime_pool if p in precomputed_residues and precomputed_residues[p]]
+    if not usable_primes:
+        print("No primes have precomputed residues. Aborting.")
+        return set(), [], precomputed_residues, stats # <-- Return stats
+    if len(usable_primes) < len(prime_pool):
+        if debug:
+            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no data. "
+                  f"Using {len(usable_primes)} usable primes.")
+        prime_pool = usable_primes
+
+    # === PHASE: GEN SUBSETS ===
+    stats.start_phase('gen_subsets')
+    prime_subsets = generate_biased_prime_subsets_by_coverage(
+        prime_pool=prime_pool,
+        precomputed_residues=precomputed_residues,
+        vecs=vecs_list,
+        num_subsets=num_subsets,
+        min_size=3,
+        max_size=9,
+        seed=SEED_INT,
+        force_full_pool=False,
+        debug=debug
+    )
+    stats.incr('subsets_generated_initial', n=len(prime_subsets))
+
+    # Compute rough explosion estimate and drop pathological subsets
+    combo_cap = COMBO_CAP
+    roots_threshold = ROOTS_THRESHOLD
+    if debug:
+        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
+    filtered_subsets = []
+    for subset in prime_subsets:
+        est = 1
+        for p in subset:
+            roots_total = 0
+            mapping = precomputed_residues.get(p)
+            if mapping:
+                for roots_lists in mapping.values():
+                    for rl in roots_lists:
+                        roots_total += len(rl)
+            if roots_total == 0:
+                est = 0
+                break
+            if roots_total > roots_threshold:
+                est *= roots_total
+        if est <= combo_cap:
+            filtered_subsets.append(subset)
+            
+    filtered_out_count = len(prime_subsets) - len(filtered_subsets)
+    stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
+    if debug:
+        print("Generated", len(prime_subsets), "prime_subsets -> filtered to", len(filtered_subsets))
+    prime_subsets = filtered_subsets
+    stats.end_phase('gen_subsets')
+
+    # === PHASE: SEARCH & CHECK ===
+    stats.start_phase('search_subsets_and_check')
+    worker_func = partial(
+        _process_prime_subset_precomputed,
+        vecs=vecs_list,
+        r_m=r_m,
+        shift=shift,
+        max_abs_t=max_abs_t,
+        precomputed_residues=precomputed_residues,
+        prime_pool=prime_pool,
+        num_rhs_fns=len(rhs_list)
+    )
+
+    overall_found_candidates = set()
+    batched_candidates = []
+    batch_size = 500
+
+    with ProcessPoolExecutor(**exec_kwargs) as executor:
+        futures = {executor.submit(worker_func, subset): subset for subset in prime_subsets}
+        
+        # This will hold the merged stats from all workers
+        worker_stats_dict = Counter()
+
+        for i, future in enumerate(tqdm(as_completed(futures), total=len(futures), desc="Searching Prime Subsets")):
+            stats.incr('subsets_processed')
+            
+            # Get candidates AND worker stats
+            subset_results, stats_dict = future.result() 
+            worker_stats_dict.update(stats_dict) # <-- Merge worker stats
+            
+            stats.incr('crt_candidates_found', n=len(subset_results))
+            batched_candidates.extend(subset_results)
+            
+            if (i + 1) % batch_size == 0 or (i + 1) == len(futures):
+                newly_rational = _batch_check_rationality(
+                    batched_candidates, r_m, shift, rationality_test_func, current_sections, stats
+                )
+                overall_found_candidates.update(newly_rational)
+                batched_candidates = []
+                if debug:
+                    print(f"[progress flush] processed {i+1} of {len(futures)} found so far {len(overall_found_candidates)}")
+
+    if batched_candidates:
+        newly_rational = _batch_check_rationality(
+            batched_candidates, r_m, shift, rationality_test_func, current_sections, stats
+        )
+        overall_found_candidates.update(newly_rational)
+        
+    # Merge all collected worker stats into the main stats object
+    stats.merge_dict(worker_stats_dict)
+    stats.end_phase('search_subsets_and_check')
+
+    if not overall_found_candidates:
+        # === PRINT STATS SUMMARY (FAILURE) ===
+        print("\n--- Search Statistics (No Points Found) ---")
+        print(stats.summary_string())
+        return set(), [], precomputed_residues, stats # <-- Return stats
+
+    print(f"\nProcessed all subsets. Found {len(overall_found_candidates)} rational candidates.")
+
+    # === PHASE: POST PROCESS ===
+    stats.start_phase('post_process')
+    sample_pts = []
+    new_sections_raw = []
+    processed_m_vals = {}
+
+    # This loop just collates the results from the batch checker
+    for m_val, v_tuple in overall_found_candidates:
+        if m_val in processed_m_vals:
+            continue
+        try:
+            # Re-compute x_val (already checked, but needed for list)
+            x_val = r_m(m=m_val) - shift
+            y_val = rationality_test_func(x_val) # This should not be None
+            
+            if y_val is not None:
+                v = vector(QQ, v_tuple)
+                sample_pts.append((x_val, y_val))
+                processed_m_vals[m_val] = v
+                if any(c != 0 for c in v):
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    new_sections_raw.append(new_sec)
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            continue # Should not happen if batch check passed
+
+    new_xs = {pt[0] for pt in sample_pts}
+    new_sections = list({s: None for s in new_sections_raw}.keys())
+    stats.incr('rational_points_unique', n=len(new_xs))
+    stats.incr('new_sections_unique', n=len(new_sections))
+    stats.end_phase('post_process')
+
+    # === PRINT STATS SUMMARY (SUCCESS) ===
+    print("\n--- Search Statistics ---")
+    print(stats.summary_string())
+
+    return new_xs, new_sections, precomputed_residues, stats # <-- Return stats
+
