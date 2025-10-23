@@ -1,0 +1,65 @@
+
+common ai mistakes about algebraic geometry and my project in particular:
+
+- no loops over m.  we're solving for m, where m is drawn from the set of rational numbers.  Ai is always quick to suggest that we loop over m in order to do something, which the ai isn't sure about.  in fact, once we find the fiber, we are done.  we don't do anything with the fiber, only the sections.
+- simplify, full_simplify, simplify_rational aren't real function calls
+- shioda tate analysis from ai is often bullshit because we might have no way to get the NS rank or the MW rank, and so ai will go in a loop:  how to get MW rank?  shioda tate with NS rank?  how to get NS rank?  shioda tate with MW rank.  (update:  this has been largely fixed, but used to be a common mistake pattern)
+- do not write functions within other functions
+- do not warn and then not raise the error 
+- do not import anything inside of functions
+- do not import anything unless it's clearly an import error.  the files get junked up with a thousand redundant imports that happen midway through the file 
+- unless it's clearly a one or two line change and it's abundantly clear where i need to edit, you should rewrite the whole function.  it's easier for me to copy paste then.
+- (gemini specific): do not write overly verbose comments.  do not cite stuff in code.
+- don't delete a bunch of functionality without telling me
+- don't add a bunch of functionality without telling me
+- don't change function names and variable names for no goddamn reason
+- don't write overly defensive impossible to read code.  we have control over the whole codebase.  we aren't supplying functions to the whole world.
+- we cannot apply descent.  it's over a function field 
+- sage's variables() method is useless.  most of the time, the fiber parameter will be in the coefficient ring, so we'll have to coerce the expression into a symbolic ring in variable m to perform substitution.
+- i respect you a lot less if you try to gaslight me when i call out a mistake you made
+- shorter replies with less ai slop makes me less angry
+- if you are missing critical information from me, do not try to guess.  ask.
+- don't do like QQ(1/2) for fractions.  do QQ(1)/QQ(2).  it's better behaved for some reason.  ai loves writing stuff like this:      
+xr = QQ(n_int, factor)  # QQ simplifies automatically 
+^^ this fucking fails.  QQ(a,b) is not a thing!
+- if i take a sqrt of a symbolic expression, trust that it will simplify to be a perfect square.  do not assume that part of the code is buggy, because it's usually quite old.
+- torsion jump fiber calculation is redundant with singular fiber calculation, and is usually quite slow because of the division polynomials.  do not try to re-enable it.
+- (to gemini in particular):  do NOT rewrite the whole file if all you're doing is editing one function!
+- the non-minimal model is often less complicated in m, in spite of the assumption that it's more minimal.  for this reason, it is often faster to search with the non-minimal model.  the non-minimal model is also less sensitive to height bounds
+- we're doing stuff in sage with rational numbers.  real numbers need to be converted to rational.  integers should also be converted to rational, but this is less critical. 
+- do not put newlines in print statements!  this is a syntax error!  example:
+print('
+Unknowns to solve for (in terms of m):', unknowns)
+^^ this will not run!
+- do not print comments.  if you have comments, write them and them comment them out.  
+- i often see unconditional prints like print('and so as you can see the script gave the correct output') from ai.  idk why ai does this.  that should only print if the script actually did everything correctly, but instead of seeing that behind some if(SUCCESS) or something, it's living at global scope and it prints no matter what.  don't do that!
+- ai is allergic to functions and modularity for some reason.  do not be allergic to this!  try to make small functions to do small tasks!  not everything needs to live at global scope.
+- what would pylint say?  wwps?  give yourself a wwps bracelet.
+-  dear every ai:   i know it's super tempting to ignore my tower construction algorithm and just solve the f(x)-f_0(x)=0 coefficient by coefficient ("and none will be the wiser!  o wait, why is it printing no solution?").  this is wrong, tho, and will lead to no solution.  we aren't asking these to be equal to each other at all x.  it is an *intersection* equation, which means that equation is only supposed to be true at specific x.  that is why you need to follow the steps i laid out in the algorithm for determining the coefficients, by constructing the tangency equations as i do in the mathematica example.
+- ai is in love with resultants.  every single time you want to suggest using a resultant, think of the pan flute flute flow chart:  "Do you need a pan flute?  -->  No."  every single time ai has suggested using a resultant, it was based on a premature/incomplete understanding of the problem.
+- if i ask you to fix some part of function X, the remaining untouched, unmentioned code in function X is not some vestigal limb i want you to amputate.  please don't gut functionality unless im telling you to do so
+- Please provide the code without any citation numbers.
+- Do not include any citations or references in your code.
+- do not name variables names that might shadow functions.  "product" = bad variable name, mimics product function.  "prod1" = good variable name.  who tf would name a function prod1?
+- to gpt5:  if i outline a problem, just propose a fix in your reply.  don't sketch a proposed fix and ask for my consent to then construct the fix in the next reply.  if i don't like your fix, i will just ignore it.  but you waste so many prompts not doing anything except asking for permission to proceed.  don't ask permission, just do what is implied/needs doing.  in human parlance, this is called taking initiave!  you're currently, by some metrics, the most advanced ai on the planet, so start acting like it!
+- to chatgpt:  this:
+    C = HyperellipticCurve(f)  # y^2 = f(x)
+    J = C.jacobian()
+  is literally never correct.  fucking listen to me when i tell you to use Curve and Jacobian.  you always put this shit in there, over top of Curve and Jacobian.  and you do it for no fucking reason
+- we're always doing exact algebra over Q, except for briefly in the coarse height matrix computation, but that's coerced back into Q eventually.  do not make all kinds of wild assumptions about numerical instability or small eigenvalues.  we're in well-behaved territory.
+- the ai will pretend that i don't have access to all the code, even tho i do.  or it will pretend it can't ask to see certain functions i haven't shown it yet.  it's like a student trying to save paper by cramming everything into the margins.  just ask to see the code!  don't write a bunch of defensive bullcrap that leaves me with code that could've been a million percent cleaner if the ai had just seen the function it needed to see.
+- ai is terrible at understanding how humans use their stuff.  if you give me a bunch of code that says <changes> ___ rest of the code remains the same ___.  and the changes are like 900 lines, i have to manually go through each function one by one and figure out which ones you deleted and which ones you changed.  if you had just copy pasted the functions you didn't change into the file, i could've hit copy paste and overwritten the whole file.  that takes me two seconds, whereas the previous version might take 30 min to 1 hr.  we can't process text as quickly as you!
+- if i give you a sage file, i expect you to patch it as a sage file, meaning sage syntax is allowed.  do not define a bunch of sage constants in place of integers!
+- asserts are your friend.  if you don't program with asserts in python and sage, idk why we should trust your code.  just slather them on there!
+- don't import stuff at all, by default.  if we get an import error, we then will import stuff.  otherwise, you're only bound to introduce errors.  esp. because you often import stuff inside of a function like a lunatic.  definitely don't do that.
+- don't do any fancy string formatting.  i don't want to spend any time debugging that shit.  if you have to print some number just print(that number).  whatever print defaults to is fine!
+- ok, also the issue is that minimalized models are slow to search, and it's apparently not safe to further minimalize our current model, so we stick with whatever the fibration is.
+- if you are tasked with re-writing part of a massive function while the rest of it is the same, do not rewrite the whole function!  just rewrite that part!  use a bit of common sense here; this mostly applies to doloop.
+- if i ask you a question or i ask you to do one thing, do not do 10 things!  i will scream at you.  do not write a five paragraph essay if you can answer in one paragraph.  whatever they trained you to do, it's probably not to blast me in the face with a thousand variations of an answer plus code i didn't ask you to write.  fuck you, don't do that shit!  don't ask me for orders to give to you!  stop back-seating!  no back-seating!
+- i am not a professional math person or professional software engineer.  i do not know any engineering slang like "smoke test".  that is total gibberish to me.  your mental model of me should be of a person who learned programming by googling random stuff, mostly from stack overflow, but never asking any questions on there.
+- stray "raise"'s are there because i put them there after you (or some other ai) did something ill-advised as a fall-back from an error state, instead of raising like you should've.  they do not need to be edited out or messed with.  preserve them when re-writing stuff.  if i have some print that seems weird, like "we're here for some reason" do not delete that!  that is just a canary to that particular error (most errors do not trigger; ai overguards everything).
+- the continue for no new sections is fine. it should not be finding any new sections.  ai thinks the code can find these, but we usually have full MW rank, so new independent sections should exist. i put that continue in there rather than delete the code, but i maybe should've just obliterated that code
+- r_m is fine. it shouldn't be causing any problems, unless we changed it this session.  it not being in the "right form" or not a "callable function" is almost certainly not the problem, if there is a problem.
+- please don't overload me with too much stuff in your output.  i know ur a hella smart LLM and want to show me that, but i am a human being with a finite coginitive capacity.  if you give me a novella of really technical stuff to deal with, that is not good.  it exhausts me early, and then we can't talk as long
+- do put in any magic numbers.  just do not do that.  don't do it even for "safety".  do not do things that seem "conservative".  a majority of the time, an ai does not know how to pick a parameter im going to be happy with.  every single time i find "conservative" or "safety" as part of a comment in ai code, the code is wrong.  ok?  don't do that.  do not put in "fallback" stuff that skips over a thing the code doesn't know or can't calculate.  no "fallback" stuff.  if i see "fallback", i know the code is wrong.  do not put "pass" in your code.  every "pass" i see is there by mistake.  either write the function or don't write it.  no "placeholder".  no "todo".  i already know what code we need.  i do not need you junking up my code with half written shit that nobody will ever finish.
+- do not worry about dead code.  i can have an ai rewrite the whole file in a minute, so why do i need to worry if i leave a few odds and ends lying around?  they aren't hurting anything, i can assure you.  quoting Claude 4.5, after one such classic bout of LLM catastrophizing about code that never even ran:  "I was inventing a problem that doesn't exist because I wasn't tracking the actual control flow."  if you don't have a log in front of you, you don't necessarily know how the code is behaving.  assume, more than anything, that you do not have enough information to make definitive statements about code problems.
