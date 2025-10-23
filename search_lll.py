@@ -2366,28 +2366,54 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         for p in primes_to_compute
     ]
 
-
     precomputed_residues = {}
+    total_modular_checks = 0
+
     try:
         ctx = multiprocessing.get_context("fork")
         exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
     except Exception:
         exec_kwargs = {"max_workers": num_workers}
-        # Don't raise here, let ProcessPoolExecutor handle fallback
+
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
         futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
             p = futures[future]
             try:
-                p_ret, mapping = future.result()
+                p_ret, mapping, local_modular_checks = future.result()
                 precomputed_residues[p_ret] = mapping
+                total_modular_checks += int(local_modular_checks)
+
+                # update per-prime residue coverage for heuristics
+                residues_union = set()
+                for vtuple, rhs_lists in mapping.items():
+                    for roots_set in rhs_lists:
+                        residues_union.update(roots_set)
+                stats.residues_by_prime[p_ret].update(residues_union)
+
+                # update main counters **per prime**
+                stats.counters['modular_checks'] += local_modular_checks
+                stats.counters[f'modular_checks_p_{p_ret}'] += local_modular_checks
+                stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
+
             except Exception as e:
                 if debug:
                     print(f"[precompute fail] p={p}: {e}")
                 precomputed_residues[p] = {}
-                # Don't raise here, allow continuation with fewer primes
+                stats.residues_by_prime[p].update(set())
+                # maybe also update counters to 0 for consistency
+                stats.counters[f'modular_checks_p_{p}'] = 0
+                stats.counters[f'residues_seen_p_{p}'] = 0
+
+    if debug:
+        print(f"[precompute] total_modular_checks={total_modular_checks}, usable_primes={len(precomputed_residues)}")
+
     stats.end_phase('precompute_residues')
+
+    top = sorted(((p, len(stats.residues_by_prime[p])) for p in stats.residues_by_prime),
+                key=lambda x: x[1], reverse=True)[:8]
+    print("Top primes by residues seen:", top)
 
     # === PHASE: AUTOTUNE PRIMES ===
     stats.start_phase('autotune_primes')
@@ -2582,31 +2608,63 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
 
 def _compute_residues_for_prime_worker(args):
-    """Worker function computing residues for one prime."""
-    p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, stats = args
+    """
+    Worker computing residues for one prime.
+    Returns (p, result_for_p, local_modular_checks)
+    - result_for_p: { v_orig_tuple : [set(roots_for_rhs0), set(roots_for_rhs1), ...] }
+    - local_modular_checks: integer count of attempted modular RHS checks
+    """
+    p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats = args
     result_for_p = {}
+    local_modular_checks = 0
+
     try:
         for idx, v_orig in enumerate(vecs_list):
             v_orig_tuple = tuple(v_orig)
+
+            # zero-vector shortcut
             if all(c == 0 for c in v_orig):
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
 
+            # transformed vector at this prime (if not present, skip)
             try:
                 v_p_transformed = vecs_lll_p[idx]
             except Exception:
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
 
+            # Build Pm safely using mults_p which may be dict or list
             Pm = Ep_local(0)
             for j, coeff in enumerate(v_p_transformed):
-                if int(coeff) in mults_p[j]:
-                    Pm += mults_p[j][int(coeff)]
+                try:
+                    mpj = mults_p[j]                       # may raise KeyError or IndexError
+                except Exception:
+                    mpj = None
+
+                if mpj is None:
+                    continue
+
+                # mpj may be dict-like or list-like
+                try:
+                    if hasattr(mpj, 'get'):               # dict-like
+                        key = int(coeff)
+                        if key in mpj:
+                            Pm += mpj[key]
+                    else:                                 # list/tuple-like
+                        key = int(coeff)
+                        # guard against out-of-range
+                        if 0 <= key < len(mpj):
+                            Pm += mpj[key]
+                except Exception:
+                    # be conservative: skip this coefficient if anything goes wrong
+                    continue
 
             if Pm.is_zero():
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
 
+            # For each RHS function, compute roots modulo p (if data exists)
             roots_by_rhs = []
             for i_rhs in range(num_rhs):
                 roots_for_rhs = set()
@@ -2615,17 +2673,22 @@ def _compute_residues_for_prime_worker(args):
                     try:
                         num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
                         if not num_modp.is_zero():
-                            # === Instrument modular checks ===
-                            stats.incr('modular_checks')
-                            
+                            # we attempted a modular RHS check
+                            local_modular_checks += 1
+                            # compute roots in GF(p)
                             roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
                             roots_for_rhs.update(roots)
                     except Exception:
+                        # any algebraic failure just yields no roots for this RHS
                         pass
                 roots_by_rhs.append(roots_for_rhs)
+
             result_for_p[v_orig_tuple] = roots_by_rhs
+
     except Exception as e:
+        # safe fail: return empty mapping + zero checks
         if DEBUG:
             print(f"[worker fail] p={p}: {e}")
-        return p, {}
-    return p, result_for_p
+        return p, {}, 0
+
+    return p, result_for_p, local_modular_checks
