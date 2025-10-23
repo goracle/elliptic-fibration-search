@@ -3,6 +3,8 @@ import time
 import json
 import math
 from collections import defaultdict, Counter
+from functools import reduce
+from operator import mul
 
 class SearchStats:
     def __init__(self):
@@ -14,17 +16,28 @@ class SearchStats:
         self.counters = Counter()
         # mapping prime -> set(residues tested mod p)
         self.residues_by_prime = defaultdict(set)
-        # number of CRT lift attempts and rational recon attempts
+        
+        # Initialize all counters we expect to track
         self.counters.update({
             'modular_checks': 0,
-            'crt_lift_attempts': 0,
-            'rational_recon_attempts': 0,
-            'rational_recon_success': 0,
-            'rational_recon_failure': 0,
+            'crt_lift_attempts': 0,         # (from worker) CRT combos
+            'rational_recon_attempts_worker': 0, # (from worker) rational_reconstruct calls
+            'rational_recon_success_worker': 0, # (from worker) rational_reconstruct successes
+            'rational_recon_failure_worker': 0, # (from worker) rational_reconstruct failures
+            'rationality_tests_total': 0,   # (from checker) Total m-vals tested
+            'rationality_tests_success': 0, # (from checker) m-vals that gave a y-point
+            'rationality_tests_failure': 0, # (from checker) m-vals that failed y-test
             'multiply_ops': 0,
             'symbolic_solves_attempted': 0,
-            'symbolic_solves_success': 0
+            'symbolic_solves_success': 0,
+            'subsets_generated_initial': 0,
+            'subsets_filtered_out_combo': 0,
+            'subsets_processed': 0,
+            'crt_candidates_found': 0,      # (m,v) pairs from workers
+            'rational_points_unique': 0,
+            'new_sections_unique': 0,
         })
+        
         # discard reasons and examples
         self.discard_reasons = Counter()
         self.discard_examples = defaultdict(list)  # reason -> [candidate_examples...]
@@ -34,6 +47,45 @@ class SearchStats:
 
         # In SearchStats.__init__:
         self.crt_classes_tested = set()  # set of tuples (m mod M, M)
+
+    def merge(self, other_stats):
+        """Merge another SearchStats object into this one."""
+        if not isinstance(other_stats, SearchStats):
+            return
+
+        # Merge phase times
+        for phase, t in other_stats.phase_times.items():
+            self.phase_times[phase] += t
+            
+        # Merge counters
+        self.counters.update(other_stats.counters)
+        
+        # Merge residue maps
+        for p, res_set in other_stats.residues_by_prime.items():
+            self.residues_by_prime[p].update(res_set)
+            
+        # Merge discard reasons
+        self.discard_reasons.update(other_stats.discard_reasons)
+        for reason, examples in other_stats.discard_examples.items():
+            current_len = len(self.discard_examples[reason])
+            needed = 5 - current_len
+            if needed > 0:
+                self.discard_examples[reason].extend(examples[:needed])
+                
+        # Merge success/failure lists (cap to avoid memory bloat)
+        self.successes.extend(other_stats.successes)
+        self.failures.extend(other_stats.failures)
+        if len(self.successes) > 1000:
+            self.successes = self.successes[-1000:]
+        if len(self.failures) > 1000:
+            self.failures = self.failures[-1000:]
+            
+        # Merge CRT classes
+        self.crt_classes_tested.update(other_stats.crt_classes_tested)
+
+    def merge_dict(self, stats_dict):
+        """Merge a simple Counter dict (from a worker) into counters."""
+        self.counters.update(stats_dict)
 
     # When you test a candidate:
     def record_crt_class(self, m_mod_M, M):
@@ -64,11 +116,11 @@ class SearchStats:
             self.discard_examples[reason].append(example)
 
     def record_success(self, m_value, point=None):
-        self.counters['rational_recon_success'] += 1
+        self.counters['rationality_tests_success'] += 1
         self.successes.append({'m': m_value, 'pt': point})
 
     def record_failure(self, m_value, reason=None):
-        self.counters['rational_recon_failure'] += 1
+        self.counters['rationality_tests_failure'] += 1
         self.failures.append({'m': m_value, 'reason': reason})
         if reason:
             self.record_discard(reason, example=m_value)
@@ -109,6 +161,7 @@ class SearchStats:
         return coverage_prod, M_log10
 
     def summary(self):
+        """Returns a dict summary of all stats."""
         prod_frac, per_prime = self.prime_coverage_fraction()
         return {
             'elapsed': time.time() - self.start_time,
@@ -116,11 +169,44 @@ class SearchStats:
             'counters': dict(self.counters),
             'discard_reasons': dict(self.discard_reasons),
             'discard_examples': dict(self.discard_examples),
-            'success_count': len(self.successes),
-            'failure_count': len(self.failures),
+            'success_count': self.counters['rationality_tests_success'],
+            'failure_count': self.counters['rationality_tests_failure'],
             'prime_coverage_product_heuristic': prod_frac,
             'prime_coverage_per_prime': per_prime
         }
+
+    def summary_string(self):
+        """Returns a formatted string of the summary."""
+        s = self.summary()
+        lines = []
+        lines.append(f"Total time: {s['elapsed']:.2f}s")
+        lines.append(f"Total Rational Points Found (Unique x): {s['counters'].get('rational_points_unique', 0)}")
+        
+        lines.append("\nPhases (s):")
+        if not s['phase_times']:
+            lines.append("  (No phases recorded)")
+        else:
+            for phase, t in sorted(s['phase_times'].items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"  {phase:<25}: {t:.2f}s")
+        
+        lines.append("\nCounters:")
+        if not s['counters']:
+            lines.append("  (No counters recorded)")
+        else:
+            for counter, n in sorted(s['counters'].items()):
+                lines.append(f"  {counter:<30}: {n}")
+                
+        lines.append(f"\nSuccesses (rationality tests): {s['success_count']}, Failures: {s['failure_count']}")
+        lines.append("Discard Reasons (Top 5):")
+        top_discards = sorted(s['discard_reasons'].items(), key=lambda x: x[1], reverse=True)[:5]
+        if not top_discards:
+            lines.append("  (None)")
+        else:
+            for reason, count in top_discards:
+                lines.append(f"  {reason:<30}: {count}")
+        lines.append("-" * 32)
+        return "\n".join(lines)
+
 
     def to_json(self, path):
         with open(path, 'w') as fh:

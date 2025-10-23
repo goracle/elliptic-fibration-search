@@ -8,6 +8,7 @@ import tempfile
 import os
 import shlex
 import multiprocessing, time, traceback
+from functools import lru_cache
 
 import search_common
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
@@ -1628,10 +1629,10 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     
     #h_can = estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, 
     #                                               fudge_const=3.0, debug=debug)
-    h_can = estimate_canonical_height_from_xheight(h_x, fudge_const=1.5)
+    h_can = estimate_canonical_height_from_xheight(h_x, None, fudge=1.5)
     
     if debug:
-        print(f"[auto_cfg] h_x={h_x:.2f}, h_can≈{h_can:.2f}")
+        print(f"[auto_cfg] h_x={h_x}, h_can≈{h_can}")
 
     if height_bound is None:
         if h_can is not None:
