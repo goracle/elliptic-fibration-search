@@ -296,7 +296,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 r_m=r_m,
                 shift=shift,
                 all_found_x=all_known_x,
-                rationality_test_func=get_y_unshifted_genus2
+                rationality_test_func=get_y_unshifted_genus2,
                 stats=cumulative_stats # <-- Pass stats object
             )
             cumulative_stats.merge(iter_stats)

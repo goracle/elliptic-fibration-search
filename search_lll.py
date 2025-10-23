@@ -2393,11 +2393,26 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     primes_to_compute = list(Ep_dict.keys())
     num_rhs_fns = len(rhs_list)
     vecs_list = list(vecs)
+    #args_list = [
+    #    (p, Ep_dict[p], mult_lll.get(p, {}), vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list]),
+    #     vecs_list, rhs_modp_list, num_rhs_fns)
+    #    for p in primes_to_compute
+    #]
+
     args_list = [
-        (p, Ep_dict[p], mult_lll.get(p, {}), vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list]),
-         vecs_list, rhs_modp_list, num_rhs_fns)
+        (
+            p,
+            Ep_dict[p],
+            mult_lll.get(p, {}),
+            vecs_lll.get(p, [tuple([0]*len(current_sections)) for _ in vecs_list]),
+            vecs_list,
+            rhs_modp_list,
+            num_rhs_fns,
+            stats  # <--- pass the stats object here
+        )
         for p in primes_to_compute
     ]
+
 
     precomputed_residues = {}
     try:
@@ -2611,3 +2626,53 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     print(stats.summary_string())
 
     return new_xs, new_sections, precomputed_residues, stats # <-- Return stats
+
+
+def _compute_residues_for_prime_worker(args):
+    """Worker function computing residues for one prime."""
+    p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, stats = args
+    result_for_p = {}
+    try:
+        for idx, v_orig in enumerate(vecs_list):
+            v_orig_tuple = tuple(v_orig)
+            if all(c == 0 for c in v_orig):
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+            except Exception:
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            Pm = Ep_local(0)
+            for j, coeff in enumerate(v_p_transformed):
+                if int(coeff) in mults_p[j]:
+                    Pm += mults_p[j][int(coeff)]
+
+            if Pm.is_zero():
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            roots_by_rhs = []
+            for i_rhs in range(num_rhs):
+                roots_for_rhs = set()
+                if p in rhs_modp_list_local[i_rhs]:
+                    rhs_p = rhs_modp_list_local[i_rhs][p]
+                    try:
+                        num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
+                        if not num_modp.is_zero():
+                            # === Instrument modular checks ===
+                            stats.incr('modular_checks')
+                            
+                            roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                            roots_for_rhs.update(roots)
+                    except Exception:
+                        pass
+                roots_by_rhs.append(roots_for_rhs)
+            result_for_p[v_orig_tuple] = roots_by_rhs
+    except Exception as e:
+        if DEBUG:
+            print(f"[worker fail] p={p}: {e}")
+        return p, {}
+    return p, result_for_p
