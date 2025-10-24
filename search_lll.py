@@ -2641,3 +2641,118 @@ def _compute_residues_for_prime_worker(args):
         return p, {}, 0
 
     return p, result_for_p, local_modular_checks
+
+def _compute_residues_for_prime_worker(args):
+    """
+    Worker computing residues for one prime.
+    Returns (p, result_for_p, local_modular_checks)
+    - result_for_p: { v_orig_tuple : [set(roots_for_rhs0), set(roots_for_rhs1), ...] }
+    - local_modular_checks: integer count of attempted modular RHS checks
+    """
+    # Unpack args (compatible with call-sites that append stats as final arg)
+    # Expected tuple:
+    # (p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats)
+    try:
+        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats = args
+    except Exception:
+        # Backwards compatibility: if stats not provided
+        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
+        _stats = None
+
+    result_for_p = {}
+    local_modular_checks = 0
+
+    try:
+        for idx, v_orig in enumerate(vecs_list):
+            v_orig_tuple = tuple(v_orig)
+
+            # zero-vector shortcut
+            if all(c == 0 for c in v_orig):
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            # transformed vector at this prime (if not present, skip)
+            try:
+                v_p_transformed = vecs_lll_p[idx]
+            except Exception:
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            # Build Pm safely using mults_p which may be dict or list
+            Pm = Ep_local(0)
+            for j, coeff in enumerate(v_p_transformed):
+                try:
+                    mpj = mults_p[j]                       # may raise KeyError or IndexError
+                except Exception:
+                    mpj = None
+
+                if mpj is None:
+                    continue
+
+                # mpj may be dict-like or list-like
+                try:
+                    key = int(coeff)
+                    if hasattr(mpj, 'get'):               # dict-like
+                        if key in mpj:
+                            Pm += mpj[key]
+                    else:                                 # list/tuple-like
+                        if 0 <= key < len(mpj):
+                            Pm += mpj[key]
+                except Exception:
+                    # be conservative: skip this coefficient if anything goes wrong
+                    continue
+
+            # If the point sum is the identity, no residues for this vector
+            if Pm.is_zero():
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+
+            # For each RHS function, compute roots modulo p (if data exists)
+            roots_by_rhs = []
+            for i_rhs in range(num_rhs):
+                roots_for_rhs = set()
+                # rhs_modp_list_local[i_rhs] expected to be a dict mapping p -> rhs_mod_p
+                rhs_map = rhs_modp_list_local[i_rhs]
+                if p in rhs_map:
+                    rhs_p = rhs_map[p]
+                    try:
+                        # If the denominator is zero mod p, treat as "no numeric root"
+                        den = Pm[2]
+                        # Attempt to get integer modulo p; some ring elements might not support %
+                        try:
+                            den_modp = int(den) % int(p)
+                        except Exception:
+                            # fallback: coerce numerator/denominator via .numerator/.denominator if available
+                            try:
+                                den_modp = int(den.numerator()) % int(p)
+                            except Exception:
+                                den_modp = 0  # be conservative
+
+                        if den_modp == 0:
+                            # Can't test this RHS modulo p (denominator zero) -> no numeric root recorded
+                            # (do NOT insert non-numeric sentinels; just append empty set)
+                            pass
+                        else:
+                            # compute the polynomial numerator for (X - rhs_p) mod p
+                            num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
+                            if not num_modp.is_zero():
+                                local_modular_checks += 1
+                                # compute roots in GF(p)
+                                roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
+                                roots_for_rhs.update(roots)
+                    except Exception:
+                        # any algebraic failure just yields no roots for this RHS
+                        pass
+
+                roots_by_rhs.append(roots_for_rhs)
+
+            # final assignment for this vector
+            result_for_p[v_orig_tuple] = roots_by_rhs
+
+    except Exception as e:
+        # safe fail: return empty mapping + zero checks
+        if DEBUG:
+            print(f"[worker fail] p={p}: {e}")
+        return p, {}, 0
+
+    return p, result_for_p, local_modular_checks
