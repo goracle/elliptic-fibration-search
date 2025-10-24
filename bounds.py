@@ -9,10 +9,12 @@ import os
 import shlex
 import multiprocessing, time, traceback
 from functools import lru_cache
+from functools import reduce
+from operator import mul
+
 
 import search_common
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
-
 # ==============================================================================
 # === High-Level Integration Function ==========================================
 # ==============================================================================
@@ -162,11 +164,10 @@ def expected_survivors_per_subset(residue_counts, primes):
     return density
 
 
-def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B, seed=SEED_INT):
+def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B):
     """
     Generate random, distinct prime subsets of a given size whose product exceeds B.
     """
-    random.seed(seed)
     chosen_subsets = set()
     max_tries = max(10000, 10 * num_subsets) # Prevent infinite loops
 
@@ -237,7 +238,7 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 # Add these functions to bounds.py or search_lll.py
 
 def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
-                                   min_size, max_size, seed=SEED_INT, 
+                                   min_size, max_size, 
                                    force_full_pool=False):
     """
     Generate diverse prime subsets with varying sizes.
@@ -247,8 +248,6 @@ def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets,
     a modulus threshold. Small subsets (3-5 primes) can find different solutions
     than large subsets (8-10 primes).
     """
-    import random
-    random.seed(seed)
     
     subsets = []
     
@@ -1022,7 +1021,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
 
 
 def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts, num_subsets, 
-                                                      min_size, max_size, seed=SEED_INT, 
+                                                      min_size, max_size, 
                                                       force_full_pool=False, debug=DEBUG):
     """
     Generate diverse prime subsets with varying sizes, biased by residue counts.
@@ -1043,9 +1042,6 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
     Returns:
         list of lists: Prime subsets, each sorted
     """
-    import random
-    random.seed(seed)
-    
     subsets = []
     
     if force_full_pool:
@@ -1390,17 +1386,6 @@ def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
     }
 
 
-import random
-import math
-from functools import reduce
-from operator import mul
-
-# Use SEED_INT and DEBUG from search_common if available
-try:
-    from search_common import SEED_INT, DEBUG
-except Exception:
-    SEED_INT = 12345
-    DEBUG = False
 
 def _expected_survivors_for_subset(subset, residue_counts, num_vecs_est=1):
     """
