@@ -376,7 +376,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 r_m,
                 shift,
                 all_known_x,
-                num_prime_subsets*10,
+                num_prime_subsets,
                 get_y_unshifted_genus2,
                 TMAX
                 )
