@@ -2636,7 +2636,7 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
             break
 
         if chosen is None:
-            chosen = list(random.sample(prime_pool, k=min(max_size, len(prime_pool))))
+            chosen = list(random.sample(prime_pool, k=min(min_size, len(prime_pool))))
             if debug:
                 print("generate_biased_coverage: fallback subset used after attempts")
 
