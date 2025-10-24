@@ -15,6 +15,9 @@ from operator import mul
 
 import search_common
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
+from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
+from search_common import MAX_MODULUS, PRIME_POOL
+
 # ==============================================================================
 # === High-Level Integration Function ==========================================
 # ==============================================================================
@@ -239,15 +242,21 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 
 def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
                                    min_size, max_size, 
-                                   force_full_pool=False):
+                                   force_full_pool=False,
+                                   seed=None): # <-- ADDED seed=None
     """
     Generate diverse prime subsets with varying sizes.
-    This is MUCH better than enforcing a fixed size and modulus bound.
+    This is MUCH better than enforcing a fixed size and modulus threshold.
     
     Key insight: You want DIVERSITY in subset composition, not just meeting
     a modulus threshold. Small subsets (3-5 primes) can find different solutions
     than large subsets (8-10 primes).
     """
+    
+    # --- NEW: Use seed if provided ---
+    if seed is not None:
+        random.seed(seed)
+    # --- END NEW ---
     
     subsets = []
     
@@ -448,7 +457,7 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
     Returns:
         list: filtered primes (sorted, unique)
     """
-    src_pool = list(prime_pool) if prime_pool is not None else list(getattr(search_common, 'PRIME_POOL', []))
+    src_pool = PRIME_POOL
     if debug:
         print("[bounds] Starting with prime pool size:", len(src_pool))
 
@@ -553,15 +562,12 @@ def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_c
 
 
 # === Replace modulus_needed_from_canonical_height with safer default scale ===
-def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=None, debug=DEBUG):
+def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=MAX_MODULUS, debug=DEBUG):
     """
     Translate canonical height to modulus bound B:
       log(B) := scale_const * h_can
     scale_const is 1.0 by default (more conservative than previous 2.0).
     """
-    if max_modulus is None:
-        max_modulus = getattr(search_common, 'MAX_MODULUS', 10**9)
-
     if h_can is None:
         return 2
 
@@ -642,7 +648,8 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
 
 # === Recommend subset strategy but do not pick magic numbers ===
 def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
-                                        num_subsets_hint=250, min_size_hint=3, max_size_hint=9, debug=DEBUG):
+                                        num_subsets_hint=250, min_size_hint=MIN_PRIME_SUBSET_SIZE,
+                                        max_size_hint=MIN_MAX_PRIME_SUBSET_SIZE, debug=DEBUG):
     """
     Returns an adaptive plan for subset generation: number of subsets, size ranges, and picks.
     Uses residue_counts to adaptively alter min/max and number of subsets.
@@ -1545,40 +1552,38 @@ def adaptive_prime_selection_learn(prime_pool_candidate, cd=None,
     return sorted_primes, normalized_scores
 
 
+# --- NEW HELPER FOR CACHING ---
+@lru_cache(maxsize=32)
+def _poly_from_str_cached(poly_str, var='m'):
+    """Helper to recreate a polynomial from its string repr for caching."""
+    try:
+        PR = PolynomialRing(QQ, var)
+        return PR(poly_str)
+    except Exception as e:
+        # Fallback to SR -> PR, which is slower but more robust
+        try:
+            PR = PolynomialRing(QQ, var)
+            return PR(SR(poly_str))
+        except Exception as e_inner:
+            print(f"[bounds] _poly_from_str_cached failed fallback: {e_inner}")
+            return None # Give up
+
+
 
 
 def auto_configure_search(cd, known_pts, prime_pool=None,
                           height_bound=None,
                           base_height_bound=100,
-                          max_modulus=10**15,
+                          max_modulus=MAX_MODULUS,
                           update_search_common=False,
                           num_subsets_hint=NUM_PRIME_SUBSETS,
                           debug=DEBUG):
     """
     Automatic configuration for search, with adaptive prime pool and subset scaling.
-    
-    As HEIGHT_BOUND increases, this function automatically:
-    - Extends the prime pool by O(log(height_bound)) primes
-    - Increases NUM_PRIME_SUBSETS by sqrt(height_bound / base_height_bound)
-    - Scales TMAX to match the increased search difficulty
-    
-    Args:
-        cd: CurveDataExt object
-        known_pts: List of known (x, y) points for height estimation
-        prime_pool (list, optional): Initial primes (defaults to search_common.PRIME_POOL)
-        height_bound (float, optional): User-provided HEIGHT_BOUND. If None, estimated.
-        base_height_bound (float): Reference height for adaptive scaling (default 100)
-        max_modulus (int): Safety cap for CRT modulus
-        update_search_common (bool): Whether to update search_common.PRIME_POOL
-        num_subsets_hint (int): Base number of subsets (before adaptive scaling)
-        debug (bool): Print diagnostics
-    
-    Returns:
-        dict: Configuration dict with keys HEIGHT_BOUND, PRIME_POOL, SUBSET_PLAN, 
-              PRIME_SUBSETS, NUM_PRIME_SUBSETS, MAX_MODULUS, TMAX, etc.
+    ... (rest of docstring) ...
     """
-    src_pool = list(prime_pool) if prime_pool is not None \
-               else list(getattr(search_common, 'PRIME_POOL', list(primes(90))))
+    src_pool = PRIME_POOL
+
     if debug:
         print("[auto_cfg] starting prime pool size:", len(src_pool))
 
@@ -1599,36 +1604,55 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
     def naive_x_height_from_pts(pts):
         vals = []
+        max_val_debug = 1
+        max_x_debug = 0
         for x, y in pts:
             try:
                 n = abs(Integer(x).numerator())
                 d = abs(Integer(x).denominator())
-                vals.append(max(1, max(n, d)))
+                val = max(1, max(n, d))
+                if val > max_val_debug: # <-- NEW
+                    max_val_debug = val # <-- NEW
+                    max_x_debug = x     # <-- NEW
+                vals.append(val)
             except Exception:
                 vals.append(1)
         if not vals:
             return 0.0
+        
+        if debug: # <-- NEW
+            print(f"[auto_cfg] naive_x_height_from_pts: max height from x = {max_x_debug} (val={max_val_debug})") # <-- NEW
+
         return float(log(max(vals)))
 
+
     h_x = naive_x_height_from_pts(known_pts)
-    
-    #h_can = estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, 
-    #                                               fudge_const=3.0, debug=debug)
     h_can = estimate_canonical_height_from_xheight(h_x, None, fudge=1.5)
-    
+
     if debug:
         print(f"[auto_cfg] h_x={h_x}, h_can≈{h_can}")
 
     if height_bound is None:
         if h_can is not None:
-            base = 100 * exp(h_can / 4.0)
-            height_bound = int(base + 100)
+            # --- MODIFICATION: Increased base offset ---
+            # Old: base = 100 * exp(h_can / 4.0)
+            # Old: height_bound = int(base + 100)
+            # New formula: Increase base offset significantly
+            base_offset = 300 # Changed from 100 to 300
+            scale_factor = 100
+            exponent_scale = 4.0
+            base = scale_factor * exp(h_can / exponent_scale)
+            height_bound = int(base + base_offset)
+            # --- END MODIFICATION ---
+
+            # Keep a reasonable cap
             height_bound = min(height_bound, 2000)
         else:
-            height_bound = 200
-    
+            # Fallback if h_can calculation fails
+            height_bound = 300 # Increased fallback from 200
+
     if debug:
-        print(f"[auto_cfg] HEIGHT_BOUND set to {height_bound}")
+        print(f"[auto_cfg] HEIGHT_BOUND set to {height_bound}") # This print remains
 
     try:
         residue_counts = compute_residue_counts_for_primes(cd, [SR(cd.phi_x)], 
@@ -1646,8 +1670,10 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
     try:
         SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
+        # --- MODIFIED: Call fixed caching function ---
         galois_diag = _cached_galois_stats(str(SPLIT_POLY))
         #galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
+        # --- END MODIFIED ---
         galois_degree = galois_diag.get('splitting_field_degree_est')
     except Exception as e:
         if debug:
@@ -1698,7 +1724,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             num_subsets=subset_plan['num_subsets'],
             min_size=subset_plan['min_size'],
             max_size=subset_plan['max_size'],
-            seed=SEED_INT,
+            seed=SEED_INT, # <-- This call is now valid
             force_full_pool=False
         )
 
@@ -1765,8 +1791,8 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
                                        base_height=100, target_survivors_per_subset=1.0, # Target survivors not used here
                                        base_num_subsets=250,
-                                       min_size_hint=3, # Default min size hint
-                                       max_size_hint=9, # Default max size hint
+                                       min_size_hint=MIN_PRIME_SUBSET_SIZE,
+                                       max_size_hint=MIN_MAX_PRIME_SUBSET_SIZE,
                                        debug=DEBUG):
     """
     Adaptive subset strategy combining density/zero-ratio heuristics for size
@@ -1901,4 +1927,11 @@ def estimate_canonical_height_from_xheight(h_x, curve_discriminant, fudge=1.5):
 @lru_cache(maxsize=16)
 def _cached_galois_stats(poly_str):
     """Cache Galois stats keyed by polynomial string"""
-    return estimate_galois_signature_modp(poly_from_str(poly_str), ...)
+    # --- MODIFIED ---
+    poly = _poly_from_str_cached(poly_str)
+    if poly is None:
+        return {} # Return empty dict if parsing failed
+    # Note: estimate_galois_signature_modp doesn't use the '...' syntax
+    # We pass None for primes_to_test to use its internal default
+    return estimate_galois_signature_modp(poly, primes_to_test=None, debug=False)
+    # --- END MODIFIED ---

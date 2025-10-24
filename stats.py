@@ -622,10 +622,14 @@ class CoverageEstimator:
         
         # Coupon collector problem: expected runs to reach coverage c
         # is -log(1-c) / p_per_run
-        coverage_per_run = p / len(self.tested_classes)  # rough estimate
-        expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
+        if not len(self.tested_classes):
+            coverage_per_run = 0
+            return -1
+        else:
+            coverage_per_run = p / len(self.tested_classes)  # rough estimate
+            expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
         
-        return math.ceil(expected_runs)
+            return math.ceil(expected_runs)
 
 if __name__ == "__main__":
     import sys
