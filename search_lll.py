@@ -1121,260 +1121,7 @@ def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3
     return chosen
 
 
-def detect_near_miss_candidates(precomputed_residues, prime_pool, vecs, 
-                                 coverage_threshold=0.75, max_candidates=5):
-    """
-    Detect (m, vector) pairs that have high residue coverage across primes
-    but failed to survive CRT filtering. These are "near misses" that might
-    represent points we're systematically missing.
 
-    Args:
-        precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from _compute_residues_for_prime_worker
-        prime_pool (list): Full list of primes used
-        vecs (list): All search vectors
-        coverage_threshold (float): Consider a prime-vector pair "active" if it has roots in
-                                    at least this fraction of primes (default 75%)
-        max_candidates (int): Return at most this many near-miss candidates
-
-    Returns:
-        list of dicts: Each dict has keys:
-          - 'm_candidates': set of possible m residues (from covered primes)
-          - 'coverage_ratio': fraction of primes that have roots for this vector
-          - 'residue_map': {p: roots_mod_p} for the covered primes
-          - 'v_tuple': the vector this came from
-          - 'prime_list': list of primes with roots
-    """
-    candidates = []
-
-    for v in vecs:
-        v_tuple = tuple(v)
-        if all(c == 0 for c in v_tuple):
-            continue
-
-        # Collect which primes have roots for this vector
-        primes_with_roots = []
-        residue_map = {}
-
-        for p in prime_pool:
-            if p not in precomputed_residues:
-                continue
-
-            p_data = precomputed_residues[p].get(v_tuple)
-            if p_data is None:
-                continue
-
-            # p_data is a list of root sets (one per RHS function)
-            # Combine roots across all RHS functions for this vector+prime
-            all_roots = set()
-            for rhs_roots in p_data:
-                if rhs_roots:
-                    all_roots.update(rhs_roots)
-
-            if all_roots:
-                primes_with_roots.append(p)
-                residue_map[p] = all_roots
-
-        if not primes_with_roots:
-            continue
-
-        coverage = len(primes_with_roots) / float(len(prime_pool))
-
-        if coverage >= coverage_threshold:
-            # This vector has high prime coverage but apparently didn't produce
-            # a survivor in CRT. Flag it as a near-miss.
-            m_candidates = set()
-            for p in primes_with_roots:
-                m_candidates.update(residue_map[p])
-
-            candidates.append({
-                'v_tuple': v_tuple,
-                'coverage_ratio': coverage,
-                'num_primes': len(primes_with_roots),
-                'num_m_residues': len(m_candidates),
-                'residue_map': residue_map,
-                'prime_list': primes_with_roots,
-            })
-
-    # Sort by coverage ratio (descending) and return top candidates
-    candidates.sort(key=lambda c: c['coverage_ratio'], reverse=True)
-    return candidates[:max_candidates]
-
-
-def construct_targeted_subset_for_recovery(candidate, prime_pool, min_size=3):
-    """
-    Given a near-miss candidate, construct a targeted prime subset that is
-    most likely to generate a CRT survivor for that candidate's m-values.
-
-    The strategy: pick primes from the candidate's residue_map that have
-    sparse roots (high selectivity), ensuring we cover many of the candidate's
-    possible m residues.
-
-    Args:
-        candidate (dict): Output from detect_near_miss_candidates
-        prime_pool (list): Full prime pool (for fallback)
-        min_size (int): Minimum subset size
-
-    Returns:
-        list: Primes to use for a targeted CRT search on this candidate
-    """
-    residue_map = candidate['residue_map']
-    prime_list = candidate['prime_list']
-
-    if len(prime_list) < min_size:
-        # Not enough primes; use what we have + pad with random others
-        subset = prime_list[:]
-        remaining = [p for p in prime_pool if p not in subset]
-        import random
-        subset += random.sample(remaining, min(min_size - len(subset), len(remaining)))
-        return subset
-
-    # Score primes by selectivity: primes with fewer roots are more selective
-    scored = []
-    for p in prime_list:
-        num_roots = len(residue_map[p])
-        selectivity = 1.0 / float(num_roots) if num_roots > 0 else 0
-        scored.append((selectivity, p))
-
-    scored.sort(reverse=True)
-    
-    # Greedily pick high-selectivity primes, ensuring we still cover the m-candidates
-    subset = []
-    covered_m = set()
-    for selectivity, p in scored:
-        subset.append(p)
-        covered_m.update(residue_map[p])
-        if len(subset) >= min(len(prime_list), MIN_MAX_PRIME_SUBSET_SIZE):
-            break
-
-    return subset
-
-
-def targeted_recovery_search(cd, current_sections, near_miss_candidates, prime_pool, 
-                              r_m, shift, rationality_test_func, max_abs_t=500,
-                              debug=True):
-    """
-    Run a focused CRT search on detected near-miss candidates.
-    
-    For each near-miss, construct a targeted prime subset and attempt to
-    recover the (m, vector) pair via CRT.
-
-    Args:
-        cd, current_sections, prime_pool, r_m, shift, rationality_test_func: 
-            Standard search parameters (same as search_lattice_modp_lll_subsets)
-        near_miss_candidates (list): Output from detect_near_miss_candidates
-        max_abs_t (int): Height bound for archimedean minimization
-        debug (bool): Print diagnostics
-
-    Returns:
-        set of newly found x-coordinates
-    """
-    import itertools
-    from operator import mul
-    from functools import reduce
-
-    newly_found = set()
-
-    for i, candidate in enumerate(near_miss_candidates):
-        if debug:
-            print(f"\n[recovery] Targeting near-miss candidate {i+1}/{len(near_miss_candidates)}")
-            print(f"  Vector: {candidate['v_tuple']}")
-            print(f"  Coverage: {candidate['coverage_ratio']:.1%} ({candidate['num_primes']} primes)")
-            print(f"  Potential m residues: {candidate['num_m_residues']}")
-
-        targeted_subset = construct_targeted_subset_for_recovery(candidate, prime_pool)
-
-        if debug:
-            print(f"  Using targeted subset: {targeted_subset}")
-
-        v_tuple = candidate['v_tuple']
-        residue_map = candidate['residue_map']
-
-        # Filter residue_map to only include primes in our targeted subset
-        filtered_residue_map = {p: residue_map[p] for p in targeted_subset if p in residue_map}
-
-        if not filtered_residue_map:
-            if debug:
-                print(f"  No residues in targeted subset; skipping.")
-            continue
-
-        # Generate all CRT combinations from the targeted subset
-        primes_for_crt = list(filtered_residue_map.keys())
-        residue_lists = [filtered_residue_map[p] for p in primes_for_crt]
-
-        for combo in itertools.product(*residue_lists):
-            M = reduce(mul, primes_for_crt, 1)
-
-            if M > MAX_MODULUS:  # Safety cap
-                continue
-
-            m0 = crt_cached(combo, tuple(primes_for_crt))
-
-            # Minimize archimedean height in this residue class
-            try:
-                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
-            except TypeError:
-                best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
-
-            for m_cand, _score in best_ms:
-                try:
-                    x_val = r_m(m=m_cand) - shift
-                    y_val = rationality_test_func(x_val)
-                    if y_val is not None:
-                        newly_found.add(x_val)
-                        if debug:
-                            print(f"  ✓ FOUND: m={m_cand}, x={x_val}")
-                except (TypeError, ZeroDivisionError, ArithmeticError):
-                    continue
-
-    return newly_found
-
-def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
-    """
-    For each prime, compute what fraction of search vectors have roots mod that prime.
-    
-    Args:
-        prime_pool (list): Primes to analyze
-        precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from worker
-        vecs (list): All search vectors
-        debug (bool): Print diagnostics
-    
-    Returns:
-        dict: {p: coverage_fraction} where coverage in [0, 1]
-    """
-    coverage = {}
-    
-    num_vecs = len(vecs)
-    if num_vecs == 0:
-        return {p: 0.5 for p in prime_pool}
-    
-    for p in prime_pool:
-        p_data = precomputed_residues.get(p, {})
-        if not p_data:
-            coverage[p] = 0.0
-            continue
-        
-        # Count vectors that have at least one root for this prime (across any RHS)
-        vectors_with_roots = 0
-        for v in vecs:
-            v_tuple = tuple(v)
-            roots_list = p_data.get(v_tuple, [])
-            
-            # roots_list is a list of sets (one per RHS function)
-            # Check if any RHS has roots
-            has_roots = any(rhs_roots for rhs_roots in roots_list)
-            
-            if has_roots:
-                vectors_with_roots += 1
-        
-        coverage[p] = float(vectors_with_roots) / float(num_vecs)
-    
-    if debug:
-        sorted_by_cov = sorted(coverage.items(), key=lambda x: x[1], reverse=True)
-        print(f"[compute_prime_coverage] Prime coverage (top 20):")
-        for p, cov in sorted_by_cov[:20]:
-            print(f"  p={p}: coverage={cov:.1%}")
-    
-    return coverage
 
 
 def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections, stats):
@@ -2125,6 +1872,19 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
     stats.end_phase('precompute_residues')
 
+    cov1 = compute_residue_coverage_for_m(QQ(-323)/QQ(141), precomputed_residues, PRIME_POOL)
+    print("cov1: m = -323/141 coverage:", cov1['coverage_fraction'])
+    print("cov1: matched primes:", cov1['matched_primes'])
+
+    cov2 = compute_residue_coverage_for_m(QQ(-41)/QQ(141), precomputed_residues, PRIME_POOL)
+    print("cov2: m = -41/141 coverage:", cov2['coverage_fraction'])
+    print("cov2: matched primes:", cov2['matched_primes'])
+
+    cov3 = compute_residue_coverage_for_m(QQ(41)/QQ(141), precomputed_residues, PRIME_POOL)
+    print("cov3: m = 41/141 coverage:", cov3['coverage_fraction'])
+    print("cov3: matched primes:", cov3['matched_primes'])
+
+
     # Build a per-prime numeric residue set for later use (and require non-empty)
     residues_by_prime_numeric = {}
     for p, mapping in precomputed_residues.items():
@@ -2658,3 +2418,516 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
 
     #print("subsets used:", unique_subsets)
     return unique_subsets
+
+def compute_residues_for_m(m, prime_pool):
+    """
+    Compute residue fingerprint of rational m = a/b modulo each prime in prime_pool.
+
+    Args:
+        m: rational (QQ, Fraction, or (a,b) tuple). If tuple (a,b) is provided, will use that.
+        prime_pool: iterable of primes (ints).
+
+    Returns:
+        dict mapping p -> int residue in [0,p) OR the string 'DENOM_ZERO' when
+        the denominator is 0 mod p (so residue info is unreliable), OR None for skipped primes.
+    """
+    # Coerce to (a,b)
+    try:
+        if isinstance(m, tuple) and len(m) == 2:
+            a, b = int(m[0]), int(m[1])
+        else:
+            # accept Sage QQ or Python Fraction
+            a = int(QQ(m).numerator())
+            b = int(QQ(m).denominator())
+    except Exception as e:
+        raise ValueError(f"compute_residues_for_m: could not coerce m={m} to rational: {e}")
+
+    res = {}
+    for p in prime_pool:
+        try:
+            p = int(p)
+        except Exception:
+            res[p] = None
+            continue
+
+        if b % p == 0:
+            # Denominator zero mod p -> no reliable residue information
+            res[p] = 'DENOM_ZERO'
+            continue
+
+        try:
+            inv_b = pow(b % p, -1, p)
+        except ValueError:
+            # modular inverse doesn't exist (should be captured by b % p == 0 above)
+            res[p] = 'DENOM_ZERO'
+            continue
+
+        residue = (a * inv_b) % p
+        res[p] = int(residue)
+
+    return res
+
+
+def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_tuple=None):
+    """
+    Compare a target rational m = a/b (in QQ) against the precomputed residue fingerprints.
+
+    Args:
+        m_value: rational number (QQ or coercible to QQ)
+        precomputed_residues: dict mapping p -> { v_tuple : [ set(roots_rhs0), set(roots_rhs1), ... ] }
+        prime_pool: iterable of primes to check
+        v_tuple: optional key to restrict residue comparison to a specific vector tuple
+
+    Returns:
+        {
+          'm': QQ rational value,
+          'matched_primes': [p,...],
+          'unseen_primes': [p,...],
+          'denom_zero_primes': [p,...],
+          'coverage_fraction': float between 0 and 1,
+          'per_prime': { p: {'residue': r or None, 'status': 'matched'|'unseen'|'denom_zero'} }
+        }
+    """
+    from sage.all import QQ, Mod
+
+    # Coerce to QQ explicitly
+    m_q = QQ(m_value)
+    a = ZZ(m_q.numerator())
+    b = ZZ(m_q.denominator())
+
+    matched = []
+    unseen = []
+    denom_zero = []
+    per_prime = {}
+
+    for p in prime_pool:
+        p = int(p)
+        per_prime[p] = {'residue': None, 'status': 'unseen'}
+
+        # If denominator is 0 mod p, cannot test modulo p
+        if (b % p) == 0:
+            denom_zero.append(p)
+            per_prime[p]['status'] = 'denom_zero'
+            continue
+
+        # compute residue in GF(p)
+        residue = int(Mod(a, p) * Mod(b, p)**(-1))
+        per_prime[p]['residue'] = residue
+
+        # check whether residue appears in precomputed_residues[p]
+        p_map = precomputed_residues.get(p, {})
+        if not p_map:
+            unseen.append(p)
+            per_prime[p]['status'] = 'unseen'
+            continue
+
+        # restrict to one v_tuple or scan all
+        found = False
+        if v_tuple is not None:
+            sets_list = p_map.get(v_tuple, [])
+            for s in sets_list:
+                if residue in s:
+                    found = True
+                    break
+        else:
+            for sets_list in p_map.values():
+                for s in sets_list:
+                    if residue in s:
+                        found = True
+                        break
+                if found:
+                    break
+
+        if found:
+            matched.append(p)
+            per_prime[p]['status'] = 'matched'
+        else:
+            unseen.append(p)
+            per_prime[p]['status'] = 'unseen'
+
+    usable = max(1, len(prime_pool) - len(denom_zero))
+    coverage = float(len(matched)) / float(usable) if usable > 0 else 0.0
+
+    return {
+        'm': m_q,
+        'matched_primes': matched,
+        'unseen_primes': unseen,
+        'denom_zero_primes': denom_zero,
+        'coverage_fraction': coverage,
+        'per_prime': per_prime
+    }
+
+
+def build_targeted_subset(m_value, precomputed_residues, prime_pool,
+                          v_tuple=None, min_size=4, max_size=8, prefer_matched_only=False):
+    """
+    Build a targeted prime subset optimized to reconstruct a specific rational m.
+
+    Args:
+        m_value: QQ-coercible rational (target m)
+        precomputed_residues: dict mapping p -> { v_tuple : [ set(...) , ... ] }
+        prime_pool: iterable/list of primes (ints)
+        v_tuple: optional vector-tuple key used in precomputed_residues to restrict which residue-sets to consult
+        min_size: minimum subset size to return
+        max_size: maximum subset size to return
+        prefer_matched_only: if True, only use primes where the residue was observed;
+                             otherwise allow padding from high-coverage primes
+
+    Returns:
+        list of primes (ints) of length between min_size and max_size (or fewer if pool limited)
+    """
+    from sage.all import QQ, ZZ
+
+    # Coerce m and extract numerator/denominator
+    m_q = QQ(m_value)
+    a = ZZ(m_q.numerator()); b = ZZ(m_q.denominator())
+
+    # Step 1: compute coverage report (fast inline to avoid external dependency)
+    matched_primes = []
+    denom_zero_primes = []
+    per_prime_residue = {}
+
+    for p in prime_pool:
+        p = int(p)
+        if (b % p) == 0:
+            denom_zero_primes.append(p)
+            per_prime_residue[p] = None
+            continue
+        residue = int((a % p) * pow(int(b % p), -1, p))
+        per_prime_residue[p] = residue
+
+        p_map = precomputed_residues.get(p, {})
+        found = False
+        if v_tuple is not None:
+            sets_list = p_map.get(v_tuple, [])
+            for s in sets_list:
+                if residue in s:
+                    found = True
+                    break
+        else:
+            for sets_list in p_map.values():
+                for s in sets_list:
+                    if residue in s:
+                        found = True
+                        break
+                if found:
+                    break
+        if found:
+            matched_primes.append(p)
+
+    # Step 2: Build subset preferring matched primes, avoiding denom-zero primes
+    avoid = set(denom_zero_primes)
+    targeted = []
+
+    # Primary fill: matched primes (sorted by small->large to prefer small primes first)
+    # but we can also sort matched primes by "quality": how many sets recorded at that prime (more is better)
+    def prime_quality(p):
+        # number of vector-keys present for p (proxy for how often p was used)
+        return len(precomputed_residues.get(p, {})) if precomputed_residues.get(p, {}) else 0
+
+    matched_sorted = sorted(matched_primes, key=lambda q: (-prime_quality(q), q))
+    for p in matched_sorted:
+        if p in avoid:
+            continue
+        targeted.append(p)
+        if len(targeted) >= min_size:
+            break
+
+    # If prefer_matched_only and we have enough matched primes, truncate there
+    if prefer_matched_only:
+        # if we have fewer than min_size matched primes, we still fall back below
+        if len(targeted) >= min_size:
+            # optionally shrink to min_size exactly
+            return targeted[:max_size]
+
+    # Step 3: Pad with high-quality primes (not in avoid, not already chosen)
+    if len(targeted) < min_size:
+        # build a ranked list of candidate primes (exclude denom-zero and already chosen)
+        candidates = [p for p in prime_pool if p not in avoid and p not in targeted]
+        # sort by quality (more precomputed residue-keys first), tie-break by prime size (smaller primes first)
+        candidates_sorted = sorted(candidates, key=lambda q: (-prime_quality(q), q))
+        for p in candidates_sorted:
+            targeted.append(p)
+            if len(targeted) >= min_size:
+                break
+
+    # Step 4: Optionally add additional primes up to max_size to increase CRT modulus
+    if len(targeted) < max_size:
+        # continue with same candidate list
+        for p in (candidates_sorted if 'candidates_sorted' in locals() else []):
+            if len(targeted) >= max_size:
+                break
+            if p not in targeted:
+                targeted.append(p)
+
+    # Final safety: if targeted is still empty (exotic), just return small slice of prime_pool avoiding denom-zero
+    if not targeted:
+        fallback = [p for p in prime_pool if p not in avoid][:min_size]
+        return fallback
+
+    return targeted[:max_size]
+
+
+def targeted_recovery_search(cd, current_sections, near_miss_candidates,
+                              prime_pool, precomputed_residues,
+                              r_m, shift, rationality_test_func,
+                              max_abs_t=500, debug=True):
+    """
+    Run a focused CRT search on detected near-miss candidates.
+    """
+
+    import itertools
+    from operator import mul
+    from functools import reduce
+    from sage.all import QQ
+
+    newly_found = set()
+
+    for i, candidate in enumerate(near_miss_candidates):
+        if debug:
+            print(f"\n[recovery] Targeting near-miss candidate {i+1}/{len(near_miss_candidates)}")
+            print(f"  Vector: {candidate['v_tuple']}")
+            print(f"  Coverage: {candidate['coverage_ratio']:.1%} ({candidate['num_primes']} primes)")
+            print(f"  Potential m residues: {candidate['num_m_residues']}")
+
+        # --- NEW: compute coverage report for debug/diagnostics ---
+        cov_report = compute_residue_coverage_for_m(
+            candidate,
+            precomputed_residues,
+            prime_pool,
+            v_tuple=candidate.get('v_tuple', None)
+        )
+
+        targeted_subset = build_targeted_subset(
+            candidate,
+            precomputed_residues,
+            prime_pool,
+            v_tuple=candidate.get('v_tuple', None),
+            min_size=4,
+            max_size=8,
+            prefer_matched_only=False
+        )
+
+        if debug:
+            print(f"[targeted] m={candidate.get('m_pair')} -> subset={targeted_subset} "
+                  f"matched_count={len([p for p in targeted_subset if p in cov_report.get('matched_primes', [])])}")
+
+        if debug:
+            print(f"  Using targeted subset: {targeted_subset}")
+
+        v_tuple = candidate['v_tuple']
+        residue_map = candidate['residue_map']
+
+        # Filter residue_map to only include primes in our targeted subset
+        filtered_residue_map = {p: residue_map[p] for p in targeted_subset if p in residue_map}
+
+        if not filtered_residue_map:
+            if debug:
+                print("  No residues in targeted subset; skipping.")
+            continue
+
+        # Generate all CRT combinations from the targeted subset
+        primes_for_crt = list(filtered_residue_map.keys())
+        residue_lists = [filtered_residue_map[p] for p in primes_for_crt]
+
+        for combo in itertools.product(*residue_lists):
+            M = reduce(mul, primes_for_crt, 1)
+            if M > MAX_MODULUS:
+                continue
+
+            m0 = crt_cached(combo, tuple(primes_for_crt))
+
+            try:
+                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
+            except TypeError:
+                best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+
+            for m_cand, _score in best_ms:
+                try:
+                    x_val = r_m(m=m_cand) - shift
+                    y_val = rationality_test_func(x_val)
+                    if y_val is not None:
+                        newly_found.add(x_val)
+                        if debug:
+                            print(f"  ✓ FOUND: m={m_cand}, x={x_val}")
+                except (TypeError, ZeroDivisionError, ArithmeticError):
+                    continue
+
+    return newly_found
+
+def detect_near_miss_candidates(precomputed_residues, prime_pool, vecs, 
+                                 coverage_threshold=0.45, max_candidates=500000):
+    """
+    Detect (m, vector) pairs that have high residue coverage across primes
+    but failed to survive CRT filtering. These are "near misses" that might
+    represent points we're systematically missing.
+
+    Args:
+        precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from _compute_residues_for_prime_worker
+        prime_pool (list): Full list of primes used
+        vecs (list): All search vectors
+        coverage_threshold (float): Consider a prime-vector pair "active" if it has roots in
+                                    at least this fraction of primes (default 75%)
+        max_candidates (int): Return at most this many near-miss candidates
+
+    Returns:
+        list of dicts: Each dict has keys:
+          - 'm_candidates': set of possible m residues (from covered primes)
+          - 'coverage_ratio': fraction of primes that have roots for this vector
+          - 'residue_map': {p: roots_mod_p} for the covered primes
+          - 'v_tuple': the vector this came from
+          - 'prime_list': list of primes with roots
+    """
+    candidates = []
+
+    for v in vecs:
+        v_tuple = tuple(v)
+        if all(c == 0 for c in v_tuple):
+            continue
+
+        # Collect which primes have roots for this vector
+        primes_with_roots = []
+        residue_map = {}
+
+        for p in prime_pool:
+            if p not in precomputed_residues:
+                continue
+
+            p_data = precomputed_residues[p].get(v_tuple)
+            if p_data is None:
+                continue
+
+            # p_data is a list of root sets (one per RHS function)
+            # Combine roots across all RHS functions for this vector+prime
+            all_roots = set()
+            for rhs_roots in p_data:
+                if rhs_roots:
+                    all_roots.update(rhs_roots)
+
+            if all_roots:
+                primes_with_roots.append(p)
+                residue_map[p] = all_roots
+
+        if not primes_with_roots:
+            continue
+
+        coverage = len(primes_with_roots) / float(len(prime_pool))
+
+        if coverage >= coverage_threshold:
+            # This vector has high prime coverage but apparently didn't produce
+            # a survivor in CRT. Flag it as a near-miss.
+            m_candidates = set()
+            for p in primes_with_roots:
+                m_candidates.update(residue_map[p])
+
+            candidates.append({
+                'v_tuple': v_tuple,
+                'coverage_ratio': coverage,
+                'num_primes': len(primes_with_roots),
+                'num_m_residues': len(m_candidates),
+                'residue_map': residue_map,
+                'prime_list': primes_with_roots,
+            })
+
+    # Sort by coverage ratio (descending) and return top candidates
+    candidates.sort(key=lambda c: c['coverage_ratio'], reverse=True)
+    return candidates[:max_candidates]
+
+
+def construct_targeted_subset_for_recovery(candidate, prime_pool, min_size=3):
+    """
+    Given a near-miss candidate, construct a targeted prime subset that is
+    most likely to generate a CRT survivor for that candidate's m-values.
+
+    The strategy: pick primes from the candidate's residue_map that have
+    sparse roots (high selectivity), ensuring we cover many of the candidate's
+    possible m residues.
+
+    Args:
+        candidate (dict): Output from detect_near_miss_candidates
+        prime_pool (list): Full prime pool (for fallback)
+        min_size (int): Minimum subset size
+
+    Returns:
+        list: Primes to use for a targeted CRT search on this candidate
+    """
+    residue_map = candidate['residue_map']
+    prime_list = candidate['prime_list']
+
+    if len(prime_list) < min_size:
+        # Not enough primes; use what we have + pad with random others
+        subset = prime_list[:]
+        remaining = [p for p in prime_pool if p not in subset]
+        import random
+        subset += random.sample(remaining, min(min_size - len(subset), len(remaining)))
+        return subset
+
+    # Score primes by selectivity: primes with fewer roots are more selective
+    scored = []
+    for p in prime_list:
+        num_roots = len(residue_map[p])
+        selectivity = 1.0 / float(num_roots) if num_roots > 0 else 0
+        scored.append((selectivity, p))
+
+    scored.sort(reverse=True)
+    
+    # Greedily pick high-selectivity primes, ensuring we still cover the m-candidates
+    subset = []
+    covered_m = set()
+    for selectivity, p in scored:
+        subset.append(p)
+        covered_m.update(residue_map[p])
+        if len(subset) >= min(len(prime_list), MIN_MAX_PRIME_SUBSET_SIZE):
+            break
+
+    return subset
+
+
+def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
+    """
+    For each prime, compute what fraction of search vectors have roots mod that prime.
+    
+    Args:
+        prime_pool (list): Primes to analyze
+        precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from worker
+        vecs (list): All search vectors
+        debug (bool): Print diagnostics
+    
+    Returns:
+        dict: {p: coverage_fraction} where coverage in [0, 1]
+    """
+    coverage = {}
+    
+    num_vecs = len(vecs)
+    if num_vecs == 0:
+        return {p: 0.5 for p in prime_pool}
+    
+    for p in prime_pool:
+        p_data = precomputed_residues.get(p, {})
+        if not p_data:
+            coverage[p] = 0.0
+            continue
+        
+        # Count vectors that have at least one root for this prime (across any RHS)
+        vectors_with_roots = 0
+        for v in vecs:
+            v_tuple = tuple(v)
+            roots_list = p_data.get(v_tuple, [])
+            
+            # roots_list is a list of sets (one per RHS function)
+            # Check if any RHS has roots
+            has_roots = any(rhs_roots for rhs_roots in roots_list)
+            
+            if has_roots:
+                vectors_with_roots += 1
+        
+        coverage[p] = float(vectors_with_roots) / float(num_vecs)
+    
+    if debug:
+        sorted_by_cov = sorted(coverage.items(), key=lambda x: x[1], reverse=True)
+        print(f"[compute_prime_coverage] Prime coverage (top 20):")
+        for p, cov in sorted_by_cov[:20]:
+            print(f"  p={p}: coverage={cov:.1%}")
+    
+    return coverage
+

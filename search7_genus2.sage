@@ -368,6 +368,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             #print(f"[bounds] Using {len(prime_subsets)} precomputed prime subsets from sconf. Size dist: {dict(sorted(size_dist.items()))}") # Corrected print
 
             # --- MODIFIED CALL to get stats object ---
+
+
             newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
                 cd, current_sections,
                 prime_pool,
@@ -383,7 +385,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             # --- MERGE STATS ---
             cumulative_stats.merge(iter_stats)
 
-            if len(newly_found_x) < len(vecs) // 4:
+            #if len(newly_found_x) < len(vecs) // 4:
+            #if len(newly_found_x) < 1:
+            if False: # broken code right now.
                 if DEBUG:
                     print("\n[recovery] Low survivor count; attempting targeted recovery...") # Corrected print
 
@@ -392,7 +396,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     prime_pool,
                     vecs,
                     coverage_threshold=0.70,
-                    max_candidates=3
+                    max_candidates=300000
                 )
 
                 if near_misses:
@@ -402,12 +406,14 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         current_sections,
                         near_misses,
                         prime_pool,
+                        precomputed_residues,   # <-- added here
                         r_m,
                         shift,
                         get_y_unshifted_genus2,
                         max_abs_t=TMAX,
                         debug=DEBUG
                     )
+
                     newly_found_x.update(recovery_xs)
                     print(f"[recovery] Recovery found {len(recovery_xs)} additional point(s)")
         # ***** END MODIFIED SECTION *****

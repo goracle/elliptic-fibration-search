@@ -141,6 +141,48 @@ class SearchStats:
         expected_runs = math.log(1 - target_coverage) / math.log(1 - p)
         return math.ceil(expected_runs)
 
+    # ---------------- Diagnostics ----------------
+    def compare_target_m_residues(self, m_value, prime_pool):
+        """
+        For a target rational m = a/b, compute its residue modulo each prime
+        in prime_pool and compare against residues actually seen during search.
+
+        Returns a dict with:
+            - 'matched_primes': primes where target residue already tested
+            - 'unseen_primes': primes not yet tested for that residue
+            - 'denom_zero_primes': primes dividing denominator(b)
+            - 'coverage_fraction': |matched_primes| / (# usable primes)
+        """
+        from sage.all import QQ
+        a = int(QQ(m_value).numerator())
+        b = int(QQ(m_value).denominator())
+
+        matched_primes = []
+        unseen_primes = []
+        denom_zero_primes = []
+
+        for p in prime_pool:
+            p = int(p)
+            if b % p == 0:
+                denom_zero_primes.append(p)
+                continue
+            residue = (a * pow(b, -1, p)) % p
+            if residue in self.residues_by_prime.get(p, set()):
+                matched_primes.append(p)
+            else:
+                unseen_primes.append(p)
+
+        usable = len(prime_pool) - len(denom_zero_primes)
+        coverage = len(matched_primes) / usable if usable > 0 else 0.0
+
+        return {
+            'm': (a, b),
+            'matched_primes': matched_primes,
+            'unseen_primes': unseen_primes,
+            'denom_zero_primes': denom_zero_primes,
+            'coverage_fraction': coverage
+        }
+
     # ---------------- Summary ----------------
     def summary(self):
         prod_frac, per_prime = self.prime_coverage_fraction()
