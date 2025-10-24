@@ -6,6 +6,9 @@ from collections import defaultdict, Counter
 from functools import reduce
 from operator import mul
 
+from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
+from sage.all import *
+
 class SearchStats:
     def __init__(self):
         self.start_time = time.time()
@@ -295,3 +298,336 @@ class QuickBench:
         print(f"Avg time: {avg_time:.1f}s")
         print(f"Avg hit rate: {100*avg_hit_rate:.1f}%")
         print(f"Curves tested: {len(self.runs)}")
+
+
+# write_run_summary.py
+# Pure stdlib. Call write_run_summary(summary_dict, "summaries") at end of run.
+
+import json
+import os
+from datetime import datetime
+from fractions import Fraction
+
+def _rational_to_pair(q):
+    # Accept int, Fraction, or (num,den) tuple
+    if isinstance(q, tuple):
+        assert len(q) == 2
+        return (int(q[0]), int(q[1]))
+    if isinstance(q, Fraction):
+        return (int(q.numerator), int(q.denominator))
+    if isinstance(q, int):
+        return (q, 1)
+    raise AssertionError("unexpected rational type: " + str(type(q)))
+
+def normalize_summary(run):
+    # Expect run to be a dict; coerce some common types
+    out = dict(run)  # shallow copy
+    out['run_id'] = out.get('run_id') or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    out['curve_id'] = str(out.get('curve_id', 'unknown'))
+    out['wall_seconds'] = float(out.get('wall_seconds', 0.0))
+    out['total_crt_candidates'] = int(out.get('total_crt_candidates', 0))
+    out['total_lift_attempts'] = int(out.get('total_lift_attempts', 0))
+    out['total_rationality_tests_success'] = int(out.get('total_rationality_tests_success', 0))
+    out['total_rationality_tests_failure'] = int(out.get('total_rationality_tests_failure', 0))
+    # unique_x_list: coerce each x into (num,den)
+    ux = out.get('unique_x_list', [])
+    out['unique_x_list'] = [_rational_to_pair(q) for q in ux]
+    # per_point_counts: convert keys to str "num/den"
+    pcounts = out.get('per_point_counts', {})
+    out['per_point_counts'] = {str(k): int(v) for k, v in pcounts.items()}
+    # residues_seen: ensure ints
+    rs = out.get('residues_seen', {})
+    out['residues_seen'] = {str(k): int(v) for k, v in rs.items()}
+    # subset_productivity: list of [[p1,p2], count]
+    sp = out.get('subset_productivity', [])
+    out['subset_productivity'] = [[list(map(int, s)), int(c)] for s, c in sp]
+    out['extra_flags'] = out.get('extra_flags', {})
+    return out
+
+def write_run_summary(run_dict, outdir="summaries"):
+    s = normalize_summary(run_dict)
+    os.makedirs(outdir, exist_ok=True)
+    fname = "{curve}-{run}.json".format(curve=s['curve_id'], run=s['run_id'])
+    tmp = os.path.join(outdir, fname + ".tmp")
+    final = os.path.join(outdir, fname)
+    with open(tmp, "w") as f:
+        json.dump(s, f, sort_keys=True, indent=2)
+    os.replace(tmp, final)
+    print("wrote summary:", final)
+
+
+# analyze_summaries.py
+# Usage: python analyze_summaries.py summaries/
+import json
+import os
+import math
+from collections import defaultdict, Counter
+from statistics import mean, pstdev
+
+def chao1_estimator(counts):
+    # counts: list of frequencies of coupon types
+    # Chao1 = S_obs + (n1^2)/(2*n2). If n2==0 use bias-corrected form
+    S_obs = len(counts)
+    f1 = sum(1 for c in counts if c == 1)
+    f2 = sum(1 for c in counts if c == 2)
+    if f2 > 0:
+        return S_obs + (f1 * f1) / (2.0 * f2)
+    if f1 > 0:
+        # conservative upper bound
+        return S_obs + (f1 * (f1 - 1)) / 2.0
+    return S_obs
+
+def entropy_from_counts(count_map):
+    total = sum(count_map.values())
+    if total == 0:
+        return 0.0
+    ent = 0.0
+    for v in count_map.values():
+        p = v / total
+        if p > 0:
+            ent -= p * math.log(p)
+    return ent
+
+def analyze_dir(d):
+    summaries = []
+    for fn in os.listdir(d):
+        if not fn.endswith(".json"):
+            continue
+        with open(os.path.join(d, fn), "r") as f:
+            summaries.append(json.load(f))
+    summaries.sort(key=lambda s: s.get('run_id'))
+    # global per-point frequencies across all runs
+    global_point_counts = Counter()
+    per_curve_runs = defaultdict(list)
+    for s in summaries:
+        curve = s['curve_id']
+        per_curve_runs[curve].append(s)
+        for x in s.get('unique_x_list', []):
+            global_point_counts[tuple(x)] += 1
+    print("Loaded", len(summaries), "summaries for", len(per_curve_runs), "curves")
+    # analyze per-curve
+    for curve, runs in per_curve_runs.items():
+        print("\n=== Curve:", curve, "runs:", len(runs))
+        # accumulation curve per run (unique x after each subset processed)
+        # if run contains per_subset cumulative data, use it; otherwise estimate from subset_productivity
+        for s in runs:
+            ux = s.get('unique_x_list', [])
+            n_unique = len(ux)
+            print(" run", s['run_id'], "time(s):", s.get('wall_seconds'), "unique_x:", n_unique,
+                  "crt_candidates:", s.get('total_crt_candidates', 0),
+                  "rational_success:", s.get('total_rationality_tests_success', 0))
+        # combine across runs to get per-point frequency
+        combined = Counter()
+        for s in runs:
+            for x in s.get('unique_x_list', []):
+                combined[tuple(x)] += 1
+        freqs = list(combined.values())
+        if not freqs:
+            print(" no points found across runs")
+            continue
+        heterogeneity = (pstdev(freqs)**2) / mean(freqs) if len(freqs) > 1 and mean(freqs) != 0 else 0.0
+        print(" points found:", len(freqs), "mean frequency:", mean(freqs), "heterogeneity index:", heterogeneity)
+        # per-prime entropy and noise index
+        agg_residue_counts = defaultdict(int)
+        agg_residue_observations = defaultdict(int)
+        prime_reject_counts = Counter()
+        for s in runs:
+            for p, r in s.get('residues_seen', {}).items():
+                agg_residue_counts[int(p)] += int(r)
+                agg_residue_observations[int(p)] += 1
+            for reason, c in s.get('discard_reasons_count', {}).items():
+                prime_reject_counts[reason] += int(c)
+        prime_entropy = {p: entropy_from_counts({'seen': agg_residue_counts[p], 'notseen': max(0, sum(agg_residue_counts.values())-agg_residue_counts[p])})
+                         for p in agg_residue_counts}
+        top_primes = sorted(prime_entropy.items(), key=lambda t: -t[1])[:8]
+        print(" top primes by entropy:", top_primes)
+        print(" discard reason totals (top 10):", prime_reject_counts.most_common(10))
+        # subset productivity -> Chao1 on residue-vectors (approx)
+        # if subset_productivity present, use candidate counts per subset as proxy for coupon frequencies
+        coupon_freqs = []
+        for s in runs:
+            for subset, cnt in s.get('subset_productivity', []):
+                # treat each subset as a coupon type; cnt = number of CRT candidates for that subset
+                coupon_freqs.append(int(cnt))
+        if coupon_freqs:
+            # transform to frequency-of-frequencies: how many coupon types had count 1,2,...
+            f_counts = Counter(coupon_freqs)
+            # For chao1 we need counts of coupon types observed how many times; treat coupon_freqs as "observations"
+            ch1 = chao1_estimator(coupon_freqs)
+            print(" subset coupon-types observed:", len(coupon_freqs), "Chao1 estimate:", ch1)
+        # simple hard-curve heuristic:
+        # compute slope of unique_x accumulation for the first run if we have per_subset data; as fallback use mean frequency
+        first = runs[0]
+        acc = None
+        if first.get('per_subset_accumulation'):
+            acc = first['per_subset_accumulation']
+        else:
+            # fallback: estimate slope as (unique_count)/(subsets_processed)
+            sp = first.get('subsets_processed', None)
+            if sp and sp > 0:
+                acc = [0, first.get('total_rationality_tests_success', 0)]
+        if acc:
+            # slope ~ increase per subset; use last-third mean slope
+            if len(acc) >= 3:
+                n = len(acc)
+                slopes = [(acc[i+1]-acc[i]) for i in range(max(0, n//2), n-1)]
+                avg_slope = mean(slopes) if slopes else 0.0
+            else:
+                avg_slope = acc[-1] / max(1, first.get('subsets_processed', 1))
+        else:
+            avg_slope = mean(freqs)
+        hard_flag = avg_slope < 0.02 or heterogeneity > 5.0
+        print(" avg_slope:", avg_slope, "hard_flag:", hard_flag)
+        # collisions estimate: total candidates / subsets_processed -> high ratio indicates collisions/ambiguity
+        tot_cand = sum(s.get('total_crt_candidates', 0) for s in runs)
+        tot_subs = sum(s.get('subsets_processed', 1) for s in runs)
+        cand_per_subset = tot_cand / max(1, tot_subs)
+        print(" cand_per_subset:", cand_per_subset)
+        # print a short recommendation line
+        if hard_flag or cand_per_subset > 1000:
+            print(" RECOMMEND: mark curve as HARD -> increase NUM_SUBSETS and HEIGHT_BOUND, prefer higher-entropy primes, add targeted primes to heavy subsets")
+        else:
+            print(" RECOMMEND: standard budget OK")
+    # global point frequencies summary
+    if global_point_counts:
+        most_common = global_point_counts.most_common(10)
+        print("\nGlobal top found x's:", most_common)
+    return
+
+
+class CurveComplexityPredictor:
+    """Predict if a curve will be hard before spending compute"""
+    
+    def __init__(self):
+        self.complexity_signals = {}
+    
+    def assess_curve_difficulty(self, cd, initial_sections, prime_pool, H):
+        """Run cheap diagnostics before heavy search"""
+        
+        # Signal 1: Discriminant polynomial complexity
+        split_poly = build_split_poly_from_cd(cd)
+        degree = split_poly.degree()
+        
+        # Signal 2: Residue density across primes
+        residue_counts = compute_residue_counts_for_primes(
+            cd, [cd.phi_x], prime_pool[:20]  # Just first 20 primes
+        )
+        avg_density = sum(r/p for p, r in residue_counts.items()) / len(residue_counts)
+        density_variance = variance([r/p for p, r in residue_counts.items()])
+        
+        # Signal 3: How many primes are "zero-ratio" (no roots)?
+        zero_ratio = sum(1 for r in residue_counts.values() if r == 0) / len(residue_counts)
+        
+        # Signal 4: Canonical height pairing matrix condition number
+        #H = compute_height_pairing_matrix(cd, initial_sections)
+        try:
+            cond = np.linalg.cond(np.array(H.change_ring(RDF)))
+        except:
+            cond = float('inf')
+        
+        # Signal 5: Galois complexity
+        galois_info = estimate_galois_signature_modp(split_poly, prime_pool[:15])
+        splitting_degree = galois_info.get('splitting_field_degree_est', 1)
+        
+        # Combine into difficulty score
+        difficulty_score = (
+            0.2 * min(degree / 12, 3.0) +  # Discriminant degree (normalized)
+            0.3 * (1.0 - avg_density) +     # Low density = hard
+            0.2 * zero_ratio +              # Many zero primes = hard  
+            0.1 * min(log(cond) / 10, 3.0) + # Ill-conditioned = hard
+            0.2 * min(log(splitting_degree) / 10, 3.0)  # High Galois complexity = hard
+        )
+        
+        return {
+            'difficulty_score': difficulty_score,  # 0 (easy) to 3+ (very hard)
+            'recommended_height_multiplier': 1.0 + difficulty_score,
+            'recommended_subset_multiplier': 1.0 + 0.5 * difficulty_score,
+            'signals': {
+                'discriminant_degree': degree,
+                'avg_residue_density': avg_density,
+                'zero_prime_ratio': zero_ratio,
+                'height_matrix_condition': cond,
+                'galois_complexity': splitting_degree
+            }
+        }
+
+
+class CoverageEstimator:
+    """Estimate how much of the search space we've covered"""
+    
+    def __init__(self, prime_pool, residue_counts):
+        self.prime_pool = prime_pool
+        self.residue_counts = residue_counts
+        self.tested_classes = set()  # (m mod M, M) pairs we've tested
+    
+    def record_crt_class(self, m0, M):
+        """Record that we tested this residue class"""
+        canonical = (int(m0) % int(M), int(M))
+        self.tested_classes.add(canonical)
+    
+    def estimate_coverage(self, prime_subsets_used):
+        """Estimate what fraction of search space we've covered"""
+        
+        # Method 1: Direct counting (only feasible for small M)
+        total_classes_possible = sum(
+            prod([int(p) for p in subset]) if subset else 1
+            for subset in prime_subsets_used
+        )
+
+        classes_tested = len(self.tested_classes)
+        
+        if total_classes_possible < 10**9:  # Feasible to count
+            direct_coverage = classes_tested / total_classes_possible
+        else:
+            direct_coverage = None
+        
+        # Method 2: Heuristic via residue density
+        # If residue_counts[p] = r_p, then "density" mod p is r_p / p
+        # Coverage ≈ product of densities (assumes independence)
+        density_product = 1.0
+        for p in self.prime_pool:
+            r_p = self.residue_counts.get(p, 1)
+            density_product *= (r_p / float(p))
+        
+        # Method 3: Birthday paradox estimate
+        # After n random samples from space of size N,
+        # expected coverage ≈ 1 - exp(-n/N)
+        # Solve for coverage given n = classes_tested
+        if total_classes_possible < 10**15:
+            birthday_coverage = 1 - math.exp(-classes_tested / total_classes_possible)
+        else:
+            birthday_coverage = None
+        
+        return {
+            'direct_coverage': direct_coverage,
+            'heuristic_coverage': density_product,
+            'birthday_coverage': birthday_coverage,
+            'classes_tested': classes_tested,
+            'space_size_estimate': total_classes_possible
+        }
+    
+    def recommend_additional_runs(self, prime_subsets_used, target_coverage=0.95):
+        """How many more runs to reach target coverage?"""
+        current = self.estimate_coverage(prime_subsets_used)
+        
+        if current['direct_coverage'] is not None:
+            p = current['direct_coverage']
+        elif current['birthday_coverage'] is not None:
+            p = current['birthday_coverage']
+        else:
+            p = current['heuristic_coverage']
+        
+        if p >= target_coverage:
+            return 0
+        
+        # Coupon collector problem: expected runs to reach coverage c
+        # is -log(1-c) / p_per_run
+        coverage_per_run = p / len(self.tested_classes)  # rough estimate
+        expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
+        
+        return math.ceil(expected_runs)
+
+if __name__ == "__main__":
+    import sys
+    directory = sys.argv[1] if len(sys.argv) > 1 else "summaries"
+    analyze_dir(directory)
