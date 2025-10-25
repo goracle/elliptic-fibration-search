@@ -663,11 +663,17 @@ def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expec
         recommended_max = max( min(max_size_hint, max(3, len(usable_primes))), recommended_min )
         recommended_num = min(num_subsets_hint * 2, 2000)
         size_bias = "degenerate"
+
+    # NEW (fixed) CODE:
     elif avg_density < 0.08:
-        recommended_min = max(min_size_hint, 5)
+        # Don't force min_size up - let it stay at min_size_hint (typically 3)
+        # Low density means fewer residues, so we actually want SMALLER subsets
+        # to have any hope of finding complete matches
+        recommended_min = min_size_hint  # <-- CHANGED: removed max(..., 5)
         recommended_max = max_size_hint
-        recommended_num = num_subsets_hint
-        size_bias = "large"
+        num_subsets_density_adjusted = num_subsets_hint
+        size_bias = "large (low density)"
+
     elif avg_density > 0.25:
         recommended_min = min_size_hint
         recommended_max = min(max_size_hint, 7)
@@ -1845,10 +1851,14 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
         recommended_max = max( min(max_size_hint, max(3, num_usable)), recommended_min )
         num_subsets_density_adjusted = min(base_num_subsets * 2, 2000) # Increase base subsets
         size_bias = "degenerate (high zero ratio)"
+
     elif avg_density < 0.08:
-        recommended_min = max(min_size_hint, 5) # Use larger minimum size
+        # Don't force min_size up - let it stay at min_size_hint (typically 3)
+        # Low density means fewer residues, so we actually want SMALLER subsets
+        # to have any hope of finding complete matches
+        recommended_min = min_size_hint  # <-- CHANGED: removed max(..., 5)
         recommended_max = max_size_hint
-        # num_subsets_density_adjusted remains base_num_subsets
+        num_subsets_density_adjusted = base_num_subsets
         size_bias = "large (low density)"
     elif avg_density > 0.25:
         recommended_min = min_size_hint

@@ -1771,9 +1771,9 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 # ============================================================================
 # Integration point: call this after precomputation completes
 # ============================================================================
-def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m,
-                                         shift, all_found_x, num_subsets, rationality_test_func, max_abs_t,
-                                         num_workers=8, debug=DEBUG):
+def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+                                         all_found_x, num_subsets, rationality_test_func,
+                                         max_abs_t, num_workers=8, debug=DEBUG):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
     Hardened against the "filtered to 0 subsets" failure:
@@ -1871,6 +1871,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
 
     stats.end_phase('precompute_residues')
+
+    ret = diagnose_missed_point(182/141, r_m, shift, precomputed_residues, prime_pool, vecs)
+    print("ret=", ret)
 
     cov1 = compute_residue_coverage_for_m(QQ(-323)/QQ(141), precomputed_residues, PRIME_POOL)
     print("cov1: m = -323/141 coverage:", cov1['coverage_fraction'])
@@ -2934,8 +2937,7 @@ def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
 
 # Add to search_lll.py
 
-def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, 
-                          prime_pool, vecs, max_abs_t=MAX_ABS_T, debug=True):
+def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, max_abs_t=MAX_ABS_T, debug=True):
     """
     Diagnose why a specific x-value wasn't found by the CRT search.
     
