@@ -389,6 +389,9 @@ SEED_INT = random.randint(-10**6, 10**6)
 
 DEBUG = False
 DEBUG = True
+TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
+TARGETED_X = None # only set to numeric value to debug; None by default
+
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
