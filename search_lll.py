@@ -40,6 +40,7 @@ from stats import * # <-- ADDED IMPORT
 DEFAULT_MAX_CACHE_SIZE = 10000
 DEFAULT_MAX_DENOMINATOR_BOUND = None
 FALLBACK_MATRIX_WARNING = "WARNING: LLL reduction failed, falling back to identity matrix"
+ROOTS_THRESHOLD = 12 # only multiply primes' root counts into the estimate when the total roots for that prime exceed this threshold
 
 
 # Practical tuning knobs
@@ -50,10 +51,7 @@ TARGET_COLUMN_NORM = 1e6   # target column norm after scaling (heuristic)
 MAX_K_ABS = 500            # ignore multiplier indices |k| > MAX_K_ABS when building mults
 TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to limit dimension
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
-MAX_ABS_T = 500
-
-COMBO_CAP = ceil(50000**(MIN_PRIME_SUBSET_SIZE/3)) # too many residues for this prime subset, too many possibilities, modular constraints are too loose
-ROOTS_THRESHOLD = 12 # only multiply primes' root counts into the estimate when the total roots for that prime exceed this threshold
+TMAX = 500
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
@@ -144,7 +142,7 @@ def archimedean_height_QQ(x):
     return math.log(val)
 
 # ---------- Utility: local search for best t ----------
-def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, patience=6):
+def minimize_archimedean_t(m0, M, r_m_func, shift, tmax, max_steps=150, patience=6):
     """
     Given residue class m = m0 (mod M), search over m = m0 + t*M to find integer t that minimizes
     archimedean height of x = r_m(m) - shift.
@@ -155,7 +153,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
     def eval_for_t(t):
         m_candidate = m0 + t * M
-        if abs(t) > max_abs_t:
+        if abs(t) > tmax:
             return None
         try:
             x_val = r_m_func(m=QQ(m_candidate)) - shift
@@ -188,7 +186,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
                 no_improve = 0
             else:
                 no_improve += 1
-            if abs(s) >= max_abs_t:
+            if abs(s) >= tmax:
                 no_improve = patience
                 break
         t += 1
@@ -207,7 +205,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
     best_t_values = []
     for m_cand, score in sorted_candidates[:3]:
-        for t_test in range(-max_abs_t, max_abs_t + 1):
+        for t_test in range(-tmax, tmax + 1):
             if m0 + t_test * M == m_cand:
                 best_t_values.append(t_test)
                 break
@@ -216,7 +214,7 @@ def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, pat
 
 # --- Top-level Worker Function for Parallel Processing ---
 
-def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, max_abs_t):
+def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, tmax):
     """
     Worker function to find m-candidates for a single subset of primes.
     Returns a set of (m_candidate, originating_vector) tuples.
@@ -334,7 +332,7 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
             # New: minimize archimedean height in the residue class (cheap local search)
 
             try:
-                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
+                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
             except TypeError:
                 # If r_m is not numeric/coercible here, fall back to small neighbors
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
@@ -890,9 +888,9 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=Tru
 Elliptic Curve Rational Point Search using Symbolic Methods over QQ.
 """
 
-def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, max_abs_t, verbose=False):
+def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, tmax, verbose=False):
     """
-    Checks if there exists an integer t with |t| <= max_abs_t such that for every extra prime q,
+    Checks if there exists an integer t with |t| <= tmax such that for every extra prime q,
     the value (m0 + t*M) mod q is in the set of allowed m-residues for that prime.
     
     Args:
@@ -900,12 +898,12 @@ def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, m
         M (int): The modulus from CRT.
         residue_map_for_vector (dict): A map of {prime: {allowed_residues}} for a single vector.
         extra_primes (list): A list of primes to use for this check.
-        max_abs_t (int): The maximum absolute value of t to search.
+        tmax (int): The maximum absolute value of t to search.
         verbose (bool): If True, print detailed debugging information.
     """
     m0 = int(m0)
     M = int(M)
-    max_abs_t = int(max_abs_t)  # <-- Add this
+    tmax = int(tmax)  # <-- Add this
 
     t_constraints = {}
     for q in extra_primes:
@@ -944,11 +942,11 @@ def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, m
     other_primes = sorted_primes[1:]
 
     for t_residue in t_constraints[start_q]:
-        for k in range(max_abs_t // start_q + 2):
+        for k in range(tmax // start_q + 2):
             for sign in ([1, -1] if k > 0 else [1]):
                 t_candidate = t_residue + (sign * k * start_q)
 
-                if abs(t_candidate) > max_abs_t:
+                if abs(t_candidate) > tmax:
                     continue
 
                 is_valid = True
@@ -961,7 +959,7 @@ def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, m
                     if verbose: print(f"Filter pass: Found valid t={t_candidate} for m0={m0}, M={M}")
                     return True
 
-    if verbose: print(f"Filter fail: No t in [-{max_abs_t}, {max_abs_t}] found for m0={m0}, M={M}")
+    if verbose: print(f"Filter fail: No t in [-{tmax}, {tmax}] found for m0={m0}, M={M}")
     return False
 
 
@@ -969,7 +967,7 @@ def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, m
 
 # In search_lll.py, replace the existing worker function
 
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, precomputed_residues, prime_pool, num_rhs_fns):
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
     """
     Worker function to find m-candidates for a single subset of primes.
     This version processes each RHS function independently.
@@ -991,7 +989,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 # roots_list is a list of sets per RHS function
                 if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
                     est *= sum(len(roots) for roots in roots_list)
-        if est > COMBO_CAP and DEBUG:
+        if est > combo_cap and DEBUG:
             print("[heavy subset]", p_subset, "estimated combos:", est)
 
 
@@ -1052,11 +1050,11 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, max_abs_t, pre
                 tested_crt_classes.add((int(m0) % int(M), int(M)))  # <-- NEW
 
 
-                if not candidate_passes_extra_primes(m0, M, residue_map_for_filter, extra_primes_for_filtering, max_abs_t):
+                if not candidate_passes_extra_primes(m0, M, residue_map_for_filter, extra_primes_for_filtering, tmax):
                     continue
 
                 try:
-                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
+                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                 except TypeError:
                     best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
 
@@ -1156,8 +1154,8 @@ def archimedean_height_of_integer(n):
     return float(math.log(max(abs(int(n)), 1)))
 
 
-# def minimize_archimedean_t(m0, M, r_m_func, shift, max_abs_t, max_steps=150, patience=6):
-def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, max_abs_t):
+# def minimize_archimedean_t(m0, M, r_m_func, shift, tmax, max_steps=150, patience=6):
+def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, tmax):
     """
     For r_m(m) = -m - const_C, find t minimizing archimedean height of x = r_m(m) - shift.
     Returns list of (t, m, x, score) sorted by score (smallest first).
@@ -1168,7 +1166,7 @@ def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, max_abs_t):
     cand_t = set([math.floor(target), math.ceil(target), int(round(target))])
 
     # Clamp to allowed range
-    cand_t = {max(-max_abs_t, min(max_abs_t, t)) for t in cand_t}
+    cand_t = {max(-tmax, min(tmax, t)) for t in cand_t}
 
     results = []
     for t in sorted(cand_t):
@@ -1771,9 +1769,10 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 # ============================================================================
 # Integration point: call this after precomputation completes
 # ============================================================================
-def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
+                                         vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
-                                         max_abs_t, num_workers=8, debug=DEBUG):
+                                         sconf, num_workers=8, debug=DEBUG):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
     Hardened against the "filtered to 0 subsets" failure:
@@ -1782,6 +1781,12 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
       - fall back deterministically if coverage-based generator returns nothing
     Returns: new_xs, new_sections, precomputed_residues, stats
     """
+    # === UNPACK: SCONF ===
+    min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
+    min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
+    max_modulus = sconf['MAX_MODULUS']
+    tmax = sconf['TMAX']
+
     # === STATS: INIT ===
     stats = SearchStats()
 
@@ -1872,20 +1877,28 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
 
     stats.end_phase('precompute_residues')
 
-    ret = diagnose_missed_point(182/141, r_m, shift, precomputed_residues, prime_pool, vecs)
-    print("ret=", ret)
 
-    cov1 = compute_residue_coverage_for_m(QQ(-323)/QQ(141), precomputed_residues, PRIME_POOL)
-    print("cov1: m = -323/141 coverage:", cov1['coverage_fraction'])
-    print("cov1: matched primes:", cov1['matched_primes'])
+    ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
 
-    cov2 = compute_residue_coverage_for_m(QQ(-41)/QQ(141), precomputed_residues, PRIME_POOL)
-    print("cov2: m = -41/141 coverage:", cov2['coverage_fraction'])
-    print("cov2: matched primes:", cov2['matched_primes'])
+    if False: # comment out when not in use
 
-    cov3 = compute_residue_coverage_for_m(QQ(41)/QQ(141), precomputed_residues, PRIME_POOL)
-    print("cov3: m = 41/141 coverage:", cov3['coverage_fraction'])
-    print("cov3: matched primes:", cov3['matched_primes'])
+        ret = diagnose_missed_point(182/141, r_m, shift, precomputed_residues, prime_pool, vecs)
+        #print("ret=", ret)
+        matched_subset = None
+        if 'matched_primes' in ret:
+            matched_subset = ret['matched_primes']
+
+        cov1 = compute_residue_coverage_for_m(QQ(-323)/QQ(141), precomputed_residues, PRIME_POOL)
+        print("cov1: m = -323/141 coverage:", cov1['coverage_fraction'])
+        print("cov1: matched primes:", cov1['matched_primes'])
+
+        cov2 = compute_residue_coverage_for_m(QQ(-41)/QQ(141), precomputed_residues, PRIME_POOL)
+        print("cov2: m = -41/141 coverage:", cov2['coverage_fraction'])
+        print("cov2: matched primes:", cov2['matched_primes'])
+
+        cov3 = compute_residue_coverage_for_m(QQ(41)/QQ(141), precomputed_residues, PRIME_POOL)
+        print("cov3: m = 41/141 coverage:", cov3['coverage_fraction'])
+        print("cov3: matched primes:", cov3['matched_primes'])
 
 
     # Build a per-prime numeric residue set for later use (and require non-empty)
@@ -1919,6 +1932,12 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     extra_primes_for_filtering = auto_extra_primes
     stats.end_phase('autotune_primes')
 
+    # Filtering stage: compute product estimate using distinct numeric residues per prime
+    combo_cap = ceil(50000**(7*min_prime_subset_size/3)) # too many residues for this prime subset, too many possibilities, modular constraints are too loose
+    roots_threshold = ROOTS_THRESHOLD
+    if debug:
+        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
+
     # === PHASE: GEN SUBSETS ===
     stats.start_phase('gen_subsets')
     prime_subsets_initial = generate_biased_prime_subsets_by_coverage(
@@ -1926,19 +1945,15 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         precomputed_residues=precomputed_residues,
         vecs=vecs_list,
         num_subsets=num_subsets,
-        min_size=MIN_PRIME_SUBSET_SIZE,
-        max_size=MIN_MAX_PRIME_SUBSET_SIZE,
+        min_size=min_prime_subset_size,
+        max_size=min_max_prime_subset_size,
+        combo_cap=combo_cap,
         seed=SEED_INT,
         force_full_pool=False,
         debug=debug
     )
     stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
 
-    # Filtering stage: compute product estimate using distinct numeric residues per prime
-    combo_cap = COMBO_CAP
-    roots_threshold = ROOTS_THRESHOLD
-    if debug:
-        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
     filtered_subsets = []
     for subset in prime_subsets_initial:
         est = 1
@@ -1968,6 +1983,17 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     if debug:
         print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
     prime_subsets_to_process = filtered_subsets
+    assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
+    count_subsets = {}
+    for subset in prime_subsets_to_process:
+        key = len(subset)
+        if key in count_subsets:
+            count_subsets[key] += 1
+        else:
+            count_subsets[key] = 0
+
+    for key in count_subsets:
+        print("using", count_subsets[key], "subsets of len =", key)
 
     # If filtering removed everything, build a deterministic fallback pool of small subsets.
     if not prime_subsets_to_process:
@@ -2021,7 +2047,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
         vecs=vecs_list,
         r_m=r_m,
         shift=shift,
-        max_abs_t=max_abs_t,
+        tmax=tmax,
+        combo_cap=combo_cap,
         precomputed_residues=precomputed_residues,
         prime_pool=prime_pool,  # current (filtered) prime_pool
         num_rhs_fns=len(rhs_list)
@@ -2253,9 +2280,9 @@ def _compute_residues_for_prime_worker(args):
 
 
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
-                                              num_subsets, min_size, max_size, 
+                                              num_subsets, min_size, max_size, combo_cap,
                                               seed=SEED_INT, force_full_pool=False, debug=DEBUG,
-                                              combo_cap=COMBO_CAP, roots_threshold=ROOTS_THRESHOLD):
+                                              roots_threshold=ROOTS_THRESHOLD):
     """
     Generate diverse prime subsets biased toward high-coverage primes, but skip
     combinatorially-pathological subsets whose estimated Cartesian-product of
@@ -2674,7 +2701,7 @@ def build_targeted_subset(m_value, precomputed_residues, prime_pool,
 def targeted_recovery_search(cd, current_sections, near_miss_candidates,
                               prime_pool, precomputed_residues,
                               r_m, shift, rationality_test_func,
-                              max_abs_t=500, debug=True):
+                              tmax=TMAX, debug=True):
     """
     Run a focused CRT search on detected near-miss candidates.
     """
@@ -2741,7 +2768,7 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates,
             m0 = crt_cached(combo, tuple(primes_for_crt))
 
             try:
-                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, max_abs_t)
+                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
             except TypeError:
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
 
@@ -2758,132 +2785,6 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates,
 
     return newly_found
 
-def detect_near_miss_candidates(precomputed_residues, prime_pool, vecs, 
-                                 coverage_threshold=0.45, max_candidates=500000):
-    """
-    Detect (m, vector) pairs that have high residue coverage across primes
-    but failed to survive CRT filtering. These are "near misses" that might
-    represent points we're systematically missing.
-
-    Args:
-        precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from _compute_residues_for_prime_worker
-        prime_pool (list): Full list of primes used
-        vecs (list): All search vectors
-        coverage_threshold (float): Consider a prime-vector pair "active" if it has roots in
-                                    at least this fraction of primes (default 75%)
-        max_candidates (int): Return at most this many near-miss candidates
-
-    Returns:
-        list of dicts: Each dict has keys:
-          - 'm_candidates': set of possible m residues (from covered primes)
-          - 'coverage_ratio': fraction of primes that have roots for this vector
-          - 'residue_map': {p: roots_mod_p} for the covered primes
-          - 'v_tuple': the vector this came from
-          - 'prime_list': list of primes with roots
-    """
-    candidates = []
-
-    for v in vecs:
-        v_tuple = tuple(v)
-        if all(c == 0 for c in v_tuple):
-            continue
-
-        # Collect which primes have roots for this vector
-        primes_with_roots = []
-        residue_map = {}
-
-        for p in prime_pool:
-            if p not in precomputed_residues:
-                continue
-
-            p_data = precomputed_residues[p].get(v_tuple)
-            if p_data is None:
-                continue
-
-            # p_data is a list of root sets (one per RHS function)
-            # Combine roots across all RHS functions for this vector+prime
-            all_roots = set()
-            for rhs_roots in p_data:
-                if rhs_roots:
-                    all_roots.update(rhs_roots)
-
-            if all_roots:
-                primes_with_roots.append(p)
-                residue_map[p] = all_roots
-
-        if not primes_with_roots:
-            continue
-
-        coverage = len(primes_with_roots) / float(len(prime_pool))
-
-        if coverage >= coverage_threshold:
-            # This vector has high prime coverage but apparently didn't produce
-            # a survivor in CRT. Flag it as a near-miss.
-            m_candidates = set()
-            for p in primes_with_roots:
-                m_candidates.update(residue_map[p])
-
-            candidates.append({
-                'v_tuple': v_tuple,
-                'coverage_ratio': coverage,
-                'num_primes': len(primes_with_roots),
-                'num_m_residues': len(m_candidates),
-                'residue_map': residue_map,
-                'prime_list': primes_with_roots,
-            })
-
-    # Sort by coverage ratio (descending) and return top candidates
-    candidates.sort(key=lambda c: c['coverage_ratio'], reverse=True)
-    return candidates[:max_candidates]
-
-
-def construct_targeted_subset_for_recovery(candidate, prime_pool, min_size=3):
-    """
-    Given a near-miss candidate, construct a targeted prime subset that is
-    most likely to generate a CRT survivor for that candidate's m-values.
-
-    The strategy: pick primes from the candidate's residue_map that have
-    sparse roots (high selectivity), ensuring we cover many of the candidate's
-    possible m residues.
-
-    Args:
-        candidate (dict): Output from detect_near_miss_candidates
-        prime_pool (list): Full prime pool (for fallback)
-        min_size (int): Minimum subset size
-
-    Returns:
-        list: Primes to use for a targeted CRT search on this candidate
-    """
-    residue_map = candidate['residue_map']
-    prime_list = candidate['prime_list']
-
-    if len(prime_list) < min_size:
-        # Not enough primes; use what we have + pad with random others
-        subset = prime_list[:]
-        remaining = [p for p in prime_pool if p not in subset]
-        import random
-        subset += random.sample(remaining, min(min_size - len(subset), len(remaining)))
-        return subset
-
-    # Score primes by selectivity: primes with fewer roots are more selective
-    scored = []
-    for p in prime_list:
-        num_roots = len(residue_map[p])
-        selectivity = 1.0 / float(num_roots) if num_roots > 0 else 0
-        scored.append((selectivity, p))
-
-    scored.sort(reverse=True)
-    
-    # Greedily pick high-selectivity primes, ensuring we still cover the m-candidates
-    subset = []
-    covered_m = set()
-    for selectivity, p in scored:
-        subset.append(p)
-        covered_m.update(residue_map[p])
-        if len(subset) >= min(len(prime_list), MIN_MAX_PRIME_SUBSET_SIZE):
-            break
-
-    return subset
 
 
 def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
@@ -2937,7 +2838,7 @@ def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
 
 # Add to search_lll.py
 
-def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, max_abs_t=MAX_ABS_T, debug=True):
+def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, tmax=TMAX, debug=True):
     """
     Diagnose why a specific x-value wasn't found by the CRT search.
     
@@ -2951,7 +2852,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         precomputed_residues: {p: {v_tuple: [roots_per_rhs]}} from workers
         prime_pool: List of primes used in search
         vecs: List of search vectors
-        max_abs_t: Maximum |t| to check in m = m0 + t*M
+        tmax: Maximum |t| to check in m = m0 + t*M
         debug: Print diagnostic info
     
     Returns:
@@ -3129,7 +3030,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                 if numerator % denominator == 0:
                     t = numerator // denominator
                     
-                    if abs(t) <= max_abs_t:
+                    if abs(t) <= tmax:
                         m_reconstructed = QQ(m0 + t * M)
                         
                         if m_reconstructed == target_m:
@@ -3210,3 +3111,99 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         'viable_reconstructions': viable_reconstructions,
         'is_findable': len(viable_reconstructions) > 0
     }
+
+
+# In search_lll.py, replace the existing _process_prime_subset_precomputed function with this:
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
+    """
+    Worker function to find m-candidates for a single subset of primes.
+    This version processes each RHS function independently.
+    
+    *** MODIFIED to decouple t-search filter from rational reconstruction ***
+    """
+    if not p_subset:
+        return set()
+
+    found_candidates_for_subset = set()
+    stats_counter = Counter()
+    tested_crt_classes = set()
+
+    # these are now skipped!  this shouldn't print anymore!
+    if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
+        est = 1
+        for p in p_subset:
+            vks = precomputed_residues[p]
+            for roots_list in vks.values():
+                # roots_list is a list of sets per RHS function
+                if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
+                    est *= sum(len(roots) for roots in roots_list)
+        if est > combo_cap and DEBUG:
+            print("[heavy subset]", p_subset, "estimated combos:", est)
+
+    num_extra_primes = 4
+    offset = 2
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
+
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        for rhs_idx in range(num_rhs_fns):
+            
+            residue_map_for_crt = {}
+            for p in p_subset:
+                # precomputed_residues[p][v_tuple] is now a list of sets
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
+
+            primes_for_crt = list(residue_map_for_crt.keys())
+            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+                continue
+
+            residue_map_for_filter = {}
+            for p in extra_primes_for_filtering:
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
+
+            lists = [residue_map_for_crt[p] for p in primes_for_crt]
+            
+            for combo in itertools.product(*lists):
+                stats_counter['crt_lift_attempts'] += 1
+                M = 1
+                for p in primes_for_crt:
+                    M *= int(p)
+
+                if M > MAX_MODULUS:
+                    continue
+
+                m0 = crt_cached(combo, tuple(primes_for_crt))
+                tested_crt_classes.add((int(m0) % int(M), int(M)))
+
+                # --- START MODIFICATION ---
+                # Path 1: t-search (guarded by the filter)
+                if candidate_passes_extra_primes(m0, M, residue_map_for_filter, extra_primes_for_filtering, tmax):
+                    try:
+                        best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
+                    except TypeError:
+                        best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
+
+                    for _, m_cand, _, _ in best_ms:
+                        found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
+
+                # Path 2: Rational Reconstruction (run *unconditionally*)
+                stats_counter['rational_recon_attempts_worker'] += 1
+                try:
+                    a, b = rational_reconstruct(m0 % M, M)
+                    found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+                    stats_counter['rational_recon_success_worker'] += 1
+                except RationalReconstructionError:
+                    stats_counter['rational_recon_failure_worker'] += 1
+                    # Do not raise here, just fail to add
+                    pass
+                # --- END MODIFICATION ---
+
+    return found_candidates_for_subset, stats_counter, tested_crt_classes
