@@ -648,7 +648,7 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
 
 # === Recommend subset strategy but do not pick magic numbers ===
 def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
-                                        num_subsets_hint=250, min_size_hint=MIN_PRIME_SUBSET_SIZE,
+                                        num_subsets_hint=NUM_PRIME_SUBSETS, min_size_hint=MIN_PRIME_SUBSET_SIZE,
                                         max_size_hint=MIN_MAX_PRIME_SUBSET_SIZE, debug=DEBUG):
     """
     Returns an adaptive plan for subset generation: number of subsets, size ranges, and picks.
@@ -1796,7 +1796,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
 
 def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
                                        base_height=100, target_survivors_per_subset=1.0, # Target survivors not used here
-                                       base_num_subsets=250,
+                                       base_num_subsets=NUM_PRIME_SUBSETS,
                                        min_size_hint=MIN_PRIME_SUBSET_SIZE,
                                        max_size_hint=MIN_MAX_PRIME_SUBSET_SIZE,
                                        debug=DEBUG):
@@ -1945,3 +1945,27 @@ def _cached_galois_stats(poly_str):
     # We pass None for primes_to_test to use its internal default
     return estimate_galois_signature_modp(poly, primes_to_test=None, debug=False)
     # --- END MODIFIED ---
+
+
+def print_conf(sconf):
+    """print the config info"""
+    prime_pool = sconf['PRIME_POOL']
+    min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
+    min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
+    num_prime_subsets = sconf['NUM_PRIME_SUBSETS']
+    max_modulus = sconf['MAX_MODULUS']
+    tmax = sconf['TMAX']
+    height_bound = sconf['HEIGHT_BOUND']
+
+    # --- NEW PRINT ---
+    print("\n[auto_cfg] Applied adaptive parameters:") # Corrected print
+    print(f"  HEIGHT_BOUND: {height_bound}") # Corrected print
+    print(f"  TMAX: {tmax}") # Corrected print
+    print(f"  NUM_PRIME_SUBSETS: {num_prime_subsets}") # Corrected print
+    print(f"  PRIME_POOL size: {len(prime_pool)}\n") # Corrected print
+    # --- END NEW PRINT ---
+
+    print(f"[auto_cfg summary] height_bound={height_bound}, MAX_MODULUS={max_modulus}, "
+            f"NUM_PRIME_SUBSETS={num_prime_subsets}, PRIME_POOL size={len(prime_pool)}, "
+            f"TMAX={tmax}")
+

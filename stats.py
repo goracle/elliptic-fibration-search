@@ -669,9 +669,13 @@ class CoverageEstimator:
             return -1
         else:
             coverage_per_run = p / len(self.tested_classes)  # rough estimate
-            expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
+            try:
+                expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
+                expected_runs = math.ceil(expected_runs)
+            except ZeroDivisionError:
+                expected_runs = oo # sage for infinity
         
-            return math.ceil(expected_runs)
+            return expected_runs
 
 if __name__ == "__main__":
     import sys

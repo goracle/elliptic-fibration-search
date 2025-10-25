@@ -167,61 +167,24 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
              # Failsafe if all_known_x is empty (shouldn't be, but safe)
              known_pts_for_height = [(QQ(0), None)]
         # --- END MODIFICATION ---
-
-
         # Run auto configuration (defined in bounds.py)
         # --- MODIFICATION: Pass new list and height_bound=None to force re-estimation ---
         sconf = bounds.auto_configure_search(cd, known_pts_for_height, height_bound=None, debug=True)
-        #sconf = bounds.auto_configure_search(cd, known_pts, height_bound=HEIGHT_BOUND, debug=True) # <-- OLD
-
-        # Extract parameters into local scope
-        #height_bound = max(sconf['HEIGHT_BOUND'], HEIGHT_BOUND) # <-- OLD
-        height_bound = sconf['HEIGHT_BOUND'] # <-- This is fine
-        # --- FINAL FIX: OVERRIDE THE HEIGHT BOUND ---
-        if len(all_known_x) <= 3:
-            height_bound = max(height_bound, 1000) # Ensure a massive search for initial basis
-        # --- END FINAL FIX ---
-
-        PRIME_POOL = sconf['PRIME_POOL']
-        MIN_PRIME_SUBSET_SIZE = sconf['MIN_PRIME_SUBSET_SIZE']
-        MIN_MAX_PRIME_SUBSET_SIZE = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
-        NUM_PRIME_SUBSETS = sconf['NUM_PRIME_SUBSETS']
-        MAX_MODULUS = sconf['MAX_MODULUS']
-        TMAX = sconf['TMAX']
-
-        # --- NEW PRINT ---
-        print("\n[auto_cfg] Applied adaptive parameters:") # Corrected print
-        print(f"  HEIGHT_BOUND: {height_bound}") # Corrected print
-        print(f"  TMAX: {TMAX}") # Corrected print
-        print(f"  NUM_PRIME_SUBSETS: {NUM_PRIME_SUBSETS}") # Corrected print
-        print(f"  PRIME_POOL size: {len(PRIME_POOL)}\n") # Corrected print
-        # --- END NEW PRINT ---
-
-        print(f"[auto_cfg summary] height_bound={height_bound}, MAX_MODULUS={MAX_MODULUS}, "
-              f"NUM_PRIME_SUBSETS={NUM_PRIME_SUBSETS}, PRIME_POOL size={len(PRIME_POOL)}, "
-              f"TMAX={TMAX}")
-
-    except Exception as e:
-        print("[auto-config] Failed, reverting to static defaults:", e)
+        print_conf(sconf)
+    except Exception:
+        print("config failed")
         raise
-
 
     # 6. Diagnostic check: confirm the modulus capping works safely
     _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0,
                                                     max_modulus=MAX_MODULUS, debug=True)
 
     # Recompute prime pool with possible heavier diagnostics (optional)
-    prime_pool = PRIME_POOL
+    prime_pool = sconf['PRIME_POOL']
     prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True,
                                                         grh_fudge=10, debug=True)
-    # Always keep 3, idk why, magic. 2 is bad tho.
-    if 3 not in prime_pool:
-        pass
-        #prime_pool = [3] + prime_pool
-
-    PRIME_POOL = sorted(set(prime_pool))
-    prime_pool = PRIME_POOL
-    print(f"[prime_pool] Final pool has {len(PRIME_POOL)} primes up to {max(PRIME_POOL)}")
+    prime_pool = sorted(set(prime_pool))
+    print(f"[prime_pool] Final pool has {len(prime_pool)} primes up to {max(prime_pool)}")
 
     # 7. Continue with your normal tower search logic (no other structural changes)
     k = cd.k_base_change
@@ -319,15 +282,15 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         predictor = CurveComplexityPredictor()
         difficulty = predictor.assess_curve_difficulty(cd, current_sections, prime_pool, H)
 
+        height_bound = sconf['HEIGHT_BOUND']
+        num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
         if difficulty['difficulty_score'] > 2.0:
             print(f"⚠️  WARNING: Curve predicted to be difficult (score {difficulty['difficulty_score']:.2f})")
             print(f"   Allocating {difficulty['recommended_height_multiplier']:.1f}x height bound")
             print(f"   Allocating {difficulty['recommended_subset_multiplier']:.1f}x prime subsets")
-
             height_bound *= difficulty['recommended_height_multiplier']
-            num_prime_subsets = int(NUM_PRIME_SUBSETS * difficulty['recommended_subset_multiplier'])
-        else:
-            num_prime_subsets = int(NUM_PRIME_SUBSETS)
+            num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
+        height_bound *= 2
 
 
         vecs = compute_search_vectors(H, height_bound) # MW canonical height bound version (old)
@@ -372,7 +335,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
             newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
                 cd, current_sections,
-                prime_pool,
+                prime_pool, height_bound,
                 vecs,
                 search_rhs_list,
                 r_m,
@@ -380,42 +343,13 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 all_known_x,
                 num_prime_subsets,
                 get_y_unshifted_genus2,
-                TMAX
+                sconf
                 )
             # --- MERGE STATS ---
             cumulative_stats.merge(iter_stats)
 
             #if len(newly_found_x) < len(vecs) // 4:
             #if len(newly_found_x) < 1:
-            if False: # broken code right now.
-                if DEBUG:
-                    print("\n[recovery] Low survivor count; attempting targeted recovery...") # Corrected print
-
-                near_misses = detect_near_miss_candidates(
-                    precomputed_residues,
-                    prime_pool,
-                    vecs,
-                    coverage_threshold=0.70,
-                    max_candidates=300000
-                )
-
-                if near_misses:
-                    print(f"[recovery] Detected {len(near_misses)} near-miss candidates")
-                    recovery_xs = targeted_recovery_search(
-                        cd,
-                        current_sections,
-                        near_misses,
-                        prime_pool,
-                        precomputed_residues,   # <-- added here
-                        r_m,
-                        shift,
-                        get_y_unshifted_genus2,
-                        max_abs_t=TMAX,
-                        debug=DEBUG
-                    )
-
-                    newly_found_x.update(recovery_xs)
-                    print(f"[recovery] Recovery found {len(recovery_xs)} additional point(s)")
         # ***** END MODIFIED SECTION *****
 
 
