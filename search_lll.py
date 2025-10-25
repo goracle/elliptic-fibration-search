@@ -1771,25 +1771,20 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
 
-    if False: # comment out when not in use
+    if TARGETED_X: # comment out when not in use
 
-        ret = diagnose_missed_point(182/141, r_m, shift, precomputed_residues, prime_pool, vecs)
+        ret = diagnose_missed_point(TARGETED_X, r_m, shift, precomputed_residues, prime_pool, vecs)
         #print("ret=", ret)
         matched_subset = None
         if 'matched_primes' in ret:
             matched_subset = ret['matched_primes']
 
-        cov1 = compute_residue_coverage_for_m(QQ(-323)/QQ(141), precomputed_residues, PRIME_POOL)
-        print("cov1: m = -323/141 coverage:", cov1['coverage_fraction'])
+        const = r_m(m=0)
+        mtarget = QQ(-1)*TARGETED_X+const
+
+        cov1 = compute_residue_coverage_for_m(mtarget, precomputed_residues, PRIME_POOL)
+        print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])
         print("cov1: matched primes:", cov1['matched_primes'])
-
-        cov2 = compute_residue_coverage_for_m(QQ(-41)/QQ(141), precomputed_residues, PRIME_POOL)
-        print("cov2: m = -41/141 coverage:", cov2['coverage_fraction'])
-        print("cov2: matched primes:", cov2['matched_primes'])
-
-        cov3 = compute_residue_coverage_for_m(QQ(41)/QQ(141), precomputed_residues, PRIME_POOL)
-        print("cov3: m = 41/141 coverage:", cov3['coverage_fraction'])
-        print("cov3: matched primes:", cov3['matched_primes'])
 
 
     # Build a per-prime numeric residue set for later use (and require non-empty)
@@ -1874,7 +1869,11 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     if debug:
         print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
     prime_subsets_to_process = filtered_subsets
-    assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
+
+    #### if missing a point, assert your matched subset is contained in the used ones
+    if TARGETED_X: # commented out when not using/debugging
+        assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
+
     count_subsets = {}
     for subset in prime_subsets_to_process:
         key = len(subset)
@@ -1883,7 +1882,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         else:
             count_subsets[key] = 0
 
-    for key in count_subsets:
+    for key in sorted(list(count_subsets)):
         print("using", count_subsets[key], "subsets of len =", key)
 
     # If filtering removed everything, build a deterministic fallback pool of small subsets.
