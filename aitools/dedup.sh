@@ -15,51 +15,54 @@ fi
 # Create a temporary file
 tmpfile=$(mktemp)
 
-# Extract all function names and their line numbers
-functions=$(grep -n "^def " "$file" | awk -F: '{print $1, $2}' | sed 's/def \([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/')
-
-# Build an awk script that will keep only the last occurrence of each function
-awk_script='
-BEGIN {
-    # First pass: read all function definitions and find the last line number for each
-}
-'
-
-# Read the file and track the last occurrence of each function
+# Extract all TOP-LEVEL function names and their line numbers (no leading whitespace)
 declare -A last_func_line
-while IFS=' ' read -r line_num func_name; do
+while IFS=':' read -r line_num rest; do
+    func_name=$(echo "$rest" | sed 's/def \([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/')
     last_func_line["$func_name"]=$line_num
-done < <(grep -n "^def " "$file" | awk -F: '{print $1, $2}' | sed 's/def \([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/')
+done < <(grep -n "^def " "$file")
 
-# Build a string of functions to keep (only the last occurrence)
+# Build a comma-separated string of line numbers to keep
 keep_lines=""
 for func in "${!last_func_line[@]}"; do
     keep_lines="${keep_lines}${last_func_line[$func]},"
 done
 keep_lines="${keep_lines%,}"  # Remove trailing comma
 
-# Use awk to print lines up to each function definition, then skip earlier definitions
+# Use awk to process the file
 awk -v keep="$keep_lines" '
 BEGIN {
     split(keep, keep_arr, ",")
     for (i in keep_arr) {
         keep_map[keep_arr[i]] = 1
     }
-    current_line = 0
-    skip = 0
+    in_skip_function = 0
 }
 {
-    current_line++
+    line_num = NR
+    
+    # Check if this is a top-level function definition
     if ($0 ~ /^def /) {
-        if (!(current_line in keep_map)) {
-            skip = 1
+        if (line_num in keep_map) {
+            # This is the last occurrence - keep it
+            in_skip_function = 0
+            print
         } else {
-            skip = 0
+            # This is a duplicate - skip this function
+            in_skip_function = 1
         }
     }
-    if (!skip) {
+    # Check if we should stop skipping (encountered a non-indented line)
+    else if (in_skip_function && $0 ~ /^[^ \t]/ && $0 !~ /^$/) {
+        # Hit a non-indented, non-empty line - stop skipping
+        in_skip_function = 0
         print
     }
+    # Normal line handling
+    else if (!in_skip_function) {
+        print
+    }
+    # else: we are in a skip function and this is an indented line - skip it
 }
 ' "$file" > "$tmpfile"
 

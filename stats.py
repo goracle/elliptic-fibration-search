@@ -5,6 +5,11 @@ import math
 from collections import defaultdict, Counter
 from functools import reduce
 from operator import mul
+# stats_utils.py (or inside stats.py)
+from sage.all import QQ, crt
+from functools import reduce
+import math
+
 
 from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
 from sage.all import *
@@ -19,6 +24,7 @@ class SearchStats:
         self.counters = Counter()
         # Mapping prime -> set(residues tested mod p)
         self.residues_by_prime = defaultdict(set)
+        self.prime_subsets = []
 
         # Initialize all counters
         self.counters.update({
@@ -71,6 +77,7 @@ class SearchStats:
         self.successes = self.successes[-1000:]
         self.failures = self.failures[-1000:]
         self.crt_classes_tested.update(other.crt_classes_tested)
+        self.prime_subsets.extend(other.prime_subsets)
 
     def merge_dict(self, stats_dict):
         """Merge a simple Counter dict into counters."""
@@ -127,6 +134,82 @@ class SearchStats:
         M_log10 = sum(math.log10(p) for p in prime_list)
         coverage_prod, _ = self.prime_coverage_fraction()
         return coverage_prod, M_log10
+
+    def crt_visibility_by_subsets(self, m_val, prime_subsets):
+        """
+        Check whether a rational m_val is congruent (mod M) to at least one CRT
+        class actually tested by the search. Returns True if visible, else False.
+
+        Robust handling of:
+        - singleton subsets (Sage's crt has a weird length-1 branch),
+        - Python vs Sage integer types,
+        - non-iterable or malformed subsets.
+        """
+
+        # local imports to avoid namespace shadowing with Sage
+        from sage.all import QQ, Integer, crt
+        from functools import reduce
+        import operator
+
+        # Normalize rational
+        a = int(QQ(m_val).numerator())
+        b = int(QQ(m_val).denominator())
+
+        # prime_subsets expected: iterable of iterables of primes
+        for subset in prime_subsets:
+            # defensive: make sure subset is an iterable of primes
+            try:
+                primes = [int(p) for p in subset]
+            except Exception:
+                # skip malformed subset
+                continue
+
+            # drop primes dividing denominator (not usable)
+            usable_primes = [p for p in primes if b % p != 0]
+            if not usable_primes:
+                continue
+
+            # compute residue (a * b^{-1}) mod p for each usable prime
+            res_vals = []
+            mod_vals = []
+            for p in usable_primes:
+                try:
+                    inv = pow(b, -1, p)  # raises ValueError if no inverse
+                except Exception:
+                    # skip this prime if inverse fails (shouldn't happen because we filtered b % p != 0)
+                    continue
+                r = (a * inv) % p
+                res_vals.append(int(r))
+                mod_vals.append(int(p))
+
+            if not res_vals:
+                # nothing usable in this subset
+                continue
+
+            # Convert to Sage Integers so crt() won't choke on singleton lists
+            sage_res = [Integer(r) for r in res_vals]
+            sage_mods = [Integer(m) for m in mod_vals]
+
+            try:
+                if len(sage_res) == 1:
+                    # trivial CRT: single congruence x = r (mod p)
+                    m_mod = sage_res[0]
+                    M = int(sage_mods[0])
+                else:
+                    # general CRT
+                    m_mod = crt(sage_res, sage_mods)
+                    M = int(reduce(operator.mul, mod_vals, 1))
+            except Exception:
+                # CRT failed for this subset; skip it
+                continue
+
+            canonical = (int(m_mod) % int(M), int(M))
+            if canonical in self.crt_classes_tested:
+                return True
+
+        return False
+
+
 
     def crt_coverage_exact(self, prime_subsets_used):
         total_classes_possible = sum(reduce(mul, subset, 1) for subset in prime_subsets_used)
@@ -232,6 +315,105 @@ class SearchStats:
             return int(o)
         with open(path, 'w') as fh:
             json.dump(self.summary(), fh, indent=2, default=serializer)
+
+
+    # Put these inside class SearchStats
+
+    def subset_match_probability(self, subset):
+        """
+        For one subset (iterable of primes), estimate probability that
+        a uniform random rational m avoids denominator primes and matches
+        all residues for that subset.
+
+        Returns (p_subset, details) where p_subset is float probability,
+        and details is dict {'per_prime': {p: (L_p, p, L_p/p)} }.
+        """
+        per_prime = {}
+        logp = 0.0
+        any_zero = False
+        for p in subset:
+            p = int(p)
+            L = len(self.residues_by_prime.get(p, set()))
+            per_prime[p] = (L, p, (L / float(p) if p > 0 else 0.0))
+            if p == 0:
+                any_zero = True
+                continue
+            if L == 0:
+                # If no residues seen mod p, then p_subset = 0
+                any_zero = True
+                logp = float('-inf')
+                break
+            logp += log(max(1e-300, L / float(p)))  # safe log
+        if any_zero and logp == float('-inf'):
+            return 0.0, {'per_prime': per_prime}
+        p_subset = exp(logp)
+        return p_subset, {'per_prime': per_prime}
+
+    def estimate_overall_visibility(self, prime_subsets):
+        """
+        Given a list of prime subsets (each subset is a list of primes),
+        estimate the probability that a random rational is detected by at least
+        one subset. Uses the inclusion-as-independent-subsets approximation:
+        P_visible = 1 - product_S (1 - p_S)
+        Also returns per-subset probabilities for inspection.
+        """
+        p_list = []
+        subset_details = []
+        # compute each subset probability
+        for subset in prime_subsets:
+            p_s, detail = self.subset_match_probability(subset)
+            p_list.append(p_s)
+            subset_details.append((list(subset), p_s, detail))
+
+        # compute combined probability robustly using logs when necessary
+        # if p_s are small, product(1 - p_s) ≈ exp(sum log(1 - p_s))
+        prod_log = 0.0
+        for p in p_list:
+            # clamp p to [0, 1)
+            p = max(0.0, min(0.999999999999, p))
+            prod_log += log(1.0 - p)
+        P_visible = 1.0 - exp(prod_log)
+
+        return {
+            'P_visible': P_visible,
+            'per_subset': subset_details,
+            'num_subsets': len(p_list),
+            'product_density_old': self.prime_coverage_fraction()[0]
+        }
+
+    def compare_known_points_visibility(self, known_rationals, prime_subsets, verbose=False):
+        """
+        For a list of rationals (Fraction, QQ, or (num,den) tuples), compute:
+        - how many are CRT-visible using crt_visibility_by_subsets
+        - per-point fraction matched (existing visibility_signature)
+        Returns a summary dict and per-point list.
+        """
+        from sage.all import QQ
+        analyzer = FindabilityAnalyzer(self, [int(p) for s in prime_subsets for p in s])
+        samples = []
+        visible_count = 0
+        for q in known_rationals:
+            try:
+                r = QQ(q)
+            except Exception:
+                # tolerate (num,den) style
+                if isinstance(q, tuple) and len(q) == 2:
+                    r = QQ(q[0])/QQ(q[1])
+                else:
+                    continue
+            sig = analyzer.visibility_signature(r)
+            sig['crt_visible'] = self.crt_visibility_by_subsets(r, prime_subsets)
+            samples.append(sig)
+            if sig['crt_visible']:
+                visible_count += 1
+            if verbose:
+                print(f"{sig['m']} visible:{sig['crt_visible']} frac:{sig['fraction']:.3f} matched:{sig['matched']}/{sig['usable']}")
+        return {
+            'visible_count': visible_count,
+            'total': len(samples),
+            'fraction_visible': visible_count / len(samples) if samples else 0.0,
+            'samples': samples
+        }
 
 
 # ---------------- BenchmarkStats ----------------
@@ -677,7 +859,340 @@ class CoverageEstimator:
         
             return expected_runs
 
+# In stats.py
+def analyze_sample_m_list(m_list, analyzer, prime_subsets):
+    results = []
+    product_density = None  # Will be set by the first sample
+
+    for m in m_list:
+        sig = analyzer.visibility_signature(m)
+        if product_density is None: # On first iteration, grab the m-independent density
+            product_density = sig['coverage']
+        sig['crt_visible'] = analyzer.crt_visibility_by_subsets(m, prime_subsets)
+        results.append(sig)
+
+    if product_density is None:
+        product_density = 0.0 # Handle case where m_list is empty
+
+    try:
+        from search_common import MIN_PRIME_SUBSET_SIZE
+    except Exception:
+        MIN_PRIME_SUBSET_SIZE = 3
+
+    meet_count = sum(1 for sig in results if sig['matched'] >= MIN_PRIME_SUBSET_SIZE)
+    frac_meet = meet_count / len(results) if results else 0.0
+
+    return {
+        'product_density_heuristic': product_density,
+        'fraction_meet_min_subset': frac_meet,
+        'samples': results
+    }
+
+# In stats.py
+
+class CRTAnalyzer:
+    """
+    Analyze CRT visibility and modular coverage for a batch of rational m-values.
+    Works with your SearchStats object.
+    """
+
+    def __init__(self, stats, prime_pool, prime_subsets):
+        self.stats = stats
+        self.prime_pool = list(prime_pool)
+        self.prime_subsets = prime_subsets  # list of prime subsets used in the search
+
+    def crt_visibility(self, m_val):
+        """Return True if m_val is visible via at least one tested CRT class."""
+        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
+
+        for subset in self.prime_subsets:
+            usable = [int(p) for p in subset if b % int(p) != 0]
+            if not usable:
+                continue
+
+            residues, moduli = [], []
+            for p in usable:
+                try:
+                    r = (a * pow(b, -1, p)) % p
+                    residues.append(int(r))
+                    moduli.append(int(p))
+                except Exception:
+                    residues = []
+                    break
+
+            if not residues:
+                continue
+
+            try:
+                m_mod = crt(residues, moduli)
+                M = reduce(lambda x, y: x*y, moduli, 1)
+                if (int(m_mod) % M, M) in self.stats.crt_classes_tested:
+                    return True
+            except Exception:
+                continue
+
+        return False
+
+    def visibility_signature(self, m_val):
+        """Compute per-prime match, fraction matched, and CRT consistency."""
+        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
+        matched = 0
+        usable = 0
+        per_prime = {}
+        crt_ok = False
+
+        for p in self.prime_pool:
+            if b % p == 0:
+                continue
+            usable += 1
+            residue = (a * pow(b, -1, p)) % p
+            seen = self.stats.residues_by_prime.get(p, set())
+            ok = residue in seen
+            per_prime[p] = (residue, ok)
+            if ok:
+                matched += 1
+
+        # heuristic product density
+        log_density = sum(
+            math.log(len(self.stats.residues_by_prime[p]) / float(p))
+            for p in self.prime_pool if p in self.stats.residues_by_prime and len(self.stats.residues_by_prime[p]) > 0
+        )
+        density = math.exp(log_density) if usable > 0 else 0.0
+
+        # CRT consistency (optional, basic)
+        try:
+            residues = [(r, p) for p, (r, ok) in per_prime.items() if ok]
+            if len(residues) >= 2:
+                res_list, mods = zip(*residues)
+                m_mod = crt(res_list, mods)
+                mod_product = reduce(lambda x, y: x*y, mods, 1)
+                crt_ok = ((a * pow(b, -1, mod_product)) % mod_product) == m_mod
+            else:
+                crt_ok = bool(matched)
+        except Exception:
+            crt_ok = False
+
+        frac = matched / usable if usable > 0 else 0.0
+        return {
+            'm': (int(a), int(b)),
+            'per_prime': per_prime,
+            'matched': matched,
+            'usable': usable,
+            'coverage': density,
+            'fraction': frac,
+            'crt_ok': crt_ok,
+            'crt_visible': self.crt_visibility(m_val)
+        }
+
+    def analyze_batch(self, m_list):
+        """Analyze a batch of rationals, return list of signatures."""
+        results = []
+        product_density = None
+
+        for m in m_list:
+            sig = self.visibility_signature(m)
+            if product_density is None:
+                product_density = sig['coverage']
+            results.append(sig)
+
+        return {
+            'product_density_heuristic': product_density,
+            'samples': results,
+            'fraction_visible': sum(1 for r in results if r['crt_visible']) / len(results) if results else 0.0
+        }
+
+
+
+class FindabilityAnalyzer:
+    def __init__(self, stats, prime_pool):
+        self.stats = stats
+        self.prime_pool = list(prime_pool)
+
+
+    def visibility_signature(self, m_val):
+        """Compute per-prime match, fraction matched, and CRT consistency."""
+        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
+        matched = 0
+        usable = 0
+        per_prime = {}
+        crt_ok = False
+
+        for p in self.prime_pool:
+            if b % p == 0:
+                continue
+            usable += 1
+            residue = (a * pow(b, -1, p)) % p
+            seen = self.stats.residues_by_prime.get(p, set())
+            ok = residue in seen
+            per_prime[p] = (residue, ok)
+            if ok:
+                matched += 1
+
+        # heuristic product density
+        log_density = sum(
+            math.log(len(self.stats.residues_by_prime[p]) / float(p))
+            for p in self.prime_pool if p in self.stats.residues_by_prime and len(self.stats.residues_by_prime[p]) > 0
+        )
+        density = math.exp(log_density) if usable > 0 else 0.0
+
+        # CRT consistency (optional, basic)
+        try:
+            residues = [(r, p) for p, (r, ok) in per_prime.items() if ok]
+            if len(residues) >= 2:
+                res_list, mods = zip(*residues)
+                m_mod = crt(res_list, mods)
+                mod_product = reduce(lambda x, y: x*y, mods, 1)
+                crt_ok = ((a * pow(b, -1, mod_product)) % mod_product) == m_mod
+            else:
+                crt_ok = bool(matched)
+        except Exception:
+            crt_ok = False
+
+        frac = matched / usable if usable > 0 else 0.0
+        return {
+            'm': (int(a), int(b)),
+            'per_prime': per_prime,
+            'matched': matched,
+            'usable': usable,
+            'coverage': density,
+            'fraction': frac,
+            'crt_ok': crt_ok,
+            'crt_visible': self.crt_visibility(m_val)
+        }
+
+
+    def crt_visibility(self, m_val):
+        """Return True if m_val is visible via at least one tested CRT class."""
+        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
+
+        for subset in self.stats.prime_subsets:
+            usable = [int(p) for p in subset if b % int(p) != 0]
+            if not usable:
+                continue
+
+            residues, moduli = [], []
+            for p in usable:
+                try:
+                    r = (a * pow(b, -1, p)) % p
+                    residues.append(int(r))
+                    moduli.append(int(p))
+                except Exception:
+                    residues = []
+                    break
+
+            if not residues:
+                continue
+
+            try:
+                m_mod = crt(residues, moduli)
+                M = reduce(lambda x, y: x*y, moduli, 1)
+                if (int(m_mod) % M, M) in self.stats.crt_classes_tested:
+                    return True
+            except Exception:
+                continue
+
+        return False
+
+
+    def crt_visibility_by_subsets(self, m_val, prime_subsets):
+        """
+        Check whether a rational m_val is congruent (mod M) to at least one CRT
+        class actually tested by the search. Returns True if visible, else False.
+
+        Robust handling of:
+        - singleton subsets (Sage's crt has a weird length-1 branch),
+        - Python vs Sage integer types,
+        - non-iterable or malformed subsets.
+        """
+        assert hasattr(self.stats, 'crt_classes_tested'), "stats must have crt_classes_tested set"
+
+        # local imports to avoid namespace shadowing with Sage
+        from sage.all import QQ, Integer, crt
+        from functools import reduce
+        import operator
+
+        # Normalize rational
+        a = int(QQ(m_val).numerator())
+        b = int(QQ(m_val).denominator())
+
+        # prime_subsets expected: iterable of iterables of primes
+        for subset in prime_subsets:
+            # defensive: make sure subset is an iterable of primes
+            try:
+                primes = [int(p) for p in subset]
+            except Exception:
+                # skip malformed subset
+                continue
+
+            # drop primes dividing denominator (not usable)
+            usable_primes = [p for p in primes if b % p != 0]
+            if not usable_primes:
+                continue
+
+            # compute residue (a * b^{-1}) mod p for each usable prime
+            res_vals = []
+            mod_vals = []
+            for p in usable_primes:
+                try:
+                    inv = pow(b, -1, p)  # raises ValueError if no inverse
+                except Exception:
+                    # skip this prime if inverse fails (shouldn't happen because we filtered b % p != 0)
+                    continue
+                r = (a * inv) % p
+                res_vals.append(int(r))
+                mod_vals.append(int(p))
+
+            if not res_vals:
+                # nothing usable in this subset
+                continue
+
+            # Convert to Sage Integers so crt() won't choke on singleton lists
+            sage_res = [Integer(r) for r in res_vals]
+            sage_mods = [Integer(m) for m in mod_vals]
+
+            try:
+                if len(sage_res) == 1:
+                    # trivial CRT: single congruence x = r (mod p)
+                    m_mod = sage_res[0]
+                    M = int(sage_mods[0])
+                else:
+                    # general CRT
+                    m_mod = crt(sage_res, sage_mods)
+                    M = int(reduce(operator.mul, mod_vals, 1))
+            except Exception:
+                # CRT failed for this subset; skip it
+                continue
+
+            canonical = (int(m_mod) % int(M), int(M))
+            if canonical in self.stats.crt_classes_tested:
+                return True
+
+        return False
+
+    def completeness_curve(self, xs, all_xs, bins=10):
+        # height = log(max(|num|,|den|))
+        def H(x):
+            num = abs(int(QQ(x).numerator()))
+            den = abs(int(QQ(x).denominator()))
+            return float(math.log(max(num, den, 1)))
+
+        foundH = [H(x) for x in xs]
+        allH = [H(x) for x in all_xs]
+        lo, hi = min(allH), max(allH)
+        step = (hi - lo) / bins if hi > lo else 1.0
+        edges = [lo + i * step for i in range(bins + 1)]
+        results = []
+        for e in edges[1:]:
+            tot = sum(1 for h in allH if h <= e)
+            got = sum(1 for h in foundH if h <= e)
+            frac = got / tot if tot > 0 else 0.0
+            results.append((e, frac))
+        return results
+
 if __name__ == "__main__":
     import sys
     directory = sys.argv[1] if len(sys.argv) > 1 else "summaries"
     analyze_dir(directory)
+
+
+

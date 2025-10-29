@@ -305,7 +305,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         # ***** MODIFIED SECTION *****
         # The modular search is replaced with the direct symbolic search.
         if SYMBOLIC_SEARCH:
-            newly_found_x, new_sections, iter_stats = search_lattice_symbolic(
+            newly_found_x, new_sections = search_lattice_symbolic(
                 cd,
                 current_sections,
                 vecs,
@@ -320,19 +320,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         else:
 
             # --- ALL CONFIG (PRIMES / SUBSETS / RESIDUE COUNTS) COMES FROM sconf ---
-            # sconf was created earlier and contains:
-            #   PRIME_POOL, RESIDUE_COUNTS, SUBSET_PLAN, PRIME_SUBSETS, NUM_PRIME_SUBSETS, ...
-            prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)  # fallback to earlier var if any
+            prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
             residue_counts = sconf.get('RESIDUE_COUNTS', {})
-            #prime_subsets = sconf.get('PRIME_SUBSETS', None)
-
-            # show summary (no recomputation of strategy)
-            #size_dist = Counter(len(s) for s in prime_subsets)
-            #print(f"[bounds] Using {len(prime_subsets)} precomputed prime subsets from sconf. Size dist: {dict(sorted(size_dist.items()))}") # Corrected print
-
+ 
             # --- MODIFIED CALL to get stats object ---
-
-
             newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
                 cd, current_sections,
                 prime_pool, height_bound,
@@ -376,6 +367,44 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     xtest_unshifted = real_pts[0][0]  # This is the original x
     mtest = m_r(r=xtest)
     assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
+
+    #### COMPLETENESS, HEURISTIC
+
+    # diagnostics after precompute_modular stage
+    analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+
+    # make sure you have access to the actual subsets used by the search
+    # e.g., prime_subsets = current_prime_subsets or whatever variable you used
+
+    # example: random sample
+    m_sample = sample_rationals_by_height_random(N=200, B=100)
+    diag = analyze_sample_m_list(m_sample, analyzer, cumulative_stats.prime_subsets)
+    #for s in diag['samples']:
+    #    print(s['m'], "CRT visible:", s['crt_visible'], "coverage fraction:", s['fraction'])
+
+    ok = sum(1 for s in diag['samples'] if s['crt_visible'])
+    print("CRT-consistent samples:", ok, "of", len(diag['samples']))
+    print("product_density_heuristic:", diag['product_density_heuristic'])
+    print("fraction_meet_min_subset:", diag['fraction_meet_min_subset'])
+
+    # or deterministic check up to height bound B
+    m_list = enumerate_rationals_height_bound(B=50)
+    diag2 = analyze_sample_m_list(m_list, analyzer, cumulative_stats.prime_subsets)
+    print("product_density_heuristic:", diag2['product_density_heuristic'])
+    print("fraction_meet_min_subset:", diag2['fraction_meet_min_subset'])
+
+
+    # estimate overall visibility for the subsets we actually used
+    est = cumulative_stats.estimate_overall_visibility(cumulative_stats.prime_subsets)
+    print("Estimated random-m visibility (P_visible):", est['P_visible'])
+    # show top few subset probs
+    for subset, p, detail in sorted(est['per_subset'], key=lambda x: -x[1])[:8]:
+        print(" subset", subset, "p_subset:", p)
+
+    # compare to actual known points found this run
+    known_xs = list(all_known_x)  # your set of true x-values
+    kvis = cumulative_stats.compare_known_points_visibility(known_xs, cumulative_stats.prime_subsets)
+    print("Known points CRT-visible:", kvis['visible_count'], "of", kvis['total'])
 
 
     ### Automorphism Search ###
@@ -656,6 +685,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     return all_known_x, cumulative_stats
 
 
+
 @PROFILE
 def main_genus2():
     initial_xs = DATA_PTS_GENUS2
@@ -710,6 +740,9 @@ def main_genus2():
 
     print("\n--- Final Results ---")
     print(f"Final list of known points: {sorted(list(known_pts))}")
+
+
+
 
 
 # In search7_genus2.sage
