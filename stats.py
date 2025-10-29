@@ -139,76 +139,76 @@ class SearchStats:
         """
         Check whether a rational m_val is congruent (mod M) to at least one CRT
         class actually tested by the search. Returns True if visible, else False.
-
-        Robust handling of:
-        - singleton subsets (Sage's crt has a weird length-1 branch),
-        - Python vs Sage integer types,
-        - non-iterable or malformed subsets.
         """
+        assert hasattr(self.stats, 'crt_classes_tested'), "stats must have crt_classes_tested set"
 
-        # local imports to avoid namespace shadowing with Sage
         from sage.all import QQ, Integer, crt
         from functools import reduce
         import operator
 
         # Normalize rational
-        a = int(QQ(m_val).numerator())
-        b = int(QQ(m_val).denominator())
+        try:
+            a = int(QQ(m_val).numerator())
+            b = int(QQ(m_val).denominator())
+        except (TypeError, ValueError, AttributeError) as e:
+            raise ValueError(f"Cannot coerce m_val={m_val} to rational: {e}")
 
-        # prime_subsets expected: iterable of iterables of primes
         for subset in prime_subsets:
-            # defensive: make sure subset is an iterable of primes
-            try:
-                primes = [int(p) for p in subset]
-            except Exception:
-                # skip malformed subset
+            # Validate subset structure
+            if not subset:
                 continue
 
-            # drop primes dividing denominator (not usable)
+            try:
+                primes = [int(p) for p in subset]
+            except (TypeError, ValueError) as e:
+                if DEBUG:
+                    print(f"[crt_vis] Malformed subset {subset}: {e}")
+                raise  # Don't silently skip - this indicates data corruption
+
+            # Drop primes dividing denominator
             usable_primes = [p for p in primes if b % p != 0]
             if not usable_primes:
                 continue
 
-            # compute residue (a * b^{-1}) mod p for each usable prime
+            # Compute residue (a * b^{-1}) mod p for each usable prime
             res_vals = []
             mod_vals = []
             for p in usable_primes:
                 try:
-                    inv = pow(b, -1, p)  # raises ValueError if no inverse
-                except Exception:
-                    # skip this prime if inverse fails (shouldn't happen because we filtered b % p != 0)
-                    continue
+                    inv = pow(b, -1, p)
+                except ValueError as e:
+                    # This shouldn't happen since we filtered b % p != 0
+                    raise ArithmeticError(f"Modular inverse failed for b={b} mod p={p}: {e}")
+
                 r = (a * inv) % p
                 res_vals.append(int(r))
                 mod_vals.append(int(p))
 
             if not res_vals:
-                # nothing usable in this subset
                 continue
 
-            # Convert to Sage Integers so crt() won't choke on singleton lists
+            # Convert to Sage Integers for CRT
             sage_res = [Integer(r) for r in res_vals]
             sage_mods = [Integer(m) for m in mod_vals]
 
             try:
                 if len(sage_res) == 1:
-                    # trivial CRT: single congruence x = r (mod p)
                     m_mod = sage_res[0]
                     M = int(sage_mods[0])
                 else:
-                    # general CRT
                     m_mod = crt(sage_res, sage_mods)
                     M = int(reduce(operator.mul, mod_vals, 1))
-            except Exception:
-                # CRT failed for this subset; skip it
-                continue
+            except Exception as e:
+                # CRT failure is serious - indicates inconsistent residues
+                if DEBUG:
+                    print(f"[crt_vis] CRT failed for subset {subset}, residues {res_vals}: {e}")
+                raise ArithmeticError(f"CRT reconstruction failed: {e}")
 
             canonical = (int(m_mod) % int(M), int(M))
-            if canonical in self.crt_classes_tested:
+            if canonical in self.stats.crt_classes_tested:
                 return True
 
         return False
-
 
 
     def crt_coverage_exact(self, prime_subsets_used):
@@ -933,56 +933,68 @@ class CRTAnalyzer:
 
         return False
 
+
     def visibility_signature(self, m_val):
-        """Compute per-prime match, fraction matched, and CRT consistency."""
-        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
-        matched = 0
-        usable = 0
-        per_prime = {}
-        crt_ok = False
+    """Compute per-prime match, fraction matched, and CRT consistency."""
+    try:
+        a = QQ(m_val).numerator()
+        b = QQ(m_val).denominator()
+    except (TypeError, ValueError, AttributeError) as e:
+        raise ValueError(f"Cannot coerce m_val={m_val} to QQ: {e}")
+    
+    a = int(a)
+    b = int(b)
+    
+    matched = 0
+    usable = 0
+    per_prime = {}
 
-        for p in self.prime_pool:
-            if b % p == 0:
-                continue
-            usable += 1
-            residue = (a * pow(b, -1, p)) % p
-            seen = self.stats.residues_by_prime.get(p, set())
-            ok = residue in seen
-            per_prime[p] = (residue, ok)
-            if ok:
-                matched += 1
-
-        # heuristic product density
-        log_density = sum(
-            math.log(len(self.stats.residues_by_prime[p]) / float(p))
-            for p in self.prime_pool if p in self.stats.residues_by_prime and len(self.stats.residues_by_prime[p]) > 0
-        )
-        density = math.exp(log_density) if usable > 0 else 0.0
-
-        # CRT consistency (optional, basic)
+    for p in self.prime_pool:
+        if b % p == 0:
+            continue
+        usable += 1
+        
         try:
-            residues = [(r, p) for p, (r, ok) in per_prime.items() if ok]
-            if len(residues) >= 2:
-                res_list, mods = zip(*residues)
-                m_mod = crt(res_list, mods)
-                mod_product = reduce(lambda x, y: x*y, mods, 1)
-                crt_ok = ((a * pow(b, -1, mod_product)) % mod_product) == m_mod
-            else:
-                crt_ok = bool(matched)
-        except Exception:
-            crt_ok = False
+            residue = (a * pow(b, -1, p)) % p
+        except ValueError as e:
+            raise ArithmeticError(f"Modular inverse failed for b={b} mod p={p}: {e}")
+        
+        seen = self.stats.residues_by_prime.get(p, set())
+        ok = residue in seen
+        per_prime[p] = (residue, ok)
+        if ok:
+            matched += 1
 
-        frac = matched / usable if usable > 0 else 0.0
-        return {
-            'm': (int(a), int(b)),
-            'per_prime': per_prime,
-            'matched': matched,
-            'usable': usable,
-            'coverage': density,
-            'fraction': frac,
-            'crt_ok': crt_ok,
-            'crt_visible': self.crt_visibility(m_val)
-        }
+    # Heuristic product density
+    if not self.prime_pool:
+        density = 0.0
+    else:
+        log_density = 0.0
+        count = 0
+        for p in self.prime_pool:
+            if p not in self.stats.residues_by_prime:
+                continue
+            L = len(self.stats.residues_by_prime[p])
+            if L == 0:
+                continue
+            log_density += math.log(L / float(p))
+            count += 1
+        
+        density = math.exp(log_density) if count > 0 else 0.0
+
+    frac = matched / usable if usable > 0 else 0.0
+    
+    return {
+        'm': (a, b),
+        'per_prime': per_prime,
+        'matched': matched,
+        'usable': usable,
+        'coverage': density,
+        'fraction': frac,
+        'crt_visible': self.crt_visibility_by_subsets(m_val, self.stats.prime_subsets)
+    }
+
+
 
     def analyze_batch(self, m_list):
         """Analyze a batch of rationals, return list of signatures."""
@@ -1008,57 +1020,65 @@ class FindabilityAnalyzer:
         self.stats = stats
         self.prime_pool = list(prime_pool)
 
-
     def visibility_signature(self, m_val):
-        """Compute per-prime match, fraction matched, and CRT consistency."""
-        a, b = QQ(m_val).numerator(), QQ(m_val).denominator()
-        matched = 0
-        usable = 0
-        per_prime = {}
-        crt_ok = False
+    """Compute per-prime match, fraction matched, and CRT consistency."""
+    try:
+        a = QQ(m_val).numerator()
+        b = QQ(m_val).denominator()
+    except (TypeError, ValueError, AttributeError) as e:
+        raise ValueError(f"Cannot coerce m_val={m_val} to QQ: {e}")
+    
+    a = int(a)
+    b = int(b)
+    
+    matched = 0
+    usable = 0
+    per_prime = {}
 
-        for p in self.prime_pool:
-            if b % p == 0:
-                continue
-            usable += 1
-            residue = (a * pow(b, -1, p)) % p
-            seen = self.stats.residues_by_prime.get(p, set())
-            ok = residue in seen
-            per_prime[p] = (residue, ok)
-            if ok:
-                matched += 1
-
-        # heuristic product density
-        log_density = sum(
-            math.log(len(self.stats.residues_by_prime[p]) / float(p))
-            for p in self.prime_pool if p in self.stats.residues_by_prime and len(self.stats.residues_by_prime[p]) > 0
-        )
-        density = math.exp(log_density) if usable > 0 else 0.0
-
-        # CRT consistency (optional, basic)
+    for p in self.prime_pool:
+        if b % p == 0:
+            continue
+        usable += 1
+        
         try:
-            residues = [(r, p) for p, (r, ok) in per_prime.items() if ok]
-            if len(residues) >= 2:
-                res_list, mods = zip(*residues)
-                m_mod = crt(res_list, mods)
-                mod_product = reduce(lambda x, y: x*y, mods, 1)
-                crt_ok = ((a * pow(b, -1, mod_product)) % mod_product) == m_mod
-            else:
-                crt_ok = bool(matched)
-        except Exception:
-            crt_ok = False
+            residue = (a * pow(b, -1, p)) % p
+        except ValueError as e:
+            raise ArithmeticError(f"Modular inverse failed for b={b} mod p={p}: {e}")
+        
+        seen = self.stats.residues_by_prime.get(p, set())
+        ok = residue in seen
+        per_prime[p] = (residue, ok)
+        if ok:
+            matched += 1
 
-        frac = matched / usable if usable > 0 else 0.0
-        return {
-            'm': (int(a), int(b)),
-            'per_prime': per_prime,
-            'matched': matched,
-            'usable': usable,
-            'coverage': density,
-            'fraction': frac,
-            'crt_ok': crt_ok,
-            'crt_visible': self.crt_visibility(m_val)
-        }
+    # Heuristic product density
+    if not self.prime_pool:
+        density = 0.0
+    else:
+        log_density = 0.0
+        count = 0
+        for p in self.prime_pool:
+            if p not in self.stats.residues_by_prime:
+                continue
+            L = len(self.stats.residues_by_prime[p])
+            if L == 0:
+                continue
+            log_density += math.log(L / float(p))
+            count += 1
+        
+        density = math.exp(log_density) if count > 0 else 0.0
+
+    frac = matched / usable if usable > 0 else 0.0
+    
+    return {
+        'm': (a, b),
+        'per_prime': per_prime,
+        'matched': matched,
+        'usable': usable,
+        'coverage': density,
+        'fraction': frac,
+        'crt_visible': self.crt_visibility_by_subsets(m_val, self.stats.prime_subsets)
+    }
 
 
     def crt_visibility(self, m_val):
@@ -1098,76 +1118,78 @@ class FindabilityAnalyzer:
         """
         Check whether a rational m_val is congruent (mod M) to at least one CRT
         class actually tested by the search. Returns True if visible, else False.
-
-        Robust handling of:
-        - singleton subsets (Sage's crt has a weird length-1 branch),
-        - Python vs Sage integer types,
-        - non-iterable or malformed subsets.
         """
         assert hasattr(self.stats, 'crt_classes_tested'), "stats must have crt_classes_tested set"
 
-        # local imports to avoid namespace shadowing with Sage
         from sage.all import QQ, Integer, crt
         from functools import reduce
         import operator
 
         # Normalize rational
-        a = int(QQ(m_val).numerator())
-        b = int(QQ(m_val).denominator())
+        try:
+            a = int(QQ(m_val).numerator())
+            b = int(QQ(m_val).denominator())
+        except (TypeError, ValueError, AttributeError) as e:
+            raise ValueError(f"Cannot coerce m_val={m_val} to rational: {e}")
 
-        # prime_subsets expected: iterable of iterables of primes
         for subset in prime_subsets:
-            # defensive: make sure subset is an iterable of primes
-            try:
-                primes = [int(p) for p in subset]
-            except Exception:
-                # skip malformed subset
+            # Validate subset structure
+            if not subset:
                 continue
 
-            # drop primes dividing denominator (not usable)
+            try:
+                primes = [int(p) for p in subset]
+            except (TypeError, ValueError) as e:
+                if DEBUG:
+                    print(f"[crt_vis] Malformed subset {subset}: {e}")
+                raise  # Don't silently skip - this indicates data corruption
+
+            # Drop primes dividing denominator
             usable_primes = [p for p in primes if b % p != 0]
             if not usable_primes:
                 continue
 
-            # compute residue (a * b^{-1}) mod p for each usable prime
+            # Compute residue (a * b^{-1}) mod p for each usable prime
             res_vals = []
             mod_vals = []
             for p in usable_primes:
                 try:
-                    inv = pow(b, -1, p)  # raises ValueError if no inverse
-                except Exception:
-                    # skip this prime if inverse fails (shouldn't happen because we filtered b % p != 0)
-                    continue
+                    inv = pow(b, -1, p)
+                except ValueError as e:
+                    # This shouldn't happen since we filtered b % p != 0
+                    raise ArithmeticError(f"Modular inverse failed for b={b} mod p={p}: {e}")
+
                 r = (a * inv) % p
                 res_vals.append(int(r))
                 mod_vals.append(int(p))
 
             if not res_vals:
-                # nothing usable in this subset
                 continue
 
-            # Convert to Sage Integers so crt() won't choke on singleton lists
+            # Convert to Sage Integers for CRT
             sage_res = [Integer(r) for r in res_vals]
             sage_mods = [Integer(m) for m in mod_vals]
 
             try:
                 if len(sage_res) == 1:
-                    # trivial CRT: single congruence x = r (mod p)
                     m_mod = sage_res[0]
                     M = int(sage_mods[0])
                 else:
-                    # general CRT
                     m_mod = crt(sage_res, sage_mods)
                     M = int(reduce(operator.mul, mod_vals, 1))
-            except Exception:
-                # CRT failed for this subset; skip it
-                continue
+            except Exception as e:
+                # CRT failure is serious - indicates inconsistent residues
+                if DEBUG:
+                    print(f"[crt_vis] CRT failed for subset {subset}, residues {res_vals}: {e}")
+                raise ArithmeticError(f"CRT reconstruction failed: {e}")
 
             canonical = (int(m_mod) % int(M), int(M))
             if canonical in self.stats.crt_classes_tested:
                 return True
 
         return False
+
+
 
     def completeness_curve(self, xs, all_xs, bins=10):
         # height = log(max(|num|,|den|))
@@ -1299,3 +1321,368 @@ def compute_actual_subset_cover_map(stats, prime_subsets):
         per_subset_actual.append((tuple(int(p) for p in subset), p_s_actual, tested_count, M))
     return per_subset_actual
 
+# Add to stats.py - Height-based completeness metric
+
+class CompletenessAnalyzer:
+    """
+    Estimate what fraction of rational points up to canonical height H
+    were found by the search.
+    
+    Key insight: We can't enumerate all rationals up to height H efficiently,
+    but we CAN estimate how many we SHOULD have found using:
+    1. The CRT classes we tested
+    2. The height distribution of points we found
+    3. Visibility analysis of our found points
+    """
+    
+    def __init__(self, stats, prime_pool, prime_subsets, height_bound):
+        """
+        Args:
+            stats: SearchStats object with crt_classes_tested populated
+            prime_pool: List of primes used in search
+            prime_subsets: List of prime subsets actually searched
+            height_bound: Canonical height bound used for search vectors
+        """
+        self.stats = stats
+        self.prime_pool = sorted(prime_pool)
+        self.prime_subsets = prime_subsets
+        self.height_bound = float(height_bound)
+        self.analyzer = FindabilityAnalyzer(stats, prime_pool)
+    
+    def canonical_height_of_x(self, x_val):
+        """
+        Naive canonical height proxy: h(x) ≈ log(max(|num|, |den|))
+        
+        For better estimates, use the actual elliptic curve canonical height,
+        but this is a reasonable first-order approximation for x-coordinates.
+        """
+        from sage.all import QQ
+        q = QQ(x_val)
+        num = abs(int(q.numerator()))
+        den = abs(int(q.denominator()))
+        return float(math.log(max(num, den, 1)))
+    
+    def estimate_total_points_in_height_range(self, h_max):
+        """
+        Heuristic estimate of how many rational x-coordinates exist with h(x) <= h_max.
+        
+        Number of rationals a/b with max(|a|,|b|) <= N is roughly 6/π² * N²
+        (by counting primitive fractions via Euler's totient)
+        
+        So number with log(max(|a|,|b|)) <= h is roughly (6/π²) * exp(2*h)
+        """
+        # Farey sequence heuristic
+        N_max = math.exp(h_max)
+        return (6.0 / (math.pi ** 2)) * (N_max ** 2)
+    
+    def compute_visibility_rate(self, found_xs):
+        """
+        For the points we found, compute what fraction are CRT-visible.
+        This tells us our "detection efficiency".
+        """
+        if not found_xs:
+            return 0.0, {}
+        
+        visible_count = 0
+        invisible_examples = []
+        
+        for x in found_xs:
+            is_visible = self.analyzer.crt_visibility_by_subsets(x, self.prime_subsets)
+            if is_visible:
+                visible_count += 1
+            elif len(invisible_examples) < 5:
+                invisible_examples.append(x)
+        
+        rate = visible_count / len(found_xs)
+        
+        return rate, {
+            'visible': visible_count,
+            'total': len(found_xs),
+            'invisible_examples': invisible_examples
+        }
+    
+    def height_distribution_of_found(self, found_xs):
+        """Compute height distribution of found points"""
+        if not found_xs:
+            return {}
+        
+        heights = [self.canonical_height_of_x(x) for x in found_xs]
+        
+        return {
+            'min': min(heights),
+            'max': max(heights),
+            'mean': sum(heights) / len(heights),
+            'median': sorted(heights)[len(heights) // 2],
+            'count': len(heights)
+        }
+    
+    def m_value_from_x(self, x_val, r_m_func, shift):
+        """
+        Invert x = r_m(m) - shift to get m from x.
+        For linear case: x = -m - const - shift => m = -x - const - shift
+        """
+        from sage.all import QQ
+        const = r_m_func(m=QQ(0))
+        return -(QQ(x_val) + const + shift)
+    
+    def compute_m_space_coverage(self, found_xs, r_m_func, shift):
+        """
+        For each found x, compute its m-value and check what fraction of
+        CRT classes near that m were actually tested.
+        
+        This tells us: "Of the m-values that COULD produce rational points,
+        what fraction of their neighborhoods did we test?"
+        """
+        if not found_xs:
+            return 0.0, []
+        
+        coverage_samples = []
+        
+        for x in found_xs:
+            m_val = self.m_value_from_x(x, r_m_func, shift)
+            
+            # For this m-value, check coverage across all prime subsets
+            # Count: how many subsets have this m in a tested CRT class?
+            visible_in_subsets = 0
+            total_subsets = len(self.prime_subsets)
+            
+            for subset in self.prime_subsets:
+                # Check if m_val's residue class was tested for this subset
+                if self._is_m_covered_by_subset(m_val, subset):
+                    visible_in_subsets += 1
+            
+            local_coverage = visible_in_subsets / total_subsets if total_subsets > 0 else 0.0
+            coverage_samples.append({
+                'x': x,
+                'm': m_val,
+                'coverage': local_coverage,
+                'visible_subsets': visible_in_subsets,
+                'total_subsets': total_subsets
+            })
+        
+        # Average coverage across all found points
+        avg_coverage = sum(s['coverage'] for s in coverage_samples) / len(coverage_samples)
+        
+        return avg_coverage, coverage_samples
+    
+    def _is_m_covered_by_subset(self, m_val, subset):
+        """Check if m_val's CRT class for this subset was tested"""
+        from sage.all import QQ, crt
+        from functools import reduce
+        import operator
+        
+        a = int(QQ(m_val).numerator())
+        b = int(QQ(m_val).denominator())
+        
+        # Filter out primes dividing denominator
+        usable = [p for p in subset if b % int(p) != 0]
+        if not usable:
+            return False
+        
+        try:
+            # Compute m's residue class for this subset
+            residues = [(a * pow(b, -1, p)) % p for p in usable]
+            M = reduce(operator.mul, usable, 1)
+            m_mod = crt(residues, usable)
+            
+            canonical = (int(m_mod) % int(M), int(M))
+            return canonical in self.stats.crt_classes_tested
+        except Exception:
+            return False
+    
+    def completeness_lower_bound(self, found_xs, r_m_func, shift):
+        """
+        Conservative lower bound based on m-space coverage of found points.
+        
+        Logic: If we found points at m-values {m1, m2, ...} and those m-values
+        have average CRT coverage C, then we've tested fraction C of the relevant
+        m-space. Completeness >= C (assuming found points are representative).
+        """
+        avg_coverage, samples = self.compute_m_space_coverage(found_xs, r_m_func, shift)
+        
+        # This is actually our BEST estimate, not just a lower bound
+        return {
+            'estimate': avg_coverage,
+            'reasoning': 'Average CRT coverage of m-values corresponding to found points',
+            'samples': samples[:5]  # Show first 5 for debugging
+        }
+    
+    def completeness_upper_bound_via_coverage(self, found_xs):
+        """
+        Upper bound using CRT coverage estimate.
+        
+        If our CRT coverage is C (fraction of m-space tested), then:
+        - Expected points found ≈ C * (total points in height range)
+        - Actual points found = |found_xs|
+        - Implied total ≈ |found_xs| / C
+        - Completeness upper bound ≈ |found_xs| / (|found_xs| / C) = C
+        
+        But this assumes uniform distribution, which is false. So we
+        need to correct for the height distribution bias.
+        """
+        if not found_xs:
+            return {'upper_bound': 1.0, 'reasoning': 'No points found'}
+        
+        # Estimate CRT coverage (what fraction of m-values we tested)
+        # Use the product model as a rough estimate
+        prod_density, per_prime = self.stats.prime_coverage_fraction()
+        
+        # Height-based correction
+        h_dist = self.height_distribution_of_found(found_xs)
+        h_mean = h_dist['mean']
+        
+        # If we're searching up to height H, but found points have mean height h_mean,
+        # we're biased toward finding LOW height points (they're denser in m-space).
+        # Correction factor: points at height h are ~exp(2*h) times as common as at height H
+        if h_mean < self.height_bound:
+            density_ratio = math.exp(2 * (self.height_bound - h_mean))
+            effective_coverage = prod_density * density_ratio
+        else:
+            effective_coverage = prod_density
+        
+        # Upper bound: we've covered effective_coverage of the space
+        upper = min(1.0, effective_coverage)
+        
+        return {
+            'upper_bound': upper,
+            'reasoning': 'CRT coverage adjusted for height distribution',
+            'raw_coverage': prod_density,
+            'height_adjustment': density_ratio if h_mean < self.height_bound else 1.0,
+            'mean_found_height': h_mean,
+            'height_bound': self.height_bound
+        }
+    
+    def estimate_missing_points(self, found_xs):
+        """
+        Estimate how many points we SHOULD have found but didn't.
+        
+        Method: For each found point, check if it's CRT-visible.
+        If visibility rate is V, and we found N points, then:
+        - True total ≈ N / V (assuming found points are representative)
+        - Missing ≈ (N/V) - N = N*(1-V)/V
+        """
+        vis_rate, details = self.compute_visibility_rate(found_xs)
+        
+        if vis_rate < 0.01:  # Can't trust estimate if visibility is too low
+            return {
+                'estimate': 'unknown',
+                'reasoning': f'Visibility rate too low ({vis_rate:.1%}) for reliable estimate'
+            }
+        
+        N = len(found_xs)
+        estimated_total = N / vis_rate
+        estimated_missing = estimated_total - N
+        
+        return {
+            'found': N,
+            'estimated_total': estimated_total,
+            'estimated_missing': estimated_missing,
+            'confidence': 'low' if vis_rate < 0.3 else 'medium' if vis_rate < 0.7 else 'high',
+            'visibility_rate': vis_rate,
+            'reasoning': f'Extrapolation from {vis_rate:.1%} visibility rate'
+        }
+    
+    def full_report(self, found_xs):
+        """Generate complete completeness analysis report"""
+        if not found_xs:
+            return {
+                'status': 'no_points_found',
+                'completeness_estimate': 'unknown',
+                'recommendation': 'No points found - increase height bound or check curve'
+            }
+        
+        h_dist = self.height_distribution_of_found(found_xs)
+        lower = self.completeness_lower_bound(found_xs)
+        upper = self.completeness_upper_bound_via_coverage(found_xs)
+        missing = self.estimate_missing_points(found_xs)
+        
+        # Compute final estimate as midpoint of bounds
+        if lower['lower_bound'] > 0 and upper['upper_bound'] < 1:
+            estimate = (lower['lower_bound'] + upper['upper_bound']) / 2
+            confidence = 'medium'
+        elif lower['lower_bound'] > 0.8:
+            estimate = lower['lower_bound']
+            confidence = 'high'
+        else:
+            estimate = lower['lower_bound']
+            confidence = 'low'
+        
+        # Generate recommendation
+        if estimate > 0.95:
+            rec = 'Search appears complete ✓'
+        elif estimate > 0.7:
+            rec = 'Likely found most points. Consider 1-2 more runs to verify.'
+        elif estimate > 0.4:
+            rec = 'Significant points may be missing. Increase NUM_SUBSETS or run targeted recovery.'
+        else:
+            rec = 'Low completeness. Increase HEIGHT_BOUND and NUM_SUBSETS significantly.'
+        
+        return {
+            'completeness_estimate': estimate,
+            'confidence': confidence,
+            'bounds': {
+                'lower': lower['lower_bound'],
+                'upper': upper['upper_bound']
+            },
+            'found_points': len(found_xs),
+            'estimated_missing': missing.get('estimated_missing', 'unknown'),
+            'height_distribution': h_dist,
+            'recommendation': rec,
+            'details': {
+                'lower_bound_analysis': lower,
+                'upper_bound_analysis': upper,
+                'missing_points_analysis': missing
+            }
+        }
+    
+    def print_report(self, found_xs):
+        """Pretty-print completeness report"""
+        report = self.full_report(found_xs)
+        
+        print("\n" + "="*70)
+        print("COMPLETENESS ANALYSIS")
+        print("="*70)
+        
+        if report.get('status') == 'no_points_found':
+            print(report['recommendation'])
+            return
+        
+        est = report['completeness_estimate']
+        conf = report['confidence']
+        
+        print(f"\nEstimated Completeness: {est:.1%} (confidence: {conf})")
+        print(f"  Lower bound: {report['bounds']['lower']:.1%}")
+        print(f"  Upper bound: {report['bounds']['upper']:.1%}")
+        
+        print(f"\nPoints Found: {report['found_points']}")
+        if report['estimated_missing'] != 'unknown':
+            print(f"Estimated Missing: {report['estimated_missing']:.1f}")
+        
+        print(f"\nHeight Distribution:")
+        h = report['height_distribution']
+        print(f"  Range: [{h['min']:.2f}, {h['max']:.2f}]")
+        print(f"  Mean: {h['mean']:.2f}, Median: {h['median']:.2f}")
+        print(f"  (Height bound used: {self.height_bound:.2f})")
+        
+        print(f"\n{report['recommendation']}")
+        
+        print("="*70)
+
+
+def print_unified_completeness_report(stats, prime_pool, prime_subsets, 
+                                     height_bound, found_xs):
+    """
+    Single unified completeness report to replace the scattered diagnostics.
+    
+    Call this ONCE at the end of search, after all the technical stats.
+    """
+    analyzer = CompletenessAnalyzer(stats, prime_pool, prime_subsets, height_bound)
+    analyzer.print_report(found_xs)
+
+
+
+# Patch for stats.py - Replace silent exception handlers
+
+# In crt_visibility_by_subsets method:
+
+# In visibility_signature method:

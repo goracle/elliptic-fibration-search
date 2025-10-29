@@ -368,79 +368,125 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     mtest = m_r(r=xtest)
     assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
 
-    #### COMPLETENESS, HEURISTIC
+    # Replace the diagnostic section in search7_genus2.sage (after search completes)
 
-    # diagnostics after precompute_modular stage
-    analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+    #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
 
-    # make sure you have access to the actual subsets used by the search
-    # e.g., prime_subsets = current_prime_subsets or whatever variable you used
+    # REMOVE all the old scattered diagnostics and replace with this:
 
-    # example: random sample
-    m_sample = sample_rationals_by_height_random(N=200, B=100)
-    diag = analyze_sample_m_list(m_sample, analyzer, cumulative_stats.prime_subsets)
-    #for s in diag['samples']:
-    #    print(s['m'], "CRT visible:", s['crt_visible'], "coverage fraction:", s['fraction'])
-
-    ok = sum(1 for s in diag['samples'] if s['crt_visible'])
-    print("CRT-consistent samples:", ok, "of", len(diag['samples']))
-    print("product_density_heuristic:", diag['product_density_heuristic'])
-    print("fraction_meet_min_subset:", diag['fraction_meet_min_subset'])
-
-    # or deterministic check up to height bound B
-    m_list = enumerate_rationals_height_bound(B=50)
-    diag2 = analyze_sample_m_list(m_list, analyzer, cumulative_stats.prime_subsets)
-    print("product_density_heuristic:", diag2['product_density_heuristic'])
-    print("fraction_meet_min_subset:", diag2['fraction_meet_min_subset'])
-
-
-    # estimate overall visibility for the subsets we actually used
-    est = cumulative_stats.estimate_overall_visibility(cumulative_stats.prime_subsets)
-    print("Estimated random-m visibility (P_visible):", est['P_visible'])
-    # show top few subset probs
-    for subset, p, detail in sorted(est['per_subset'], key=lambda x: -x[1])[:8]:
-        print(" subset", subset, "p_subset:", p)
-
-    # compare to actual known points found this run
-    known_xs = list(all_known_x)  # your set of true x-values
-    kvis = cumulative_stats.compare_known_points_visibility(known_xs, cumulative_stats.prime_subsets)
-    print("Known points CRT-visible:", kvis['visible_count'], "of", kvis['total'])
-
-    P_visible_actual, per_subset = compute_actual_subset_cover(cumulative_stats, cumulative_stats.prime_subsets)
-    print("P_visible_actual (using tested classes):", P_visible_actual)
-    # show top contributors
-    for s, p_s, cnt, M in sorted(per_subset, key=lambda t: -t[1])[:12]:
-        print(" subset", s, "p_s_actual:", p_s, "tested_count:", cnt, "M:", M)
-
-
-    # Now compute and compare
-    prod_model = compute_product_model(cumulative_stats, cumulative_stats.prime_subsets)
-    actual_map_list = compute_actual_subset_cover_map(cumulative_stats, cumulative_stats.prime_subsets)
-
-    # Build easy lookup for actual p_s
-    actual_lookup = {t[0]: t[1] for t in actual_map_list}
-
-    # Print top 12 by product-model, with actual tested fraction side-by-side
-    print("Top subsets by optimistic product-model p_s (model vs actual tested fraction):")
-    for subset, p_model in sorted(prod_model, key=lambda x: -x[1])[:12]:
-        p_actual = actual_lookup.get(subset, 0.0)
-        print(f" subset {subset}  p_model: {p_model:.6f}   p_actual: {p_actual:.6f}")
-
-    # Also print top contributors by actual tested fraction
-    print("\nTop subsets by actual tested fraction (p_s_actual, tested_count, M):")
-    for tup in sorted(actual_map_list, key=lambda x: -x[1])[:12]:
-        s, p_s, cnt, M = tup
-        print(f" subset {s}  p_s_actual: {p_s:.6f}  tested_count: {cnt}  M: {M}")
-
-
-
-
-    prod_model = compute_product_model(cumulative_stats, cumulative_stats.prime_subsets)
-    # now compare top 10 by model p_s with actual
-    actual_map = {tuple(s): v for s,v,_,_ in compute_actual_subset_cover(cumulative_stats, cumulative_stats.prime_subsets)[1]}
-    for s, p_s in sorted(prod_model, key=lambda t: -t[1])[:12]:
-        p_actual = actual_map.get(tuple(s), 0.0)
-        print("subset", s, "p_model:", p_s, "p_actual:", p_actual)
+    # =====================================================================
+    # PRIMARY COMPLETENESS REPORT
+    # =====================================================================
+    
+    from stats import CompletenessAnalyzer, print_unified_completeness_report
+    
+    found_x_list = list(all_known_x)
+    
+    print_unified_completeness_report(
+        stats=cumulative_stats,
+        prime_pool=prime_pool,
+        prime_subsets=cumulative_stats.prime_subsets,
+        height_bound=height_bound,
+        found_xs=found_x_list,
+        r_m_func=r_m,
+        shift=shift
+    )
+    
+    # =====================================================================
+    # OPTIONAL: DETAILED DIAGNOSTICS (for debugging only)
+    # =====================================================================
+    
+    if DEBUG and True:  # Set to True if you want verbose diagnostics
+        print("\n" + "="*70)
+        print("DETAILED DIAGNOSTICS (DEBUG MODE)")
+        print("="*70)
+        
+        analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+        
+        # Show CRT consistency check on a sample
+        print("\nCRT Consistency Check (sample of 10 random m-values):")
+        m_sample = sample_rationals_by_height_random(N=10, B=50)
+        for m in m_sample:
+            sig = analyzer.visibility_signature(m)
+            print(f"  m={m}: matched {sig['matched']}/{sig['usable']} primes, "
+                  f"CRT-visible={sig['crt_visible']}")
+        
+        # Per-subset productivity
+        print("\nPer-Subset Productivity:")
+        P_visible_actual, per_subset = compute_actual_subset_cover(
+            cumulative_stats, cumulative_stats.prime_subsets
+        )
+        for s, p_s, cnt, M in sorted(per_subset, key=lambda t: -t[1])[:10]:
+            print(f"  Subset {s}: tested {cnt}/{M} classes ({p_s:.1%})")
+        
+        # Model vs actual comparison
+        print("\nModel vs Actual (top discrepancies):")
+        prod_model = compute_product_model(cumulative_stats, 
+                                          cumulative_stats.prime_subsets)
+        actual_lookup = {t[0]: t[1] for t in per_subset}
+        
+        discrepancies = []
+        for subset, p_model in prod_model:
+            p_actual = actual_lookup.get(subset, 0.0)
+            ratio = p_actual / p_model if p_model > 0 else 0.0
+            discrepancies.append((subset, p_model, p_actual, ratio))
+        
+        # Sort by ratio (furthest from 1.0 = biggest discrepancy)
+        discrepancies.sort(key=lambda t: abs(math.log(t[3] + 1e-10)))
+        
+        for subset, p_m, p_a, ratio in discrepancies[:8]:
+            print(f"  {subset}: model={p_m:.4f}, actual={p_a:.4f}, "
+                  f"ratio={ratio:.2f}")
+    
+    # =====================================================================
+    # POINT-SPECIFIC DIAGNOSTICS (if you suspect missing a specific point)
+    # =====================================================================
+    
+    if TARGETED_X:
+        print("\n" + "="*70)
+        print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
+        print("="*70)
+        
+        # Compute target m from target x
+        const = r_m(m=QQ(0))
+        target_m = QQ(-1) * TARGETED_X + const
+        
+        print(f"Target m-value: {target_m}")
+        
+        # Visibility analysis
+        sig = analyzer.visibility_signature(target_m)
+        print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched")
+        print(f"CRT-visible: {sig['crt_visible']}")
+        
+        if not sig['crt_visible']:
+            print("\n⚠️  TARGET POINT IS NOT CRT-VISIBLE")
+            print("This point cannot be found with current prime subsets.")
+            print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
+            print("Missing primes:", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
+            
+            # Suggest a targeted subset
+            matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
+            if len(matched_primes) >= 4:
+                suggested = matched_primes[:6]
+                print(f"\nSuggested targeted subset: {suggested}")
+                print("Add this to prime_subsets_to_process and re-run.")
+        else:
+            print("\n✓ Target point IS CRT-visible")
+            print("It should have been found. Check rationality_test_func.")
+    
+    # =====================================================================
+    # FINAL SUMMARY
+    # =====================================================================
+    
+    print("\n" + "="*70)
+    print("SEARCH SUMMARY")
+    print("="*70)
+    print(f"Total points found: {len(all_known_x)}")
+    print(f"Total time: {cumulative_stats.summary()['elapsed']:.1f}s")
+    print(f"CRT candidates tested: {cumulative_stats.counters['crt_candidates_found']:,}")
+    print(f"Rationality tests: {cumulative_stats.counters['rationality_tests_total']:,}")
+    print(f"Hit rate: {100 * cumulative_stats.counters['rationality_tests_success'] / max(1, cumulative_stats.counters['rationality_tests_total']):.2f}%")
+    print("="*70)
 
 
     ### Automorphism Search ###
