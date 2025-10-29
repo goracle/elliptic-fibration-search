@@ -406,6 +406,42 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     kvis = cumulative_stats.compare_known_points_visibility(known_xs, cumulative_stats.prime_subsets)
     print("Known points CRT-visible:", kvis['visible_count'], "of", kvis['total'])
 
+    P_visible_actual, per_subset = compute_actual_subset_cover(cumulative_stats, cumulative_stats.prime_subsets)
+    print("P_visible_actual (using tested classes):", P_visible_actual)
+    # show top contributors
+    for s, p_s, cnt, M in sorted(per_subset, key=lambda t: -t[1])[:12]:
+        print(" subset", s, "p_s_actual:", p_s, "tested_count:", cnt, "M:", M)
+
+
+    # Now compute and compare
+    prod_model = compute_product_model(cumulative_stats, cumulative_stats.prime_subsets)
+    actual_map_list = compute_actual_subset_cover_map(cumulative_stats, cumulative_stats.prime_subsets)
+
+    # Build easy lookup for actual p_s
+    actual_lookup = {t[0]: t[1] for t in actual_map_list}
+
+    # Print top 12 by product-model, with actual tested fraction side-by-side
+    print("Top subsets by optimistic product-model p_s (model vs actual tested fraction):")
+    for subset, p_model in sorted(prod_model, key=lambda x: -x[1])[:12]:
+        p_actual = actual_lookup.get(subset, 0.0)
+        print(f" subset {subset}  p_model: {p_model:.6f}   p_actual: {p_actual:.6f}")
+
+    # Also print top contributors by actual tested fraction
+    print("\nTop subsets by actual tested fraction (p_s_actual, tested_count, M):")
+    for tup in sorted(actual_map_list, key=lambda x: -x[1])[:12]:
+        s, p_s, cnt, M = tup
+        print(f" subset {s}  p_s_actual: {p_s:.6f}  tested_count: {cnt}  M: {M}")
+
+
+
+
+    prod_model = compute_product_model(cumulative_stats, cumulative_stats.prime_subsets)
+    # now compare top 10 by model p_s with actual
+    actual_map = {tuple(s): v for s,v,_,_ in compute_actual_subset_cover(cumulative_stats, cumulative_stats.prime_subsets)[1]}
+    for s, p_s in sorted(prod_model, key=lambda t: -t[1])[:12]:
+        p_actual = actual_map.get(tuple(s), 0.0)
+        print("subset", s, "p_model:", p_s, "p_actual:", p_actual)
+
 
     ### Automorphism Search ###
     print("\n--- Automorphism Search ---")

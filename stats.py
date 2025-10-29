@@ -1189,10 +1189,113 @@ class FindabilityAnalyzer:
             results.append((e, frac))
         return results
 
+
+# paste into your running environment (where SearchStats + FindabilityAnalyzer are available)
+
+from fractions import Fraction
+from sage.all import QQ
+
+def per_point_diagnostics(stats, prime_pool, prime_subsets, m_values):
+    analyzer = FindabilityAnalyzer(stats, prime_pool)
+    for m in m_values:
+        qm = QQ(m)
+        sig = analyzer.visibility_signature(qm)
+        crt_vis = analyzer.crt_visibility_by_subsets(qm, prime_subsets)
+        print(f"m = {sig['m']}, frac_matched = {sig['fraction']:.3f}, crt_visible = {crt_vis}")
+        # show a few primes with (residue, ok)
+        show_primes = sorted(sig['per_prime'].items())[:20]
+        print("  per-prime (p:(residue,ok)) sample:", show_primes)
+        # if not visible, enumerate subsets where it *would* match per-prime but wasn't tested
+        if not crt_vis:
+            matching_subs = []
+            for subset in prime_subsets:
+                usable = [int(p) for p in subset if int(sig['m'][1]) % int(p) != 0]
+                if not usable: 
+                    continue
+                # check per-prime residue match
+                ok_all = True
+                for p in usable:
+                    a,b = sig['m']
+                    r = (int(a) * pow(int(b), -1, p)) % p
+                    if r not in stats.residues_by_prime.get(p, set()):
+                        ok_all = False
+                        break
+                if ok_all:
+                    # candidate subset would be matching on per-prime counts (but maybe combination not tested)
+                    matching_subs.append(tuple(usable))
+            if matching_subs:
+                print("  subsets that would match per-prime (but may not have actual tested tuple):", matching_subs[:8])
+        print()
+
+from functools import reduce
+import operator
+from collections import defaultdict
+
+def compute_actual_subset_cover(stats, prime_subsets):
+    # build map M -> number of tested CRT classes with modulus M
+    tested_by_M = defaultdict(int)
+    for (res, M) in stats.crt_classes_tested:
+        tested_by_M[int(M)] += 1
+
+    per_subset = []
+    for subset in prime_subsets:
+        M = reduce(operator.mul, [int(p) for p in subset], 1)
+        tested_count = tested_by_M.get(M, 0)
+        p_s_actual = tested_count / float(M) if M > 0 else 0.0
+        per_subset.append((tuple(subset), p_s_actual, tested_count, M))
+    # union probability
+    prod = 1.0
+    for _, p_s, _, _ in per_subset:
+        prod *= (1.0 - min(max(p_s, 0.0), 0.999999999999))
+    P_visible_actual = 1.0 - prod
+    return P_visible_actual, per_subset
+
+
 if __name__ == "__main__":
     import sys
     directory = sys.argv[1] if len(sys.argv) > 1 else "summaries"
     analyze_dir(directory)
 
 
+
+# Paste this into your running Sage/Python environment (same session as cumulative_stats)
+import math
+from functools import reduce
+import operator
+from collections import defaultdict
+
+def compute_product_model(stats, prime_subsets):
+    """
+    For each prime subset S, compute p_model = prod_p (L_p / p)
+    where L_p = len(stats.residues_by_prime[p]).
+    Returns list of (tuple(subset), p_model).
+    """
+    pm = []
+    for subset in prime_subsets:
+        ps = 1.0
+        ok = True
+        for p in subset:
+            p = int(p)
+            L = len(stats.residues_by_prime.get(p, set()))
+            if L == 0:
+                ok = False
+                ps = 0.0
+                break
+            ps *= (L / float(p))
+        pm.append((tuple(int(p) for p in subset), ps))
+    return pm
+
+# small helper to compute actual per-subset tested fraction (if not already defined):
+def compute_actual_subset_cover_map(stats, prime_subsets):
+    # map modulus M -> number of tested classes with that M
+    tested_by_M = defaultdict(int)
+    for (res, M) in stats.crt_classes_tested:
+        tested_by_M[int(M)] += 1
+    per_subset_actual = []
+    for subset in prime_subsets:
+        M = reduce(operator.mul, [int(p) for p in subset], 1)
+        tested_count = tested_by_M.get(M, 0)
+        p_s_actual = tested_count / float(M) if M > 0 else 0.0
+        per_subset_actual.append((tuple(int(p) for p in subset), p_s_actual, tested_count, M))
+    return per_subset_actual
 
