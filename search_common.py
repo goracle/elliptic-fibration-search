@@ -2102,3 +2102,38 @@ def get_data_pts(known_pts, excluded):
     return None
 
 
+def sample_rationals_by_height_random(N, B):
+    """
+    Return list of N rationals QQ(a)/QQ(b) with gcd(a,b)=1, 1 <= b <= B, |a| <= B.
+    Height proxy: max(|a|,|b|) <= B.
+    Diagnostic-only; does not alter search.
+    """
+    assert int(N) > 0
+    assert int(B) >= 1
+    out = []
+    tries = 0
+    while len(out) < int(N):
+        a = random.randint(-B, B)
+        b = random.randint(1, B)
+        if gcd(a, b) != 1:
+            tries += 1
+            continue
+        out.append(QQ(a) / QQ(b))
+        tries += 1
+        # allow loop to raise naturally if something extremely odd happens
+    return out
+
+
+def enumerate_rationals_height_bound(B):
+    """
+    Deterministic list of rationals QQ(a)/QQ(b) with 1 <= b <= B and |a| <= B,
+    returned in lexicographic order (a then b). Use for reproducible diagnostics.
+    """
+    assert int(B) >= 1
+    out = []
+    for b in range(1, B + 1):
+        for a in range(-B, B + 1):
+            if gcd(a, b) != 1:
+                continue
+            out.append(QQ(a) / QQ(b))
+    return out
