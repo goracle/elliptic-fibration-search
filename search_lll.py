@@ -2746,6 +2746,35 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     return new_xs, new_sections, precomputed_residues, stats
 
 
+def minimize_archimedean_t_linear_const(m0, M, const_C, shift, tmax):
+    """
+    Optimized for r_m(m) = -m - const_C.
+    Now takes const_C directly instead of r_m_func.
+    """
+    const_C = QQ(const_C)  # Ensure rational
+    shift = QQ(shift)
+    
+    target = -(m0 + const_C + shift) / float(M)
+    cand_t = {math.floor(target), math.ceil(target), int(round(target))}
+    cand_t = {max(-tmax, min(tmax, t)) for t in cand_t}
+
+    results = []
+    for t in sorted(cand_t):
+        m_try = QQ(int(m0) + int(t) * int(M))
+        
+        # Direct: x = r_m(m) - shift = (-m - const_C) - shift
+        x = -m_try - const_C - shift
+        
+        x_num = abs(int(x.numerator()))
+        x_den = abs(int(x.denominator()))
+        score = float(math.log(max(x_num, x_den, 1)))
+        
+        results.append((t, int(m_try), x, score))
+
+    results.sort(key=lambda z: (z[3], abs(z[2])))
+    return results
+
+
 # put near top-level (import once)
 from functools import lru_cache
 import math
@@ -2825,6 +2854,251 @@ def rational_reconstruct_cached(c_int, N_int, max_den_int=None):
 
 
 # In search_lll.py
+
+def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
+                     r_m, shift, tmax, stats,
+                     max_modulus=MAX_MODULUS, combo_cap=None,
+                     max_levels=None, k_stable=2, debug=DEBUG):
+    """
+    Corrected, vector-wise and RHS-wise CRT-tree exploration.
+    This version iterates over each vector, and for each vector,
+    iterates over each RHS function, building a separate, valid
+    tree for each (vector, rhs) pair.
+    """
+    from collections import deque, Counter, defaultdict
+    import traceback, time
+    from sage.all import Integer, QQ
+
+    const_C = QQ(r_m(m=0))  # Evaluate symbolic r_m once
+
+    stats_counter = Counter()
+    tested_crt_classes = set()
+    found_candidates = set()
+
+    # sort primes descending (largest first)
+    primes_ordered = sorted([p for p in prime_pool if precomputed_residues.get(p)], reverse=True)
+    total_vectors = len(vecs_list)
+
+    # --- Get num_rhs_fns from the precomputed data structure ---
+    if not total_vectors or not primes_ordered:
+        if debug: print("[crt-tree] No vectors or no usable primes. Exiting.")
+        return found_candidates, tested_crt_classes, stats_counter
+        
+    sample_p = primes_ordered[0]
+    sample_v_tuple = tuple(vecs_list[0]) # Use first vector as sample
+    # Find the first vector that actually has data for the sample prime
+    for v_t in vecs_list:
+        sample_v_tuple = tuple(v_t)
+        if sample_v_tuple in precomputed_residues.get(sample_p, {}):
+            break
+            
+    sample_roots_list = precomputed_residues.get(sample_p, {}).get(sample_v_tuple, [])
+    num_rhs_fns = len(sample_roots_list)
+    
+    if num_rhs_fns == 0:
+        if debug: print(f"[crt-tree] Error: num_rhs_fns is 0. Check precomputed_residues structure. p={sample_p}, v={sample_v_tuple}")
+        return found_candidates, tested_crt_classes, stats_counter
+    
+    if debug:
+        print(f"[crt-tree] Inferred {num_rhs_fns} RHS function(s) from precomputed data.")
+
+    # estimate max_levels as before
+    if max_levels is None:
+        prod = 1
+        for i, p in enumerate(primes_ordered):
+            prod *= p
+            if prod > 10*max_modulus:
+                max_levels = i
+                break
+        else:
+            max_levels = len(primes_ordered)
+        if debug:
+            print(f"[crt-tree] Auto-limited depth to {max_levels} levels (MAX_MODULUS={max_modulus})")
+    
+    # Let's cap this at a reasonable level to avoid excessive depth
+    max_levels = min(max_levels, 15) 
+    if debug:
+        print(f"[crt-tree] Using effective max_levels = {max_levels}")
+
+
+    # --- CRT Helper Functions (defined inside) ---
+    def safe_crt(residues_iter, moduli_iter):
+        sage_res = list(residues_iter)
+        sage_mods = list(moduli_iter)
+        if len(sage_mods) == 1:
+            m = sage_mods[0]
+            if m == 0: return Integer(0)
+            return sage_res[0] % m
+        return crt(sage_res, sage_mods)
+
+    def canonical_class_key(m0, M):
+        if m0 is None:
+            return (None, int(M)) if M.bit_length() < 1024 else (None, M)
+        key_m = m0 % M
+        return (int(key_m) if key_m.bit_length() < 1024 else key_m,
+                int(M) if M.bit_length() < 1024 else M)
+
+    conversion_cache = {}
+    def to_python_mod_pair(m0_mod_sage, M_sage):
+        key = (m0_mod_sage, M_sage)
+        if key in conversion_cache:
+            return conversion_cache[key]
+        m0_py = int(m0_mod_sage % M_sage)
+        M_py = int(M_sage)
+        conversion_cache[key] = (m0_py, M_py)
+        return m0_py, M_py
+    # --- End Helper Functions ---
+
+    # =================================================================
+    # === MAIN VECTOR LOOP ===
+    # =================================================================
+    counters_debug = defaultdict(int)
+    for v_idx, v_orig in enumerate(vecs_list):
+        v_orig_tuple = tuple(v_orig)
+
+        if debug: # Print less often
+            print(f"[crt-tree] Processing vector {v_idx+1}/{total_vectors} {v_orig_tuple[:3]}...")
+
+        if all(c == 0 for c in v_orig):
+            continue
+            
+        # =================================================================
+        # === RHS LOOP (This is the critical fix) ===
+        # =================================================================
+        for rhs_idx in range(num_rhs_fns):
+
+            # 1. Build the residue map FOR THIS VECTOR AND THIS RHS
+            per_prime_numeric_residues_for_v_rhs = {}
+            for p in primes_ordered:
+                mapping = precomputed_residues.get(p, {})
+                roots_lists = mapping.get(v_orig_tuple, []) # list of sets
+                
+                if rhs_idx < len(roots_lists):
+                    residues_for_this_rhs_p = roots_lists[rhs_idx]
+                    if residues_for_this_rhs_p:
+                        # Make sure they are ints
+                        numeric_residues = {int(r) for r in residues_for_this_rhs_p if isinstance(r, (int, Integer))}
+                        if numeric_residues:
+                            per_prime_numeric_residues_for_v_rhs[p] = [Integer(r) for r in sorted(numeric_residues)]
+
+            # 2. Get the list of primes that are relevant for THIS v/rhs combo
+            primes_for_this_v_rhs = sorted(per_prime_numeric_residues_for_v_rhs.keys(), reverse=True)
+            
+            max_levels_for_v_rhs = min(max_levels, len(primes_for_this_v_rhs))
+
+            # Need at least 1 prime to start the tree
+            if len(primes_for_this_v_rhs) < 1:
+                continue
+
+            # 3. Run the BFS tree search FOR THIS VECTOR/RHS
+            root = {'M': Integer(1), 'classes': {(None, Integer(1)): True}, 'level': 0}
+            frontier = deque([root])
+            level_idx = 0
+
+            while frontier and level_idx < max_levels_for_v_rhs:
+                p = primes_for_this_v_rhs[level_idx]
+                next_frontier = deque()
+                
+                # Get residues for this prime AND this vector/RHS
+                residues_for_p = per_prime_numeric_residues_for_v_rhs[p] # Already a list of Sage Integers
+
+                while frontier:
+                    node = frontier.popleft()
+                    M_parent = node['M']
+                    class_keys_parent = list(node['classes'].keys())
+                    child_classes_for_node = set()
+
+                    for (m0_parent, M_par_saved) in class_keys_parent:
+                        for r_mod_p_sage in residues_for_p:
+                            try:
+                                if M_parent == 1 or m0_parent is None:
+                                    m0_new = safe_crt((r_mod_p_sage,), (Integer(p),))
+                                    M_new = Integer(p)
+                                else:
+                                    parent_residue_sage = (Integer(m0_parent) % Integer(M_parent)) if not isinstance(m0_parent, Integer) else (m0_parent % M_parent)
+                                    residues_tuple = (parent_residue_sage, r_mod_p_sage)
+                                    moduli_tuple = (Integer(M_parent), Integer(p))
+                                    m0_new = safe_crt(residues_tuple, moduli_tuple)
+                                    M_new = Integer(M_parent) * Integer(p)
+                            except Exception:
+                                # This can happen if residues are incompatible (e.g., if p|M_parent, though our logic should prevent this)
+                                counters_debug['crt_incompatible'] += 1
+                                continue # This is an expected pruning
+                            
+                            if M_new > max_modulus:
+                                counters_debug['pruned_by_max_modulus'] += 1
+                                continue
+
+                            key = canonical_class_key(m0_new, M_new)
+                            
+                            # Only test a class if we haven't seen it before *globally*
+                            if key not in tested_crt_classes:
+                                tested_crt_classes.add(key)
+                                stats_counter['crt_lift_attempts'] += 1
+
+                                # Candidate generation: t-search
+                                try:
+                                    best_ms = minimize_archimedean_t_linear_const(
+                                        int(m0_new), int(M_new), const_C, shift, tmax
+                                    )
+                                    for _, m_cand, x_val, _ in best_ms:
+                                        found_candidates.add((QQ(m_cand), v_orig_tuple)) 
+                                except Exception:
+                                    counters_debug['tsearch_fail'] += 1
+
+                                # Rational reconstruction
+                                stats_counter['rr_attempts'] += 1
+                                try:
+                                    m0_mod_sage = m0_new % M_new
+                                    m0_py, M_py = to_python_mod_pair(m0_mod_sage, M_new)
+                                    a, b = rational_reconstruct_cached(m0_py, M_py)
+                                    stats_counter['rr_success'] += 1
+                                    found_candidates.add((QQ(a) / QQ(b), v_orig_tuple)) 
+                                except RationalReconstructionError: # Catch specific error
+                                    counters_debug['rr_fail'] += 1
+                                except Exception: # Catch other potential failures
+                                    counters_debug['rr_fail_other'] += 1
+                            else:
+                                counters_debug['pruned_by_tested_cache'] += 1
+
+
+                            # Add to next frontier regardless of whether we tested it
+                            # (it might combine with a future prime to make a new class)
+                            child_classes_for_node.add(canonical_class_key(m0_new, M_new))
+
+                    if child_classes_for_node:
+                        child_node = {
+                            'M': Integer(node['M']) * Integer(p),
+                            'classes': {ck: True for ck in child_classes_for_node},
+                            'level': node['level'] + 1
+                        }
+                        next_frontier.append(child_node)
+
+                frontier = next_frontier
+                level_idx += 1
+        
+        # --- End of RHS loop ---
+            
+    # === END MAIN VECTOR LOOP ===
+
+    # Final summary
+    if debug:
+        print("[crt-tree summary]", "levels:", max_levels,
+              "crt_lift_attempts:", stats_counter.get('crt_lift_attempts', 0),
+              "rr_attempts:", stats_counter.get('rr_attempts', 0),
+              "rr_success:", stats_counter.get('rr_success', 0),
+              "crt_incompatible:", counters_debug.get('crt_incompatible', 0),
+              "pruned_by_max_modulus:", counters_debug.get('pruned_by_max_modulus', 0),
+              "pruned_by_tested_cache:", counters_debug.get('pruned_by_tested_cache', 0),
+              "tested_classes:", len(tested_crt_classes),
+              "found_candidates:", len(found_candidates))
+
+    # merge diagnostics
+    for k, v in counters_debug.items():
+        stats_counter[k] += v
+
+    return found_candidates, tested_crt_classes, stats_counter
+
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                                    truncate_deg=TRUNCATE_MAX_DEG,
@@ -3046,260 +3320,3 @@ def minimize_archimedean_t_linear_const(m0, M, const_C, shift, tmax):
     results.sort(key=lambda z: (z[3], abs(z[2])))
 
     return results
-
-
-def _small_prime_retry_pass(precomputed_residues, prime_pool, vecs_list, r_m, shift, tmax, max_modulus, stats_counter, tested_crt_classes, found_candidates, const_C, debug=DEBUG):
-    """
-    Cheap final pass: explicitly CRT over all subsets of the smallest s=6 primes,
-    up to size 5. Recovers points missed by tree due to beam or ordering.
-    """
-    from itertools import combinations, product
-    from sage.all import Integer, QQ
-
-    small_primes = sorted([p for p in prime_pool if precomputed_residues.get(p)])[:6]
-    if not small_primes:
-        return
-
-    if debug:
-        print(f"[small-prime retry] Using primes: {small_primes}")
-
-    for size in range(1, min(6, len(small_primes) + 1)):
-        for subset in combinations(small_primes, size):
-            subset = list(subset)
-            M_total = 1
-            for p in subset:
-                M_total *= p
-            if M_total > max_modulus:
-                continue
-
-            # iterate vectors and RHS like in main tree
-            for v_orig in vecs_list:
-                if all(c == 0 for c in v_orig):
-                    continue
-                v_orig_tuple = tuple(v_orig)
-                for rhs_idx in range(len(next(iter(precomputed_residues[subset[0]].values())))):
-                    residue_map = {}
-                    for p in subset:
-                        roots_lists = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                        if rhs_idx < len(roots_lists):
-                            residues = roots_lists[rhs_idx]
-                            if residues:
-                                residue_map[p] = [Integer(r) for r in residues if isinstance(r, (int, Integer))]
-                    if len(residue_map) < max(1, size):  # skip if missing any
-                        continue
-                    primes_crt = list(residue_map.keys())
-                    if len(primes_crt) < size:
-                        continue
-                    for combo in product(*[residue_map[p] for p in primes_crt]):
-                        try:
-                            m0_new = crt_cached(combo, tuple(primes_crt))
-                            #M_new = reduce(mul, primes_crt, 1)
-                            M_new = 1
-                            for p in primes_crt:
-                                M_new *= p
-                        except Exception:
-                            raise
-                            continue
-                        key = (int(m0_new % M_new), int(M_new))
-                        if key in tested_crt_classes:
-                            continue
-                        tested_crt_classes.add(key)
-                        stats_counter['crt_lift_attempts'] += 1
-                        # t-search
-                        try:
-                            best_ms = minimize_archimedean_t_linear_const(int(m0_new), int(M_new), const_C, shift, tmax)
-                            for _, m_cand, _, _ in best_ms:
-                                found_candidates.add((QQ(m_cand), v_orig_tuple))
-                        except Exception:
-                            raise
-                        # rational reconstruction
-                        stats_counter['rr_attempts'] += 1
-                        try:
-                            a, b = rational_reconstruct_cached(int(m0_new % M_new), int(M_new))
-                            stats_counter['rr_success'] += 1
-                            found_candidates.add((QQ(a) / QQ(b), v_orig_tuple))
-                        except RationalReconstructionError:
-                            raise
-
-
-
-def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
-                     r_m, shift, tmax, stats,
-                     max_modulus=MAX_MODULUS, combo_cap=None,
-                     max_levels=None, k_stable=2, debug=DEBUG):
-    """
-    Deterministic best-first CRT tree using a priority queue.
-    Prioritizes small modulus and high remaining residue count.
-    """
-    import heapq
-    from collections import Counter, defaultdict
-    from sage.all import Integer, QQ
-    from functools import reduce
-    from operator import mul
-
-    const_C = QQ(r_m(m=0))
-    stats_counter = Counter()
-    tested_crt_classes = set()
-    found_candidates = set()
-
-    # --- Sort primes ascending (small first) ---
-    usable_primes = [p for p in prime_pool if precomputed_residues.get(p)]
-    if not usable_primes:
-        if debug: print("[crt-tree] No usable primes. Exiting.")
-        return found_candidates, tested_crt_classes, stats_counter
-
-    # Infer num_rhs_fns from precomputed data
-    sample_p = usable_primes[0]
-    sample_v = next((v for v in vecs_list if tuple(v) in precomputed_residues[sample_p]), vecs_list[0])
-    sample_roots = precomputed_residues[sample_p].get(tuple(sample_v), [])
-    num_rhs_fns = len(sample_roots)
-    if num_rhs_fns == 0:
-        if debug: print("[crt-tree] No RHS functions detected.")
-        return found_candidates, tested_crt_classes, stats_counter
-
-    if debug:
-        print(f"[crt-tree] Inferred {num_rhs_fns} RHS function(s).")
-
-    # Auto-limit depth
-    if max_levels is None:
-        prod = 1
-        for i, p in enumerate(usable_primes):
-            prod *= p
-            if prod > 10 * max_modulus:
-                max_levels = i
-                break
-        else:
-            max_levels = len(usable_primes)
-    max_levels = min(max_levels, 15)
-
-    if debug:
-        print(f"[crt-tree] Max depth: {max_levels}")
-
-    # Precompute residue counts for tie-breaking
-    residue_count = {}
-    for p in usable_primes:
-        total = 0
-        mapping = precomputed_residues[p]
-        for roots_lists in mapping.values():
-            for roots in roots_lists:
-                total += len(roots)
-        residue_count[p] = total
-
-    def remaining_residue_sum(primes_remaining):
-        return sum(residue_count.get(p, 0) for p in primes_remaining)
-
-    tiebreaker = iter(range(10**9))
-
-    # Main loop over vectors and RHS
-    for v_idx, v_orig in enumerate(vecs_list):
-        v_orig_tuple = tuple(v_orig)
-        if all(c == 0 for c in v_orig):
-            continue
-        if debug:
-            print(f"[crt-tree] Processing vector {v_idx+1}/{len(vecs_list)} {v_orig_tuple[:3]}...")
-
-        for rhs_idx in range(num_rhs_fns):
-            # Build residue map for this (v, rhs)
-            per_prime_numeric = {}
-            for p in usable_primes:
-                roots_lists = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_lists):
-                    residues = roots_lists[rhs_idx]
-                    if residues:
-                        per_prime_numeric[p] = [Integer(r) for r in residues if isinstance(r, (int, Integer))]
-            if not per_prime_numeric:
-                continue
-
-            # Sort primes ascending for this combo
-            primes_for_v_rhs = sorted(per_prime_numeric.keys())
-            max_levels_v = min(max_levels, len(primes_for_v_rhs))
-
-            # Priority queue: (M_bitlen, -remaining_residue_sum, level, tie)
-            root = {
-                'M': Integer(1),
-                'classes': {(None, Integer(1)): True},
-                'level': 0
-            }
-            pq = []
-            rem_res_sum = remaining_residue_sum(primes_for_v_rhs)
-            heapq.heappush(pq, (
-                (1, -rem_res_sum, 0, next(tiebreaker)),
-                root
-            ))
-
-            while pq:
-                (prio, node) = heapq.heappop(pq)
-                level = node['level']
-                if level >= max_levels_v:
-                    continue
-
-                p = primes_for_v_rhs[level]
-                residues_for_p = per_prime_numeric[p]
-                next_classes = set()
-
-                for (m0_parent, M_par) in node['classes'].keys():
-                    for r_mod_p in residues_for_p:
-                        try:
-                            if node['M'] == 1 or m0_parent is None:
-                                m0_new = r_mod_p % p
-                                M_new = Integer(p)
-                            else:
-                                parent_res = Integer(m0_parent) % Integer(node['M'])
-                                m0_new = crt_cached([parent_res, r_mod_p], tuple([node['M'], p]))
-                                M_new = node['M'] * p
-                        except Exception:
-                            continue
-
-                        if M_new > max_modulus:
-                            continue
-
-                        key = (int(m0_new % M_new), int(M_new))
-                        if key not in tested_crt_classes:
-                            tested_crt_classes.add(key)
-                            stats_counter['crt_lift_attempts'] += 1
-
-                            # t-search
-                            try:
-                                best_ms = minimize_archimedean_t_linear_const(int(m0_new), int(M_new), const_C, shift, tmax)
-                                for _, m_cand, _, _ in best_ms:
-                                    found_candidates.add((QQ(m_cand), v_orig_tuple))
-                            except Exception:
-                                pass
-
-                            # rational reconstruction
-                            stats_counter['rr_attempts'] += 1
-                            try:
-                                a, b = rational_reconstruct_cached(int(m0_new % M_new), int(M_new))
-                                stats_counter['rr_success'] += 1
-                                found_candidates.add((QQ(a) / QQ(b), v_orig_tuple))
-                            except RationalReconstructionError:
-                                pass
-
-                        next_classes.add(key)
-
-                if next_classes and level + 1 < max_levels_v:
-                    child_node = {
-                        'M': node['M'] * p,
-                        'classes': {ck: True for ck in next_classes},
-                        'level': level + 1
-                    }
-                    rem_res = remaining_residue_sum(primes_for_v_rhs[level + 1:])
-                    heapq.heappush(pq, (
-                        (int(child_node['M']).bit_length(), -rem_res, level + 1, next(tiebreaker)),
-                        child_node
-                    ))
-
-    # Final small-prime retry pass
-    _small_prime_retry_pass(
-        precomputed_residues, prime_pool, vecs_list, r_m, shift, tmax,
-        max_modulus, stats_counter, tested_crt_classes, found_candidates, const_C, debug
-    )
-
-    if debug:
-        print("[crt-tree summary]",
-              "crt_lift_attempts:", stats_counter.get('crt_lift_attempts', 0),
-              "rr_success:", stats_counter.get('rr_success', 0),
-              "tested_classes:", len(tested_crt_classes),
-              "found_candidates:", len(found_candidates))
-
-    return found_candidates, tested_crt_classes, stats_counter
