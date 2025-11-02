@@ -378,55 +378,65 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # PRIMARY COMPLETENESS REPORT
     # =====================================================================
     
-   
     from stats import CompletenessAnalyzer, print_unified_completeness_report
     
     found_x_list = list(all_known_x)
     
-    # This function now calls the REPAIRED CompletenessAnalyzer
     print_unified_completeness_report(
         stats=cumulative_stats,
         prime_pool=prime_pool,
         prime_subsets=cumulative_stats.prime_subsets,
         height_bound=height_bound,
         found_xs=found_x_list,
-        r_m=r_m,
+        r_m_func=r_m,
         shift=shift
     )
-
-
-    # --- Run new unified diagnostics (empirical bootstrap + MI + subset checks) ---
-    from stats import FindabilityAnalyzer, print_unified_diagnostics
-
-    analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-    # Choose bootstrap sampling parameters reasonably for your height_bound:
-    # - small quick run: bootstrap_N=2000, max_num=2000, max_den=2000
-    # - fuller run: bootstrap_N=5000..20000, max_num=10**4..10**5
-    diag = print_unified_diagnostics(
-        findability_analyzer=analyzer,
-        prime_pool=prime_pool,
-        prime_subsets=cumulative_stats.prime_subsets if hasattr(cumulative_stats, 'prime_subsets') else None,
-        height_bound=height_bound,
-        bootstrap_N=5000,
-        bootstrap_max_num=min(10**4, max(10**3, int(2**(height_bound//2)))),
-        bootstrap_max_den=min(10**4, max(10**3, int(2**(height_bound//3)))),
-        mi_primes_limit=40,
-        mi_N=2000
-    )
-
-    # diag contains raw bootstrap/mi/subset results if you want to further process them.
-
-
-
+    
     # =====================================================================
     # OPTIONAL: DETAILED DIAGNOSTICS (for debugging only)
     # =====================================================================
     
-    # --- DELETED Faulty Diagnostic Block ---
-    # The block starting with "if DEBUG and False:" was here.
-    # It was removed because it relied on the broken
-    # compute_actual_subset_cover and compute_product_model functions.
-    # The unified report above replaces it.
+    if DEBUG and True:  # Set to True if you want verbose diagnostics
+        print("\n" + "="*70)
+        print("DETAILED DIAGNOSTICS (DEBUG MODE)")
+        print("="*70)
+        
+        analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+        
+        # Show CRT consistency check on a sample
+        print("\nCRT Consistency Check (sample of 10 random m-values):")
+        m_sample = sample_rationals_by_height_random(N=10, B=50)
+        for m in m_sample:
+            sig = analyzer.visibility_signature(m)
+            print(f"  m={m}: matched {sig['matched']}/{sig['usable']} primes, "
+                  f"CRT-visible={sig['crt_visible']}")
+        
+        # Per-subset productivity
+        print("\nPer-Subset Productivity:")
+        P_visible_actual, per_subset = compute_actual_subset_cover(
+            cumulative_stats, cumulative_stats.prime_subsets
+        )
+        for s, p_s, cnt, M in sorted(per_subset, key=lambda t: -t[1])[:10]:
+            print(f"  Subset {s}: tested {cnt}/{M} classes ({p_s:.1%})")
+        
+        # Model vs actual comparison
+        print("\nModel vs Actual (top discrepancies):")
+        prod_model = compute_product_model(cumulative_stats, 
+                                          cumulative_stats.prime_subsets)
+        actual_lookup = {t[0]: t[1] for t in per_subset}
+        
+        discrepancies = []
+        for subset, p_model in prod_model:
+            p_actual = actual_lookup.get(subset, 0.0)
+            ratio = p_actual / p_model if p_model > 0 else 0.0
+            discrepancies.append((subset, p_model, p_actual, ratio))
+        
+        # Sort by ratio (furthest from 1.0 = biggest discrepancy)
+        discrepancies.sort(key=lambda t: abs(math.log(t[3] + 1e-10)))
+        
+        for subset, p_m, p_a, ratio in discrepancies[:8]:
+            print(f"  {subset}: model={p_m:.4f}, actual={p_a:.4f}, "
+                  f"ratio={ratio:.2f}")
     
     # =====================================================================
     # POINT-SPECIFIC DIAGNOSTICS (if you suspect missing a specific point)
@@ -434,45 +444,35 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     
     if TARGETED_X:
         print("\n" + "="*70)
- 
         print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
         print("="*70)
         
-        # We need a FindabilityAnalyzer instance. We can create one.
-        from stats import FindabilityAnalyzer
-        analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-
         # Compute target m from target x
         const = r_m(m=QQ(0))
         target_m = QQ(-1) * TARGETED_X + const
         
         print(f"Target m-value: {target_m}")
         
-        
         # Visibility analysis
         sig = analyzer.visibility_signature(target_m)
-        print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
+        print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched")
+        print(f"CRT-visible: {sig['crt_visible']}")
         
-        # --- MODIFIED CHECK ---
-        # Instead of checking 'crt_visible' (which was broken),
-        # we check the 'fraction' of matching primes.
-        if sig['fraction'] < 0.5: # Heuristic threshold
-            print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
-            print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
- 
+        if not sig['crt_visible']:
+            print("\n⚠️  TARGET POINT IS NOT CRT-VISIBLE")
+            print("This point cannot be found with current prime subsets.")
             print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
-            print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
+            print("Missing primes:", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
             
             # Suggest a targeted subset
             matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
             if len(matched_primes) >= 4:
- 
                 suggested = matched_primes[:6]
                 print(f"\nSuggested targeted subset: {suggested}")
                 print("Add this to prime_subsets_to_process and re-run.")
         else:
-            print(f"\n✓ Target point has high visibility ({sig['fraction']:.1%})")
-            print("It should have been found. Check rationality_test_func or height bounds.")
+            print("\n✓ Target point IS CRT-visible")
+            print("It should have been found. Check rationality_test_func.")
     
     # =====================================================================
     # FINAL SUMMARY
@@ -482,138 +482,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print("SEARCH SUMMARY")
     print("="*70)
     print(f"Total points found: {len(all_known_x)}")
-    print(f"Total time: {float(cumulative_stats.summary()['elapsed']):.1f}s")
+    print(f"Total time: {cumulative_stats.summary()['elapsed']:.1f}s")
     print(f"CRT candidates tested: {cumulative_stats.counters['crt_candidates_found']:,}")
     print(f"Rationality tests: {cumulative_stats.counters['rationality_tests_total']:,}")
-    hit_rate = float(cumulative_stats.counters['rationality_tests_success']) / max(1, float(cumulative_stats.counters['rationality_tests_total']))
-    print(f"Hit rate: {100*hit_rate:.2f}%")
+    print(f"Hit rate: {100 * cumulative_stats.counters['rationality_tests_success'] / max(1, cumulative_stats.counters['rationality_tests_total']):.2f}%")
     print("="*70)
-
-
-    # ---------- Insert this into search7_genus2.sage after you run the unified diagnostics ----------
-    # It computes an arithmetic-informed prior and then produces posterior probabilities
-    # for T = true number of rational points (T == k means "we found all").
-
-    from stats import prior_from_arithmetic, completeness_posterior_geometric, bootstrap_visibility
-    import math
-
-    # Found / simple stats
-    try:
-        # found_x_list was used earlier when calling print_unified_completeness_report
-        k_found = len(found_x_list)
-    except Exception:
-        # fallback to all_known_x if present
-        try:
-            k_found = len(all_known_x)
-        except Exception:
-            k_found = 0
-
-    # try to extract bootstrap visibility p from diagnostic 'diag' if present,
-    # otherwise run a small quick bootstrap (fast; adjustable).
-    p_visibility = None
-    if 'diag' in locals() and isinstance(diag, dict):
-        try:
-            p_visibility = float(diag['bootstrap']['avg_fraction'])
-        except Exception:
-            p_visibility = None
-
-    if p_visibility is None:
-        # run small quick bootstrap (keeps runtime minimal)
-        try:
-            analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-            quick_boot = bootstrap_visibility(analyzer, N_samples=2000, max_num=2000, max_den=2000, seed=42)
-            p_visibility = float(quick_boot['avg_fraction'])
-            print(f"[fallback bootstrap] avg_fraction (p) = {p_visibility:.4f}")
-        except Exception as e:
-            print("Could not compute bootstrap visibility (fallback). Setting p_visibility = 0.0")
-            p_visibility = 0.0
-
-    # Gather arithmetic signals (pass None if missing; prior_from_arithmetic handles it)
-    selmer_dim = None
-    r_found = None
-    # Try to pick up selmer info if present (your pipeline computes selmer later; if available use it)
-    if 'selmer_results' in locals() and isinstance(selmer_results, dict):
-        # try common keys
-        try:
-            r_found = len([_ for _ in base_sections]) if 'base_sections' in locals() else None
-            selmer_dim = selmer_results.get('selmer_dim', None) or selmer_results.get('rank_bounds', {}).get('upper', None)
-        except Exception:
-            selmer_dim = None
-
-    # CRT / rationality counters from cumulative_stats if available
-    crt_candidates_found = None
-    rationality_tests_success = None
-    try:
-        cnts = cumulative_stats.counters
-        crt_candidates_found = cnts.get('crt_candidates_found', cnts.get('crt_candidates_tested', None))
-        rationality_tests_success = cnts.get('rationality_tests_success', cnts.get('rationality_tests_total_success', None))
-    except Exception:
-        crt_candidates_found = None
-        rationality_tests_success = None
-
-    # Height info (optional). If you computed canonical heights for found non-torsion sections,
-    # you can plug them in; otherwise leave None.
-    h_max = None
-    known_heights = None
-    try:
-        # If your completeness report computed height_bound earlier, reuse it
-        if 'height_bound' in locals():
-            h_max = float(height_bound)
-        # Attempt to derive known canonical heights list if you tracked them (best-effort)
-        if 'current_sections' in locals() and current_sections:
-            # best-effort: attempt to compute naive heights if function exists
-            try:
-                known_heights = [float(cd.naive_height(sec)) for sec in current_sections]  # replace with your real function if different
-            except Exception:
-                known_heights = None
-    except Exception:
-        h_max = None
-        known_heights = None
-
-    # Call arithmetic-prior helper (your function in stats.py)
-    prior = prior_from_arithmetic(
-        k_found=k_found,
-        p_visibility=p_visibility,
-        selmer_dim=selmer_dim,
-        r_found=r_found,
-        crt_candidates_found=crt_candidates_found,
-        rationality_tests_success=rationality_tests_success,
-        h_max=h_max,
-        known_heights=known_heights
-    )
-
-    # Print the derived prior components (transparent)
-    print("\n--- Arithmetic-informed prior (components) ---")
-    print(f"mu_selmer:   {prior['mu_selmer']:.4g}")
-    print(f"mu_local:    {prior['mu_local']:.4g}")
-    print(f"mu_height:   {prior['mu_height']:.4g}")
-    print(f"mu_bootstrap:{prior['mu_bootstrap']:.4g}")
-    print(f"--> mu_combined = {prior['mu_combined']:.4g}  (q = {prior['q']:.6f})")
-
-    # Now compute posterior probabilities under the geometric prior
-    # call completeness posterior function with a reasonable m_max (tune if you expect large tails)
-    m_max = 200
-    post = completeness_posterior_geometric(k=k_found, p=p_visibility, q=prior['q'], m_max=m_max)
-
-    # Nicely formatted posterior summary
-    P_all = post['P_all']
-    P_all_but_1 = post['P_all_but_1']
-    P_all_but_2 = post['P_all_but_2']
-    mean_T = post['posterior_mean_T']
-
-    print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
-    print(f"Observed points (k) = {k_found}")
-    print(f"Estimated detection probability p = {p_visibility:.3f}")
-    print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
-    print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
-    print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
-    print(f"Posterior mean of T    = {mean_T:.3f}")
-    print("Note: results depend on prior (mu_combined) computed from arithmetic signals above.\n")
-
-    # For auditability, optionally print the top posterior mass (T values with significant mass)
-    top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
-    print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
-    # --------------------------------------------------------------------------
 
 
     ### Automorphism Search ###
