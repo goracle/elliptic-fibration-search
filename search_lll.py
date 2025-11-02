@@ -2041,6 +2041,7 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates,
                 best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
             except TypeError:
                 best_ms = [(QQ(m0 + t * M), 0.0) for t in (-1, 0, 1)]
+                raise
 
             for m_cand, _score in best_ms:
                 try:
@@ -2051,6 +2052,7 @@ def targeted_recovery_search(cd, current_sections, near_miss_candidates,
                         if debug:
                             print(f"  ✓ FOUND: m={m_cand}, x={x_val}")
                 except (TypeError, ZeroDivisionError, ArithmeticError):
+                    raise
                     continue
 
     return newly_found
@@ -2148,6 +2150,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
     except Exception as e:
         if debug:
             print(f"[diagnose] Failed to compute target_m: {e}")
+        raise
         return {'error': str(e)}
     
     if debug:
@@ -2186,6 +2189,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
             residues_by_prime[p_int] = 'INV_FAIL'
             if debug:
                 print(f"  p={p_int}: inverse computation failed")
+            raise
             continue
         
         # Step 3: Check which vectors have this residue in precomputed data
@@ -2287,6 +2291,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                     for p in subset_list:
                         M *= int(p)
                 except Exception:
+                    raise
                     continue
                 
                 # Check if target_m = m0 + t*M for some small |t|
@@ -2347,7 +2352,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                         break
                 
                 except RationalReconstructionError:
-                    pass
+                    raise
             
             if found_for_this_vector:
                 break  # Found it for this vector, move to next vector
@@ -2454,6 +2459,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
     except Exception:
         exec_kwargs = {"max_workers": num_workers}
+        raise
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
         futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
@@ -2488,6 +2494,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 stats.residues_by_prime[p].update(set())
                 stats.counters[f'modular_checks_p_{p}'] = 0
                 stats.counters[f'residues_seen_p_{p}'] = 0
+                raise
 
     if debug:
         print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
@@ -2742,6 +2749,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     except Exception as e:
         if debug:
             print(f"Failed to print productivity stats: {e}")
+        raise
 
     if not final_rational_candidates:
         print("\n--- Search Statistics (No Points Found) ---")
@@ -2861,7 +2869,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
             except Exception:
                 if DEBUG:
                     print("Symbolic coercion of rhs failed; skipping this rhs.")
-                # raise
+                raise
                 continue
 
             # If numerator is constant, there is no m-solution
@@ -2875,7 +2883,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
             except Exception:
                 if DEBUG:
                     print("Could not coerce numerator into PR_m; skipping.")
-                # raise
+                raise
                 continue
 
             try:
@@ -2884,7 +2892,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                 # If root-finding over QQ fails, skip (better to fail loudly during debugging)
                 if DEBUG:
                     print("num_poly.roots(...) failed for polynomial:", num_poly)
-                # raise
+                raise
                 continue
 
             if not roots:
@@ -2906,7 +2914,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                 except Exception:
                     if DEBUG:
                         print("SR substitution failed at m=", m_q)
-                    # raise
+                    raise
                     continue
 
                 # Try coercion to QQ for reliable equality checks
@@ -2920,7 +2928,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                     except Exception:
                         if DEBUG:
                             print("Failed to compute numeric r_m at m=", m_q)
-                        # raise
+                        raise
                         continue
                     # We cannot easily compute rhs numeric without r_m; but if lhs_q is defined,
                     # we can proceed to rationality test as before.
@@ -2930,7 +2938,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                 if rhs_q is not None and lhs_q != rhs_q:
                     if DEBUG:
                         print("Symbolic-match FAIL for root m =", m_q, "; lhs != rhs after coercion.")
-                    # raise
+                    raise
                     continue
 
                 # Compute x via r_m (exact rational) and apply shift
@@ -2939,7 +2947,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                 except Exception:
                     if DEBUG:
                         print("r_m evaluation failed at m=", m_q)
-                    # raise
+                    raise
                     continue
 
                 # Avoid duplicates
@@ -2949,7 +2957,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                     # if not rational-coercible, skip
                     if DEBUG:
                         print("x_val not coercible to QQ at m=", m_q, "; skipping")
-                    # raise
+                    raise
                     continue
 
                 if x_val_q in all_found_x or x_val_q in newly_found_x:
@@ -2994,7 +3002,8 @@ def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_pri
 
         # If this prime has no allowed residues for this vector, fail.
         if not allowed_m_residues:
-            if verbose: print(f"Filter fail: Prime {q} has no allowed m-residues.")
+            if verbose:
+                print(f"Filter fail: Prime {q} has no allowed m-residues.")
             return False
 
         # Compute what m = m0 + t*M is modulo q
@@ -3083,24 +3092,30 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
                 
                 # Step 1: Find the 1-3 best t candidates (O(1))
                 try:
+                    #best_ms = minimize_archim_search_lll.pyidean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                     best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                 except TypeError:
                     best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
+                    raise
 
                 # Step 2: Filter *only* those t values (O(1))
                 for t_cand, m_cand, _, _ in best_ms:
                     if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, extra_primes_for_filtering):
-                        found_candidates_for_subset.add(QQ(m_cand), v_orig_tuple))
+                        # --- THIS IS THE FIX ---
+                        # Wrap (m_cand, v_orig_tuple) in an outer tuple to add it as a single element
+                        found_candidates_for_subset.add( (QQ(m_cand), v_orig_tuple) )
 
                 # Path 2: Rational Reconstruction (still run unconditionally)
                 stats_counter['rational_recon_attempts_worker'] += 1
                 try:
                     a, b = rational_reconstruct(m0 % M, M)
-                    found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+                    # --- THIS IS THE FIX ---
+                    # Wrap in an outer tuple here as well
+                    found_candidates_for_subset.add( (QQ(a) / QQ(b), v_orig_tuple) )
                     stats_counter['rational_recon_success_worker'] += 1
                 except RationalReconstructionError:
                     stats_counter['rational_recon_failure_worker'] += 1
-                    pass
+                    raise
                 # --- END MODIFICATION ---
 
     return found_candidates_for_subset, stats_counter, tested_crt_classes
