@@ -2481,6 +2481,403 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
 
 
 # In search_lll.py
+def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
+                                         vecs, rhs_list, r_m, shift,
+                                         all_found_x, num_subsets, rationality_test_func,
+                                         sconf, num_workers=8, debug=DEBUG):
+    """
+    Unified parallel search using ProcessPoolExecutor throughout.
+    Hardened against the "filtered to 0 subsets" failure:
+      - require primes to have actual residues (not just empty mappings)
+      - compute numeric residue sets per-prime and use those counts for combo estimates
+      - fall back deterministically if coverage-based generator returns nothing
+    Returns: new_xs, new_sections, precomputed_residues, stats
+    """
+    # === UNPACK: SCONF ===
+    min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
+    min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
+    max_modulus = sconf['MAX_MODULUS']
+    tmax = sconf['TMAX']
+
+    # === STATS: INIT ===
+    stats = SearchStats()
+
+    from bounds import compute_residue_counts_for_primes  # if not already imported
+    residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
+    coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
+
+    print("prime pool used for search:", prime_pool)
+
+    # === PHASE: PREP MOD DATA ===
+    stats.start_phase('prep_mod_data')
+    print("--- Preparing modular data for LLL search ---")
+    # Pass stats down
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
+    )
+    stats.end_phase('prep_mod_data')
+
+    if not Ep_dict:
+        print("No valid primes found for modular search. Aborting.")
+        return set(), [], {}, stats  # <-- Return stats
+
+    # === PHASE: PRECOMPUTE RESIDUES ===
+    stats.start_phase('precompute_residues')
+    primes_to_compute = list(Ep_dict.keys())
+    num_rhs_fns = len(rhs_list)
+    vecs_list = list(vecs)
+
+    args_list = [
+        (
+            p,
+            Ep_dict[p],
+            mult_lll.get(p, {}),
+            vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+            vecs_list,
+            rhs_modp_list,
+            num_rhs_fns,
+            stats  # pass the stats object (worker ignores if not used)
+        )
+        for p in primes_to_compute
+    ]
+
+    precomputed_residues = {}
+    total_modular_checks = 0
+
+    try:
+        ctx = multiprocessing.get_context("fork")
+        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+    except Exception:
+        exec_kwargs = {"max_workers": num_workers}
+
+    with ProcessPoolExecutor(**exec_kwargs) as executor:
+        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
+            p = futures[future]
+            try:
+                p_ret, mapping, local_modular_checks = future.result()
+                mapping = mapping or {}
+                precomputed_residues[p_ret] = mapping
+                total_modular_checks += int(local_modular_checks or 0)
+
+                # Now compute the union of numeric residues (ignore non-int markers)
+                residues_union = set()
+                for vtuple, rhs_lists in mapping.items():
+                    for rl in rhs_lists:
+                        # ignore sentinel markers like "DEN_ZERO" or other non-integer entries
+                        for r in rl:
+                            if isinstance(r, int):
+                                residues_union.add(r)
+
+                stats.residues_by_prime[p_ret].update(residues_union)
+
+                # update main counters per-prime
+                stats.counters['modular_checks'] += int(local_modular_checks or 0)
+                stats.counters[f'modular_checks_p_{p_ret}'] += int(local_modular_checks or 0)
+                stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
+
+            except Exception as e:
+                if debug:
+                    print(f"[precompute fail] p={p}: {e}")
+                precomputed_residues[p] = {}
+                stats.residues_by_prime[p].update(set())
+                stats.counters[f'modular_checks_p_{p}'] = 0
+                stats.counters[f'residues_seen_p_{p}'] = 0
+
+    if debug:
+        print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
+
+    stats.end_phase('precompute_residues')
+
+
+    ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
+
+    if TARGETED_X: # comment out when not in use
+
+        ret = diagnose_missed_point(TARGETED_X, r_m, shift, precomputed_residues, prime_pool, vecs)
+        #print("ret=", ret)
+        matched_subset = None
+        if 'matched_primes' in ret:
+            matched_subset = ret['matched_primes']
+
+        const = r_m(m=0)
+        mtarget = QQ(-1)*TARGETED_X+const
+
+        cov1 = compute_residue_coverage_for_m(mtarget, precomputed_residues, PRIME_POOL)
+        print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])
+        print("cov1: matched primes:", cov1['matched_primes'])
+
+
+    # Build a per-prime numeric residue set for later use (and require non-empty)
+    residues_by_prime_numeric = {}
+    for p, mapping in precomputed_residues.items():
+        residues_set = set()
+        for vtuple, rhs_lists in mapping.items():
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        residues_set.add(r)
+        residues_by_prime_numeric[p] = residues_set
+
+    # Only keep primes that actually gave numeric residues (not merely empty mappings)
+    usable_primes = [p for p in prime_pool if p in residues_by_prime_numeric and residues_by_prime_numeric[p]]
+    if not usable_primes:
+        print("No primes have numeric precomputed residues. Aborting.")
+        return set(), [], precomputed_residues, stats
+    if len(usable_primes) < len(prime_pool):
+        if debug:
+            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no numeric data. Using {len(usable_primes)} usable primes.")
+        prime_pool = usable_primes
+
+    # === PHASE: AUTOTUNE PRIMES ===
+    stats.start_phase('autotune_primes')
+    prime_stats = estimate_prime_stats(prime_pool, precomputed_residues, vecs_list, num_rhs=len(rhs_list))
+    auto_extra_primes = choose_extra_primes(prime_stats,
+                                            target_density=EXTRA_PRIME_TARGET_DENSITY,
+                                            max_extra=EXTRA_PRIME_MAX,
+                                            skip_small=EXTRA_PRIME_SKIP)
+    extra_primes_for_filtering = auto_extra_primes
+    stats.end_phase('autotune_primes')
+
+    # Filtering stage: compute product estimate using distinct numeric residues per prime
+    combo_cap = ceil(50000**(7*min_prime_subset_size/3)) # too many residues for this prime subset, too many possibilities, modular constraints are too loose
+    roots_threshold = ROOTS_THRESHOLD
+    if debug:
+        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
+
+    # === PHASE: GEN SUBSETS ===
+    stats.start_phase('gen_subsets')
+    prime_subsets_initial = generate_biased_prime_subsets_by_coverage(
+        prime_pool=prime_pool,
+        precomputed_residues=precomputed_residues,
+        vecs=vecs_list,
+        num_subsets=num_subsets,
+        min_size=min_prime_subset_size,
+        max_size=min_max_prime_subset_size,
+        combo_cap=combo_cap,
+        seed=SEED_INT,
+        force_full_pool=False,
+        debug=debug
+    )
+    stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
+
+    filtered_subsets = []
+    for subset in prime_subsets_initial:
+        est = 1
+        is_viable = True
+        for p in subset:
+            residues_set = residues_by_prime_numeric.get(p, set())
+            roots_count = len(residues_set)
+            if roots_count == 0:
+                is_viable = False
+                break
+            # if any single prime has more residues than the threshold, it's likely to explode
+            if roots_count > roots_threshold:
+                est *= roots_count
+                if est > combo_cap:
+                    is_viable = False
+                    break
+            else:
+                est *= max(1, roots_count)
+                if est > combo_cap:
+                    is_viable = False
+                    break
+        if is_viable and est <= combo_cap:
+            filtered_subsets.append(subset)
+
+    filtered_out_count = len(prime_subsets_initial) - len(filtered_subsets)
+    stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
+    if debug:
+        print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
+    prime_subsets_to_process = filtered_subsets
+    stats.prime_subsets = prime_subsets_to_process
+
+    #### if missing a point, assert your matched subset is contained in the used ones
+    if TARGETED_X: # commented out when not using/debugging
+        assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
+
+    count_subsets = {}
+    for subset in prime_subsets_to_process:
+        key = len(subset)
+        if key in count_subsets:
+            count_subsets[key] += 1
+        else:
+            count_subsets[key] = 0
+
+    for key in sorted(list(count_subsets)):
+        print("using", count_subsets[key], "subsets of len =", key)
+
+    # If filtering removed everything, build a deterministic fallback pool of small subsets.
+    if not prime_subsets_to_process:
+        if debug:
+            print("[fallback] coverage-based filtering removed all subsets. Building deterministic fallback subsets.")
+        from itertools import combinations
+        fallback = []
+        max_k = min(6, len(prime_pool))
+        # prefer sizes 3..max_k
+        for k in range(3, max_k + 1):
+            for comb in combinations(prime_pool, k):
+                # only keep combos with at least one residue per prime
+                good = True
+                for p in comb:
+                    if not residues_by_prime_numeric.get(p):
+                        good = False
+                        break
+                if not good:
+                    continue
+                # estimate as above
+                est = 1
+                for p in comb:
+                    est *= max(1, len(residues_by_prime_numeric[p]))
+                    if est > combo_cap:
+                        good = False
+                        break
+                if good:
+                    fallback.append(list(comb))
+                if len(fallback) >= max(1, num_subsets):
+                    break
+            if len(fallback) >= max(1, num_subsets):
+                break
+        if fallback:
+            prime_subsets_to_process = fallback[:num_subsets]
+            if debug:
+                print(f"[fallback] Using {len(prime_subsets_to_process)} deterministic fallback subsets.")
+        else:
+            # give up cleanly
+            print("No viable prime subsets generated or remaining after filtering. Aborting.")
+            stats.end_phase('gen_subsets')
+            print("\n--- Search Statistics (No Subsets) ---")
+            print(stats.summary_string())
+            return set(), [], precomputed_residues, stats
+
+    stats.end_phase('gen_subsets')
+
+    # === PHASE: SEARCH & CHECK ===
+    stats.start_phase('search_subsets_and_check')
+    worker_func = partial(
+        _process_prime_subset_precomputed,
+        vecs=vecs_list,
+        r_m=r_m,
+        shift=shift,
+        tmax=tmax,
+        combo_cap=combo_cap,
+        precomputed_residues=precomputed_residues,
+        prime_pool=prime_pool,  # current (filtered) prime_pool
+        num_rhs_fns=len(rhs_list)
+    )
+
+    subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
+        prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
+    )
+
+    # *** THIS IS THE FIX for "CRT-consistent samples: 0" ***
+    # Save the collected CRT classes to the main stats object
+    stats.crt_classes_tested = all_crt_classes
+
+    # update coverage estimator
+    coverage_estimator.tested_classes = all_crt_classes
+    coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
+
+    if debug:
+        print("\n--- Coverage Estimate ---")
+        if coverage_report.get('direct_coverage') is not None:
+            print(f"  Direct coverage: {100 * coverage_report['direct_coverage']:.2f}%")
+        if coverage_report.get('birthday_coverage') is not None:
+            print(f"  Birthday estimate: {100 * coverage_report['birthday_coverage']:.2f}%")
+        print(f"  Heuristic (density): {100 * coverage_report.get('heuristic_coverage', 0):.4f}%")
+        print(f"  CRT classes tested: {coverage_report.get('classes_tested', 0):,}")
+        print(f"  Search space size: ~{coverage_report.get('space_size_estimate', 0):.2e}")
+        additional_runs = coverage_estimator.recommend_additional_runs(prime_subsets_to_process, target_coverage=0.95)
+        if additional_runs > 0:
+            print(f"  ⚠️  Recommend {additional_runs} more run(s) to reach 95% coverage")
+
+    # Merge worker stats collected by the manager
+    stats.merge_dict(worker_stats_dict)
+    stats.incr('subsets_processed', n=len(subset_results_list))
+
+    # aggregate worker candidates
+    overall_found_candidates_from_workers = set()
+    productive_subsets_data = []
+    for subset, candidates_set, _ in subset_results_list:
+        overall_found_candidates_from_workers.update(candidates_set)
+        if candidates_set:
+            productive_subsets_data.append({
+                'primes': subset,
+                'size': len(subset),
+                'candidates': len(candidates_set)
+            })
+
+    stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
+
+    # Batch check rationality
+    print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
+    final_rational_candidates = set()
+    candidate_list = list(overall_found_candidates_from_workers)
+    if not candidate_list:
+        stats.end_phase('search_subsets_and_check')
+        print("\n--- Search Statistics (No Points Found) ---")
+        print(stats.summary_string())
+        return set(), [], precomputed_residues, stats
+
+    batch_size = max(1, floor(0.05 * len(candidate_list)))
+    for i in range(0, len(candidate_list), batch_size):
+        batch = candidate_list[i:i + batch_size]
+        newly_rational = _batch_check_rationality(
+            batch, r_m, shift, rationality_test_func, current_sections, stats
+        )
+        final_rational_candidates.update(newly_rational)
+        if debug:
+            print(f"[batch check] processed {min(i + batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
+
+    stats.end_phase('search_subsets_and_check')
+
+    # print productivity stats
+    try:
+        _print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
+    except Exception as e:
+        if debug:
+            print(f"Failed to print productivity stats: {e}")
+
+    if not final_rational_candidates:
+        print("\n--- Search Statistics (No Points Found) ---")
+        print(stats.summary_string())
+        return set(), [], precomputed_residues, stats
+
+    print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
+
+    # === PHASE: POST PROCESS ===
+    stats.start_phase('post_process')
+    sample_pts = []
+    new_sections_raw = []
+    processed_m_vals = {}
+
+    for m_val, v_tuple in final_rational_candidates:
+        if m_val in processed_m_vals:
+            continue
+        try:
+            x_val = r_m(m=m_val) - shift
+            y_val = rationality_test_func(x_val)
+            if y_val is not None:
+                v = vector(QQ, v_tuple)
+                sample_pts.append((x_val, y_val))
+                processed_m_vals[m_val] = v
+                if any(c != 0 for c in v):
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    new_sections_raw.append(new_sec)
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            continue
+
+    new_xs = {pt[0] for pt in sample_pts}
+    new_sections = list({s: None for s in new_sections_raw}.keys())
+    stats.incr('rational_points_unique', n=len(new_xs))
+    stats.incr('new_sections_unique', n=len(new_sections))
+    stats.end_phase('post_process')
+
+    print("\n--- Search Statistics ---")
+    print(stats.summary_string())
+
+    return new_xs, new_sections, precomputed_residues, stats
+
 # In search_lll.py
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -2676,442 +3073,3 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
     # The assert function lives in this module: assert_base_m_found(...)
     stats.end_phase('symbolic_search') # <-- STATS
     return newly_found_x, new_sections
-
-
-# Add this near the other high-level search helpers in search_lll.py
-
-def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
-                                         vecs, rhs_list, r_m, shift,
-                                         all_found_x, num_subsets, rationality_test_func,
-                                         sconf, num_workers=8, debug=DEBUG):
-    """
-    Unified parallel search (rewritten for CRT-tree exploration).
-    - Keeps all precomputation, modular prep, and residue logic intact.
-    - Replaces random-subset + parallel worker pipeline with a deterministic CRT-tree descent.
-    - Returns: new_xs, new_sections, precomputed_residues, stats
-    """
-
-    # === UNPACK: SCONF ===
-    min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
-    min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
-    max_modulus = sconf['MAX_MODULUS']
-    tmax = sconf['TMAX']
-
-    # === STATS INIT ===
-    stats = SearchStats()
-
-    from bounds import compute_residue_counts_for_primes
-    residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
-    coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
-
-    print("prime pool used for search:", prime_pool)
-
-    # === PHASE: PREP MOD DATA ===
-    stats.start_phase('prep_mod_data')
-    print("--- Preparing modular data for LLL search ---")
-
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
-    )
-    stats.end_phase('prep_mod_data')
-
-    if not Ep_dict:
-        print("No valid primes found for modular search. Aborting.")
-        return set(), [], {}, stats
-
-    # === PHASE: PRECOMPUTE RESIDUES ===
-    stats.start_phase('precompute_residues')
-    primes_to_compute = list(Ep_dict.keys())
-    num_rhs_fns = len(rhs_list)
-    vecs_list = list(vecs)
-
-    args_list = [
-        (
-            p,
-            Ep_dict[p],
-            mult_lll.get(p, {}),
-            vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
-            vecs_list,
-            rhs_modp_list,
-            num_rhs_fns,
-            stats
-        )
-        for p in primes_to_compute
-    ]
-
-    precomputed_residues = {}
-    total_modular_checks = 0
-
-    try:
-        ctx = multiprocessing.get_context("fork")
-        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-    except Exception:
-        exec_kwargs = {"max_workers": num_workers}
-
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
-            p = futures[future]
-            try:
-                p_ret, mapping, local_modular_checks = future.result()
-                mapping = mapping or {}
-                precomputed_residues[p_ret] = mapping
-                total_modular_checks += int(local_modular_checks or 0)
-
-                # Collect numeric residues
-                residues_union = set()
-                for vtuple, rhs_lists in mapping.items():
-                    for rl in rhs_lists:
-                        for r in rl:
-                            if isinstance(r, int):
-                                residues_union.add(r)
-
-                stats.residues_by_prime[p_ret].update(residues_union)
-                stats.counters['modular_checks'] += int(local_modular_checks or 0)
-                stats.counters[f'modular_checks_p_{p_ret}'] += int(local_modular_checks or 0)
-                stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
-
-            except Exception as e:
-                if debug:
-                    print(f"[precompute fail] p={p}: {e}")
-                precomputed_residues[p] = {}
-                stats.residues_by_prime[p].update(set())
-                stats.counters[f'modular_checks_p_{p}'] = 0
-                stats.counters[f'residues_seen_p_{p}'] = 0
-
-    if debug:
-        print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
-    stats.end_phase('precompute_residues')
-
-    # === FILTER PRIMES WITH NO NUMERIC RESIDUES ===
-    residues_by_prime_numeric = {}
-    for p, mapping in precomputed_residues.items():
-        residues_set = set()
-        for vtuple, rhs_lists in mapping.items():
-            for rl in rhs_lists:
-                for r in rl:
-                    if isinstance(r, int):
-                        residues_set.add(r)
-        residues_by_prime_numeric[p] = residues_set
-
-    usable_primes = [p for p in prime_pool if residues_by_prime_numeric.get(p)]
-    if not usable_primes:
-        print("No primes have numeric precomputed residues. Aborting.")
-        return set(), [], precomputed_residues, stats
-
-    if len(usable_primes) < len(prime_pool):
-        if debug:
-            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no numeric data. Using {len(usable_primes)} usable primes.")
-        prime_pool = usable_primes
-
-    # === PHASE: AUTOTUNE PRIMES ===
-    stats.start_phase('autotune_primes')
-    prime_stats = estimate_prime_stats(prime_pool, precomputed_residues, vecs_list, num_rhs=len(rhs_list))
-    auto_extra_primes = choose_extra_primes(
-        prime_stats,
-        target_density=EXTRA_PRIME_TARGET_DENSITY,
-        max_extra=EXTRA_PRIME_MAX,
-        skip_small=EXTRA_PRIME_SKIP
-    )
-    extra_primes_for_filtering = auto_extra_primes
-    stats.end_phase('autotune_primes')
-
-    # === PHASE: CRT TREE SEARCH ===
-    combo_cap = ceil(50000 ** (7 * min_prime_subset_size / 3))
-    roots_threshold = ROOTS_THRESHOLD
-    if debug:
-        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
-
-    stats.start_phase('crt_tree_explore')
-    found_candidates, tested_crt_classes, tree_stats = explore_crt_tree(
-        precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,
-        vecs_list=vecs_list,
-        r_m=r_m,
-        shift=shift,
-        tmax=tmax,
-        stats=stats,
-        max_modulus=max_modulus,
-        combo_cap=combo_cap,
-        max_levels=min_max_prime_subset_size,
-        k_stable=2,
-        debug=debug
-    )
-    stats.crt_classes_tested = getattr(stats, 'crt_classes_tested', set()) | tested_crt_classes
-    stats.merge_dict(tree_stats)
-    stats.incr('crt_candidates_found', n=len(found_candidates))
-    stats.end_phase('crt_tree_explore')
-
-    overall_found_candidates_from_workers = set(found_candidates)
-
-    # === PHASE: RATIONALITY CHECK ===
-    stats.start_phase('check_rationality')
-    print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
-    final_rational_candidates = set()
-    candidate_list = list(overall_found_candidates_from_workers)
-
-    if not candidate_list:
-        stats.end_phase('check_rationality')
-        print("\n--- Search Statistics (No Points Found) ---")
-        print(stats.summary_string())
-        return set(), [], precomputed_residues, stats
-
-    batch_size = max(1, floor(0.05 * len(candidate_list)))
-    for i in range(0, len(candidate_list), batch_size):
-        batch = candidate_list[i:i + batch_size]
-        newly_rational = _batch_check_rationality(batch, r_m, shift, rationality_test_func, current_sections, stats)
-        final_rational_candidates.update(newly_rational)
-        if debug:
-            print(f"[batch check] processed {min(i + batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
-
-    stats.end_phase('check_rationality')
-
-    # === PHASE: POST PROCESS ===
-    stats.start_phase('post_process')
-    sample_pts = []
-    new_sections_raw = []
-    processed_m_vals = {}
-
-    for m_val, v_tuple in final_rational_candidates:
-        if m_val in processed_m_vals:
-            continue
-        try:
-            x_val = r_m(m=m_val) - shift
-            y_val = rationality_test_func(x_val)
-            if y_val is not None:
-                v = vector(QQ, v_tuple)
-                sample_pts.append((x_val, y_val))
-                processed_m_vals[m_val] = v
-                if any(c != 0 for c in v):
-                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                    new_sections_raw.append(new_sec)
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            continue
-
-    new_xs = {pt[0] for pt in sample_pts}
-    new_sections = list({s: None for s in new_sections_raw}.keys())
-    stats.incr('rational_points_unique', n=len(new_xs))
-    stats.incr('new_sections_unique', n=len(new_sections))
-    stats.end_phase('post_process')
-
-    print("\n--- Search Statistics ---")
-    print(stats.summary_string())
-
-    return new_xs, new_sections, precomputed_residues, stats
-
-
-def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
-                     r_m, shift, tmax, stats,
-                     max_modulus=MAX_MODULUS, combo_cap=None,
-                     max_levels=None, k_stable=2, debug=DEBUG):
-    """
-    CRT-tree exploration (fixed).
-    - Avoids attempting CRT on multiple *different* residues modulo the same prime
-      (that caused the "gcd(p,p) does not divide ..." ValueError).
-    - Validates combos before calling crt_cached.
-    - Logs and reports counters instead of silently swallowing exceptions.
-    Returns: found_candidates, tested_crt_classes, stats_counter
-    """
-    from collections import deque, Counter, defaultdict
-    from itertools import product
-    import traceback
-
-    stats_counter = Counter()
-    tested_crt_classes = set()
-    found_candidates = set()
-
-    # sort primes descending (largest first)
-    primes_ordered = sorted([p for p in prime_pool if precomputed_residues.get(p)], reverse=True)
-    if max_levels is None:
-        max_levels = len(primes_ordered)
-
-    # root node representation: one placeholder class
-    root = {'M': 1, 'classes': {(None, 1): True}, 'level': 0}
-    frontier = deque([root])
-
-    last_new_rational_counts = deque(maxlen=k_stable)
-    level_idx = 0
-
-    def canonical_class_key(m0, M):
-        if m0 is None:
-            return (None, int(M))
-        return (int(m0) % int(M), int(M))
-
-    # at top of file (if not already present)
-    from sage.all import Integer
-
-    # inside explore_crt_tree, replace safe_crt with this:
-    def safe_crt(residues_iter, moduli_iter):
-        """
-        Call crt with Sage Integer arguments. residues_iter and moduli_iter are iterables.
-        For the single-modulus case we return Integer(residue) directly (avoid crt).
-        """
-        residues = tuple(int(x) for x in residues_iter)
-        moduli = tuple(int(x) for x in moduli_iter)
-
-        if len(moduli) == 1:
-            # single modulus, just return the canonical residue in [0, mod-1]
-            m = int(moduli[0])
-            r = int(residues[0]) % m
-            return Integer(r)
-
-        # convert to Sage Integer objects for crt
-        sage_res = [Integer(r) for r in residues]
-        sage_mods = [Integer(m) for m in moduli]
-        return crt(tuple(sage_res), tuple(sage_mods))  # crt is available from sage.all
-
-    # Precompute per-prime: union of numeric residues across all vectors (avoid mixing residues across vectors)
-    per_prime_numeric_residues = {}
-    for p in primes_ordered:
-        mapping = precomputed_residues.get(p, {})
-        residues_union = set()
-        for vtuple, rhs_lists in mapping.items():
-            for rl in rhs_lists:
-                for r in rl:
-                    if isinstance(r, int):
-                        residues_union.add(int(r))
-        per_prime_numeric_residues[p] = sorted(residues_union)
-
-    # Counters for diagnostics
-    counters_debug = defaultdict(int)
-
-    # MAIN LOOP
-    while frontier and level_idx < max_levels:
-        p = primes_ordered[level_idx]
-        next_frontier = deque()
-        nodes_processed = 0
-        nodes_pruned = 0
-
-        # residue list for this prime (union across vectors) — this avoids CRT conflicts of same-modulus residues
-        residues_for_p = per_prime_numeric_residues.get(p, [])
-        if not residues_for_p:
-            # nothing to refine at this prime
-            if debug:
-                print(f"[crt-tree level skip] p={p} had no numeric residues; skipping level")
-            level_idx += 1
-            continue
-
-        while frontier:
-            node = frontier.popleft()
-            nodes_processed += 1
-            M_parent = int(node['M'])
-            class_keys_parent = list(node['classes'].keys())
-
-            child_classes_for_node = set()
-
-            for (m0_parent, M_par_saved) in class_keys_parent:
-                # Estimate explosion: since we only use the union (not per-vector lists),
-                # the branching factor at this prime is len(residues_for_p).
-                prod_est = len(residues_for_p)
-                if combo_cap and prod_est > combo_cap:
-                    nodes_pruned += 1
-                    counters_debug['pruned_by_combo_cap'] += 1
-                    continue
-
-                # For each residue r (single residue mod p), combine with parent class
-                for r_mod_p in residues_for_p:
-                    if M_parent == 1 or m0_parent is None:
-                        # initial lift: congruence m ≡ r_mod_p (mod p)
-                        # Single modulus p
-                        try:
-                            m0_new = safe_crt((r_mod_p,), (p,))
-                            M_new = int(p)
-                        except Exception as e:
-                            # This is unexpected because we are not combining same-modulus residues here.
-                            # Log full traceback and re-raise so you see the problem instantly.
-                            print("[crt-tree ERROR] crt failed on simple (r_mod_p, p) combo — this should not happen.")
-                            traceback.print_exc()
-                            raise
-                    else:
-                        # Combine parent residue (m0_parent mod M_parent) with new congruence m ≡ r_mod_p (mod p)
-                        # since p is prime and (typically) not dividing M_parent, lcm = M_parent*p
-                        try:
-                            # parent residue value (as int in 0..M_parent-1)
-                            parent_residue = int(m0_parent) % int(M_parent)
-                            residues_tuple = (parent_residue, int(r_mod_p))
-                            moduli_tuple = (int(M_parent), int(p))
-                            # Validate: gcd check trivial if p not dividing M_parent; safe_crt will raise if inconsistent
-                            m0_new = safe_crt(residues_tuple, moduli_tuple)
-                            M_new = int(M_parent) * int(p)
-                        except ValueError as e:
-                            # incompatible residues (expected in some cases); count and skip
-                            counters_debug['crt_incompatible'] += 1
-                            if debug:
-                                # print a concise diagnostic (not the full Python traceback)
-                                print(f"[crt-incompatible] p={p} parent=({m0_parent},{M_parent}) r={r_mod_p} -> {e}")
-                            continue
-                        except Exception:
-                            # Unexpected other CRT error — show full traceback and re-raise
-                            print("[crt-tree ERROR] unexpected exception in CRT combination:")
-                            traceback.print_exc()
-                            raise
-
-                    # success: record tested class
-                    class_key = (int(m0_new) % int(M_new), int(M_new))
-                    tested_crt_classes.add(class_key)
-                    stats_counter['crt_lift_attempts'] += 1
-
-                    # Candidate generation attempts
-                    # 1) t-search (may fail) — log full traceback if it fails
-                    try:
-                        best_ms = minimize_archimedean_t_linear_const(int(m0_new), int(M_new), r_m, shift, tmax)
-                        for _, m_cand, _, _ in best_ms:
-                            found_candidates.add((QQ(m_cand), None))
-                    except Exception as e:
-                        # Log failure with traceback so nothing is hidden
-                        counters_debug['tsearch_fail'] += 1
-                        if debug:
-                            print("[tsearch EXCEPT] minimize_archimedean failed for class:", class_key)
-                            traceback.print_exc()
-
-                    # 2) rational reconstruction (cheap) — also log failures but don't crash the whole search
-                    stats_counter['rr_attempts'] += 1
-                    try:
-                        a, b = rational_reconstruct(int(m0_new) % int(M_new), int(M_new))
-                        stats_counter['rr_success'] += 1
-                        found_candidates.add((QQ(a) / QQ(b), None))
-                    except Exception as e:
-                        counters_debug['rr_fail'] += 1
-                        if debug:
-                            # show the exception type/message but not raise
-                            print(f"[rr FAIL] m0_mod_M={int(m0_new)%int(M_new)} mod {int(M_new)}: {e}")
-
-                    # append child class for further extension
-                    child_classes_for_node.add(canonical_class_key(m0_new, M_new))
-
-            # end for parent classes
-            if child_classes_for_node:
-                child_node = {'M': node['M'] * int(p), 'classes': {ck: True for ck in child_classes_for_node}, 'level': node['level'] + 1}
-                next_frontier.append(child_node)
-
-        # finish level
-        frontier = next_frontier
-
-        if debug:
-            print(f"[crt-tree level] level={level_idx} p={p} processed={nodes_processed} pruned={nodes_pruned} crt_lifts={stats_counter.get('crt_lift_attempts',0)} found={len(found_candidates)}")
-
-        # stability check
-        last_new_rational_counts.append(len(found_candidates))
-        if len(last_new_rational_counts) == k_stable and len(set(last_new_rational_counts)) == 1:
-            if debug:
-                print(f"[crt-tree] Candidate set stable for {k_stable} levels; stopping early at level {level_idx}")
-            break
-
-        level_idx += 1
-
-    # Final debug summary
-    if debug:
-        print("[crt-tree summary]", "levels:", level_idx,
-              "crt_lift_attempts:", stats_counter.get('crt_lift_attempts', 0),
-              "rr_attempts:", stats_counter.get('rr_attempts', 0),
-              "rr_success:", stats_counter.get('rr_success', 0),
-              "crt_incompatible:", counters_debug.get('crt_incompatible', 0),
-              "tsearch_fail:", counters_debug.get('tsearch_fail', 0),
-              "tested_classes:", len(tested_crt_classes),
-              "found_candidates:", len(found_candidates))
-
-    # merge counters_debug into stats_counter for caller visibility
-    for k, v in counters_debug.items():
-        stats_counter[k] += v
-
-    return found_candidates, tested_crt_classes, stats_counter
