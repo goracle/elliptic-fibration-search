@@ -2956,7 +2956,7 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
     for v_idx, v_orig in enumerate(vecs_list):
         v_orig_tuple = tuple(v_orig)
 
-        if debug: # Print less often
+        if debug and (v_idx % 20 == 0 or v_idx == total_vectors - 1): # Print less often
             print(f"[crt-tree] Processing vector {v_idx+1}/{total_vectors} {v_orig_tuple[:3]}...")
 
         if all(c == 0 for c in v_orig):
@@ -3233,90 +3233,3 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     # Filter required ks to a bounded range to avoid explosion in mults
     # Note: caller must check mults limits
     return new_basis, Uinv
-
-
-def minimize_archimedean_t_linear_const(m0, M, const_C, shift, tmax):
-    """
-    Exact, float-free candidate t selection for r_m(m) = -m - const_C.
-    Uses integer / rational arithmetic to compute floor/ceil/round of the
-    target = -(m0 + const_C + shift) / M exactly.
-    Returns sorted list of (t, m_try_int, x_QQ, score).
-    """
-    from sage.all import QQ, Integer
-    import math
-
-    # ensure types: const_C and shift are rationals, M and m0 can be big integers
-    const_C = QQ(const_C)
-    shift = QQ(shift)
-
-    # make sure m0 and M are integer-like (Sage Integer or Python int)
-    # m0 may be a QQ in some code paths; convert to integer if it is integral.
-    try:
-        m0_int = Integer(m0)
-    except Exception:
-        # if m0 is rational but integral, make it Integer; otherwise coerce via int()
-        m0_int = Integer(int(m0))
-
-    M_int = Integer(M)
-    if M_int == 0:
-        # degenerate; no meaningful target
-        cand_t = {0}
-    else:
-        # compute numerator/denominator of the rational target exactly:
-        # target = -(m0 + const_C + shift) / M = P / Q where P and Q are integers
-        numer_q = -(QQ(m0_int) + const_C + shift)   # QQ
-        P = Integer(numer_q.numerator())
-        Q = Integer(numer_q.denominator()) * M_int  # denominator * M
-
-        # exact floor and ceil of P / Q:
-        # Python integer floor division works for negative P as well
-        floor_t = P // Q
-        # compute ceil: if divisible, ceil = floor else floor + 1
-        if P % Q == 0:
-            ceil_t = floor_t
-        else:
-            # careful with sign: for negatives floor already rounds down
-            ceil_t = floor_t + 1
-
-        # exact rounding to nearest integer (ties -> round half away from zero)
-        # implement round(P/Q) as floor((P/Q) + 1/2) for P/Q >= 0, else ceil((P/Q) - 1/2)
-        # do integer arithmetic:
-        # nearest = floor((2*P + Q) / (2*Q))  for positive; works uniformly if we adjust
-        # We'll use the standard rounding: round(x) = floor(x + 1/2) for x >= 0, ceil(x - 1/2) for x < 0
-        twoP = 2 * P
-        twoQ = 2 * Q
-        if P >= 0:
-            round_t = twoP // twoQ  # floor((2P)/(2Q)) == floor(P/Q)
-            # but we need floor(P/Q + 1/2) = floor((P + Q/2)/Q) = floor((2P+Q)/(2Q))
-            round_t = (twoP + Q) // (twoQ)
-        else:
-            # for negative P: floor(P/Q + 1/2) still works if using integer division carefully
-            round_t = (twoP + Q) // (twoQ)
-
-        # assemble candidate set
-        cand_t = {floor_t, ceil_t, round_t}
-
-    # clamp to [-tmax, tmax]
-    cand_t = {int(max(-tmax, min(tmax, int(t)))) for t in cand_t}
-
-    results = []
-    for t in sorted(cand_t):
-        # exact integer m_try = m0_int + t * M_int
-        m_try_int = int(m0_int + Integer(t) * M_int)
-        m_try = QQ(m_try_int)
-
-        # x = r_m(m) - shift ; for r_m = -m - const_C, x = -m_try - const_C - shift
-        x = -m_try - const_C - shift
-
-        # score is log of max(|num|,|den|)
-        x_num = abs(Integer(x.numerator()))
-        x_den = abs(Integer(x.denominator()))
-        # avoid passing 0 into log
-        score = float(math.log(max(int(x_num), int(x_den), 1)))
-
-        results.append((t, m_try_int, x, score))
-
-    # sort by score then by absolute x (as QQ)
-    results.sort(key=lambda z: (z[3], abs(z[2])))
-
-    return results
