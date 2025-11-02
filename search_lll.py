@@ -2669,7 +2669,24 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
 
     stats.start_phase('crt_tree_explore')
-    found_candidates, tested_crt_classes, tree_stats = explore_crt_tree(
+    if False: # single tree, doesn't skip primes
+        found_candidates, tested_crt_classes, tree_stats = explore_crt_tree(
+            precomputed_residues=precomputed_residues,
+            prime_pool=prime_pool,
+            vecs_list=vecs_list,
+            r_m=r_m,
+            shift=shift,
+            tmax=tmax,
+            stats=stats,
+            max_modulus=max_modulus,
+            combo_cap=combo_cap,
+            max_levels=min_max_prime_subset_size,
+            k_stable=2,
+            debug=debug
+        )
+
+    # NEW:
+    found_candidates, tested_crt_classes, tree_stats = explore_crt_tree_multiroot(
         precomputed_residues=precomputed_residues,
         prime_pool=prime_pool,
         vecs_list=vecs_list,
@@ -2679,8 +2696,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         stats=stats,
         max_modulus=max_modulus,
         combo_cap=combo_cap,
-        max_levels=min_max_prime_subset_size,
-        k_stable=2,
+        max_levels=9,  # ← FORCE UNIFORM DEPTH
+        num_orderings=10,
         debug=debug
     )
     stats.crt_classes_tested = getattr(stats, 'crt_classes_tested', set()) | tested_crt_classes
@@ -2937,6 +2954,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
                 print("LLL/BKZ reduction failed, falling back to identity:", e)
             U = identity_matrix(ZZ, r)
             B = M_scaled.copy()
+            raise
     
 
     # DEBUG OUTPUT
@@ -2982,6 +3000,7 @@ def minimize_archimedean_t_linear_const(m0, M, const_C, shift, tmax):
     except Exception:
         # if m0 is rational but integral, make it Integer; otherwise coerce via int()
         m0_int = Integer(int(m0))
+        raise
 
     M_int = Integer(M)
     if M_int == 0:
@@ -3161,7 +3180,11 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
         print(f"[crt-tree] Inferred {num_rhs_fns} RHS function(s).")
 
     # Auto-limit depth
-    if max_levels is None:
+    if force_uniform_depth and max_levels is None:
+        # Use a FIXED depth for all orderings (e.g., 9)
+        max_levels = 9
+    elif max_levels is None:
+        # Old adaptive logic (causes problems)
         prod = 1
         for i, p in enumerate(usable_primes):
             prod *= p
@@ -3170,8 +3193,8 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
                 break
         else:
             max_levels = len(usable_primes)
-    max_levels = min(max_levels, 15)
-
+    
+    max_levels = min(max_levels, 10)
     if debug:
         print(f"[crt-tree] Max depth: {max_levels}")
 
@@ -3245,9 +3268,10 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
                                 M_new = Integer(p)
                             else:
                                 parent_res = Integer(m0_parent) % Integer(node['M'])
-                                m0_new = crt_cached([parent_res, r_mod_p], tuple([node['M'], p]))
+                                m0_new = crt_cached(tuple([parent_res, r_mod_p]), tuple([node['M'], p]))
                                 M_new = node['M'] * p
                         except Exception:
+                            raise
                             continue
 
                         if M_new > max_modulus:
@@ -3264,7 +3288,7 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
                                 for _, m_cand, _, _ in best_ms:
                                     found_candidates.add((QQ(m_cand), v_orig_tuple))
                             except Exception:
-                                pass
+                                raise
 
                             # rational reconstruction
                             stats_counter['rr_attempts'] += 1
@@ -3273,7 +3297,7 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
                                 stats_counter['rr_success'] += 1
                                 found_candidates.add((QQ(a) / QQ(b), v_orig_tuple))
                             except RationalReconstructionError:
-                                pass
+                                raise
 
                         next_classes.add(key)
 
@@ -3303,3 +3327,356 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
               "found_candidates:", len(found_candidates))
 
     return found_candidates, tested_crt_classes, stats_counter
+
+
+# Add to search_lll.py
+
+def explore_crt_tree_single(precomputed_residues, prime_ordering, vecs_list,
+                            r_m, shift, tmax, stats,
+                            max_modulus=MAX_MODULUS, max_levels=None,
+                            tested_crt_classes_global=None, debug=False):
+    """
+    Single-path CRT tree with a given prime ordering.
+    This is your existing explore_crt_tree logic, modified to:
+    1. Accept a specific prime ordering
+    2. Accept a global tested_crt_classes set to avoid redundant work
+    3. Return just the found candidates (caller merges stats)
+    """
+    import heapq
+    from collections import Counter
+    from sage.all import Integer, QQ
+    
+    const_C = QQ(r_m(m=0))
+    stats_counter = Counter()
+    
+    # Use global set if provided, otherwise create local
+    if tested_crt_classes_global is not None:
+        tested_crt_classes = tested_crt_classes_global
+    else:
+        tested_crt_classes = set()
+    
+    found_candidates = set()
+    
+    usable_primes = [p for p in prime_ordering if precomputed_residues.get(p)]
+    if not usable_primes:
+        return found_candidates, stats_counter
+    
+    # Infer num_rhs_fns
+    sample_p = usable_primes[0]
+    sample_v = next((v for v in vecs_list if tuple(v) in precomputed_residues[sample_p]), vecs_list[0])
+    sample_roots = precomputed_residues[sample_p].get(tuple(sample_v), [])
+    num_rhs_fns = len(sample_roots)
+    if num_rhs_fns == 0:
+        return found_candidates, stats_counter
+    
+    # Auto-limit depth
+    if max_levels is None:
+        prod = 1
+        for i, p in enumerate(usable_primes):
+            prod *= p
+            if prod > 10 * max_modulus:
+                max_levels = i
+                break
+        else:
+            max_levels = len(usable_primes)
+    max_levels = min(max_levels, 15)
+    
+    # Precompute residue counts
+    residue_count = {}
+    for p in usable_primes:
+        total = 0
+        mapping = precomputed_residues[p]
+        for roots_lists in mapping.values():
+            for roots in roots_lists:
+                total += len(roots)
+        residue_count[p] = total
+    
+    def remaining_residue_sum(primes_remaining):
+        return sum(residue_count.get(p, 0) for p in primes_remaining)
+    
+    tiebreaker = iter(range(10**9))
+    
+    # Main loop over vectors and RHS
+    for v_idx, v_orig in enumerate(vecs_list):
+        v_orig_tuple = tuple(v_orig)
+        if all(c == 0 for c in v_orig):
+            continue
+        
+        for rhs_idx in range(num_rhs_fns):
+            # Build residue map for this (v, rhs)
+            per_prime_numeric = {}
+            for p in usable_primes:
+                roots_lists = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_lists):
+                    residues = roots_lists[rhs_idx]
+                    if residues:
+                        per_prime_numeric[p] = [Integer(r) for r in residues if isinstance(r, (int, Integer))]
+            if not per_prime_numeric:
+                continue
+            
+            # Use the provided ordering (already filtered to usable_primes)
+            primes_for_v_rhs = [p for p in usable_primes if p in per_prime_numeric]
+            max_levels_v = min(max_levels, len(primes_for_v_rhs))
+            
+            # Priority queue
+            root = {
+                'M': Integer(1),
+                'classes': {(None, Integer(1)): True},
+                'level': 0
+            }
+            pq = []
+            rem_res_sum = remaining_residue_sum(primes_for_v_rhs)
+            heapq.heappush(pq, (
+                (1, -rem_res_sum, 0, next(tiebreaker)),
+                root
+            ))
+            
+            while pq:
+                (prio, node) = heapq.heappop(pq)
+                level = node['level']
+                if level >= max_levels_v:
+                    continue
+                
+                p = primes_for_v_rhs[level]
+                residues_for_p = per_prime_numeric[p]
+                next_classes = set()
+                
+                for (m0_parent, M_par) in node['classes'].keys():
+                    for r_mod_p in residues_for_p:
+                        try:
+                            if node['M'] == 1 or m0_parent is None:
+                                m0_new = r_mod_p % p
+                                M_new = Integer(p)
+                            else:
+                                parent_res = Integer(m0_parent) % Integer(node['M'])
+                                m0_new = crt_cached(tuple([parent_res, r_mod_p]), tuple([node['M'], p]))
+                                M_new = node['M'] * p
+                        except Exception:
+                            raise
+                            continue
+                        
+                        if M_new > max_modulus:
+                            continue
+                        
+                        key = (int(m0_new % M_new), int(M_new))
+                        if key not in tested_crt_classes:
+                            tested_crt_classes.add(key)
+                            stats_counter['crt_lift_attempts'] += 1
+                            
+                            # t-search
+                            try:
+                                best_ms = minimize_archimedean_t_linear_const(int(m0_new), int(M_new), const_C, shift, tmax)
+                                for _, m_cand, _, _ in best_ms:
+                                    found_candidates.add((QQ(m_cand), v_orig_tuple))
+                            except Exception:
+                                raise
+                            
+                            # rational reconstruction
+                            stats_counter['rr_attempts'] += 1
+                            try:
+                                a, b = rational_reconstruct_cached(int(m0_new % M_new), int(M_new))
+                                stats_counter['rr_success'] += 1
+                                found_candidates.add((QQ(a) / QQ(b), v_orig_tuple))
+                            except RationalReconstructionError:
+                                raise
+                        
+                        next_classes.add(key)
+                
+                if next_classes and level + 1 < max_levels_v:
+                    child_node = {
+                        'M': node['M'] * p,
+                        'classes': {ck: True for ck in next_classes},
+                        'level': level + 1
+                    }
+                    rem_res = remaining_residue_sum(primes_for_v_rhs[level + 1:])
+                    heapq.heappush(pq, (
+                        (int(child_node['M']).bit_length(), -rem_res, level + 1, next(tiebreaker)),
+                        child_node
+                    ))
+    
+    return found_candidates, stats_counter
+
+
+def explore_crt_tree_multiroot(precomputed_residues, prime_pool, vecs_list,
+                               r_m, shift, tmax, stats,
+                               max_modulus=MAX_MODULUS, combo_cap=None,
+                               max_levels=None, num_orderings=10, debug=DEBUG):
+    """
+    Multi-root CRT tree: runs single-path tree with multiple prime orderings.
+    
+    Args:
+        num_orderings: Number of different prime orderings to try (default 10)
+        All other args same as original explore_crt_tree
+    
+    Returns:
+        (found_candidates, tested_crt_classes, merged_stats)
+    """
+    from collections import Counter
+    
+    if debug:
+        print(f"\n[multi-root] Starting multi-root exploration with {num_orderings} orderings")
+    
+    # Generate diverse orderings
+    orderings = _generate_prime_orderings(prime_pool, precomputed_residues, 
+                                         num_orderings, debug=debug)
+    
+    # Global tracking across all orderings
+    all_found_candidates = set()
+    tested_crt_classes_global = set()
+    merged_stats = Counter()
+    
+    # Run tree for each ordering
+    for i, ordering in enumerate(orderings):
+        if debug:
+            print(f"\n[multi-root] Ordering {i+1}/{len(orderings)}: {ordering[:5]}...")
+        
+        # Run single-path tree with this ordering
+        # Pass global tested_crt_classes to avoid redundant CRT lifts across orderings
+        found, stats_i = explore_crt_tree_single(
+            precomputed_residues=precomputed_residues,
+            prime_ordering=ordering,
+            vecs_list=vecs_list,
+            r_m=r_m,
+            shift=shift,
+            tmax=tmax,
+            stats=stats,
+            max_modulus=max_modulus,
+            max_levels=max_levels,
+            tested_crt_classes_global=tested_crt_classes_global,
+            debug=False  # Reduce spam
+        )
+        
+        # Merge results
+        new_candidates = found - all_found_candidates
+        all_found_candidates.update(found)
+        merged_stats.update(stats_i)
+        
+        if debug and new_candidates:
+            print(f"[multi-root]   Found {len(new_candidates)} new candidates (total: {len(all_found_candidates)})")
+    
+    # Final small-prime retry (run once at the end)
+    const_C = QQ(r_m(m=0))
+    _small_prime_retry_pass(
+        precomputed_residues, prime_pool, vecs_list, r_m, shift, tmax,
+        max_modulus, merged_stats, tested_crt_classes_global, all_found_candidates, const_C, debug
+    )
+    
+    if debug:
+        print(f"\n[multi-root] Complete:")
+        print(f"  Total orderings tested: {len(orderings)}")
+        print(f"  Total CRT lifts: {merged_stats.get('crt_lift_attempts', 0)}")
+        print(f"  Total CRT classes tested: {len(tested_crt_classes_global)}")
+        print(f"  Total candidates found: {len(all_found_candidates)}")
+        print(f"  RR success rate: {merged_stats.get('rr_success', 0)}/{merged_stats.get('rr_attempts', 0)}")
+    
+    return all_found_candidates, tested_crt_classes_global, merged_stats
+
+
+# MODIFY the call in search_lattice_modp_unified_parallel:
+# Replace the line:
+#   found_candidates, tested_crt_classes, tree_stats = explore_crt_tree(...)
+# With:
+#   found_candidates, tested_crt_classes, tree_stats = explore_crt_tree_multiroot(...)
+
+
+def _generate_prime_orderings(prime_pool, precomputed_residues, num_orderings=10, debug=DEBUG):
+    """
+    Generate diverse prime orderings for multi-root tree exploration.
+    
+    Returns exactly num_orderings orderings (or fewer if duplicates).
+    Priority: deterministic strategies first, then random shuffles to fill.
+    """
+    import random
+    from collections import Counter
+    
+    if num_orderings <= 0:
+        return []
+    
+    # Compute residue coverage for each prime (for smart orderings)
+    residue_count = {}
+    for p in prime_pool:
+        total = 0
+        mapping = precomputed_residues.get(p, {})
+        for roots_lists in mapping.values():
+            for roots in roots_lists:
+                total += len(roots)
+        residue_count[p] = total
+    
+    sorted_asc = sorted(prime_pool)
+    
+    # Build candidate orderings (labeled for debugging)
+    candidates = []
+    
+    # 1. Ascending by prime value (smallest first)
+    candidates.append(('ascending', sorted_asc))
+    
+    # 2. Descending by prime value (largest first)
+    candidates.append(('descending', sorted(prime_pool, reverse=True)))
+    
+    # 3. By residue coverage (most coverage first)
+    candidates.append(('coverage_desc', sorted(prime_pool, key=lambda p: -residue_count.get(p, 0))))
+    
+    # 4. By residue coverage (least coverage first)
+    candidates.append(('coverage_asc', sorted(prime_pool, key=lambda p: residue_count.get(p, 0))))
+    
+    # 5. Alternating small/large
+    alternating = []
+    left, right = 0, len(sorted_asc) - 1
+    while left <= right:
+        alternating.append(sorted_asc[left])
+        if left != right:
+            alternating.append(sorted_asc[right])
+        left += 1
+        right -= 1
+    candidates.append(('alternating', alternating))
+    
+    # 6. Stratified: divide into bins, pick sequentially from bins
+    num_bins = min(5, len(prime_pool))
+    if num_bins > 1:
+        bin_size = len(prime_pool) // num_bins
+        stratified = []
+        for bin_idx in range(num_bins):
+            bin_primes = sorted_asc[bin_idx * bin_size : (bin_idx + 1) * bin_size]
+            stratified.extend(bin_primes)
+        # Add remainder
+        stratified.extend(sorted_asc[num_bins * bin_size:])
+        candidates.append(('stratified', stratified))
+    
+    # Select orderings: take first num_orderings from candidates
+    orderings = []
+    labels = []
+    
+    for label, ordering in candidates[:num_orderings]:
+        orderings.append(ordering)
+        labels.append(label)
+    
+    # If user wants more than our deterministic strategies, fill with random shuffles
+    if len(orderings) < num_orderings:
+        random.seed(SEED_INT)  # Deterministic random orderings
+        num_random = num_orderings - len(orderings)
+        for i in range(num_random):
+            shuffled = list(prime_pool)
+            random.shuffle(shuffled)
+            orderings.append(shuffled)
+            labels.append(f'random_{i+1}')
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_orderings = []
+    unique_labels = []
+    for ordering, label in zip(orderings, labels):
+        key = tuple(ordering)
+        if key not in seen:
+            seen.add(key)
+            unique_orderings.append(ordering)
+            unique_labels.append(label)
+    
+    if debug:
+        print(f"[multi-root] Generated {len(unique_orderings)} unique orderings (requested {num_orderings})")
+        if unique_orderings:
+            print(f"[multi-root] Ordering strategies: {unique_labels}")
+            print(f"[multi-root] Sample orderings (first 3 primes):")
+            for i, (ordering, label) in enumerate(zip(unique_orderings[:5], unique_labels[:5])):
+                print(f"  [{i+1}] {label:15s}: {ordering[:3]}...")
+    
+    return unique_orderings
