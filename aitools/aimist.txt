@@ -64,7 +64,6 @@ Unknowns to solve for (in terms of m):', unknowns)
 - do put in any magic numbers.  just do not do that.  don't do it even for "safety".  do not do things that seem "conservative".  a majority of the time, an ai does not know how to pick a parameter im going to be happy with.  every single time i find "conservative" or "safety" as part of a comment in ai code, the code is wrong.  ok?  don't do that.  do not put in "fallback" stuff that skips over a thing the code doesn't know or can't calculate.  no "fallback" stuff.  if i see "fallback", i know the code is wrong.  do not put "pass" in your code.  every "pass" i see is there by mistake.  either write the function or don't write it.  no "placeholder".  no "todo".  i already know what code we need.  i do not need you junking up my code with half written shit that nobody will ever finish.
 - do not worry about dead code.  i can have an ai rewrite the whole file in a minute, so why do i need to worry if i leave a few odds and ends lying around?  they aren't hurting anything, i can assure you.  quoting Claude 4.5, after one such classic bout of LLM catastrophizing about code that never even ran:  "I was inventing a problem that doesn't exist because I wasn't tracking the actual control flow."  if you don't have a log in front of you, you don't necessarily know how the code is behaving.  assume, more than anything, that you do not have enough information to make definitive statements about code problems.
 - do not write fallback code of any sort.  i want the code to break.  i want it to not finish running unless it is perfect.
-<<<<<<< HEAD
 - the main intersection locus is x=-m-const for every fibration.  that means every rational point is embedded in every fibration, somewhere.  for any given x, we can always invert to find a corresponding fiber m.
 - for some reason, putting these types of format prints always crashes when we call the code as 
 sage search7_genus2.sage
@@ -82,5 +81,3 @@ TypeError: unsupported format string passed to sage.rings.rational.Rational.__fo
                                 M_new *= p
 
  
-=======
->>>>>>> parent of d8d3f57 (Auto commit.)
