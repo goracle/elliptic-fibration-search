@@ -11,12 +11,13 @@ import random
 import itertools
 import multiprocessing
 import math
-from math import floor, sqrt, gcd, ceil, log
+from math import floor, sqrt, gcd, ceil, log, isqrt
 from fractions import Fraction
 from functools import reduce, lru_cache, partial
 from operator import mul
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
 # Third-party imports
 from tqdm import tqdm
@@ -402,6 +403,7 @@ def crt_cached(residues, moduli):
     """Cached Chinese Remainder Theorem computation."""
     return crt(list(residues), list(moduli))
 
+@lru_cache
 def rational_reconstruct(c, N, max_den=None):
     """
     Rational reconstruction using the Extended Euclidean Algorithm.
@@ -410,7 +412,8 @@ def rational_reconstruct(c, N, max_den=None):
     a/b ≡ c (mod N), with |a| and |b| bounded.
     """
     if max_den is None:
-        max_den = floor(sqrt(N / QQ(2)))
+        #max_den = floor(sqrt(N / QQ(2)))
+        max_den = isqrt(N >> 1)
 
     c = c % N
     if c == 0: return 0, 1
@@ -498,139 +501,6 @@ def _get_coeff_data(poly):
         return [poly], 0
 
 # --- LLL Reduction Functions ---
-
-def lll_reduce_basis_modp(p, sections, curve_modp,
-                                   truncate_deg=TRUNCATE_MAX_DEG,
-                                   lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
-                                   max_k_abs=MAX_K_ABS):
-    """
-    Improved LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
-    Returns (new_basis, Uinv) similar to previous function.
-    """
-    r = len(sections)
-    if r == 0:
-        return [], identity_matrix(ZZ, 0)
-
-    poly_coords = []
-    max_deg = 0
-
-    # Extract integer coefficient lists (trim tails)
-    for P in sections:
-        Pp = reduce_point_hom(P, curve_modp, p)
-        if Pp is None or Pp.is_zero():  # <- handle None safely
-            poly_coords.append(([0], [0], [1]))
-            continue
-
-        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
-        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
-        Xp = Xr.numerator() * (den // Xr.denominator())
-        Yp = Yr.numerator() * (den // Yr.denominator())
-        Zp = Zr.numerator() * (den // Zr.denominator())
-
-        xc, dx = _get_coeff_data(Xp)
-        yc, dy = _get_coeff_data(Yp)
-        zc, dz = _get_coeff_data(Zp)
-
-        # Trim high-degree tails
-        xc = _trim_poly_coeffs(xc, truncate_deg)
-        yc = _trim_poly_coeffs(yc, truncate_deg)
-        zc = _trim_poly_coeffs(zc, truncate_deg)
-
-        poly_coords.append((xc, yc, zc))
-        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
-
-    poly_len = max_deg + 1
-    coeff_vecs = []
-    for xc, yc, zc in poly_coords:
-        xc_padded = list(xc) + [0] * (poly_len - len(xc))
-        yc_padded = list(yc) + [0] * (poly_len - len(yc))
-        zc_padded = list(zc) + [0] * (poly_len - len(zc))
-        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
-        coeff_vecs.append(vector(ZZ, row))
-
-    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
-        if DEBUG: print("All coefficient vectors are zero or truncated away, using identity transformation")
-        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
-
-    M = matrix(ZZ, coeff_vecs)
-    
-    # *** FIXED PART ***
-    # The BKZ/LLL implementations in Sage can fail on matrices with only one row.
-    # If there's only one section, the basis is trivially reduced, so we can
-    # skip the complex reduction step entirely and use an identity transformation.
-    if M.nrows() <= 1:
-        Uinv = identity_matrix(ZZ, r)
-        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-        # With an identity transformation, the new basis is the same as the old one.
-        return reduced_sections_mod_p, Uinv
-    # *** END FIXED PART ***
-
-    if M.rank() < min(M.nrows(), M.ncols()):
-        if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
-
-    if M.ncols() > 5 * M.nrows():
-        if DEBUG:
-            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
-        return [reduce_point_hom(P, curve_modp, p) for P in sections], identity_matrix(ZZ, r)
-
-    # Column scaling to balance magnitudes
-    try:
-        scales = _compute_integer_scales_for_columns(M)
-        M_scaled, D = _scale_matrix_columns_int(M, scales)
-    except Exception as e:
-        if DEBUG: print("Column scaling failed, proceeding without scaling:", e)
-        M_scaled = M
-        D = diagonal_matrix([1]*M.ncols())
-
-    # Try BKZ first if available (improves shortness for moderate dims)
-    U = None
-    B = None
-    try:
-        # prefer BKZ if available on matrix
-        if hasattr(M_scaled, "BKZ"):
-            # choose blocksize heuristically but not larger than dimension
-            block = min(bkz_block, max(2, M_scaled.ncols()//2))
-            U, B = M_scaled.BKZ(block_size=block, transformation=True)
-        else:
-            # fallback to LLL with chosen delta
-            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
-    except (TypeError, ValueError):
-        # different signatures in some Sage versions, or value error from BKZ, fall back
-        try:
-            U, B = M_scaled.LLL(transformation=True)
-        except Exception as e:
-            if DEBUG:
-                print("LLL/BKZ reduction failed, falling back to identity:", e)
-            U = identity_matrix(ZZ, r)
-            B = M_scaled.copy()
-    
-
-    # DEBUG OUTPUT
-    print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
-    print(f"[LLL_DEBUG] U type: {type(U).__name__}, has nrows: {hasattr(U, 'nrows')}")
-    if hasattr(U, 'nrows'):
-        print(f"[LLL_DEBUG] U shape: {U.nrows()}x{U.ncols()}")
-    else:
-        print(f"[LLL_DEBUG] U is not a matrix. repr (first 100 chars): {repr(U)[:100]}")
-    print(f"[LLL_DEBUG] B type: {type(B).__name__}")
-
-    # Validate U is unimodular (invertible over ZZ)
-    Uinv = None
-    # --- require unimodular U ---
-    assert U.nrows() == U.ncols(), "LLL transform U must be square"
-    detU = int(U.det())
-    assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
-    Uinv = U.inverse()
-    # Build reduced basis points by applying U to reduced sections (but we scaled columns earlier)
-    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-    # U acts on rows (combines sections). Unscaling D isn't necessary for row ops.
-    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
-
-    # Filter required ks to a bounded range to avoid explosion in mults
-    # Note: caller must check mults limits
-    return new_basis, Uinv
-
-
 
 def process_candidate(m_val, v_tuple, r_m, shift, rationality_test_func, current_sections):
     """
@@ -1014,31 +884,6 @@ def archimedean_height_of_integer(n):
 
 
 # def minimize_archimedean_t(m0, M, r_m_func, shift, tmax, max_steps=150, patience=6):
-def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, tmax):
-    """
-    For r_m(m) = -m - const_C, find t minimizing archimedean height of x = r_m(m) - shift.
-    Returns list of (t, m, x, score) sorted by score (smallest first).
-    """
-    const_C = r_m_func(m=QQ(0))
-    target = - (m0 + const_C + shift) / float(M)
-
-    cand_t = set([math.floor(target), math.ceil(target), int(round(target))])
-
-    # Clamp to allowed range
-    cand_t = {max(-tmax, min(tmax, t)) for t in cand_t}
-
-    results = []
-    for t in sorted(cand_t):
-        m_try = int(m0) + int(t) * int(M)
-        x = -m_try - const_C - shift
-        score = float(math.log(max(abs(x), 1)))
-        results.append((t, m_try, int(x), score))
-
-    # sort by score then by |x|
-    results.sort(key=lambda z: (z[3], abs(z[2])))
-    return results
-
-
 def _assert_rhs_consistency(precomputed_residues, prime_pool, vecs, num_rhs_fns, debug=True):
     """
     Validate that precomputed_residues has consistent structure across all primes and vectors.
@@ -2817,7 +2662,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     stats.end_phase('autotune_primes')
 
     # === PHASE: CRT TREE SEARCH ===
-    combo_cap = ceil(50000 ** (7 * min_prime_subset_size / 3))
+    #combo_cap = ceil(50000 ** (7 * min_prime_subset_size / 3))
+    combo_cap = min(MAX_MODULUS, 10**12)  # Cap at 1 trillion, not 10^33
     roots_threshold = ROOTS_THRESHOLD
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
@@ -2900,21 +2746,130 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     return new_xs, new_sections, precomputed_residues, stats
 
 
+def minimize_archimedean_t_linear_const(m0, M, const_C, shift, tmax):
+    """
+    Optimized for r_m(m) = -m - const_C.
+    Now takes const_C directly instead of r_m_func.
+    """
+    const_C = QQ(const_C)  # Ensure rational
+    shift = QQ(shift)
+    
+    target = -(m0 + const_C + shift) / float(M)
+    cand_t = {math.floor(target), math.ceil(target), int(round(target))}
+    cand_t = {max(-tmax, min(tmax, t)) for t in cand_t}
+
+    results = []
+    for t in sorted(cand_t):
+        m_try = QQ(int(m0) + int(t) * int(M))
+        
+        # Direct: x = r_m(m) - shift = (-m - const_C) - shift
+        x = -m_try - const_C - shift
+        
+        x_num = abs(int(x.numerator()))
+        x_den = abs(int(x.denominator()))
+        score = float(math.log(max(x_num, x_den, 1)))
+        
+        results.append((t, int(m_try), x, score))
+
+    results.sort(key=lambda z: (z[3], abs(z[2])))
+    return results
+
+
+# put near top-level (import once)
+from functools import lru_cache
+import math
+import time
+
+class RationalReconstructionError(Exception):
+    pass
+
+@lru_cache(maxsize=100000)   # tune maxsize (None = unlimited). 100k is reasonable to start.
+def rational_reconstruct_cached(c_int, N_int, max_den_int=None):
+    """
+    Integer-only rational reconstruction with caching.
+
+    Inputs must be small Python ints (or convertable to int). Returns (a,b) with gcd(a,b)=1.
+    This avoids QQ and large rational arithmetic and caches results.
+    """
+    # normalize inputs to plain ints
+    N = int(N_int)
+    if N <= 0:
+        raise RationalReconstructionError(f"N must be > 0, got N={N}")
+    c = int(c_int) % N
+
+    # compute integer max_den if not provided
+    if max_den_int is None:
+        # floor(sqrt(N / 2)) using integer arithmetic:
+        # max_den = floor(sqrt(N/2))
+        # avoid float math: compute integer sqrt of floor(N//2)
+        if N < 2:
+            max_den = 1
+        else:
+            max_den = math.isqrt(N // 2)
+            if max_den < 1:
+                max_den = 1
+    else:
+        max_den = int(max_den_int)
+        if max_den < 1:
+            max_den = 1
+
+    # trivial shortcuts
+    if c == 0:
+        return 0, 1
+    if c == 1 and max_den >= 1:
+        return 1, 1
+
+    # Extended Euclidean Algorithm with denominator tracking (integer-only)
+    r0, r1 = N, c
+    t0, t1 = 0, 1
+
+    # iterate
+    while r1 != 0:
+        if abs(t1) > max_den:
+            # previous (r0, t0) is last valid
+            a, b = r0, t0
+            break
+        q = r0 // r1
+        r0, r1 = r1, r0 - q * r1
+        t0, t1 = t1, t0 - q * t1
+    else:
+        # loop exited normally (r1 == 0), result in (r0, t0)
+        a, b = r0, t0
+
+    # post-checks
+    if b == 0 or abs(b) > max_den:
+        raise RationalReconstructionError(f"No reconstruction for c={c}, N={N}, max_den={max_den}")
+
+    # make denominator positive
+    if b < 0:
+        a, b = -a, -b
+
+    # validation: a - c*b ≡ 0 (mod N)
+    if (a - c * b) % N != 0:
+        raise RationalReconstructionError(f"Validation failed for c={c}, N={N}: got a={a}, b={b}")
+
+    # normalize gcd
+    g = math.gcd(abs(a), abs(b))
+    return int(a // g), int(b // g)
+
+
+# In search_lll.py
+
 def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
                      r_m, shift, tmax, stats,
                      max_modulus=MAX_MODULUS, combo_cap=None,
                      max_levels=None, k_stable=2, debug=DEBUG):
     """
-    CRT-tree exploration (fixed).
-    - Avoids attempting CRT on multiple *different* residues modulo the same prime
-      (that caused the "gcd(p,p) does not divide ..." ValueError).
-    - Validates combos before calling crt_cached.
-    - Logs and reports counters instead of silently swallowing exceptions.
-    Returns: found_candidates, tested_crt_classes, stats_counter
+    Corrected, vector-wise and RHS-wise CRT-tree exploration.
+    This version iterates over each vector, and for each vector,
+    iterates over each RHS function, building a separate, valid
+    tree for each (vector, rhs) pair.
     """
     from collections import deque, Counter, defaultdict
-    from itertools import product
-    import traceback
+    import traceback, time
+    from sage.all import Integer, QQ
+
+    const_C = QQ(r_m(m=0))  # Evaluate symbolic r_m once
 
     stats_counter = Counter()
     tested_crt_classes = set()
@@ -2922,196 +2877,359 @@ def explore_crt_tree(precomputed_residues, prime_pool, vecs_list,
 
     # sort primes descending (largest first)
     primes_ordered = sorted([p for p in prime_pool if precomputed_residues.get(p)], reverse=True)
+    total_vectors = len(vecs_list)
+
+    # --- Get num_rhs_fns from the precomputed data structure ---
+    if not total_vectors or not primes_ordered:
+        if debug: print("[crt-tree] No vectors or no usable primes. Exiting.")
+        return found_candidates, tested_crt_classes, stats_counter
+        
+    sample_p = primes_ordered[0]
+    sample_v_tuple = tuple(vecs_list[0]) # Use first vector as sample
+    # Find the first vector that actually has data for the sample prime
+    for v_t in vecs_list:
+        sample_v_tuple = tuple(v_t)
+        if sample_v_tuple in precomputed_residues.get(sample_p, {}):
+            break
+            
+    sample_roots_list = precomputed_residues.get(sample_p, {}).get(sample_v_tuple, [])
+    num_rhs_fns = len(sample_roots_list)
+    
+    if num_rhs_fns == 0:
+        if debug: print(f"[crt-tree] Error: num_rhs_fns is 0. Check precomputed_residues structure. p={sample_p}, v={sample_v_tuple}")
+        return found_candidates, tested_crt_classes, stats_counter
+    
+    if debug:
+        print(f"[crt-tree] Inferred {num_rhs_fns} RHS function(s) from precomputed data.")
+
+    # estimate max_levels as before
     if max_levels is None:
-        max_levels = len(primes_ordered)
+        prod = 1
+        for i, p in enumerate(primes_ordered):
+            prod *= p
+            if prod > 10*max_modulus:
+                max_levels = i
+                break
+        else:
+            max_levels = len(primes_ordered)
+        if debug:
+            print(f"[crt-tree] Auto-limited depth to {max_levels} levels (MAX_MODULUS={max_modulus})")
+    
+    # Let's cap this at a reasonable level to avoid excessive depth
+    max_levels = min(max_levels, 15) 
+    if debug:
+        print(f"[crt-tree] Using effective max_levels = {max_levels}")
 
-    # root node representation: one placeholder class
-    root = {'M': 1, 'classes': {(None, 1): True}, 'level': 0}
-    frontier = deque([root])
 
-    last_new_rational_counts = deque(maxlen=k_stable)
-    level_idx = 0
+    # --- CRT Helper Functions (defined inside) ---
+    def safe_crt(residues_iter, moduli_iter):
+        sage_res = list(residues_iter)
+        sage_mods = list(moduli_iter)
+        if len(sage_mods) == 1:
+            m = sage_mods[0]
+            if m == 0: return Integer(0)
+            return sage_res[0] % m
+        return crt(sage_res, sage_mods)
 
     def canonical_class_key(m0, M):
         if m0 is None:
-            return (None, int(M))
-        return (int(m0) % int(M), int(M))
+            return (None, int(M)) if M.bit_length() < 1024 else (None, M)
+        key_m = m0 % M
+        return (int(key_m) if key_m.bit_length() < 1024 else key_m,
+                int(M) if M.bit_length() < 1024 else M)
 
-    # at top of file (if not already present)
-    from sage.all import Integer
+    conversion_cache = {}
+    def to_python_mod_pair(m0_mod_sage, M_sage):
+        key = (m0_mod_sage, M_sage)
+        if key in conversion_cache:
+            return conversion_cache[key]
+        m0_py = int(m0_mod_sage % M_sage)
+        M_py = int(M_sage)
+        conversion_cache[key] = (m0_py, M_py)
+        return m0_py, M_py
+    # --- End Helper Functions ---
 
-    # inside explore_crt_tree, replace safe_crt with this:
-    def safe_crt(residues_iter, moduli_iter):
-        """
-        Call crt with Sage Integer arguments. residues_iter and moduli_iter are iterables.
-        For the single-modulus case we return Integer(residue) directly (avoid crt).
-        """
-        residues = tuple(int(x) for x in residues_iter)
-        moduli = tuple(int(x) for x in moduli_iter)
-
-        if len(moduli) == 1:
-            # single modulus, just return the canonical residue in [0, mod-1]
-            m = int(moduli[0])
-            r = int(residues[0]) % m
-            return Integer(r)
-
-        # convert to Sage Integer objects for crt
-        sage_res = [Integer(r) for r in residues]
-        sage_mods = [Integer(m) for m in moduli]
-        return crt(tuple(sage_res), tuple(sage_mods))  # crt is available from sage.all
-
-    # Precompute per-prime: union of numeric residues across all vectors (avoid mixing residues across vectors)
-    per_prime_numeric_residues = {}
-    for p in primes_ordered:
-        mapping = precomputed_residues.get(p, {})
-        residues_union = set()
-        for vtuple, rhs_lists in mapping.items():
-            for rl in rhs_lists:
-                for r in rl:
-                    if isinstance(r, int):
-                        residues_union.add(int(r))
-        per_prime_numeric_residues[p] = sorted(residues_union)
-
-    # Counters for diagnostics
+    # =================================================================
+    # === MAIN VECTOR LOOP ===
+    # =================================================================
     counters_debug = defaultdict(int)
+    for v_idx, v_orig in enumerate(vecs_list):
+        v_orig_tuple = tuple(v_orig)
 
-    # MAIN LOOP
-    while frontier and level_idx < max_levels:
-        p = primes_ordered[level_idx]
-        next_frontier = deque()
-        nodes_processed = 0
-        nodes_pruned = 0
+        if debug and (v_idx % 20 == 0 or v_idx == total_vectors - 1): # Print less often
+            print(f"[crt-tree] Processing vector {v_idx+1}/{total_vectors} {v_orig_tuple[:3]}...")
 
-        # residue list for this prime (union across vectors) — this avoids CRT conflicts of same-modulus residues
-        residues_for_p = per_prime_numeric_residues.get(p, [])
-        if not residues_for_p:
-            # nothing to refine at this prime
-            if debug:
-                print(f"[crt-tree level skip] p={p} had no numeric residues; skipping level")
-            level_idx += 1
+        if all(c == 0 for c in v_orig):
             continue
+            
+        # =================================================================
+        # === RHS LOOP (This is the critical fix) ===
+        # =================================================================
+        for rhs_idx in range(num_rhs_fns):
 
-        while frontier:
-            node = frontier.popleft()
-            nodes_processed += 1
-            M_parent = int(node['M'])
-            class_keys_parent = list(node['classes'].keys())
+            # 1. Build the residue map FOR THIS VECTOR AND THIS RHS
+            per_prime_numeric_residues_for_v_rhs = {}
+            for p in primes_ordered:
+                mapping = precomputed_residues.get(p, {})
+                roots_lists = mapping.get(v_orig_tuple, []) # list of sets
+                
+                if rhs_idx < len(roots_lists):
+                    residues_for_this_rhs_p = roots_lists[rhs_idx]
+                    if residues_for_this_rhs_p:
+                        # Make sure they are ints
+                        numeric_residues = {int(r) for r in residues_for_this_rhs_p if isinstance(r, (int, Integer))}
+                        if numeric_residues:
+                            per_prime_numeric_residues_for_v_rhs[p] = [Integer(r) for r in sorted(numeric_residues)]
 
-            child_classes_for_node = set()
+            # 2. Get the list of primes that are relevant for THIS v/rhs combo
+            primes_for_this_v_rhs = sorted(per_prime_numeric_residues_for_v_rhs.keys(), reverse=True)
+            
+            max_levels_for_v_rhs = min(max_levels, len(primes_for_this_v_rhs))
 
-            for (m0_parent, M_par_saved) in class_keys_parent:
-                # Estimate explosion: since we only use the union (not per-vector lists),
-                # the branching factor at this prime is len(residues_for_p).
-                prod_est = len(residues_for_p)
-                if combo_cap and prod_est > combo_cap:
-                    nodes_pruned += 1
-                    counters_debug['pruned_by_combo_cap'] += 1
-                    continue
+            # Need at least 1 prime to start the tree
+            if len(primes_for_this_v_rhs) < 1:
+                continue
 
-                # For each residue r (single residue mod p), combine with parent class
-                for r_mod_p in residues_for_p:
-                    if M_parent == 1 or m0_parent is None:
-                        # initial lift: congruence m ≡ r_mod_p (mod p)
-                        # Single modulus p
-                        try:
-                            m0_new = safe_crt((r_mod_p,), (p,))
-                            M_new = int(p)
-                        except Exception as e:
-                            # This is unexpected because we are not combining same-modulus residues here.
-                            # Log full traceback and re-raise so you see the problem instantly.
-                            print("[crt-tree ERROR] crt failed on simple (r_mod_p, p) combo — this should not happen.")
-                            traceback.print_exc()
-                            raise
-                    else:
-                        # Combine parent residue (m0_parent mod M_parent) with new congruence m ≡ r_mod_p (mod p)
-                        # since p is prime and (typically) not dividing M_parent, lcm = M_parent*p
-                        try:
-                            # parent residue value (as int in 0..M_parent-1)
-                            parent_residue = int(m0_parent) % int(M_parent)
-                            residues_tuple = (parent_residue, int(r_mod_p))
-                            moduli_tuple = (int(M_parent), int(p))
-                            # Validate: gcd check trivial if p not dividing M_parent; safe_crt will raise if inconsistent
-                            m0_new = safe_crt(residues_tuple, moduli_tuple)
-                            M_new = int(M_parent) * int(p)
-                        except ValueError as e:
-                            # incompatible residues (expected in some cases); count and skip
-                            counters_debug['crt_incompatible'] += 1
-                            if debug:
-                                # print a concise diagnostic (not the full Python traceback)
-                                print(f"[crt-incompatible] p={p} parent=({m0_parent},{M_parent}) r={r_mod_p} -> {e}")
-                            continue
-                        except Exception:
-                            # Unexpected other CRT error — show full traceback and re-raise
-                            print("[crt-tree ERROR] unexpected exception in CRT combination:")
-                            traceback.print_exc()
-                            raise
+            # 3. Run the BFS tree search FOR THIS VECTOR/RHS
+            root = {'M': Integer(1), 'classes': {(None, Integer(1)): True}, 'level': 0}
+            frontier = deque([root])
+            level_idx = 0
 
-                    # success: record tested class
-                    class_key = (int(m0_new) % int(M_new), int(M_new))
-                    tested_crt_classes.add(class_key)
-                    stats_counter['crt_lift_attempts'] += 1
+            while frontier and level_idx < max_levels_for_v_rhs:
+                p = primes_for_this_v_rhs[level_idx]
+                next_frontier = deque()
+                
+                # Get residues for this prime AND this vector/RHS
+                residues_for_p = per_prime_numeric_residues_for_v_rhs[p] # Already a list of Sage Integers
 
-                    # Candidate generation attempts
-                    # 1) t-search (may fail) — log full traceback if it fails
-                    try:
-                        best_ms = minimize_archimedean_t_linear_const(int(m0_new), int(M_new), r_m, shift, tmax)
-                        for _, m_cand, _, _ in best_ms:
-                            found_candidates.add((QQ(m_cand), None))
-                    except Exception as e:
-                        # Log failure with traceback so nothing is hidden
-                        counters_debug['tsearch_fail'] += 1
-                        if debug:
-                            print("[tsearch EXCEPT] minimize_archimedean failed for class:", class_key)
-                            traceback.print_exc()
+                while frontier:
+                    node = frontier.popleft()
+                    M_parent = node['M']
+                    class_keys_parent = list(node['classes'].keys())
+                    child_classes_for_node = set()
 
-                    # 2) rational reconstruction (cheap) — also log failures but don't crash the whole search
-                    stats_counter['rr_attempts'] += 1
-                    try:
-                        a, b = rational_reconstruct(int(m0_new) % int(M_new), int(M_new))
-                        stats_counter['rr_success'] += 1
-                        found_candidates.add((QQ(a) / QQ(b), None))
-                    except Exception as e:
-                        counters_debug['rr_fail'] += 1
-                        if debug:
-                            # show the exception type/message but not raise
-                            print(f"[rr FAIL] m0_mod_M={int(m0_new)%int(M_new)} mod {int(M_new)}: {e}")
+                    for (m0_parent, M_par_saved) in class_keys_parent:
+                        for r_mod_p_sage in residues_for_p:
+                            try:
+                                if M_parent == 1 or m0_parent is None:
+                                    m0_new = safe_crt((r_mod_p_sage,), (Integer(p),))
+                                    M_new = Integer(p)
+                                else:
+                                    parent_residue_sage = (Integer(m0_parent) % Integer(M_parent)) if not isinstance(m0_parent, Integer) else (m0_parent % M_parent)
+                                    residues_tuple = (parent_residue_sage, r_mod_p_sage)
+                                    moduli_tuple = (Integer(M_parent), Integer(p))
+                                    m0_new = safe_crt(residues_tuple, moduli_tuple)
+                                    M_new = Integer(M_parent) * Integer(p)
+                            except Exception:
+                                # This can happen if residues are incompatible (e.g., if p|M_parent, though our logic should prevent this)
+                                counters_debug['crt_incompatible'] += 1
+                                continue # This is an expected pruning
+                            
+                            if M_new > max_modulus:
+                                counters_debug['pruned_by_max_modulus'] += 1
+                                continue
 
-                    # append child class for further extension
-                    child_classes_for_node.add(canonical_class_key(m0_new, M_new))
+                            key = canonical_class_key(m0_new, M_new)
+                            
+                            # Only test a class if we haven't seen it before *globally*
+                            if key not in tested_crt_classes:
+                                tested_crt_classes.add(key)
+                                stats_counter['crt_lift_attempts'] += 1
 
-            # end for parent classes
-            if child_classes_for_node:
-                child_node = {'M': node['M'] * int(p), 'classes': {ck: True for ck in child_classes_for_node}, 'level': node['level'] + 1}
-                next_frontier.append(child_node)
+                                # Candidate generation: t-search
+                                try:
+                                    best_ms = minimize_archimedean_t_linear_const(
+                                        int(m0_new), int(M_new), const_C, shift, tmax
+                                    )
+                                    for _, m_cand, x_val, _ in best_ms:
+                                        found_candidates.add((QQ(m_cand), v_orig_tuple)) 
+                                except Exception:
+                                    counters_debug['tsearch_fail'] += 1
 
-        # finish level
-        frontier = next_frontier
+                                # Rational reconstruction
+                                stats_counter['rr_attempts'] += 1
+                                try:
+                                    m0_mod_sage = m0_new % M_new
+                                    m0_py, M_py = to_python_mod_pair(m0_mod_sage, M_new)
+                                    a, b = rational_reconstruct_cached(m0_py, M_py)
+                                    stats_counter['rr_success'] += 1
+                                    found_candidates.add((QQ(a) / QQ(b), v_orig_tuple)) 
+                                except RationalReconstructionError: # Catch specific error
+                                    counters_debug['rr_fail'] += 1
+                                except Exception: # Catch other potential failures
+                                    counters_debug['rr_fail_other'] += 1
+                            else:
+                                counters_debug['pruned_by_tested_cache'] += 1
 
-        if debug:
-            print(f"[crt-tree level] level={level_idx} p={p} processed={nodes_processed} pruned={nodes_pruned} crt_lifts={stats_counter.get('crt_lift_attempts',0)} found={len(found_candidates)}")
 
-        # stability check
-        last_new_rational_counts.append(len(found_candidates))
-        if len(last_new_rational_counts) == k_stable and len(set(last_new_rational_counts)) == 1:
-            if debug:
-                print(f"[crt-tree] Candidate set stable for {k_stable} levels; stopping early at level {level_idx}")
-            break
+                            # Add to next frontier regardless of whether we tested it
+                            # (it might combine with a future prime to make a new class)
+                            child_classes_for_node.add(canonical_class_key(m0_new, M_new))
 
-        level_idx += 1
+                    if child_classes_for_node:
+                        child_node = {
+                            'M': Integer(node['M']) * Integer(p),
+                            'classes': {ck: True for ck in child_classes_for_node},
+                            'level': node['level'] + 1
+                        }
+                        next_frontier.append(child_node)
 
-    # Final debug summary
+                frontier = next_frontier
+                level_idx += 1
+        
+        # --- End of RHS loop ---
+            
+    # === END MAIN VECTOR LOOP ===
+
+    # Final summary
     if debug:
-        print("[crt-tree summary]", "levels:", level_idx,
+        print("[crt-tree summary]", "levels:", max_levels,
               "crt_lift_attempts:", stats_counter.get('crt_lift_attempts', 0),
               "rr_attempts:", stats_counter.get('rr_attempts', 0),
               "rr_success:", stats_counter.get('rr_success', 0),
               "crt_incompatible:", counters_debug.get('crt_incompatible', 0),
-              "tsearch_fail:", counters_debug.get('tsearch_fail', 0),
+              "pruned_by_max_modulus:", counters_debug.get('pruned_by_max_modulus', 0),
+              "pruned_by_tested_cache:", counters_debug.get('pruned_by_tested_cache', 0),
               "tested_classes:", len(tested_crt_classes),
               "found_candidates:", len(found_candidates))
 
-    # merge counters_debug into stats_counter for caller visibility
+    # merge diagnostics
     for k, v in counters_debug.items():
         stats_counter[k] += v
 
     return found_candidates, tested_crt_classes, stats_counter
+
+
+def lll_reduce_basis_modp(p, sections, curve_modp,
+                                   truncate_deg=TRUNCATE_MAX_DEG,
+                                   lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
+                                   max_k_abs=MAX_K_ABS):
+    """
+    Improved LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
+    Returns (new_basis, Uinv) similar to previous function.
+    """
+    r = len(sections)
+    if r == 0:
+        return [], identity_matrix(ZZ, 0)
+
+    poly_coords = []
+    max_deg = 0
+
+    # Extract integer coefficient lists (trim tails)
+    for P in sections:
+        Pp = reduce_point_hom(P, curve_modp, p)
+        if Pp is None or Pp.is_zero():  # <- handle None safely
+            poly_coords.append(([0], [0], [1]))
+            continue
+
+        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
+        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
+        Xp = Xr.numerator() * (den // Xr.denominator())
+        Yp = Yr.numerator() * (den // Yr.denominator())
+        Zp = Zr.numerator() * (den // Zr.denominator())
+
+        xc, dx = _get_coeff_data(Xp)
+        yc, dy = _get_coeff_data(Yp)
+        zc, dz = _get_coeff_data(Zp)
+
+        # Trim high-degree tails
+        xc = _trim_poly_coeffs(xc, truncate_deg)
+        yc = _trim_poly_coeffs(yc, truncate_deg)
+        zc = _trim_poly_coeffs(zc, truncate_deg)
+
+        poly_coords.append((xc, yc, zc))
+        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
+
+    poly_len = max_deg + 1
+    coeff_vecs = []
+    for xc, yc, zc in poly_coords:
+        xc_padded = list(xc) + [0] * (poly_len - len(xc))
+        yc_padded = list(yc) + [0] * (poly_len - len(yc))
+        zc_padded = list(zc) + [0] * (poly_len - len(zc))
+        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
+        coeff_vecs.append(vector(ZZ, row))
+
+    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
+        if DEBUG: print("All coefficient vectors are zero or truncated away, using identity transformation")
+        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
+
+    M = matrix(ZZ, coeff_vecs)
+    
+    # *** FIXED PART ***
+    # The BKZ/LLL implementations in Sage can fail on matrices with only one row.
+    # If there's only one section, the basis is trivially reduced, so we can
+    # skip the complex reduction step entirely and use an identity transformation.
+    if M.nrows() <= 1:
+        Uinv = identity_matrix(ZZ, r)
+        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
+        # With an identity transformation, the new basis is the same as the old one.
+        return reduced_sections_mod_p, Uinv
+    # *** END FIXED PART ***
+
+    if M.rank() < min(M.nrows(), M.ncols()):
+        if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
+
+    # --- THIS IS THE BUGFIX ---
+    # The original check 'M.ncols() > 5 * M.nrows()' was too restrictive
+    # and failed for r=2, ncols=93 (from max_deg=30).
+    # We relax it significantly.
+    # The matrix width is expected to be ~3 * (TRUNCATE_MAX_DEG + 1) = 93
+    # We only want to skip if it's truly enormous relative to the rank.
+    if M.ncols() > 50 * M.nrows(): # Relaxed from 5 to 50
+    # --- END BUGFIX ---
+        if DEBUG:
+            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
+        return [reduce_point_hom(P, curve_modp, p) for P in sections], identity_matrix(ZZ, r)
+
+    # Column scaling to balance magnitudes
+    try:
+        scales = _compute_integer_scales_for_columns(M)
+        M_scaled, D = _scale_matrix_columns_int(M, scales)
+    except Exception as e:
+        if DEBUG: print("Column scaling failed, proceeding without scaling:", e)
+        M_scaled = M
+        D = diagonal_matrix([1]*M.ncols())
+
+    # Try BKZ first if available (improves shortness for moderate dims)
+    U = None
+    B = None
+    try:
+        # prefer BKZ if available on matrix
+        if hasattr(M_scaled, "BKZ"):
+            # choose blocksize heuristically but not larger than dimension
+            block = min(bkz_block, max(2, M_scaled.ncols()//2))
+            U, B = M_scaled.BKZ(block_size=block, transformation=True)
+        else:
+            # fallback to LLL with chosen delta
+            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
+    except (TypeError, ValueError):
+        # different signatures in some Sage versions, or value error from BKZ, fall back
+        try:
+            U, B = M_scaled.LLL(transformation=True)
+        except Exception as e:
+            if DEBUG:
+                print("LLL/BKZ reduction failed, falling back to identity:", e)
+            U = identity_matrix(ZZ, r)
+            B = M_scaled.copy()
+    
+
+    # DEBUG OUTPUT
+    # [This print statement was removed from the source, but we'll keep the logic]
+    # print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
+    # ...
+
+    # Validate U is unimodular (invertible over ZZ)
+    Uinv = None
+    # --- require unimodular U ---
+    assert U.nrows() == U.ncols(), "LLL transform U must be square"
+    detU = int(U.det())
+    assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
+    Uinv = U.inverse()
+    # Build reduced basis points by applying U to reduced sections (but we scaled columns earlier)
+    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
+    # U acts on rows (combines sections). Unscaling D isn't necessary for row ops.
+    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
+
+    # Filter required ks to a bounded range to avoid explosion in mults
+    # Note: caller must check mults limits
+    return new_basis, Uinv
