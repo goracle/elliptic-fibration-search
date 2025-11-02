@@ -2385,101 +2385,6 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
 
 # In search_lll.py, replace the existing _process_prime_subset_precomputed function with this:
 
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
-    """
-    Worker function to find m-candidates for a single subset of primes.
-    This version processes each RHS function independently.
-    
-    *** MODIFIED to decouple t-search filter from rational reconstruction ***
-    """
-    if not p_subset:
-        return set()
-
-    found_candidates_for_subset = set()
-    stats_counter = Counter()
-    tested_crt_classes = set()
-
-    # these are now skipped!  this shouldn't print anymore!
-    if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
-        est = 1
-        for p in p_subset:
-            vks = precomputed_residues[p]
-            for roots_list in vks.values():
-                # roots_list is a list of sets per RHS function
-                if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
-                    est *= sum(len(roots) for roots in roots_list)
-        if est > combo_cap and DEBUG:
-            print("[heavy subset]", p_subset, "estimated combos:", est)
-
-    num_extra_primes = 4
-    offset = 2
-    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
-
-    for v_orig in vecs:
-        if all(c == 0 for c in v_orig):
-            continue
-        v_orig_tuple = tuple(v_orig)
-
-        for rhs_idx in range(num_rhs_fns):
-            
-            residue_map_for_crt = {}
-            for p in p_subset:
-                # precomputed_residues[p][v_tuple] is now a list of sets
-                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
-                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
-
-            primes_for_crt = list(residue_map_for_crt.keys())
-            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
-                continue
-
-            residue_map_for_filter = {}
-            for p in extra_primes_for_filtering:
-                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
-                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
-
-            lists = [residue_map_for_crt[p] for p in primes_for_crt]
-            
-            for combo in itertools.product(*lists):
-                stats_counter['crt_lift_attempts'] += 1
-                M = 1
-                for p in primes_for_crt:
-                    M *= int(p)
-
-                if M > MAX_MODULUS:
-                    continue
-
-                m0 = crt_cached(combo, tuple(primes_for_crt))
-                tested_crt_classes.add((int(m0) % int(M), int(M)))
-
-                # --- START MODIFICATION ---
-                # Path 1: t-search (guarded by the filter)
-                if candidate_passes_extra_primes(m0, M, residue_map_for_filter, extra_primes_for_filtering, tmax):
-                    try:
-                        best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
-                    except TypeError:
-                        best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
-
-                    for _, m_cand, _, _ in best_ms:
-                        found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
-
-                # Path 2: Rational Reconstruction (run *unconditionally*)
-                stats_counter['rational_recon_attempts_worker'] += 1
-                try:
-                    a, b = rational_reconstruct(m0 % M, M)
-                    found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
-                    stats_counter['rational_recon_success_worker'] += 1
-                except RationalReconstructionError:
-                    stats_counter['rational_recon_failure_worker'] += 1
-                    # Do not raise here, just fail to add
-                    pass
-                # --- END MODIFICATION ---
-
-    return found_candidates_for_subset, stats_counter, tested_crt_classes
-
-
-
 # In search_lll.py
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
@@ -3073,3 +2978,129 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
     # The assert function lives in this module: assert_base_m_found(...)
     stats.end_phase('symbolic_search') # <-- STATS
     return newly_found_x, new_sections
+
+
+def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_primes, verbose=False):
+    """
+    Checks if a *single* integer t is valid against the extra prime constraints.
+    This is an O(1) check, unlike the O(tmax) search.
+    """
+    m0 = int(m0)
+    M = int(M)
+    t_candidate = int(t_candidate)
+
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+
+        # If this prime has no allowed residues for this vector, fail.
+        if not allowed_m_residues:
+            if verbose: print(f"Filter fail: Prime {q} has no allowed m-residues.")
+            return False
+
+        # Compute what m = m0 + t*M is modulo q
+        m_cand_mod_q = (m0 + t_candidate * M) % q
+
+        # Check if this m is in the allowed set.
+        if m_cand_mod_q not in allowed_m_residues:
+            if verbose: print(f"Filter fail: t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            return False
+
+    # If we passed all primes, this t is valid.
+    if verbose: print(f"Filter pass: t={t_candidate} is valid.")
+    return True
+
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
+    """
+    Worker function to find m-candidates for a single subset of primes.
+    This version processes each RHS function independently.
+    
+    *** MODIFIED to use O(1) t-filtering *after* O(1) t-minimization ***
+    """
+    if not p_subset:
+        return set()
+
+    found_candidates_for_subset = set()
+    stats_counter = Counter()
+    tested_crt_classes = set()
+
+    # these are now skipped!  this shouldn't print anymore!
+    if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
+        est = 1
+        for p in p_subset:
+            vks = precomputed_residues[p]
+            for roots_list in vks.values():
+                # roots_list is a list of sets per RHS function
+                if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
+                    est *= sum(len(roots) for roots in roots_list)
+        if est > combo_cap and DEBUG:
+            print("[heavy subset]", p_subset, "estimated combos:", est)
+
+    num_extra_primes = 4
+    offset = 2
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
+
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        for rhs_idx in range(num_rhs_fns):
+            
+            residue_map_for_crt = {}
+            for p in p_subset:
+                # precomputed_residues[p][v_tuple] is now a list of sets
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
+
+            primes_for_crt = list(residue_map_for_crt.keys())
+            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+                continue
+
+            residue_map_for_filter = {}
+            for p in extra_primes_for_filtering:
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
+
+            lists = [residue_map_for_crt[p] for p in primes_for_crt]
+            
+            for combo in itertools.product(*lists):
+                stats_counter['crt_lift_attempts'] += 1
+                M = 1
+                for p in primes_for_crt:
+                    M *= int(p)
+
+                if M > MAX_MODULUS:
+                    continue
+
+                m0 = crt_cached(combo, tuple(primes_for_crt))
+                tested_crt_classes.add((int(m0) % int(M), int(M)))
+
+                # --- START MODIFICATION ---
+                # Path 1: t-search (now O(1) find + O(1) filter)
+                
+                # Step 1: Find the 1-3 best t candidates (O(1))
+                try:
+                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
+                except TypeError:
+                    best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
+
+                # Step 2: Filter *only* those t values (O(1))
+                for t_cand, m_cand, _, _ in best_ms:
+                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, extra_primes_for_filtering):
+                        found_candidates_for_subset.add(QQ(m_cand), v_orig_tuple))
+
+                # Path 2: Rational Reconstruction (still run unconditionally)
+                stats_counter['rational_recon_attempts_worker'] += 1
+                try:
+                    a, b = rational_reconstruct(m0 % M, M)
+                    found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+                    stats_counter['rational_recon_success_worker'] += 1
+                except RationalReconstructionError:
+                    stats_counter['rational_recon_failure_worker'] += 1
+                    pass
+                # --- END MODIFICATION ---
+
+    return found_candidates_for_subset, stats_counter, tested_crt_classes
