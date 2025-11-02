@@ -944,15 +944,11 @@ def main_genus2():
         excluded.add(frozenset(data_pts))
         known_pts = augment_known(known_pts, all_found_x, deg6=True)
 
-        # stop after first fibration, regardless
-        break
-
     print("\n--- Cumulative Run Statistics ---")
     print(cumulative_stats.summary_string())
 
     print("\n--- Final Results ---")
     print(f"Final list of known points: {sorted(list(known_pts))}")
-    print("Found:", len(sorted(list(known_pts))), "/", TERMINATE_WHEN_6)
 
 
 
