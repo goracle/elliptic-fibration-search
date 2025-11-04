@@ -3292,7 +3292,7 @@ def _compute_residues_for_prime_worker(args):
     HENSEL_STRICT = True   # keep only simple roots (derivative != 0 mod p)
     # If you later want to allow non-simple roots when no simple roots exist for that RHS,
     # set HENSEL_ALLOW_WEAK = True
-    HENSEL_ALLOW_WEAK = False
+    HENSEL_ALLOW_WEAK = True
 
     try:
         # iterate vectors
