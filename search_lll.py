@@ -3030,7 +3030,7 @@ def _compute_residues_for_prime_worker(args):
     local_modular_checks = 0
 
     # Hensel filtering tunables
-    HENSEL_STRICT = False
+    HENSEL_STRICT = HENSEL_SLOPPY # fast, but may reject too much
     HENSEL_ALLOW_WEAK = True
 
     for idx, v_orig in enumerate(vecs_list):
