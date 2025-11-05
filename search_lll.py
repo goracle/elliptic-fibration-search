@@ -499,139 +499,6 @@ def _get_coeff_data(poly):
 
 # --- LLL Reduction Functions ---
 
-def lll_reduce_basis_modp(p, sections, curve_modp,
-                                   truncate_deg=TRUNCATE_MAX_DEG,
-                                   lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
-                                   max_k_abs=MAX_K_ABS):
-    """
-    Improved LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
-    Returns (new_basis, Uinv) similar to previous function.
-    """
-    r = len(sections)
-    if r == 0:
-        return [], identity_matrix(ZZ, 0)
-
-    poly_coords = []
-    max_deg = 0
-
-    # Extract integer coefficient lists (trim tails)
-    for P in sections:
-        Pp = reduce_point_hom(P, curve_modp, p)
-        if Pp is None or Pp.is_zero():  # <- handle None safely
-            poly_coords.append(([0], [0], [1]))
-            continue
-
-        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
-        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
-        Xp = Xr.numerator() * (den // Xr.denominator())
-        Yp = Yr.numerator() * (den // Yr.denominator())
-        Zp = Zr.numerator() * (den // Zr.denominator())
-
-        xc, dx = _get_coeff_data(Xp)
-        yc, dy = _get_coeff_data(Yp)
-        zc, dz = _get_coeff_data(Zp)
-
-        # Trim high-degree tails
-        xc = _trim_poly_coeffs(xc, truncate_deg)
-        yc = _trim_poly_coeffs(yc, truncate_deg)
-        zc = _trim_poly_coeffs(zc, truncate_deg)
-
-        poly_coords.append((xc, yc, zc))
-        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
-
-    poly_len = max_deg + 1
-    coeff_vecs = []
-    for xc, yc, zc in poly_coords:
-        xc_padded = list(xc) + [0] * (poly_len - len(xc))
-        yc_padded = list(yc) + [0] * (poly_len - len(yc))
-        zc_padded = list(zc) + [0] * (poly_len - len(zc))
-        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
-        coeff_vecs.append(vector(ZZ, row))
-
-    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
-        if DEBUG: print("All coefficient vectors are zero or truncated away, using identity transformation")
-        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
-
-    M = matrix(ZZ, coeff_vecs)
-    
-    # *** FIXED PART ***
-    # The BKZ/LLL implementations in Sage can fail on matrices with only one row.
-    # If there's only one section, the basis is trivially reduced, so we can
-    # skip the complex reduction step entirely and use an identity transformation.
-    if M.nrows() <= 1:
-        Uinv = identity_matrix(ZZ, r)
-        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-        # With an identity transformation, the new basis is the same as the old one.
-        return reduced_sections_mod_p, Uinv
-    # *** END FIXED PART ***
-
-    if M.rank() < min(M.nrows(), M.ncols()):
-        if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
-
-    if M.ncols() > 5 * M.nrows():
-        if DEBUG:
-            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
-        return [reduce_point_hom(P, curve_modp, p) for P in sections], identity_matrix(ZZ, r)
-
-    # Column scaling to balance magnitudes
-    try:
-        scales = _compute_integer_scales_for_columns(M)
-        M_scaled, D = _scale_matrix_columns_int(M, scales)
-    except Exception as e:
-        if DEBUG: print("Column scaling failed, proceeding without scaling:", e)
-        M_scaled = M
-        D = diagonal_matrix([1]*M.ncols())
-
-    # Try BKZ first if available (improves shortness for moderate dims)
-    U = None
-    B = None
-    try:
-        # prefer BKZ if available on matrix
-        if hasattr(M_scaled, "BKZ"):
-            # choose blocksize heuristically but not larger than dimension
-            block = min(bkz_block, max(2, M_scaled.ncols()//2))
-            U, B = M_scaled.BKZ(block_size=block, transformation=True)
-        else:
-            # fallback to LLL with chosen delta
-            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
-    except (TypeError, ValueError):
-        # different signatures in some Sage versions, or value error from BKZ, fall back
-        try:
-            U, B = M_scaled.LLL(transformation=True)
-        except Exception as e:
-            if DEBUG:
-                print("LLL/BKZ reduction failed, falling back to identity:", e)
-            U = identity_matrix(ZZ, r)
-            B = M_scaled.copy()
-    
-
-    # DEBUG OUTPUT
-    print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
-    print(f"[LLL_DEBUG] U type: {type(U).__name__}, has nrows: {hasattr(U, 'nrows')}")
-    if hasattr(U, 'nrows'):
-        print(f"[LLL_DEBUG] U shape: {U.nrows()}x{U.ncols()}")
-    else:
-        print(f"[LLL_DEBUG] U is not a matrix. repr (first 100 chars): {repr(U)[:100]}")
-    print(f"[LLL_DEBUG] B type: {type(B).__name__}")
-
-    # Validate U is unimodular (invertible over ZZ)
-    Uinv = None
-    # --- require unimodular U ---
-    assert U.nrows() == U.ncols(), "LLL transform U must be square"
-    detU = int(U.det())
-    assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
-    Uinv = U.inverse()
-    # Build reduced basis points by applying U to reduced sections (but we scaled columns earlier)
-    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-    # U acts on rows (combines sections). Unscaling D isn't necessary for row ops.
-    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
-
-    # Filter required ks to a bounded range to avoid explosion in mults
-    # Note: caller must check mults limits
-    return new_basis, Uinv
-
-
-
 def process_candidate(m_val, v_tuple, r_m, shift, rationality_test_func, current_sections):
     """
     Single candidate check: returns (m_val, x_val, y_val, new_section) or None.
@@ -1433,122 +1300,6 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 # ============================================================================
 # Integration point: call this after precomputation completes
 # ============================================================================
-def _compute_residues_for_prime_worker(args):
-    """
-    Worker computing residues for one prime.
-    Returns (p, result_for_p, local_modular_checks)
-    - result_for_p: { v_orig_tuple : [set(roots_for_rhs0), set(roots_for_rhs1), ...] }
-    - local_modular_checks: integer count of attempted modular RHS checks
-    """
-    # Unpack args (compatible with call-sites that append stats as final arg)
-    # Expected tuple:
-    # (p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats)
-    try:
-        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats = args
-    except Exception:
-        # Backwards compatibility: if stats not provided
-        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
-        _stats = None
-
-    result_for_p = {}
-    local_modular_checks = 0
-
-    try:
-        for idx, v_orig in enumerate(vecs_list):
-            v_orig_tuple = tuple(v_orig)
-
-            # zero-vector shortcut
-            if all(c == 0 for c in v_orig):
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            # transformed vector at this prime (if not present, skip)
-            try:
-                v_p_transformed = vecs_lll_p[idx]
-            except Exception:
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            # Build Pm safely using mults_p which may be dict or list
-            Pm = Ep_local(0)
-            for j, coeff in enumerate(v_p_transformed):
-                try:
-                    mpj = mults_p[j]                       # may raise KeyError or IndexError
-                except Exception:
-                    mpj = None
-
-                if mpj is None:
-                    continue
-
-                # mpj may be dict-like or list-like
-                try:
-                    key = int(coeff)
-                    if hasattr(mpj, 'get'):               # dict-like
-                        if key in mpj:
-                            Pm += mpj[key]
-                    else:                                 # list/tuple-like
-                        if 0 <= key < len(mpj):
-                            Pm += mpj[key]
-                except Exception:
-                    # be conservative: skip this coefficient if anything goes wrong
-                    continue
-
-            # If the point sum is the identity, no residues for this vector
-            if Pm.is_zero():
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
-
-            # For each RHS function, compute roots modulo p (if data exists)
-            roots_by_rhs = []
-            for i_rhs in range(num_rhs):
-                roots_for_rhs = set()
-                # rhs_modp_list_local[i_rhs] expected to be a dict mapping p -> rhs_mod_p
-                rhs_map = rhs_modp_list_local[i_rhs]
-                if p in rhs_map:
-                    rhs_p = rhs_map[p]
-                    try:
-                        # If the denominator is zero mod p, treat as "no numeric root"
-                        den = Pm[2]
-                        # Attempt to get integer modulo p; some ring elements might not support %
-                        try:
-                            den_modp = int(den) % int(p)
-                        except Exception:
-                            # fallback: coerce numerator/denominator via .numerator/.denominator if available
-                            try:
-                                den_modp = int(den.numerator()) % int(p)
-                            except Exception:
-                                den_modp = 0  # be conservative
-
-                        if den_modp == 0:
-                            # Can't test this RHS modulo p (denominator zero) -> no numeric root recorded
-                            # (do NOT insert non-numeric sentinels; just append empty set)
-                            pass
-                        else:
-                            # compute the polynomial numerator for (X - rhs_p) mod p
-                            num_modp = (Pm[0] / Pm[2] - rhs_p).numerator()
-                            if not num_modp.is_zero():
-                                local_modular_checks += 1
-                                # compute roots in GF(p)
-                                roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
-                                roots_for_rhs.update(roots)
-                    except Exception:
-                        # any algebraic failure just yields no roots for this RHS
-                        pass
-
-                roots_by_rhs.append(roots_for_rhs)
-
-            # final assignment for this vector
-            result_for_p[v_orig_tuple] = roots_by_rhs
-
-    except Exception as e:
-        # safe fail: return empty mapping + zero checks
-        if DEBUG:
-            print(f"[worker fail] p={p}: {e}")
-        return p, {}, 0
-
-    return p, result_for_p, local_modular_checks
-
-
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
                                               num_subsets, min_size, max_size, combo_cap,
                                               seed=SEED_INT, force_full_pool=False, debug=DEBUG,
@@ -3309,6 +3060,7 @@ def _compute_residues_for_prime_worker(args):
                 v_p_transformed = vecs_lll_p[idx]
             except Exception:
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                raise
                 continue
 
             # Build the linear combination Pm = sum coeff_j * mpj safely
@@ -3318,6 +3070,7 @@ def _compute_residues_for_prime_worker(args):
             except Exception:
                 # If Ep_local cannot be called, bail out for this vector
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                raise
                 continue
 
             for j, coeff in enumerate(v_p_transformed):
@@ -3325,6 +3078,7 @@ def _compute_residues_for_prime_worker(args):
                     mpj = mults_p[j]
                 except Exception:
                     mpj = None
+                    raise
 
                 if mpj is None:
                     continue
@@ -3340,6 +3094,7 @@ def _compute_residues_for_prime_worker(args):
                             Pm += mpj[key]
                 except Exception:
                     # be conservative: skip this coefficient if anything goes wrong
+                    raise
                     continue
 
             # If the point sum is the identity, no residues for this vector
@@ -3354,7 +3109,8 @@ def _compute_residues_for_prime_worker(args):
                         result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                         continue
                 except Exception:
-                    pass
+                    raise
+                raise
 
             # For each RHS function, compute roots modulo p (if rhs available)
             roots_by_rhs = []
@@ -3376,17 +3132,37 @@ def _compute_residues_for_prime_worker(args):
                 try:
                     # Denominator check: ensure we can evaluate numerator safely mod p
                     den = Pm[2] if hasattr(Pm, '__getitem__') else None
+
                     den_modp = 0
-                    try:
-                        den_modp = int(den) % int(p)
-                    except Exception:
+                    if den is not None:
                         try:
-                            den_modp = int(den.numerator()) % int(p)
+                            # Try simple integer or rational coercion first
+                            den_modp = int(ZZ(den)) % int(p)
                         except Exception:
-                            den_modp = 0
+                            try:
+                                # Handle FractionField elements (like FpTElement)
+                                if hasattr(den, "numerator") and hasattr(den, "denominator"):
+                                    num = den.numerator()
+                                    deno = den.denominator()
+                                    if hasattr(num, "__call__"):  # FpTElement
+                                        num = num(0)
+                                    if hasattr(deno, "__call__"):
+                                        deno = deno(0)
+                                    num = ZZ(num)
+                                    deno = ZZ(deno)
+                                    den_modp = int(num * pow(deno, -1, int(p)) % int(p))
+                                else:
+                                    # Final fallback: try coercion to GF(p)
+                                    den_modp = int(GF(int(p))(den))
+                            except Exception:
+                                den_modp = 0  # final fallback
+                                raise
+                            raise
+                    else:
+                        den_modp = 0
 
                     if den_modp == 0:
-                        # Can't test this RHS modulo p (denominator zero) -> no numeric root recorded
+                        # Can't test this RHS modulo p (denominator zero or invalid)
                         roots_by_rhs.append(roots_for_rhs)
                         continue
 
@@ -3416,6 +3192,8 @@ def _compute_residues_for_prime_worker(args):
                                 raw_roots = [r for r, _ in num_modp.roots(multiplicities=True)]
                             except Exception:
                                 raw_roots = []
+                                raise
+                            raise
                     except Exception:
                         # If GF/p not available for some reason, fall back to trying to coerce integer roots (rare)
                         raw_roots = []
@@ -3426,6 +3204,8 @@ def _compute_residues_for_prime_worker(args):
                                     raw_roots.append(rtest)
                         except Exception:
                             raw_roots = []
+                            raise
+                        raise
 
                     # Normalize roots to ints
                     normalized_raw_roots = []
@@ -3436,7 +3216,9 @@ def _compute_residues_for_prime_worker(args):
                             try:
                                 normalized_raw_roots.append(int(r[0]))
                             except Exception:
+                                raise
                                 continue
+                            raise
 
                     if not normalized_raw_roots:
                         # no roots modulo p for this RHS
@@ -3450,6 +3232,7 @@ def _compute_residues_for_prime_worker(args):
                         deriv = num_expr.derivative()
                     except Exception:
                         deriv = None
+                        raise
 
                     for r in normalized_raw_roots:
                         keep_root = True
@@ -3465,6 +3248,8 @@ def _compute_residues_for_prime_worker(args):
                                         dval = deriv.change_ring(GF(p))(GF(p)(r))
                                     except Exception:
                                         dval = None
+                                        raise
+                                    raise
                                 if dval is None:
                                     # cannot evaluate derivative -> conservative: either keep (if not strict) or skip
                                     keep_root = not HENSEL_STRICT
@@ -3475,6 +3260,7 @@ def _compute_residues_for_prime_worker(args):
                             except Exception:
                                 # If anything goes wrong evaluating derivative, fall back to conservative behavior
                                 keep_root = not HENSEL_STRICT
+                                raise
 
                         if keep_root:
                             simple_roots.add(int(r))
@@ -3493,7 +3279,7 @@ def _compute_residues_for_prime_worker(args):
 
                 except Exception:
                     # any algebraic failure just yields no roots for this RHS
-                    pass
+                    raise
 
                 roots_by_rhs.append(roots_for_rhs)
 
@@ -3504,6 +3290,7 @@ def _compute_residues_for_prime_worker(args):
         # safe fail: return empty mapping + zero checks
         if DEBUG:
             print(f"[worker fail] p={p}: {e}")
+        raise
         return p, {}, 0
 
     return p, result_for_p, local_modular_checks
