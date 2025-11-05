@@ -3012,285 +3012,209 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
 
 def _compute_residues_for_prime_worker(args):
     """
-    Worker computing residues for one prime.
+    Worker computing residues for one prime with Hensel filtering.
     Returns (p, result_for_p, local_modular_checks)
     - result_for_p: { v_orig_tuple : [set(roots_for_rhs0), set(roots_for_rhs1), ...] }
     - local_modular_checks: integer count of attempted modular RHS checks
     """
-    # Local imports (defensive)
-    try:
-        from sage.all import GF, Integer, QQ
-    except Exception:
-        # If running in a plain-Python context, fall back to minimal names (shouldn't happen in Sage)
-        GF = None
-        Integer = int
-        QQ = lambda x: x
-
-    # Unpack args (compatible with call-sites that append stats as final arg)
-    # Expected tuple:
-    # (p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats)
+    from sage.all import GF, Integer, QQ, ZZ
+    
+    # Unpack args
     try:
         p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats = args
     except Exception:
-        # Backwards compatibility: if stats not provided
         p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
         _stats = None
 
     result_for_p = {}
     local_modular_checks = 0
 
-    # Tunables
-    HENSEL_STRICT = True   # keep only simple roots (derivative != 0 mod p)
-    # If you later want to allow non-simple roots when no simple roots exist for that RHS,
-    # set HENSEL_ALLOW_WEAK = True
+    # Hensel filtering tunables
+    HENSEL_STRICT = False
     HENSEL_ALLOW_WEAK = True
 
-    try:
-        # iterate vectors
-        for idx, v_orig in enumerate(vecs_list):
-            v_orig_tuple = tuple(v_orig)
+    for idx, v_orig in enumerate(vecs_list):
+        v_orig_tuple = tuple(v_orig)
 
-            # zero-vector shortcut
-            if all(c == 0 for c in v_orig):
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                continue
+        if all(c == 0 for c in v_orig):
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            continue
 
-            # transformed vector at this prime (if not present, skip)
+        try:
+            v_p_transformed = vecs_lll_p[idx]
+        except Exception:
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            raise
+
+        # Build Pm = sum of section multiples
+        try:
+            Pm = Ep_local(0)
+        except Exception:
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            raise
+
+        for j, coeff in enumerate(v_p_transformed):
             try:
-                v_p_transformed = vecs_lll_p[idx]
+                mpj = mults_p[j]
             except Exception:
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                raise
-                continue
-
-            # Build the linear combination Pm = sum coeff_j * mpj safely
-            # Pm is expected to be a polynomial-like object (Ep_local(0) seed)
-            try:
-                Pm = Ep_local(0)
-            except Exception:
-                # If Ep_local cannot be called, bail out for this vector
-                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                raise
-                continue
-
-            for j, coeff in enumerate(v_p_transformed):
-                try:
-                    mpj = mults_p[j]
-                except Exception:
-                    mpj = None
-                    raise
-
-                if mpj is None:
-                    continue
-
-                # coefficient may index into mpj (dict) or be an integer index into a list
-                try:
-                    key = int(coeff)
-                    if hasattr(mpj, 'get'):  # dict-like
-                        if key in mpj:
-                            Pm += mpj[key]
-                    else:  # list/tuple-like
-                        if 0 <= key < len(mpj):
-                            Pm += mpj[key]
-                except Exception:
-                    # be conservative: skip this coefficient if anything goes wrong
-                    raise
-                    continue
-
-            # If the point sum is the identity, no residues for this vector
-            try:
-                if Pm.is_zero():
-                    result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                    continue
-            except Exception:
-                # If is_zero isn't supported, attempt a safe numeric check
-                try:
-                    if int(Pm) == 0:
-                        result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-                        continue
-                except Exception:
-                    raise
                 raise
 
-            # For each RHS function, compute roots modulo p (if rhs available)
-            roots_by_rhs = []
-            for i_rhs in range(num_rhs):
-                roots_for_rhs = set()
-                rhs_map = rhs_modp_list_local[i_rhs]  # expected mapping: p -> rhs_mod_p
+            if mpj is None:
+                continue
 
-                if p not in rhs_map:
-                    roots_by_rhs.append(roots_for_rhs)
-                    continue
+            try:
+                key = int(coeff)
+                if hasattr(mpj, 'get'):
+                    if key in mpj:
+                        Pm += mpj[key]
+                else:
+                    if 0 <= key < len(mpj):
+                        Pm += mpj[key]
+            except Exception:
+                raise
 
-                rhs_p = rhs_map[p]
+        try:
+            if Pm.is_zero():
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+        except Exception:
+            raise
 
-                # If rhs_p is None or indicates non-numeric, skip
-                if rhs_p is None:
-                    roots_by_rhs.append(roots_for_rhs)
-                    continue
+        # Process each RHS function
+        roots_by_rhs = []
+        for i_rhs in range(num_rhs):
+            roots_for_rhs = set()
+            rhs_map = rhs_modp_list_local[i_rhs]
 
-                try:
-                    # Denominator check: ensure we can evaluate numerator safely mod p
-                    den = Pm[2] if hasattr(Pm, '__getitem__') else None
-
-                    den_modp = 0
-                    if den is not None:
-                        try:
-                            # Try simple integer or rational coercion first
-                            den_modp = int(ZZ(den)) % int(p)
-                        except Exception:
-                            try:
-                                # Handle FractionField elements (like FpTElement)
-                                if hasattr(den, "numerator") and hasattr(den, "denominator"):
-                                    num = den.numerator()
-                                    deno = den.denominator()
-                                    if hasattr(num, "__call__"):  # FpTElement
-                                        num = num(0)
-                                    if hasattr(deno, "__call__"):
-                                        deno = deno(0)
-                                    num = ZZ(num)
-                                    deno = ZZ(deno)
-                                    den_modp = int(num * pow(deno, -1, int(p)) % int(p))
-                                else:
-                                    # Final fallback: try coercion to GF(p)
-                                    den_modp = int(GF(int(p))(den))
-                            except Exception:
-                                den_modp = 0  # final fallback
-                                raise
-                            raise
-                    else:
-                        den_modp = 0
-
-                    if den_modp == 0:
-                        # Can't test this RHS modulo p (denominator zero or invalid)
-                        roots_by_rhs.append(roots_for_rhs)
-                        continue
-
-                    # compute the polynomial numerator for (Pm[0]/Pm[2] - rhs_p).numerator()
-                    # Keep this in the polynomial algebra domain so we can compute derivative
-                    num_expr = (Pm[0] / Pm[2] - rhs_p).numerator()
-
-                    # If numerator is identically zero mod p, nothing to do
-                    if getattr(num_expr, 'is_zero', lambda: False)():
-                        roots_by_rhs.append(roots_for_rhs)
-                        continue
-
-                    # Count this as a modular check
-                    local_modular_checks += 1
-
-                    # Prepare GF(p) ring and find roots in GF(p)
-                    try:
-                        Fp = GF(p)
-                        raw_roots = []
-                        # some num_expr objects accept roots(ring=GF(p)), else fallback to .change_ring
-                        try:
-                            raw_roots = num_expr.roots(ring=Fp, multiplicities=False)
-                        except Exception:
-                            # alternative: change ring and use .roots() if available
-                            try:
-                                num_modp = num_expr.change_ring(Fp)
-                                raw_roots = [r for r, _ in num_modp.roots(multiplicities=True)]
-                            except Exception:
-                                raw_roots = []
-                                raise
-                            raise
-                    except Exception:
-                        # If GF/p not available for some reason, fall back to trying to coerce integer roots (rare)
-                        raw_roots = []
-                        try:
-                            # some num_expr may be simple integer polynomial; attempt integer root scan
-                            for rtest in range(int(p)):
-                                if int(num_expr.substitute({} if not hasattr(num_expr, 'variables') else {})) % p == 0:
-                                    raw_roots.append(rtest)
-                        except Exception:
-                            raw_roots = []
-                            raise
-                        raise
-
-                    # Normalize roots to ints
-                    normalized_raw_roots = []
-                    for r in raw_roots:
-                        try:
-                            normalized_raw_roots.append(int(r))
-                        except Exception:
-                            try:
-                                normalized_raw_roots.append(int(r[0]))
-                            except Exception:
-                                raise
-                                continue
-                            raise
-
-                    if not normalized_raw_roots:
-                        # no roots modulo p for this RHS
-                        roots_by_rhs.append(roots_for_rhs)
-                        continue
-
-                    # Attempt derivative-based simple-root test if supported
-                    simple_roots = set()
-                    deriv = None
-                    try:
-                        deriv = num_expr.derivative()
-                    except Exception:
-                        deriv = None
-                        raise
-
-                    for r in normalized_raw_roots:
-                        keep_root = True
-                        if HENSEL_STRICT and deriv is not None:
-                            try:
-                                # Evaluate derivative at r (in GF(p) ideally)
-                                # If derivative evaluation returns an object, coerce to int mod p
-                                try:
-                                    dval = deriv(r)
-                                except Exception:
-                                    # Try changing ring to GF(p) first
-                                    try:
-                                        dval = deriv.change_ring(GF(p))(GF(p)(r))
-                                    except Exception:
-                                        dval = None
-                                        raise
-                                    raise
-                                if dval is None:
-                                    # cannot evaluate derivative -> conservative: either keep (if not strict) or skip
-                                    keep_root = not HENSEL_STRICT
-                                else:
-                                    if int(dval) % int(p) == 0:
-                                        # non-simple root modulo p
-                                        keep_root = False
-                            except Exception:
-                                # If anything goes wrong evaluating derivative, fall back to conservative behavior
-                                keep_root = not HENSEL_STRICT
-                                raise
-
-                        if keep_root:
-                            simple_roots.add(int(r))
-
-                    if simple_roots:
-                        roots_for_rhs.update(simple_roots)
-                    else:
-                        # no simple roots kept
-                        if HENSEL_ALLOW_WEAK:
-                            roots_for_rhs.update(normalized_raw_roots)
-                        # otherwise keep roots_for_rhs empty for this RHS
-
-                    # Note: we do NOT attempt immediate p^2 Hensel lifts here (cheap conservative approach).
-                    # If desired, we could attempt a Newton step to lift each simple root to mod p^2 and
-                    # replace (r mod p) with the lifted residue (r_mod_p2, modulus=p^2) to improve CRT precision.
-
-                except Exception:
-                    # any algebraic failure just yields no roots for this RHS
-                    raise
-
+            if p not in rhs_map:
                 roots_by_rhs.append(roots_for_rhs)
+                continue
 
-            # final assignment for this vector
-            result_for_p[v_orig_tuple] = roots_by_rhs
+            rhs_p = rhs_map[p]
 
-    except Exception as e:
-        # safe fail: return empty mapping + zero checks
-        if DEBUG:
-            print(f"[worker fail] p={p}: {e}")
-        raise
-        return p, {}, 0
+            if rhs_p is None:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Check denominator Pm[2]
+            den = Pm[2] if hasattr(Pm, '__getitem__') else None
+            den_modp = 0
+            
+            if den is not None:
+                try:
+                    den_modp = int(ZZ(den)) % int(p)
+                except Exception:
+                    try:
+                        if hasattr(den, "numerator") and hasattr(den, "denominator"):
+                            num = den.numerator()
+                            deno = den.denominator()
+                            if hasattr(num, "__call__"):
+                                num = num(0)
+                            if hasattr(deno, "__call__"):
+                                deno = deno(0)
+                            num = ZZ(num)
+                            deno = ZZ(deno)
+                            den_modp = int(num * pow(deno, -1, int(p)) % int(p))
+                        else:
+                            den_modp = int(GF(int(p))(den))
+                    except Exception:
+                        raise
+            
+            if den_modp == 0:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Compute numerator of (Pm[0]/Pm[2] - rhs_p)
+            num_expr = (Pm[0] / Pm[2] - rhs_p).numerator()
+
+            try:
+                if num_expr.is_zero():
+                    roots_by_rhs.append(roots_for_rhs)
+                    continue
+            except Exception:
+                raise
+
+            local_modular_checks += 1
+
+            # Find roots in GF(p)
+            try:
+                Fp = GF(p)
+                raw_roots = num_expr.roots(ring=Fp, multiplicities=False)
+            except Exception:
+                try:
+                    num_modp = num_expr.change_ring(Fp)
+                    raw_roots = [r for r, _ in num_modp.roots(multiplicities=True)]
+                except Exception:
+                    raise
+
+            # Normalize to integers
+            normalized_raw_roots = []
+            for r in raw_roots:
+                try:
+                    normalized_raw_roots.append(int(r))
+                except Exception:
+                    try:
+                        normalized_raw_roots.append(int(r[0]))
+                    except Exception:
+                        raise
+
+            if not normalized_raw_roots:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Hensel simple-root filtering via derivative
+            simple_roots = set()
+            deriv = None
+            
+            try:
+                if hasattr(num_expr, 'numerator'):
+                    deriv = num_expr.numerator().derivative()
+                else:
+                    deriv = num_expr.derivative()
+            except Exception:
+                raise
+
+            for r in normalized_raw_roots:
+                keep_root = True
+                
+                if HENSEL_STRICT and deriv is not None:
+                    try:
+                        # Evaluate derivative at r modulo p
+                        try:
+                            deriv_modp = deriv.change_ring(Fp)
+                            dval = int(deriv_modp(Fp(r)))
+                        except Exception:
+                            try:
+                                dval = int(deriv(r))
+                            except Exception:
+                                raise
+                        
+                        if dval % int(p) == 0:
+                            keep_root = False
+                    except Exception:
+                        keep_root = not HENSEL_STRICT
+                        raise
+
+                if keep_root:
+                    simple_roots.add(int(r))
+
+            # Decide what to keep
+            if simple_roots:
+                roots_for_rhs.update(simple_roots)
+            else:
+                if HENSEL_ALLOW_WEAK:
+                    roots_for_rhs.update(normalized_raw_roots)
+
+            # Debug output
+            if DEBUG and normalized_raw_roots:
+                rejected = len(normalized_raw_roots) - len(simple_roots)
+                if rejected > 0:
+                    print(f"[hensel p={p}, rhs={i_rhs}, v={v_orig_tuple[:2]}...] "
+                          f"raw={len(normalized_raw_roots)}, simple={len(simple_roots)}, "
+                          f"rejected={rejected}, kept={len(roots_for_rhs)}")
+
+            roots_by_rhs.append(roots_for_rhs)
+
+        result_for_p[v_orig_tuple] = roots_by_rhs
 
     return p, result_for_p, local_modular_checks
