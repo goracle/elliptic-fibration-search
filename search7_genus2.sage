@@ -596,25 +596,32 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     post = completeness_posterior_geometric(k=k_found, p=p_visibility, q=prior['q'], m_max=m_max)
 
     # Nicely formatted posterior summary
-    P_all = post['P_all']
-    P_all_but_1 = post['P_all_but_1']
-    P_all_but_2 = post['P_all_but_2']
-    mean_T = post['posterior_mean_T']
-
     print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
-    print(f"Observed points (k) = {k_found}")
-    print(f"Estimated detection probability p = {p_visibility:.3f}")
-    print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
-    print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
-    print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
-    print(f"Posterior mean of T    = {mean_T:.3f}")
-    print("Note: results depend on prior (mu_combined) computed from arithmetic signals above.\n")
 
-    # For auditability, optionally print the top posterior mass (T values with significant mass)
-    top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
-    print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
+    # --- DEFENSIVE FIX for KeyError ---
+    if 'P_all' not in post or 'P_all_but_1' not in post or 'P_all_but_2' not in post:
+        print(f"Observed points (k) = {k_found}")
+        print(f"Estimated detection probability p = {p_visibility:.3f}")
+        print("⚠️  Could not compute posterior probabilities (p_visibility likely 0).")
+        print("    Search may have been starved of valid primes.")
+    else:
+        P_all = post['P_all']
+        P_all_but_1 = post['P_all_but_1']
+        P_all_but_2 = post['P_all_but_2']
+        mean_T = post['posterior_mean_T']
+
+        print(f"Observed points (k) = {k_found}")
+        print(f"Estimated detection probability p = {p_visibility:.3f}")
+        print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
+        print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
+        print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
+        print(f"Posterior mean of T    = {mean_T:.3f}")
+        print("Note: results depend on prior (mu_combined) computed from arithmetic signals above.\n")
+
+        # For auditability, optionally print the top posterior mass (T values with significant mass)
+        top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
+        print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
     # --------------------------------------------------------------------------
-
 
     ### Automorphism Search ###
     print("\n--- Automorphism Search ---")
