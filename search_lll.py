@@ -3755,6 +3755,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             for i_sec in range(r):
                 Pi = new_basis[i_sec]  # may be None if reduction failed for this section
                 required_ks = required_ks_per_section[i_sec]
+                assert required_ks, required_ks
                 if not required_ks:
                     required_ks = {-1, 0, 1}
 
