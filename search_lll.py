@@ -2963,66 +2963,6 @@ def is_congruent_to_known_sections(candidate, known_sections, primes, E=None,
 # - is_congruent_to_known_sections provides a multi-prime consistency test to
 #   filter out candidates that are just reductions of global sections.
 
-def compute_all_mults_for_section(Pi, E_mod_p, p, logger=None):
-    """
-    Compute small multiples of a reduced section Pi on the reduced curve E_mod_p.
-
-    Returns:
-      - dict {n: n*Pi} on success
-      - None if Pi is None (reduction failed) or on unexpected error.
-
-    This function is intentionally conservative: it returns None when Pi is None
-    so callers can treat the prime as unusable for modular LLL data.
-    """
-    if Pi is None:
-        if logger:
-            logger(f"[compute_all_mults_for_section] Pi is None (reduction failed) at p={p}")
-        return None
-
-    try:
-        # Try to get a sensible upper bound on how many multiples to compute.
-        # If group order is cheap to compute for this prime, use it (bounded).
-        max_mult = 20
-        try:
-            # E_mod_p.count_points may exist and be fast for small p
-            order = int(E_mod_p.count_points()) if hasattr(E_mod_p, "count_points") else None
-            if order is not None and order > 0:
-                max_mult = min(max_mult, max(5, min(order, 200)))
-        except Exception:
-            # ignore expensive/failed count_points attempt
-            pass
-
-        computed = {}
-        # identity: prefer E_mod_p(0) but be defensive
-        try:
-            identity = E_mod_p(0)
-        except Exception:
-            try:
-                identity = E_mod_p(0, 1, 0)
-            except Exception:
-                identity = None
-
-        computed[0] = identity
-        computed[1] = Pi
-
-        for n in range(2, max_mult + 1):
-            try:
-                computed[n] = n * Pi
-            except Exception as e:
-                # stop at first failure to multiply further
-                if logger:
-                    logger(f"[compute_all_mults_for_section] multiply failed n={n} at p={p}: {e}")
-                break
-
-        return computed
-
-    except Exception as e:
-        if logger:
-            logger(f"[compute_all_mults_for_section] unexpected error at p={p}: {e}")
-        return None
-
-
-
     def make_E_mod_p(p):
         """Attempt several strategies to obtain a reduced elliptic curve at p."""
         # Strategy 1: try cd.change_ring(GF(p))
@@ -3185,23 +3125,6 @@ def compute_all_mults_for_section(Pi, E_mod_p, p, logger=None):
 # Complete fixed functions for search_lll.py
 # Copy-paste these to replace the broken versions
 
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, 
-                             stats=None, search_primes=None, logger=None):
-    """
-    Prepare modular data for LLL search. Now properly handles section reduction 
-    failures by skipping primes where any section fails to reduce.
-    
-    Returns: Ep_dict, rhs_modp_list, mult_lll, vecs_lll
-    """
-    from sage.all import GF, Zmod, lcm
-    
-    # Initialize all return values first
-    Ep_dict = {}
-    rhs_modp_list = {i: {} for i in range(len(rhs_list))}
-    mult_lll = {}
-    vecs_lll = {}
-    rejected_primes = []
-    
 def reduce_point_hom(E_mod_p, P, p, logger=None):
     """
     Reduce a projective/affine point P on curve E modulo prime p.
@@ -3363,12 +3286,83 @@ def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
         return False, None
 
 
+def compute_all_mults_for_section(Pi, required_ks, stats,
+                                  max_k=None, debug=False):
+    """
+    Compute specific multiples {k: k*Pi} for a reduced section Pi.
+    Handles None input for Pi (returns None).
+    """
+    # --- FIX 1 ---
+    # Handle failed reduction input from LLL basis
+    if Pi is None:
+        return None
+    # -------------
+
+    # Original function logic continues...
+    from sage.all import ZZ
+    
+    if max_k is None:
+        try:
+            max_k = max(abs(k) for k in required_ks)
+        except ValueError:
+            max_k = MAX_K_ABS # fallback
+    
+    max_k = min(int(max_k), MAX_K_ABS)
+    
+    computed = {}
+    try:
+        identity = Pi.curve()(0)
+        computed[0] = identity
+    except Exception:
+        # Fallback if curve is weird
+        computed[0] = None
+        
+    computed[1] = Pi
+    
+    # Store by absolute value to minimize computations
+    # e.g., if we need -5, compute 5 and then negate
+    for k_abs in range(2, max_k + 1):
+        if k_abs in computed:
+            continue
+        try:
+            computed[k_abs] = k_abs * Pi
+            if stats: stats.incr('modular_mults')
+        except Exception:
+            # If 2*Pi fails, we can't compute much
+            if debug:
+                print(f"    [mults] k*Pi failed at k={k_abs}")
+            break # Stop computing
+            
+    # Now build the final map from the required_ks
+    final_mults = {}
+    for k in required_ks:
+        k_abs = abs(int(k))
+        if k_abs not in computed:
+            continue # Couldn't compute this multiple
+        
+        k_val = computed[k_abs]
+        if k_val is None:
+            continue
+
+        if k < 0:
+            final_mults[k] = -k_val
+        else:
+            final_mults[k] = k_val
+            
+    return final_mults
+
+
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
                           lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
                           max_k_abs=MAX_K_ABS):
     """
-    LLL/BKZ reduction with proper handling of single-section case.
+    LLL/BKZ reduction with proper handling of single-section case and reduction failures.
+    
+    --- FIX 2 ---
+    This function now *always* returns a list of length r = len(sections).
+    If a reduction fails or a basis vector can't be computed,
+    it places 'None' in that slot.
     """
     from sage.all import ZZ, identity_matrix, diagonal_matrix
     
@@ -3376,11 +3370,23 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     if r == 0:
         return [], identity_matrix(ZZ, 0)
 
+    # --- Start Fix: Handle reduction failures robustly ---
+    
+    # First, reduce all sections, padding with None on failure.
+    # This list will have length r.
+    reduced_sections_mod_p = [reduce_point_hom(curve_modp, P, p) for P in sections]
+    
+    # Check if *all* reductions failed
+    if all(P is None for P in reduced_sections_mod_p):
+        if DEBUG:
+            print(f"[{p}] All {r} sections failed to reduce. Returning list of Nones.")
+        return [None] * r, identity_matrix(ZZ, r)
+
     poly_coords = []
     max_deg = 0
 
-    for P in sections:
-        Pp = reduce_point_hom(curve_modp, P, p)
+    for Pp in reduced_sections_mod_p:
+        # If reduction failed, use a placeholder (0,0,1) for LLL
         if Pp is None:
             poly_coords.append(([0], [0], [1]))
             continue
@@ -3414,32 +3420,25 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
         if DEBUG: 
             print("All coefficient vectors are zero or truncated away, using identity transformation")
-        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
+        # Return the original reduced sections, which has length r
+        return reduced_sections_mod_p, identity_matrix(ZZ, r)
 
     M = matrix(ZZ, coeff_vecs)
     
+    # Handle r=1 case
     if M.nrows() <= 1:
         Uinv = identity_matrix(ZZ, r)
-        reduced_sections_mod_p = []
-        for P in sections:
-            P_red = reduce_point_hom(curve_modp, P, p)
-            if P_red is not None:
-                reduced_sections_mod_p.append(P_red)
+        # Return the original reduced sections, which has length r
         return reduced_sections_mod_p, Uinv
 
-    if M.rank() < min(M.nrows(), M.ncols()):
-        if DEBUG: 
-            print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
-
+    # Handle matrix too wide
     if M.ncols() > 5 * M.nrows():
         if DEBUG:
             print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
-        reduced_sections_mod_p = []
-        for P in sections:
-            P_red = reduce_point_hom(curve_modp, P, p)
-            if P_red is not None:
-                reduced_sections_mod_p.append(P_red)
+        # Return the original reduced sections, which has length r
         return reduced_sections_mod_p, identity_matrix(ZZ, r)
+
+    # --- End Fix ---
 
     try:
         scales = _compute_integer_scales_for_columns(M)
@@ -3482,13 +3481,269 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
     Uinv = U.inverse()
     
-    reduced_sections_mod_p = []
-    for P in sections:
-        P_red = reduce_point_hom(curve_modp, P, p)
-        if P_red is not None:
-            reduced_sections_mod_p.append(P_red)
+    # --- FIX 3 ---
+    # Rebuild the basis, safely handling None in reduced_sections_mod_p
+    new_basis = []
+    identity_point = curve_modp(0)
     
-    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(len(reduced_sections_mod_p))) 
-                 for i in range(r)]
+    for i in range(r): # Loop r times
+        S_i = identity_point
+        try:
+            valid_sum = False
+            for j in range(r): # Loop r times
+                P_j = reduced_sections_mod_p[j]
+                if P_j is not None:
+                    S_i += U[i, j] * P_j
+                    valid_sum = True
+            
+            if valid_sum:
+                new_basis.append(S_i)
+            else:
+                # This basis vector is a combination of only failed reductions
+                new_basis.append(None)
+        except Exception as e:
+            if DEBUG:
+                print(f"[LLL] Error computing new basis vector {i}: {e}")
+            new_basis.append(None) # Signal failure for this vector
 
+    # new_basis now has length r
     return new_basis, Uinv
+
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
+    """
+    Prepare modular data for LLL-based search across multiple primes.
+    Ensures we only publish per-prime data after successful processing for that prime.
+    NOW WITH SINGULAR CURVE DETECTION and ROBUST 'None' HANDLING.
+    
+    --- FIX 3 ---
+    """
+    if search_primes is None:
+        search_primes = prime_pool
+
+    r = len(current_sections)
+    if r == 0:
+        return {}, [], {}, {}
+
+    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
+    multiplies_lll, vecs_lll = {}, {}
+    PR_m = PolynomialRing(QQ, 'm')
+
+    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
+    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
+    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
+
+    for p in search_primes:
+        try:
+            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
+            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
+                continue
+            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
+                continue
+
+            Rp = PolynomialRing(GF(p), 'm')
+            Fp_m = Rp.fraction_field()
+
+            # denominators zero mod p -> skip
+            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
+                continue
+
+            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
+            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
+
+            # *** NEW: Check for singular curves before creating EllipticCurve ***
+            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
+            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
+            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
+            if disc_modp.is_zero():
+                if DEBUG:
+                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                continue
+            
+            # --- User Request: Add fiber collision check ---
+            try:
+                # We need Delta as a polynomial in m, not a rational function
+                # This assumes Delta is polynomial, which it should be.
+                Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+                if hasattr(Delta_poly, 'numerator'):
+                    Delta_poly = Delta_poly.numerator()
+                
+                # Coerce to PR_m
+                Delta_pr = PR_m(SR(Delta_poly))
+                detect_fiber_collision(Delta_pr, p, debug=DEBUG)
+            except Exception as e:
+                if DEBUG:
+                    print(f"[fiber_collision_check] failed for p={p}: {e}")
+            # -----------------------------------------------
+
+            try:
+                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            except ArithmeticError as e:
+                if DEBUG:
+                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+                continue
+
+            # build rhs_modp for this prime (but don't publish until success)
+            rhs_modp_for_p = {}
+            for i, rhs_data in enumerate(processed_rhs_list):
+                if rhs_data['den'].change_ring(GF(p)).is_zero():
+                    continue
+                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+
+            # run reduction (may raise) and build transformed vectors
+            # This now returns a 'new_basis' list of length r (with Nones)
+            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+
+            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
+            if Uinv is None:
+                Uinv_mat = identity_matrix(ZZ, r)
+            else:
+                try:
+                    # ensure integral matrix
+                    nonint = False
+                    for i_row in range(Uinv.nrows()):
+                        for j_col in range(Uinv.ncols()):
+                            entry = Uinv[i_row, j_col]
+                            if hasattr(entry, 'denominator'):
+                                if int(entry.denominator()) != 1:
+                                    nonint = True
+                                    break
+                            else:
+                                if QQ(entry) != Integer(entry):
+                                    nonint = True
+                                    break
+                        if nonint:
+                            break
+                    if nonint:
+                        Uinv_mat = identity_matrix(ZZ, r)
+                    else:
+                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
+                except Exception:
+                    Uinv_mat = identity_matrix(ZZ, r)
+
+            # Transform vecs into the LLL basis (always produce an entry for each input vec)
+            vecs_transformed_for_p = []
+            for v in vecs:
+                # ensure v is integer-coercible
+                vZ = vector(ZZ, [int(c) for c in v])
+                try:
+                    transformed = vZ * Uinv_mat
+                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
+                except Exception:
+                    # fallback: store original integer tuple
+                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
+
+            # Build required multiplier indices: union across ALL vectors for this section
+            required_ks_per_section = [set() for _ in range(r)]
+            for v_trans in vecs_transformed_for_p:
+                for j, coeff in enumerate(v_trans):
+                    required_ks_per_section[j].add(int(coeff))
+
+            # Now compute mults per section with only what's needed
+            mults = [{} for _ in range(r)]
+            
+            # --- FIX 4 ---
+            # Check for 'None' returned from compute_all_mults_for_section
+            any_mult_error = False
+            for i_sec in range(r):
+                Pi = new_basis[i_sec] # This is safe now, new_basis has length r
+                required_ks = required_ks_per_section[i_sec]
+                if not required_ks:
+                    required_ks = {-1, 0, 1}
+
+                # compute_all_mults_for_section will receive 'None' if Pi is 'None'
+                # and will correctly return 'None'
+                mults_i = compute_all_mults_for_section(
+                    Pi, required_ks, stats, 
+                    max_k=max((abs(k) for k in required_ks), default=1),
+                    debug=(r>1)
+                )
+                
+                if mults_i is None:
+                    # This section's multipliers failed, prime is unusable
+                    any_mult_error = True
+                    if DEBUG:
+                        print(f"[{p}] Failed to compute multipliers for basis section {i_sec} (Pi was {Pi})")
+                    break
+                
+                mults[i_sec] = mults_i
+            
+            if any_mult_error:
+                continue # Skip to next prime
+            # -------------
+
+            # Success for this prime -> publish all data
+            Ep_dict[p] = Ep_local
+            for i, rhs_p_val in rhs_modp_for_p.items():
+                rhs_modp_list[i][p] = rhs_p_val
+            multiplies_lll[p] = mults
+            vecs_lll[p] = vecs_transformed_for_p
+
+        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
+            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
+                if DEBUG:
+                    print(f"Skipping prime {p} due to error during preparation: {e}")
+            # do not publish partial data for p; continue to next prime
+            continue
+
+    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
+
+
+def reduce_point_hom(E_mod_p, P, p, logger=None):
+    """
+    Reduce a projective/affine point P (whose coordinates may be
+    in QQ or QQ(m)) to the curve E_mod_p (which is over GF(p) or GF(p)(m)).
+    
+    Returns:
+        - The reduced point on E_mod_p on success
+        - None if reduction fails (denominator non-invertible, bad coords, etc.)
+    
+    Returning None (not Ep(0)) allows callers to distinguish "couldn't reduce"
+    from "reduced to identity".
+    """
+    from sage.all import GF, ZZ
+    
+    def log(msg):
+        if logger:
+            logger(msg)
+        elif DEBUG:
+            print(msg)
+            
+    try:
+        # Get the target field, e.g., GF(p)(m) or GF(p)
+        Fp_target = E_mod_p.base_field()
+        
+        coords = tuple(P)
+        
+        # Coerce coordinates into the target field
+        if len(coords) == 3:
+            X, Y, Z = coords
+            try:
+                Xr = Fp_target(X)
+                Yr = Fp_target(Y)
+                Zr = Fp_target(Z)
+                return E_mod_p([Xr, Yr, Zr])
+            except Exception as e:
+                # This catches:
+                # 1. QQ denominators divisible by p
+                # 2. QQ(m) denominators that are 0 mod p
+                # 3. Other type/coercion errors
+                # log(f"[reduce_point_hom] p={p} failed to coerce projective coords: {e}")
+                return None
+                
+        if len(coords) == 2:
+            x, y = coords
+            try:
+                xr = Fp_target(x)
+                yr = Fp_target(y)
+                return E_mod_p(xr, yr)
+            except Exception as e:
+                # log(f"[reduce_point_hom] p={p} failed to coerce affine coords: {e}")
+                return None
+
+        log("[reduce_point_hom] unsupported coordinate shape")
+        return None
+        
+    except Exception as outer_e:
+        log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
+        return None
