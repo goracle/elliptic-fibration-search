@@ -3747,3 +3747,214 @@ def reduce_point_hom(E_mod_p, P, p, logger=None):
     except Exception as outer_e:
         log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
         return None
+
+
+
+# At the top of search_lll.py, add this import:
+from diagnostics2 import find_singular_fibers
+# ... (other imports) ...
+
+# -----------------------------------------------------------------
+# Replace the prepare_modular_data_lll function with this version:
+# -----------------------------------------------------------------
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
+    """
+    Prepare modular data for LLL-based search across multiple primes.
+    Ensures we only publish per-prime data after successful processing for that prime.
+    NOW WITH SINGULAR CURVE DETECTION and ROBUST 'None' HANDLING.
+    
+    --- Patched to include mod-p geometry diagnostics ---
+    """
+    if search_primes is None:
+        search_primes = prime_pool
+
+    r = len(current_sections)
+    if r == 0:
+        return {}, [], {}, {}
+
+    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
+    multiplies_lll, vecs_lll = {}, {}
+    PR_m = PolynomialRing(QQ, 'm')
+    var_sym = var('m') # For tate.py compatibility
+
+    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
+    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
+    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
+
+    for p in search_primes:
+        try:
+            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
+            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
+                continue
+            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
+                continue
+
+            Rp = PolynomialRing(GF(p), 'm')
+            Fp_m = Rp.fraction_field()
+
+            # denominators zero mod p -> skip
+            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
+                continue
+
+            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
+            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
+
+            # --- BEGIN DIAGNOSTIC BLOCK ---
+            # As requested, run a full geometric analysis on the mod-p surface
+            # This is especially for p=3, but we can make it conditional.
+            if p == 3:
+                print("\n" + "="*70)
+                print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
+                print(f"Analyzing surface: y^2 = x^3 + a4_mod{p}(m)*x + a6_mod{p}(m)")
+                try:
+                    # Use the find_singular_fibers from diagnostics2.py
+                    # Pass the a4/a6 coefficients *over GF(p)(m)*
+                    mod_p_fiber_report = find_singular_fibers(
+                        a4=a4_modp, 
+                        a6=a6_modp, 
+                        verbose=True
+                    )
+                    print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
+                except Exception as e_diag:
+                    print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
+                print("="*70 + "\n")
+            # --- END DIAGNOSTIC BLOCK ---
+
+
+            # *** NEW: Check for singular curves before creating EllipticCurve ***
+            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
+            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
+            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
+            if disc_modp.is_zero():
+                if DEBUG:
+                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                continue
+            
+            # --- User Request: Add fiber collision check ---
+            try:
+                # We need Delta as a polynomial in m, not a rational function
+                # This assumes Delta is polynomial, which it should be.
+                Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+                if hasattr(Delta_poly, 'numerator'):
+                    Delta_poly = Delta_poly.numerator()
+                
+                # Coerce to PR_m
+                Delta_pr = PR_m(SR(Delta_poly))
+                detect_fiber_collision(Delta_pr, p, debug=DEBUG)
+            except Exception as e:
+                if DEBUG:
+                    print(f"[fiber_collision_check] failed for p={p}: {e}")
+            # -----------------------------------------------
+
+            try:
+                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            except ArithmeticError as e:
+                if DEBUG:
+                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+                continue
+
+            # build rhs_modp for this prime (but don't publish until success)
+            rhs_modp_for_p = {}
+            for i, rhs_data in enumerate(processed_rhs_list):
+                if rhs_data['den'].change_ring(GF(p)).is_zero():
+                    continue
+                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+
+            # run reduction (may raise) and build transformed vectors
+            # This now returns a 'new_basis' list of length r (with Nones)
+            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+
+            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
+            if Uinv is None:
+                Uinv_mat = identity_matrix(ZZ, r)
+            else:
+                try:
+                    # ensure integral matrix
+                    nonint = False
+                    for i_row in range(Uinv.nrows()):
+                        for j_col in range(Uinv.ncols()):
+                            entry = Uinv[i_row, j_col]
+                            if hasattr(entry, 'denominator'):
+                                if int(entry.denominator()) != 1:
+                                    nonint = True
+                                    break
+                            else:
+                                if QQ(entry) != Integer(entry):
+                                    nonint = True
+                                    break
+                        if nonint:
+                            break
+                    if nonint:
+                        Uinv_mat = identity_matrix(ZZ, r)
+                    else:
+                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
+                except Exception:
+                    Uinv_mat = identity_matrix(ZZ, r)
+
+            # Transform vecs into the LLL basis (always produce an entry for each input vec)
+            vecs_transformed_for_p = []
+            for v in vecs:
+                # ensure v is integer-coercible
+                vZ = vector(ZZ, [int(c) for c in v])
+                try:
+                    transformed = vZ * Uinv_mat
+                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
+                except Exception:
+                    # fallback: store original integer tuple
+                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
+
+            # Build required multiplier indices: union across ALL vectors for this section
+            required_ks_per_section = [set() for _ in range(r)]
+            for v_trans in vecs_transformed_for_p:
+                for j, coeff in enumerate(v_trans):
+                    required_ks_per_section[j].add(int(coeff))
+
+            # Now compute mults per section with only what's needed
+            mults = [{} for _ in range(r)]
+            
+            # --- FIX 4 ---
+            # Check for 'None' returned from compute_all_mults_for_section
+            any_mult_error = False
+            for i_sec in range(r):
+                Pi = new_basis[i_sec] # This is safe now, new_basis has length r
+                required_ks = required_ks_per_section[i_sec]
+                if not required_ks:
+                    required_ks = {-1, 0, 1}
+
+                # compute_all_mults_for_section will receive 'None' if Pi is 'None'
+                # and will correctly return 'None'
+                mults_i = compute_all_mults_for_section(
+                    Pi, required_ks, stats, 
+                    max_k=max((abs(k) for k in required_ks), default=1),
+                    debug=(r>1)
+                )
+                
+                if mults_i is None:
+                    # This section's multipliers failed, prime is unusable
+                    any_mult_error = True
+                    if DEBUG:
+                        print(f"[{p}] Failed to compute multipliers for basis section {i_sec} (Pi was {Pi})")
+                    break
+                
+                mults[i_sec] = mults_i
+            
+            if any_mult_error:
+                continue # Skip to next prime
+            # -------------
+
+            # Success for this prime -> publish all data
+            Ep_dict[p] = Ep_local
+            for i, rhs_p_val in rhs_modp_for_p.items():
+                rhs_modp_list[i][p] = rhs_p_val
+            multiplies_lll[p] = mults
+            vecs_lll[p] = vecs_transformed_for_p
+
+        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
+            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
+                if DEBUG:
+                    print(f"Skipping prime {p} due to error during preparation: {e}")
+            # do not publish partial data for p; continue to next prime
+            continue
+
+    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
