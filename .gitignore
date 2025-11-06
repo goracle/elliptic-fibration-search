@@ -3,3 +3,4 @@
 \#*
 *.pyc
 *.sage.py
+*.bak
