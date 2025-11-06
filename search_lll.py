@@ -3273,7 +3273,7 @@ def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
         dDelta = Delta_modp.derivative()
         
         g = gcd(Delta_modp, dDelta)
-        has_collision = (g.degree() >= 1)
+        has_collision = (g.degree() > 1)
         
         if has_collision and debug:
             print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
