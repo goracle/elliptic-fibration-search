@@ -2569,141 +2569,6 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
 
 # In search_lll.py
 
-def lll_reduce_basis_modp(p, sections, curve_modp,
-                                   truncate_deg=TRUNCATE_MAX_DEG,
-                                   lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
-                                   max_k_abs=MAX_K_ABS):
-    """
-    Improved LLL/BKZ reduction on coefficient lattice of projective sections over GF(p)(m).
-    Returns (new_basis, Uinv) similar to previous function.
-    """
-    r = len(sections)
-    if r == 0:
-        return [], identity_matrix(ZZ, 0)
-
-    poly_coords = []
-    max_deg = 0
-
-    # Extract integer coefficient lists (trim tails)
-    for P in sections:
-        Pp = reduce_point_hom(P, curve_modp, p)
-        if Pp is None or Pp.is_zero():  # <- handle None safely
-            poly_coords.append(([0], [0], [1]))
-            continue
-
-        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
-        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
-        Xp = Xr.numerator() * (den // Xr.denominator())
-        Yp = Yr.numerator() * (den // Yr.denominator())
-        Zp = Zr.numerator() * (den // Zr.denominator())
-
-        xc, dx = _get_coeff_data(Xp)
-        yc, dy = _get_coeff_data(Yp)
-        zc, dz = _get_coeff_data(Zp)
-
-        # Trim high-degree tails
-        xc = _trim_poly_coeffs(xc, truncate_deg)
-        yc = _trim_poly_coeffs(yc, truncate_deg)
-        zc = _trim_poly_coeffs(zc, truncate_deg)
-
-        poly_coords.append((xc, yc, zc))
-        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
-
-    poly_len = max_deg + 1
-    coeff_vecs = []
-    for xc, yc, zc in poly_coords:
-        xc_padded = list(xc) + [0] * (poly_len - len(xc))
-        yc_padded = list(yc) + [0] * (poly_len - len(yc))
-        zc_padded = list(zc) + [0] * (poly_len - len(zc))
-        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
-        coeff_vecs.append(vector(ZZ, row))
-
-    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
-        if DEBUG: print("All coefficient vectors are zero or truncated away, using identity transformation")
-        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
-
-    M = matrix(ZZ, coeff_vecs)
-    
-    # *** FIXED PART ***
-    # The BKZ/LLL implementations in Sage can fail on matrices with only one row.
-    # If there's only one section, the basis is trivially reduced, so we can
-    # skip the complex reduction step entirely and use an identity transformation.
-    if M.nrows() <= 1:
-        Uinv = identity_matrix(ZZ, r)
-        reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-        # With an identity transformation, the new basis is the same as the old one.
-        return reduced_sections_mod_p, Uinv
-    # *** END FIXED PART ***
-
-    if M.rank() < min(M.nrows(), M.ncols()):
-        if DEBUG: print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
-
-    if M.ncols() > 5 * M.nrows():
-        if DEBUG:
-            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
-        return [reduce_point_hom(P, curve_modp, p) for P in sections], identity_matrix(ZZ, r)
-
-    # Column scaling to balance magnitudes
-    try:
-        scales = _compute_integer_scales_for_columns(M)
-        M_scaled, D = _scale_matrix_columns_int(M, scales)
-    except Exception as e:
-        if DEBUG: print("Column scaling failed, proceeding without scaling:", e)
-        M_scaled = M
-        D = diagonal_matrix([1]*M.ncols())
-
-    # Try BKZ first if available (improves shortness for moderate dims)
-    U = None
-    B = None
-    try:
-        # prefer BKZ if available on matrix
-        if hasattr(M_scaled, "BKZ"):
-            # choose blocksize heuristically but not larger than dimension
-            block = min(bkz_block, max(2, M_scaled.ncols()//2))
-            U, B = M_scaled.BKZ(block_size=block, transformation=True)
-        else:
-            # fallback to LLL with chosen delta
-            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
-    except (TypeError, ValueError):
-        # different signatures in some Sage versions, or value error from BKZ, fall back
-        try:
-            U, B = M_scaled.LLL(transformation=True)
-        except Exception as e:
-            if DEBUG:
-                print("LLL/BKZ reduction failed, falling back to identity:", e)
-            U = identity_matrix(ZZ, r)
-            B = M_scaled.copy()
-    
-
-    # --- MODIFIED: Wrapped debug prints ---
-    if DEBUG:
-        print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
-        print(f"[LLL_DEBUG] U type: {type(U).__name__}, has nrows: {hasattr(U, 'nrows')}")
-        if hasattr(U, 'nrows'):
-            print(f"[LLL_DEBUG] U shape: {U.nrows()}x{U.ncols()}")
-        else:
-            print(f"[LLL_DEBUG] U is not a matrix. repr (first 100 chars): {repr(U)[:100]}")
-        print(f"[LLL_DEBUG] B type: {type(B).__name__}")
-    # --- END MODIFIED ---
-
-    # Validate U is unimodular (invertible over ZZ)
-    Uinv = None
-    # --- require unimodular U ---
-    assert U.nrows() == U.ncols(), "LLL transform U must be square"
-    detU = int(U.det())
-    assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
-    Uinv = U.inverse()
-    # Build reduced basis points by applying U to reduced sections (but we scaled columns earlier)
-    reduced_sections_mod_p = [reduce_point_hom(P, curve_modp, p) for P in sections]
-    # U acts on rows (combines sections). Unscaling D isn't necessary for row ops.
-    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(r)) for i in range(r)]
-
-    # Filter required ks to a bounded range to avoid explosion in mults
-    # Note: caller must check mults limits
-    return new_basis, Uinv
-
-
-
 def _compute_residues_for_prime_worker(args):
     """
     Worker computing residues for one prime with Hensel filtering.
@@ -2926,211 +2791,9 @@ import math
 # ---------------------------------------------------------------------------
 # candidate_passes_extra_primes
 # ---------------------------------------------------------------------------
-def candidate_passes_extra_primes(m0, M, residue_map, extra_primes_for_filtering=None,
-                                 tmax=None, per_prime_test=None, logger=None):
-    """
-    Robust filter used in CRT worker to quickly reject CRT candidates using
-    a small list of extra primes.
-
-    Parameters
-    ----------
-    m0, M : ints
-        The CRT candidate expressed as m = m0 (mod M).
-    residue_map : dict
-        Mapping p -> residue information for this candidate (opaque; passed
-        through to per_prime_test if provided).
-    extra_primes_for_filtering : iterable of ints
-        Primes used for quick filtering (cheap checks). If None, no extra
-        filtering is performed.
-    tmax : int or None
-        Optional bound used by some tests (kept for API compatibility).
-    per_prime_test : callable(p, residue_info, m0, M, tmax) -> bool
-        If provided, called for each extra prime. Should return True if the
-        candidate *passes* the test at that prime. Returning False rejects the
-        candidate immediately.
-    logger : callable(str) or None
-        Optional lightweight logger: logger(str).
-
-    Returns
-    -------
-    bool
-        True if candidate survives all extra-prime tests, False if rejected.
-    """
-    if extra_primes_for_filtering is None:
-        return True
-
-    # default per-prime test: ensure residue is present and not explicitly
-    # marked as "IMPOSSIBLE" or None. This is conservative; your project
-    # probably provides a better per-prime predicate; pass it via
-    # per_prime_test to reuse that logic.
-    def _default_test(p, resid, m0, M, tmax):
-        if resid is None:
-            return False
-        # common residue_map representations: integer residue, tuple
-        # (x_residue, denom_ok), or dict. If we see a tuple and the second
-        # entry is a boolean-like 'denom_ok' flag, require it.
-        if isinstance(resid, tuple) and len(resid) >= 2:
-            denom_ok = resid[1]
-            if not denom_ok:
-                return False
-        # otherwise accept; the heavy tests happen later
-        return True
-
-    test = per_prime_test or _default_test
-
-    for p in extra_primes_for_filtering:
-        resid = residue_map.get(p, None)
-        try:
-            ok = bool(test(p, resid, m0, M, tmax))
-        except Exception as e:
-            if logger:
-                logger(f"extra-prime test raised at p={p}: {e}")
-            ok = False
-
-        if not ok:
-            return False
-
-    return True
-
-
-# ---------------------------------------------------------------------------
-# reduce_point_hom
-# ---------------------------------------------------------------------------
-
-def reduce_point_hom(E, P, p, logger=None):
-    """
-    Reduce a projective/affine point `P` on a model `E` modulo a prime p.
-
-    This returns None (distinct sentinel) when the reduction cannot be
-    performed because some denominator is not invertible mod p or because the
-    coordinates are not well-formed for reduction. Returning None is important
-    so callers can distinguish "reduction failed" vs "reduced to the origin"
-    or other meaningful points.
-
-    Parameters
-    ----------
-    E : (or compatible)
-        Elliptic curve or an object with `change_ring(GF(p))` supported.
-    P : tuple-like
-        Point coordinates. Typical shapes: (x, y) with rationals, or
-        projective tuple (X, Y, Z). Works with sage rationals/integers.
-    p : int
-        Prime modulus.
-    logger : callable(str) or None
-        Optional logger.
-
-    Returns
-    -------
-    reduced_point or None
-        The reduced point on E_mod_p, or None if reduction impossible.
-    """
-    # Convert modulus ring
-    try:
-        Fp = GF(p)
-    except Exception as e:
-        if logger:
-            logger(f"GF({p}) construction failed: {e}")
-        return None
-
-    # Helper: reduce a rational to Fp, returning None if denominator not invertible
-    def _reduce_rational_to_Fp(r):
-        # r expected to be a sage rational or python Fraction
-        try:
-            num = int(r.numerator())
-            den = int(r.denominator())
-        except Exception:
-            # fallback: try integer cast
-            try:
-                return Fp(int(r))
-            except Exception:
-                return None
-        if den % p == 0:
-            return None
-        return Fp(num) * Fp(int(pow(den, -1, p)))
-
-    # Normalize P into affine/projective coordinates
-    try:
-        coords = tuple(P)
-    except Exception:
-        if logger:
-            logger("reduce_point_hom: point not iterable")
-        return None
-
-    # Projective case (X,Y,Z)
-    if len(coords) == 3:
-        X, Y, Z = coords
-        Xr = _reduce_rational_to_Fp(X)
-        Yr = _reduce_rational_to_Fp(Y)
-        Zr = _reduce_rational_to_Fp(Z)
-        if Xr is None or Yr is None or Zr is None:
-            return None
-        try:
-            E_mod = E.change_ring(Fp)
-            return E_mod([Xr, Yr, Zr])
-        except Exception:
-            # Try affine conversion
-            if Zr == 0:
-                return None
-            try:
-                x_aff = Xr / Zr
-                y_aff = Yr / (Zr * Zr)
-                return E.change_ring(Fp)(x_aff, y_aff)
-            except Exception:
-                return None
-
-    # Affine case (x,y)
-    if len(coords) == 2:
-        x, y = coords
-        xr = _reduce_rational_to_Fp(x)
-        yr = _reduce_rational_to_Fp(y)
-        if xr is None or yr is None:
-            return None
-        try:
-            E_mod = E.change_ring(Fp)
-            return E_mod(xr, yr)
-        except Exception:
-            # if model mismatch or singular reduction, return None
-            return None
-
-    # Unsupported shape
-    if logger:
-        logger("reduce_point_hom: unsupported point shape")
-    return None
-
 
 # ---------------------------------------------------------------------------
 # detect_fiber_collision
-# ---------------------------------------------------------------------------
-
-def detect_fiber_collision(Delta_poly, p):
-    """
-    Detect whether the discriminant polynomial Delta (in m) acquires multiple
-    roots modulo p. Returns (collision_flag, gcd_poly). If collision_flag is
-    True then gcd_poly = gcd(Delta_modp, Delta_modp') (non-constant).
-
-    Delta_poly should be a univariate polynomial over QQ (sage polynomial).
-    """
-    Fp = GF(p)
-    R = PolynomialRing(Fp, 'm')
-    m = R.gen()
-    # Coerce Delta polynomial to Fp
-    try:
-        Delta_modp = R([int(c) % p for c in Delta_poly.change_ring(QQ).coefficients(sparse=False)])
-        # The above line is a generic coercion attempt; if Delta_poly is
-        # already over QQ then change_ring+coefficients gives a list.
-    except Exception:
-        # Fall back to evaluating each coefficient via QQ
-        Delta_modp = R(list(map(lambda c: int(c % p), Delta_poly.list())))
-
-    # Compute gcd with derivative
-    dDelta = Delta_modp.derivative()
-    g = gcd(Delta_modp, dDelta)
-    has_collision = (g.degree() >= 1)
-    return has_collision, g
-
-
-# ---------------------------------------------------------------------------
-# hensel lift for y given x (small p-adic check)
 # ---------------------------------------------------------------------------
 
 def hensel_lift_y(E, m_mod_p, x_mod_p, p, k=3):
@@ -3360,51 +3023,6 @@ def compute_all_mults_for_section(Pi, E_mod_p, p, logger=None):
 
 
 
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None, logger=None):
-    """
-    Prepare modular data for a collection of primes (prime_pool).
-
-    Parameters
-    ----------
-    cd : curve descriptor / Weierstrass model / curve factory
-      - The object used to construct / change the curve to GF(p). Tried in this
-        order: cd.change_ring(GF(p)), then cd.change_ring(Zmod(p)), then cd_mod_factory(p)
-      - If your code uses a different object, adapt the small 'make_E_mod_p' helper below.
-    current_sections : iterable
-      Known global sections (points) to reduce mod p; expected in the same
-      format used by reduce_point_hom.
-    prime_pool : iterable of ints
-      Primes to prepare modular data for.
-    rhs_list : list
-      RHS expressions (rational functions in m) that need reduction per-prime.
-    vecs : list
-      Additional vectors/objects to reduce (kept as-is per-prime if possible).
-    stats : dict-like
-      Statistics accumulator (mutated in-place).
-    search_primes : optional
-      Extra primes used by downstream logic (preserved).
-    logger : callable(str), optional
-
-    Returns
-    -------
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll
-
-      Ep_dict : dict p -> E_mod_p (reduced elliptic curve object)
-      rhs_modp_list : dict p -> list of evaluated RHS objects (mod p)
-      mult_lll : dict p -> dict mapping section_index -> computed multiples (dict)
-      vecs_lll : dict p -> list of reduced vecs (or original vecs if no reduction needed)
-
-    If a prime causes any known-section reduction to fail, that prime is skipped
-    entirely and not present in the returned dicts.
-    """
-    from sage.all import GF, Zmod
-
-    Ep_dict = {}
-    rhs_modp_list = {}
-    mult_lll = {}
-    vecs_lll = {}
-    rejected_primes = []
-
     def make_E_mod_p(p):
         """Attempt several strategies to obtain a reduced elliptic curve at p."""
         # Strategy 1: try cd.change_ring(GF(p))
@@ -3561,3 +3179,316 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
         stats.setdefault("prepared_primes", []).extend(sorted(Ep_dict.keys()))
 
     return Ep_dict, rhs_modp_list, mult_lll, vecs_lll
+
+
+
+# Complete fixed functions for search_lll.py
+# Copy-paste these to replace the broken versions
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, 
+                             stats=None, search_primes=None, logger=None):
+    """
+    Prepare modular data for LLL search. Now properly handles section reduction 
+    failures by skipping primes where any section fails to reduce.
+    
+    Returns: Ep_dict, rhs_modp_list, mult_lll, vecs_lll
+    """
+    from sage.all import GF, Zmod, lcm
+    
+    # Initialize all return values first
+    Ep_dict = {}
+    rhs_modp_list = {i: {} for i in range(len(rhs_list))}
+    mult_lll = {}
+    vecs_lll = {}
+    rejected_primes = []
+    
+def reduce_point_hom(E_mod_p, P, p, logger=None):
+    """
+    Reduce a projective/affine point P on curve E modulo prime p.
+    
+    Returns:
+        - The reduced point on E_mod_p on success
+        - None if reduction fails (denominator non-invertible, bad coords, etc.)
+    
+    Returning None (not Ep(0)) allows callers to distinguish "couldn't reduce"
+    from "reduced to identity".
+    """
+    from sage.all import GF, ZZ
+    
+    def log(msg):
+        if logger:
+            logger(msg)
+        elif DEBUG:
+            print(msg)
+    
+    def reduce_rational_to_Fp(r, p):
+        """Reduce rational r to GF(p), return None if denominator not invertible."""
+        try:
+            num = int(ZZ(r.numerator()))
+            den = int(ZZ(r.denominator()))
+        except Exception:
+            try:
+                return GF(p)(int(r))
+            except Exception:
+                return None
+        
+        if den % p == 0:
+            return None
+        
+        try:
+            return GF(p)(num) * GF(p)(pow(den, -1, p))
+        except Exception:
+            return None
+    
+    try:
+        coords = tuple(P)
+    except Exception:
+        log("[reduce_point_hom] point not iterable")
+        return None
+    
+    # Projective (X, Y, Z)
+    if len(coords) == 3:
+        X, Y, Z = coords
+        Xr = reduce_rational_to_Fp(X, p)
+        Yr = reduce_rational_to_Fp(Y, p)
+        Zr = reduce_rational_to_Fp(Z, p)
+        
+        if Xr is None or Yr is None or Zr is None:
+            return None
+        
+        try:
+            return E_mod_p([Xr, Yr, Zr])
+        except Exception:
+            # Try affine conversion
+            if Zr == 0:
+                return None
+            try:
+                x_aff = Xr / Zr
+                y_aff = Yr / Zr
+                return E_mod_p(x_aff, y_aff)
+            except Exception:
+                return None
+    
+    # Affine (x, y)
+    if len(coords) == 2:
+        x, y = coords
+        xr = reduce_rational_to_Fp(x, p)
+        yr = reduce_rational_to_Fp(y, p)
+        
+        if xr is None or yr is None:
+            return None
+        
+        try:
+            return E_mod_p(xr, yr)
+        except Exception:
+            return None
+    
+    log("[reduce_point_hom] unsupported coordinate shape")
+    return None
+
+
+def candidate_passes_extra_primes(m0, M, residue_map, extra_primes_for_filtering, 
+                                 tmax=TMAX, verbose=False):
+    """
+    Quick O(1) filter for CRT candidates using extra primes.
+    
+    Args:
+        m0: CRT residue
+        M: CRT modulus
+        residue_map: dict mapping prime -> set of allowed residues
+        extra_primes_for_filtering: list of extra primes to check
+        tmax: max |t| to check
+        verbose: print diagnostics
+    
+    Returns:
+        bool: True if candidate could be valid, False to reject
+    """
+    if not extra_primes_for_filtering:
+        return True
+    
+    m0 = int(m0)
+    M = int(M)
+    
+    for q in extra_primes_for_filtering:
+        allowed_residues = residue_map.get(q)
+        
+        if not allowed_residues:
+            # No allowed residues at this prime - reject
+            if verbose:
+                print(f"[extra_prime_filter] q={q}: no allowed residues")
+            return False
+        
+        # Check if ANY t in [-tmax, tmax] gives an allowed residue
+        found_valid_t = False
+        for t in range(-tmax, tmax + 1):
+            m_cand = (m0 + t * M) % q
+            if m_cand in allowed_residues:
+                found_valid_t = True
+                break
+        
+        if not found_valid_t:
+            if verbose:
+                print(f"[extra_prime_filter] q={q}: no valid t found")
+            return False
+    
+    return True
+
+
+def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
+    """
+    Detect if discriminant Delta(m) has repeated roots mod p.
+    Returns (has_collision, gcd_poly).
+    """
+    from sage.all import GF, PolynomialRing, gcd
+    
+    try:
+        Fp = GF(p)
+        R = PolynomialRing(Fp, 'm')
+        
+        # Reduce Delta mod p
+        Delta_modp = R([int(c) % p for c in Delta_poly.list()])
+        dDelta = Delta_modp.derivative()
+        
+        g = gcd(Delta_modp, dDelta)
+        has_collision = (g.degree() >= 1)
+        
+        if has_collision and debug:
+            print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
+        
+        return has_collision, g
+        
+    except Exception as e:
+        if debug:
+            print(f"[detect_fiber_collision] p={p}: error {e}")
+        return False, None
+
+
+def lll_reduce_basis_modp(p, sections, curve_modp,
+                          truncate_deg=TRUNCATE_MAX_DEG,
+                          lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
+                          max_k_abs=MAX_K_ABS):
+    """
+    LLL/BKZ reduction with proper handling of single-section case.
+    """
+    from sage.all import ZZ, identity_matrix, diagonal_matrix
+    
+    r = len(sections)
+    if r == 0:
+        return [], identity_matrix(ZZ, 0)
+
+    poly_coords = []
+    max_deg = 0
+
+    for P in sections:
+        Pp = reduce_point_hom(curve_modp, P, p)
+        if Pp is None:
+            poly_coords.append(([0], [0], [1]))
+            continue
+
+        Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
+        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
+        Xp = Xr.numerator() * (den // Xr.denominator())
+        Yp = Yr.numerator() * (den // Yr.denominator())
+        Zp = Zr.numerator() * (den // Zr.denominator())
+
+        xc, dx = _get_coeff_data(Xp)
+        yc, dy = _get_coeff_data(Yp)
+        zc, dz = _get_coeff_data(Zp)
+
+        xc = _trim_poly_coeffs(xc, truncate_deg)
+        yc = _trim_poly_coeffs(yc, truncate_deg)
+        zc = _trim_poly_coeffs(zc, truncate_deg)
+
+        poly_coords.append((xc, yc, zc))
+        max_deg = max(max_deg, len(xc)-1, len(yc)-1, len(zc)-1)
+
+    poly_len = max_deg + 1
+    coeff_vecs = []
+    for xc, yc, zc in poly_coords:
+        xc_padded = list(xc) + [0] * (poly_len - len(xc))
+        yc_padded = list(yc) + [0] * (poly_len - len(yc))
+        zc_padded = list(zc) + [0] * (poly_len - len(zc))
+        row = [ZZ(int(c)) for c in (xc_padded + yc_padded + zc_padded)]
+        coeff_vecs.append(vector(ZZ, row))
+
+    if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
+        if DEBUG: 
+            print("All coefficient vectors are zero or truncated away, using identity transformation")
+        return [curve_modp(0) for _ in range(r)], identity_matrix(ZZ, r)
+
+    M = matrix(ZZ, coeff_vecs)
+    
+    if M.nrows() <= 1:
+        Uinv = identity_matrix(ZZ, r)
+        reduced_sections_mod_p = []
+        for P in sections:
+            P_red = reduce_point_hom(curve_modp, P, p)
+            if P_red is not None:
+                reduced_sections_mod_p.append(P_red)
+        return reduced_sections_mod_p, Uinv
+
+    if M.rank() < min(M.nrows(), M.ncols()):
+        if DEBUG: 
+            print("Matrix is rank-deficient (after trimming), continuing but may affect LLL")
+
+    if M.ncols() > 5 * M.nrows():
+        if DEBUG:
+            print(f"[LLL] Matrix too wide ({M.nrows()}x{M.ncols()}), skipping LLL for this prime")
+        reduced_sections_mod_p = []
+        for P in sections:
+            P_red = reduce_point_hom(curve_modp, P, p)
+            if P_red is not None:
+                reduced_sections_mod_p.append(P_red)
+        return reduced_sections_mod_p, identity_matrix(ZZ, r)
+
+    try:
+        scales = _compute_integer_scales_for_columns(M)
+        M_scaled, D = _scale_matrix_columns_int(M, scales)
+    except Exception as e:
+        if DEBUG: 
+            print("Column scaling failed, proceeding without scaling:", e)
+        M_scaled = M
+        D = diagonal_matrix([1]*M.ncols())
+
+    U = None
+    B = None
+    try:
+        if hasattr(M_scaled, "BKZ"):
+            block = min(bkz_block, max(2, M_scaled.ncols()//2))
+            U, B = M_scaled.BKZ(block_size=block, transformation=True)
+        else:
+            U, B = M_scaled.LLL(transformation=True, delta=float(lll_delta))
+    except (TypeError, ValueError):
+        try:
+            U, B = M_scaled.LLL(transformation=True)
+        except Exception as e:
+            if DEBUG:
+                print("LLL/BKZ reduction failed, falling back to identity:", e)
+            U = identity_matrix(ZZ, r)
+            B = M_scaled.copy()
+
+    if DEBUG:
+        print(f"[LLL_DEBUG] p={p}, r={r}, M_scaled shape: {M_scaled.nrows()}x{M_scaled.ncols()}")
+        print(f"[LLL_DEBUG] U type: {type(U).__name__}, has nrows: {hasattr(U, 'nrows')}")
+        if hasattr(U, 'nrows'):
+            print(f"[LLL_DEBUG] U shape: {U.nrows()}x{U.ncols()}")
+        else:
+            print(f"[LLL_DEBUG] U is not a matrix. repr (first 100 chars): {repr(U)[:100]}")
+        print(f"[LLL_DEBUG] B type: {type(B).__name__}")
+
+    Uinv = None
+    assert U.nrows() == U.ncols(), "LLL transform U must be square"
+    detU = int(U.det())
+    assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
+    Uinv = U.inverse()
+    
+    reduced_sections_mod_p = []
+    for P in sections:
+        P_red = reduce_point_hom(curve_modp, P, p)
+        if P_red is not None:
+            reduced_sections_mod_p.append(P_red)
+    
+    new_basis = [sum(U[i, j] * reduced_sections_mod_p[j] for j in range(len(reduced_sections_mod_p))) 
+                 for i in range(r)]
+
+    return new_basis, Uinv
