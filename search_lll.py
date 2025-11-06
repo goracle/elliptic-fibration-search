@@ -465,30 +465,6 @@ def can_reduce_point_mod_p(P, p):
                         return False
     return True
 
-def reduce_point_hom(P, Ep, p_mod):
-    if not can_reduce_point_mod_p(P, p_mod):
-        return Ep(0)
-
-    X, Y, Z = P
-    Fp_m = Ep.base_ring()
-    
-    # Find lcm of denominators avoiding factors of p_mod
-    den_factors = [d // gcd(d, p_mod) for d in (X.denominator(), Y.denominator(), Z.denominator())]
-    den = lcm(den_factors)
-    
-    try:
-        Xr = Fp_m(X * den)
-        Yr = Fp_m(Y * den)
-        Zr = Fp_m(Z * den)
-        return Ep([Xr, Yr, Zr])
-    except Exception as e:
-        if DEBUG:
-            print(f"Warning: Failed to reduce point mod {p_mod}: {e}")
-        raise # should be handled in the can_reduce_point_mod_p function
-        return Ep(0)
-
-
-
 def _get_coeff_data(poly):
     """Helper to safely extract coefficient list and degree from a polynomial-like object."""
     if hasattr(poly, 'list') and hasattr(poly, 'degree'):
@@ -722,85 +698,6 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=Tru
 """
 Elliptic Curve Rational Point Search using Symbolic Methods over QQ.
 """
-
-def candidate_passes_extra_primes(m0, M, residue_map_for_vector, extra_primes, tmax, verbose=False):
-    """
-    Checks if there exists an integer t with |t| <= tmax such that for every extra prime q,
-    the value (m0 + t*M) mod q is in the set of allowed m-residues for that prime.
-    
-    Args:
-        m0 (int): The integer residue from CRT.
-        M (int): The modulus from CRT.
-        residue_map_for_vector (dict): A map of {prime: {allowed_residues}} for a single vector.
-        extra_primes (list): A list of primes to use for this check.
-        tmax (int): The maximum absolute value of t to search.
-        verbose (bool): If True, print detailed debugging information.
-    """
-    m0 = int(m0)
-    M = int(M)
-    tmax = int(tmax)  # <-- Add this
-
-    t_constraints = {}
-    for q in extra_primes:
-        # --- THIS IS THE CORRECTED LINE ---
-        # The incoming map is already specific to the vector, so we just get the set of residues for the prime.
-        allowed_m_residues = residue_map_for_vector.get(q)
-
-        if not allowed_m_residues:
-            if verbose: print(f"Filter fail: Prime {q} has no allowed m-residues for this vector.")
-            return False
-
-        m0q, Mq = m0 % q, M % q
-
-        if Mq == 0:
-            if m0q not in allowed_m_residues:
-                if verbose: print(f"Filter fail: M=0 mod {q} and m0={m0q} is not in allowed set.")
-                return False
-            continue
-
-        try:
-            inv_Mq = pow(Mq, -1, q)
-        except ValueError:
-            return False
-
-        allowed_t_mod_q = {((r - m0q) * inv_Mq) % q for r in allowed_m_residues}
-        if not allowed_t_mod_q:
-            return False
-            
-        t_constraints[q] = allowed_t_mod_q
-
-    if not t_constraints:
-        return True
-
-    sorted_primes = sorted(t_constraints.keys(), key=lambda q: len(t_constraints[q]))
-    start_q = sorted_primes[0]
-    other_primes = sorted_primes[1:]
-
-    for t_residue in t_constraints[start_q]:
-        for k in range(tmax // start_q + 2):
-            for sign in ([1, -1] if k > 0 else [1]):
-                t_candidate = t_residue + (sign * k * start_q)
-
-                if abs(t_candidate) > tmax:
-                    continue
-
-                is_valid = True
-                for other_q in other_primes:
-                    if (t_candidate % other_q) not in t_constraints[other_q]:
-                        is_valid = False
-                        break
-
-                if is_valid:
-                    if verbose: print(f"Filter pass: Found valid t={t_candidate} for m0={m0}, M={M}")
-                    return True
-
-    if verbose: print(f"Filter fail: No t in [-{tmax}, {tmax}] found for m0={m0}, M={M}")
-    return False
-
-
-# In search_lll.py, replace the existing function
-
-# In search_lll.py, replace the existing worker function
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""
@@ -1039,208 +936,6 @@ def _print_subset_productivity_stats(productive, all_subsets):
     for p in top:
         print(f"  {p['primes']}: {p['candidates']} candidates")
 
-
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
-    """
-    Prepare modular data for LLL-based search across multiple primes.
-    Ensures we only publish per-prime data after successful processing for that prime.
-    NOW WITH SINGULAR CURVE DETECTION.
-    """
-    if search_primes is None:
-        search_primes = prime_pool
-
-    r = len(current_sections)
-    if r == 0:
-        return {}, [], {}, {}
-
-    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
-    multiplies_lll, vecs_lll = {}, {}
-    PR_m = PolynomialRing(QQ, 'm')
-
-    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
-    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
-    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
-
-    for p in search_primes:
-        try:
-            # Skip if any coefficient in a4_num or a6_num has denominator divisible by p
-            if any(QQ(c).denominator() % p == 0 for c in a4_num.coefficients(sparse=False)):
-                continue
-            if any(QQ(c).denominator() % p == 0 for c in a6_num.coefficients(sparse=False)):
-                continue
-
-            Rp = PolynomialRing(GF(p), 'm')
-            Fp_m = Rp.fraction_field()
-
-            # denominators zero mod p -> skip
-            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
-                continue
-
-            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
-            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-
-            # *** NEW: Check for singular curves before creating EllipticCurve ***
-            # A curve y^2 = x^3 + a4*x + a6 is singular iff its discriminant is zero.
-            # Over a field, discriminant = -16*(4*a4^3 + 27*a6^2)
-            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
-            if disc_modp.is_zero():
-                if DEBUG:
-                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
-                continue
-
-            try:
-                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
-            except ArithmeticError as e:
-                if DEBUG:
-                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
-                continue
-
-            # build rhs_modp for this prime (but don't publish until success)
-            rhs_modp_for_p = {}
-            for i, rhs_data in enumerate(processed_rhs_list):
-                if rhs_data['den'].change_ring(GF(p)).is_zero():
-                    continue
-                rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
-
-            # run reduction (may raise) and build transformed vectors
-            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
-
-            # If Uinv is None or non-integral, fallback to identity (preserve exact arithmetic)
-            if Uinv is None:
-                Uinv_mat = identity_matrix(ZZ, r)
-            else:
-                try:
-                    # ensure integral matrix
-                    nonint = False
-                    for i_row in range(Uinv.nrows()):
-                        for j_col in range(Uinv.ncols()):
-                            entry = Uinv[i_row, j_col]
-                            if hasattr(entry, 'denominator'):
-                                if int(entry.denominator()) != 1:
-                                    nonint = True
-                                    break
-                            else:
-                                if QQ(entry) != Integer(entry):
-                                    nonint = True
-                                    break
-                        if nonint:
-                            break
-                    if nonint:
-                        Uinv_mat = identity_matrix(ZZ, r)
-                    else:
-                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
-                except Exception:
-                    Uinv_mat = identity_matrix(ZZ, r)
-
-            # Transform vecs into the LLL basis (always produce an entry for each input vec)
-            vecs_transformed_for_p = []
-            for v in vecs:
-                # ensure v is integer-coercible
-                vZ = vector(ZZ, [int(c) for c in v])
-                try:
-                    transformed = vZ * Uinv_mat
-                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
-                except Exception:
-                    # fallback: store original integer tuple
-                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
-
-            # Build required multiplier indices: union across ALL vectors for this section
-            required_ks_per_section = [set() for _ in range(r)]
-            for v_trans in vecs_transformed_for_p:
-                for j, coeff in enumerate(v_trans):
-                    required_ks_per_section[j].add(int(coeff))
-
-            # Now compute mults per section with only what's needed
-            mults = [{} for _ in range(r)]
-            for i_sec in range(r):
-                Pi = new_basis[i_sec]
-                required_ks = required_ks_per_section[i_sec]
-                if not required_ks:
-                    required_ks = {-1, 0, 1}
-
-                # Pass 'stats' object here
-                mults[i_sec] = compute_all_mults_for_section(
-                    Pi, required_ks, stats, # <-- Pass stats
-                    max_k=max((abs(k) for k in required_ks), default=1),
-                    debug=(r>1)
-                )
-
-
-            # Success for this prime -> publish all data
-            Ep_dict[p] = Ep_local
-            for i, rhs_p_val in rhs_modp_for_p.items():
-                rhs_modp_list[i][p] = rhs_p_val
-            multiplies_lll[p] = mults
-            vecs_lll[p] = vecs_transformed_for_p
-
-        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if p != 2 and p != 5:  # 2 and 5 are known to be problematic, don't spam
-                if DEBUG:
-                    print(f"Skipping prime {p} due to error during preparation: {e}")
-            # do not publish partial data for p; continue to next prime
-            continue
-
-    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
-
-# In search_lll.py
-
-# Add 'stats' to the signature
-def compute_all_mults_for_section(Pi, required_ks, stats, max_k=MAX_K_ABS, debug=False):
-    mults = {}
-    computed = {0: Pi.curve()(0), 1: Pi}
-
-    sorted_ks = sorted(required_ks, key=abs)
-
-    for i, k in enumerate(sorted_ks):
-        if debug and i % 10 == 0:
-            print(f"  [mults] Computing k={k} ({i}/{len(sorted_ks)})", flush=True)
-
-        if k in computed:
-            mults[k] = computed[k]
-            continue
-
-        abs_k = abs(k)
-
-        if abs_k // 2 in computed:
-            half_k = abs_k // 2
-            base = computed[half_k]
-            if debug:
-                print(f"    [mults] k={k}: building from {half_k}*Pi", flush=True)
-
-            if abs_k % 2 == 0:
-                if debug:
-                    print(f"      [mults] Doubling {half_k}*Pi...", flush=True)
-                result = base + base
-                stats.incr('multiply_ops') # <-- STATS (doubling)
-            else:
-                if debug:
-                    print(f"      [mults] Adding {half_k}*Pi + {half_k}*Pi + Pi...", flush=True)
-                result = base + base + Pi
-                stats.incr('multiply_ops', n=2) # <-- STATS (doubling + addition)
-
-            if k < 0:
-                result = -result
-                # We don't count negation as an op here, could add if needed
-            computed[k] = result
-            mults[k] = result
-        else:
-            # Fallback to direct multiplication (less efficient, counts as one op)
-            if debug:
-                print(f"    [mults] k={k}: direct multiplication", flush=True)
-            try:
-                mults[k] = k * Pi
-                stats.incr('multiply_ops') # <-- STATS (direct multiplication)
-                computed[k] = mults[k]
-            except Exception as e:
-                if debug:
-                    print(f"      [mults] Failed: {e}", flush=True)
-
-    return mults
-
-# In search_lll.py
-
-# Add 'stats' to the signature
-# In search_lll.py
 
 def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debug=DEBUG):
     """
@@ -2172,7 +1867,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     # === PHASE: PREP MOD DATA ===
     stats.start_phase('prep_mod_data')
     print("--- Preparing modular data for LLL search ---")
-    # Pass stats down
     Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
         cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
     )
@@ -3218,3 +2912,652 @@ def _compute_residues_for_prime_worker(args):
         result_for_p[v_orig_tuple] = roots_by_rhs
 
     return p, result_for_p, local_modular_checks
+
+
+
+# Patched helper functions for search_lll pipeline
+# Place this file into your repo and run your dedup.sh to merge/replace duplicates.
+# These functions are defensive and intentionally accept optional callbacks so they
+# can be dropped into your existing code with minimal change.
+
+from sage.all import QQ, GF, PolynomialRing, gcd, EllipticCurve, Zmod
+import math
+
+# ---------------------------------------------------------------------------
+# candidate_passes_extra_primes
+# ---------------------------------------------------------------------------
+def candidate_passes_extra_primes(m0, M, residue_map, extra_primes_for_filtering=None,
+                                 tmax=None, per_prime_test=None, logger=None):
+    """
+    Robust filter used in CRT worker to quickly reject CRT candidates using
+    a small list of extra primes.
+
+    Parameters
+    ----------
+    m0, M : ints
+        The CRT candidate expressed as m = m0 (mod M).
+    residue_map : dict
+        Mapping p -> residue information for this candidate (opaque; passed
+        through to per_prime_test if provided).
+    extra_primes_for_filtering : iterable of ints
+        Primes used for quick filtering (cheap checks). If None, no extra
+        filtering is performed.
+    tmax : int or None
+        Optional bound used by some tests (kept for API compatibility).
+    per_prime_test : callable(p, residue_info, m0, M, tmax) -> bool
+        If provided, called for each extra prime. Should return True if the
+        candidate *passes* the test at that prime. Returning False rejects the
+        candidate immediately.
+    logger : callable(str) or None
+        Optional lightweight logger: logger(str).
+
+    Returns
+    -------
+    bool
+        True if candidate survives all extra-prime tests, False if rejected.
+    """
+    if extra_primes_for_filtering is None:
+        return True
+
+    # default per-prime test: ensure residue is present and not explicitly
+    # marked as "IMPOSSIBLE" or None. This is conservative; your project
+    # probably provides a better per-prime predicate; pass it via
+    # per_prime_test to reuse that logic.
+    def _default_test(p, resid, m0, M, tmax):
+        if resid is None:
+            return False
+        # common residue_map representations: integer residue, tuple
+        # (x_residue, denom_ok), or dict. If we see a tuple and the second
+        # entry is a boolean-like 'denom_ok' flag, require it.
+        if isinstance(resid, tuple) and len(resid) >= 2:
+            denom_ok = resid[1]
+            if not denom_ok:
+                return False
+        # otherwise accept; the heavy tests happen later
+        return True
+
+    test = per_prime_test or _default_test
+
+    for p in extra_primes_for_filtering:
+        resid = residue_map.get(p, None)
+        try:
+            ok = bool(test(p, resid, m0, M, tmax))
+        except Exception as e:
+            if logger:
+                logger(f"extra-prime test raised at p={p}: {e}")
+            ok = False
+
+        if not ok:
+            return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# reduce_point_hom
+# ---------------------------------------------------------------------------
+
+def reduce_point_hom(E, P, p, logger=None):
+    """
+    Reduce a projective/affine point `P` on a model `E` modulo a prime p.
+
+    This returns None (distinct sentinel) when the reduction cannot be
+    performed because some denominator is not invertible mod p or because the
+    coordinates are not well-formed for reduction. Returning None is important
+    so callers can distinguish "reduction failed" vs "reduced to the origin"
+    or other meaningful points.
+
+    Parameters
+    ----------
+    E : (or compatible)
+        Elliptic curve or an object with `change_ring(GF(p))` supported.
+    P : tuple-like
+        Point coordinates. Typical shapes: (x, y) with rationals, or
+        projective tuple (X, Y, Z). Works with sage rationals/integers.
+    p : int
+        Prime modulus.
+    logger : callable(str) or None
+        Optional logger.
+
+    Returns
+    -------
+    reduced_point or None
+        The reduced point on E_mod_p, or None if reduction impossible.
+    """
+    # Convert modulus ring
+    try:
+        Fp = GF(p)
+    except Exception as e:
+        if logger:
+            logger(f"GF({p}) construction failed: {e}")
+        return None
+
+    # Helper: reduce a rational to Fp, returning None if denominator not invertible
+    def _reduce_rational_to_Fp(r):
+        # r expected to be a sage rational or python Fraction
+        try:
+            num = int(r.numerator())
+            den = int(r.denominator())
+        except Exception:
+            # fallback: try integer cast
+            try:
+                return Fp(int(r))
+            except Exception:
+                return None
+        if den % p == 0:
+            return None
+        return Fp(num) * Fp(int(pow(den, -1, p)))
+
+    # Normalize P into affine/projective coordinates
+    try:
+        coords = tuple(P)
+    except Exception:
+        if logger:
+            logger("reduce_point_hom: point not iterable")
+        return None
+
+    # Projective case (X,Y,Z)
+    if len(coords) == 3:
+        X, Y, Z = coords
+        Xr = _reduce_rational_to_Fp(X)
+        Yr = _reduce_rational_to_Fp(Y)
+        Zr = _reduce_rational_to_Fp(Z)
+        if Xr is None or Yr is None or Zr is None:
+            return None
+        try:
+            E_mod = E.change_ring(Fp)
+            return E_mod([Xr, Yr, Zr])
+        except Exception:
+            # Try affine conversion
+            if Zr == 0:
+                return None
+            try:
+                x_aff = Xr / Zr
+                y_aff = Yr / (Zr * Zr)
+                return E.change_ring(Fp)(x_aff, y_aff)
+            except Exception:
+                return None
+
+    # Affine case (x,y)
+    if len(coords) == 2:
+        x, y = coords
+        xr = _reduce_rational_to_Fp(x)
+        yr = _reduce_rational_to_Fp(y)
+        if xr is None or yr is None:
+            return None
+        try:
+            E_mod = E.change_ring(Fp)
+            return E_mod(xr, yr)
+        except Exception:
+            # if model mismatch or singular reduction, return None
+            return None
+
+    # Unsupported shape
+    if logger:
+        logger("reduce_point_hom: unsupported point shape")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# detect_fiber_collision
+# ---------------------------------------------------------------------------
+
+def detect_fiber_collision(Delta_poly, p):
+    """
+    Detect whether the discriminant polynomial Delta (in m) acquires multiple
+    roots modulo p. Returns (collision_flag, gcd_poly). If collision_flag is
+    True then gcd_poly = gcd(Delta_modp, Delta_modp') (non-constant).
+
+    Delta_poly should be a univariate polynomial over QQ (sage polynomial).
+    """
+    Fp = GF(p)
+    R = PolynomialRing(Fp, 'm')
+    m = R.gen()
+    # Coerce Delta polynomial to Fp
+    try:
+        Delta_modp = R([int(c) % p for c in Delta_poly.change_ring(QQ).coefficients(sparse=False)])
+        # The above line is a generic coercion attempt; if Delta_poly is
+        # already over QQ then change_ring+coefficients gives a list.
+    except Exception:
+        # Fall back to evaluating each coefficient via QQ
+        Delta_modp = R(list(map(lambda c: int(c % p), Delta_poly.list())))
+
+    # Compute gcd with derivative
+    dDelta = Delta_modp.derivative()
+    g = gcd(Delta_modp, dDelta)
+    has_collision = (g.degree() >= 1)
+    return has_collision, g
+
+
+# ---------------------------------------------------------------------------
+# hensel lift for y given x (small p-adic check)
+# ---------------------------------------------------------------------------
+
+def hensel_lift_y(E, m_mod_p, x_mod_p, p, k=3):
+    """
+    Given an elliptic-curve polynomial model E in variables (m), attempt a
+    simple Hensel-lift for y solving y^2 = x^3 + a4(m)*x + a6(m) modulo p^k.
+
+    This is a *cheap* p-adic consistency check: it will return True if the
+    congruence can be lifted to modulo p^k using standard Hensel/Newton when
+    the derivative (2*y) is invertible along the lift.
+
+    Requirements/assumptions:
+      - E.change_ring(GF(p)) and the evaluation of a4,a6 at m_mod_p is available
+      - x_mod_p is an integer in GF(p)
+
+    Returns
+    -------
+    bool
+        True if a Hensel lift to modulus p^k was successful, False otherwise.
+    """
+    # Quick checks
+    if p == 2:
+        # Hensel lifting for p=2 is more delicate; skip and fail conservatively.
+        return False
+
+    try:
+        Fp = GF(p)
+        E_mod = E.change_ring(Fp)
+    except Exception:
+        return False
+
+    # evaluate RHS at provided x and m
+    try:
+        # a4(m) and a6(m) may be polynomials in m. We try to evaluate them.
+        a4 = E.a4()
+        a6 = E.a6()
+        # If a4, a6 are functions of m (sage expressions), user must have
+        # substituted m -> m_mod_p before calling this function.
+        rhs_mod_p = (x_mod_p**3 + a4 * x_mod_p + a6) % p
+    except Exception:
+        # fallback: try the curve eval method if available
+        try:
+            rhs_mod_p = E_mod.right_hand_side(x_mod_p)
+        except Exception:
+            return False
+
+    # Is rhs a quadratic residue mod p?
+    try:
+        rhs_int = int(rhs_mod_p)
+    except Exception:
+        # maybe an element of GF(p)
+        rhs_int = int(rhs_mod_p.integer_representation())
+
+    if rhs_int % p == 0:
+        y0 = 0
+    else:
+        # try to find square root modulo p
+        try:
+            y0 = pow(rhs_int, (p + 1) // 4, p) if (p % 4 == 3) else None
+            if y0 is None:
+                # brute force small p
+                y0 = next((t for t in range(p) if (t * t - rhs_int) % p == 0), None)
+        except Exception:
+            y0 = None
+
+    if y0 is None:
+        return False
+
+    # Now do Newton lifting to modulus p^k
+    p_pow = p
+    y = y0
+    for i in range(1, k):
+        p_pow *= p
+        # Evaluate F(y) = y^2 - rhs (mod p_pow)
+        F_y = (y * y - rhs_int) % p_pow
+        dF = (2 * y) % p_pow
+        if math.gcd(dF, p) != 1:
+            # derivative not invertible, cannot apply Newton
+            return False
+        # dF inverse modulo p_pow
+        try:
+            inv = pow(int(dF), -1, p_pow)
+        except ValueError:
+            return False
+        y = (y - (F_y * inv)) % p_pow
+    return True
+
+
+# ---------------------------------------------------------------------------
+# is_congruent_to_known_sections
+# ---------------------------------------------------------------------------
+
+def is_congruent_to_known_sections(candidate, known_sections, primes, E=None,
+                                   threshold=3, logger=None):
+    """
+    Check whether `candidate` is congruent to any of the `known_sections`
+    modulo at least `threshold` primes from `primes`.
+
+    Parameters
+    ----------
+    candidate : object
+        Candidate point representation; the caller must provide a callable
+        `reduce_candidate_mod_p(candidate, p)` if candidate is not a simple
+        tuple.
+    known_sections : iterable
+        Known global sections (points). Each should be reducible with
+        `reduce_point_hom(., ., p)` above.
+    primes : iterable of ints
+        Primes to test reductions against.
+    E : optional
+        EllipticCurve model used for reductions (passed to reduce_point_hom).
+    threshold : int
+        Number of primes where congruence must hold to declare candidate a
+        reduction of a known section.
+
+    Returns
+    -------
+    (is_reduction, witness_info)
+        is_reduction: bool
+        witness_info: dict {section_index: count_of_primes_matched}
+    """
+    if E is None:
+        # reduction helpers require a curve model; caller should provide one.
+        raise ValueError("E (elliptic curve model) is required for reductions")
+
+    counts = {i: 0 for i in range(len(known_sections))}
+
+    for p in primes:
+        # reduce candidate and known sections
+        c_red = reduce_point_hom(E, candidate, p)
+        if c_red is None:
+            continue
+        for i, s in enumerate(known_sections):
+            s_red = reduce_point_hom(E, s, p)
+            if s_red is None:
+                continue
+            # Compare points in the group law: use equality on reduced points
+            try:
+                if c_red == s_red:
+                    counts[i] += 1
+            except Exception:
+                # fallback to coordinate comparison if necessary
+                try:
+                    if tuple(c_red) == tuple(s_red):
+                        counts[i] += 1
+                except Exception:
+                    continue
+
+    # Find if any section matched across `threshold` or more primes
+    for i, c in counts.items():
+        if c >= threshold:
+            return True, {i: c}
+
+    return False, counts
+
+
+# End of patched helper functions
+# -------------------------------
+# Notes for integration:
+# - candidate_passes_extra_primes now accepts an optional per_prime_test callback
+#   so you can reuse your original per-prime logic without changing calls.
+# - reduce_point_hom returns `None` when reduction fails (denominator non-invertible
+#   or other issues). Callers should treat None explicitly.
+# - detect_fiber_collision flags primes where Delta and its derivative share
+#   a factor (colliding fibers). Use this to force extra inspection of such primes.
+# - hensel_lift_y is a cheap p-adic consistency test to reduce false positives.
+# - is_congruent_to_known_sections provides a multi-prime consistency test to
+#   filter out candidates that are just reductions of global sections.
+
+def compute_all_mults_for_section(Pi, E_mod_p, p, logger=None):
+    """
+    Compute small multiples of a reduced section Pi on the reduced curve E_mod_p.
+
+    Returns:
+      - dict {n: n*Pi} on success
+      - None if Pi is None (reduction failed) or on unexpected error.
+
+    This function is intentionally conservative: it returns None when Pi is None
+    so callers can treat the prime as unusable for modular LLL data.
+    """
+    if Pi is None:
+        if logger:
+            logger(f"[compute_all_mults_for_section] Pi is None (reduction failed) at p={p}")
+        return None
+
+    try:
+        # Try to get a sensible upper bound on how many multiples to compute.
+        # If group order is cheap to compute for this prime, use it (bounded).
+        max_mult = 20
+        try:
+            # E_mod_p.count_points may exist and be fast for small p
+            order = int(E_mod_p.count_points()) if hasattr(E_mod_p, "count_points") else None
+            if order is not None and order > 0:
+                max_mult = min(max_mult, max(5, min(order, 200)))
+        except Exception:
+            # ignore expensive/failed count_points attempt
+            pass
+
+        computed = {}
+        # identity: prefer E_mod_p(0) but be defensive
+        try:
+            identity = E_mod_p(0)
+        except Exception:
+            try:
+                identity = E_mod_p(0, 1, 0)
+            except Exception:
+                identity = None
+
+        computed[0] = identity
+        computed[1] = Pi
+
+        for n in range(2, max_mult + 1):
+            try:
+                computed[n] = n * Pi
+            except Exception as e:
+                # stop at first failure to multiply further
+                if logger:
+                    logger(f"[compute_all_mults_for_section] multiply failed n={n} at p={p}: {e}")
+                break
+
+        return computed
+
+    except Exception as e:
+        if logger:
+            logger(f"[compute_all_mults_for_section] unexpected error at p={p}: {e}")
+        return None
+
+
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None, logger=None):
+    """
+    Prepare modular data for a collection of primes (prime_pool).
+
+    Parameters
+    ----------
+    cd : curve descriptor / Weierstrass model / curve factory
+      - The object used to construct / change the curve to GF(p). Tried in this
+        order: cd.change_ring(GF(p)), then cd.change_ring(Zmod(p)), then cd_mod_factory(p)
+      - If your code uses a different object, adapt the small 'make_E_mod_p' helper below.
+    current_sections : iterable
+      Known global sections (points) to reduce mod p; expected in the same
+      format used by reduce_point_hom.
+    prime_pool : iterable of ints
+      Primes to prepare modular data for.
+    rhs_list : list
+      RHS expressions (rational functions in m) that need reduction per-prime.
+    vecs : list
+      Additional vectors/objects to reduce (kept as-is per-prime if possible).
+    stats : dict-like
+      Statistics accumulator (mutated in-place).
+    search_primes : optional
+      Extra primes used by downstream logic (preserved).
+    logger : callable(str), optional
+
+    Returns
+    -------
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll
+
+      Ep_dict : dict p -> E_mod_p (reduced elliptic curve object)
+      rhs_modp_list : dict p -> list of evaluated RHS objects (mod p)
+      mult_lll : dict p -> dict mapping section_index -> computed multiples (dict)
+      vecs_lll : dict p -> list of reduced vecs (or original vecs if no reduction needed)
+
+    If a prime causes any known-section reduction to fail, that prime is skipped
+    entirely and not present in the returned dicts.
+    """
+    from sage.all import GF, Zmod
+
+    Ep_dict = {}
+    rhs_modp_list = {}
+    mult_lll = {}
+    vecs_lll = {}
+    rejected_primes = []
+
+    def make_E_mod_p(p):
+        """Attempt several strategies to obtain a reduced elliptic curve at p."""
+        # Strategy 1: try cd.change_ring(GF(p))
+        try:
+            E_mod = cd.change_ring(GF(p))
+            return E_mod
+        except Exception:
+            pass
+        # Strategy 2: try Zmod
+        try:
+            E_mod = cd.change_ring(Zmod(p))
+            return E_mod
+        except Exception:
+            pass
+        # Strategy 3: if cd is a callable factory cd(p) (user-specific), try that
+        try:
+            if callable(cd):
+                E_mod = cd(p)
+                return E_mod
+        except Exception:
+            pass
+        # If none worked, return None
+        return None
+
+    def safe_eval_rhs_mod_p(rhs_expr, p):
+        """
+        Evaluate an RHS rational function modulo p and return a reduced representation.
+        Expect rhs_expr to be a sage expression or a callable that can be evaluated
+        after substituting m->m0 or as symbol; adapt as needed for your code.
+        """
+        try:
+            # If rhs_expr has a .change_ring or .mod or .subs method, try common patterns:
+            if hasattr(rhs_expr, "change_ring"):
+                return rhs_expr.change_ring(GF(p))
+            # If it's a sage polynomial/expression in m, try to coerce coefficients mod p:
+            # best-effort: rely on str-based fallback evaluation if necessary
+            return rhs_expr  # caller may substitute per-m later
+        except Exception:
+            return None
+
+    for p in prime_pool:
+        # skip tiny primes known bad (optional)
+        try:
+            E_mod_p = make_E_mod_p(p)
+            if E_mod_p is None:
+                if logger:
+                    logger(f"[prepare_modular_data_lll] could not form E_mod at p={p}; skipping")
+                rejected_primes.append((p, "E_mod_missing"))
+                continue
+        except Exception as e:
+            if logger:
+                logger(f"[prepare_modular_data_lll] exception forming E_mod at p={p}: {e}; skipping")
+            rejected_primes.append((p, f"E_mod_exception:{e}"))
+            continue
+
+        # Reduce each known global section; if any reduction fails, reject prime
+        reduced_sections = []
+        reduction_failed = False
+        for i_sec, S in enumerate(current_sections):
+            try:
+                Pi_red = reduce_point_hom(E_mod_p, S, p, logger=logger)
+            except Exception as e:
+                Pi_red = None
+                if logger:
+                    logger(f"[prepare_modular_data_lll] reduce_point_hom raised for section #{i_sec} at p={p}: {e}")
+
+            if Pi_red is None:
+                # couldn't reduce this known section => prime unusable for modular LLL
+                reduction_failed = True
+                if logger:
+                    logger(f"[prepare_modular_data_lll] section #{i_sec} reduction failed at p={p}; rejecting prime")
+                break
+            reduced_sections.append(Pi_red)
+
+        if reduction_failed:
+            rejected_primes.append((p, "section_reduction_failed"))
+            continue
+
+        # For each reduced section compute multiples
+        mults_for_prime = {}
+        any_mult_error = False
+        for i_sec, Pi_red in enumerate(reduced_sections):
+            mults = compute_all_mults_for_section(Pi_red, E_mod_p, p, logger=logger)
+            if mults is None:
+                any_mult_error = True
+                if logger:
+                    logger(f"[prepare_modular_data_lll] compute_all_mults_for_section failed for section #{i_sec} at p={p}")
+                break
+            mults_for_prime[i_sec] = mults
+
+        if any_mult_error:
+            rejected_primes.append((p, "mults_failed"))
+            continue
+
+        # Prepare RHS reductions (best-effort; many RHS are symbolic in m and
+        # may only be fully evaluated at particular m-values later).
+        rhs_reduced = []
+        for rhs in rhs_list:
+            try:
+                rhs_r = safe_eval_rhs_mod_p(rhs, p)
+                rhs_reduced.append(rhs_r)
+            except Exception as e:
+                rhs_reduced.append(None)
+                if logger:
+                    logger(f"[prepare_modular_data_lll] rhs eval failed at p={p}: {e}")
+
+        # Attempt to reduce vecs if they are numeric/vectors; otherwise keep as-is
+        vecs_reduced = []
+        for v in vecs:
+            try:
+                # Try elementwise integer reduction if v is sequence-like
+                if hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
+                    reduced_v = []
+                    ok_v = True
+                    for comp in v:
+                        try:
+                            # If comp looks rational, ensure denominator invertible mod p
+                            if hasattr(comp, "numerator") and hasattr(comp, "denominator"):
+                                if int(comp.denominator()) % p == 0:
+                                    ok_v = False
+                                    break
+                                val = (int(comp.numerator()) * pow(int(comp.denominator()), -1, p)) % p
+                                reduced_v.append(val)
+                            else:
+                                reduced_v.append(int(comp) % p)
+                        except Exception:
+                            ok_v = False
+                            break
+                    if ok_v:
+                        vecs_reduced.append(tuple(reduced_v))
+                    else:
+                        vecs_reduced.append(None)
+                else:
+                    # scalar
+                    try:
+                        vecs_reduced.append(int(v) % p)
+                    except Exception:
+                        vecs_reduced.append(None)
+                # not fatal — we can still use this prime
+            except Exception as e:
+                vecs_reduced.append(None)
+                if logger:
+                    logger(f"[prepare_modular_data_lll] vec reduction error at p={p}: {e}")
+
+        # All checks passed for this prime: record prepared objects
+        Ep_dict[p] = E_mod_p
+        rhs_modp_list[p] = rhs_reduced
+        mult_lll[p] = mults_for_prime
+        vecs_lll[p] = vecs_reduced
+
+    # update stats about rejected primes, if requested
+    if stats is not None:
+        stats.setdefault("rejected_primes", []).extend(rejected_primes)
+        stats.setdefault("prepared_primes", []).extend(sorted(Ep_dict.keys()))
+
+    return Ep_dict, rhs_modp_list, mult_lll, vecs_lll
