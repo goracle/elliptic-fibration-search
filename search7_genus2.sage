@@ -3,7 +3,7 @@
 import itertools
 from collections import Counter
 from sage.all import *
-
+import math  # <-- ADD THIS LINE
 # application modules
 from search_common import *
 from tate import *
@@ -290,7 +290,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print(f"   Allocating {difficulty['recommended_subset_multiplier']:.1f}x prime subsets")
             height_bound *= difficulty['recommended_height_multiplier']
             num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
-        height_bound *= 2
+        #height_bound *= 2
 
 
         vecs = compute_search_vectors(H, height_bound) # MW canonical height bound version (old)
@@ -489,17 +489,49 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print(f"Hit rate: {100*hit_rate:.2f}%")
     print("="*70)
 
+    # In search7_genus2.sage, inside doloop_genus2 (at the end)
+
     # --- ADD THIS CALL ---
     # Run the formal C-bound proof
     try:
         # Use the rank from the final iteration
         mw_rank = len(current_sections)
-        run_sufficiency_proof(height_bound, cumulative_stats.prime_subsets, mw_rank)
+
+        # --- FIX: Calculate OBSERVED max height ---
+        # We need a canonical height function, but for this proxy,
+        # we can just use the log-height from the completeness report.
+        # This is a bit of a hack, but it's what we have.
+        # The completeness report already found H_obs_max = 3.0 
+        # Let's just hardcode it for this proof, or better,
+        # calculate it from all_known_x.
+        
+        def simple_height(x):
+            import math
+            try:
+                q = QQ(x)
+                num = abs(int(q.numerator()))
+                den = abs(int(q.denominator()))
+                return float(math.log(max(num, den, 1)))
+            except Exception:
+                raise
+                return 0.0
+
+        if all_known_x:
+            h_obs_max = max(simple_height(x) for x in all_known_x)
+            print(f"Proof using OBSERVED max height: {h_obs_max:.2f}")
+        else:
+            h_obs_max = height_bound # Fallback
+            print(f"Proof using SEARCH height: {h_obs_max:.2f}")
+
+        # Pass the OBSERVED max height, not the search bound
+        run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank)
+        
     except Exception as e:
         print(f"\nCould not run C-bound sufficiency proof: {e}")
+        raise
     # --- END ADDITION ---
 
-    # ---------- Insert this into search7_genus2.sage after you run the unified diagnostics ----------
+    # ---------- Insert this into search7_genus2.sage...    # ---------- Insert this into search7_genus2.sage after you run the unified diagnostics ----------
     # It computes an arithmetic-informed prior and then produces posterior probabilities
     # for T = true number of rational points (T == k means "we found all").
 
@@ -619,6 +651,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # FIX: Pass the adjusted p_visibility (prior['p_adjusted']),
     # not the raw p_visibility variable.
     post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
+    # --- FIX: Pass the ADJUSTED p-value from the prior, not the raw one ---
+    post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
+    # --- END FIX ---
 
     # Nicely formatted posterior summary
     print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
@@ -636,7 +671,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         mean_T = post['posterior_mean_T']
 
         print(f"Observed points (k) = {k_found}")
-        print(f"Estimated detection probability p = {p_visibility:.3f}")
+
+        print(f"Estimated detection probability p = {prior['p_adjusted']:.3f}")
+        #print(f"Estimated detection probability p = {p_visibility:.3f}")
         print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
         print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
         print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
