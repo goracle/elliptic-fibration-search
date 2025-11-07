@@ -1946,6 +1946,27 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     stats.end_phase('precompute_residues')
 
+    stats.start_phase('brauer')
+    from brauer import (
+        estimate_completeness_probability,
+        probe_algebraic_brauer_obstructions,
+        m_is_locally_allowed,
+    )
+
+    report = estimate_completeness_probability(precomputed_residues, PRIME_POOL)
+    print(f"[brauer] estimated survival fraction ≈ {report['estimate_survive']:.6f}")
+    print(f"[brauer] estimated ruled-out fraction ≈ {report['estimate_ruled_out']:.6f}")
+
+    mc = probe_algebraic_brauer_obstructions(precomputed_residues, PRIME_POOL, sample_size=1000)
+    print(f"[brauer] Monte Carlo blocked fraction ≈ {mc['monte_carlo']['blocked_fraction_est']:.6f}")
+
+    # optional diagnostic: test a representative m from the search range
+    some_m = QQ(1)  # or any rational under study
+    allowed, details = m_is_locally_allowed(some_m, precomputed_residues, PRIME_POOL)
+    print(f"[brauer] example m={some_m} locally allowed? {allowed}")
+
+    stats.end_phase('brauer')
+
 
     ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
 
