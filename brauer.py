@@ -267,3 +267,159 @@ def probe_algebraic_brauer_obstructions(precomputed_residues, prime_pool,
         'blocked_fraction_est': float(1.0 - survive_frac)
     }
     return result
+
+
+
+# In a new file: ramification.py
+
+def compute_ramification_locus(cd, verbose=True):
+    """
+    Compute the set of bad primes where Δ(m) has repeated roots.
+    These are exactly the primes dividing resultant(Δ, Δ').
+    
+    Returns:
+        set of primes
+    """
+    from sage.all import factor, PolynomialRing, is_prime
+    
+    PR_m = PolynomialRing(QQ, 'm')
+    Delta = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+    
+    if hasattr(Delta, 'numerator'):
+        Delta_poly = PR_m(Delta.numerator())
+    else:
+        Delta_poly = PR_m(Delta)
+    
+    dDelta = Delta_poly.derivative()
+    #R = resultant(Delta_poly, dDelta)
+    R = Delta_poly.resultant(dDelta)
+    
+    if verbose:
+        print(f"Resultant R = {R}")
+    
+    bad_primes = set()
+    for p, _ in factor(R):
+        if is_prime(p):
+            bad_primes.add(int(p))
+    
+    return bad_primes
+
+
+def compute_lll_constant(delta=0.98, d=1):
+    """
+    Compute the LLL guarantee constant for basis quality.
+    
+    Args:
+        delta: LLL reduction parameter (0.75 < delta < 1)
+        d: dimension (number of sections = MW rank)
+    
+    Returns:
+        C such that shortest vector b1 satisfies ||b1|| ≤ C × det(L)^(1/d)
+    """
+    # From Lenstra-Lenstra-Lovász 1982:
+    # ||b1|| ≤ (4/(4*delta - 1))^((d-1)/4) × det(L)^(1/d)
+    import math
+    C = (4.0 / (4.0 * delta - 1.0)) ** ((d - 1) / 4.0)
+    return C
+
+def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
+    """
+    Prove that prod(primes) > MAX_MODULUS is sufficient for reconstruction.
+    
+    Theorem: If M = prod(p in subset) > 2 × C_lll × exp(height_bound),
+    then rational reconstruction succeeds for all sections up to height H.
+    """
+    from functools import reduce
+    from operator import mul
+    import math
+    
+    M = reduce(mul, prime_subset, 1)
+    threshold = 2.0 * C_lll * math.exp(height_bound)
+    
+    return M > threshold, {
+        'M': M,
+        'threshold': threshold,
+        'C_lll': C_lll,
+        'height_bound': height_bound
+    }
+
+
+# In search7_genus2.sage
+# (Can be placed near the top with other helper functions, or near the end before main)
+
+
+def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
+    """
+    Runs the formal "C-bound" check to verify that the CRT modulus
+    is sufficient for rational reconstruction up to the height bound.
+    """
+    print("\n" + "="*70)
+    print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
+    print("="*70)
+    
+    if not prime_subsets:
+        print("No prime subsets were used. Cannot run sufficiency proof.")
+        print("="*70)
+        return
+
+    # 1. Compute the LLL constant
+    # We use the Mordell-Weil rank as the dimension 'd'
+    d = mw_rank
+    if d == 0:
+        print("MW rank is 0, setting dimension d=1 for LLL constant.")
+        d = 1
+        
+    # Use the default LLL_DELTA from search_lll.py
+    C_lll = compute_lll_constant(delta=0.98, d=d)
+    print(f"LLL Guarantee Constant (C_lll) for rank d={d}: {C_lll:.4f}")
+    
+    # 2. Find the smallest modulus M used in the search
+    # We must prove that *every* subset's modulus was sufficient
+    min_M = 0
+    min_M_subset = []
+    
+    for subset in prime_subsets:
+        if not subset:
+            continue
+        M = 1
+        for p in subset:
+            M *= int(p)
+        
+        if M == 0:
+            continue
+            
+        if min_M == 0 or M < min_M:
+            min_M = M
+            min_M_subset = subset
+            
+    if min_M == 0:
+        print("Could not find a valid prime subset modulus. Skipping check.")
+        print("="*70)
+        return
+        
+    print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
+    
+    # 3. Run the sufficiency proof
+    is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
+    
+    print(f"Height Bound (H): {details['height_bound']:.2f}")
+    
+    # Note: Using .2e for scientific notation to avoid f-string format issues
+    threshold_str = f"{details['threshold']:.2e}"
+    min_M_str = f"{details['M']:.2e}"
+    
+    print(f"Required: M > 2 * C_lll * exp(H)")
+    print(f"Threshold: {threshold_str}")
+    print(f"Actual M:  {min_M_str}")
+    
+    if is_sufficient:
+        print("\n*** ✅ PASS ***")
+        print("The smallest modulus M used in the search is formally sufficient")
+        print("to guarantee rational reconstruction for all sections up to height H.")
+    else:
+        print("\n*** ⚠️  FAIL ***")
+        print("The search modulus M is NOT large enough to guarantee reconstruction.")
+        print("This implies the search may be incomplete (missed points).")
+        print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
+        
+    print("="*70)

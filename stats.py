@@ -11,10 +11,12 @@ from functools import reduce
 import math
 
 
-from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
 from sage.all import *
+from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
+from search_common import DEBUG
 
 class SearchStats:
+
     def __init__(self):
         self.start_time = time.time()
         # Phase timers
@@ -26,6 +28,9 @@ class SearchStats:
         self.residues_by_prime = defaultdict(set)
         self.prime_subsets = []
 
+        # *** NEW: Track rejected primes ***
+        self.rejected_primes = []  # List of (prime, reason) tuples
+        
         # Initialize all counters
         self.counters.update({
             'modular_checks': 0,
@@ -56,39 +61,67 @@ class SearchStats:
         # CRT classes tested
         self.crt_classes_tested = set()
 
-    # ---------------- Merging ----------------
+
     def merge(self, other):
-        """Merge another SearchStats object into this one."""
+        """
+        Merge another SearchStats object into this one.
+        FIXED: Now preserves rejected_primes list.
+        """
         if not isinstance(other, SearchStats):
             return
+
+        # Merge phase times
         for phase, t in other.phase_times.items():
             self.phase_times[phase] += t
+
+        # Merge counters
         self.counters.update(other.counters)
+
+        # Merge residues by prime
         for p, res_set in other.residues_by_prime.items():
             self.residues_by_prime[p].update(res_set)
+
+        # Merge discard reasons
         self.discard_reasons.update(other.discard_reasons)
+
+        # Merge discard examples (keep first 5 per reason)
         for reason, examples in other.discard_examples.items():
             current_len = len(self.discard_examples[reason])
             needed = 5 - current_len
             if needed > 0:
                 self.discard_examples[reason].extend(examples[:needed])
+
+        # Merge successes/failures (keep last 1000)
         self.successes.extend(other.successes)
         self.failures.extend(other.failures)
         self.successes = self.successes[-1000:]
         self.failures = self.failures[-1000:]
+
+        # Merge CRT classes tested
         self.crt_classes_tested.update(other.crt_classes_tested)
+
+        # Merge prime subsets
         self.prime_subsets.extend(other.prime_subsets)
+
+        # *** CRITICAL FIX: Merge rejected_primes list ***
+        if hasattr(other, 'rejected_primes'):
+            if not hasattr(self, 'rejected_primes'):
+                self.rejected_primes = []
+            self.rejected_primes.extend(other.rejected_primes)
+            # Deduplicate while preserving order
+            seen = set()
+            deduped = []
+            for item in self.rejected_primes:
+                if item not in seen:
+                    seen.add(item)
+                    deduped.append(item)
+            self.rejected_primes = deduped
 
     def merge_dict(self, stats_dict):
         """Merge a simple Counter dict into counters."""
         self.counters.update(stats_dict)
 
     # ---------------- CRT ----------------
-    def record_crt_class(self, m_mod_M, M):
-        canonical = (int(m_mod_M) % int(M), int(M))
-        self.crt_classes_tested.add(canonical)
-
-    # ---------------- Timing ----------------
     def start_phase(self, name):
         self._phase_start[name] = time.time()
 
@@ -189,6 +222,8 @@ class SearchStats:
             'denom_zero_primes': denom_zero_primes,
             'coverage_fraction': coverage
         }
+
+    # ---------------- Summary ----------------
 
     # ---------------- Summary ----------------
     def summary(self):
@@ -343,6 +378,7 @@ class SearchStats:
 
 # ---------------- BenchmarkStats ----------------
 class BenchmarkStats:
+
     def __init__(self, known_ground_truth):
         self.ground_truth = frozenset(known_ground_truth)
         self.start_time = time.time()
@@ -353,6 +389,8 @@ class BenchmarkStats:
         self.total_prime_subsets_used = 0
         self.fibration_stats = []
         self.current_fib = None
+
+
 
     def start_fibration(self, base_pts, height_bound):
         self.current_fib = {
@@ -424,10 +462,13 @@ class BenchmarkStats:
                 print(f"  Fib {i} ({fib['base_pts']}): found {fib['found_here']} in {fib['duration']:.2f}s ({fib['crt_candidates']} candidates)")
 
 
-# ---------------- QuickBench ----------------
+
+
 class QuickBench:
+
     def __init__(self):
         self.runs = []
+
 
     def record(self, curve_id, time, candidates, points):
         self.runs.append({
@@ -646,9 +687,9 @@ def analyze_dir(d):
 
 class CurveComplexityPredictor:
     """Predict if a curve will be hard before spending compute"""
-    
     def __init__(self):
         self.complexity_signals = {}
+    
     
     def assess_curve_difficulty(self, cd, initial_sections, prime_pool, H):
         """Run cheap diagnostics before heavy search"""
@@ -703,12 +744,12 @@ class CurveComplexityPredictor:
 
 class CoverageEstimator:
     """Estimate how much of the search space we've covered"""
-    
+
     def __init__(self, prime_pool, residue_counts):
         self.prime_pool = prime_pool
         self.residue_counts = residue_counts
         self.tested_classes = set()  # (m mod M, M) pairs we've tested
-    
+
     def record_crt_class(self, m0, M):
         """Record that we tested this residue class"""
         canonical = (int(m0) % int(M), int(M))
@@ -823,6 +864,7 @@ class FindabilityAnalyzer:
     def __init__(self, stats, prime_pool):
         self.stats = stats
         self.prime_pool = list(prime_pool)
+
 
     def visibility_signature(self, m_val):
         """
@@ -1454,70 +1496,6 @@ def print_unified_diagnostics(findability_analyzer,
     return {'bootstrap': boot, 'mi': mires, 'subset_res': locals().get('subset_res', None)}
 
 
-def prior_from_arithmetic(k_found,
-                          p_visibility,
-                          selmer_dim=None,
-                          r_found=None,
-                          crt_candidates_found=None,
-                          rationality_tests_success=None,
-                          h_max=None,
-                          known_heights=None):
-    """
-    Produce a suggested geometric-prior parameter q (and component mus) from arithmetic signals.
-    Returns dict with 'mu_selmer','mu_local','mu_height','mu_bootstrap','mu_combined','q'.
-    All components optional; function uses available inputs.
-    """
-    # defaults
-    mu_selmer = 0.0
-    mu_local = 0.0
-    mu_height = 0.0
-    mu_bootstrap = 0.0
-
-    # Selmer signal
-    if selmer_dim is not None and r_found is not None:
-        delta_r = max(0, selmer_dim - r_found)
-        if delta_r == 0:
-            mu_selmer = 0.02
-        else:
-            mu_selmer = 0.2 * delta_r
-
-
-    # Replace this block in prior_from_arithmetic
-    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
-        rho_global = rationality_tests_success / float(crt_candidates_found)
-        # Ignore meaningless tiny ratios (< 0.05%) that just reflect modular overgeneration
-        if rho_global > 0.0005:
-            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
-            mu_local = min(10.0, est_missed_classes * 0.05)
-        else:
-            mu_local = 0.0
-
-    # Height/regulator signal
-    if h_max is not None and known_heights:
-        max_known = max(known_heights)
-        if max_known >= h_max * 0.95:
-            mu_height = 0.01
-        else:
-            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
-            mu_height = min(10.0, 0.5 * available)
-
-    # Bootstrap / empirical signal
-    if p_visibility is not None and p_visibility > 0:
-        mu_bootstrap = k_found * ((1.0 - p_visibility) / p_visibility) * 0.01
-        mu_bootstrap = min(mu_bootstrap, 50.0)
-
-    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
-    q = mu_combined / (1.0 + mu_combined)
-    return {
-        'mu_selmer': mu_selmer,
-        'mu_local': mu_local,
-        'mu_height': mu_height,
-        'mu_bootstrap': mu_bootstrap,
-        'mu_combined': mu_combined,
-        'q': q
-    }
-
-
 import math
 
 def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
@@ -1569,3 +1547,243 @@ def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
         'P_all_but_2': P_all_but_2,
         'posterior_mean_T': mean_T
     }
+
+
+
+# Add this helper to stats.py
+
+def prior_from_arithmetic_fixed(k_found,
+                                p_visibility,
+                                prime_pool,
+                                rejected_primes=None,  # NEW PARAM
+                                selmer_dim=None,
+                                r_found=None,
+                                crt_candidates_found=None,
+                                rationality_tests_success=None,
+                                h_max=None,
+                                known_heights=None):
+    """
+    Produce geometric-prior parameter q with fiber collision adjustment.
+    """
+    # Adjust p_visibility for fiber collisions
+    if rejected_primes:
+        p_adjusted = adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes)
+    else:
+        p_adjusted = p_visibility
+    
+    # Now use p_adjusted for bootstrap component
+    mu_selmer = 0.0
+    mu_local = 0.0
+    mu_height = 0.0
+    mu_bootstrap = 0.0
+    
+    # Selmer signal (unchanged)
+    if selmer_dim is not None and r_found is not None:
+        delta_r = max(0, selmer_dim - r_found)
+        if delta_r == 0:
+            mu_selmer = 0.02
+        else:
+            mu_selmer = 0.2 * delta_r
+    
+    # LOCAL SIGNAL FIX: Only use if rationality hit rate is meaningful
+    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
+        rho_global = rationality_tests_success / float(crt_candidates_found)
+        
+        # CRITICAL FIX: Ignore spurious low hit rates from modular overgeneration
+        # A hit rate < 0.1% is almost always noise, not signal
+        if rho_global > 0.001:  # Raised threshold from 0.0005
+            # Estimate missed classes conservatively
+            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
+            # Scale down: high miss-rate might just mean loose modular constraints
+            mu_local = min(10.0, est_missed_classes * 0.02)  # Reduced from 0.05
+        else:
+            mu_local = 0.0
+    
+    # Height signal (unchanged)
+    if h_max is not None and known_heights:
+        max_known = max(known_heights)
+        if max_known >= h_max * 0.95:
+            mu_height = 0.01
+        else:
+            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
+            mu_height = min(10.0, 0.5 * available)
+    
+    # Bootstrap signal using ADJUSTED p
+    if p_adjusted is not None and p_adjusted > 0:
+        mu_bootstrap = k_found * ((1.0 - p_adjusted) / p_adjusted) * 0.01
+        mu_bootstrap = min(mu_bootstrap, 50.0)
+    
+    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
+    q = mu_combined / (1.0 + mu_combined)
+    
+    return {
+        'mu_selmer': mu_selmer,
+        'mu_local': mu_local,
+        'mu_height': mu_height,
+        'mu_bootstrap': mu_bootstrap,
+        'mu_combined': mu_combined,
+        'q': q,
+        'p_adjusted': p_adjusted,  # Return for transparency
+        'p_raw': p_visibility
+    }
+
+
+
+# ============================================================================
+# PART 3: Updated adjustment function with better diagnostics
+# ============================================================================
+# In stats.py, replace adjust_visibility_for_fiber_collisions:
+
+def adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes_list, debug=True):
+    """
+    Adjust bootstrap visibility probability to account for primes excluded due to fiber collisions.
+    
+    Args:
+        p_visibility: Raw bootstrap average fraction (over usable primes)
+        prime_pool: List of primes attempted (before rejection)
+        rejected_primes_list: List of (prime, reason) tuples from prepare_modular_data_lll
+    
+    Returns:
+        dict with 'p_adjusted', 'collision_primes', 'reachable_fraction', 'adjustment_factor'
+    """
+    if not rejected_primes_list:
+        return {
+            'p_adjusted': p_visibility,
+            'collision_primes': [],
+            'other_rejected': [],
+            'reachable_fraction': 1.0,
+            'adjustment_factor': 1.0
+        }
+    
+    # Separate fiber collisions from other rejections
+    collision_primes = []
+    other_rejected = []
+    
+    for p, reason in rejected_primes_list:
+        reason_str = str(reason).lower()
+        if 'fiber' in reason_str or 'collision' in reason_str:
+            collision_primes.append(p)
+        else:
+            other_rejected.append((p, reason))
+    
+    if not collision_primes:
+        return {
+            'p_adjusted': p_visibility,
+            'collision_primes': [],
+            'other_rejected': other_rejected,
+            'reachable_fraction': 1.0,
+            'adjustment_factor': 1.0
+        }
+    
+    # Estimate the "hole" in m-space from collision primes
+    # Each collision prime p removes roughly (1 - 1/p) of m-space
+    # (rationals with denominator divisible by p are unreachable)
+    reachable_fraction = 1.0
+    for p in collision_primes:
+        reachable_fraction *= (1.0 - 1.0/float(p))
+    
+    # The measured p_visibility was over the reachable space
+    # True global visibility accounting for unreachable space:
+    adjustment_factor = reachable_fraction
+    p_adjusted = p_visibility * adjustment_factor
+    
+    if debug:
+        print(f"\n[fiber_collision_adjustment]")
+        print(f"  Collision primes: {collision_primes}")
+        print(f"  Other rejected: {[p for p, _ in other_rejected]}")
+        print(f"  Reachable fraction: {reachable_fraction:.4f}")
+        print(f"  Adjustment factor: {adjustment_factor:.4f}")
+        print(f"  Raw p_visibility: {p_visibility:.4f}")
+        print(f"  Adjusted p_visibility: {p_adjusted:.4f}")
+    
+    return {
+        'p_adjusted': p_adjusted,
+        'collision_primes': collision_primes,
+        'other_rejected': other_rejected,
+        'reachable_fraction': reachable_fraction,
+        'adjustment_factor': adjustment_factor
+    }
+
+
+# ============================================================================
+# PART 4: Update prior_from_arithmetic to use adjustment
+# ============================================================================
+# In stats.py, replace prior_from_arithmetic:
+
+def prior_from_arithmetic(k_found,
+                          p_visibility,
+                          rejected_primes=None,
+                          prime_pool=None,
+                          selmer_dim=None,
+                          r_found=None,
+                          crt_candidates_found=None,
+                          rationality_tests_success=None,
+                          h_max=None,
+                          known_heights=None):
+    """
+    Produce geometric-prior parameter q with fiber collision adjustment.
+    """
+    # Apply fiber collision adjustment
+    if rejected_primes and prime_pool:
+        adj = adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes, debug=DEBUG)
+        p_adjusted = adj['p_adjusted']
+        collision_primes = adj['collision_primes']
+    else:
+        p_adjusted = p_visibility
+        collision_primes = []
+    
+    # Component mus
+    mu_selmer = 0.0
+    mu_local = 0.0
+    mu_height = 0.0
+    mu_bootstrap = 0.0
+    
+    # Selmer signal
+    if selmer_dim is not None and r_found is not None:
+        delta_r = max(0, selmer_dim - r_found)
+        if delta_r == 0:
+            mu_selmer = 0.02
+        else:
+            mu_selmer = 0.2 * delta_r
+    
+    # Local signal (FIXED threshold to ignore spurious low hit rates)
+    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
+        rho_global = rationality_tests_success / float(crt_candidates_found)
+        
+        # Only use if hit rate is meaningful (>0.1%)
+        if rho_global > 0.001:
+            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
+            mu_local = min(10.0, est_missed_classes * 0.02)  # Reduced scaling
+        else:
+            mu_local = 0.0
+    
+    # Height signal
+    if h_max is not None and known_heights:
+        max_known = max(known_heights)
+        if max_known >= h_max * 0.95:
+            mu_height = 0.01
+        else:
+            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
+            mu_height = min(10.0, 0.5 * available)
+    
+    # Bootstrap signal using ADJUSTED p
+    if p_adjusted is not None and p_adjusted > 0:
+        mu_bootstrap = k_found * ((1.0 - p_adjusted) / p_adjusted) * 0.01
+        mu_bootstrap = min(mu_bootstrap, 50.0)
+    
+    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
+    q = mu_combined / (1.0 + mu_combined)
+    
+    return {
+        'mu_selmer': mu_selmer,
+        'mu_local': mu_local,
+        'mu_height': mu_height,
+        'mu_bootstrap': mu_bootstrap,
+        'mu_combined': mu_combined,
+        'q': q,
+        'p_adjusted': p_adjusted,
+        'p_raw': p_visibility,
+        'collision_primes': collision_primes
+    }
+
+

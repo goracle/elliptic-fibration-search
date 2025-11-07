@@ -35,6 +35,7 @@ from sage.rings.fraction_field_element import FractionFieldElement
 from search_common import *
 from search_common import DEBUG, PROFILE
 from stats import * # <-- ADDED IMPORT
+from brauer import *
 
 # Constants
 DEFAULT_MAX_CACHE_SIZE = 10000
@@ -3139,6 +3140,10 @@ def is_congruent_to_known_sections(candidate, known_sections, primes, E=None,
         stats.setdefault("rejected_primes", []).extend(rejected_primes)
         stats.setdefault("prepared_primes", []).extend(sorted(Ep_dict.keys()))
 
+    # In prepare_modular_data_lll, before returning:
+    if stats is not None:
+        stats.counters['rejected_primes'] = rejected_primes
+
     return Ep_dict, rhs_modp_list, mult_lll, vecs_lll
 
 
@@ -3584,12 +3589,8 @@ from diagnostics2 import find_singular_fibers
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
     """
     Prepare modular data for LLL-based search across multiple primes.
-    Ensures we only publish per-prime data after successful processing for that prime.
-    NOW WITH SINGULAR CURVE DETECTION and ROBUST 'None' HANDLING.
-
-    --- Patched to include mod-p geometry diagnostics ---
+    NOW RECORDS REJECTED PRIMES IN STATS FOR POSTERIOR ADJUSTMENT.
     """
-    # Local imports so this function is self-contained
     from sage.all import GF, PolynomialRing, QQ, SR, var, EllipticCurve, Integer, identity_matrix, vector, matrix
 
     if search_primes is None:
@@ -3601,10 +3602,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
     Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
     multiplies_lll, vecs_lll = {}, {}
+    rejected_primes = []  # Track (prime, reason) tuples
+    
     PR_m = PolynomialRing(QQ, 'm')
-    var_sym = var('m')  # For tate.py compatibility
+    var_sym = var('m')
 
-    # Prepare numerator/denominator polynomials for RHS and a4/a6
     processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
     a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
     a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
@@ -3612,99 +3614,96 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     for p in search_primes:
         try:
             # Skip primes dividing denominators of a4/a6 coefficients
-            # (we check denominators of the numerator-coeffs because cd.a4 etc are rationals)
             if any(int(QQ(c).denominator()) % p == 0 for c in a4_num.coefficients(sparse=False)):
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] skip p={p}: a4 numerator has coeff with denom divisible by p")
+                rejected_primes.append((p, "a4_denom_divisible"))
                 continue
             if any(int(QQ(c).denominator()) % p == 0 for c in a6_num.coefficients(sparse=False)):
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] skip p={p}: a6 numerator has coeff with denom divisible by p")
+                rejected_primes.append((p, "a6_denom_divisible"))
                 continue
 
-            # Build polynomial ring & fraction field over GF(p)
             Rp = PolynomialRing(GF(p), 'm')
             Fp_m = Rp.fraction_field()
 
-            # denominators zero mod p -> skip
-            # Use change_ring carefully; wrap in try because change_ring may fail for weird objects.
             try:
                 if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] skip p={p}: a4/a6 denominator zero mod p")
+                    rejected_primes.append((p, "a4_a6_denom_zero"))
                     continue
             except Exception:
-                # If we cannot coerce denominators into GF(p) safely, be conservative and skip
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] skip p={p}: denominator coercion error")
+                rejected_primes.append((p, "denom_coercion_failed"))
                 continue
 
-            # Build a4_modp / a6_modp in Fp(m)
             a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
             a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
 
-            # --- BEGIN DIAGNOSTIC BLOCK (optional heavy analysis for some primes) ---
+            # Diagnostic block for p=3 (optional, keep if useful)
             if p == 3 and DEBUG:
                 print("\n" + "="*70)
                 print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
                 print(f"Analyzing surface: y^2 = x^3 + a4_mod{p}(m)*x + a6_mod{p}(m)")
                 try:
+                    from diagnostics2 import find_singular_fibers
                     mod_p_fiber_report = find_singular_fibers(a4=a4_modp, a6=a6_modp, verbose=True)
                     print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
                 except Exception as e_diag:
                     print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
                 print("="*70 + "\n")
-            # --- END DIAGNOSTIC BLOCK ---
 
-            # Check curve discriminant (singular curve) and skip primes where it vanishes
-            # discriminant = -16*(4*a4^3 + 27*a6^2) over the fraction field
+            # Check discriminant (singular curve)
             try:
                 disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
                 if disc_modp.is_zero():
                     if DEBUG:
                         print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                    rejected_primes.append((p, "singular_discriminant"))
                     continue
             except Exception:
-                # If discriminant-check fails for this prime, be conservative and skip
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] discriminant check failed at p={p}; skipping")
+                rejected_primes.append((p, "discriminant_check_failed"))
                 continue
 
-            # --- Fiber-collision check: skip primes where Delta(m) acquires a multiple root mod p ---
+            # *** CRITICAL: Fiber collision check ***
             try:
-                # Delta in Q[m] (symbolic). Use cd.a4, cd.a6 - they are symbolic rationals
                 Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
-                # If Delta is rational function, take numerator to get polynomial in m
                 if hasattr(Delta_poly, 'numerator'):
                     Delta_poly = Delta_poly.numerator()
-                # Coerce to PR_m (QQ polynomial ring)
                 Delta_pr = PR_m(SR(Delta_poly))
+                
+                from search_lll import detect_fiber_collision
                 has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
+                
                 if has_collision:
+                    deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
                     if DEBUG:
-                        deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
                         print(f"Skipping prime {p}: fiber collision detected (gcd degree={deg})")
+                    rejected_primes.append((p, f"fiber_collision_deg_{deg}"))
                     continue
             except Exception as e:
                 if DEBUG:
                     print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
-                # Fall through (do not skip) in case detect_fiber_collision itself failed;
-                # but earlier we already skipped if discriminant.is_zero() or denom failure.
 
-            # Construct elliptic curve over Fp(m)
+            # Construct elliptic curve
             try:
                 Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
             except ArithmeticError as e:
                 if DEBUG:
                     print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+                rejected_primes.append((p, "elliptic_curve_construction_failed"))
                 continue
 
-            # Build rhs_modp for this prime (but don't publish until success)
+            # Build rhs_modp for this prime
             rhs_modp_for_p = {}
             for i, rhs_data in enumerate(processed_rhs_list):
                 try:
                     if rhs_data['den'].change_ring(GF(p)).is_zero():
-                        # cannot reduce this rhs at p
                         if DEBUG:
                             print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: denominator zero mod p")
                         continue
@@ -3712,13 +3711,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 except Exception:
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
-                    # skip this particular RHS, but don't reject entire prime solely for rhs
 
-            # run reduction (may raise) and build transformed vectors
-            # expects new_basis (length r) and Uinv from lll_reduce_basis_modp
+            # Run LLL reduction
             new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
 
-            # If Uinv is None or non-integral, fallback to identity
+            # Fallback for Uinv
             if Uinv is None:
                 Uinv_mat = identity_matrix(ZZ, r)
             else:
@@ -3727,7 +3724,6 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     for i_row in range(Uinv.nrows()):
                         for j_col in range(Uinv.ncols()):
                             entry = Uinv[i_row, j_col]
-                            # sentinel test for rational entry
                             if hasattr(entry, 'denominator'):
                                 if int(entry.denominator()) != 1:
                                     nonint = True
@@ -3745,7 +3741,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 except Exception:
                     Uinv_mat = identity_matrix(ZZ, r)
 
-            # Transform vecs into the LLL basis (always produce an entry for each input vec)
+            # Transform vecs
             vecs_transformed_for_p = []
             for v in vecs:
                 try:
@@ -3753,14 +3749,12 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     transformed = vZ * Uinv_mat
                     vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
                 except Exception:
-                    # fallback: store original integer tuple if coercion failed
                     try:
                         vecs_transformed_for_p.append(tuple(int(c) for c in v))
                     except Exception:
-                        # if even that fails, store None so downstream knows it's unusable
                         vecs_transformed_for_p.append(None)
 
-            # Build required multiplier indices: union across ALL vectors for this section
+            # Build required multiplier indices
             required_ks_per_section = [set() for _ in range(r)]
             for v_trans in vecs_transformed_for_p:
                 if v_trans is None:
@@ -3768,15 +3762,12 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 for j, coeff in enumerate(v_trans):
                     required_ks_per_section[j].add(int(coeff))
 
-            # Now compute mults per section with only what's needed
+            # Compute multipliers
             mults = [{} for _ in range(r)]
-
-            # Compute multipliers defensively; if any section fails, reject prime
             any_mult_error = False
             for i_sec in range(r):
-                Pi = new_basis[i_sec]  # may be None if reduction failed for this section
+                Pi = new_basis[i_sec]
                 required_ks = required_ks_per_section[i_sec]
-                assert required_ks, required_ks
                 if not required_ks:
                     required_ks = {-1, 0, 1}
 
@@ -3787,19 +3778,18 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 )
 
                 if mults_i is None:
-                    # This section's multipliers failed -> prime unusable
                     any_mult_error = True
                     if DEBUG:
-                        print(f"[prepare_modular_data_lll] p={p}: Failed to compute multipliers for basis section {i_sec} (Pi was {Pi})")
+                        print(f"[prepare_modular_data_lll] p={p}: Failed to compute multipliers for basis section {i_sec}")
+                    rejected_primes.append((p, f"multiplier_computation_failed_sec_{i_sec}"))
                     break
 
                 mults[i_sec] = mults_i
 
             if any_mult_error:
-                # skip publishing partial data for this prime
                 continue
 
-            # Success for this prime -> publish all data
+            # Success - publish data for this prime
             Ep_dict[p] = Ep_local
             for i, rhs_p_val in rhs_modp_for_p.items():
                 rhs_modp_list[i][p] = rhs_p_val
@@ -3807,10 +3797,32 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             vecs_lll[p] = vecs_transformed_for_p
 
         except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            # Known problematic primes (2 and 5) are noisy; only verbose when debug and not 2/5
             if DEBUG and (p not in (2, 5)):
                 print(f"Skipping prime {p} due to error during preparation: {e}")
-            # do not publish partial data for p; continue to next prime
+            rejected_primes.append((p, f"exception_{type(e).__name__}"))
             continue
 
+    # *** CRITICAL: Record rejected primes in stats ***
+    if stats is not None:
+        if not hasattr(stats, 'rejected_primes'):
+            stats.rejected_primes = []
+        stats.rejected_primes.extend(rejected_primes)
+        
+        if DEBUG:
+            print(f"\n[prepare_modular_data_lll] Rejected {len(rejected_primes)} primes:")
+            for p, reason in rejected_primes:
+                print(f"  p={p}: {reason}")
+
+
+    # Add assertion to prepare_modular_data_lll:
+    if DEBUG:
+        ram_locus = compute_ramification_locus(cd)
+        detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
+        assert detected_collisions.issubset(ram_locus), \
+            f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
+
+
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
+
+
+

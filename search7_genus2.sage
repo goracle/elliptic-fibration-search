@@ -489,6 +489,15 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print(f"Hit rate: {100*hit_rate:.2f}%")
     print("="*70)
 
+    # --- ADD THIS CALL ---
+    # Run the formal C-bound proof
+    try:
+        # Use the rank from the final iteration
+        mw_rank = len(current_sections)
+        run_sufficiency_proof(height_bound, cumulative_stats.prime_subsets, mw_rank)
+    except Exception as e:
+        print(f"\nCould not run C-bound sufficiency proof: {e}")
+    # --- END ADDITION ---
 
     # ---------- Insert this into search7_genus2.sage after you run the unified diagnostics ----------
     # It computes an arithmetic-informed prior and then produces posterior probabilities
@@ -570,10 +579,19 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         h_max = None
         known_heights = None
 
-    # Call arithmetic-prior helper (your function in stats.py)
+    # ============================================================================
+    # PART 5: Update the posterior call in search7_genus2.sage
+    # ============================================================================
+    # Replace the posterior section in search7_genus2.sage:
+
+    # Extract rejected primes from stats (will be populated by prepare_modular_data_lll)
+    rejected_primes_list = getattr(cumulative_stats, 'rejected_primes', [])
+
     prior = prior_from_arithmetic(
         k_found=k_found,
         p_visibility=p_visibility,
+        rejected_primes=rejected_primes_list,
+        prime_pool=prime_pool,
         selmer_dim=selmer_dim,
         r_found=r_found,
         crt_candidates_found=crt_candidates_found,
@@ -582,8 +600,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         known_heights=known_heights
     )
 
-    # Print the derived prior components (transparent)
-    print("\n--- Arithmetic-informed prior (components) ---")
+    # Print with collision details
+    print(f"\n--- Arithmetic-informed prior (with fiber collision adjustment) ---")
+    if prior.get('collision_primes'):
+        print(f"Fiber collision primes detected: {prior['collision_primes']}")
+    print(f"p_visibility (raw): {prior['p_raw']:.4f}")
+    print(f"p_visibility (adjusted): {prior['p_adjusted']:.4f}")
     print(f"mu_selmer:   {prior['mu_selmer']:.4g}")
     print(f"mu_local:    {prior['mu_local']:.4g}")
     print(f"mu_height:   {prior['mu_height']:.4g}")
@@ -593,7 +615,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # Now compute posterior probabilities under the geometric prior
     # call completeness posterior function with a reasonable m_max (tune if you expect large tails)
     m_max = 200
-    post = completeness_posterior_geometric(k=k_found, p=p_visibility, q=prior['q'], m_max=m_max)
+    
+    # FIX: Pass the adjusted p_visibility (prior['p_adjusted']),
+    # not the raw p_visibility variable.
+    post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
 
     # Nicely formatted posterior summary
     print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
