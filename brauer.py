@@ -423,3 +423,118 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
         print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
         
     print("="*70)
+
+
+
+# In brauer.py
+
+# ... (other functions) ...
+
+def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
+    """
+    Prove that prod(primes) > MAX_MODULUS is sufficient for reconstruction.
+    
+    Theorem: If M = prod(p in subset) > 2 * C_lll * exp(height_bound),
+    then rational reconstruction succeeds for all sections up to height H.
+    
+    FIX: This comparison is done in log-space to prevent overflow from exp(H).
+    """
+    from functools import reduce
+    from operator import mul
+    import math
+    
+    M = reduce(mul, [int(p) for p in prime_subset], 1)
+    
+    # --- FIX: Use logarithms to avoid overflow ---
+    if M <= 0 or C_lll <= 0: # Safety check
+        return False, {
+            'M': M, 'log_M': 0, 'log_threshold': 0, 'C_lll': C_lll,
+            'height_bound': height_bound, 'error': 'Non-positive M or C_lll'
+        }
+
+    log_M = math.log(float(M))
+    # log(Threshold) = log(2 * C_lll * exp(H)) = log(2) + log(C_lll) + H
+    log_threshold = math.log(2.0) + math.log(float(C_lll)) + float(height_bound)
+    
+    is_sufficient = log_M > log_threshold
+    # --- END FIX ---
+    
+    return is_sufficient, {
+        'M': M,
+        'log_M': log_M,                 # New value for reporting
+        'log_threshold': log_threshold, # New value for reporting
+        'C_lll': C_lll,
+        'height_bound': height_bound
+    }
+
+def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
+    """
+    Runs the formal "C-bound" check to verify that the CRT modulus
+    is sufficient for rational reconstruction up to the height bound.
+    """
+    print("\n" + "="*70)
+    print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
+    print("="*70)
+    
+    if not prime_subsets:
+        print("No prime subsets were used. Cannot run sufficiency proof.")
+        print("="*70)
+        return
+
+    # 1. Compute the LLL constant
+    d = mw_rank
+    if d == 0:
+        print("MW rank is 0, setting dimension d=1 for LLL constant.")
+        d = 1
+        
+    C_lll = compute_lll_constant(delta=0.98, d=d)
+    print(f"LLL Guarantee Constant (C_lll) for rank d={d}: {C_lll:.4f}")
+    
+    # 2. Find the smallest modulus M used
+    min_M = 0
+    min_M_subset = []
+    
+    for subset in prime_subsets:
+        if not subset:
+            continue
+        M = 1
+        for p in subset:
+            M *= int(p)
+        if M == 0:
+            continue
+        if min_M == 0 or M < min_M:
+            min_M = M
+            min_M_subset = subset
+            
+    if min_M == 0:
+        print("Could not find a valid prime subset modulus. Skipping check.")
+        print("="*70)
+        return
+        
+    print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
+    
+    # 3. Run the sufficiency proof
+    is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
+    
+    print(f"Height Bound (H): {details['height_bound']:.2f}")
+    
+    # --- FIX: Print log-domain values ---
+    log_M_str = f"{details['log_M']:.2f}"
+    log_thresh_str = f"{details['log_threshold']:.2f}"
+    
+    print(f"Required (in log-space): log(M) > log(2*C_lll) + H")
+    print(f"Actual log(M):  {log_M_str}")
+    print(f"Required log(M): > {log_thresh_str}")
+    # --- END FIX ---
+    
+    if is_sufficient:
+        print("\n*** ✅ PASS ***")
+        print("The smallest modulus M is formally sufficient")
+        print("to guarantee rational reconstruction for all sections up to height H.")
+    else:
+        print("\n*** ⚠️  FAIL ***")
+        print("The search modulus M is NOT large enough to guarantee reconstruction.")
+        print("This implies the search may be incomplete (missed points).")
+        print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
+        
+    print("="*70)
