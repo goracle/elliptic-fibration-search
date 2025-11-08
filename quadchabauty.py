@@ -181,96 +181,6 @@ def compute_n_max_bound(H_max, hhat_P):
         
     return int(floor(sqrt(H_max / hhat_P)))
 
-def run_p_adic_fiber_analysis(E_q, P_q, p, precision=40, check_hypotheses=True):
-    """
-    Robust wrapper to compute p-adic local height (lambda_p) for a rational
-    elliptic-curve point. Returns a report dict with keys:
-      - status: 'success' or 'error'
-      - p_adic_regulator: float (when success)
-      - note: diagnostic message
-      - debug: dict of low-level items
-    """
-    report = {'p': p, 'status': 'error', 'p_adic_regulator': None, 'note': '', 'debug': {}}
-
-    # Validate p quickly
-    from sage.all import is_prime
-    assert is_prime(int(p)), f"p={p} is not prime"
-    p = int(p)
-
-    # Ensure curve coefficients are rationals
-    a1, a2, a3, a4, a6 = E_q.a_invariants()
-    a_invars_q = [QQ(ai) for ai in (a1, a2, a3, a4, a6)]
-    E_q_rational = EllipticCurve(QQ, a_invars_q)
-    report['debug']['curve_coerced'] = True
-
-    # Coerce point coordinates
-    if hasattr(P_q, 'xy'):
-        xcoord, ycoord = P_q.xy()
-    else:
-        xcoord, ycoord = P_q[0], P_q[1]
-    xq = QQ(xcoord)
-    yq = QQ(ycoord)
-    P_q_rational = E_q_rational([xq, yq])
-    report['debug']['point_coerced'] = True
-
-    # Verify point is on curve
-    assert P_q_rational in E_q_rational, "Point not on curve after coercion"
-
-    # Verify curve is over QQ
-    assert E_q_rational.base_field() is QQ, "Curve not over QQ"
-
-    # Call padic_height - try both APIs (point vs curve) for compatibility
-    padic_result = None
-    try:
-        # Method 1: Point method (newer Sage)
-        padic_obj = P_q_rational.padic_height(p=p, prec=precision)
-        
-        # padic_height can return a function or a p-adic number
-        if callable(padic_obj):
-            try:
-                padic_result = float(padic_obj())
-            except Exception:
-                padic_result = float(padic_obj(p))
-        else:
-            # It's a p-adic number - extract the rational approximation
-            try:
-                padic_result = float(padic_obj)
-            except TypeError:
-                # pAdicCappedRelativeElement - use rational_reconstruction or lift
-                padic_result = float(padic_obj.lift())
-            
-        report['status'] = 'success'
-        report['p_adic_regulator'] = padic_result
-        report['note'] = "padic_height succeeded (point method)"
-    except AttributeError:
-        # Method 2: Curve method (older Sage)
-        padic_obj = E_q_rational.padic_height(p, prec=precision)
-        
-        if callable(padic_obj):
-            result_obj = padic_obj(P_q_rational)
-            # Result is a p-adic number
-            try:
-                padic_result = float(result_obj)
-            except TypeError:
-                padic_result = float(result_obj.lift())
-        else:
-            try:
-                padic_result = float(padic_obj)
-            except TypeError:
-                padic_result = float(padic_obj.lift())
-            
-        report['status'] = 'success'
-        report['p_adic_regulator'] = padic_result
-        report['note'] = "padic_height succeeded (curve method)"
-
-    report['debug']['padic_tried'] = [{'method': 'both APIs', 'p': p, 'prec': precision}]
-    assert report['status'] == 'success', f"p-adic height computation failed: {report['note']}"
-    return report
-
-# ---------------------------
-# Main Wiring Function
-# ---------------------------
-
 def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, return_diagnostics=False):
     """
     Runs the full numeric QC bound estimation for a single fiber using
@@ -502,3 +412,119 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
         return n_max, diag
     else:
         return n_max
+
+
+
+def run_p_adic_fiber_analysis(E_q, P_q, p, precision=10, check_hypotheses=True):
+    """
+    Robust wrapper to compute p-adic local height (lambda_p) for a rational
+    elliptic-curve point. Returns a report dict with keys:
+      - status: 'success' or 'error'
+      - p_adic_regulator: float (when success)
+      - note: diagnostic message
+      - debug: dict of low-level items
+    """
+    report = {'p': p, 'status': 'error', 'p_adic_regulator': None, 'note': '', 'debug': {}}
+
+    # Validate p quickly
+    from sage.all import is_prime
+    assert is_prime(int(p)), f"p={p} is not prime"
+    p = int(p)
+
+    # Ensure curve coefficients are rationals
+    a1, a2, a3, a4, a6 = E_q.a_invariants()
+    a_invars_q = [QQ(ai) for ai in (a1, a2, a3, a4, a6)]
+    E_q_rational = EllipticCurve(QQ, a_invars_q)
+    report['debug']['curve_coerced'] = True
+
+    # Coerce point coordinates
+    if hasattr(P_q, 'xy'):
+        xcoord, ycoord = P_q.xy()
+    else:
+        xcoord, ycoord = P_q[0], P_q[1]
+    xq = QQ(xcoord)
+    yq = QQ(ycoord)
+    P_q_rational = E_q_rational([xq, yq])
+    report['debug']['point_coerced'] = True
+
+    # Verify point is on curve
+    assert P_q_rational in E_q_rational, "Point not on curve after coercion"
+
+    # Verify curve is over QQ
+    assert E_q_rational.base_field() is QQ, "Curve not over QQ"
+
+    # Check if curve has good reduction at p (required for p-adic height)
+    assert E_q_rational.has_good_reduction(p), f"Curve does not have good reduction at p={p}"
+
+    # Call padic_height - try both APIs (point vs curve) for compatibility
+    padic_result = None
+    last_exception = None
+    
+    try:
+        # Method 1: Point method (newer Sage)
+        padic_obj = P_q_rational.padic_height(p=p, prec=precision)
+        
+        # padic_height can return a function or a p-adic number
+        if callable(padic_obj):
+            try:
+                padic_result = float(padic_obj())
+            except Exception as e1:
+                try:
+                    padic_result = float(padic_obj(p))
+                except Exception as e2:
+                    last_exception = e2
+        else:
+            # It's a p-adic number - extract the rational approximation
+            try:
+                padic_result = float(padic_obj)
+            except TypeError:
+                # pAdicCappedRelativeElement - use rational_reconstruction or lift
+                try:
+                    padic_result = float(padic_obj.lift())
+                except Exception as e3:
+                    last_exception = e3
+            
+        if padic_result is not None:
+            report['status'] = 'success'
+            report['p_adic_regulator'] = padic_result
+            report['note'] = "padic_height succeeded (point method)"
+    except AttributeError as ae:
+        # Method 2: Curve method (older Sage)
+        try:
+            padic_obj = E_q_rational.padic_height(p, prec=precision)
+            
+            if callable(padic_obj):
+                result_obj = padic_obj(P_q_rational)
+                # Result is a p-adic number
+                try:
+                    padic_result = float(result_obj)
+                except TypeError:
+                    padic_result = float(result_obj.lift())
+            else:
+                try:
+                    padic_result = float(padic_obj)
+                except TypeError:
+                    padic_result = float(padic_obj.lift())
+            
+            if padic_result is not None:
+                report['status'] = 'success'
+                report['p_adic_regulator'] = padic_result
+                report['note'] = "padic_height succeeded (curve method)"
+        except Exception as e4:
+            last_exception = e4
+
+    # Sanity check: p-adic height should be reasonable magnitude
+    if padic_result is not None:
+        if abs(padic_result) > 1e10:
+            raise ValueError(f"p-adic height computation returned absurdly large value: {padic_result}")
+        if math.isnan(padic_result) or math.isinf(padic_result):
+            raise ValueError(f"p-adic height computation returned NaN or Inf: {padic_result}")
+
+    report['debug']['padic_tried'] = [{'method': 'both APIs', 'p': p, 'prec': precision}]
+    
+    if report['status'] != 'success' or padic_result is None:
+        error_msg = f"p-adic height computation failed: {last_exception if last_exception else 'unknown error'}"
+        report['note'] = error_msg
+        raise RuntimeError(error_msg)
+    
+    return report
