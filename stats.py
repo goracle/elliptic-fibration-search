@@ -13,7 +13,7 @@ import math
 
 from sage.all import *
 from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
-from search_common import DEBUG
+from search_common import DEBUG, MAX_MODULUS
 
 class SearchStats:
 
@@ -766,7 +766,7 @@ class CoverageEstimator:
 
         classes_tested = len(self.tested_classes)
         
-        if total_classes_possible < 10**9:  # Feasible to count
+        if total_classes_possible < MAX_MODULUS:  # Feasible to count
             direct_coverage = classes_tested / total_classes_possible
         else:
             direct_coverage = None

@@ -3813,13 +3813,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             for p, reason in rejected_primes:
                 print(f"  p={p}: {reason}")
 
+                ram_locus = compute_ramification_locus(cd)
+                detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
+                assert detected_collisions.issubset(ram_locus), \
+                    f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
-    # Add assertion to prepare_modular_data_lll:
-    if DEBUG:
-        ram_locus = compute_ramification_locus(cd)
-        detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
-        assert detected_collisions.issubset(ram_locus), \
-            f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
 
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll

@@ -572,15 +572,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # Gather arithmetic signals (pass None if missing; prior_from_arithmetic handles it)
     selmer_dim = None
     r_found = None
-    # Try to pick up selmer info if present (your pipeline computes selmer later; if available use it)
-    if 'selmer_results' in locals() and isinstance(selmer_results, dict):
-        # try common keys
-        try:
-            r_found = len([_ for _ in base_sections]) if 'base_sections' in locals() else None
-            selmer_dim = selmer_results.get('selmer_dim', None) or selmer_results.get('rank_bounds', {}).get('upper', None)
-        except Exception:
-            selmer_dim = None
-
     # CRT / rationality counters from cumulative_stats if available
     crt_candidates_found = None
     rationality_tests_success = None
@@ -684,6 +675,21 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
         print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
     # --------------------------------------------------------------------------
+
+
+    # Validate that rejected primes match ramification locus
+    try:
+        from brauer import compute_ramification_locus
+        ram_locus = compute_ramification_locus(cd)
+        detected_collisions = set(p for p, r in cumulative_stats.rejected_primes if 'collision' in str(r))
+
+        if not detected_collisions.issubset(ram_locus):
+            print(f"\n⚠️  WARNING: Detected collisions {detected_collisions} not in ramification locus {ram_locus}")
+        else:
+            print(f"\n✓ Fiber collision detection validated: {detected_collisions} ⊆ ramification locus {ram_locus}")
+    except Exception as e:
+        print(f"\nCould not validate ramification locus: {e}")
+        raise
 
     ### Automorphism Search ###
     print("\n--- Automorphism Search ---")
@@ -801,83 +807,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     # --- After picard_report is computed and printed ---
 
-    print("\n" + "="*70)
-    print("RUNNING 2-SELMER ANALYSIS")
-    print("="*70)
-
-    selmer_results = run_selmer_analysis(
-        cd,
-        current_sections,
-        picard_report['rho'],
-        rank_guess,
-        verbose=True
-    )
-
-    # Use results for candidate point hunting
-    rank_upper = selmer_results['rank_bounds']['upper']
-    print(f"\n*** Upper bound on S²(E/ℚ) rank: {rank_upper} ***")
-
-    # ------------------------------------------------------------------
-    # Explore explicit 2-coverings from Selmer candidates using the
-    # DescentHomomorphism -> _construct_descent_quartic pipeline (no placeholders)
-    # ------------------------------------------------------------------
-    print("\n--- Constructing explicit 2-coverings for Selmer candidates ---")
-
-    selmer_candidates = selmer_results.get('candidates', [])
-    if selmer_candidates:
-        u = polygen(QQ, 'u')
-
-        for m_val in selmer_candidates:
-            print(f"\n>>> Testing Selmer candidate m = {m_val}") # Corrected print
-            try:
-                # Specialize coefficients
-                a4m = cd.a4(m=m_val)
-                a6m = cd.a6(m=m_val)
-
-                # Construct quartic using the Cremona-Tzanakis or Birch-Stephens form
-                def quartic(u):
-                    # Simple genus-1 quartic model (replace with correct formula)
-                    return u**4 + a4m*u + a6m
-
-                # Compute discriminant to flag bad primes
-                disc_m = -16 * (4*a4m**3 + 27*a6m**2)
-
-                # --- NEW HANDLING FOR disc_m = 0 ---
-                if disc_m == 0:
-                    print("  Quartic is singular (disc_m = 0) — it has a rational point and contributes to the rank.") # Corrected print
-                    # The Selmer candidate m_val is guaranteed to be in the image of E(Q)
-                    # You can skip further checks and move to the next candidate
-                    # If you need to verify the rational point, you could use a separate function,
-                    # but for a Selmer candidate, disc_m=0 is a positive signal.
-                    continue # Skip the rest of the loop for this m_val
-                # ------------------------------------
-
-                bad_primes_m = [p for p in prime_factors(disc_m)]  # primes dividing discriminant
-
-                # Combine with cd.bad_primes and filtered PRIME_POOL
-                primes_to_check = sorted(set(
-                    p for p in bad_primes_m + cd.bad_primes + [p for p in PRIME_POOL if is_good_prime_for_surface(cd, p)]
-                    if p > 1 and is_prime(int(p))
-                ))
-                print("checking primes:", primes_to_check)
-
-
-                # Check local solubility
-                if is_everywhere_locally_solvable(quartic, primes_to_check):
-                    print("  Locally solvable at all tested places ✅")
-                    pt = search_rational_point_on_quartic(quartic, max_den=1000)
-                    if pt:
-                        print(f"  Found global rational point: {pt}")
-                    else:
-                        print("  No global point found up to bound — likely Sha candidate ⚠️")
-
-
-                else:
-                    print("  Locally obstructed ❌")
-
-            except Exception as e:
-                print(f"  [error constructing/checking quartic for m={m_val}]: {e}")
-                raise
+    compute_selmer_rank_bounds(cd, rank_guess, verbose=True)
+    print("")
 
 
     # --- Yau-Zaslow Rational Curve Counts ---
