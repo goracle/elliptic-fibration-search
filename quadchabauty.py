@@ -415,7 +415,7 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
 
 
 
-def run_p_adic_fiber_analysis(E_q, P_q, p, precision=10, check_hypotheses=True):
+def run_p_adic_fiber_analysis(E_q, P_q, p, precision=40, check_hypotheses=True, timeout=10):
     """
     Robust wrapper to compute p-adic local height (lambda_p) for a rational
     elliptic-curve point. Returns a report dict with keys:
@@ -423,7 +423,12 @@ def run_p_adic_fiber_analysis(E_q, P_q, p, precision=10, check_hypotheses=True):
       - p_adic_regulator: float (when success)
       - note: diagnostic message
       - debug: dict of low-level items
+    
+    Args:
+        timeout: Maximum seconds to wait for p-adic height computation (default 10)
     """
+    import signal
+    
     report = {'p': p, 'status': 'error', 'p_adic_regulator': None, 'note': '', 'debug': {}}
 
     # Validate p quickly
@@ -456,9 +461,16 @@ def run_p_adic_fiber_analysis(E_q, P_q, p, precision=10, check_hypotheses=True):
     # Check if curve has good reduction at p (required for p-adic height)
     assert E_q_rational.has_good_reduction(p), f"Curve does not have good reduction at p={p}"
 
-    # Call padic_height - try both APIs (point vs curve) for compatibility
+    # Timeout handler
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"p-adic height computation timed out after {timeout}s")
+    
     padic_result = None
     last_exception = None
+    
+    # Set alarm for timeout
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout)
     
     try:
         # Method 1: Point method (newer Sage)
@@ -512,6 +524,12 @@ def run_p_adic_fiber_analysis(E_q, P_q, p, precision=10, check_hypotheses=True):
                 report['note'] = "padic_height succeeded (curve method)"
         except Exception as e4:
             last_exception = e4
+    except TimeoutError as te:
+        last_exception = te
+    finally:
+        # Cancel alarm and restore old handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
     # Sanity check: p-adic height should be reasonable magnitude
     if padic_result is not None:
