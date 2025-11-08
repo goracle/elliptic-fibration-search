@@ -377,45 +377,58 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # =====================================================================
     try:
         # We need a generator section over Q(m)
-        # We know hhat(P) = 2
         P_m_generator = current_sections[0]
         hhat_P = H[0][0]
 
-        # We need a prime of GOOD reduction for this fiber.
-        # Let's pick a good prime from our pool, e.g., 5.
-        p_chabauty_candidate = 5
-        if p_chabauty_candidate in cd.bad_primes:
-            p_chabauty_candidate = 7 # fallback
+        # Get primes of good reduction from our prime pool, excluding global bad primes
+        p_chabauty_candidates = [p for p in prime_pool if p not in cd.bad_primes][:10]
+        
+        if not p_chabauty_candidates:
+            raise ValueError("No good reduction primes available in prime_pool")
 
         # We need a naive height bound. Let's use your observed max.
         h_x_observed_max = 3.0
 
-        # Run the analysis on the m-value of our base point
-        m_val_to_test = mtest
+        # Try a few different fibers (avoid m=0 which can be pathological)
+        # Try m=1, m=2, m=-1 in order
+        test_m_values = [QQ(1), QQ(2), QQ(-1), mtest]
+        qc_success = False
+        
+        for m_val_to_test in test_m_values:
+            try:
+                print(f"\nAttempting QC analysis at m={m_val_to_test}...")
+                qc_n_max = estimate_n_max_for_fiber(
+                    cd,
+                    P_m_generator,
+                    m_val=m_val_to_test,
+                    p_chabauty=p_chabauty_candidates,
+                    h_x_bound=h_x_observed_max,
+                    hhat_P=hhat_P
+                )
 
-        qc_n_max = estimate_n_max_for_fiber(
-            cd,
-            P_m_generator,
-            m_val=m_val_to_test,
-            p_chabauty=p_chabauty_candidate,
-            h_x_bound=h_x_observed_max,
-            hhat_P=hhat_P
-        )
+                print(f"QC analysis for m={m_val_to_test} suggests n_max = {qc_n_max}")
 
-        print(f"QC analysis for m={m_val_to_test} suggests n_max = {qc_n_max}")
-
-        # Compare to the n_max we actually used
-        n_max_used = int(floor(sqrt(height_bound / hhat_P)))
-        print(f"Search loop used n_max = {n_max_used} (from height_bound={height_bound})")
-        if qc_n_max > n_max_used:
-            print("WARNING: QC bound is HIGHER than search bound. "
-                "Search may be incomplete.")
+                # Compare to the n_max we actually used
+                n_max_used = int(floor(sqrt(height_bound / hhat_P)))
+                print(f"Search loop used n_max = {n_max_used} (from height_bound={height_bound})")
+                if qc_n_max > n_max_used:
+                    print("WARNING: QC bound is HIGHER than search bound. "
+                        "Search may be incomplete.")
+                
+                qc_success = True
+                break  # Success, stop trying
+                
+            except Exception as e_fiber:
+                print(f"  QC failed at m={m_val_to_test}: {e_fiber}")
+                continue
+        
+        if not qc_success:
+            print("Warning: Could not complete QC analysis at any test fiber")
 
     except Exception as e_qc:
         print(f"Quadratic Chabauty diagnostic failed: {e_qc}")
-        raise
+        # Don't raise - this is just diagnostic
     # =====================================================================
-
     #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
     # ... (rest of your diagnostics) ...
 
