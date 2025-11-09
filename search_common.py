@@ -1010,7 +1010,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
 
 
 @PROFILE
-def _effective_degree(rational_expr, m):
+def effective_degree(rational_expr, m):
     """
     Robust effective degree of a rational function: deg(numerator) - deg(denominator).
     """
@@ -1047,7 +1047,7 @@ def _refresh_state(a4_final, a6_final, Fm):
     E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
     Delta_final = E_weier_final.discriminant()
     # raw degree (no cancellation) used for minimality check
-    deg_delta_raw = _effective_degree(Delta_final, m)
+    deg_delta_raw = effective_degree(Delta_final, m)
     # effective_discriminant_degree returns (deg_after_cancel, removed_k)
     deg_delta_effective, _removed_k = effective_discriminant_degree(Delta_final)
     fiber_info = find_singular_fibers(a4=a4_final, a6=a6_final, verbose=True)
@@ -1431,17 +1431,17 @@ def validate_fibration_geometry(cd):
             print("--------------------------")
             return
 
-        effective_degree = _effective_degree(Delta, m_var)
+        effective_degree2 = effective_degree(Delta, m_var)
 
         print("Delta:", Delta)
-        print(f"  Effective Discriminant Degree: {effective_degree}")
+        print(f"  Effective Discriminant Degree: {effective_degree2}")
         stored_n = getattr(cd, 'tate_exponent', '<missing>')
         print(f"  Weierstrass scaling exponent (n) used: {stored_n}")
 
-        if effective_degree == 12:
+        if effective_degree2 == 12:
             print("  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.")
         else:
-            print(f"  ⚠ NOTICE: Discriminant degree is {effective_degree}, not 12.")
+            print(f"  ⚠ NOTICE: Discriminant degree is {effective_degree2}, not 12.")
             print("    This fibration may be non-minimal or use a different base parameterization.")
     except Exception as e:
         print(f"An error occurred during geometric validation: {e}")

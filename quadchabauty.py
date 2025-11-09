@@ -9,6 +9,245 @@
 #
 # Author: generated to fit user's repo style and constraints
 
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+from search_common import effective_degree
+
+#---------------------------
+# Helpers
+# ---------------------------
+
+def run_p_adic_fiber_analysis(E_q, P_q, p, precision=40, check_hypotheses=True, timeout=10):
+    """
+    Robust wrapper to compute p-adic local height (lambda_p) for a rational
+    elliptic-curve point. Returns a report dict with keys:
+      - status: 'success' or 'error'
+      - p_adic_regulator: float (when success)
+      - note: diagnostic message
+      - debug: dict of low-level items
+    
+    Args:
+        timeout: Maximum seconds to wait for p-adic height computation (default 10)
+    """
+    import signal
+    
+    report = {'p': p, 'status': 'error', 'p_adic_regulator': None, 'note': '', 'debug': {}}
+
+    # Validate p quickly
+    from sage.all import is_prime
+    assert is_prime(int(p)), f"p={p} is not prime"
+    p = int(p)
+
+    # Ensure curve coefficients are rationals
+    a1, a2, a3, a4, a6 = E_q.a_invariants()
+    a_invars_q = [QQ(ai) for ai in (a1, a2, a3, a4, a6)]
+    E_q_rational = EllipticCurve(QQ, a_invars_q)
+    report['debug']['curve_coerced'] = True
+
+    # Coerce point coordinates
+    if hasattr(P_q, 'xy'):
+        xcoord, ycoord = P_q.xy()
+    else:
+        xcoord, ycoord = P_q[0], P_q[1]
+    xq = QQ(xcoord)
+    yq = QQ(ycoord)
+    P_q_rational = E_q_rational([xq, yq])
+    report['debug']['point_coerced'] = True
+
+    # Verify point is on curve
+    assert P_q_rational in E_q_rational, "Point not on curve after coercion"
+
+    # Verify curve is over QQ
+    assert E_q_rational.base_field() is QQ, "Curve not over QQ"
+
+    # Check if curve has good reduction at p (required for p-adic height)
+    assert E_q_rational.has_good_reduction(p), f"Curve does not have good reduction at p={p}"
+
+    # Timeout handler
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"p-adic height computation timed out after {timeout}s")
+    
+    padic_result = None
+    last_exception = None
+    
+    # Set alarm for timeout
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout)
+    
+    try:
+        # Method 1: Point method (newer Sage)
+        padic_obj = P_q_rational.padic_height(p=p, prec=precision)
+        
+        # padic_height can return a function or a p-adic number
+        if callable(padic_obj):
+            try:
+                padic_result = float(padic_obj())
+            except Exception as e1:
+                try:
+                    padic_result = float(padic_obj(p))
+                except Exception as e2:
+                    last_exception = e2
+        else:
+            # It's a p-adic number - extract the rational approximation
+            try:
+                padic_result = float(padic_obj)
+            except TypeError:
+                # pAdicCappedRelativeElement - use rational_reconstruction or lift
+                try:
+                    padic_result = float(padic_obj.lift())
+                except Exception as e3:
+                    last_exception = e3
+            
+        if padic_result is not None:
+            report['status'] = 'success'
+            report['p_adic_regulator'] = padic_result
+            report['note'] = "padic_height succeeded (point method)"
+    except AttributeError as ae:
+        # Method 2: Curve method (older Sage)
+        try:
+            padic_obj = E_q_rational.padic_height(p, prec=precision)
+            
+            if callable(padic_obj):
+                result_obj = padic_obj(P_q_rational)
+                # Result is a p-adic number
+                try:
+                    padic_result = float(result_obj)
+                except TypeError:
+                    padic_result = float(result_obj.lift())
+                    raise
+            else:
+                try:
+                    padic_result = float(padic_obj)
+                except TypeError:
+                    padic_result = float(padic_obj.lift())
+                    raise
+            
+            if padic_result is not None:
+                report['status'] = 'success'
+                report['p_adic_regulator'] = padic_result
+                report['note'] = "padic_height succeeded (curve method)"
+        except Exception as e4:
+            last_exception = e4
+            raise
+    except TimeoutError as te:
+        last_exception = te
+        raise
+    finally:
+        # Cancel alarm and restore old handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+    # Sanity check: p-adic height should be reasonable magnitude
+    if padic_result is not None:
+        if abs(padic_result) > 1e10:
+            raise ValueError(f"p-adic height computation returned absurdly large value: {padic_result}")
+        if math.isnan(padic_result) or math.isinf(padic_result):
+            raise ValueError(f"p-adic height computation returned NaN or Inf: {padic_result}")
+
+    report['debug']['padic_tried'] = [{'method': 'both APIs', 'p': p, 'prec': precision}]
+    
+    if report['status'] != 'success' or padic_result is None:
+        error_msg = f"p-adic height computation failed: {last_exception if last_exception else 'unknown error'}"
+        report['note'] = error_msg
+        raise RuntimeError(error_msg)
+    
+    return report
+
+
+
+# quadchabauty.py
+#
+# Implements a numeric workflow to estimate the search multiple 'n'
+# for a single fiber (a specialized curve E_q) of the fibration,
+# based on the Quadratic Chabauty / local height summation method.
+#
+# This provides a diagnostic to check if a given search height bound
+# is sufficient for a particular fiber.
+#
+# Author: generated to fit user's repo style and constraints
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+# Per aimist.txt, no imports inside functions.
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+from sage.all import (
+    QQ, SR, EllipticCurve, ZZ, var, is_prime,
+)
+import math
+from collections import defaultdict
+
+from math import log, floor, sqrt, exp
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
 from sage.all import (
     QQ, SR, EllipticCurve, ZZ, var, is_prime,
 )
@@ -25,16 +264,17 @@ from math import log, floor, sqrt, exp
 def estimate_local_height_archimedean(E_q):
     """
     Estimates the Archimedean contribution constant B(E).
-    
-    lambda_infty(P) <= 0.5 * h_x(P) + B(E)
-    
-    This function returns the B(E) part, which is based on the
-    discriminant of the specialized curve E_q.
+    This function returns the B(E) part, which is a uniform
+    bound based on the discriminant of the specialized curve E_q.
     
     B(E) ~ (1/12)*log|Delta| + C
     """
     try:
         delta = E_q.discriminant()
+        if delta == 0:
+            print("Warning: estimate_local_height_archimedean: singular curve")
+            return 0.0
+            
         # Use a common bound from Silverman's texts
         # (1/12)log|Delta| + log(2)
         B_E = (1/12) * log(abs(int(delta))) + log(2.0)
@@ -47,16 +287,16 @@ def estimate_local_height_archimedean(E_q):
 def compute_local_height_bad_prime(E_q, p):
     """
     Computes the local height contribution lambda_p(P) at a bad prime p.
-    
     For a rank 1 curve, this contribution is related to the Tamagawa
     number c_p, where lambda_p ~ log(c_p).
     """
     try:
         # tamagawa_number() runs Tate's algorithm implicitly
         c_p = E_q.tamagawa_number(p)
+        if c_p is None:
+            c_p = 1
         
         # The local height lambda_p is log(c_p)
-        # We must add this to the sum.
         lambda_p = log(float(c_p))
         
         return lambda_p
@@ -181,10 +421,13 @@ def compute_n_max_bound(H_max, hhat_P):
         
     return int(floor(sqrt(H_max / hhat_P)))
 
-def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, return_diagnostics=False):
+def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, return_diagnostics=False):
     """
     Runs the full numeric QC bound estimation for a single fiber using
-    EXACT canonical height decomposition.
+    the "bounding method".
+    
+    H_max = B_infty + B_bad (first principles bound)
+    n_max = floor(sqrt(H_max / hhat_q))
     
     This is the main function to call from your search script.
     
@@ -193,8 +436,6 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
         P_m (Point): The generator section over Q(m)
         m_val (QQ or int): The rational m-value to specialize at
         p_chabauty (int or list): A prime (or list of primes) of GOOD reduction
-        h_x_bound (float): DEPRECATED - not used in new method
-        hhat_P (float): The canonical height of the generator (e.g., 2.0)
         return_diagnostics (bool): If True, return (n_max, diag); else just n_max
         
     Returns:
@@ -203,7 +444,7 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
     print("\n" + "="*50)
     print(f"--- Quadratic Chabauty Bound Estimation ---")
     print(f"--- Fiber m = {m_val}, Chabauty prime p = {p_chabauty} ---")
-    print(f"--- Using canonical height decomposition method ---")
+    print(f"--- Using 'First Principles' Bounding Method ---")
     
     # Resolve m_sym from cd
     try:
@@ -234,34 +475,23 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
     
     assert P_q in E_q, "Specialized point not on specialized curve"
 
-    # Accept p_chabauty as a single prime or a list of primes
-    if isinstance(p_chabauty, (list, tuple)):
-        primes_list = list(p_chabauty)
-    else:
-        primes_list = [p_chabauty]
-
     # =====================================================================
-    # CANONICAL HEIGHT DECOMPOSITION METHOD (exact, no crude bounds)
+    # "First Principles" Bounding Method
     # =====================================================================
-    # For a point P_q on E_q/Q, the canonical height decomposes as:
-    #   hhat(P_q) = sum_v lambda_v(P_q)
-    # where v runs over all places (real and p-adic).
+    # We need a bound H_max for the *non-p-adic* part of the height.
+    # C_other = lambda_infty(Q) + sum(lambda_bad(Q))
+    # We bound this with H_max = B_infty + B_bad
     #
-    # We compute:
-    #   1. hhat_q = canonical height of P_q on E_q (exact via Sage)
-    #   2. lambda_padic = p-adic local height at Chabauty prime(s)
-    #   3. lambda_bad = sum of local heights at bad primes
-    #   4. lambda_infty = archimedean contribution (by subtraction)
+    # 1. B_bad = sum(log(c_p)) (Tamagawa numbers). This is exact.
+    # 2. B_infty = (1/12)log|Delta| + C (Archimedean bound).
+    # 3. hhat_q = P_q.height() (Specialized canonical height).
     #
-    # This gives H_max = hhat_q exactly, avoiding crude upper bounds.
+    # The QC bound is then n_max = floor(sqrt(H_max / hhat_q))
     # =====================================================================
 
-    # --- 1. Compute canonical height of specialized point (exact as Sage gives) ---
-    # Try multiple approaches in order of preference
+    # --- 1. Compute specialized canonical height hhat_q (DENOMINATOR) ---
     hhat_q = None
     method_used = None
-    
-    # Method 1: Direct P_q.height() - most reliable for points over QQ
     try:
         if hasattr(P_q, 'height'):
             hhat_q = float(P_q.height(precision=100))
@@ -269,7 +499,6 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
     except Exception as e1:
         pass
     
-    # Method 2: E_q.height(P_q) with precision
     if hhat_q is None:
         try:
             if hasattr(E_q, 'height'):
@@ -277,136 +506,83 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
                 method_used = "E_q.height(P_q, precision=100)"
         except Exception as e2:
             pass
-    
-    # Method 3: Shioda-Tate matrix computation (your existing infrastructure)
-    if hhat_q is None:
-        try:
-            from search_common import compute_canonical_height_matrix
-            Hmat = compute_canonical_height_matrix([P_m], cd)
-            hhat_q = float(Hmat[0, 0])
-            method_used = "Shioda-Tate matrix"
-        except Exception as e3:
-            pass
-    
-    # Method 4: Fallback to supplied hhat_P
-    if hhat_q is None:
-        print(f"Warning: All canonical height methods failed. Using supplied hhat_P = {hhat_P}")
-        hhat_q = float(hhat_P)
-        method_used = "fallback (supplied hhat_P)"
-        
-    print(f"Canonical height on specialized fiber (hhat_q): {hhat_q:.12g} (via {method_used})")
-
-    # --- 2. Compute bad primes contributions explicitly ---
-    lambda_bad_primes = 0.0
-    bad_contribs = {}
-    for p_bad in cd.bad_primes:
-        # If fiber has good reduction at p_bad, contribution is zero
-        try:
-            if E_q.has_good_reduction(p_bad):
-                bad_contribs[p_bad] = 0.0
-                continue
-        except Exception as e:
-            print(f"Warning: has_good_reduction check failed at p={p_bad}: {e}")
             
+    if hhat_q is None:
+         raise RuntimeError("Failed to compute specialized canonical height (hhat_q)")
+        
+    print(f"Specialized canonical height (hhat_q): {hhat_q} (via {method_used})")
+
+    # --- 2. Compute bad prime contributions (B_bad) ---
+    B_bad = 0.0
+    bad_contribs = {}
+    
+    # We must check all primes of bad reduction for the *specialized* curve E_q
+    # not just the generic bad primes.
+    try:
+        # --- FIX ---
+        # E_q.discriminant() returns a Rational. We must convert to a
+        # Sage Integer (ZZ) to call .prime_divisors().
+        delta = E_q.discriminant()
+        specialized_bad_primes = ZZ(delta).prime_divisors()
+        # --- END FIX ---
+    except Exception as e:
+        # Per user request, raise exceptions instead of warning and falling back
+        print(f"Error: Could not get bad primes for specialized curve at m={m_q}: {e}")
+        print(f"Curve E_q: {E_q}")
+        # Re-raise the exception to halt execution, as the fallback is incorrect.
+        raise RuntimeError(f"Failed to get bad primes for specialized curve E_q={E_q}") from e
+    
+    for p_bad in specialized_bad_primes:
         try:
             # Tamagawa number gives local height: lambda_p = log(c_p)
-            c_p = int(E_q.tamagawa_number(p_bad) or 1)
-            lam_p = 0.0 if c_p <= 1 else math.log(float(c_p))
-            lambda_bad_primes += lam_p
+            lam_p = compute_local_height_bad_prime(E_q, p_bad)
+            B_bad += lam_p
             bad_contribs[p_bad] = lam_p
         except Exception as e:
-            print(f"Warning: failed to compute bad-prime local height at p={p_bad}: {e}")
-            bad_contribs[p_bad] = 0.0
+            # Per user request, raise exceptions
+            print(f"Error: failed to compute bad-prime local height at p={p_bad}: {e}")
+            raise RuntimeError(f"Failed to compute local height at bad prime p={p_bad}") from e
 
-    print(f"Local heights at bad primes: sum = {lambda_bad_primes:.12g}")
+    print(f"Local heights at bad primes (B_bad): sum = {B_bad}")
     for p_bad, lam in bad_contribs.items():
         if lam > 0:
-            print(f"  p={p_bad}: {lam:.12g}")
+            print(f"  p={p_bad}: {lam}")
 
-    # --- 3. Compute p-adic contributions for Chabauty prime(s) ---
-    # Use maximum across multiple primes for robustness
-    lambda_padic = None
-    padic_reports = []
-    for p in primes_list:
-        r = run_p_adic_fiber_analysis(E_q, P_q, p)
-        padic_reports.append(r)
-        if isinstance(r, dict) and r.get('status') == 'success':
-            val = float(r['p_adic_regulator'])
-        else:
-            val = 0.0
-        if lambda_padic is None or val > lambda_padic:
-            lambda_padic = val
+    # --- 3. Compute Archimedean bound (B_infty) ---
+    B_infty = estimate_local_height_archimedean(E_q)
+    print(f"Local height (Archimedean Bound B_infty): {B_infty}")
 
-    print(f"Local height (p-adic, p={primes_list}): {lambda_padic:.12g}")
-
-    # --- 4. Good primes contribution (usually zero for integral points) ---
-    lambda_good_primes = 0.0
-
-    # --- 5. Archimedean contribution via subtraction (exact by identity) ---
-    lambda_infty_exact = hhat_q - (lambda_padic + lambda_bad_primes + lambda_good_primes)
-
-    # Numerical safety: lambda_infty should not be negative
-    tol = 1e-10 * max(1.0, abs(hhat_q))
-    if lambda_infty_exact < 0:
-        if abs(lambda_infty_exact) <= tol:
-            print(f"Note: lambda_infty = {lambda_infty_exact:.3e} (negative within tolerance, setting to 0)")
-            lambda_infty_exact = 0.0
-        else:
-            print(f"Warning: archimedean local height negative beyond tolerance: {lambda_infty_exact:.12g}")
-
-    print(f"Local height (Archimedean) from subtraction: {lambda_infty_exact:.12g}")
-    print(f"  (computed as hhat_q - sum_nonarch)")
-
-    # --- 6. Compute H_max and n_max ---
-    # H_max is just hhat_q (the canonical height itself)
-    # But we can also compute it as sum of components for verification
-    C_other = lambda_good_primes + lambda_bad_primes + lambda_infty_exact
-    H_max_sub = lambda_padic + C_other
-    H_max_alt = hhat_q
+    # --- 4. Compute H_max and n_max ---
     
-    # Verify decomposition
-    if abs(H_max_sub - H_max_alt) > max(tol, 1e-8):
-        print(f"Warning: H_max mismatch: sum={H_max_sub:.12g} vs hhat={H_max_alt:.12g} (diff={H_max_sub - H_max_alt:.3e})")
+    # H_max is the "first principles" bound on the non-p-adic height
+    H_max = B_infty + B_bad
     
-    H_max = hhat_q  # Use the direct canonical height (most accurate)
+    print(f"\n--> Total Global Height Bound (H_max = B_infty + B_bad): {H_max}")
     
-    print(f"\n--> Total C_other (non-p sum): {C_other:.12g}")
-    print(f"--> Total Global Height (H_max): {H_max:.12g}")
-    
-    # Use specialized canonical height as denominator (consistency)
+    # The QC n_max bound is floor(sqrt(H_max / hhat_q))
     n_max = compute_n_max_bound(H_max, hhat_q)
     
-    print(f"--> Estimated n_max: {n_max}")
+    print(f"--> Estimated n_max (using hhat_q={hhat_q}): {n_max}")
 
     # --- Diagnostics ---
     diag = {
         'hhat_q': hhat_q,
-        'lambda_padic': lambda_padic,
-        'lambda_bad_primes': lambda_bad_primes,
-        'lambda_good_primes': lambda_good_primes,
-        'lambda_infty_exact': lambda_infty_exact,
-        'H_max_sub': H_max_sub,
-        'H_max_alt': H_max_alt,
+        'lambda_padic': None,
+        'B_bad': B_bad,
+        'B_infty': B_infty,
         'H_max': H_max,
-        'C_other': C_other,
-        'padic_reports': padic_reports,
         'bad_contribs': bad_contribs,
-        'residual': H_max_sub - H_max_alt
     }
     
     # Detailed decomposition table
-    print("\n--- Local Height Decomposition ---")
-    print(f"{'Place':<20} {'Lambda':<15}")
+    print("\n--- Local Height Bound Decomposition ---")
+    print(f"{'Component':<20} {'Value':<15}")
     print("-" * 35)
-    print(f"{'p-adic (p=' + str(primes_list[0]) + ')':<20} {lambda_padic:>14.8f}")
-    for p_bad, lam in bad_contribs.items():
-        if lam > 0:
-            print(f"{'bad prime p=' + str(p_bad):<20} {lam:>14.8f}")
-    print(f"{'Archimedean':<20} {lambda_infty_exact:>14.8f}")
+    print(f"{'B_bad (sum log(c_p))':<20} {B_bad}")
+    print(f"{'B_infty (arch. bound)':<20} {B_infty}")
     print("-" * 35)
-    print(f"{'Sum (should = hhat)':<20} {H_max_sub:>14.8f}")
-    print(f"{'hhat(P_q) direct':<20} {hhat_q:>14.8f}")
-    print(f"{'Residual':<20} {diag['residual']:>14.8e}")
+    print(f"{'H_max (B_infty + B_bad)':<20} {H_max}")
+    print(f"{'hhat(P_q) (denom)':<20} {hhat_q}")
     
     if return_diagnostics:
         return n_max, diag
@@ -415,134 +591,185 @@ def estimate_n_max_for_fiber(cd, P_m, m_val, p_chabauty, h_x_bound, hhat_P, retu
 
 
 
-def run_p_adic_fiber_analysis(E_q, P_q, p, precision=40, check_hypotheses=True, timeout=10):
+# rigorous_nmax.py
+# Run in sage -python3, with `cd` (CurveData-like) and P_m (section) in scope.
+
+from sage.all import QQ, ZZ, var, EllipticCurve, gcd
+from math import log, floor, sqrt
+
+# --- helpers: polynomial coefficient log-height ---
+from math import log as mlog
+
+def rational_function_degree_and_coeffheight(frac, m_var=None):
     """
-    Robust wrapper to compute p-adic local height (lambda_p) for a rational
-    elliptic-curve point. Returns a report dict with keys:
-      - status: 'success' or 'error'
-      - p_adic_regulator: float (when success)
-      - note: diagnostic message
-      - debug: dict of low-level items
-    
-    Args:
-        timeout: Maximum seconds to wait for p-adic height computation (default 10)
+    Return (degree, H_coeff) for frac in QQ(m).
+    degree = max(deg(num), deg(den)).
+    H_coeff = log(max_abs_coeff) using coeff_log_height_poly on numerator and denominator.
     """
-    import signal
-    
-    report = {'p': p, 'status': 'error', 'p_adic_regulator': None, 'note': '', 'debug': {}}
-
-    # Validate p quickly
-    from sage.all import is_prime
-    assert is_prime(int(p)), f"p={p} is not prime"
-    p = int(p)
-
-    # Ensure curve coefficients are rationals
-    a1, a2, a3, a4, a6 = E_q.a_invariants()
-    a_invars_q = [QQ(ai) for ai in (a1, a2, a3, a4, a6)]
-    E_q_rational = EllipticCurve(QQ, a_invars_q)
-    report['debug']['curve_coerced'] = True
-
-    # Coerce point coordinates
-    if hasattr(P_q, 'xy'):
-        xcoord, ycoord = P_q.xy()
+    # Get numerator/denominator in symbolic-friendly way
+    if hasattr(frac, 'numerator') and hasattr(frac, 'denominator'):
+        num = frac.numerator()
+        den = frac.denominator()
     else:
-        xcoord, ycoord = P_q[0], P_q[1]
-    xq = QQ(xcoord)
-    yq = QQ(ycoord)
-    P_q_rational = E_q_rational([xq, yq])
-    report['debug']['point_coerced'] = True
-
-    # Verify point is on curve
-    assert P_q_rational in E_q_rational, "Point not on curve after coercion"
-
-    # Verify curve is over QQ
-    assert E_q_rational.base_field() is QQ, "Curve not over QQ"
-
-    # Check if curve has good reduction at p (required for p-adic height)
-    assert E_q_rational.has_good_reduction(p), f"Curve does not have good reduction at p={p}"
-
-    # Timeout handler
-    def timeout_handler(signum, frame):
-        raise TimeoutError(f"p-adic height computation timed out after {timeout}s")
-    
-    padic_result = None
-    last_exception = None
-    
-    # Set alarm for timeout
-    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(timeout)
-    
-    try:
-        # Method 1: Point method (newer Sage)
-        padic_obj = P_q_rational.padic_height(p=p, prec=precision)
-        
-        # padic_height can return a function or a p-adic number
-        if callable(padic_obj):
-            try:
-                padic_result = float(padic_obj())
-            except Exception as e1:
-                try:
-                    padic_result = float(padic_obj(p))
-                except Exception as e2:
-                    last_exception = e2
-        else:
-            # It's a p-adic number - extract the rational approximation
-            try:
-                padic_result = float(padic_obj)
-            except TypeError:
-                # pAdicCappedRelativeElement - use rational_reconstruction or lift
-                try:
-                    padic_result = float(padic_obj.lift())
-                except Exception as e3:
-                    last_exception = e3
-            
-        if padic_result is not None:
-            report['status'] = 'success'
-            report['p_adic_regulator'] = padic_result
-            report['note'] = "padic_height succeeded (point method)"
-    except AttributeError as ae:
-        # Method 2: Curve method (older Sage)
+        # treat frac as SR expression: try to coerce numerator/denominator
+        from sage.symbolic.ring import SR
+        fsr = SR(frac).expand()
         try:
-            padic_obj = E_q_rational.padic_height(p, prec=precision)
-            
-            if callable(padic_obj):
-                result_obj = padic_obj(P_q_rational)
-                # Result is a p-adic number
-                try:
-                    padic_result = float(result_obj)
-                except TypeError:
-                    padic_result = float(result_obj.lift())
+            num = fsr.numerator()
+            den = fsr.denominator()
+        except Exception:
+            num = fsr
+            den = 1
+
+    # degree: try polynomial degree with explicit var if provided
+    def _deg(poly):
+        try:
+            if m_var is not None:
+                return int(poly.degree(m_var))
             else:
+                return int(poly.degree())
+        except Exception:
+            # fallback: use effective_degree if available in scope
+            try:
+                return int(effective_degree(poly, m_var))
+            except Exception:
+                return 0
+
+    d = max(_deg(num), _deg(den))
+
+    # coefficient log-heights
+    H_num = coeff_log_height_poly(num)
+    H_den = coeff_log_height_poly(den) if den != 1 else 0.0
+    H_total = max(H_num, H_den)
+
+    return int(d), float(H_total)
+
+
+def compute_provable_nmax(cd, P_m):
+    """
+    Adapted provable-nmax wrapper that uses the robust helpers above.
+    Returns (nmax, cert).
+    """
+    # try to find symbolic m-variable if possible
+    try:
+        m_var = cd.SR_m
+    except Exception:
+        try:
+            m_var = cd.a4.parent().gen()
+        except Exception:
+            m_var = None
+
+    # discriminant (use SR versions if present)
+    a4 = getattr(cd, 'SR_a4', cd.a4)
+    a6 = getattr(cd, 'SR_a6', cd.a6)
+
+    Delta = -16 * (4 * a4**3 + 27 * a6**2)
+
+    D = int(effective_degree(Delta, m_var))
+    H_D = coeff_log_height_poly(Delta)
+
+    # c4,c6 coefficient heights
+    c4 = -48 * a4
+    c6 = -864 * a6
+    H_c4c6 = max(coeff_log_height_poly(c4), coeff_log_height_poly(c6))
+
+    # x-section
+    xfunc = getattr(cd, 'SR_phi_x', getattr(cd, 'phi_x', P_m[0]))
+    d_x, H_x = rational_function_degree_and_coeffheight(xfunc, m_var=m_var)
+
+    # provable linear coefficients
+    A1 = float(d_x)/2.0 + float(D)/24.0
+    A2 = float(D)/6.0
+
+    # explicit Silverman-ish constant (algorithmic, provable from coeff heights)
+    C_Sil = 0.5 * H_c4c6 + mlog(2.0)
+
+    C1 = 0.5 * (H_x + mlog(2.0)) + (1.0/24.0) * H_D + 0.5 * C_Sil
+
+    C_infty = 0.5 * H_c4c6 + mlog(2.0)
+    C_bad_const = H_D
+    C2 = (1.0/12.0) * H_D + float(C_infty) + float(C_bad_const)
+
+    if A1 <= 0 or C1 <= 0:
+        raise ValueError("Nonpositive A1 or C1 encountered; check input family.")
+
+    alpha = A2 / A1
+    beta = C2 / C1
+    nmax = int(floor(sqrt(min(alpha, beta))))
+
+    cert = {
+        'D': D, 'd_x': d_x,
+        'H_D': H_D, 'H_x': H_x, 'H_c4c6': H_c4c6,
+        'A1': A1, 'C1': C1, 'A2': A2, 'C2': C2,
+        'alpha': alpha, 'beta': beta,
+    }
+    return nmax, cert
+
+
+def coeff_log_height_poly(f):
+    """
+    Return log(max |integerized coefficients|) for a polynomial-like or symbolic expression f.
+    Handles PolynomialRing and SymbolicRing inputs.
+    """
+    from math import log as mlog
+    from sage.symbolic.ring import SR
+    from sage.rings.polynomial.polynomial_ring import PolynomialRing_general
+    from sage.rings.integer_ring import ZZ
+
+    # Handle None or trivial
+    if f is None:
+        return 0.0
+
+    # Case 1: symbolic ring (SR)
+    if f.parent() == SR:
+        try:
+            num = f.numerator()
+            den = f.denominator()
+        except Exception:
+            num, den = f, 1
+        num = num.expand()
+        # attempt to get variable list
+        vars = num.variables()
+        if not vars:
+            # constant
+            try:
+                return float(mlog(abs(num)))
+            except Exception:
+                return 0.0
+        v = vars[0]
+        coeffs = num.coefficients(v)
+        if not coeffs:
+            coeffs = [num]
+        # convert to integers
+        ints = []
+        for c in coeffs:
+            try:
+                dens = c.denominator()
+                L = int(ZZ(dens))
+                ints.append(int((c * L).numerator()))
+            except Exception:
                 try:
-                    padic_result = float(padic_obj)
-                except TypeError:
-                    padic_result = float(padic_obj.lift())
-            
-            if padic_result is not None:
-                report['status'] = 'success'
-                report['p_adic_regulator'] = padic_result
-                report['note'] = "padic_height succeeded (curve method)"
-        except Exception as e4:
-            last_exception = e4
-    except TimeoutError as te:
-        last_exception = te
-    finally:
-        # Cancel alarm and restore old handler
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+                    ints.append(int(c))
+                except Exception:
+                    ints.append(1)
+        M = max(1, max(abs(x) for x in ints))
+        return float(mlog(M))
 
-    # Sanity check: p-adic height should be reasonable magnitude
-    if padic_result is not None:
-        if abs(padic_result) > 1e10:
-            raise ValueError(f"p-adic height computation returned absurdly large value: {padic_result}")
-        if math.isnan(padic_result) or math.isinf(padic_result):
-            raise ValueError(f"p-adic height computation returned NaN or Inf: {padic_result}")
+    # Case 2: polynomial ring
+    parent = f.parent()
+    if isinstance(parent, PolynomialRing_general):
+        coeffs = f.coefficients(sparse=False)
+        if not coeffs:
+            return 0.0
+        dens = [c.denominator() for c in coeffs]
+        L = int(ZZ(max(dens))) if dens else 1
+        ints = [int((c * L).numerator()) for c in coeffs]
+        M = max(1, max(abs(x) for x in ints))
+        return float(mlog(M))
 
-    report['debug']['padic_tried'] = [{'method': 'both APIs', 'p': p, 'prec': precision}]
-    
-    if report['status'] != 'success' or padic_result is None:
-        error_msg = f"p-adic height computation failed: {last_exception if last_exception else 'unknown error'}"
-        report['note'] = error_msg
-        raise RuntimeError(error_msg)
-    
-    return report
+    # Case 3: rational-function-like (has numerator/denominator)
+    if hasattr(f, 'numerator') and hasattr(f, 'denominator'):
+        return coeff_log_height_poly(f.numerator())
+
+    # fallback
+    return 0.0

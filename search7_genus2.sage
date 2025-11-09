@@ -21,7 +21,7 @@ from stats import *
 from sympy import symbols, expand
 load('tower.sage')
 from stats import SearchStats # <-- Make sure stats is imported
-from quadchabauty import estimate_n_max_for_fiber # <-- ADD THIS
+from quadchabauty import *
 
 # -------------------------
 # Tower builder adapter for search (lightweight, deterministic, no tests)
@@ -370,6 +370,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     mtest = m_r(r=xtest)
     assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
 
+
+    P_m_generator = current_sections[0]
+    nmax, cert = compute_provable_nmax(cd, P_m_generator)
+    print("nmax, cert", nmax, cert)
     # Replace the diagnostic section in search7_genus2.sage (after search completes)
 
     # =====================================================================
@@ -397,10 +401,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         P_m_generator,
                         m_val=m_val_to_test,
                         p_chabauty=p_chabauty_candidates,
-                        h_x_bound=None,  # unused in bounded version
-                        hhat_P=hhat_P
                     )
-
                     print(f"QC bound for m={m_val_to_test}: n_max ≤ {qc_n_max}")
 
                     # Compare to what we searched
@@ -560,7 +561,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         # Use the rank from the final iteration
         mw_rank = len(current_sections)
 
-        # --- FIX: Calculate OBSERVED max height ---
+        # --- Calculate OBSERVED max height ---
         # We need a canonical height function, but for this proxy,
         # we can just use the log-height from the completeness report.
         # This is a bit of a hack, but it's what we have.
@@ -702,17 +703,15 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # call completeness posterior function with a reasonable m_max (tune if you expect large tails)
     m_max = 200
     
-    # FIX: Pass the adjusted p_visibility (prior['p_adjusted']),
+    # Pass the adjusted p_visibility (prior['p_adjusted']),
     # not the raw p_visibility variable.
     post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
-    # --- FIX: Pass the ADJUSTED p-value from the prior, not the raw one ---
+    # --- Pass the ADJUSTED p-value from the prior, not the raw one ---
     post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
-    # --- END FIX ---
 
     # Nicely formatted posterior summary
     print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
 
-    # --- DEFENSIVE FIX for KeyError ---
     if 'P_all' not in post or 'P_all_but_1' not in post or 'P_all_but_2' not in post:
         print(f"Observed points (k) = {k_found}")
         print(f"Estimated detection probability p = {p_visibility:.3f}")
