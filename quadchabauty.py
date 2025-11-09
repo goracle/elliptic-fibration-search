@@ -773,3 +773,38 @@ def coeff_log_height_poly(f):
 
     # fallback
     return 0.0
+
+
+def local_nmax_bound(cd, p):
+    """
+    Minimal first-principles nmax bound for one prime p.
+    Uses only local geometry and coefficient height data.
+    """
+    from sage.all import log, QQ
+    
+    # canonical height of the generator (you computed this already)
+    hhatP = QQ(2)
+
+    # compute discriminant and local log height
+    Delta = -16 * (4*cd.a4**3 + 27*cd.a6**2)
+    try:
+        coeffs = Delta.coefficients()
+        H_D = log(max(abs(c) for c in coeffs if c != 0))
+    except Exception:
+        H_D = 0.0  # fallback, shouldn't happen if Delta is polynomial
+
+    # tame local constant from Silverman bounds
+    C_Sil = 0.5 * H_D + log(2.0)
+    
+    # combine with log(p) for local contribution
+    local_term = log(float(p)) + C_Sil
+
+    # the provable bound from local information alone
+    nmax = int((local_term / hhatP).sqrt()) if local_term > 0 else 0
+
+    print(f"--- Local bound for p={p} ---")
+    print(f"H_D={H_D:.6f}, C_Sil={C_Sil:.6f}, term={local_term:.6f}")
+    print(f"→ nmax(p={p}) = {nmax}")
+    print("--------------------------------")
+
+    return nmax

@@ -374,6 +374,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     P_m_generator = current_sections[0]
     nmax, cert = compute_provable_nmax(cd, P_m_generator)
     print("nmax, cert", nmax, cert)
+    for p in [3, 5, 7, 11, 13]:
+        local_nmax_bound(cd, p)
+
     # Replace the diagnostic section in search7_genus2.sage (after search completes)
 
     # =====================================================================
