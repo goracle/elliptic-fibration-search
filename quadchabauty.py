@@ -163,104 +163,6 @@ def run_p_adic_fiber_analysis(E_q, P_q, p, precision=40, check_hypotheses=True, 
     return report
 
 
-
-# quadchabauty.py
-#
-# Implements a numeric workflow to estimate the search multiple 'n'
-# for a single fiber (a specialized curve E_q) of the fibration,
-# based on the Quadratic Chabauty / local height summation method.
-#
-# This provides a diagnostic to check if a given search height bound
-# is sufficient for a particular fiber.
-#
-# Author: generated to fit user's repo style and constraints
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-# Per aimist.txt, no imports inside functions.
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-# Per aimist.txt, no imports inside functions.
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
 def estimate_local_height_archimedean(E_q):
     """
     Estimates the Archimedean contribution constant B(E).
@@ -304,54 +206,6 @@ def compute_local_height_bad_prime(E_q, p):
         print(f"Warning: compute_local_height_bad_prime failed for p={p}: {e}")
         raise
         return 0.0 # Safe fallback
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-from sage.all import (
-    QQ, SR, EllipticCurve, ZZ, var, is_prime,
-)
-import math
-from collections import defaultdict
-
-from math import log, floor, sqrt, exp
-
-# ---------------------------
-# Helpers
-# ---------------------------
 
 from sage.all import (
     QQ, SR, EllipticCurve, ZZ, var, is_prime,
@@ -800,7 +654,7 @@ def local_nmax_bound(cd, p):
     local_term = log(float(p)) + C_Sil
 
     # the provable bound from local information alone
-    nmax = int((local_term / hhatP).sqrt()) if local_term > 0 else 0
+    nmax = int(sqrt(local_term / hhatP)) if local_term > 0 else 0
 
     print(f"--- Local bound for p={p} ---")
     print(f"H_D={H_D:.6f}, C_Sil={C_Sil:.6f}, term={local_term:.6f}")
