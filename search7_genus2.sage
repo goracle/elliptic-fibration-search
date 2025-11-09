@@ -21,7 +21,6 @@ from stats import *
 from sympy import symbols, expand
 load('tower.sage')
 from stats import SearchStats # <-- Make sure stats is imported
-from quadchabauty import *
 
 # -------------------------
 # Tower builder adapter for search (lightweight, deterministic, no tests)
@@ -369,73 +368,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     xtest_unshifted = real_pts[0][0]  # This is the original x
     mtest = m_r(r=xtest)
     assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
-
-
-    P_m_generator = current_sections[0]
-    nmax, cert = compute_provable_nmax(cd, P_m_generator)
-    print("nmax, cert", nmax, cert)
-    for p in [3, 5, 7, 11, 13]:
-        local_nmax_bound(cd, p)
-
-    # Replace the diagnostic section in search7_genus2.sage (after search completes)
-
-    # =====================================================================
-    # --- QUADRATIC CHABAUTY BOUND (using computable bounds) ---
-    # =====================================================================
-    try:
-        P_m_generator = current_sections[0]
-        hhat_P = H[0][0]
-
-        # Get primes of good reduction
-        p_chabauty_candidates = [p for p in prime_pool if p not in cd.bad_primes][:10]
-        
-        if not p_chabauty_candidates:
-            print("Warning: No good reduction primes for QC analysis")
-        else:
-            # Try a few different fibers (avoid m=0)
-            test_m_values = [QQ(1), QQ(2), QQ(-1)]
-            qc_success = False
-            
-            for m_val_to_test in test_m_values:
-                try:
-                    print(f"\nAttempting QC bound at m={m_val_to_test}...")
-                    qc_n_max = estimate_n_max_for_fiber(
-                        cd,
-                        P_m_generator,
-                        m_val=m_val_to_test,
-                        p_chabauty=p_chabauty_candidates,
-                    )
-                    print(f"QC bound for m={m_val_to_test}: n_max ≤ {qc_n_max}")
-
-                    # Compare to what we searched
-                    n_max_used = int(floor(sqrt(height_bound / hhat_P)))
-                    print(f"Search used: n_max = {n_max_used} (from height_bound={height_bound})")
-                    
-                    if qc_n_max > n_max_used:
-                        print("⚠️  QC bound EXCEEDS search bound - may be incomplete")
-                    else:
-                        print("✓ Search bound sufficient per QC analysis")
-                    
-                    qc_success = True
-                    break
-                    
-                except Exception as e_fiber:
-                    print(f"  Failed at m={m_val_to_test}: {e_fiber}")
-                    raise
-                    continue
-            
-            if not qc_success:
-                print("Warning: Could not complete QC analysis at any test fiber")
-
-    except Exception as e_qc:
-        print(f"Quadratic Chabauty diagnostic failed: {e_qc}")
-        raise
-    # =====================================================================
-    #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
-    # ... (rest of your diagnostics) ...
-
-
-
 
     #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
 
