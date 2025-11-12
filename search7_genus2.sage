@@ -369,18 +369,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     mtest = m_r(r=xtest)
     assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
 
-    from nmax import compute_certified_nmax_for_fibration
-
-    nmax_certified = compute_certified_nmax_for_fibration(
-        cd=cd,
-        current_sections=current_sections,
-        prime_pool=prime_pool,
-        canonical_height=2.0,  # Your section's canonical height
-        debug=True
-    )
-
-    print(f"✓ Certified n_max: {nmax_certified}")
-
     #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
 
     # REMOVE all the old scattered diagnostics and replace with this:
