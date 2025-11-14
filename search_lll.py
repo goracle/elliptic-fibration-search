@@ -54,7 +54,7 @@ TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to 
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 TMAX = 500
 
-MAX_TORSION_ORDER_TO_FILTER = 0
+MAX_TORSION_ORDER_TO_FILTER = -1
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
@@ -3898,3 +3898,215 @@ def _compute_residues_for_prime_worker(args):
         result_for_p[v_orig_tuple] = roots_by_rhs
 
     return p, result_for_p, local_modular_checks
+
+
+
+def _compute_residues_for_prime_worker_old(args):
+    """
+    Worker computing residues for one prime with Hensel filtering.
+    Returns (p, result_for_p, local_modular_checks)
+    - result_for_p: { v_orig_tuple : [set(roots_for_rhs0), set(roots_for_rhs1), ...] }
+    - local_modular_checks: integer count of attempted modular RHS checks
+    """
+    from sage.all import GF, Integer, QQ, ZZ
+    
+    # Unpack args
+    try:
+        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs, _stats = args
+    except Exception:
+        p, Ep_local, mults_p, vecs_lll_p, vecs_list, rhs_modp_list_local, num_rhs = args
+        _stats = None
+
+    result_for_p = {}
+    local_modular_checks = 0
+
+    # Hensel filtering tunables
+    HENSEL_STRICT = HENSEL_SLOPPY # fast, but may reject too much
+    HENSEL_ALLOW_WEAK = True
+
+    for idx, v_orig in enumerate(vecs_list):
+        v_orig_tuple = tuple(v_orig)
+
+        if all(c == 0 for c in v_orig):
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            continue
+
+        try:
+            v_p_transformed = vecs_lll_p[idx]
+        except Exception:
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            raise
+
+        # Build Pm = sum of section multiples
+        try:
+            Pm = Ep_local(0)
+        except Exception:
+            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+            raise
+
+        for j, coeff in enumerate(v_p_transformed):
+            try:
+                mpj = mults_p[j]
+            except Exception:
+                raise
+
+            if mpj is None:
+                continue
+
+            try:
+                key = int(coeff)
+                if hasattr(mpj, 'get'):
+                    if key in mpj:
+                        Pm += mpj[key]
+                else:
+                    if 0 <= key < len(mpj):
+                        Pm += mpj[key]
+            except Exception:
+                raise
+
+        try:
+            if Pm.is_zero():
+                result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+                continue
+        except Exception:
+            raise
+
+        # Process each RHS function
+        roots_by_rhs = []
+        for i_rhs in range(num_rhs):
+            roots_for_rhs = set()
+            rhs_map = rhs_modp_list_local[i_rhs]
+
+            if p not in rhs_map:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            rhs_p = rhs_map[p]
+
+            if rhs_p is None:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Check denominator Pm[2]
+            den = Pm[2] if hasattr(Pm, '__getitem__') else None
+            den_modp = 0
+            
+            if den is not None:
+                try:
+                    den_modp = int(ZZ(den)) % int(p)
+                except Exception:
+                    try:
+                        if hasattr(den, "numerator") and hasattr(den, "denominator"):
+                            num = den.numerator()
+                            deno = den.denominator()
+                            if hasattr(num, "__call__"):
+                                num = num(0)
+                            if hasattr(deno, "__call__"):
+                                deno = deno(0)
+                            num = ZZ(num)
+                            deno = ZZ(deno)
+                            den_modp = int(num * pow(deno, -1, int(p)) % int(p))
+                        else:
+                            den_modp = int(GF(int(p))(den))
+                    except Exception:
+                        raise
+            
+            if den_modp == 0:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Compute numerator of (Pm[0]/Pm[2] - rhs_p)
+            num_expr = (Pm[0] / Pm[2] - rhs_p).numerator()
+
+            try:
+                if num_expr.is_zero():
+                    roots_by_rhs.append(roots_for_rhs)
+                    continue
+            except Exception:
+                raise
+
+            local_modular_checks += 1
+
+            # Find roots in GF(p)
+            try:
+                Fp = GF(p)
+                raw_roots = num_expr.roots(ring=Fp, multiplicities=False)
+            except Exception:
+                try:
+                    num_modp = num_expr.change_ring(Fp)
+                    raw_roots = [r for r, _ in num_modp.roots(multiplicities=True)]
+                except Exception:
+                    raise
+
+            # Normalize to integers
+            normalized_raw_roots = []
+            for r in raw_roots:
+                try:
+                    normalized_raw_roots.append(int(r))
+                except Exception:
+                    try:
+                        normalized_raw_roots.append(int(r[0]))
+                    except Exception:
+                        raise
+
+            if not normalized_raw_roots:
+                roots_by_rhs.append(roots_for_rhs)
+                continue
+
+            # Hensel simple-root filtering via derivative
+            simple_roots = set()
+            deriv = None
+            
+            try:
+                if hasattr(num_expr, 'numerator'):
+                    deriv = num_expr.numerator().derivative()
+                else:
+                    deriv = num_expr.derivative()
+            except Exception:
+                raise
+
+            for r in normalized_raw_roots:
+                keep_root = True
+                
+                if HENSEL_STRICT and deriv is not None:
+                    try:
+                        # Evaluate derivative at r modulo p
+                        try:
+                            deriv_modp = deriv.change_ring(Fp)
+                            dval = int(deriv_modp(Fp(r)))
+                        except Exception:
+                            try:
+                                dval = int(deriv(r))
+                            except Exception:
+                                raise
+                        
+                        if dval % int(p) == 0:
+                            keep_root = False
+                    except Exception:
+                        keep_root = not HENSEL_STRICT
+                        raise
+
+                if keep_root:
+                    simple_roots.add(int(r))
+
+            # Decide what to keep
+            if simple_roots:
+                roots_for_rhs.update(simple_roots)
+            else:
+                if HENSEL_ALLOW_WEAK:
+                    roots_for_rhs.update(normalized_raw_roots)
+
+            # Debug output
+            if DEBUG and normalized_raw_roots:
+                rejected = len(normalized_raw_roots) - len(simple_roots)
+                if rejected > 0:
+                    print(f"[hensel p={p}, rhs={i_rhs}, v={v_orig_tuple[:2]}...] "
+                          f"raw={len(normalized_raw_roots)}, simple={len(simple_roots)}, "
+                          f"rejected={rejected}, kept={len(roots_for_rhs)}")
+
+            roots_by_rhs.append(roots_for_rhs)
+
+        result_for_p[v_orig_tuple] = roots_by_rhs
+
+    return p, result_for_p, local_modular_checks
+
