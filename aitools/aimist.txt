@@ -80,4 +80,7 @@ TypeError: unsupported format string passed to sage.rings.rational.Rational.__fo
                             for p in primes_crt:
                                 M_new *= p
 
- 
+- the solutions we find to our search equation are generally local solutions only.  from small prime subsets, these happen to glue together into rational points, but they in general do not lift to global solutions to the search equation.  this is a big mystery/something we'd like to understand more deeply, if we can.  the mistake ai's make is in thinking rational points iff global Q solution.  in fact, the implication is only global Q solution implies rational point, not the other way around.
+- we do not want to loop over m or use the known points from our test curve to make the search better.  we should assume our givens are just a curve and one rational point.  that is the setup we are using.  attempts to deviate from that are generally a horrible ai idea that leads to "overfitting", aka solutions that do not generalize.
+- please ignore all the posterior probability nonsense saying the search is incomplete.  it almost certainly is not, esp. if we set TERMINATE_WHEN_6.  the problem is the probability estimation is completely bs.  we don't know what it should be.  all of our genus 2 curves are from lmfdb, and all of our genus 3 curves we've run many times before, so the search should not be finding any unknown rational points, but most of the time it prints there are probably points missing.
+- cypari2 warning about leaking >100 GB is bullshit.  it's nothing.  it always prints that.  my computer doesn't have that much memory.  idk what it is, but it doesn't matter.
