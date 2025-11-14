@@ -54,7 +54,7 @@ TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to 
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 TMAX = 500
 
-MAX_TORSION_ORDER_TO_FILTER = 8
+MAX_TORSION_ORDER_TO_FILTER = 0
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
