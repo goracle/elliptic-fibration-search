@@ -813,7 +813,10 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG):
             )
 
             tower.append(step_result)
-            jet_check_safe(step_result['f_i'], pts_xy)
+            # Create the full curve equation y^2 = f_i(x,m)
+            y = SR.var('y')
+            full_equation = y**2 - step_result['f_i']
+            jet_check_safe(full_equation, pts_xy)
 
 
             # The 'f_i' result is already a symbolic expression, so the type remains consistent.
@@ -822,10 +825,18 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG):
         except RuntimeError as e:
             print(f"Failed at step {step + 1}: {e}")
             raise # Re-raise to halt execution on failure
-    
-    verify_tower_consistency(tower)
-    return tower
 
+
+    verify_tower_consistency(tower)
+    
+    # Deep jet analysis across the entire tower
+    print("\n" + "="*70)
+    print("DEEP JET ANALYSIS ACROSS TOWER")
+    print("="*70)
+    jet_results = jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0)
+    
+    return tower
+    
 # ---------- Main Driver ----------
 
 @PROFILE
@@ -859,10 +870,6 @@ def main():
 
 
 
-###############################################################
-# Jet tester for a single layer F(x, y, m)
-# Drop directly into tower.sage (Sage 10.5, pythonic style)
-###############################################################
 
 from sage.all import (
     SR, var, solve
@@ -876,40 +883,175 @@ from sage.all import (
 from sage.all import SR, var, solve
 
 
-# ------------------ JET CHECKER (paste near top-level helpers) ------------------
+# Replace previous jet_check_safe with this exact function (top-level in tower.sage)
+def jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0):
+    """
+    Deep jet analysis: expand x(m) and y(m) to high order
+    and verify consistency across all tower layers.
+    """
+    from sage.all import factorial
+    
+    x0, y0 = pts_xy[0]
+    
+    # Symbolic setup
+    x, y, m = var('x y m')
+    t = var('t')  # local parameter
+    
+    # Create symbolic coefficients for the series
+    a_coeffs = [var(f'a{i}') for i in range(2, max_order+1)]
+    b_coeffs = [var(f'b{i}') for i in range(1, max_order+1)]
+    
+    # Build series expansions
+    x_series = SR(x0) - t + sum(a_coeffs[i-2] * t**i for i in range(2, max_order+1))
+    y_series = SR(y0) + sum(b_coeffs[i-1] * t**i for i in range(1, max_order+1))
+    m_series = t + SR(m0)
+    
+    tower_jets = []
+    for layer_idx, layer in enumerate(tower):
+        print(f"\n[DEEP JET] Layer {layer_idx+1}")
+        F_i = y**2 - layer['f_i']  # Construct full curve equation
+        
+        # Substitute series
+        expr = F_i.subs({x: x_series, y: y_series, m: m_series}).expand()
+        
+        # Extract Taylor coefficients
+        coeffs = {}
+        for order in range(max_order + 1):
+            c = expr.diff(t, order).subs({t: 0})
+            if order > 0:
+                c = c / factorial(order)
+            coeffs[order] = c.simplify()
+        
+        # Solve order-by-order
+        eqs = [coeffs[i] == 0 for i in range(max_order + 1) if coeffs[i] != 0]
+        unknowns = a_coeffs + b_coeffs
+        
+        try:
+            sol = solve(eqs, unknowns, solution_dict=True)
+            if sol:
+                first_sol = sol[0] if len(sol) == 1 else sol
+                #free_params = [str(u) for u in unknowns if u not in first_sol]
+                free_params = []
+                for u in unknowns:
+                    if u not in first_sol:
+                        free_params.append(str(u))
+                    else:
+                        val = first_sol[u]
+                        try:
+                            val_vars = {str(v) for v in val.variables()}
+                            unknown_names = {str(unk) for unk in unknowns}
+                            new_free_vars = val_vars - unknown_names - {'m'}
+                            if new_free_vars:
+                                free_params.append(f"{str(u)}→{','.join(new_free_vars)}")
+                        except:
+                            raise
+
+                
+                if free_params:
+                    print(f"  ✓ Solution found. Free parameters: {', '.join(free_params)}")
+                else:
+                    print(f"  ✓ Solution found. Fully determined (no free parameters)")
+                
+                # Print the series coefficients
+                print(f"  Series expansion x(m) = {x0} - m + ...")
+                for i in range(2, min(4, max_order+1)):  # Show a2, a3
+                    coeff_var = var(f'a{i}')
+                    if coeff_var in first_sol:
+                        val = first_sol[coeff_var]
+                        print(f"    a{i} = {val}")
+                    else:
+                        print(f"    a{i} = free")
+                
+                print(f"  Series expansion y(m) = {y0} + ...")
+                for i in range(1, min(3, max_order)):  # Show b1, b2
+                    coeff_var = var(f'b{i}')
+                    if coeff_var in first_sol:
+                        val = first_sol[coeff_var]
+                        print(f"    b{i} = {val}")
+                    else:
+                        print(f"    b{i} = free")
+                
+                tower_jets.append({
+                    'layer': layer_idx,
+                    'solution': first_sol,
+                    'free_params': free_params,
+                    'obstructed': False
+                })
+            else:
+                print(f"  ❌ OBSTRUCTED: No solution to higher-order equations")
+                tower_jets.append({
+                    'layer': layer_idx,
+                    'obstructed': True,
+                    'reason': 'No solution to higher-order equations'
+                })
+        except Exception as e:
+            print(f"  ❌ OBSTRUCTED: {e}")
+            tower_jets.append({
+                'layer': layer_idx,
+                'obstructed': True,
+                'reason': str(e)
+            })
+    
+    print("\n" + "="*70)
+    print("TOWER JET SUMMARY")
+    print("="*70)
+    print(f"Total layers: {len(tower)}")
+    obstructed = sum(1 for j in tower_jets if j.get('obstructed', False))
+    if obstructed == 0:
+        print("✓ All layers formally smooth (no obstructions)")
+    else:
+        print(f"❌ {obstructed} layer(s) have obstructions")
+    
+    return tower_jets
+
+
+
+# Replace previous jet_check_safe with this exact function (top-level in tower.sage)
 def jet_check_safe(F_sr, pts_xy, m0=0):
     """
     Minimal jet checker for tower.sage.
-    - F_sr: symbolic expression (SR) for the current layer polynomial (f_i or F_i).
+    - F_sr: SR expression for the current layer polynomial (f_i or F_i).
     - pts_xy: list-like of rational (x,y) pairs; uses pts_xy[0] as the point on the rail.
     - m0: base m-value (default 0).
-    Prints one short line reporting a2 or obstruction. Uses SR/var/solve from the sage environment.
+    Prints one short line reporting a2 or obstruction. Let errors propagate.
     """
     assert pts_xy and len(pts_xy) >= 1, "pts_xy must contain at least one (x,y) pair"
-    # first point (rational coordinates expected)
     x0, y0 = pts_xy[0]
-    # declare formal local parameter t and unknowns a2,b1,b2
+
+    # Declare symbols that must match those used in F_sr
+    x, y, m = var('x y m')
     t = var('t')
     a2 = var('a2')
     b1 = var('b1')
     b2 = var('b2')
 
+    # Convert F_sr to symbolic and expand to ensure proper form
+    proto = SR(F_sr).expand()
+    
     # local series ansatz: rail x = x0 - t (since x = x1 - m)
-    x_series = x0 - t + a2*t*t
-    y_series = y0 + b1*t + b2*t*t
-    m_series = t + m0
+    x_series = SR(x0) - t + a2 * t * t
+    y_series = SR(y0) + b1 * t + b2 * t * t
+    m_series = t + SR(m0)
 
-    # substitute using SR expression (works if F_sr depends on x or x,y or x,y,m)
-    proto = SR(F_sr)
-    subs_map = { var('x'): x_series, var('y'): y_series, var('m'): m_series }
-    expr = proto.subs(subs_map)
+    # Substitute using the same symbolic names as F_sr
+    try:
+        expr = proto.subs({x: x_series, y: y_series, m: m_series})
+    except TypeError as e:
+        print(f" [JET] Substitution failed: {e}")
+        print(f" [JET] F_sr variables: {proto.variables()}")
+        return
 
-    # expand to t^2 (we only need up to quadratic to decide a2)
-    expr2 = SR(expr).series(t, 3).removeO()
+    # Expand the substituted expression
+    expr = expr.expand()
 
-    c0 = SR(expr2).coefficient(t, 0)
-    c1 = SR(expr2).coefficient(t, 1)
-    c2 = SR(expr2).coefficient(t, 2)
+    # compute Taylor coefficients via derivatives at t=0
+    try:
+        c0 = expr.subs({t: 0}).simplify()
+        c1 = expr.diff(t).subs({t: 0}).simplify()
+        c2 = (expr.diff(t, 2).subs({t: 0}) / 2).simplify()
+    except Exception as e:
+        print(f" [JET] Taylor expansion failed: {e}")
+        return
 
     eqs = []
     if c0 != 0:
@@ -919,30 +1061,25 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
     if c2 != 0:
         eqs.append(c2 == 0)
 
-    # if no equations produced, report and return
     if not eqs:
         print(" [JET] no local equations found")
         return
 
-    # solve for a2, b1, b2 (may raise if solve fails)
-    sol = solve(eqs, [a2, b1, b2], solution_dict=True)
+    try:
+        sol = solve(eqs, [a2, b1, b2], solution_dict=True)
+    except Exception as e:
+        print(f" [JET] solve failed: {e}")
+        return
 
-    # interpret solution
     if not sol:
         print(" [JET] obstruction: no local lift at this point")
         return
 
-    # take first solution dict
     first = sol[0] if isinstance(sol, (list, tuple)) and sol else sol
     if isinstance(first, dict) and 'a2' in first:
         print(" [JET] a2 =", first['a2'])
     else:
-        # a2 not constrained
         print(" [JET] a2 free (curvature unconstrained by double-root)")
-# ------------------ END JET CHECKER --------------------------------------------
-
-
-
 
 if __name__ == '__main__':
     pass
