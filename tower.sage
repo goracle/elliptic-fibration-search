@@ -813,6 +813,8 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG):
             )
 
             tower.append(step_result)
+            jet_check_safe(step_result['f_i'], pts_xy)
+
 
             # The 'f_i' result is already a symbolic expression, so the type remains consistent.
             current_fx = step_result['f_i']
@@ -853,6 +855,93 @@ def main():
         print("\n✅ Tower construction finished. Constructed %d fibration layers." % len(tower))
     else:
         print("\n❌ Tower construction failed or produced no layers.")
+
+
+
+
+###############################################################
+# Jet tester for a single layer F(x, y, m)
+# Drop directly into tower.sage (Sage 10.5, pythonic style)
+###############################################################
+
+from sage.all import (
+    SR, var, solve
+)
+
+###############################################################
+# Minimal jet checker for tower.sage
+# Runs automatically, safe, pure-Python syntax, no new interface
+###############################################################
+
+from sage.all import SR, var, solve
+
+
+# ------------------ JET CHECKER (paste near top-level helpers) ------------------
+def jet_check_safe(F_sr, pts_xy, m0=0):
+    """
+    Minimal jet checker for tower.sage.
+    - F_sr: symbolic expression (SR) for the current layer polynomial (f_i or F_i).
+    - pts_xy: list-like of rational (x,y) pairs; uses pts_xy[0] as the point on the rail.
+    - m0: base m-value (default 0).
+    Prints one short line reporting a2 or obstruction. Uses SR/var/solve from the sage environment.
+    """
+    assert pts_xy and len(pts_xy) >= 1, "pts_xy must contain at least one (x,y) pair"
+    # first point (rational coordinates expected)
+    x0, y0 = pts_xy[0]
+    # declare formal local parameter t and unknowns a2,b1,b2
+    t = var('t')
+    a2 = var('a2')
+    b1 = var('b1')
+    b2 = var('b2')
+
+    # local series ansatz: rail x = x0 - t (since x = x1 - m)
+    x_series = x0 - t + a2*t*t
+    y_series = y0 + b1*t + b2*t*t
+    m_series = t + m0
+
+    # substitute using SR expression (works if F_sr depends on x or x,y or x,y,m)
+    proto = SR(F_sr)
+    subs_map = { var('x'): x_series, var('y'): y_series, var('m'): m_series }
+    expr = proto.subs(subs_map)
+
+    # expand to t^2 (we only need up to quadratic to decide a2)
+    expr2 = SR(expr).series(t, 3).removeO()
+
+    c0 = SR(expr2).coefficient(t, 0)
+    c1 = SR(expr2).coefficient(t, 1)
+    c2 = SR(expr2).coefficient(t, 2)
+
+    eqs = []
+    if c0 != 0:
+        eqs.append(c0 == 0)
+    if c1 != 0:
+        eqs.append(c1 == 0)
+    if c2 != 0:
+        eqs.append(c2 == 0)
+
+    # if no equations produced, report and return
+    if not eqs:
+        print(" [JET] no local equations found")
+        return
+
+    # solve for a2, b1, b2 (may raise if solve fails)
+    sol = solve(eqs, [a2, b1, b2], solution_dict=True)
+
+    # interpret solution
+    if not sol:
+        print(" [JET] obstruction: no local lift at this point")
+        return
+
+    # take first solution dict
+    first = sol[0] if isinstance(sol, (list, tuple)) and sol else sol
+    if isinstance(first, dict) and 'a2' in first:
+        print(" [JET] a2 =", first['a2'])
+    else:
+        # a2 not constrained
+        print(" [JET] a2 free (curvature unconstrained by double-root)")
+# ------------------ END JET CHECKER --------------------------------------------
+
+
 
 
 if __name__ == '__main__':
