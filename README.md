@@ -58,6 +58,10 @@ COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(0), QQ(0), QQ(2), QQ(0), QQ(-4), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)]
 ```
 
+**Example 3 - Log**
+
+See example.txt for a log from a run on my laptop.
+
 ## How It Works
 
 ### 1. Fibration Construction ("Tower Method")
