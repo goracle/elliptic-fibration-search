@@ -384,8 +384,8 @@ NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 HENSEL_SLOPPY = False
 HENSEL_SLOPPY = True # goes fast, but hensel filtering is really only saying we only expect solutions at simple roots, which may not always be true, but this rarely loses information.
-TORSION_SLOPPY = False
 TORSION_SLOPPY = True # an even more unmotivated filter; filter out small ord_p residues for some reason.
+TORSION_SLOPPY = False
 MAX_TORSION_ORDER_TO_FILTER = -1 # what ord_p max to filter out.  -1 means only filter out singularity specialization. (N.B. does not turn TORSION_SLOPPY off!)
 ###### END STATIC CONFIG
 
