@@ -4,9 +4,11 @@ search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
 from .search_config import (
     DEBUG, EXTRA_PRIME_MIN_R, EXTRA_PRIME_MAX_R, ROOTS_THRESHOLD,
     EXTRA_PRIME_TARGET_DENSITY, EXTRA_PRIME_MAX, EXTRA_PRIME_SKIP,
-    Counter, combinations, floor, Integer, ZZ, QQ, vector
+    Counter
 )
 from stats import * # Project-level import
+from itertools import combinations
+from sage.all import *
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""

@@ -1,7 +1,11 @@
 """
-search_config.py: Global constants, parameters, and all necessary imports.
+search_config.py: Central config for the search_lll package.
+
+Imports global run constants (DEBUG, PRIME_POOL, etc.) from search_common.py
+and defines LLL-specific algorithmic constants (LLL_DELTA, TMAX, etc.).
 """
-# Standard library imports
+
+# === 1. Standard library imports ===
 import sys
 import random
 import itertools
@@ -14,11 +18,11 @@ from operator import mul
 from collections import namedtuple, Counter 
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
-# Third-party imports
+# === 2. Third-party imports ===
 from tqdm import tqdm
 from colorama import Fore, Style
 
-# SageMath imports (Centralize these, as they are used across the project)
+# === 3. SageMath imports ===
 from sage.all import (
     QQ, ZZ, GF, PolynomialRing, EllipticCurve,
     matrix, vector, identity_matrix, zero_matrix, diagonal_matrix,
@@ -27,29 +31,37 @@ from sage.all import (
 from sage.rings.rational import Rational
 from sage.rings.fraction_field_element import FractionFieldElement
 
-# Local project imports
-# Assuming these are in the parent directory or installed
-# from search_common import * # from stats import *
-# from brauer import *
+# === 4. Global Config Import ===
+# Import global run constants from search_common.py in the parent directory
+# This assumes the main script is run from the parent directory.
+try:
+    from search_common import (
+        DEBUG, PROFILE, HENSEL_SLOPPY, TORSION_SLOPPY, TARGETED_X, PRIME_POOL,
+        SEED_INT, MAX_TORSION_ORDER_TO_FILTER, MIN_PRIME_SUBSET_SIZE,
+        MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS
+    )
+except ImportError:
+    print("CRITICAL: search_lll/search_config.py could not import from search_common.")
+    # Define fallbacks to prevent total crash, though this indicates a path issue
+    DEBUG = False
+    PROFILE = lambda f: f
+    HENSEL_SLOPPY = True
+    TORSION_SLOPPY = True
+    TARGETED_X = None
+    PRIME_POOL = [5, 7, 11, 13, 17, 19, 23]
+    SEED_INT = 42
+    MAX_TORSION_ORDER_TO_FILTER = 12
+    MIN_PRIME_SUBSET_SIZE = 3
+    MIN_MAX_PRIME_SUBSET_SIZE = 7
+    MAX_MODULUS = 10**30
+    raise
 
-# --- Debug Flags ---
-# (Import these from search_common or define them here)
-DEBUG = globals().get('DEBUG', False)
-PROFILE = globals().get('PROFILE', False)
-HENSEL_SLOPPY = globals().get('HENSEL_SLOPPY', True)
-TORSION_SLOPPY = globals().get('TORSION_SLOPPY', True)
-TARGETED_X = globals().get('TARGETED_X', None)
-PRIME_POOL = globals().get('PRIME_POOL', [])
-SEED_INT = globals().get('SEED_INT', 42)
-MAX_TORSION_ORDER_TO_FILTER = globals().get('MAX_TORSION_ORDER_TO_FILTER', 12)
-MIN_PRIME_SUBSET_SIZE = globals().get('MIN_PRIME_SUBSET_SIZE', 3)
-MIN_MAX_PRIME_SUBSET_SIZE = globals().get('MIN_MAX_PRIME_SUBSET_SIZE', 7)
-MAX_MODULUS = globals().get('MAX_MODULUS', 10**30)
+from stats import *
+from brauer import *
 
 
-# ==============================================================================
-# Constants & Tuning Knobs
-# ==============================================================================
+# === 5. LLL-Package Specific Constants ===
+# These are the algorithmic constants from search_lll.py.bak
 
 # Core Limits and Defaults
 DEFAULT_MAX_CACHE_SIZE = 10000
@@ -67,10 +79,7 @@ MAX_K_ABS = 500            # ignore multiplier indices |k| > MAX_K_ABS when buil
 TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to limit dimension
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 
-# ==============================================================
-# === Auto-Tune / Residue Filter Parameters ====================
-# ==============================================================
-
+# Auto-Tune / Residue Filter Parameters
 EXTRA_PRIME_TARGET_DENSITY = 1e-5   # desired survivor fraction after extras
 EXTRA_PRIME_MAX = 6                 # cap on number of extra primes
 EXTRA_PRIME_SKIP = {2, 3}        # avoid small degenerates
@@ -78,8 +87,7 @@ EXTRA_PRIME_SAMPLE_SIZE = 300       # sample vectors for stats
 EXTRA_PRIME_MIN_R = 1e-4            # ignore primes with r_p < this
 EXTRA_PRIME_MAX_R = 0.9             # ignore primes with r_p > this
 
-
-# Custom Exception Classes
+# === 6. Custom Exception Classes ===
 class EllipticCurveSearchError(Exception):
     """Base exception for errors in the search process."""
     pass
@@ -87,3 +95,9 @@ class EllipticCurveSearchError(Exception):
 class RationalReconstructionError(EllipticCurveSearchError):
     """Raised when rational reconstruction fails."""
     pass
+
+
+
+
+
+
