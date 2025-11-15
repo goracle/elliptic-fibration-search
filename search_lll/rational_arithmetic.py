@@ -72,3 +72,41 @@ def find_minimal_abs_representative(t_mod_Q, Q, T):
         if abs(t) <= T:
             return True
     return False
+
+
+def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=True):
+    """
+    Ensure that x = r_m(base_m) - shift equals expected_x.
+    This checks that the base point (mtest, xtest) relationship is respected
+    by the parametrization. It does not scan through newly_found_x; instead
+    it asserts consistency between r_m and the supplied base point.
+    """
+    assert base_m is not None, "assert_base_m_found requires a base_m (rational) to check"
+    try:
+        x_base = r_m_callable(m=QQ(base_m)) - shift
+    except Exception as e:
+        msg = f"assert_base_m_found: r_m_callable evaluation failed at m,shift={base_m},{shift}: {e}"
+        if allow_raise:
+            raise AssertionError(msg)
+        return False
+
+    try:
+        x_base_q = QQ(x_base)
+        expected_x_q = QQ(expected_x)
+    except Exception:
+        msg = "assert_base_m_found: coercion to QQ failed"
+        if allow_raise:
+            raise AssertionError(msg)
+        return False
+
+    if x_base_q == expected_x_q:
+        return True
+
+    msg = (f"assert_base_m_found: mismatch.\n"
+           f"  m = {base_m}\n"
+           f"  expected x = {expected_x_q}\n"
+           f"  got x = {x_base_q}")
+    if allow_raise:
+        raise AssertionError(msg)
+    return False
+

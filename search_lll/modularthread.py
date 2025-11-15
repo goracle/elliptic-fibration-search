@@ -8,6 +8,7 @@ import itertools
 from operator import mul
 from functools import reduce, partial
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 
 # SageMath imports
 from sage.all import (
@@ -26,16 +27,17 @@ from .rational_arithmetic import crt_cached, rational_reconstruct, RationalRecon
 from .ll_utilities import _trim_poly_coeffs, _compute_column_norms, _scale_matrix_columns_int, _compute_integer_scales_for_columns
 from .archimedean_optim import minimize_archimedean_t_linear_const
 
-# Assuming diagnostics2.py is in the parent directory or installed
+# --- IMPORT FIX: Use relative import to get modules from parent directory ---
 try:
-    from diagnostics2 import find_singular_fibers, compute_ramification_locus
+    from diagnostics2 import find_singular_fibers
+    from brauer import compute_ramification_locus
 except ImportError:
-    print("Warning: diagnostics2.py not found. Fiber collision checks will be limited.")
-    def find_singular_fibers(*args, **kwargs): return {}
+    print("Warning: search_lll/modularthread.py could not import diagnostics2 from parent dir.")
+    print("         Fiber collision checks will be limited.")
+    def find_singular_fibers(*args, **kwargs): return {'fibers': [], 'euler_characteristic': 0, 'sigma_sum': 0}
     def compute_ramification_locus(*args, **kwargs): return set()
-
-
-# ==============================================================
+    raise
+# --- END IMPORT FIX ---# ==============================================================
 # === Modular Reduction Helpers ================================
 # ==============================================================
 
@@ -622,84 +624,6 @@ def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_pri
     return True
 
 
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
-    """
-    Worker function to find m-candidates for a single subset of primes.
-    (This is the NEWER version from source [319])
-    """
-    if not p_subset:
-        return set(), Counter(), set()
-
-    found_candidates_for_subset = set()
-    stats_counter = Counter()
-    tested_crt_classes = set()
-
-    num_extra_primes = 4
-    offset = 2
-    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
-
-    for v_orig in vecs:
-        if all(c == 0 for c in v_orig):
-            continue
-        v_orig_tuple = tuple(v_orig)
-
-        for rhs_idx in range(num_rhs_fns):
-            
-            residue_map_for_crt = {}
-            for p in p_subset:
-                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
-                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
-
-            primes_for_crt = list(residue_map_for_crt.keys())
-            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
-                continue
-
-            residue_map_for_filter = {}
-            for p in extra_primes_for_filtering:
-                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
-                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
-
-            lists = [residue_map_for_crt[p] for p in primes_for_crt]
-            
-            for combo in itertools.product(*lists):
-                stats_counter['crt_lift_attempts'] += 1
-                M = 1
-                for p in primes_for_crt:
-                    M *= int(p)
-
-                if M > MAX_MODULUS:
-                    continue
-
-                m0 = crt_cached(combo, tuple(primes_for_crt))
-                tested_crt_classes.add((int(m0) % int(M), int(M)))
-                
-                try:
-                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
-                except TypeError:
-                    best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
-
-                for t_cand, m_cand, _, _ in best_ms:
-                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, extra_primes_for_filtering):
-                        found_candidates_for_subset.add( (QQ(m_cand), v_orig_tuple) )
-
-                stats_counter['rational_recon_attempts_worker'] += 1
-                try:
-                    a, b = rational_reconstruct(m0 % M, M)
-                    found_candidates_for_subset.add( (QQ(a) / QQ(b), v_orig_tuple) )
-                    stats_counter['rational_recon_success_worker'] += 1
-                except RationalReconstructionError:
-                    stats_counter['rational_recon_failure_worker'] += 1
-                    pass # Do not raise, just fail reconstruction
-
-    return found_candidates_for_subset, stats_counter, tested_crt_classes
-
-
-# ==============================================================
-# === Parallel Execution Helpers ===============================
-# ==============================================================
-
 def _make_executor(max_workers=None):
     """
     Try to create a ProcessPoolExecutor with 'fork' on Linux, fall back to threads.
@@ -734,6 +658,7 @@ def r_m_numeric_top(m_val, r_m_expr):
     SR_m = var('m')
     val = r_m_expr.subs({SR_m: m_val})
     return QQ(val)
+
 
 def _compute_residues_for_prime_worker(args):
     """
@@ -1069,3 +994,132 @@ def _compute_residues_for_prime_worker_old(args):
         result_for_p[v_orig_tuple] = roots_by_rhs
 
     return p, result_for_p, local_modular_checks
+
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
+    """
+    Worker function to find m-candidates for a single subset of primes.
+    This version processes each RHS function independently.
+    
+    *** MODIFIED to use O(1) t-filtering *after* O(1) t-minimization ***
+    """
+    if not p_subset:
+        return set()
+
+    found_candidates_for_subset = set()
+    stats_counter = Counter()
+    tested_crt_classes = set()
+
+    # these are now skipped!  this shouldn't print anymore!
+    if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
+        est = 1
+        for p in p_subset:
+            vks = precomputed_residues[p]
+            for roots_list in vks.values():
+                # roots_list is a list of sets per RHS function
+                if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
+                    est *= sum(len(roots) for roots in roots_list)
+        if est > combo_cap and DEBUG:
+            print("[heavy subset]", p_subset, "estimated combos:", est)
+
+    num_extra_primes = 4
+    offset = 2
+    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
+
+    for v_orig in vecs:
+        if all(c == 0 for c in v_orig):
+            continue
+        v_orig_tuple = tuple(v_orig)
+
+        for rhs_idx in range(num_rhs_fns):
+            
+            residue_map_for_crt = {}
+            for p in p_subset:
+                # precomputed_residues[p][v_tuple] is now a list of sets
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                    residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
+
+            primes_for_crt = list(residue_map_for_crt.keys())
+            if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
+                continue
+
+            residue_map_for_filter = {}
+            for p in extra_primes_for_filtering:
+                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
+                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
+                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
+
+            lists = [residue_map_for_crt[p] for p in primes_for_crt]
+            
+            for combo in itertools.product(*lists):
+                stats_counter['crt_lift_attempts'] += 1
+                M = 1
+                for p in primes_for_crt:
+                    M *= int(p)
+
+                if M > MAX_MODULUS:
+                    continue
+
+                m0 = crt_cached(combo, tuple(primes_for_crt))
+                tested_crt_classes.add((int(m0) % int(M), int(M)))
+
+                # --- START MODIFICATION ---
+                # Path 1: t-search (now O(1) find + O(1) filter)
+                
+                # Step 1: Find the 1-3 best t candidates (O(1))
+                try:
+                    #best_ms = minimize_archim_search_lll.pyidean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
+                    best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
+                except TypeError:
+                    best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
+                    raise
+
+                # Step 2: Filter *only* those t values (O(1))
+                for t_cand, m_cand, _, _ in best_ms:
+                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, extra_primes_for_filtering):
+                        # --- THIS IS THE FIX ---
+                        # Wrap (m_cand, v_orig_tuple) in an outer tuple to add it as a single element
+                        found_candidates_for_subset.add( (QQ(m_cand), v_orig_tuple) )
+
+                # Path 2: Rational Reconstruction (still run unconditionally)
+                stats_counter['rational_recon_attempts_worker'] += 1
+                try:
+                    a, b = rational_reconstruct(m0 % M, M)
+                    # --- THIS IS THE FIX ---
+                    # Wrap in an outer tuple here as well
+                    found_candidates_for_subset.add( (QQ(a) / QQ(b), v_orig_tuple) )
+                    stats_counter['rational_recon_success_worker'] += 1
+                except RationalReconstructionError:
+                    stats_counter['rational_recon_failure_worker'] += 1
+                    raise
+                # --- END MODIFICATION ---
+
+    return found_candidates_for_subset, stats_counter, tested_crt_classes
+
+
+def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections, stats):
+    """
+    Test a batch of (m, v_tuple) candidates for rationality in parallel.
+    Returns set of (m, v_tuple) pairs that produced rational points.
+    UPDATED to accept and use a stats object with new counter names.
+    """
+    rational_candidates = set()
+
+    for m_val, v_tuple in candidates:
+        stats.incr('rationality_tests_total') # <-- STATS
+        try:
+            x_val = r_m(m=m_val) - shift
+            y_val = rationality_test_func(x_val)
+            if y_val is not None:
+                stats.record_success(m_val, point=x_val) # <-- STATS (increments rationality_tests_success)
+                rational_candidates.add((m_val, v_tuple))
+            else:
+                stats.record_failure(m_val, reason='y_not_rational') # <-- STATS (increments rationality_tests_failure)
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            stats.record_failure(m_val, reason='rationality_test_error') # <-- STATS (increments rationality_tests_failure)
+            continue
+
+    return rational_candidates
+
+

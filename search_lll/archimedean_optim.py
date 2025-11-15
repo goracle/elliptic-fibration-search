@@ -89,8 +89,14 @@ def minimize_archimedean_t_linear_const(m0, M, r_m_func, shift, tmax):
     """
     const_C = r_m_func(m=QQ(0))
     target = - (m0 + const_C + shift) / float(M)
+    target = float(target)
 
-    cand_t = set([math.floor(target), math.ceil(target), int(round(target))])
+    try:
+        cand_t = set([math.floor(target), math.ceil(target), int(round(target))])
+    except Exception:
+        print("target =", target)
+        print(type(target))
+        raise
 
     # Clamp to allowed range
     cand_t = {max(-tmax, min(tmax, t)) for t in cand_t}
