@@ -564,6 +564,8 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
     # Store by absolute value to minimize computations
     # e.g., if we need -5, compute 5 and then negate
     for k_abs in range(2, max_k + 1):
+        if (not k_abs in required_ks and not -1*k_abs in required_ks):
+            continue
         if k_abs in computed:
             continue
         try:
