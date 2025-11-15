@@ -54,7 +54,6 @@ TRUNCATE_MAX_DEG = 30      # truncate polynomial coefficients at this degree to 
 PARALLEL_PRIME_WORKERS = min(8, max(1, multiprocessing.cpu_count() // 2))
 TMAX = 500
 
-MAX_TORSION_ORDER_TO_FILTER = -1
 
 # ==============================================================
 # === Auto-Tune / Residue Filter Parameters ====================
@@ -1910,7 +1909,10 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         raise
 
     with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+        if TORSION_SLOPPY:
+            futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+        else:
+            futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
             p = futures[future]
             try:
