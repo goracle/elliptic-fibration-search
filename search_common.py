@@ -353,14 +353,14 @@ DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 5
 
 
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
 # prestige curve lol
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
+
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
 
 
 ##### END TEST CURVES ######
@@ -385,8 +385,8 @@ HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, ju
 HENSEL_SLOPPY = False
 HENSEL_SLOPPY = True # goes fast, but hensel filtering is really only saying we only expect solutions at simple roots, which may not always be true, but this rarely loses information.
 TORSION_SLOPPY = True # an even more unmotivated filter; filter out small ord_p residues for some reason.
-TORSION_SLOPPY = False
 MAX_TORSION_ORDER_TO_FILTER = -1 # what ord_p max to filter out.  -1 means only filter out singularity specialization. (N.B. does not turn TORSION_SLOPPY off!)
+TORSION_SLOPPY = False
 ###### END STATIC CONFIG
 
 

@@ -21,7 +21,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r3,r4, b4→r3,r4,r5, b5→r6,r3,r4,r5
+  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r4,r3, b4→r4,r3,r5, b5→r4,r6,r3,r5
   Series expansion x(m) = -1 - m + ...
     a2 = r3
     a3 = r4
@@ -30,7 +30,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r3 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r8,r7, b4→r8,r9,r7, b5→r8,r9,r7,r10
+  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r7,r8, b4→r7,r9,r8, b5→r10,r7,r9,r8
   Series expansion x(m) = -1 - m + ...
     a2 = r7
     a3 = r8
@@ -128,31 +128,31 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=24, avg_survivors≈2.8e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈2.8e-06
+[empirical_pool] start pool size=24, avg_survivors≈1.04e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈1.04e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
-[adaptive_subsets] Density-adjusted base num_subsets: 500
+[adaptive_subsets] Density-adjusted base num_subsets: 1000
 [adaptive_subsets] Height scale factor (sqrt): 2.17
-[adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
+[adaptive_subsets] Final num_subsets: 1000 * 2.17 ≈ 2000 (overall adj: 2.00x vs base 1000)
 [adaptive_subsets] Final subset sizes: [3, 9]
 [auto_cfg] density=0.0798, base_tmax=300, tmax_scale=2.17 -> TMAX=500
 
 [auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
   HEIGHT_BOUND: 473
   Prime pool: 24 -> 24 (scale 0.00x)
-  Prime subsets: 1083 (adjustment 2.17x)
+  Prime subsets: 1979 (adjustment 2.00x)
   Subset sizes: [3, 9]
   TMAX: 500 (scaled for height)
-  Sample subsets: [[2, 3, 37], [2, 5, 67], [2, 11, 59]]
+  Sample subsets: [[2, 3, 7], [2, 3, 17], [2, 3, 31]]
 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1083
+  NUM_PRIME_SUBSETS: 1979
   PRIME_POOL size: 24
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1083, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1979, PRIME_POOL size=24, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -302,155 +302,436 @@ Resultant R = -50883047228132525571853724587921978465854200163821044099338159113
 Resultant R = -508830472281325255718537245879219784658542001638210440993381591132683497928398132602095904307646061362142294303310561625139990066103955842724083128451727360
   p=17: fiber_collision_deg_2
 Resultant R = -508830472281325255718537245879219784658542001638210440993381591132683497928398132602095904307646061362142294303310561625139990066103955842724083128451727360
-[hensel p=29, rhs=0, v=(2,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=29, rhs=0, v=(6,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=29, rhs=0, v=(7,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=29, rhs=0, v=(10,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=29, rhs=0, v=(14,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=29, rhs=0, v=(15,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=61, rhs=0, v=(1,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=61, rhs=0, v=(3,)...] raw=5, simple=3, rejected=2, kept=3
-[hensel p=61, rhs=0, v=(5,)...] raw=7, simple=6, rejected=1, kept=6
-[hensel p=61, rhs=0, v=(7,)...] raw=5, simple=4, rejected=1, kept=4
-[hensel p=61, rhs=0, v=(9,)...] raw=3, simple=1, rejected=2, kept=1
-[hensel p=61, rhs=0, v=(11,)...] raw=5, simple=4, rejected=1, kept=4
-[hensel p=61, rhs=0, v=(13,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=61, rhs=0, v=(15,)...] raw=3, simple=1, rejected=2, kept=1
-[hensel p=67, rhs=0, v=(2,)...] raw=2, simple=0, rejected=2, kept=2
-[hensel p=67, rhs=0, v=(6,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=67, rhs=0, v=(9,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=67, rhs=0, v=(10,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=67, rhs=0, v=(14,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=37, rhs=0, v=(4,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=37, rhs=0, v=(9,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=37, rhs=0, v=(11,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=37, rhs=0, v=(12,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=71, rhs=0, v=(15,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=5, rhs=0, v=(5,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=5, rhs=0, v=(6,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=5, rhs=0, v=(10,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=5, rhs=0, v=(15,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=73, rhs=0, v=(15,)...] raw=6, simple=4, rejected=2, kept=4
-[hensel p=11, rhs=0, v=(11,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=11, rhs=0, v=(15,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=47, rhs=0, v=(3,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=47, rhs=0, v=(9,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=47, rhs=0, v=(15,)...] raw=3, simple=2, rejected=1, kept=2
-[hensel p=7, rhs=0, v=(7,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=7, rhs=0, v=(14,)...] raw=1, simple=0, rejected=1, kept=1
-[hensel p=43, rhs=0, v=(11,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=19, rhs=0, v=(3,)...] raw=4, simple=2, rejected=2, kept=2
-[hensel p=19, rhs=0, v=(4,)...] raw=2, simple=1, rejected=1, kept=1
-[hensel p=19, rhs=0, v=(11,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=19, rhs=0, v=(13,)...] raw=5, simple=4, rejected=1, kept=4
-[hensel p=53, rhs=0, v=(15,)...] raw=4, simple=3, rejected=1, kept=3
-[hensel p=89, rhs=0, v=(10,)...] raw=2, simple=1, rejected=1, kept=1
+[torsion_filter p=23, v=(1,)..., r=14] rejected root, specialized point has order 12
+[torsion_filter p=23, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=23, v=(3,)..., r=5] rejected root, specialized point has order 10
+[torsion_filter p=23, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=23, v=(4,)..., r=15] rejected root, specialized point has order 5
+[torsion_filter p=23, v=(6,)..., r=15] rejected root, specialized point has order 5
+[torsion_filter p=23, v=(7,)..., r=5] rejected root, specialized point has order 10
+[torsion_filter p=23, r=3] skipping root, specialization is singular
+[torsion_filter p=23, v=(11,)..., r=14] rejected root, specialized point has order 12
+[torsion_filter p=23, rhs=0, v=(11,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=23, v=(13,)..., r=14] rejected root, specialized point has order 12
+[torsion_filter p=23, v=(13,)..., r=5] rejected root, specialized point has order 10
+[torsion_filter p=23, rhs=0, v=(13,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=23, v=(14,)..., r=15] rejected root, specialized point has order 5
+[torsion_filter p=23, r=3] skipping root, specialization is singular
+[torsion_filter p=23, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=59, v=(3,)..., r=33] rejected root, specialized point has order 4
+[torsion_filter p=59, v=(3,)..., r=20] rejected root, specialized point has order 8
+[torsion_filter p=59, rhs=0, v=(3,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=59, v=(4,)..., r=18] rejected root, specialized point has order 6
+[torsion_filter p=59, v=(5,)..., r=42] rejected root, specialized point has order 6
+[torsion_filter p=59, v=(5,)..., r=20] rejected root, specialized point has order 8
+[torsion_filter p=59, rhs=0, v=(5,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=59, v=(9,)..., r=33] rejected root, specialized point has order 4
+[torsion_filter p=59, v=(11,)..., r=20] rejected root, specialized point has order 8
+[torsion_filter p=59, rhs=0, v=(11,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=59, v=(13,)..., r=40] rejected root, specialized point has order 4
+[torsion_filter p=59, v=(13,)..., r=20] rejected root, specialized point has order 8
+[torsion_filter p=59, rhs=0, v=(13,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=59, v=(15,)..., r=33] rejected root, specialized point has order 4
+[torsion_filter p=59, rhs=0, v=(15,)...] raw=4, rejected_by_torsion=1, kept_for_hensel=3
+[torsion_filter p=29, v=(1,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=29, v=(1,)..., r=18] rejected root, specialized point has order 12
+[torsion_filter p=29, v=(1,)..., r=2] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(2,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=29, v=(2,)..., r=9] rejected root, specialized point has order 2
+[torsion_filter p=29, v=(3,)..., r=14] rejected root, specialized point has order 7
+[torsion_filter p=29, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=29, v=(4,)..., r=14] rejected root, specialized point has order 7
+[torsion_filter p=29, rhs=0, v=(4,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=29, v=(5,)..., r=2] rejected root, specialized point has order 6
+[torsion_filter p=29, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=29, v=(6,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=29, v=(6,)..., r=9] rejected root, specialized point has order 2
+[torsion_filter p=29, v=(7,)..., r=2] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(9,)..., r=3] rejected root, specialized point has order 11
+[torsion_filter p=29, rhs=0, v=(9,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=29, v=(10,)..., r=14] rejected root, specialized point has order 7
+[torsion_filter p=29, v=(10,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=29, v=(10,)..., r=9] rejected root, specialized point has order 2
+[torsion_filter p=29, v=(11,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=29, v=(11,)..., r=18] rejected root, specialized point has order 12
+[torsion_filter p=29, v=(11,)..., r=14] rejected root, specialized point has order 7
+[torsion_filter p=29, v=(11,)..., r=2] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(13,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=29, r=22] skipping root, specialization is singular
+[torsion_filter p=29, v=(13,)..., r=18] rejected root, specialized point has order 12
+[torsion_filter p=29, v=(13,)..., r=2] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(14,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=29, v=(14,)..., r=9] rejected root, specialized point has order 2
+[torsion_filter p=29, rhs=0, v=(14,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=29, v=(15,)..., r=5] rejected root, specialized point has order 2
+[torsion_filter p=29, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(1,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, v=(3,)..., r=37] rejected root, specialized point has order 8
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(3,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, v=(3,)..., r=34] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(3,)...] raw=5, rejected_by_torsion=4, kept_for_hensel=1
+[torsion_filter p=61, v=(5,)..., r=37] rejected root, specialized point has order 8
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(5,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(5,)...] raw=7, rejected_by_torsion=3, kept_for_hensel=4
+[torsion_filter p=61, v=(6,)..., r=3] rejected root, specialized point has order 11
+[torsion_filter p=61, v=(7,)..., r=49] rejected root, specialized point has order 5
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(7,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(7,)...] raw=5, rejected_by_torsion=3, kept_for_hensel=2
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(9,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, v=(9,)..., r=34] rejected root, specialized point has order 2
+[torsion_filter p=61, v=(11,)..., r=37] rejected root, specialized point has order 8
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(11,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(11,)...] raw=5, rejected_by_torsion=3, kept_for_hensel=2
+[torsion_filter p=61, v=(13,)..., r=37] rejected root, specialized point has order 8
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(13,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(13,)...] raw=4, rejected_by_torsion=3, kept_for_hensel=1
+[torsion_filter p=61, r=26] skipping root, specialization is singular
+[torsion_filter p=61, v=(15,)..., r=0] rejected root, specialized point has order 2
+[torsion_filter p=61, v=(15,)..., r=34] rejected root, specialized point has order 2
+[torsion_filter p=31, v=(1,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=31, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=31, v=(2,)..., r=8] rejected root, specialized point has order 9
+[torsion_filter p=31, v=(3,)..., r=25] rejected root, specialized point has order 12
+[torsion_filter p=31, v=(11,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=31, v=(13,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=31, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=67, v=(1,)..., r=55] rejected root, specialized point has order 8
+[torsion_filter p=67, rhs=0, v=(1,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=67, v=(2,)..., r=65] rejected root, specialized point has order 2
+[torsion_filter p=67, v=(2,)..., r=14] rejected root, specialized point has order 9
+[torsion_filter p=67, v=(5,)..., r=23] rejected root, specialized point has order 4
+[torsion_filter p=67, rhs=0, v=(5,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=67, v=(6,)..., r=65] rejected root, specialized point has order 2
+[torsion_filter p=67, v=(7,)..., r=55] rejected root, specialized point has order 8
+[torsion_filter p=67, v=(9,)..., r=55] rejected root, specialized point has order 8
+[torsion_filter p=67, rhs=0, v=(9,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=67, v=(10,)..., r=65] rejected root, specialized point has order 2
+[torsion_filter p=67, v=(14,)..., r=35] rejected root, specialized point has order 5
+[torsion_filter p=67, v=(14,)..., r=65] rejected root, specialized point has order 2
+[torsion_filter p=67, rhs=0, v=(14,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=67, v=(15,)..., r=55] rejected root, specialized point has order 8
+[torsion_filter p=67, v=(15,)..., r=23] rejected root, specialized point has order 4
+[torsion_filter p=67, rhs=0, v=(15,)...] raw=5, rejected_by_torsion=2, kept_for_hensel=3
+[torsion_filter p=37, v=(4,)..., r=18] rejected root, specialized point has order 11
+[torsion_filter p=37, v=(5,)..., r=5] rejected root, specialized point has order 12
+[torsion_filter p=37, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=37, v=(7,)..., r=5] rejected root, specialized point has order 12
+[torsion_filter p=37, rhs=0, v=(7,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=37, v=(9,)..., r=35] rejected root, specialized point has order 2
+[torsion_filter p=37, rhs=0, v=(9,)...] raw=4, rejected_by_torsion=1, kept_for_hensel=3
+[hensel p=37, rhs=0, v=(11,)...] post_torsion=3, simple=2, rejected_by_hensel=1, kept=2
+[hensel p=37, rhs=0, v=(12,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=71, v=(2,)..., r=62] rejected root, specialized point has order 9
+[torsion_filter p=71, v=(2,)..., r=19] rejected root, specialized point has order 10
+[torsion_filter p=71, rhs=0, v=(2,)...] raw=5, rejected_by_torsion=2, kept_for_hensel=3
+[torsion_filter p=71, v=(5,)..., r=70] rejected root, specialized point has order 6
+[torsion_filter p=71, v=(5,)..., r=60] rejected root, specialized point has order 6
+[torsion_filter p=71, rhs=0, v=(5,)...] raw=5, rejected_by_torsion=2, kept_for_hensel=3
+[hensel p=71, rhs=0, v=(15,)...] post_torsion=1, simple=0, rejected_by_hensel=1, kept=1
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(2,)..., r=3] rejected root, specialized point has order 9
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(3,)..., r=2] rejected root, specialized point has order 3
+[torsion_filter p=5, v=(3,)..., r=1] rejected root, specialized point has order 7
+[torsion_filter p=5, v=(4,)..., r=1] rejected root, specialized point has order 7
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, v=(6,)..., r=2] rejected root, specialized point has order 3
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(7,)..., r=3] rejected root, specialized point has order 9
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(10,)..., r=1] rejected root, specialized point has order 7
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(11,)..., r=3] rejected root, specialized point has order 9
+[torsion_filter p=5, v=(11,)..., r=1] rejected root, specialized point has order 7
+[torsion_filter p=5, v=(12,)..., r=2] rejected root, specialized point has order 3
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, r=4] skipping root, specialization is singular
+[torsion_filter p=5, v=(15,)..., r=2] rejected root, specialized point has order 3
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=73, v=(2,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, rhs=0, v=(2,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=73, v=(3,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, v=(3,)..., r=10] rejected root, specialized point has order 10
+[torsion_filter p=73, rhs=0, v=(3,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=73, v=(7,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, v=(7,)..., r=10] rejected root, specialized point has order 10
+[torsion_filter p=73, rhs=0, v=(7,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=73, v=(8,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, v=(9,)..., r=62] rejected root, specialized point has order 8
+[torsion_filter p=73, rhs=0, v=(9,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=73, v=(12,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, v=(13,)..., r=23] rejected root, specialized point has order 5
+[torsion_filter p=73, v=(13,)..., r=10] rejected root, specialized point has order 10
+[torsion_filter p=73, rhs=0, v=(13,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=73, v=(14,)..., r=28] rejected root, specialized point has order 11
+[torsion_filter p=73, v=(15,)..., r=62] rejected root, specialized point has order 8
+[torsion_filter p=73, v=(15,)..., r=44] rejected root, specialized point has order 7
+[torsion_filter p=73, v=(15,)..., r=37] rejected root, specialized point has order 2
+[torsion_filter p=73, rhs=0, v=(15,)...] raw=6, rejected_by_torsion=3, kept_for_hensel=3
+[hensel p=73, rhs=0, v=(15,)...] post_torsion=3, simple=2, rejected_by_hensel=1, kept=2
+[torsion_filter p=11, v=(1,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(1,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=11, rhs=0, v=(1,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=11, v=(3,)..., r=6] rejected root, specialized point has order 4
+[torsion_filter p=11, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=11, v=(6,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=11, v=(7,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(8,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=11, v=(9,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(9,)..., r=6] rejected root, specialized point has order 4
+[hensel p=11, rhs=0, v=(11,)...] post_torsion=1, simple=0, rejected_by_hensel=1, kept=1
+[torsion_filter p=11, v=(13,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=11, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=11, v=(15,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=11, v=(15,)..., r=6] rejected root, specialized point has order 4
+[torsion_filter p=11, v=(15,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=11, rhs=0, v=(15,)...] raw=4, rejected_by_torsion=3, kept_for_hensel=1
+[torsion_filter p=47, v=(1,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=47, v=(3,)..., r=37] rejected root, specialized point has order 2
+[torsion_filter p=47, v=(4,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, v=(4,)..., r=30] rejected root, specialized point has order 9
+[torsion_filter p=47, rhs=0, v=(4,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=47, v=(5,)..., r=30] rejected root, specialized point has order 9
+[torsion_filter p=47, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=47, v=(6,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, v=(9,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, v=(9,)..., r=37] rejected root, specialized point has order 2
+[torsion_filter p=47, rhs=0, v=(9,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=47, v=(11,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, rhs=0, v=(11,)...] raw=5, rejected_by_torsion=1, kept_for_hensel=4
+[torsion_filter p=47, v=(13,)..., r=30] rejected root, specialized point has order 9
+[torsion_filter p=47, v=(14,)..., r=40] rejected root, specialized point has order 5
+[torsion_filter p=47, v=(14,)..., r=30] rejected root, specialized point has order 9
+[torsion_filter p=47, v=(15,)..., r=37] rejected root, specialized point has order 2
+[torsion_filter p=47, rhs=0, v=(15,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=83, v=(1,)..., r=74] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=83, v=(5,)..., r=74] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(5,)..., r=26] rejected root, specialized point has order 9
+[torsion_filter p=83, rhs=0, v=(5,)...] raw=6, rejected_by_torsion=2, kept_for_hensel=4
+[torsion_filter p=83, v=(7,)..., r=74] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(11,)..., r=81] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(11,)..., r=74] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(11,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=83, v=(13,)..., r=74] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(13,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=7, v=(1,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(1,)..., r=1] rejected root, specialized point has order 6
+[torsion_filter p=7, v=(3,)..., r=5] rejected root, specialized point has order 11
+[torsion_filter p=7, v=(4,)..., r=4] rejected root, specialized point has order 11
+[torsion_filter p=7, v=(5,)..., r=1] rejected root, specialized point has order 6
+[torsion_filter p=7, v=(6,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(7,)..., r=4] rejected root, specialized point has order 11
+[torsion_filter p=7, v=(7,)..., r=1] rejected root, specialized point has order 6
+[torsion_filter p=7, v=(8,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(8,)..., r=5] rejected root, specialized point has order 11
+[torsion_filter p=7, v=(11,)..., r=1] rejected root, specialized point has order 6
+[torsion_filter p=7, v=(13,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(13,)..., r=1] rejected root, specialized point has order 6
+[torsion_filter p=7, v=(14,)..., r=5] rejected root, specialized point has order 11
+[torsion_filter p=7, v=(15,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(15,)..., r=4] rejected root, specialized point has order 11
+[torsion_filter p=43, v=(1,)..., r=0] rejected root, specialized point has order 10
+[torsion_filter p=43, v=(1,)..., r=5] rejected root, specialized point has order 12
+[torsion_filter p=43, v=(3,)..., r=30] rejected root, specialized point has order 7
+[torsion_filter p=43, v=(6,)..., r=16] rejected root, specialized point has order 9
+[torsion_filter p=43, rhs=0, v=(6,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=43, v=(9,)..., r=0] rejected root, specialized point has order 10
+[torsion_filter p=43, rhs=0, v=(9,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=43, v=(11,)..., r=0] rejected root, specialized point has order 10
+[torsion_filter p=43, v=(11,)..., r=5] rejected root, specialized point has order 12
+[torsion_filter p=43, rhs=0, v=(11,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[hensel p=43, rhs=0, v=(11,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=43, v=(13,)..., r=5] rejected root, specialized point has order 12
+[torsion_filter p=43, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=79, v=(3,)..., r=35] rejected root, specialized point has order 4
+[torsion_filter p=79, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=79, v=(4,)..., r=75] rejected root, specialized point has order 11
+[torsion_filter p=79, rhs=0, v=(4,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=79, v=(9,)..., r=35] rejected root, specialized point has order 4
+[torsion_filter p=79, v=(15,)..., r=35] rejected root, specialized point has order 4
+[torsion_filter p=79, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=19, v=(1,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(1,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(2,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(2,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(3,)..., r=15] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(3,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(3,)..., r=18] rejected root, specialized point has order 10
+[torsion_filter p=19, v=(3,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(4,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, rhs=0, v=(4,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[hensel p=19, rhs=0, v=(4,)...] post_torsion=1, simple=0, rejected_by_hensel=1, kept=1
+[torsion_filter p=19, v=(5,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(5,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=19, v=(7,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(7,)..., r=18] rejected root, specialized point has order 10
+[torsion_filter p=19, v=(7,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(7,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(7,)...] raw=6, rejected_by_torsion=4, kept_for_hensel=2
+[torsion_filter p=19, v=(8,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(8,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(9,)..., r=15] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(9,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(9,)...] raw=6, rejected_by_torsion=2, kept_for_hensel=4
+[torsion_filter p=19, v=(10,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(11,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(11,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(11,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[hensel p=19, rhs=0, v=(11,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=19, v=(12,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(13,)..., r=18] rejected root, specialized point has order 10
+[torsion_filter p=19, v=(13,)..., r=11] rejected root, specialized point has order 5
+[torsion_filter p=19, v=(13,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(13,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, rhs=0, v=(13,)...] raw=5, rejected_by_torsion=4, kept_for_hensel=1
+[torsion_filter p=19, v=(14,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=19, v=(15,)..., r=15] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(15,)..., r=3] rejected root, specialized point has order 4
+[torsion_filter p=53, v=(1,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=53, v=(3,)..., r=21] rejected root, specialized point has order 4
+[torsion_filter p=53, rhs=0, v=(3,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=53, v=(5,)..., r=48] rejected root, specialized point has order 3
+[torsion_filter p=53, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=53, v=(7,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=53, rhs=0, v=(7,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=53, v=(9,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=53, v=(9,)..., r=21] rejected root, specialized point has order 4
+[torsion_filter p=53, v=(9,)..., r=7] rejected root, specialized point has order 10
+[torsion_filter p=53, v=(10,)..., r=48] rejected root, specialized point has order 3
+[torsion_filter p=53, rhs=0, v=(10,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=53, r=1] skipping root, specialization is singular
+[torsion_filter p=53, rhs=0, v=(11,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=53, v=(15,)..., r=0] rejected root, specialized point has order 8
+[torsion_filter p=53, r=1] skipping root, specialization is singular
+[torsion_filter p=53, v=(15,)..., r=21] rejected root, specialized point has order 4
+[torsion_filter p=53, rhs=0, v=(15,)...] raw=4, rejected_by_torsion=3, kept_for_hensel=1
+[torsion_filter p=89, v=(8,)..., r=44] rejected root, specialized point has order 3
+[torsion_filter p=89, v=(9,)..., r=53] rejected root, specialized point has order 11
+[torsion_filter p=89, rhs=0, v=(9,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[hensel p=89, rhs=0, v=(10,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=89, v=(15,)..., r=17] rejected root, specialized point has order 6
+[torsion_filter p=89, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
 [precompute] total_modular_checks=300, primes precomputed=20
 [brauer] estimated survival fraction ≈ 0.000000
 [brauer] estimated ruled-out fraction ≈ 1.000000
-[brauer] Monte Carlo blocked fraction ≈ 0.849000
+[brauer] Monte Carlo blocked fraction ≈ 1.000000
 [brauer] example m=1 locally allowed? False
-[filter] Removed 4 primes with no numeric data. Using 20 usable primes.
-[auto-tune] selected extra primes [5, 7, 19, 11, 29, 23] with expected density 2.37e-06
+[filter] Removed 6 primes with no numeric data. Using 18 usable primes.
+[auto-tune] selected extra primes [19, 37, 11, 41] with expected density 1.07e-06
 combo_cap: 781249999999999975495047718109184 roots_threshold: 12
 [compute_prime_coverage] Prime coverage (top 20):
-  p=19: coverage=93.3%
-  p=23: coverage=93.3%
-  p=47: coverage=93.3%
-  p=53: coverage=93.3%
-  p=67: coverage=93.3%
-  p=73: coverage=93.3%
-  p=5: coverage=86.7%
-  p=29: coverage=86.7%
+  p=53: coverage=80.0%
   p=71: coverage=80.0%
-  p=7: coverage=73.3%
-  p=37: coverage=73.3%
-  p=61: coverage=73.3%
-  p=83: coverage=73.3%
+  p=73: coverage=73.3%
+  p=37: coverage=66.7%
   p=41: coverage=66.7%
-  p=43: coverage=66.7%
-  p=59: coverage=66.7%
-  p=79: coverage=66.7%
-  p=89: coverage=66.7%
-  p=11: coverage=60.0%
-  p=31: coverage=46.7%
-generate_biased_coverage: avg weight = 0.7733333333333333 min = 0.4666666666666667 max = 0.9333333333333333
-generate_biased_coverage: Top 6 primes by coverage: [19, 23, 47, 53, 67, 73]
-generate_biased_coverage: Generated 1074 unique subsets
-generate_biased_coverage: Sample subsets: [[19, 53, 67], [19, 41, 43, 47, 53, 59, 67], [19, 53, 79]]
-Generated 1074 prime_subsets -> filtered to 1074
-using 147 subsets of len = 3
-using 150 subsets of len = 4
-using 152 subsets of len = 5
-using 146 subsets of len = 6
-using 175 subsets of len = 7
-using 153 subsets of len = 8
-using 144 subsets of len = 9
+  p=47: coverage=66.7%
+  p=67: coverage=66.7%
+  p=83: coverage=66.7%
+  p=23: coverage=60.0%
+  p=79: coverage=60.0%
+  p=89: coverage=60.0%
+  p=43: coverage=53.3%
+  p=59: coverage=53.3%
+  p=61: coverage=46.7%
+  p=19: coverage=40.0%
+  p=29: coverage=40.0%
+  p=11: coverage=33.3%
+  p=31: coverage=26.7%
+generate_biased_coverage: avg weight = 0.5777777777777778 min = 0.26666666666666666 max = 0.8
+generate_biased_coverage: Top 6 primes by coverage: [53, 71, 73, 37, 41, 47]
+generate_biased_coverage: Generated 1910 unique subsets
+generate_biased_coverage: Sample subsets: [[37, 53, 73], [29, 53, 71, 89], [19, 29, 31, 41, 43, 47, 59, 73, 79]]
+Generated 1910 prime_subsets -> filtered to 1910
+using 236 subsets of len = 3
+using 262 subsets of len = 4
+using 259 subsets of len = 5
+using 279 subsets of len = 6
+using 277 subsets of len = 7
+using 300 subsets of len = 8
+using 290 subsets of len = 9
 
 --- Coverage Estimate ---
   Heuristic (density): 0.0000%
-  CRT classes tested: 180,015
-  Search space size: ~7.96e+16
+  CRT classes tested: 57,290
+  Search space size: ~3.77e+17
   ⚠️  Recommend +Infinity more run(s) to reach 95% coverage
 
-Checking rationality for 142238 unique candidates...
-[batch check] processed 7111/142238, found 2 rational so far
-[batch check] processed 14222/142238, found 7 rational so far
-[batch check] processed 21333/142238, found 9 rational so far
-[batch check] processed 28444/142238, found 13 rational so far
-[batch check] processed 35555/142238, found 15 rational so far
-[batch check] processed 42666/142238, found 17 rational so far
-[batch check] processed 49777/142238, found 20 rational so far
-[batch check] processed 56888/142238, found 20 rational so far
-[batch check] processed 63999/142238, found 23 rational so far
-[batch check] processed 71110/142238, found 24 rational so far
-[batch check] processed 78221/142238, found 28 rational so far
-[batch check] processed 85332/142238, found 32 rational so far
-[batch check] processed 92443/142238, found 33 rational so far
-[batch check] processed 99554/142238, found 36 rational so far
-[batch check] processed 106665/142238, found 38 rational so far
-[batch check] processed 113776/142238, found 44 rational so far
-[batch check] processed 120887/142238, found 45 rational so far
-[batch check] processed 127998/142238, found 47 rational so far
-[batch check] processed 135109/142238, found 49 rational so far
-[batch check] processed 142220/142238, found 52 rational so far
-[batch check] processed 142238/142238, found 52 rational so far
+Checking rationality for 45193 unique candidates...
+[batch check] processed 2259/45193, found 0 rational so far
+[batch check] processed 4518/45193, found 0 rational so far
+[batch check] processed 6777/45193, found 2 rational so far
+[batch check] processed 9036/45193, found 2 rational so far
+[batch check] processed 11295/45193, found 3 rational so far
+[batch check] processed 13554/45193, found 4 rational so far
+[batch check] processed 15813/45193, found 5 rational so far
+[batch check] processed 18072/45193, found 9 rational so far
+[batch check] processed 20331/45193, found 9 rational so far
+[batch check] processed 22590/45193, found 11 rational so far
+[batch check] processed 24849/45193, found 13 rational so far
+[batch check] processed 27108/45193, found 15 rational so far
+[batch check] processed 29367/45193, found 15 rational so far
+[batch check] processed 31626/45193, found 16 rational so far
+[batch check] processed 33885/45193, found 17 rational so far
+[batch check] processed 36144/45193, found 17 rational so far
+[batch check] processed 38403/45193, found 17 rational so far
+[batch check] processed 40662/45193, found 19 rational so far
+[batch check] processed 42921/45193, found 21 rational so far
+[batch check] processed 45180/45193, found 21 rational so far
+[batch check] processed 45193/45193, found 21 rational so far
 
-[subset stats] 1073/1074 subsets produced candidates (99.9%)
-[subset stats] 167240 total candidates from productive subsets
+[subset stats] 1910/1910 subsets produced candidates (100.0%)
+[subset stats] 80431 total candidates from productive subsets
 [subset stats] Productivity by size:
-  Size 3: 148/148 productive (100.0%), 11217 candidates
-  Size 4: 151/151 productive (100.0%), 24013 candidates
-  Size 5: 153/153 productive (100.0%), 51001 candidates
-  Size 6: 147/147 productive (100.0%), 45016 candidates
-  Size 7: 176/176 productive (100.0%), 26205 candidates
-  Size 8: 154/154 productive (100.0%), 7103 candidates
-  Size 9: 144/145 productive (99.3%), 2685 candidates
+  Size 3: 237/237 productive (100.0%), 3682 candidates
+  Size 4: 263/263 productive (100.0%), 9596 candidates
+  Size 5: 260/260 productive (100.0%), 14544 candidates
+  Size 6: 280/280 productive (100.0%), 17986 candidates
+  Size 7: 278/278 productive (100.0%), 14489 candidates
+  Size 8: 301/301 productive (100.0%), 12153 candidates
+  Size 9: 291/291 productive (100.0%), 7981 candidates
 [subset stats] Top 5 productive subsets:
-  [19, 29, 47, 53, 61]: 1333 candidates
-  [5, 19, 37, 53, 71, 73]: 1316 candidates
-  [5, 23, 37, 53, 59, 61]: 1288 candidates
-  [19, 53, 59, 61, 71, 89]: 1276 candidates
-  [5, 11, 19, 29, 47, 59]: 1242 candidates
+  [19, 37, 41, 47, 59, 73]: 211 candidates
+  [31, 37, 41, 47, 59, 61, 73]: 200 candidates
+  [11, 31, 37, 41, 47, 61, 67]: 163 candidates
+  [37, 41, 47, 67, 71]: 157 candidates
+  [11, 47, 53, 59, 61, 83]: 145 candidates
 
-Found 52 rational (m, vector) pairs after checking.
+Found 21 rational (m, vector) pairs after checking.
 
 --- Search Statistics ---
-Total time: 9.62s
-Total Rational Points Found (Unique x): 11
+Total time: 5.16s
+Total Rational Points Found (Unique x): 10
 
 Phases (s):
-  search_subsets_and_check : 8.43s
-  precompute_residues      : 0.73s
-  prep_mod_data            : 0.41s
-  gen_subsets              : 0.01s
+  search_subsets_and_check : 3.94s
+  precompute_residues      : 0.76s
+  prep_mod_data            : 0.40s
+  gen_subsets              : 0.02s
   brauer                   : 0.00s
   post_process             : 0.00s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 142238
-  crt_lift_attempts             : 1594155
+  crt_candidates_found          : 45193
+  crt_lift_attempts             : 225016
   modular_checks                : 300
   modular_checks_p_11           : 15
   modular_checks_p_19           : 15
@@ -475,139 +756,139 @@ Counters:
   modular_mults                 : 280
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 11
-  rational_recon_attempts_worker: 185551
+  rational_points_unique        : 10
+  rational_recon_attempts_worker: 83374
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 185551
-  rationality_tests_failure     : 142186
-  rationality_tests_success     : 52
-  rationality_tests_total       : 142238
-  residues_seen_p_11            : 5
-  residues_seen_p_19            : 11
-  residues_seen_p_23            : 11
-  residues_seen_p_29            : 13
-  residues_seen_p_31            : 8
-  residues_seen_p_37            : 19
+  rational_recon_success_worker : 83374
+  rationality_tests_failure     : 45172
+  rationality_tests_success     : 21
+  rationality_tests_total       : 45193
+  residues_seen_p_11            : 2
+  residues_seen_p_19            : 7
+  residues_seen_p_23            : 7
+  residues_seen_p_29            : 6
+  residues_seen_p_31            : 5
+  residues_seen_p_37            : 17
   residues_seen_p_41            : 13
-  residues_seen_p_43            : 14
-  residues_seen_p_47            : 14
-  residues_seen_p_5             : 5
-  residues_seen_p_53            : 21
-  residues_seen_p_59            : 18
-  residues_seen_p_61            : 16
-  residues_seen_p_67            : 17
-  residues_seen_p_7             : 4
-  residues_seen_p_71            : 21
-  residues_seen_p_73            : 21
-  residues_seen_p_79            : 12
-  residues_seen_p_83            : 17
-  residues_seen_p_89            : 16
+  residues_seen_p_43            : 10
+  residues_seen_p_47            : 11
+  residues_seen_p_5             : 0
+  residues_seen_p_53            : 16
+  residues_seen_p_59            : 13
+  residues_seen_p_61            : 12
+  residues_seen_p_67            : 12
+  residues_seen_p_7             : 0
+  residues_seen_p_71            : 17
+  residues_seen_p_73            : 16
+  residues_seen_p_79            : 10
+  residues_seen_p_83            : 14
+  residues_seen_p_89            : 13
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1074
-  subsets_processed             : 1074
+  subsets_generated_initial     : 1910
+  subsets_processed             : 1910
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
 
-Successes: 52, Failures: 142186
+Successes: 21, Failures: 45172
 Discard Reasons (Top 5):
-  y_not_rational                : 142186
+  y_not_rational                : 45172
 --------------------------------
-Found 11 new point(s) and 0 new section(s).
-New x-coordinates: {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -1, -1/6, 7/5, -2}
+Found 10 new point(s) and 0 new section(s).
+New x-coordinates: {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, -1}
 
 ======================================================================
 COMPLETENESS ANALYSIS
 ======================================================================
 
-Estimated Completeness Score: 36.4% (confidence: medium)
+Estimated Completeness Score: 21.1% (confidence: low)
 
 Coverage Details:
-  Global m-space heuristic (avg density): 37.9%
+  Global m-space heuristic (avg density): 21.3%
   Findability of Found Points:
-    Average: 35.0%
-    Min:     20.8% (at x=-1)
-    Max:     79.2% (at x=1)
+    Average: 20.9%
+    Min:     8.3% (at x=-2)
+    Max:     45.8% (at x=1)
 
-Points Found: 11
+Points Found: 10
 
 Height Distribution:
   Range: [0.00, 5.20]
-  Mean: 1.26, Median: 1.10
+  Mean: 1.20, Median: 1.10
   (Search height bound: 473.00)
 
 Recommendation:
-  Low coverage. Double both HEIGHT_BOUND and NUM_SUBSETS.
+  Very low coverage. Search parameters may be inadequate. Check CurveComplexityPredictor output.
 ======================================================================
 
 === Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.319
-fraction >= 0.1 : 99.240%, fraction >= 0.5 : 2.940%
+avg_fraction (unbiased sample): 0.185
+fraction >= 0.1 : 83.380%, fraction >= 0.5 : 0.000%
 empirical visible fraction: (no prime_subsets available in analyzer)
 
 === Pairwise MI on first 24 primes (binary match indicators) ===
 Top MI pairs (p,q,MI bits):
-  (  5, 11)  0.0015 bits
-  ( 29, 89)  0.0010 bits
-  ( 11, 23)  0.0010 bits
-  ( 47, 59)  0.0009 bits
-  (  7, 89)  0.0008 bits
-  ( 31, 79)  0.0007 bits
-  (  5, 71)  0.0006 bits
-  ( 41, 73)  0.0006 bits
-  ( 47, 71)  0.0006 bits
-  ( 67, 79)  0.0006 bits
-  (  5, 19)  0.0006 bits
-  ( 47, 89)  0.0006 bits
-  ( 79, 83)  0.0006 bits
-  ( 47, 53)  0.0005 bits
-  (  7, 53)  0.0005 bits
-  ( 11, 53)  0.0005 bits
-  ( 53, 83)  0.0005 bits
-  (  5, 29)  0.0004 bits
-  ( 43, 53)  0.0004 bits
-  ( 67, 89)  0.0004 bits
+  ( 11, 73)  0.0013 bits
+  ( 29, 37)  0.0013 bits
+  ( 53, 83)  0.0011 bits
+  ( 19, 61)  0.0010 bits
+  ( 31, 37)  0.0009 bits
+  ( 23, 79)  0.0007 bits
+  ( 41, 61)  0.0007 bits
+  ( 61, 73)  0.0007 bits
+  ( 29, 79)  0.0006 bits
+  ( 73, 83)  0.0006 bits
+  ( 31, 89)  0.0005 bits
+  ( 19, 29)  0.0005 bits
+  ( 11, 67)  0.0005 bits
+  ( 37, 89)  0.0005 bits
+  ( 29, 59)  0.0005 bits
+  ( 47, 79)  0.0005 bits
+  ( 11, 89)  0.0004 bits
+  ( 11, 41)  0.0004 bits
+  ( 37, 59)  0.0004 bits
+  ( 47, 71)  0.0004 bits
 fraction of pairs with MI >= 0.01 bits: 0.000%
 
 === Per-subset empirical coverage (first 30 subsets) ===
- subset [19, 53, 67]...  emp_p=0.0512  product_p=0.0526
- subset [19, 41, 43, 47, 53, 59]...  emp_p=0.0006  product_p=0.0004498
- subset [19, 53, 79]...  emp_p=0.03  product_p=0.03099
- subset [19, 67, 73]...  emp_p=0.0408  product_p=0.03828
- subset [11, 23, 41, 47, 61, 71]...  emp_p=0  product_p=0.0001974
- subset [23, 31, 47, 59]...  emp_p=0.0082  product_p=0.009922
- subset [23, 47, 53]...  emp_p=0.0532  product_p=0.05103
- subset [19, 67, 73, 79, 89]...  emp_p=0.0012  product_p=0.001061
- subset [11, 47, 53, 67, 83]...  emp_p=0.0016  product_p=0.002319
- subset [23, 53, 73]...  emp_p=0.0528  product_p=0.0518
- subset [31, 47, 53, 83]...  emp_p=0.0044  product_p=0.005473
- subset [19, 37, 43, 61, 73, 89]...  emp_p=0.0012  product_p=0.001262
- subset [19, 41, 47, 67, 73]...  emp_p=0.0044  product_p=0.003273
- subset [19, 23, 41, 47, 53, 59]...  emp_p=0.0004  product_p=0.0005406
- subset [47, 53, 67]...  emp_p=0.0278  product_p=0.02716
- subset [7, 23, 31, 37, 43, 47]...  emp_p=0  product_p=6.206e-05
- subset [41, 71, 73]...  emp_p=0.0244  product_p=0.02631
- subset [47, 67, 73]...  emp_p=0.018  product_p=0.01977
- subset [19, 67, 73, 83]...  emp_p=0.0072  product_p=0.007871
- subset [11, 29, 37, 67, 71, 73]...  emp_p=0  product_p=0.0003978
- subset [5, 7, 59, 67, 71]...  emp_p=0.012  product_p=0.009557
- subset [7, 61, 73, 83, 89]...  emp_p=0.002  product_p=0.001458
- subset [41, 43, 47, 53, 67, 71]...  emp_p=0.0004  product_p=0.0001663
- subset [7, 29, 31, 37, 41, 53]...  emp_p=0  product_p=0.0001579
- subset [19, 23, 37, 67, 79]...  emp_p=0.0048  product_p=0.004659
- subset [11, 29, 37, 41, 71, 79]...  emp_p=0.0002  product_p=0.0002318
- subset [5, 7, 37, 59, 61, 71]...  emp_p=0.0004  product_p=0.0002015
- subset [5, 7, 23, 29, 31, 41]...  emp_p=0.0002  product_p=0.0001843
- subset [7, 11, 29, 41, 47, 59]...  emp_p=0.0002  product_p=0.0001566
- subset [5, 53, 67, 79, 89]...  emp_p=0.0026  product_p=0.002219
+ subset [37, 53, 73]...  emp_p=0.027  product_p=0.0293
+ subset [29, 53, 71, 89]...  emp_p=0.0024  product_p=0.002146
+ subset [19, 29, 31, 41, 43, 47]...  emp_p=0  product_p=1.045e-06
+ subset [41, 71, 73]...  emp_p=0.0156  product_p=0.01513
+ subset [11, 19, 23, 41, 47, 59]...  emp_p=0  product_p=1.431e-06
+ subset [67, 71, 83]...  emp_p=0.007  product_p=0.006895
+ subset [41, 53, 73]...  emp_p=0.0202  product_p=0.01956
+ subset [11, 19, 31, 43, 47, 53]...  emp_p=0  product_p=3.523e-05
+ subset [11, 23, 29, 37, 43, 47]...  emp_p=0  product_p=9.007e-06
+ subset [47, 71, 73]...  emp_p=0.0092  product_p=0.01105
+ subset [23, 37, 41, 47, 53, 59]...  emp_p=0  product_p=4.152e-06
+ subset [19, 29, 37, 53, 59, 61]...  emp_p=0  product_p=4.054e-06
+ subset [19, 23, 31, 37, 41, 43]...  emp_p=0  product_p=2.061e-05
+ subset [11, 29, 41, 43, 53, 67]...  emp_p=0  product_p=7.064e-06
+ subset [37, 71, 73]...  emp_p=0.0232  product_p=0.02267
+ subset [11, 23, 47, 53, 59, 61]...  emp_p=0  product_p=2.259e-05
+ subset [31, 71, 73]...  emp_p=0.0074  product_p=0.007766
+ subset [37, 47, 73]...  emp_p=0.02  product_p=0.02154
+ subset [19, 41, 43, 47, 53, 61]...  emp_p=0  product_p=7.006e-05
+ subset [19, 23, 29, 31, 47, 59]...  emp_p=0  product_p=5.427e-07
+ subset [23, 29, 79]...  emp_p=0.0064  product_p=0.007004
+ subset [11, 31, 41, 59, 73, 79]...  emp_p=0  product_p=4.688e-05
+ subset [31, 41, 43, 53, 73]...  emp_p=0.0008  product_p=0.0007049
+ subset [23, 31, 41, 43, 47, 59]...  emp_p=0  product_p=7.567e-07
+ subset [11, 23, 31, 41, 59, 67]...  emp_p=0  product_p=2.151e-05
+ subset [11, 43, 53, 67, 73]...  emp_p=0.0008  product_p=0.0004748
+ subset [11, 19, 29, 37, 53, 61]...  emp_p=0  product_p=1.37e-05
+ subset [11, 41, 43, 47, 61]...  emp_p=0.0002  product_p=0.0005261
+ subset [29, 37, 59, 61, 71, 73]...  emp_p=0.0002  product_p=2.98e-05
+ subset [19, 31, 47, 79]...  emp_p=0.0006  product_p=0.001487
 
 ======================================================================
 SEARCH SUMMARY
 ======================================================================
-Total points found: 11
-Total time: 13.4s
-CRT candidates tested: 142,238
-Rationality tests: 142,238
-Hit rate: 0.04%
+Total points found: 10
+Total time: 8.8s
+CRT candidates tested: 45,193
+Rationality tests: 45,193
+Hit rate: 0.05%
 ======================================================================
 Proof using OBSERVED max height: 5.20
 
@@ -615,10 +896,10 @@ Proof using OBSERVED max height: 5.20
 FORMAL COMPLETENESS PROOF (Roadmap Step 3)
 ======================================================================
 LLL Guarantee Constant (C_lll) for rank d=1: 1.0000
-Smallest Modulus (M_min) used: 1265 (from subset [5, 11, 23])
+Smallest Modulus (M_min) used: 6479 (from subset [11, 19, 31])
 Height Bound (H): 5.20
 Required (in log-space): log(M) > log(2*C_lll) + H
-Actual log(M):  7.14
+Actual log(M):  8.78
 Required log(M): > 5.90
 
 *** ✅ PASS ***
@@ -631,29 +912,29 @@ to guarantee rational reconstruction for all sections up to height H.
   Other rejected: [2, 3]
   Reachable fraction: 0.8688
   Adjustment factor: 0.8688
-  Raw p_visibility: 0.3186
-  Adjusted p_visibility: 0.2768
+  Raw p_visibility: 0.1849
+  Adjusted p_visibility: 0.1606
 
 --- Arithmetic-informed prior (with fiber collision adjustment) ---
 Fiber collision primes detected: [13, 17]
-p_visibility (raw): 0.3186
-p_visibility (adjusted): 0.2768
+p_visibility (raw): 0.1849
+p_visibility (adjusted): 0.1606
 mu_selmer:   0
 mu_local:    0
 mu_height:   0
-mu_bootstrap:0.2874
---> mu_combined = 0.2874  (q = 0.223233)
+mu_bootstrap:0.5226
+--> mu_combined = 0.5226  (q = 0.343245)
 
 --- Posterior summary (geometric prior from arithmetic signals) ---
-Observed points (k) = 11
-Estimated detection probability p = 0.277
-P(true T == k)         = 12.090%   (probability we found all points)
-P(true T <= k+1)       = 35.510%   (probability we missed ≤ 1 point)
-P(true T <= k+2)       = 60.087%   (probability we missed ≤ 2 points)
-Posterior mean of T    = 13.310
+Observed points (k) = 10
+Estimated detection probability p = 0.161
+P(true T == k)         = 2.380%   (probability we found all points)
+P(true T <= k+1)       = 9.921%   (probability we missed ≤ 1 point)
+P(true T <= k+2)       = 22.958%   (probability we missed ≤ 2 points)
+Posterior mean of T    = 14.452
 Note: results depend on prior (mu_combined) computed from arithmetic signals above.
 
-Top posterior mass (T, prob): 13:24.577%, 12:23.421%, 14:18.516%, 11:12.090%, 15:11.210%, 16:5.791%, 17:2.649%, 18:1.100%
+Top posterior mass (T, prob): 14:16.414%, 13:16.277%, 15:14.187%, 12:13.037%, 16:10.900%, 17:7.627%, 11:7.541%, 18:4.944%
 Resultant R = -508830472281325255718537245879219784658542001638210440993381591132683497928398132602095904307646061362142294303310561625139990066103955842724083128451727360
 
 ✓ Fiber collision detection validated: {17, 13} ⊆ ramification locus {97, 2, 3, 5, 7, 71, 50857, 683, 1104811, 13, 463, 17, 46872409}
@@ -729,7 +1010,7 @@ Rank bounds:
   1 ≤ rank(S²) ≤ 5
 
 known_pts {(-1, 1)}
-found {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, 7/5, -1}
+found {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, -1}
 new x: 0
 new x: 1
 new x: 2
@@ -739,27 +1020,687 @@ new x: -1/4
 new x: 182/141
 new x: -2
 new x: -1/6
-new x: 7/5
-TERMINATE_WHEN_6 (11) reached.
 
---- Cumulative Run Statistics ---
-Total time: 14.09s
-Total Rational Points Found (Unique x): 11
+========================================================
+Constructing new fibration using: ((0, 1),)
+known pts so far: [(-2, 1), (-3/2, 23/8), (-1, 1), (-1/4, 1/64), (-1/6, 139/216), (0, 1), (1/3, 13/27), (1, 1), (182/141, 13959301/2803221), (2, 19)]
+found 10 / 11
+========================================================
+
+
+SHIFT = 1
+
+--- Building 2 Step Fibration Tower (deg 6 -> 4 (-> 3)) ---
+--- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
+ [JET] a2 free (curvature unconstrained by double-root)
+--- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
+ [JET] a2 free (curvature unconstrained by double-root)
+
+======================================================================
+DEEP JET ANALYSIS ACROSS TOWER
+======================================================================
+
+[DEEP JET] Layer 1
+  ✓ Solution found. Free parameters: a2→r13, a3→r14, a4→r15, a5→r16, b2→r13, b3→r14,r13, b4→r14,r13,r15, b5→r14,r16,r13,r15
+  Series expansion x(m) = 1 - m + ...
+    a2 = r13
+    a3 = r14
+  Series expansion y(m) = 1 + ...
+    b1 = -1
+    b2 = r13 - 6
+
+[DEEP JET] Layer 2
+  ✓ Solution found. Free parameters: a2→r17, a3→r18, a4→r19, a5→r20, b2→r17, b3→r18,r17, b4→r19,r18,r17, b5→r19,r18,r20,r17
+  Series expansion x(m) = 1 - m + ...
+    a2 = r17
+    a3 = r18
+  Series expansion y(m) = 1 + ...
+    b1 = -1
+    b2 = r17 - 6
+
+======================================================================
+TOWER JET SUMMARY
+======================================================================
+Total layers: 2
+✓ All layers formally smooth (no obstructions)
+r_m -m + 1
+--- Running 1-point Fibration ---
+--- Entering buildcd ---
+--- Computing Minimal Model ---
+
+--- Identifying Globally Bad Primes ---
+Identified 2 globally bad prime(s) from the pool: [2, 3]
+>>> Diagnostic: [m^12 - 16*m^11 + 96*m^10 - 7238/27*m^9 + 4010/9*m^8 - 10432/9*m^7 + 88256/27*m^6 - 10430/3*m^5 - 13073/27*m^4 - 19318/27*m^3 + 46000/9*m^2 + 1408/3*m - 137195/27] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+
+Place analysis (finite algebraic places):
+factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
+--------------------------------------------------------------------------------------------------------------------------
+m^12 - 16*m^11 + 96*m^10 - 7238/27*m^9       1      0      0      1      1        0        0        1      12 x I1
+Infinity: v_c4 = -3, v_c6 = -6, v_D = -12 -> I0
+
+Summary of fibers (per-center):
+  I1 at m^12 - 16*m^11 + 96*m^10 - 7238/27*m^9 + (deg 12) contrib=0
+  I0 at inf (deg 1) contrib=0
+
+Total Euler characteristic: 12
+Sum of fiber contributions (Σ(m_v - 1)): 0
+
+--- Exiting buildcd ---
+
+--- Geometric Validation ---
+Delta: -6912*m^12 + 110592*m^11 - 663552*m^10 + 1852928*m^9 - 3079680*m^8 + 8011776*m^7 - 22593536*m^6 + 24030720*m^5 + 3346688*m^4 + 4945408*m^3 - 35328000*m^2 - 3244032*m + 35121920
+  Effective Discriminant Degree: 12
+  Weierstrass scaling exponent (n) used: 0
+  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+--------------------------
+
+=== Auto-configuring search parameters for this fibration ===
+[auto_cfg] Building height estimation from 10 known x-coords.
+[auto_cfg] starting prime pool size: 24
+[bounds] Starting with prime pool size: 24
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] mod 2 factorization failed: factorization of 0 is not defined
+[bounds] mod 3 factorization: [2, 7] -> pattern (2, 7)
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [2, 3, 7] -> pattern (2, 3, 7)
+[bounds] mod 11 factorization: [2, 2, 8] -> pattern (2, 2, 8)
+[bounds] mod 13 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 17 factorization: [1, 1, 8] -> pattern (1, 1, 8)
+[bounds] mod 19 factorization: [1, 1, 1, 2, 2, 5] -> pattern (1, 1, 1, 2, 2, 5)
+[bounds] mod 23 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 29 factorization: [4, 8] -> pattern (4, 8)
+[bounds] mod 31 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 37 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 41 factorization: [2, 5, 5] -> pattern (2, 5, 5)
+[bounds] mod 43 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 47 factorization: [12] -> pattern (12,)
+[bounds] mod 53 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 59 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 61 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 67 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
+[bounds] mod 71 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 73 factorization: [1, 1, 9] -> pattern (1, 1, 9)
+[bounds] mod 79 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 83 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 89 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] Unique patterns from 23 primes: [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10), (1, 2, 2, 3, 4), (1, 2, 4, 5), (1, 11), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 7), (2, 10), (4, 8), (5, 7), (6, 6), (12,)]
+[bounds] Estimated splitting field degree: 27720
+
+DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10), (1, 2, 2, 3, 4), (1, 2, 4, 5), (1, 11), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 7), (2, 10), (4, 8), (5, 7), (6, 6), (12,)], 'num_primes_tested': 23}
+
+[bounds] Diagnostics: {'discriminant': -687558833225019291460497692449067232162774053219990933951074796207377520155966084429852604337040189186113871789514089273008930517155840, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] is_good_prime_for_surface rejected 2
+[bounds] is_good_prime_for_surface rejected 3
+[auto_cfg] naive_x_height_from_pts: max height from x = 2 (val=2)
+[auto_cfg] h_x=0.6931471805599453, h_can≈log(2) + 1.8465735902799727
+[auto_cfg] HEIGHT_BOUND set to 488
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 24 primes -> avg_roots=0.8333, patterns_sample=[(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10)]
+[residue_counts] denom zero mod 3; using fallback
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 1), (13, 0), (17, 1), (19, 0), (23, 0), (29, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.8333333333333334}
+[auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 1), (13, 0), (17, 1), (19, 0), (23, 0), (29, 0)]
+[auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 2, 7: 2, 11: 1, 13: 0, 17: 1, 19: 0, 23: 0, 29: 0, 31: 2, 37: 1, 41: 0, 43: 1, 47: 0, 53: 1, 59: 1, 61: 1, 67: 0, 71: 1, 73: 2, 79: 0, 83: 3, 89: 1}
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+
+DEBUG: RET: {'splitting_field_degree_est': 9240, 'unique_patterns': [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 2, 2, 3, 4), (1, 2, 4, 5), (1, 11), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 7), (2, 10), (4, 8), (5, 7), (6, 6), (12,)], 'num_primes_tested': 19}
+
+[empirical_pool] start pool size=24, avg_survivors≈9.22e-08, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈9.22e-08
+[adaptive_subsets] height_bound=488.0, base_height=100, height_ratio=4.88
+[adaptive_subsets] zero_ratio=0.33, avg_density=0.0802 -> size_bias='mixed (moderate density)'
+[adaptive_subsets] Density-adjusted base num_subsets: 1000
+[adaptive_subsets] Height scale factor (sqrt): 2.21
+[adaptive_subsets] Final num_subsets: 1000 * 2.21 ≈ 2000 (overall adj: 2.00x vs base 1000)
+[adaptive_subsets] Final subset sizes: [3, 9]
+[auto_cfg] density=0.0802, base_tmax=300, tmax_scale=2.21 -> TMAX=500
+
+[auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
+  HEIGHT_BOUND: 488
+  Prime pool: 24 -> 24 (scale 0.00x)
+  Prime subsets: 1979 (adjustment 2.00x)
+  Subset sizes: [3, 9]
+  TMAX: 500 (scaled for height)
+  Sample subsets: [[2, 3, 7], [2, 3, 17], [2, 3, 31]]
+
+[auto_cfg] Applied adaptive parameters:
+  HEIGHT_BOUND: 488
+  TMAX: 500
+  NUM_PRIME_SUBSETS: 1979
+  PRIME_POOL size: 24
+
+[auto_cfg summary] height_bound=488, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1979, PRIME_POOL size=24, TMAX=500
+[bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
+[bounds] Starting with prime pool size: 24
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] mod 2 factorization failed: factorization of 0 is not defined
+[bounds] mod 3 factorization: [2, 7] -> pattern (2, 7)
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [2, 3, 7] -> pattern (2, 3, 7)
+[bounds] mod 11 factorization: [2, 2, 8] -> pattern (2, 2, 8)
+[bounds] mod 13 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 17 factorization: [1, 1, 8] -> pattern (1, 1, 8)
+[bounds] mod 19 factorization: [1, 1, 1, 2, 2, 5] -> pattern (1, 1, 1, 2, 2, 5)
+[bounds] mod 23 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 29 factorization: [4, 8] -> pattern (4, 8)
+[bounds] mod 31 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 37 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 41 factorization: [2, 5, 5] -> pattern (2, 5, 5)
+[bounds] mod 43 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 47 factorization: [12] -> pattern (12,)
+[bounds] mod 53 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 59 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 61 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 67 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
+[bounds] mod 71 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 73 factorization: [1, 1, 9] -> pattern (1, 1, 9)
+[bounds] mod 79 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 83 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 89 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] Unique patterns from 23 primes: [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10), (1, 2, 2, 3, 4), (1, 2, 4, 5), (1, 11), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 7), (2, 10), (4, 8), (5, 7), (6, 6), (12,)]
+[bounds] Estimated splitting field degree: 27720
+
+DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10), (1, 2, 2, 3, 4), (1, 2, 4, 5), (1, 11), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 7), (2, 10), (4, 8), (5, 7), (6, 6), (12,)], 'num_primes_tested': 23}
+
+[bounds] Diagnostics: {'discriminant': -687558833225019291460497692449067232162774053219990933951074796207377520155966084429852604337040189186113871789514089273008930517155840, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] is_good_prime_for_surface rejected 2
+[bounds] is_good_prime_for_surface rejected 3
+[prime_pool] Final pool has 22 primes up to 89
+DEBUG: roots (SR) repr/type samples:
+  root[0] = -m + 1
+  root[1] = -m + 1
+
+RHS: 1/3*(3*m^10 - 24*m^9 + 48*m^8 - 30*m^7 + 208*m^6 - 410*m^5 + 103*m^4 + 154*m^3 + 31*m^2 - 38*m + 25)/(m^6 - 8*m^5 + 10*m^4 + 10*m^3 - 11*m^2 - 2*m + 1)
+
+DEBUG: final search_rhs_list (SR reprs):
+  search_rhs_list[0] = 1/3*(3*m^10 - 24*m^9 + 48*m^8 - 30*m^7 + 208*m^6 - 410*m^5 + 103*m^4 + 154*m^3 + 31*m^2 - 38*m + 25)/(m^6 - 8*m^5 + 10*m^4 + 10*m^3 - 11*m^2 - 2*m + 1)
+=== Fibration Summary ===
+Data points: ((0, 1),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 + 16*m - 10)*x^4 + (-2*m^3 + 20*m^2 - 64*m + 50)*x^3 + (6*m^3 - 42*m^2 + 96*m - 79)*x^2 + y^2 + (-6*m^3 + 36*m^2 - 64*m + 46)*x + (2*m^3 - 11*m^2 + 16*m - 8)
+Defining polynomial f: (-3*m^2 + 16*m - 10)*x^4 + (-2*m^3 + 20*m^2 - 64*m + 50)*x^3 + (6*m^3 - 42*m^2 + 96*m - 79)*x^2 + y^2 + (-6*m^3 + 36*m^2 - 64*m + 46)*x + (2*m^3 - 11*m^2 + 16*m - 8)
+Discriminant of f: (12*m^2 - 64*m + 40)*x^4 + (8*m^3 - 80*m^2 + 256*m - 200)*x^3 + (-24*m^3 + 168*m^2 - 384*m + 316)*x^2 + (24*m^3 - 144*m^2 + 256*m - 184)*x + (-8*m^3 + 44*m^2 - 64*m + 32)
+Weierstrass discriminant: -6912*m^12 + 110592*m^11 - 663552*m^10 + 1852928*m^9 - 3079680*m^8 + 8011776*m^7 - 22593536*m^6 + 24030720*m^5 + 3346688*m^4 + 4945408*m^3 - 35328000*m^2 - 3244032*m + 35121920
+Weierstrass model coefficients:
+  a4(m): 4*m^3 - 28*m^2 + 64*m - 301/3
+  a6(m): 4*m^6 - 32*m^5 + 64*m^4 - 76/3*m^3 + 604/3*m^2 - 1600/3*m + 7058/27
+P1: (1, 1)
+
+--- Geometric Validation ---
+Delta: -6912*m^12 + 110592*m^11 - 663552*m^10 + 1852928*m^9 - 3079680*m^8 + 8011776*m^7 - 22593536*m^6 + 24030720*m^5 + 3346688*m^4 + 4945408*m^3 - 35328000*m^2 - 3244032*m + 35121920
+  Effective Discriminant Degree: 12
+  Weierstrass scaling exponent (n) used: 0
+  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+--------------------------
+=========================
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: set()
+
+--- DEBUGGING POINT CONSTRUCTION ---
+Attempting to create point for (x,y) = (1, 1)
+Curve: Elliptic Curve defined by y^2 = x^3 + (4*m^3-28*m^2+64*m-301/3)*x + (4*m^6-32*m^5+64*m^4-76/3*m^3+604/3*m^2-1600/3*m+7058/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+
+Point Coordinates (X_aff, Y_aff, Z_aff):
+X_aff: 25/3
+Y_aff: (2*m^3 - 8*m^2 + 2)
+Z_aff: 1
+
+Equation Check:
+LHS (Y^2*Z): (4*m^6 - 32*m^5 + 64*m^4 + 8*m^3 - 32*m^2 + 4)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (4*m^6 - 32*m^5 + 64*m^4 + 8*m^3 - 32*m^2 + 4)
+
+Difference (LHS - RHS): 0
+✅ Algebraic identity holds.
+--- END DEBUGGING ---
+section weierstrass coordinates: (25/3 : 2*m^3 - 8*m^2 + 2 : 1)
+Canonical height pairing matrix determinant = 2
+Sections are independent.
+
+--- Search Iteration 0 with 1 sections for fibration ((0, 1),) ---
+Canonical height pairing matrix determinant = 2
+Sections are independent.
+Height Pairing Matrix H:
+ [2]
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 20 primes -> avg_roots=0.8, patterns_sample=[(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 2, 2, 3, 4)]
+[residue_counts] sample: [(5, 2), (7, 2), (11, 1), (13, 0), (17, 1), (19, 0), (23, 0), (29, 0), (31, 2), (37, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.8}
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [2, 3, 7] -> pattern (2, 3, 7)
+[bounds] mod 11 factorization: [2, 2, 8] -> pattern (2, 2, 8)
+[bounds] mod 13 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 17 factorization: [1, 1, 8] -> pattern (1, 1, 8)
+[bounds] mod 19 factorization: [1, 1, 1, 2, 2, 5] -> pattern (1, 1, 1, 2, 2, 5)
+[bounds] mod 23 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 29 factorization: [4, 8] -> pattern (4, 8)
+[bounds] mod 31 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 37 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 41 factorization: [2, 5, 5] -> pattern (2, 5, 5)
+[bounds] mod 43 factorization: [1, 2, 2, 3, 4] -> pattern (1, 2, 2, 3, 4)
+[bounds] mod 47 factorization: [12] -> pattern (12,)
+[bounds] mod 53 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 59 factorization: [2, 10] -> pattern (2, 10)
+[bounds] Unique patterns from 15 primes: [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 2, 2, 3, 4), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 10), (4, 8), (5, 7), (6, 6), (12,)]
+[bounds] Estimated splitting field degree: 840
+
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 2, 2, 3, 4), (2, 2, 8), (2, 3, 7), (2, 5, 5), (2, 10), (4, 8), (5, 7), (6, 6), (12,)], 'num_primes_tested': 15}
+
+height bound: 488
+Searching 15 vectors up to height 488...
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 24 primes -> avg_roots=0.8333, patterns_sample=[(1, 1, 1, 2, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 8), (1, 1, 9), (1, 1, 10)]
+[residue_counts] denom zero mod 3; using fallback
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 1), (13, 0), (17, 1), (19, 0), (23, 0), (29, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.8333333333333334}
+prime pool used for search: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89]
+--- Preparing modular data for LLL search ---
+Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
+[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
+⚠️  Fiber collision detected at p=17: gcd degree 2
+Skipping prime 17: fiber collision detected (gcd degree=2)
+
+[prepare_modular_data_lll] Rejected 3 primes:
+  p=2: singular_discriminant
+Resultant R = 4752406655251333342574960050207952708709094255856577335469828991385393419318037575579141201177621787654419081809121385055037727734581166080
+  p=3: a4_denom_divisible
+Resultant R = 4752406655251333342574960050207952708709094255856577335469828991385393419318037575579141201177621787654419081809121385055037727734581166080
+  p=17: fiber_collision_deg_2
+Resultant R = 4752406655251333342574960050207952708709094255856577335469828991385393419318037575579141201177621787654419081809121385055037727734581166080
+[torsion_filter p=23, r=0] skipping root, specialization is singular
+[torsion_filter p=23, v=(3,)..., r=20] rejected root, specialized point has order 10
+[torsion_filter p=23, r=6] skipping root, specialization is singular
+[torsion_filter p=23, v=(3,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=23, v=(3,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=23, v=(3,)..., r=12] rejected root, specialized point has order 2
+[torsion_filter p=23, v=(5,)..., r=17] rejected root, specialized point has order 6
+[torsion_filter p=23, r=0] skipping root, specialization is singular
+[torsion_filter p=23, r=0] skipping root, specialization is singular
+[torsion_filter p=23, v=(9,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=23, v=(9,)..., r=12] rejected root, specialized point has order 2
+[torsion_filter p=23, v=(12,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=23, r=0] skipping root, specialization is singular
+[torsion_filter p=23, v=(15,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=23, v=(15,)..., r=18] rejected root, specialized point has order 2
+[torsion_filter p=23, v=(15,)..., r=12] rejected root, specialized point has order 2
+[torsion_filter p=59, v=(3,)..., r=42] rejected root, specialized point has order 9
+[torsion_filter p=59, v=(5,)..., r=7] rejected root, specialized point has order 3
+[torsion_filter p=59, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=59, v=(7,)..., r=49] rejected root, specialized point has order 5
+[torsion_filter p=59, v=(7,)..., r=28] rejected root, specialized point has order 8
+[torsion_filter p=59, rhs=0, v=(7,)...] raw=6, rejected_by_torsion=2, kept_for_hensel=4
+[torsion_filter p=59, v=(10,)..., r=7] rejected root, specialized point has order 3
+[torsion_filter p=59, v=(13,)..., r=44] rejected root, specialized point has order 4
+[torsion_filter p=59, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=59, v=(15,)..., r=39] rejected root, specialized point has order 2
+[torsion_filter p=59, rhs=0, v=(15,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=31, v=(2,)..., r=3] rejected root, specialized point has order 9
+[torsion_filter p=31, v=(2,)..., r=1] rejected root, specialized point has order 11
+[torsion_filter p=31, v=(3,)..., r=9] rejected root, specialized point has order 6
+[torsion_filter p=31, rhs=0, v=(3,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=31, v=(9,)..., r=1] rejected root, specialized point has order 11
+[torsion_filter p=31, v=(13,)..., r=1] rejected root, specialized point has order 11
+[torsion_filter p=31, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=31, v=(15,)..., r=9] rejected root, specialized point has order 6
+[torsion_filter p=31, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=67, v=(7,)..., r=13] rejected root, specialized point has order 9
+[torsion_filter p=67, v=(7,)..., r=9] rejected root, specialized point has order 12
+[torsion_filter p=67, rhs=0, v=(7,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, v=(2,)..., r=2] rejected root, specialized point has order 9
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, v=(3,)..., r=4] rejected root, specialized point has order 7
+[torsion_filter p=5, v=(3,)..., r=3] rejected root, specialized point has order 3
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, v=(4,)..., r=4] rejected root, specialized point has order 7
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, v=(6,)..., r=3] rejected root, specialized point has order 3
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, v=(7,)..., r=2] rejected root, specialized point has order 9
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, v=(10,)..., r=4] rejected root, specialized point has order 7
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, v=(11,)..., r=4] rejected root, specialized point has order 7
+[torsion_filter p=5, v=(11,)..., r=2] rejected root, specialized point has order 9
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, v=(12,)..., r=3] rejected root, specialized point has order 3
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, v=(15,)..., r=3] rejected root, specialized point has order 3
+[torsion_filter p=5, r=1] skipping root, specialization is singular
+[torsion_filter p=5, r=0] skipping root, specialization is singular
+[torsion_filter p=37, v=(2,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, rhs=0, v=(2,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=37, v=(3,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=37, v=(5,)..., r=18] rejected root, specialized point has order 7
+[torsion_filter p=37, rhs=0, v=(5,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=37, v=(7,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, rhs=0, v=(7,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=37, v=(8,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, v=(12,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, v=(13,)..., r=30] rejected root, specialized point has order 5
+[torsion_filter p=37, rhs=0, v=(13,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=71, v=(2,)..., r=50] rejected root, specialized point has order 3
+[torsion_filter p=71, rhs=0, v=(2,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=71, v=(4,)..., r=50] rejected root, specialized point has order 3
+[torsion_filter p=71, v=(4,)..., r=67] rejected root, specialized point has order 2
+[torsion_filter p=71, rhs=0, v=(4,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=71, r=3] skipping root, specialization is singular
+[torsion_filter p=71, rhs=0, v=(5,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=71, v=(8,)..., r=50] rejected root, specialized point has order 3
+[torsion_filter p=71, rhs=0, v=(8,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=71, v=(10,)..., r=50] rejected root, specialized point has order 3
+[torsion_filter p=71, rhs=0, v=(10,)...] raw=4, rejected_by_torsion=1, kept_for_hensel=3
+[torsion_filter p=71, v=(12,)..., r=67] rejected root, specialized point has order 2
+[torsion_filter p=71, v=(14,)..., r=50] rejected root, specialized point has order 3
+[torsion_filter p=71, rhs=0, v=(14,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=29, v=(1,)..., r=4] rejected root, specialized point has order 10
+[torsion_filter p=29, rhs=0, v=(1,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=29, v=(3,)..., r=16] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(9,)..., r=22] rejected root, specialized point has order 8
+[torsion_filter p=29, v=(9,)..., r=4] rejected root, specialized point has order 10
+[torsion_filter p=29, v=(11,)..., r=4] rejected root, specialized point has order 10
+[torsion_filter p=29, rhs=0, v=(11,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=29, v=(14,)..., r=25] rejected root, specialized point has order 5
+[torsion_filter p=29, v=(15,)..., r=22] rejected root, specialized point has order 8
+[torsion_filter p=29, v=(15,)..., r=16] rejected root, specialized point has order 6
+[torsion_filter p=29, v=(15,)..., r=3] rejected root, specialized point has order 11
+[torsion_filter p=61, v=(2,)..., r=59] rejected root, specialized point has order 7
+[torsion_filter p=61, rhs=0, v=(2,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=61, v=(3,)..., r=35] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=61, v=(5,)..., r=59] rejected root, specialized point has order 7
+[torsion_filter p=61, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[hensel p=61, rhs=0, v=(8,)...] post_torsion=1, simple=0, rejected_by_hensel=1, kept=1
+[torsion_filter p=61, v=(9,)..., r=59] rejected root, specialized point has order 7
+[torsion_filter p=61, v=(9,)..., r=35] rejected root, specialized point has order 2
+[torsion_filter p=61, r=4] skipping root, specialization is singular
+[torsion_filter p=61, rhs=0, v=(10,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=61, v=(12,)..., r=59] rejected root, specialized point has order 7
+[torsion_filter p=61, v=(12,)..., r=38] rejected root, specialized point has order 3
+[torsion_filter p=61, rhs=0, v=(12,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=61, v=(13,)..., r=12] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(13,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=61, v=(15,)..., r=35] rejected root, specialized point has order 2
+[torsion_filter p=61, rhs=0, v=(15,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=7, v=(1,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(1,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(2,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(3,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(3,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=7, v=(3,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(5,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(5,)..., r=6] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(6,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(7,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(7,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(8,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(8,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(9,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=7, v=(9,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(11,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(12,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(13,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(13,)..., r=5] rejected root, specialized point has order 5
+[torsion_filter p=7, v=(13,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(15,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=7, v=(15,)..., r=6] rejected root, specialized point has order 2
+[torsion_filter p=7, v=(15,)..., r=1] rejected root, specialized point has order 4
+[torsion_filter p=7, v=(15,)..., r=2] rejected root, specialized point has order 2
+[torsion_filter p=41, v=(1,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=41, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=41, v=(10,)..., r=29] rejected root, specialized point has order 2
+[torsion_filter p=41, v=(11,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=41, v=(11,)..., r=40] rejected root, specialized point has order 4
+[torsion_filter p=41, rhs=0, v=(11,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=41, v=(13,)..., r=0] rejected root, specialized point has order 12
+[torsion_filter p=41, v=(15,)..., r=30] rejected root, specialized point has order 2
+[torsion_filter p=41, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=73, r=43] skipping root, specialization is singular
+[torsion_filter p=73, rhs=0, v=(2,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=73, v=(5,)..., r=12] rejected root, specialized point has order 8
+[torsion_filter p=73, rhs=0, v=(5,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=73, v=(7,)..., r=24] rejected root, specialized point has order 11
+[torsion_filter p=73, rhs=0, v=(7,)...] raw=4, rejected_by_torsion=1, kept_for_hensel=3
+[torsion_filter p=73, v=(8,)..., r=29] rejected root, specialized point has order 11
+[torsion_filter p=73, rhs=0, v=(8,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=73, v=(9,)..., r=44] rejected root, specialized point has order 3
+[torsion_filter p=73, v=(9,)..., r=19] rejected root, specialized point has order 8
+[torsion_filter p=73, rhs=0, v=(9,)...] raw=3, rejected_by_torsion=2, kept_for_hensel=1
+[torsion_filter p=73, v=(10,)..., r=9] rejected root, specialized point has order 7
+[torsion_filter p=73, v=(14,)..., r=26] rejected root, specialized point has order 5
+[torsion_filter p=73, rhs=0, v=(14,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=73, r=49] skipping root, specialization is singular
+[torsion_filter p=73, rhs=0, v=(15,)...] raw=6, rejected_by_torsion=1, kept_for_hensel=5
+[torsion_filter p=11, v=(1,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(2,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(3,)..., r=10] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(3,)..., r=7] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(4,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(4,)..., r=1] rejected root, specialized point has order 9
+[torsion_filter p=11, v=(5,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(5,)..., r=10] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(5,)..., r=7] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(5,)..., r=1] rejected root, specialized point has order 9
+[torsion_filter p=11, v=(7,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(7,)..., r=9] rejected root, specialized point has order 2
+[torsion_filter p=11, v=(8,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, rhs=0, v=(8,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=11, v=(10,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(11,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(11,)..., r=10] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(11,)..., r=7] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(13,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(13,)..., r=10] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(13,)..., r=7] rejected root, specialized point has order 8
+[torsion_filter p=11, v=(13,)..., r=1] rejected root, specialized point has order 9
+[torsion_filter p=11, v=(14,)..., r=0] rejected root, specialized point has order 3
+[torsion_filter p=11, v=(14,)..., r=1] rejected root, specialized point has order 9
+[torsion_filter p=43, v=(1,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=43, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=43, v=(2,)..., r=42] rejected root, specialized point has order 11
+[hensel p=43, rhs=0, v=(5,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=43, v=(6,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=43, v=(8,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=43, v=(9,)..., r=42] rejected root, specialized point has order 11
+[torsion_filter p=43, rhs=0, v=(9,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=43, v=(11,)..., r=39] rejected root, specialized point has order 3
+[torsion_filter p=43, rhs=0, v=(11,)...] raw=6, rejected_by_torsion=1, kept_for_hensel=5
+[torsion_filter p=43, v=(13,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=43, v=(13,)..., r=42] rejected root, specialized point has order 11
+[torsion_filter p=43, v=(13,)..., r=24] rejected root, specialized point has order 4
+[torsion_filter p=43, v=(15,)..., r=0] rejected root, specialized point has order 7
+[torsion_filter p=79, v=(3,)..., r=65] rejected root, specialized point has order 5
+[torsion_filter p=79, rhs=0, v=(3,)...] raw=5, rejected_by_torsion=1, kept_for_hensel=4
+[torsion_filter p=79, v=(4,)..., r=46] rejected root, specialized point has order 9
+[torsion_filter p=79, rhs=0, v=(4,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=79, v=(10,)..., r=53] rejected root, specialized point has order 9
+[torsion_filter p=79, rhs=0, v=(10,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=79, v=(12,)..., r=65] rejected root, specialized point has order 5
+[torsion_filter p=79, rhs=0, v=(12,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=19, v=(1,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, r=5] skipping root, specialization is singular
+[torsion_filter p=19, rhs=0, v=(1,)...] raw=4, rejected_by_torsion=2, kept_for_hensel=2
+[torsion_filter p=19, v=(3,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(3,)..., r=1] rejected root, specialized point has order 8
+[torsion_filter p=19, v=(5,)..., r=9] rejected root, specialized point has order 11
+[torsion_filter p=19, v=(5,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(6,)..., r=9] rejected root, specialized point has order 11
+[torsion_filter p=19, v=(7,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, v=(9,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, r=5] skipping root, specialization is singular
+[torsion_filter p=19, v=(11,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, r=5] skipping root, specialization is singular
+[hensel p=19, rhs=0, v=(12,)...] post_torsion=1, simple=0, rejected_by_hensel=1, kept=1
+[torsion_filter p=19, v=(13,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(13,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=19, v=(15,)..., r=7] rejected root, specialized point has order 4
+[torsion_filter p=19, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=53, v=(2,)..., r=37] rejected root, specialized point has order 6
+[torsion_filter p=53, v=(5,)..., r=1] rejected root, specialized point has order 2
+[torsion_filter p=53, rhs=0, v=(5,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[hensel p=53, rhs=0, v=(7,)...] post_torsion=2, simple=1, rejected_by_hensel=1, kept=1
+[torsion_filter p=53, v=(8,)..., r=2] rejected root, specialized point has order 7
+[torsion_filter p=53, rhs=0, v=(8,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=53, v=(10,)..., r=37] rejected root, specialized point has order 6
+[torsion_filter p=53, rhs=0, v=(10,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=53, v=(14,)..., r=37] rejected root, specialized point has order 6
+[torsion_filter p=53, v=(15,)..., r=1] rejected root, specialized point has order 2
+[torsion_filter p=89, v=(3,)..., r=46] rejected root, specialized point has order 2
+[torsion_filter p=89, rhs=0, v=(3,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=89, v=(5,)..., r=75] rejected root, specialized point has order 11
+[torsion_filter p=89, rhs=0, v=(5,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=89, v=(6,)..., r=75] rejected root, specialized point has order 11
+[torsion_filter p=89, rhs=0, v=(6,)...] raw=4, rejected_by_torsion=1, kept_for_hensel=3
+[torsion_filter p=89, v=(9,)..., r=46] rejected root, specialized point has order 2
+[torsion_filter p=89, rhs=0, v=(9,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=89, v=(15,)..., r=46] rejected root, specialized point has order 2
+[torsion_filter p=89, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=47, v=(1,)..., r=0] rejected root, specialized point has order 11
+[torsion_filter p=47, rhs=0, v=(1,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=47, v=(4,)..., r=2] rejected root, specialized point has order 7
+[torsion_filter p=47, rhs=0, v=(4,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=47, v=(7,)..., r=34] rejected root, specialized point has order 3
+[torsion_filter p=47, v=(10,)..., r=0] rejected root, specialized point has order 11
+[torsion_filter p=47, v=(10,)..., r=2] rejected root, specialized point has order 7
+[torsion_filter p=47, v=(12,)..., r=0] rejected root, specialized point has order 11
+[torsion_filter p=47, v=(14,)..., r=34] rejected root, specialized point has order 3
+[torsion_filter p=47, rhs=0, v=(14,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=83, v=(1,)..., r=59] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(1,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=83, v=(5,)..., r=59] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(7,)..., r=59] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(8,)..., r=41] rejected root, specialized point has order 2
+[torsion_filter p=83, rhs=0, v=(8,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[torsion_filter p=83, v=(11,)..., r=59] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(11,)...] raw=3, rejected_by_torsion=1, kept_for_hensel=2
+[torsion_filter p=83, v=(13,)..., r=59] rejected root, specialized point has order 6
+[torsion_filter p=83, v=(15,)..., r=36] rejected root, specialized point has order 6
+[torsion_filter p=83, rhs=0, v=(15,)...] raw=2, rejected_by_torsion=1, kept_for_hensel=1
+[precompute] total_modular_checks=315, primes precomputed=21
+[brauer] estimated survival fraction ≈ 0.000000
+[brauer] estimated ruled-out fraction ≈ 1.000000
+[brauer] Monte Carlo blocked fraction ≈ 1.000000
+[brauer] example m=1 locally allowed? False
+[filter] Removed 5 primes with no numeric data. Using 19 usable primes.
+[auto-tune] selected extra primes [13, 53, 31, 19] with expected density 6.71e-07
+combo_cap: 781249999999999975495047718109184 roots_threshold: 12
+[compute_prime_coverage] Prime coverage (top 20):
+  p=89: coverage=86.7%
+  p=61: coverage=80.0%
+  p=71: coverage=80.0%
+  p=73: coverage=80.0%
+  p=37: coverage=66.7%
+  p=53: coverage=66.7%
+  p=79: coverage=66.7%
+  p=41: coverage=60.0%
+  p=67: coverage=60.0%
+  p=83: coverage=60.0%
+  p=43: coverage=53.3%
+  p=47: coverage=53.3%
+  p=59: coverage=53.3%
+  p=13: coverage=46.7%
+  p=31: coverage=46.7%
+  p=29: coverage=33.3%
+  p=19: coverage=26.7%
+  p=11: coverage=13.3%
+  p=23: coverage=6.7%
+generate_biased_coverage: avg weight = 0.5473684210526316 min = 0.06666666666666667 max = 0.8666666666666667
+generate_biased_coverage: Top 6 primes by coverage: [89, 61, 71, 73, 37, 53]
+generate_biased_coverage: Generated 1920 unique subsets
+generate_biased_coverage: Sample subsets: [[71, 73, 89], [23, 37, 61, 89], [13, 29, 37, 41, 47, 53, 71, 73, 83]]
+Generated 1920 prime_subsets -> filtered to 1920
+using 263 subsets of len = 3
+using 282 subsets of len = 4
+using 279 subsets of len = 5
+using 282 subsets of len = 6
+using 249 subsets of len = 7
+using 283 subsets of len = 8
+using 275 subsets of len = 9
+
+--- Coverage Estimate ---
+  Heuristic (density): 0.0000%
+  CRT classes tested: 43,852
+  Search space size: ~2.60e+17
+  ⚠️  Recommend +Infinity more run(s) to reach 95% coverage
+
+Checking rationality for 35411 unique candidates...
+[batch check] processed 1770/35411, found 2 rational so far
+[batch check] processed 3540/35411, found 3 rational so far
+[batch check] processed 5310/35411, found 4 rational so far
+[batch check] processed 7080/35411, found 4 rational so far
+[batch check] processed 8850/35411, found 5 rational so far
+[batch check] processed 10620/35411, found 6 rational so far
+[batch check] processed 12390/35411, found 6 rational so far
+[batch check] processed 14160/35411, found 8 rational so far
+[batch check] processed 15930/35411, found 8 rational so far
+[batch check] processed 17700/35411, found 8 rational so far
+[batch check] processed 19470/35411, found 8 rational so far
+[batch check] processed 21240/35411, found 10 rational so far
+[batch check] processed 23010/35411, found 10 rational so far
+[batch check] processed 24780/35411, found 11 rational so far
+[batch check] processed 26550/35411, found 11 rational so far
+[batch check] processed 28320/35411, found 11 rational so far
+[batch check] processed 30090/35411, found 12 rational so far
+[batch check] processed 31860/35411, found 13 rational so far
+[batch check] processed 33630/35411, found 14 rational so far
+[batch check] processed 35400/35411, found 16 rational so far
+[batch check] processed 35411/35411, found 16 rational so far
+
+[subset stats] 1876/1920 subsets produced candidates (97.7%)
+[subset stats] 70103 total candidates from productive subsets
+[subset stats] Productivity by size:
+  Size 3: 221/264 productive (83.7%), 2955 candidates
+  Size 4: 282/283 productive (99.6%), 7984 candidates
+  Size 5: 280/280 productive (100.0%), 12479 candidates
+  Size 6: 283/283 productive (100.0%), 14455 candidates
+  Size 7: 250/250 productive (100.0%), 11184 candidates
+  Size 8: 284/284 productive (100.0%), 11419 candidates
+  Size 9: 276/276 productive (100.0%), 9627 candidates
+[subset stats] Top 5 productive subsets:
+  [31, 41, 43, 47, 71, 89]: 207 candidates
+  [13, 23, 59, 73, 79, 89]: 176 candidates
+  [19, 23, 59, 61, 73, 79]: 148 candidates
+  [11, 31, 43, 47, 59, 71, 73, 79]: 145 candidates
+  [19, 43, 47, 59, 83, 89]: 136 candidates
+
+Found 16 rational (m, vector) pairs after checking.
+
+--- Search Statistics ---
+Total time: 5.13s
+Total Rational Points Found (Unique x): 8
 
 Phases (s):
-  search_subsets_and_check : 8.43s
-  precompute_residues      : 0.73s
-  prep_mod_data            : 0.41s
-  gen_subsets              : 0.01s
+  search_subsets_and_check : 3.63s
+  precompute_residues      : 1.06s
+  prep_mod_data            : 0.39s
+  gen_subsets              : 0.02s
   brauer                   : 0.00s
   post_process             : 0.00s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 142238
-  crt_lift_attempts             : 1594155
-  modular_checks                : 300
+  crt_candidates_found          : 35411
+  crt_lift_attempts             : 156191
+  modular_checks                : 315
   modular_checks_p_11           : 15
+  modular_checks_p_13           : 15
   modular_checks_p_19           : 15
   modular_checks_p_23           : 15
   modular_checks_p_29           : 15
@@ -779,45 +1720,348 @@ Counters:
   modular_checks_p_79           : 15
   modular_checks_p_83           : 15
   modular_checks_p_89           : 15
-  modular_mults                 : 280
+  modular_mults                 : 294
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 11
-  rational_recon_attempts_worker: 185551
+  rational_points_unique        : 8
+  rational_recon_attempts_worker: 72021
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 185551
-  rationality_tests_failure     : 142186
-  rationality_tests_success     : 52
-  rationality_tests_total       : 142238
-  residues_seen_p_11            : 5
-  residues_seen_p_19            : 11
-  residues_seen_p_23            : 11
-  residues_seen_p_29            : 13
-  residues_seen_p_31            : 8
-  residues_seen_p_37            : 19
-  residues_seen_p_41            : 13
-  residues_seen_p_43            : 14
-  residues_seen_p_47            : 14
-  residues_seen_p_5             : 5
-  residues_seen_p_53            : 21
-  residues_seen_p_59            : 18
-  residues_seen_p_61            : 16
-  residues_seen_p_67            : 17
-  residues_seen_p_7             : 4
-  residues_seen_p_71            : 21
-  residues_seen_p_73            : 21
-  residues_seen_p_79            : 12
-  residues_seen_p_83            : 17
-  residues_seen_p_89            : 16
+  rational_recon_success_worker : 72021
+  rationality_tests_failure     : 35395
+  rationality_tests_success     : 16
+  rationality_tests_total       : 35411
+  residues_seen_p_11            : 1
+  residues_seen_p_13            : 6
+  residues_seen_p_19            : 3
+  residues_seen_p_23            : 1
+  residues_seen_p_29            : 5
+  residues_seen_p_31            : 9
+  residues_seen_p_37            : 10
+  residues_seen_p_41            : 11
+  residues_seen_p_43            : 10
+  residues_seen_p_47            : 8
+  residues_seen_p_5             : 0
+  residues_seen_p_53            : 19
+  residues_seen_p_59            : 12
+  residues_seen_p_61            : 15
+  residues_seen_p_67            : 10
+  residues_seen_p_7             : 0
+  residues_seen_p_71            : 17
+  residues_seen_p_73            : 19
+  residues_seen_p_79            : 20
+  residues_seen_p_83            : 12
+  residues_seen_p_89            : 23
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1074
-  subsets_processed             : 1074
+  subsets_generated_initial     : 1920
+  subsets_processed             : 1920
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
 
-Successes: 52, Failures: 142186
+Successes: 16, Failures: 35395
 Discard Reasons (Top 5):
-  y_not_rational                : 142186
+  y_not_rational                : 35395
+--------------------------------
+Found 8 new point(s) and 0 new section(s).
+New x-coordinates: {0, 1, 1/3, -1/4, -1, -1/6, 7/5, -2}
+
+======================================================================
+COMPLETENESS ANALYSIS
+======================================================================
+
+Estimated Completeness Score: 36.7% (confidence: medium)
+
+Coverage Details:
+  Global m-space heuristic (avg density): 35.7%
+  Findability of Found Points:
+    Average: 37.7%
+    Min:     13.0% (at x=-3/2)
+    Max:     70.8% (at x=-2)
+
+Points Found: 11
+
+Height Distribution:
+  Range: [0.00, 5.20]
+  Mean: 1.26, Median: 1.10
+  (Search height bound: 488.00)
+
+Recommendation:
+  Low coverage. Double both HEIGHT_BOUND and NUM_SUBSETS.
+======================================================================
+
+=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
+avg_fraction (unbiased sample): 0.326
+fraction >= 0.1 : 99.300%, fraction >= 0.5 : 4.200%
+empirical visible fraction: (no prime_subsets available in analyzer)
+
+=== Pairwise MI on first 24 primes (binary match indicators) ===
+Top MI pairs (p,q,MI bits):
+  ( 11, 67)  0.0014 bits
+  ( 43, 53)  0.0011 bits
+  ( 19, 79)  0.0009 bits
+  ( 11, 73)  0.0008 bits
+  ( 19, 43)  0.0008 bits
+  ( 29, 83)  0.0007 bits
+  ( 19, 67)  0.0006 bits
+  ( 53, 83)  0.0005 bits
+  ( 23, 89)  0.0005 bits
+  ( 11, 89)  0.0005 bits
+  ( 19, 73)  0.0004 bits
+  ( 23, 41)  0.0004 bits
+  ( 59, 73)  0.0004 bits
+  ( 71, 89)  0.0004 bits
+  ( 59, 79)  0.0004 bits
+  ( 13, 53)  0.0004 bits
+  ( 31, 67)  0.0004 bits
+  ( 59, 61)  0.0004 bits
+  ( 19, 41)  0.0004 bits
+  ( 43, 89)  0.0004 bits
+fraction of pairs with MI >= 0.01 bits: 0.000%
+
+=== Per-subset empirical coverage (first 30 subsets) ===
+ subset [37, 53, 73]...  emp_p=0.1116  product_p=0.1153
+ subset [29, 53, 71, 89]...  emp_p=0.0234  product_p=0.02338
+ subset [19, 29, 31, 41, 43, 47]...  emp_p=0.0004  product_p=0.0001798
+ subset [41, 71, 73]...  emp_p=0.088  product_p=0.08936
+ subset [11, 19, 23, 41, 47, 59]...  emp_p=0.0004  product_p=7.799e-05
+ subset [67, 71, 83]...  emp_p=0.039  product_p=0.03764
+ subset [41, 53, 73]...  emp_p=0.1032  product_p=0.1102
+ subset [11, 19, 31, 43, 47, 53]...  emp_p=0.0016  product_p=0.001679
+ subset [11, 23, 29, 37, 43, 47]...  emp_p=0.0008  product_p=0.0002038
+ subset [47, 71, 73]...  emp_p=0.059  product_p=0.05804
+ subset [23, 37, 41, 47, 53, 59]...  emp_p=0.0004  product_p=0.0002068
+ subset [19, 29, 37, 53, 59, 61]...  emp_p=0.0006  product_p=0.0002646
+ subset [19, 23, 31, 37, 41, 43]...  emp_p=0.0016  product_p=0.001093
+ subset [11, 29, 41, 43, 53, 67]...  emp_p=0.0008  product_p=0.000464
+ subset [37, 71, 73]...  emp_p=0.0954  product_p=0.09348
+ subset [11, 23, 47, 53, 59, 61]...  emp_p=0.0006  product_p=0.0004354
+ subset [31, 71, 73]...  emp_p=0.0728  product_p=0.0712
+ subset [37, 47, 73]...  emp_p=0.074  product_p=0.07213
+ subset [19, 41, 43, 47, 53, 61]...  emp_p=0.0034  product_p=0.00299
+ subset [19, 23, 29, 31, 47, 59]...  emp_p=0  product_p=8.286e-05
+ subset [23, 29, 79]...  emp_p=0.028  product_p=0.03108
+ subset [11, 31, 41, 59, 73, 79]...  emp_p=0.0024  product_p=0.002224
+ subset [31, 41, 43, 53, 73]...  emp_p=0.0176  product_p=0.01874
+ subset [23, 31, 41, 43, 47, 59]...  emp_p=0.0002  product_p=0.0001207
+ subset [11, 23, 31, 41, 59, 67]...  emp_p=0.0008  product_p=0.0006279
+ subset [11, 43, 53, 67, 73]...  emp_p=0.0056  product_p=0.006957
+ subset [11, 19, 29, 37, 53, 61]...  emp_p=0.0008  product_p=0.0005292
+ subset [11, 41, 43, 47, 61]...  emp_p=0.0084  product_p=0.007142
+ subset [29, 37, 59, 61, 71, 73]...  emp_p=0.0006  product_p=0.001082
+ subset [19, 31, 47, 79]...  emp_p=0.0226  product_p=0.02421
+
+======================================================================
+SEARCH SUMMARY
+======================================================================
+Total points found: 11
+Total time: 17.3s
+CRT candidates tested: 80,604
+Rationality tests: 80,604
+Hit rate: 0.05%
+======================================================================
+Proof using OBSERVED max height: 5.20
+
+======================================================================
+FORMAL COMPLETENESS PROOF (Roadmap Step 3)
+======================================================================
+LLL Guarantee Constant (C_lll) for rank d=1: 1.0000
+Smallest Modulus (M_min) used: 2717 (from subset [11, 13, 19])
+Height Bound (H): 5.20
+Required (in log-space): log(M) > log(2*C_lll) + H
+Actual log(M):  7.91
+Required log(M): > 5.90
+
+*** ✅ PASS ***
+The smallest modulus M is formally sufficient
+to guarantee rational reconstruction for all sections up to height H.
+======================================================================
+
+[fiber_collision_adjustment]
+  Collision primes: [13, 17]
+  Other rejected: [2, 3]
+  Reachable fraction: 0.8688
+  Adjustment factor: 0.8688
+  Raw p_visibility: 0.3262
+  Adjusted p_visibility: 0.2834
+
+--- Arithmetic-informed prior (with fiber collision adjustment) ---
+Fiber collision primes detected: [13, 17]
+p_visibility (raw): 0.3262
+p_visibility (adjusted): 0.2834
+mu_selmer:   0
+mu_local:    0
+mu_height:   0
+mu_bootstrap:0.2782
+--> mu_combined = 0.2782  (q = 0.217627)
+
+--- Posterior summary (geometric prior from arithmetic signals) ---
+Observed points (k) = 11
+Estimated detection probability p = 0.283
+P(true T == k)         = 13.073%   (probability we found all points)
+P(true T <= k+1)       = 37.540%   (probability we missed ≤ 1 point)
+P(true T <= k+2)       = 62.341%   (probability we missed ≤ 2 points)
+Posterior mean of T    = 13.217
+Note: results depend on prior (mu_combined) computed from arithmetic signals above.
+
+Top posterior mass (T, prob): 13:24.802%, 12:24.466%, 14:18.050%, 11:13.073%, 15:10.556%, 16:5.268%, 17:2.328%, 18:0.934%
+Resultant R = 4752406655251333342574960050207952708709094255856577335469828991385393419318037575579141201177621787654419081809121385055037727734581166080
+
+⚠️  WARNING: Detected collisions {17, 13} not in ramification locus {2, 3, 5, 167, 73, 50857, 109, 17, 400635034739, 439, 25469}
+
+--- Automorphism Search ---
+No scaling automorphisms found.
+Found 1 translation automorphisms:
+  [0] Translation by Section S0
+
+No non-trivial automorphisms found for the NS lattice.
+
+--- Torsion Analysis ---
+Got 40 good specializations for torsion check.
+Fast method candidate torsion order (GCD of specializations): 1
+Fiber component counts: [1, 1]  -> lcm bound: 1
+Base section 0 does not appear to be small order torsion.
+
+--- Running Saturation Diagnostics ---
+✅ p=2 appears to be saturated. Witness found: {'p': 2, 'm0': -3, 'ell': 13, 'subgroup_size': 18, 'E_mod_cardinality': 18}
+✅ p=3 appears to be saturated. Witness found: {'p': 3, 'm0': -3, 'ell': 13, 'subgroup_size': 18, 'E_mod_cardinality': 18}
+
+--- Running Picard-Van Luijk Analysis ---
+Using 10 good prime candidates for reduction: [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+[char 0] Using mw_rank = 1. Σ(m_v-1) = 0
+[char 0] ST lower bound: rho >= 3
+[skip] ell=5 dependence witnessed in reduction; witness={'p': 67, 'relation': (63,), 'm0s': [2, 3, 4], 'ell': 5}
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 7] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 11] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 13] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 17] sum fiber contrib = 2, rank>= 1 => rho_upper <= 5
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 19] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 23] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 29] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 31] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 37] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[summary] lower >= 3, best upper <= 3 at ell=7
+[collapsed fiber contribution / reduction-dependence primes] [5]
+
+=== Picard Report ===
+Lower bound (char 0): 3
+Upper bounds from reductions:
+  ell=7: rho <= 3    (rank_lb=1, Σ=0)
+  ell=11: rho <= 3    (rank_lb=1, Σ=0)
+  ell=13: rho <= 3    (rank_lb=1, Σ=0)
+  ell=17: rho <= 5    (rank_lb=1, Σ=2)
+  ell=19: rho <= 3    (rank_lb=1, Σ=0)
+  ell=23: rho <= 3    (rank_lb=1, Σ=0)
+  ell=29: rho <= 3    (rank_lb=1, Σ=0)
+  ell=31: rho <= 3    (rank_lb=1, Σ=0)
+  ell=37: rho <= 3    (rank_lb=1, Σ=0)
+*** Concluded Picard number: ρ = 3 ***
+
+--- Shioda-Tate Diagnostics ---
+Shioda-Tate Rank Estimate (assuming rho=3): 1
+Total Euler Characteristic: 12
+Sum of Fiber Contributions (Σ(m_v - 1)): 0
+
+======================================================================
+2-SELMER RANK BOUNDS
+======================================================================
+Mordell-Weil rank: 1
+Bad primes: [2, 3]
+Tamagawa product: 1
+
+Rank bounds:
+  1 ≤ rank(S²) ≤ 5
+
+known_pts {(0, 1), (-3/2, 23/8), (-1, 1), (1, 1), (-2, 1), (-1/4, 1/64), (2, 19), (1/3, 13/27), (182/141, 13959301/2803221), (-1/6, 139/216)}
+found {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, 7/5, -1}
+new x: 7/5
+TERMINATE_WHEN_6 (11) reached.
+
+--- Cumulative Run Statistics ---
+Total time: 17.95s
+Total Rational Points Found (Unique x): 18
+
+Phases (s):
+  search_subsets_and_check : 7.57s
+  precompute_residues      : 1.82s
+  prep_mod_data            : 0.79s
+  gen_subsets              : 0.04s
+  brauer                   : 0.01s
+  post_process             : 0.00s
+  autotune_primes          : 0.00s
+
+Counters:
+  crt_candidates_found          : 80604
+  crt_lift_attempts             : 381207
+  modular_checks                : 615
+  modular_checks_p_11           : 30
+  modular_checks_p_13           : 15
+  modular_checks_p_19           : 30
+  modular_checks_p_23           : 30
+  modular_checks_p_29           : 30
+  modular_checks_p_31           : 30
+  modular_checks_p_37           : 30
+  modular_checks_p_41           : 30
+  modular_checks_p_43           : 30
+  modular_checks_p_47           : 30
+  modular_checks_p_5            : 30
+  modular_checks_p_53           : 30
+  modular_checks_p_59           : 30
+  modular_checks_p_61           : 30
+  modular_checks_p_67           : 30
+  modular_checks_p_7            : 30
+  modular_checks_p_71           : 30
+  modular_checks_p_73           : 30
+  modular_checks_p_79           : 30
+  modular_checks_p_83           : 30
+  modular_checks_p_89           : 30
+  modular_mults                 : 574
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 18
+  rational_recon_attempts_worker: 155395
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 155395
+  rationality_tests_failure     : 80567
+  rationality_tests_success     : 37
+  rationality_tests_total       : 80604
+  residues_seen_p_11            : 3
+  residues_seen_p_13            : 6
+  residues_seen_p_19            : 10
+  residues_seen_p_23            : 8
+  residues_seen_p_29            : 11
+  residues_seen_p_31            : 14
+  residues_seen_p_37            : 27
+  residues_seen_p_41            : 24
+  residues_seen_p_43            : 20
+  residues_seen_p_47            : 19
+  residues_seen_p_5             : 0
+  residues_seen_p_53            : 35
+  residues_seen_p_59            : 25
+  residues_seen_p_61            : 27
+  residues_seen_p_67            : 22
+  residues_seen_p_7             : 0
+  residues_seen_p_71            : 34
+  residues_seen_p_73            : 35
+  residues_seen_p_79            : 30
+  residues_seen_p_83            : 26
+  residues_seen_p_89            : 36
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 3830
+  subsets_processed             : 3830
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 37, Failures: 80567
+Discard Reasons (Top 5):
+  y_not_rational                : 80567
 --------------------------------
 
 --- Final Results ---
