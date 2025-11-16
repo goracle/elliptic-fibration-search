@@ -262,7 +262,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     num_subsets_adaptive = compute_adaptive_num_subsets(
         fiber_collision_fraction, 
         avg_density=empirical_density,
-        target_coverage=0.40
+        target_coverage=0.40,
+        base_subsets=num_subsets
     )
 
     print(f"[Adaptive] Fiber collisions: {len(collision_primes)}/{len(prime_pool)} ({100*fiber_collision_fraction:.1f}%)")

@@ -1796,7 +1796,7 @@ def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
     
     # Reachability factor: lower reachability → more subsets needed
     # Reference: 0.80 is "normal" reachability (20% collision rate)
-    reachability_factor = 0.90 / reachable
+    reachability_factor = 0.95 / reachable
     
     # Combined adjustment
     adjusted = base_subsets * density_factor * reachability_factor
