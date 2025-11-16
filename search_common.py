@@ -368,7 +368,7 @@ TERMINATE_WHEN_6 = 11
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
+NUM_PRIME_SUBSETS = 400 # important for stability under different seeds, must be large enough >= 250 should be good...
 
 HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 
