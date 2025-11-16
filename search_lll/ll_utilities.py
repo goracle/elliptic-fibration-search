@@ -45,15 +45,6 @@ def _scale_matrix_columns_int(M, scales):
     D = diagonal_matrix([ZZ(s) for s in scales])
     return M * D, D
 
-def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
-    """Truncate coefficient list (low->high) to length max_deg+1."""
-    if len(coeff_list) <= max_deg + 1:
-        return coeff_list
-    # Keep low-degree coefficients (assumed stored as [c0, c1, ..., cN])
-    return coeff_list[: max_deg + 1]
-
-
-
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
     """
     Prepare modular data for LLL-based search across multiple primes.
@@ -106,6 +97,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] skip p={p}: denominator coercion error")
                 rejected_primes.append((p, "denom_coercion_failed"))
+                raise
                 continue
 
             a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
@@ -122,6 +114,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
                 except Exception as e_diag:
                     print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
+                    raise
                 print("="*70 + "\n")
 
             # Check discriminant (singular curve)
@@ -136,6 +129,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 if DEBUG:
                     print(f"[prepare_modular_data_lll] discriminant check failed at p={p}; skipping")
                 rejected_primes.append((p, "discriminant_check_failed"))
+                raise
                 continue
 
             # *** CRITICAL: Fiber collision check ***
@@ -157,6 +151,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             except Exception as e:
                 if DEBUG:
                     print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
+                raise
 
             # Construct elliptic curve
             try:
@@ -179,6 +174,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 except Exception:
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
+                    raise
 
             # Run LLL reduction
             new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
@@ -208,6 +204,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                         Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
                 except Exception:
                     Uinv_mat = identity_matrix(ZZ, r)
+                    raise
 
             # Transform vecs
             vecs_transformed_for_p = []
@@ -221,6 +218,8 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                         vecs_transformed_for_p.append(tuple(int(c) for c in v))
                     except Exception:
                         vecs_transformed_for_p.append(None)
+                        raise
+                    raise
 
             # Build required multiplier indices
             required_ks_per_section = [set() for _ in range(r)]
@@ -388,6 +387,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
             print("Column scaling failed, proceeding without scaling:", e)
         M_scaled = M
         D = diagonal_matrix([1]*M.ncols())
+        raise
 
     U = None
     B = None
@@ -445,6 +445,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
             if DEBUG:
                 print(f"[LLL] Error computing new basis vector {i}: {e}")
             new_basis.append(None) # Signal failure for this vector
+            raise
 
     # new_basis now has length r
     return new_basis, Uinv
@@ -548,6 +549,7 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
             max_k = max(abs(k) for k in required_ks)
         except ValueError:
             max_k = MAX_K_ABS # fallback
+            raise
     
     max_k = min(int(max_k), MAX_K_ABS)
     
@@ -774,6 +776,7 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
                     need = min(size - len(subset), len(remaining_primes))
                     if need > 0:
                         subset.extend(random.sample(remaining_primes, k=need))
+                raise
 
             subset = tuple(sorted(subset))
 
@@ -890,3 +893,502 @@ def print_subset_productivity_stats(productive, all_subsets):
     for p in top:
         print(f"  {p['primes']}: {p['candidates']} candidates")
 
+
+
+
+# Add near other helpers in search_lll.py (no leading underscores)
+from collections import defaultdict, Counter
+from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
+
+def compute_residues_by_prime_numeric(precomputed_residues):
+    """
+    Convert precomputed_residues -> residues_by_prime_numeric:
+      input: {p: {v_tuple: [set(roots_for_rhs0), ...]}}
+      output: {p: set(int_residues)}
+    """
+    residues_by_prime = {}
+    for p, mapping in precomputed_residues.items():
+        s = set()
+        for vtuple, rhs_lists in mapping.items():
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        s.add(int(r % p))
+        residues_by_prime[int(p)] = s
+    return residues_by_prime
+
+
+from sage.all import gcd
+
+from collections import Counter
+import math
+from sage.all import Zmod, Integer
+
+# ----------------------------------------
+# helpers for residue orders
+# ----------------------------------------
+def residue_order_additive(residue, p):
+    """Order of residue in additive group Z/pZ"""
+    if residue % p == 0:
+        return 1
+    from math import gcd
+    return p // gcd(residue, p)
+
+from collections import Counter, defaultdict
+import math
+from sage.all import Zmod, Integer
+
+def summarize_order_stats(order_list):
+    """Return frequency, dominance, and entropy of a list of orders"""
+    total = len(order_list)
+    if total == 0:
+        return {'freq': {}, 'dominance': None, 'entropy': None}
+    count = Counter(order_list)
+    most_common_freq = count.most_common(1)[0][1]
+    dominance = most_common_freq / total
+    entropy = -sum((v/total) * math.log2(v/total) for v in count.values())
+    return {'freq': dict(count), 'dominance': dominance, 'entropy': entropy}
+
+
+"""
+Complete residue analysis with proper diagnostics.
+Add this to ll_utilities.py, replacing the incomplete versions.
+"""
+
+from collections import Counter, defaultdict
+import math
+from sage.all import Zmod, Integer, QQ, var
+
+# ============================================================================
+# HELPER FUNCTIONS (keep existing ones, add these)
+# ============================================================================
+
+def quadratic_character(r, p):
+    """Legendre symbol (r/p). RAISES on error."""
+    if r % p == 0:
+        return 0
+    from sage.all import kronecker
+    return kronecker(r, p)
+
+
+def discriminant_valuation(r, p, Delta_pr):
+    """v_p(Delta(r)) for discriminant polynomial. RAISES on error."""
+    if Delta_pr is None:
+        return None
+    val_at_r = Delta_pr(r)
+    if val_at_r == 0:
+        return "inf"
+    ret = QQ(val_at_r).valuation(p)
+    return ret
+
+
+def compute_trace_of_frobenius(r, p, Ep_m):
+    """Trace of Frobenius a_p. RAISES on error."""
+    if Ep_m is None:
+        return None
+    a4_r = Ep_m.a4()(r)
+    a6_r = Ep_m.a6()(r)
+    disc_r = -16 * (4 * a4_r**3 + 27 * a6_r**2)
+    if disc_r == 0:
+        return "sing"
+    from sage.all import EllipticCurve, GF
+    Ep_r = EllipticCurve(GF(p), [0, 0, 0, a4_r, a6_r])
+    return Ep_r.trace_of_frobenius()
+
+
+def local_height_contribution(r, p, rhs_fn):
+    """Local height lambda_p(r). RAISES on error."""
+    from sage.all import var, Integer, QQ
+    m = var('m')
+    f_r = rhs_fn.subs({m: r})
+    f_r_qq = QQ(f_r)
+    num_val = Integer(f_r_qq.numerator()).valuation(p)
+    den_val = Integer(f_r_qq.denominator()).valuation(p)
+    return max(0, -num_val) + max(0, den_val)
+
+
+def residue_order_multiplicative(residue, p):
+    """Order in (Z/pZ)*. RAISES on error."""
+    from sage.all import Zmod
+    if residue % p == 0:
+        return 0
+    return Zmod(p)(residue).multiplicative_order()
+
+
+def liftability_order(r, p, f):
+    """p-adic liftability v_p(f(r)). RAISES on error."""
+    from sage.all import var, Integer, QQ
+    m = var('m')
+    f_r = f.subs({m: r})
+    f_r = QQ(f_r)
+    num_val = Integer(f_r.numerator()).valuation(p)
+    den_val = Integer(f_r.denominator()).valuation(p)
+    return num_val - den_val
+
+
+def detect_residue_patterns(per_prime):
+    """Detect patterns. RAISES on error."""
+    from collections import Counter
+    
+    patterns = {
+        'disc_pattern_used': Counter(),
+        'disc_pattern_unused': Counter(),
+        'qc_used': Counter(),
+        'qc_unused': Counter(),
+        'lift_range_used': Counter(),
+        'lift_range_unused': Counter(),
+        'a_p_sign_used': Counter(),
+        'a_p_sign_unused': Counter(),
+        'local_height_used': [],
+        'local_height_unused': [],
+        'composite_patterns': {
+            'used_high_lift_high_disc': 0,
+            'unused_high_lift_high_disc': 0,
+            'used_qc_minus_lift_pos': 0,
+            'unused_qc_minus_lift_pos': 0,
+            'used_zero_local_height': 0,
+            'unused_zero_local_height': 0,
+        }
+    }
+    
+    for p, info in per_prime.items():
+        diag = info['diagnostics']
+        used = info['used_residues']
+        unused = info['unused_residues']
+        
+        # Process used
+        for r in used:
+            if r not in diag:
+                continue
+            d = diag[r]
+            patterns['disc_pattern_used'][d.get('disc_pattern', 'unknown')] += 1
+            patterns['qc_used'][d.get('qc', 'NA')] += 1
+            
+            lh = d.get('local_height')
+            if lh is not None:
+                patterns['local_height_used'].append(lh)
+                if lh == 0:
+                    patterns['composite_patterns']['used_zero_local_height'] += 1
+            
+            lift = d.get('liftability_order', 0)
+            if lift < -1:
+                patterns['lift_range_used']['highly_negative'] += 1
+            elif lift == -1:
+                patterns['lift_range_used']['negative'] += 1
+            elif lift == 0:
+                patterns['lift_range_used']['zero'] += 1
+            elif lift == 1:
+                patterns['lift_range_used']['positive'] += 1
+            else:
+                patterns['lift_range_used']['highly_positive'] += 1
+            
+            ap = d.get('a_p')
+            if ap == 'sing':
+                patterns['a_p_sign_used']['singular'] += 1
+            elif isinstance(ap, (int, float)):
+                if ap > 0:
+                    patterns['a_p_sign_used']['positive'] += 1
+                elif ap < 0:
+                    patterns['a_p_sign_used']['negative'] += 1
+                else:
+                    patterns['a_p_sign_used']['zero'] += 1
+            
+            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
+                patterns['composite_patterns']['used_high_lift_high_disc'] += 1
+            if d.get('qc') == -1 and lift > 0:
+                patterns['composite_patterns']['used_qc_minus_lift_pos'] += 1
+        
+        # Process unused
+        for r in unused:
+            if r not in diag:
+                continue
+            d = diag[r]
+            patterns['disc_pattern_unused'][d.get('disc_pattern', 'unknown')] += 1
+            patterns['qc_unused'][d.get('qc', 'NA')] += 1
+            
+            lh = d.get('local_height')
+            if lh is not None:
+                patterns['local_height_unused'].append(lh)
+                if lh == 0:
+                    patterns['composite_patterns']['unused_zero_local_height'] += 1
+            
+            lift = d.get('liftability_order', 0)
+            if lift < -1:
+                patterns['lift_range_unused']['highly_negative'] += 1
+            elif lift == -1:
+                patterns['lift_range_unused']['negative'] += 1
+            elif lift == 0:
+                patterns['lift_range_unused']['zero'] += 1
+            elif lift == 1:
+                patterns['lift_range_unused']['positive'] += 1
+            else:
+                patterns['lift_range_unused']['highly_positive'] += 1
+            
+            ap = d.get('a_p')
+            if ap == 'sing':
+                patterns['a_p_sign_unused']['singular'] += 1
+            elif isinstance(ap, (int, float)):
+                if ap > 0:
+                    patterns['a_p_sign_unused']['positive'] += 1
+                elif ap < 0:
+                    patterns['a_p_sign_unused']['negative'] += 1
+                else:
+                    patterns['a_p_sign_unused']['zero'] += 1
+            
+            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
+                patterns['composite_patterns']['unused_high_lift_high_disc'] += 1
+            if d.get('qc') == -1 and lift > 0:
+                patterns['composite_patterns']['unused_qc_minus_lift_pos'] += 1
+    
+    # Compute stats - RAISES on error
+    if patterns['local_height_used']:
+        import statistics
+        patterns['local_height_stats_used'] = {
+            'mean': statistics.mean(patterns['local_height_used']),
+            'median': statistics.median(patterns['local_height_used']),
+            'max': max(patterns['local_height_used'])
+        }
+    if patterns['local_height_unused']:
+        import statistics
+        patterns['local_height_stats_unused'] = {
+            'mean': statistics.mean(patterns['local_height_unused']),
+            'median': statistics.median(patterns['local_height_unused']),
+            'max': max(patterns['local_height_unused'])
+        }
+    
+    return patterns
+
+
+def summarize_unused_residue_characteristics(analysis_ret, top_k=10):
+    """Summary with patterns. RAISES on error."""
+    per_prime = analysis_ret['per_prime']
+    global_summary = analysis_ret['global']
+
+    prime_counts = sorted(global_summary['per_prime_counts'].items(), key=lambda x: -x[1])
+    top_primes = prime_counts[:top_k]
+
+    heavy = []
+    for p, info in per_prime.items():
+        mult = info['multiplicity']
+        for r, c in mult.items():
+            if c > 1:
+                heavy.append((p, r, c))
+    heavy_sorted = sorted(heavy, key=lambda x: -x[2])[:top_k]
+
+    patterns = detect_residue_patterns(per_prime)
+
+    return {
+        'num_primes': global_summary['num_primes'],
+        'total_residues': global_summary['total_residues'],
+        'total_unused': global_summary['total_unused_residues'],
+        'top_primes': top_primes,
+        'heavy_residues': heavy_sorted,
+        'patterns': patterns
+    }
+
+
+def print_residue_analysis(analysis):
+    """Print analysis. RAISES on error."""
+    summary = summarize_unused_residue_characteristics(analysis)
+    
+    print("\n" + "="*70)
+    print("RESIDUE PATTERN ANALYSIS")
+    print("="*70)
+    
+    print(f"\nTotal primes analyzed: {summary['num_primes']}")
+    print(f"Total residues: {summary['total_residues']}")
+    print(f"Unused residues: {summary['total_unused']}")
+    
+    if 'patterns' in summary:
+        patterns = summary['patterns']
+        
+        print("\n--- Discriminant Patterns ---")
+        print(f"  Used: {dict(patterns['disc_pattern_used'])}")
+        print(f"  Unused: {dict(patterns['disc_pattern_unused'])}")
+        
+        print("\n--- Quadratic Character ---")
+        print(f"  Used: {dict(patterns['qc_used'])}")
+        print(f"  Unused: {dict(patterns['qc_unused'])}")
+        
+        print("\n--- Liftability ---")
+        print(f"  Used: {dict(patterns['lift_range_used'])}")
+        print(f"  Unused: {dict(patterns['lift_range_unused'])}")
+        
+        if 'local_height_stats_used' in patterns and 'local_height_stats_unused' in patterns:
+            print("\n--- Local Height ---")
+            u = patterns['local_height_stats_used']
+            un = patterns['local_height_stats_unused']
+            print(f"  Used: mean={u['mean']:.2f}, median={u['median']:.2f}, max={u['max']}")
+            print(f"  Unused: mean={un['mean']:.2f}, median={un['median']:.2f}, max={un['max']}")
+        
+        print("\n--- Composite Patterns ---")
+        comp = patterns['composite_patterns']
+        print(f"  High lift + high disc: used={comp['used_high_lift_high_disc']}, unused={comp['unused_high_lift_high_disc']}")
+        print(f"  QC=-1 + lift>0: used={comp['used_qc_minus_lift_pos']}, unused={comp['unused_qc_minus_lift_pos']}")
+        print(f"  Zero local height: used={comp['used_zero_local_height']}, unused={comp['unused_zero_local_height']}")
+        
+        # Discriminative power
+        print("\n--- Discriminative Power ---")
+        total_used = sum(patterns['qc_used'].values())
+        total_unused = sum(patterns['qc_unused'].values())
+        
+        if total_used > 0 and total_unused > 0:
+            for feature in ['qc', 'disc_pattern', 'lift_range', 'a_p_sign']:
+                used_dist = patterns[f'{feature}_used']
+                unused_dist = patterns[f'{feature}_unused']
+                
+                categories = set(used_dist.keys()) | set(unused_dist.keys())
+                max_diff = 0
+                best_cat = None
+                for cat in categories:
+                    used_freq = used_dist.get(cat, 0) / max(1, total_used)
+                    unused_freq = unused_dist.get(cat, 0) / max(1, total_unused)
+                    diff = abs(used_freq - unused_freq)
+                    if diff > max_diff:
+                        max_diff = diff
+                        best_cat = cat
+                
+                if best_cat:
+                    used_pct = 100 * used_dist.get(best_cat, 0) / max(1, total_used)
+                    unused_pct = 100 * unused_dist.get(best_cat, 0) / max(1, total_unused)
+                    print(f"  {feature}: diff={max_diff:.3f} at '{best_cat}' (used={used_pct:.1f}%, unused={unused_pct:.1f}%)")
+    
+    print("="*70)
+
+
+
+def analyze_unused_residue_orders(precomputed_residues,
+                                  rhs_list,
+                                  found_m_set=None,
+                                  found_xs=None,
+                                  prime_pool=None,
+                                  max_lift_k=3,
+                                  debug=False,
+                                  Delta_pr=None,
+                                  Ep_dict=None):
+    """
+    Complete residue analysis with all diagnostics.
+    RAISES ALL EXCEPTIONS - NO SILENT FAILURES.
+    """
+    from sage.all import ZZ, QQ, GF, Integer as SageInteger
+    from collections import Counter, defaultdict
+    
+    # Build numeric residues
+    residues_by_prime = {}
+    for p, mapping in precomputed_residues.items():
+        s = set()
+        for vtuple, rhs_lists in mapping.items():
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        s.add(int(r % p))
+        residues_by_prime[int(p)] = s
+
+    if prime_pool is None:
+        prime_list = sorted(residues_by_prime.keys())
+    else:
+        prime_list = [p for p in prime_pool if p in residues_by_prime]
+
+    # Build found residues - CORRECT rational reduction
+    found_residues_by_prime = defaultdict(set)
+    if found_m_set:
+        for m in found_m_set:
+            m_qq = QQ(m)  # RAISE if can't convert
+            for p in prime_list:
+                denom = m_qq.denominator()
+                if denom % p == 0:
+                    # m has pole at p, skip
+                    continue
+                # Proper reduction: a/b mod p = a * b^(-1) mod p
+                Fp = GF(p)
+                m_mod_p = int(Fp(m_qq.numerator()) / Fp(denom))
+                found_residues_by_prime[p].add(m_mod_p)
+
+    # Analyze each prime
+    per_prime_report = {}
+    
+    for p in prime_list:
+        residues = sorted(residues_by_prime.get(p, []))
+        used = found_residues_by_prime.get(p, set())
+        unused = [r for r in residues if r not in used]
+
+        # Multiplicity tracking
+        multiplicity = Counter()
+        origin_vectors = defaultdict(list)
+        mapping = precomputed_residues.get(p, {})
+        for vtuple, rhs_lists in mapping.items():
+            for rhs_idx, rl in enumerate(rhs_lists):
+                for r in rl:
+                    if isinstance(r, int):
+                        rmod = int(r % p)
+                        multiplicity[rmod] += 1
+                        origin_vectors[rmod].append((vtuple, rhs_idx))
+
+        # Get curve for this prime
+        Ep_m_p = Ep_dict.get(p) if Ep_dict else None
+
+        # Compute diagnostics for all residues
+        diagnostics = {}
+        
+        for r in residues:
+            rhs_fn = rhs_list[0]
+            
+            # All these RAISE on error
+            vp = liftability_order(r, p, rhs_fn)
+            qc = quadratic_character(r, p)
+            dv = discriminant_valuation(r, p, Delta_pr)
+            ap = compute_trace_of_frobenius(r, p, Ep_m_p)
+            lh = local_height_contribution(r, p, rhs_fn)
+            
+            # Composite diagnostics
+            lift_disc = vp * (dv if isinstance(dv, (int, SageInteger)) else 0)
+            qc_lift = qc * vp
+            
+            # Categorize - FIXED to handle Sage Integers
+            if dv == "inf":
+                disc_pattern = "singular"
+            elif dv is None:
+                disc_pattern = "unknown"
+            elif dv > 2:
+                disc_pattern = "high_ramification"
+            elif dv == 1:
+                disc_pattern = "simple_ramification"
+            elif dv == 0:
+                disc_pattern = "smooth"
+            else:
+                disc_pattern = "unknown"
+            
+            diagnostics[r] = {
+                'multiplicity': multiplicity.get(r, 0),
+                'origin_count': len(origin_vectors.get(r, [])),
+                'order_mult': residue_order_multiplicative(r, p),
+                'liftability_order': vp,
+                'qc': qc,
+                'disc_val': dv,
+                'a_p': ap,
+                'local_height': lh,
+                'lift_disc_product': lift_disc,
+                'qc_lift_product': qc_lift,
+                'disc_pattern': disc_pattern
+            }
+
+        per_prime_report[p] = {
+            'residues': residues,
+            'used_residues': sorted(list(used)),
+            'unused_residues': unused,
+            'multiplicity': multiplicity,
+            'origins': origin_vectors,
+            'diagnostics': diagnostics
+        }
+
+    global_summary = {
+        'num_primes': len(prime_list),
+        'total_residues': sum(len(residues_by_prime.get(p, [])) for p in prime_list),
+        'total_unused_residues': sum(len(per_prime_report[p]['unused_residues']) for p in prime_list),
+        'per_prime_counts': {p: len(per_prime_report[p]['unused_residues']) for p in prime_list},
+    }
+
+    return {
+        'per_prime': per_prime_report,
+        'global': global_summary
+    }
