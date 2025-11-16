@@ -3,6 +3,64 @@ ll_utilities.py: Matrix and lattice reduction helpers.
 """
 from sage.all import ZZ, diagonal_matrix
 from .search_config import *
+from search_common import NUM_PRIME_SUBSETS
+
+
+from collections import defaultdict, Counter
+from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
+
+from sage.all import gcd
+
+from collections import Counter
+import math
+from sage.all import Zmod, Integer
+
+# ----------------------------------------
+# helpers for residue orders
+# ----------------------------------------
+from collections import Counter, defaultdict
+import math
+from sage.all import Zmod, Integer
+
+"""
+Complete residue analysis with proper diagnostics.
+Add this to ll_utilities.py, replacing the incomplete versions.
+"""
+
+from collections import Counter, defaultdict
+import math
+from sage.all import Zmod, Integer, QQ, var
+
+# ============================================================================
+# HELPER FUNCTIONS (keep existing ones, add these)
+# ============================================================================
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+ll_utilities.py: Matrix and lattice reduction helpers.
+"""
+from sage.all import ZZ, diagonal_matrix
+from .search_config import *
+from search_common import NUM_PRIME_SUBSETS
 
 
 def _compute_column_norms(M):
@@ -1392,3 +1450,361 @@ def analyze_unused_residue_orders(precomputed_residues,
         'per_prime': per_prime_report,
         'global': global_summary
     }
+
+
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list, 
+                           target_qc_ratio=None, debug=False):
+    """
+    Compute QC distribution bias for each prime.
+    
+    Returns:
+        dict: {p: {'qc_ratio': float, 'qc_entropy': float, 'coverage': float}}
+        
+    Strategy: Primes with QC ratios matching the target are more likely productive.
+    If target_qc_ratio is None, don't use QC bias (fall back to coverage only).
+    """
+    from collections import Counter
+    from sage.all import kronecker, QQ
+    import math
+    
+    scores = {}
+    
+    for p in prime_pool:
+        mapping = precomputed_residues.get(p, {})
+        if not mapping:
+            scores[p] = {'qc_ratio': 1.0, 'qc_entropy': 0.0, 'coverage': 0.0}
+            continue
+        
+        # Collect all numeric residues for this prime
+        all_residues = set()
+        vectors_with_roots = 0
+        total_vectors = len(mapping)
+        
+        for vtuple, rhs_lists in mapping.items():
+            has_roots = any(rhs_roots for rhs_roots in rhs_lists)
+            if has_roots:
+                vectors_with_roots += 1
+            
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        all_residues.add(int(r % p))
+        
+        if not all_residues:
+            scores[p] = {'qc_ratio': 1.0, 'qc_entropy': 0.0, 'coverage': 0.0}
+            continue
+        
+        # Compute QC distribution
+        qc_counts = Counter()
+        for r in all_residues:
+            try:
+                qc = kronecker(r, p)
+                qc_counts[qc] += 1
+            except Exception:
+                continue
+        
+        # Compute ratio (with smoothing to avoid division by zero)
+        qc_minus = qc_counts.get(-1, 0)
+        qc_plus = qc_counts.get(1, 0)
+        qc_zero = qc_counts.get(0, 0)
+        
+        # Add Laplace smoothing
+        qc_ratio = (qc_minus + 1) / (qc_plus + 1)
+        
+        # Compute entropy (measure of QC uniformity)
+        total = qc_minus + qc_plus + qc_zero
+        if total > 0:
+            probs = [c / total for c in [qc_minus, qc_plus, qc_zero] if c > 0]
+            qc_entropy = -sum(p * math.log2(p) for p in probs)
+        else:
+            qc_entropy = 0.0
+        
+        coverage = vectors_with_roots / max(1, total_vectors)
+        
+        scores[p] = {
+            'qc_ratio': qc_ratio,
+            'qc_entropy': qc_entropy,
+            'coverage': coverage,
+            'qc_counts': dict(qc_counts),
+            'total_residues': len(all_residues)
+        }
+    
+    if debug and target_qc_ratio is not None:
+        print("\n[QC Bias Analysis]")
+        sorted_by_ratio = sorted(scores.items(), 
+                                key=lambda x: abs(x[1]['qc_ratio'] - target_qc_ratio), 
+                                reverse=False)
+        print(f"Primes closest to target QC ratio ({target_qc_ratio:.3f}):")
+        for p, data in sorted_by_ratio[:10]:
+            print(f"  p={p}: qc_ratio={data['qc_ratio']:.3f}, "
+                  f"entropy={data['qc_entropy']:.3f}, "
+                  f"coverage={data['coverage']:.1%}, "
+                  f"counts={data.get('qc_counts', {})}")
+    
+    return scores
+
+
+def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
+                                     rhs_list, num_subsets, min_size, max_size,
+                                     combo_cap, seed=None, debug=False,
+                                     roots_threshold=12, target_qc_ratio=None):
+    """
+    Generate prime subsets biased toward primes with favorable QC distributions.
+    
+    Args:
+        target_qc_ratio: Target QC=-1/QC=1 ratio. If None, use coverage only (no QC bias)
+    
+    Strategy:
+        1. Score primes by how close their QC ratio is to target (if provided)
+        2. Weight subsets to include primes with good QC ratios + high coverage
+        3. Maintain diversity by including some "average" primes too
+    """
+    import random
+    import math
+    if seed is not None:
+        random.seed(seed)
+    
+    # Compute coverage (always use this)
+    coverage = compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=False)
+    
+    # Decide whether to use QC bias
+    if target_qc_ratio is None:
+        # Pure coverage-based (original behavior)
+        if debug:
+            print("[QC-Biased] target_qc_ratio=None, falling back to coverage-only")
+        composite_scores = coverage
+    else:
+        # Compute QC scores
+        qc_scores = compute_qc_bias_scores(prime_pool, precomputed_residues, 
+                                           rhs_list, target_qc_ratio=target_qc_ratio, 
+                                           debug=debug)
+        
+        # Build composite score: balance QC ratio + coverage
+        composite_scores = {}
+        for p in prime_pool:
+            qc_data = qc_scores[p]
+            cov = coverage.get(p, 0.0)
+            
+            # Distance from target QC ratio (smaller is better)
+            qc_distance = abs(qc_data['qc_ratio'] - target_qc_ratio)
+            
+            # QC score: exponential penalty for distance from target
+            # Use -3 instead of -2 to make it sharper
+            qc_score = math.exp(-3 * qc_distance)  # Peaks sharply at ratio=target
+            
+            # Composite score: balance coverage and QC
+            # Scale coverage to [0,1] range and weight equally
+            composite = 0.5 * cov + 0.5 * qc_score
+            
+            composite_scores[p] = composite
+        
+        if debug:
+            print(f"\n[QC-Biased Generation] Target QC ratio: {target_qc_ratio:.3f}")
+            print("Top primes by composite score:")
+            sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
+            for p, score in sorted_primes[:10]:
+                qc_r = qc_scores[p]['qc_ratio']
+                cov = coverage.get(p, 0)
+                print(f"  p={p}: score={score:.3f}, qc_ratio={qc_r:.3f}, coverage={cov:.1%}")
+    
+    # Normalize to weights
+    total_weight = sum(composite_scores.values())
+    if total_weight == 0:
+        weights = [1.0] * len(prime_pool)
+    else:
+        weights = [composite_scores[p] / total_weight for p in prime_pool]
+    
+    # Identify top primes by composite score
+    sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
+    top_k = max(5, len(sorted_primes) // 3)
+    top_primes = [p for p, _ in sorted_primes[:top_k]]
+    
+    if debug and target_qc_ratio is not None:
+        print(f"[QC-Biased] Top {len(top_primes)} primes: {top_primes[:10]}")
+    
+    # Generate subsets (rest of function unchanged)
+    subsets = []
+    
+    # Phase 1: Forced subsets featuring top primes
+    num_forced = min(30, max(5, num_subsets // 8))
+    for i in range(num_forced):
+        if i % 2 == 0:
+            size = min_size
+            num_top = min(size, len(top_primes))
+            subset = random.sample(top_primes, k=num_top)
+        else:
+            size = random.randint(min_size, min(max_size, len(prime_pool)))
+            num_top = min(3, size // 2, len(top_primes))
+            subset = random.sample(top_primes, k=num_top)
+            
+            remaining_slots = size - len(subset)
+            if remaining_slots > 0:
+                other_primes = [p for p in prime_pool if p not in subset]
+                if other_primes:
+                    other_weights = [composite_scores.get(p, 0.1) for p in other_primes]
+                    chosen = random.choices(other_primes, 
+                                          weights=other_weights,
+                                          k=min(remaining_slots, len(other_primes)))
+                    subset.extend(chosen)
+        
+        subsets.append(tuple(sorted(set(subset))))
+    
+    # Phase 2: Random weighted subsets
+    remaining = num_subsets - len(subsets)
+    for _ in range(remaining):
+        size = random.randint(min_size, min(max_size, len(prime_pool)))
+        
+        subset = []
+        attempts = 0
+        while len(subset) < size and attempts < size * 20:
+            p = random.choices(prime_pool, weights=weights, k=1)[0]
+            if p not in subset:
+                subset.append(p)
+            attempts += 1
+        
+        subsets.append(tuple(sorted(subset)))
+    
+    # Deduplicate and filter by combo_cap
+    unique_subsets = []
+    seen = set()
+    
+    residues_by_prime_numeric = {}
+    for p, mapping in precomputed_residues.items():
+        residues_set = set()
+        for vtuple, rhs_lists in mapping.items():
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        residues_set.add(r)
+        residues_by_prime_numeric[p] = residues_set
+    
+    for subset in subsets:
+        if subset in seen:
+            continue
+        
+        est = 1
+        viable = True
+        for p in subset:
+            count = len(residues_by_prime_numeric.get(p, set()))
+            if count == 0:
+                viable = False
+                break
+            if count > roots_threshold:
+                est *= count
+                if est > combo_cap:
+                    viable = False
+                    break
+            else:
+                est *= max(1, count)
+                if est > combo_cap:
+                    viable = False
+                    break
+        
+        if viable:
+            seen.add(subset)
+            unique_subsets.append(list(subset))
+    
+    if debug:
+        print(f"[QC-Biased] Generated {len(unique_subsets)} unique subsets")
+        if unique_subsets:
+            print("Sample subsets:", unique_subsets[:3])
+    
+    return unique_subsets
+
+
+# Drop-in replacement wrapper
+def generate_biased_prime_subsets_by_coverage_v2(prime_pool, precomputed_residues, 
+                                                  vecs, num_subsets, min_size, 
+                                                  max_size, combo_cap, seed=None,
+                                                  force_full_pool=False, debug=False,
+                                                  roots_threshold=12, rhs_list=None,
+                                                  use_qc_bias=True, target_qc_ratio=1.2):
+    """
+    Enhanced version that can use QC bias or fall back to original coverage-only.
+    
+    Set use_qc_bias=True to enable QC-aware generation.
+    """
+    if use_qc_bias and rhs_list is not None:
+        return generate_qc_biased_prime_subsets(
+            prime_pool, precomputed_residues, vecs, rhs_list,
+            num_subsets, min_size, max_size, combo_cap,
+            seed=seed, debug=debug, roots_threshold=roots_threshold,
+            target_qc_ratio=target_qc_ratio  # <-- Pass through
+        )
+    else:
+        # Fall back to original coverage-only version
+        return generate_biased_prime_subsets_by_coverage(
+            prime_pool, precomputed_residues, vecs,
+            num_subsets, min_size, max_size, combo_cap,
+            seed=seed, force_full_pool=force_full_pool,
+            debug=debug, roots_threshold=roots_threshold
+        )
+
+
+def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density, 
+                                 target_coverage=0.40, base_subsets=NUM_PRIME_SUBSETS):
+    """
+    Dynamically size NUM_SUBSETS based on surface geometry.
+    
+    Args:
+        fiber_collision_fraction: Fraction of primes with fiber collisions (0.0 to 1.0)
+        avg_density: Average residue density across primes (typically 0.02 to 0.15)
+        target_coverage: Desired m-space coverage (default 40%)
+        base_subsets: Baseline for "normal" surfaces (default 500)
+    
+    Returns:
+        int: Recommended number of prime subsets
+    
+    Theory:
+        - Higher density → easier to find points → need fewer subsets
+        - More collisions → less reachable space → need more subsets
+        - Formula balances these competing factors
+    """
+    # Reachable fraction of m-space (after accounting for collisions)
+    reachable = 1.0 - fiber_collision_fraction
+    if reachable < 0.5:
+        reachable = 0.5  # Floor at 50% to avoid explosion
+    
+    # --- FIX: These factors should be independent ---
+    # The old logic incorrectly mixed them, double-counting the 'reachable' term.
+
+    # Density factor: higher density → fewer subsets needed
+    # Reference: 0.08 is "normal" density
+    density_to_use = max(0.02, avg_density) # Floor to avoid explosion
+    density_factor = 0.8 / density_to_use
+    
+    # Reachability factor: lower reachability → more subsets needed
+    # Reference: 0.80 is "normal" reachability (20% collision rate)
+    reachability_factor = 0.90 / reachable
+    
+    # Combined adjustment
+    adjusted = base_subsets * density_factor * reachability_factor
+    
+    print("density factor", density_factor)
+    print("reachability factor", reachability_factor)
+    
+    # Clamp to reasonable range [100, 2000]
+    adjusted = max(100, min(2000, adjusted))
+    
+    return int(adjusted)

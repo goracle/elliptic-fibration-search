@@ -200,20 +200,99 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
 
+
+    # In search_main.py, before analyze_unused_residue_orders
+    from sage.all import PolynomialRing, SR, QQ
+    PR_m = PolynomialRing(QQ, 'm')
+    Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+    if hasattr(Delta_poly, 'numerator'):
+        Delta_poly = Delta_poly.numerator()
+    Delta_pr = PR_m(SR(Delta_poly))
+
+    # Get Delta polynomial from cd
+    from sage.all import PolynomialRing, SR, QQ
+    PR_m = PolynomialRing(QQ, 'm')
+    try:
+        # cd.discriminant or cd.Delta should exist
+        Delta_poly = cd.discriminant if hasattr(cd, 'discriminant') else (-16 * (4 * cd.a4**3 + 27 * cd.a6**2))
+        if hasattr(Delta_poly, 'numerator'):
+            Delta_poly = Delta_poly.numerator()
+        Delta_pr = PR_m(SR(Delta_poly))
+    except Exception as e:
+        print(f"[WARNING] Could not compute Delta_pr: {e}")
+        raise
+        Delta_pr = None
+
+    # *** NEW: Predict target QC ratio from discriminant structure ***
+    predicted_qc_ratio = None
+    if Delta_pr is not None:
+        from bounds import predict_qc_distribution  # Add this function to bounds.py
+        # Use first 20-30 primes from prime_pool as sample
+        prime_sample = prime_pool[:min(30, len(prime_pool))]
+        predicted_qc_ratio = predict_qc_distribution(Delta_pr, prime_sample, debug=debug)
+
+    # Use predicted ratio if available, otherwise fall back to empirical 1.2
+    target_qc_ratio = predicted_qc_ratio if predicted_qc_ratio is not None else 1.2
+    print(f"[QC Target] Using QC ratio: {target_qc_ratio:.3f} ({'predicted' if predicted_qc_ratio else 'default'})")
+
+    # In search_main.py, after prepare_modular_data_lll and before GEN SUBSETS phase:
+
+    # === COMPUTE ADAPTIVE NUM_SUBSETS ===
+    collision_primes = []
+    if hasattr(stats, 'rejected_primes'):
+        collision_primes = [p for p, reason in stats.rejected_primes 
+                        if 'collision' in str(reason)]
+
+    # CORRECTED density calculation
+    density_count = 0
+    total_pairs = 0
+    for p, mapping in precomputed_residues.items():
+        for v_tuple in vecs_list:
+            total_pairs += 1
+            v_tuple_normalized = tuple(v_tuple)
+            roots_lists = mapping.get(v_tuple_normalized, [])
+            # Has roots if any RHS function has roots for this (p, v) pair
+            has_roots = any(roots for roots in roots_lists)
+            if has_roots:
+                density_count += 1
+
+    empirical_density = density_count / total_pairs if total_pairs > 0 else 0.08
+
+    fiber_collision_fraction = len(collision_primes) / len(prime_pool) if prime_pool else 0.0
+    num_subsets_adaptive = compute_adaptive_num_subsets(
+        fiber_collision_fraction, 
+        avg_density=empirical_density,
+        target_coverage=0.40
+    )
+
+    print(f"[Adaptive] Fiber collisions: {len(collision_primes)}/{len(prime_pool)} ({100*fiber_collision_fraction:.1f}%)")
+    print(f"[Adaptive] Empirical density: {empirical_density:.4f}")
+    print(f"[Adaptive] Recommended NUM_SUBSETS: {num_subsets_adaptive} (configured: {num_subsets})")
+
+    # Use the adaptive value (or keep your configured value, up to you)
+    num_subsets_to_use = num_subsets_adaptive  # Or: min(num_subsets, num_subsets_adaptive)
+
+    # Conservative: use the max of adaptive and configured
+    num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
+
     # === PHASE: GEN SUBSETS ===
     stats.start_phase('gen_subsets')
-    prime_subsets_initial = generate_biased_prime_subsets_by_coverage(
+    prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
         prime_pool=prime_pool,
         precomputed_residues=precomputed_residues,
         vecs=vecs_list,
-        num_subsets=num_subsets,
+        rhs_list=rhs_list,
+        num_subsets=num_subsets_to_use,  # <-- Use adaptive value
         min_size=min_prime_subset_size,
         max_size=min_max_prime_subset_size,
         combo_cap=combo_cap,
         seed=SEED_INT,
         force_full_pool=False,
-        debug=debug
+        debug=debug,
+        use_qc_bias=True,
+        target_qc_ratio=target_qc_ratio
     )
+
     stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
 
     filtered_subsets = []
@@ -425,32 +504,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
 
     # <<< MODIFIED/NEW SECTION >>>
-    # In search_main.py, before analyze_unused_residue_orders
-    from sage.all import PolynomialRing, SR, QQ
-    PR_m = PolynomialRing(QQ, 'm')
-    Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
-    if hasattr(Delta_poly, 'numerator'):
-        Delta_poly = Delta_poly.numerator()
-    Delta_pr = PR_m(SR(Delta_poly))
-
-    # Get Delta polynomial from cd
-    from sage.all import PolynomialRing, SR, QQ
-    PR_m = PolynomialRing(QQ, 'm')
-    try:
-        # cd.discriminant or cd.Delta should exist
-        Delta_poly = cd.discriminant if hasattr(cd, 'discriminant') else (-16 * (4 * cd.a4**3 + 27 * cd.a6**2))
-        if hasattr(Delta_poly, 'numerator'):
-            Delta_poly = Delta_poly.numerator()
-        Delta_pr = PR_m(SR(Delta_poly))
-    except Exception as e:
-        print(f"[WARNING] Could not compute Delta_pr: {e}")
-        raise
-        Delta_pr = None
-
-    print("")
-    print("delta", Delta_pr)
-    print("")
-
     analysis = analyze_unused_residue_orders(
         precomputed_residues=precomputed_residues,
         rhs_list=rhs_list,
