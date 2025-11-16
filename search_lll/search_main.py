@@ -137,6 +137,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(f"[brauer] Monte Carlo blocked fraction ≈ {mc['monte_carlo']['blocked_fraction_est']:.6f}")
 
     # optional diagnostic: test a representative m from the search range
+    from sage.all import QQ
     some_m = QQ(1)  # or any rational under study
     allowed, details = m_is_locally_allowed(some_m, precomputed_residues, PRIME_POOL)
     print(f"[brauer] example m={some_m} locally allowed? {allowed}")
@@ -421,6 +422,48 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                     new_sections_raw.append(new_sec)
         except (TypeError, ZeroDivisionError, ArithmeticError):
             continue
+
+
+    # <<< MODIFIED/NEW SECTION >>>
+    # In search_main.py, before analyze_unused_residue_orders
+    from sage.all import PolynomialRing, SR, QQ
+    PR_m = PolynomialRing(QQ, 'm')
+    Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+    if hasattr(Delta_poly, 'numerator'):
+        Delta_poly = Delta_poly.numerator()
+    Delta_pr = PR_m(SR(Delta_poly))
+
+    # Get Delta polynomial from cd
+    from sage.all import PolynomialRing, SR, QQ
+    PR_m = PolynomialRing(QQ, 'm')
+    try:
+        # cd.discriminant or cd.Delta should exist
+        Delta_poly = cd.discriminant if hasattr(cd, 'discriminant') else (-16 * (4 * cd.a4**3 + 27 * cd.a6**2))
+        if hasattr(Delta_poly, 'numerator'):
+            Delta_poly = Delta_poly.numerator()
+        Delta_pr = PR_m(SR(Delta_poly))
+    except Exception as e:
+        print(f"[WARNING] Could not compute Delta_pr: {e}")
+        raise
+        Delta_pr = None
+
+    print("")
+    print("delta", Delta_pr)
+    print("")
+
+    analysis = analyze_unused_residue_orders(
+        precomputed_residues=precomputed_residues,
+        rhs_list=rhs_list,
+        found_m_set=processed_m_vals,
+        prime_pool=prime_pool,
+        max_lift_k=3,
+        Delta_pr=Delta_pr,  # <-- Now actually computed
+        Ep_dict=Ep_dict
+    )
+
+    print_residue_analysis(analysis)
+
+
 
     new_xs = {pt[0] for pt in sample_pts}
     new_sections = list({s: None for s in new_sections_raw}.keys())
