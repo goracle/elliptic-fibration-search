@@ -1,13 +1,13 @@
 
 --- Searching for y=0 points ---
-hyper elliptic curve: y^2(x) = x^6 + 4*x^5 + 2*x^4 - 30*x^3 + 33*x^2 - 10*x + 1
+hyper elliptic curve: y^2(x) = x^6 + 8*x^5 + 10*x^4 - 10*x^3 - 11*x^2 + 2*x + 1
 No rational points found where y=0
-known_pts start: {(1, 1)}
+known_pts start: {(-1, 1)}
 
 ========================================================
-Constructing new fibration using: ((1, 1),)
-known pts so far: [(1, 1)]
-found 1 / 4
+Constructing new fibration using: ((-1, 1),)
+known pts so far: [(-1, 1)]
+found 1 / 11
 ========================================================
 
 --- Building 2 Step Fibration Tower (deg 6 -> 4 (-> 3)) ---
@@ -21,45 +21,45 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b3→r3, b4→r3,r4, b5→r3,r5,r4
-  Series expansion x(m) = 1 - m + ...
+  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r3,r4, b4→r5,r3,r4, b5→r5,r3,r4,r6
+  Series expansion x(m) = -1 - m + ...
     a2 = r3
     a3 = r4
   Series expansion y(m) = 1 + ...
-    b1 = 0
-    b2 = 5
+    b1 = 6
+    b2 = -6*r3 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b3→r7, b4→r7,r8, b5→r9,r7,r8
-  Series expansion x(m) = 1 - m + ...
+  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r8,r7, b4→r8,r9,r7, b5→r8,r9,r7,r10
+  Series expansion x(m) = -1 - m + ...
     a2 = r7
     a3 = r8
   Series expansion y(m) = 1 + ...
-    b1 = 0
-    b2 = 5
+    b1 = 6
+    b2 = -6*r7 - 11
 
 ======================================================================
 TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-r_m -m + 1
+r_m -m - 1
 --- Running 1-point Fibration ---
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
 --- Identifying Globally Bad Primes ---
 Identified 2 globally bad prime(s) from the pool: [2, 3]
->>> Diagnostic: [m^12 - 20*m^11 + 150*m^10 - 424*m^9 - 555*m^8 + 19100/3*m^7 - 309770/27*m^6 - 314020/27*m^5 + 1566466/27*m^4 - 850268/27*m^3 - 2192876/27*m^2 + 976480/9*m - 1014101/27] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^8 - 436/3*m^7 - 17794/27*m^6 + 151580/27*m^5 - 120238/27*m^4 - 104188/3*m^3 + 2260/9*m^2 + 1249408/27*m + 423755/27] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^12 - 20*m^11 + 150*m^10 - 424*m^9 - 5      1      0      0      1      1        0        0        1      12 x I1
-Infinity: v_c4 = -2, v_c6 = -6, v_D = -12 -> I0
+m^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m      1      0      0      1      1        0        0        1      12 x I1
+Infinity: v_c4 = -3, v_c6 = -6, v_D = -12 -> I0
 
 Summary of fibers (per-center):
-  I1 at m^12 - 20*m^11 + 150*m^10 - 424*m^9 - 55 (deg 12) contrib=0
+  I1 at m^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^ (deg 12) contrib=0
   I0 at inf (deg 1) contrib=0
 
 Total Euler characteristic: 12
@@ -68,7 +68,7 @@ Sum of fiber contributions (Σ(m_v - 1)): 0
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: -6912*m^12 + 138240*m^11 - 1036800*m^10 + 2930688*m^9 + 3836160*m^8 - 44006400*m^7 + 79301120*m^6 + 80389120*m^5 - 401015296*m^4 + 217668608*m^3 + 561376256*m^2 - 749936640*m + 259609856
+Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*m^7 + 4555264*m^6 - 38804480*m^5 + 30780928*m^4 + 240049152*m^3 - 1735680*m^2 - 319848448*m - 108481280
   Effective Discriminant Degree: 12
   Weierstrass scaling exponent (n) used: 0
   ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
@@ -80,35 +80,35 @@ Delta: -6912*m^12 + 138240*m^11 - 1036800*m^10 + 2930688*m^9 + 3836160*m^8 - 440
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
-[bounds] mod 3 factorization: [3] -> pattern (3,)
-[bounds] mod 5 factorization: [1, 2, 2, 5] -> pattern (1, 2, 2, 5)
-[bounds] mod 7 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 11 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
-[bounds] mod 13 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 17 factorization: [1, 1, 1, 7] -> pattern (1, 1, 1, 7)
-[bounds] mod 19 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 23 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 3 factorization: [1, 1, 3] -> pattern (1, 1, 3)
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
+[bounds] mod 11 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 13 factorization: [1, 1, 2, 5] -> pattern (1, 1, 2, 5)
+[bounds] mod 17 factorization: [1, 9] -> pattern (1, 9)
+[bounds] mod 19 factorization: [3, 3, 6] -> pattern (3, 3, 6)
+[bounds] mod 23 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
 [bounds] mod 29 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 31 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 37 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 41 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 43 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 47 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 53 factorization: [4, 8] -> pattern (4, 8)
-[bounds] mod 59 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 61 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 67 factorization: [2, 2, 8] -> pattern (2, 2, 8)
-[bounds] mod 71 factorization: [1, 1, 1, 2, 3, 4] -> pattern (1, 1, 1, 2, 3, 4)
-[bounds] mod 73 factorization: [1, 1, 4, 6] -> pattern (1, 1, 4, 6)
-[bounds] mod 79 factorization: [1, 2, 2, 7] -> pattern (1, 2, 2, 7)
-[bounds] mod 83 factorization: [2, 3, 7] -> pattern (2, 3, 7)
-[bounds] mod 89 factorization: [1, 2, 3, 3, 3] -> pattern (1, 2, 3, 3, 3)
-[bounds] Unique patterns from 23 primes: [(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5), (1, 2, 2, 7), (1, 2, 3, 3, 3), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 2, 8), (2, 3, 7), (2, 10), (3,), (3, 9), (4, 8), (5, 7)]
+[bounds] mod 31 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 37 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 41 factorization: [1, 1, 2, 2, 6] -> pattern (1, 1, 2, 2, 6)
+[bounds] mod 43 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 47 factorization: [3, 4, 5] -> pattern (3, 4, 5)
+[bounds] mod 53 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 59 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 61 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 67 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 71 factorization: [1, 10] -> pattern (1, 10)
+[bounds] mod 73 factorization: [1, 3, 8] -> pattern (1, 3, 8)
+[bounds] mod 79 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 83 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 89 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
+[bounds] Unique patterns from 23 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
 [bounds] Estimated splitting field degree: 2520
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5), (1, 2, 2, 7), (1, 2, 3, 3, 3), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 2, 8), (2, 3, 7), (2, 10), (3,), (3, 9), (4, 8), (5, 7)], 'num_primes_tested': 23}
+DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 23}
 
-[bounds] Diagnostics: {'discriminant': -1467228978200207369114662972445207758678399739826144329505641188104254051431361673842779169810711938004032459956115212623518944460800000000, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] Diagnostics: {'discriminant': 73615519716626917783353189507988973474904803477750353152977660754149811621585377980627300970434904710958086560085440049933447636878465833727442582241280, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
 [bounds] is_good_prime_for_surface rejected 3
 [auto_cfg] naive_x_height_from_pts: max height from x = 0 (val=1)
@@ -118,98 +118,98 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 1, 2
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() took 0.13s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 24 primes -> avg_roots=0.9583, patterns_sample=[(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5)]
+[galois/empirical] Tested 24 primes -> avg_roots=1.083, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 0), (13, 1), (17, 0), (19, 1), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.9583333333333334}
-[auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 0), (13, 1), (17, 0), (19, 1), (23, 2), (29, 1)]
-[auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 2, 7: 2, 11: 0, 13: 1, 17: 0, 19: 1, 23: 2, 29: 1, 31: 1, 37: 2, 41: 0, 43: 2, 47: 3, 53: 0, 59: 1, 61: 1, 67: 1, 71: 1, 73: 0, 79: 2, 83: 0, 89: 1}
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
+[auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
+[auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 2, 7: 1, 11: 0, 13: 1, 17: 2, 19: 0, 23: 2, 29: 1, 31: 1, 37: 1, 41: 1, 43: 0, 47: 0, 53: 1, 59: 1, 61: 0, 67: 0, 71: 2, 73: 2, 79: 1, 83: 1, 89: 2}
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 10), (1, 2, 2, 5), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 2, 8), (2, 10), (3,), (3, 9), (4, 8), (5, 7)], 'num_primes_tested': 19}
+DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=24, avg_survivors≈3.62e-07, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈3.62e-07
+[empirical_pool] start pool size=24, avg_survivors≈9.23e-08, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈9.23e-08
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.25, avg_density=0.0861 -> size_bias='mixed (moderate density)'
+[adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
 [adaptive_subsets] Height scale factor (sqrt): 2.17
 [adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
 [adaptive_subsets] Final subset sizes: [3, 9]
-[auto_cfg] density=0.0861, base_tmax=300, tmax_scale=2.17 -> TMAX=500
+[auto_cfg] density=0.0798, base_tmax=300, tmax_scale=2.17 -> TMAX=500
 
 [auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
   HEIGHT_BOUND: 473
   Prime pool: 24 -> 24 (scale 0.00x)
-  Prime subsets: 1078 (adjustment 2.17x)
+  Prime subsets: 1081 (adjustment 2.17x)
   Subset sizes: [3, 9]
   TMAX: 500 (scaled for height)
-  Sample subsets: [[2, 3, 7], [2, 3, 47], [2, 5, 11]]
+  Sample subsets: [[2, 3, 41], [2, 3, 47], [2, 5, 13]]
 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
+  NUM_PRIME_SUBSETS: 1081
   PRIME_POOL size: 24
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1081, PRIME_POOL size=24, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
-[bounds] mod 3 factorization: [3] -> pattern (3,)
-[bounds] mod 5 factorization: [1, 2, 2, 5] -> pattern (1, 2, 2, 5)
-[bounds] mod 7 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 11 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
-[bounds] mod 13 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 17 factorization: [1, 1, 1, 7] -> pattern (1, 1, 1, 7)
-[bounds] mod 19 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 23 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 3 factorization: [1, 1, 3] -> pattern (1, 1, 3)
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
+[bounds] mod 11 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 13 factorization: [1, 1, 2, 5] -> pattern (1, 1, 2, 5)
+[bounds] mod 17 factorization: [1, 9] -> pattern (1, 9)
+[bounds] mod 19 factorization: [3, 3, 6] -> pattern (3, 3, 6)
+[bounds] mod 23 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
 [bounds] mod 29 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 31 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 37 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 41 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 43 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 47 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 53 factorization: [4, 8] -> pattern (4, 8)
-[bounds] mod 59 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 61 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 67 factorization: [2, 2, 8] -> pattern (2, 2, 8)
-[bounds] mod 71 factorization: [1, 1, 1, 2, 3, 4] -> pattern (1, 1, 1, 2, 3, 4)
-[bounds] mod 73 factorization: [1, 1, 4, 6] -> pattern (1, 1, 4, 6)
-[bounds] mod 79 factorization: [1, 2, 2, 7] -> pattern (1, 2, 2, 7)
-[bounds] mod 83 factorization: [2, 3, 7] -> pattern (2, 3, 7)
-[bounds] mod 89 factorization: [1, 2, 3, 3, 3] -> pattern (1, 2, 3, 3, 3)
-[bounds] Unique patterns from 23 primes: [(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5), (1, 2, 2, 7), (1, 2, 3, 3, 3), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 2, 8), (2, 3, 7), (2, 10), (3,), (3, 9), (4, 8), (5, 7)]
+[bounds] mod 31 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 37 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 41 factorization: [1, 1, 2, 2, 6] -> pattern (1, 1, 2, 2, 6)
+[bounds] mod 43 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 47 factorization: [3, 4, 5] -> pattern (3, 4, 5)
+[bounds] mod 53 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 59 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 61 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 67 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 71 factorization: [1, 10] -> pattern (1, 10)
+[bounds] mod 73 factorization: [1, 3, 8] -> pattern (1, 3, 8)
+[bounds] mod 79 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 83 factorization: [2, 10] -> pattern (2, 10)
+[bounds] mod 89 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
+[bounds] Unique patterns from 23 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
 [bounds] Estimated splitting field degree: 2520
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5), (1, 2, 2, 7), (1, 2, 3, 3, 3), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 2, 8), (2, 3, 7), (2, 10), (3,), (3, 9), (4, 8), (5, 7)], 'num_primes_tested': 23}
+DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 23}
 
-[bounds] Diagnostics: {'discriminant': -1467228978200207369114662972445207758678399739826144329505641188104254051431361673842779169810711938004032459956115212623518944460800000000, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] Diagnostics: {'discriminant': 73615519716626917783353189507988973474904803477750353152977660754149811621585377980627300970434904710958086560085440049933447636878465833727442582241280, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
 [bounds] is_good_prime_for_surface rejected 3
 [prime_pool] Final pool has 22 primes up to 89
 DEBUG: roots (SR) repr/type samples:
-  root[0] = -m + 1
-  root[1] = -m + 1
+  root[0] = -m - 1
+  root[1] = -m - 1
 
-RHS: 1/3*(3*m^10 - 30*m^9 + 75*m^8 + 114*m^7 - 650*m^6 + 500*m^5 + 319*m^4 - 200*m^3 - 344*m^2 + 228*m - 20)/(m^6 - 10*m^5 + 37*m^4 - 38*m^3 + 10*m^2 + 1)
+RHS: 1/3*(3*m^10 - 6*m^9 + 3*m^8 + 30*m^7 - 142*m^6 - 40*m^5 + 723*m^4 + 976*m^3 + 556*m^2 + 228*m + 80)/(m^6 - 2*m^5 - 15*m^4 - 10*m^3 + 14*m^2 + 12*m + 1)
 
 DEBUG: final search_rhs_list (SR reprs):
-  search_rhs_list[0] = 1/3*(3*m^10 - 30*m^9 + 75*m^8 + 114*m^7 - 650*m^6 + 500*m^5 + 319*m^4 - 200*m^3 - 344*m^2 + 228*m - 20)/(m^6 - 10*m^5 + 37*m^4 - 38*m^3 + 10*m^2 + 1)
+  search_rhs_list[0] = 1/3*(3*m^10 - 6*m^9 + 3*m^8 + 30*m^7 - 142*m^6 - 40*m^5 + 723*m^4 + 976*m^3 + 556*m^2 + 228*m + 80)/(m^6 - 2*m^5 - 15*m^4 - 10*m^3 + 14*m^2 + 12*m + 1)
 === Fibration Summary ===
-Data points: ((1, 1),)
-Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 + 20*m - 37)*x^4 + (-2*m^3 + 22*m^2 - 80*m + 110)*x^3 + (6*m^3 - 48*m^2 + 120*m - 118)*x^2 + y^2 + (-6*m^3 + 42*m^2 - 80*m + 54)*x + (2*m^3 - 13*m^2 + 20*m - 10)
-Defining polynomial f: (-3*m^2 + 20*m - 37)*x^4 + (-2*m^3 + 22*m^2 - 80*m + 110)*x^3 + (6*m^3 - 48*m^2 + 120*m - 118)*x^2 + y^2 + (-6*m^3 + 42*m^2 - 80*m + 54)*x + (2*m^3 - 13*m^2 + 20*m - 10)
-Discriminant of f: (12*m^2 - 80*m + 148)*x^4 + (8*m^3 - 88*m^2 + 320*m - 440)*x^3 + (-24*m^3 + 192*m^2 - 480*m + 472)*x^2 + (24*m^3 - 168*m^2 + 320*m - 216)*x + (-8*m^3 + 52*m^2 - 80*m + 40)
-Weierstrass discriminant: -6912*m^12 + 138240*m^11 - 1036800*m^10 + 2930688*m^9 + 3836160*m^8 - 44006400*m^7 + 79301120*m^6 + 80389120*m^5 - 401015296*m^4 + 217668608*m^3 + 561376256*m^2 - 749936640*m + 259609856
+Data points: ((-1, 1),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 + 4*m + 15)*x^4 + (-2*m^3 - 10*m^2 + 16*m + 50)*x^3 + (-6*m^3 - 12*m^2 + 24*m + 46)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 16*m + 14)*x + (-2*m^3 - m^2 + 4*m + 2)
+Defining polynomial f: (-3*m^2 + 4*m + 15)*x^4 + (-2*m^3 - 10*m^2 + 16*m + 50)*x^3 + (-6*m^3 - 12*m^2 + 24*m + 46)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 16*m + 14)*x + (-2*m^3 - m^2 + 4*m + 2)
+Discriminant of f: (12*m^2 - 16*m - 60)*x^4 + (8*m^3 + 40*m^2 - 64*m - 200)*x^3 + (24*m^3 + 48*m^2 - 96*m - 184)*x^2 + (24*m^3 + 24*m^2 - 64*m - 56)*x + (8*m^3 + 4*m^2 - 16*m - 8)
+Weierstrass discriminant: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*m^7 + 4555264*m^6 - 38804480*m^5 + 30780928*m^4 + 240049152*m^3 - 1735680*m^2 - 319848448*m - 108481280
 Weierstrass model coefficients:
-  a4(m): -12*m^2 + 80*m - 544/3
-  a6(m): 4*m^6 - 40*m^5 + 100*m^4 + 152*m^3 - 840*m^2 + 1600/3*m + 14348/27
-P1: (1, 1)
+  a4(m): -24*m^3 + 12*m^2 + 16*m - 376/3
+  a6(m): 4*m^6 - 8*m^5 + 4*m^4 + 152*m^3 + 168*m^2 - 1280/3*m - 19892/27
+P1: (-1, 1)
 
 --- Geometric Validation ---
-Delta: -6912*m^12 + 138240*m^11 - 1036800*m^10 + 2930688*m^9 + 3836160*m^8 - 44006400*m^7 + 79301120*m^6 + 80389120*m^5 - 401015296*m^4 + 217668608*m^3 + 561376256*m^2 - 749936640*m + 259609856
+Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*m^7 + 4555264*m^6 - 38804480*m^5 + 30780928*m^4 + 240049152*m^3 - 1735680*m^2 - 319848448*m - 108481280
   Effective Discriminant Degree: 12
   Weierstrass scaling exponent (n) used: 0
   ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
@@ -222,26 +222,26 @@ Delta: -6912*m^12 + 138240*m^11 - 1036800*m^10 + 2930688*m^9 + 3836160*m^8 - 440
 Testing special m-values from fibers: set()
 
 --- DEBUGGING POINT CONSTRUCTION ---
-Attempting to create point for (x,y) = (1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + (-12*m^2+80*m-544/3)*x + (4*m^6-40*m^5+100*m^4+152*m^3-840*m^2+1600/3*m+14348/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Attempting to create point for (x,y) = (-1, 1)
+Curve: Elliptic Curve defined by y^2 = x^3 + (-24*m^3+12*m^2+16*m-376/3)*x + (4*m^6-8*m^5+4*m^4+152*m^3+168*m^2-1280/3*m-19892/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: -20/3
-Y_aff: (2*m^3 - 10*m^2 + 38)
+X_aff: 80/3
+Y_aff: (2*m^3 - 2*m^2 - 122)
 Z_aff: 1
 
 Equation Check:
-LHS (Y^2*Z): (4*m^6 - 40*m^5 + 100*m^4 + 152*m^3 - 760*m^2 + 1444)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (4*m^6 - 40*m^5 + 100*m^4 + 152*m^3 - 760*m^2 + 1444)
+LHS (Y^2*Z): (4*m^6 - 8*m^5 + 4*m^4 - 488*m^3 + 488*m^2 + 14884)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (4*m^6 - 8*m^5 + 4*m^4 - 488*m^3 + 488*m^2 + 14884)
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: (-20/3 : 2*m^3 - 10*m^2 + 38 : 1)
+section weierstrass coordinates: (80/3 : 2*m^3 - 2*m^2 - 122 : 1)
 Canonical height pairing matrix determinant = 2
 Sections are independent.
 
---- Search Iteration 0 with 1 sections for fibration ((1, 1),) ---
+--- Search Iteration 0 with 1 sections for fibration ((-1, 1),) ---
 Canonical height pairing matrix determinant = 2
 Sections are independent.
 Height Pairing Matrix H:
@@ -250,179 +250,178 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 20 primes -> avg_roots=1, patterns_sample=[(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5)]
-[residue_counts] sample: [(5, 2), (7, 2), (11, 0), (13, 1), (17, 0), (19, 1), (23, 2), (29, 1), (31, 1), (37, 2)]
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 20 primes -> avg_roots=1, patterns_sample=[(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5)]
+[residue_counts] sample: [(5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1), (31, 1), (37, 1)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0}
-[bounds] mod 5 factorization: [1, 2, 2, 5] -> pattern (1, 2, 2, 5)
-[bounds] mod 7 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 11 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
-[bounds] mod 13 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 17 factorization: [1, 1, 1, 7] -> pattern (1, 1, 1, 7)
-[bounds] mod 19 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 23 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 5 factorization: [1, 1, 4, 5] -> pattern (1, 1, 4, 5)
+[bounds] mod 7 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
+[bounds] mod 11 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 13 factorization: [1, 1, 2, 5] -> pattern (1, 1, 2, 5)
+[bounds] mod 17 factorization: [1, 9] -> pattern (1, 9)
+[bounds] mod 19 factorization: [3, 3, 6] -> pattern (3, 3, 6)
+[bounds] mod 23 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
 [bounds] mod 29 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 31 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 37 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 41 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 43 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 47 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 53 factorization: [4, 8] -> pattern (4, 8)
-[bounds] mod 59 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] Unique patterns from 15 primes: [(1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 10), (1, 2, 2, 5), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 10), (4, 8), (5, 7)]
+[bounds] mod 31 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 37 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 41 factorization: [1, 1, 2, 2, 6] -> pattern (1, 1, 2, 2, 6)
+[bounds] mod 43 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 47 factorization: [3, 4, 5] -> pattern (3, 4, 5)
+[bounds] mod 53 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 59 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] Unique patterns from 15 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
 [bounds] Estimated splitting field degree: 2520
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 10), (1, 2, 2, 5), (1, 2, 4, 5), (1, 2, 9), (1, 3, 8), (1, 5, 6), (2, 10), (4, 8), (5, 7)], 'num_primes_tested': 15}
+DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 15}
 
 height bound: 473
 Searching 15 vectors up to height 473...
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 24 primes -> avg_roots=0.9583, patterns_sample=[(1, 1, 1, 2, 3, 4), (1, 1, 1, 7), (1, 1, 4, 5), (1, 1, 4, 6), (1, 1, 10), (1, 2, 2, 5)]
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 24 primes -> avg_roots=1.083, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 0), (13, 1), (17, 0), (19, 1), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.9583333333333334}
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
 prime pool used for search: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89]
 --- Preparing modular data for LLL search ---
 Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
-⚠️  Fiber collision detected at p=5: gcd degree 2
-Skipping prime 5: fiber collision detected (gcd degree=2)
+⚠️  Fiber collision detected at p=13: gcd degree 3
+Skipping prime 13: fiber collision detected (gcd degree=3)
 ⚠️  Fiber collision detected at p=17: gcd degree 2
 Skipping prime 17: fiber collision detected (gcd degree=2)
 
 [prepare_modular_data_lll] Rejected 4 primes:
   p=2: singular_discriminant
   p=3: a4_denom_divisible
-  p=5: fiber_collision_deg_2
+  p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [precompute] total_modular_checks=300, primes precomputed=20
 [brauer] estimated survival fraction ≈ 0.000000
 [brauer] estimated ruled-out fraction ≈ 1.000000
-[brauer] Monte Carlo blocked fraction ≈ 0.963000
+[brauer] Monte Carlo blocked fraction ≈ 0.860000
 [brauer] example m=1 locally allowed? False
 [filter] Removed 4 primes with no numeric data. Using 20 usable primes.
-[auto-tune] selected extra primes [7, 11, 13, 41, 29] with expected density 3.08e-06
+[auto-tune] selected extra primes [5, 7, 19, 11, 29, 23] with expected density 1.84e-06
 combo_cap: 781249999999999975495047718109184 roots_threshold: 12
 
 [QC Prediction from Discriminant]
-  Sample: 20 primes, 12 with roots
-  QC distribution: -1:10, 0:2, 1:5
-  Predicted QC=-1/QC=1 ratio: 1.909
-  QC=-1 fraction: 66.7% (uniform: ~50%)
-[QC Target] Using QC ratio: 1.909 (predicted)
-density factor 1.153846153846154
-reachability factor 1.0
+  Sample: 20 primes, 13 with roots
+  QC distribution: -1:7, 0:1, 1:11
+  Predicted QC=-1/QC=1 ratio: 0.652
+  QC=-1 fraction: 38.9% (uniform: ~50%)
+[QC Target] Using QC ratio: 0.652 (predicted)
+density factor 1.085972850678733
+reachability factor 1.0555555555555556
 [Adaptive] Fiber collisions: 2/20 (10.0%)
-[Adaptive] Empirical density: 0.6933
-[Adaptive] Recommended NUM_SUBSETS: 576 (configured: 1078)
+[Adaptive] Empirical density: 0.7367
+[Adaptive] Recommended NUM_SUBSETS: 1239 (configured: 1081)
 
 [QC Bias Analysis]
-Primes closest to target QC ratio (1.909):
-  p=79: qc_ratio=2.000, entropy=1.198, coverage=60.0%, counts={0: 1, -1: 9, 1: 4}
-  p=29: qc_ratio=1.750, entropy=1.295, coverage=73.3%, counts={0: 1, 1: 3, -1: 6}
-  p=31: qc_ratio=1.750, entropy=1.295, coverage=53.3%, counts={0: 1, 1: 3, -1: 6}
-  p=83: qc_ratio=1.500, entropy=1.264, coverage=73.3%, counts={0: 1, 1: 5, -1: 8}
-  p=71: qc_ratio=1.400, entropy=1.322, coverage=46.7%, counts={0: 1, -1: 6, 1: 4}
-  p=19: qc_ratio=2.500, entropy=0.722, coverage=60.0%, counts={1: 1, -1: 4}
-  p=59: qc_ratio=1.111, entropy=1.252, coverage=66.7%, counts={0: 1, -1: 9, 1: 8}
-  p=7: qc_ratio=1.000, entropy=1.585, coverage=66.7%, counts={0: 1, 1: 1, -1: 1}
-  p=89: qc_ratio=1.000, entropy=1.264, coverage=93.3%, counts={0: 1, -1: 8, 1: 8}
-  p=73: qc_ratio=0.800, entropy=1.253, coverage=73.3%, counts={0: 1, 1: 9, -1: 7}
+Primes closest to target QC ratio (0.652):
+  p=7: qc_ratio=0.667, entropy=1.500, coverage=66.7%, counts={0: 1, 1: 2, -1: 1}
+  p=89: qc_ratio=0.700, entropy=1.248, coverage=66.7%, counts={0: 1, 1: 9, -1: 6}
+  p=37: qc_ratio=0.583, entropy=1.194, coverage=66.7%, counts={0: 1, 1: 11, -1: 6}
+  p=5: qc_ratio=1.000, entropy=1.522, coverage=73.3%, counts={0: 1, 1: 2, -1: 2}
+  p=19: qc_ratio=1.000, entropy=1.349, coverage=93.3%, counts={0: 1, -1: 5, 1: 5}
+  p=29: qc_ratio=1.000, entropy=1.314, coverage=80.0%, counts={0: 1, 1: 6, -1: 6}
+  p=31: qc_ratio=0.286, entropy=1.061, coverage=46.7%, counts={0: 1, 1: 6, -1: 1}
+  p=79: qc_ratio=1.167, entropy=1.325, coverage=66.7%, counts={0: 1, -1: 6, 1: 5}
+  p=53: qc_ratio=1.200, entropy=1.222, coverage=93.3%, counts={0: 1, 1: 9, -1: 11}
+  p=73: qc_ratio=1.200, entropy=1.222, coverage=93.3%, counts={0: 1, 1: 9, -1: 11}
 
-[QC-Biased Generation] Target QC ratio: 1.909
+[QC-Biased Generation] Target QC ratio: 0.652
 Top primes by composite score:
-  p=79: score=0.681, qc_ratio=2.000, coverage=60.0%
-  p=29: score=0.677, qc_ratio=1.750, coverage=73.3%
-  p=31: score=0.577, qc_ratio=1.750, coverage=53.3%
-  p=83: score=0.513, qc_ratio=1.500, coverage=73.3%
-  p=89: score=0.499, qc_ratio=1.000, coverage=93.3%
-  p=41: score=0.476, qc_ratio=0.583, coverage=93.3%
-  p=37: score=0.447, qc_ratio=0.700, coverage=86.7%
-  p=67: score=0.444, qc_ratio=0.636, coverage=86.7%
-  p=61: score=0.414, qc_ratio=0.727, coverage=80.0%
-  p=19: score=0.385, qc_ratio=2.500, coverage=60.0%
-[QC-Biased] Top 6 primes: [79, 29, 31, 83, 89, 41]
-[QC-Biased] Generated 1061 unique subsets
-Sample subsets: [[29, 41, 79], [13, 29, 37, 79, 83], [29, 41, 89]]
-Generated 1061 prime_subsets -> filtered to 1061
-using 160 subsets of len = 3
-using 137 subsets of len = 4
-using 152 subsets of len = 5
-using 152 subsets of len = 6
-using 160 subsets of len = 7
-using 135 subsets of len = 8
-using 158 subsets of len = 9
+  p=7: score=0.812, qc_ratio=0.667, coverage=66.7%
+  p=89: score=0.767, qc_ratio=0.700, coverage=66.7%
+  p=37: score=0.740, qc_ratio=0.583, coverage=66.7%
+  p=19: score=0.643, qc_ratio=1.000, coverage=93.3%
+  p=29: score=0.576, qc_ratio=1.000, coverage=80.0%
+  p=53: score=0.563, qc_ratio=1.200, coverage=93.3%
+  p=73: score=0.563, qc_ratio=1.200, coverage=93.3%
+  p=5: score=0.543, qc_ratio=1.000, coverage=73.3%
+  p=23: score=0.520, qc_ratio=1.400, coverage=93.3%
+  p=61: score=0.450, qc_ratio=1.250, coverage=73.3%
+[QC-Biased] Top 6 primes: [7, 89, 37, 19, 29, 53]
+[QC-Biased] Generated 1215 unique subsets
+Sample subsets: [[19, 37, 89], [7, 23, 37, 53, 89], [7, 19, 89]]
+Generated 1215 prime_subsets -> filtered to 1215
+using 162 subsets of len = 3
+using 183 subsets of len = 4
+using 192 subsets of len = 5
+using 172 subsets of len = 6
+using 172 subsets of len = 7
+using 162 subsets of len = 8
+using 165 subsets of len = 9
 
 --- Coverage Estimate ---
   Heuristic (density): 0.0000%
-  CRT classes tested: 93,320
-  Search space size: ~1.80e+17
+  CRT classes tested: 223,973
+  Search space size: ~9.28e+16
   ⚠️  Recommend +Infinity more run(s) to reach 95% coverage
 
-Checking rationality for 75451 unique candidates...
-[batch check] processed 3772/75451, found 1 rational so far
-[batch check] processed 7544/75451, found 3 rational so far
-[batch check] processed 11316/75451, found 7 rational so far
-[batch check] processed 15088/75451, found 9 rational so far
-[batch check] processed 18860/75451, found 10 rational so far
-[batch check] processed 22632/75451, found 11 rational so far
-[batch check] processed 26404/75451, found 11 rational so far
-[batch check] processed 30176/75451, found 12 rational so far
-[batch check] processed 33948/75451, found 12 rational so far
-[batch check] processed 37720/75451, found 12 rational so far
-[batch check] processed 41492/75451, found 12 rational so far
-[batch check] processed 45264/75451, found 12 rational so far
-[batch check] processed 49036/75451, found 13 rational so far
-[batch check] processed 52808/75451, found 14 rational so far
-[batch check] processed 56580/75451, found 14 rational so far
-[batch check] processed 60352/75451, found 16 rational so far
-[batch check] processed 64124/75451, found 17 rational so far
-[batch check] processed 67896/75451, found 18 rational so far
-[batch check] processed 71668/75451, found 19 rational so far
-[batch check] processed 75440/75451, found 20 rational so far
-[batch check] processed 75451/75451, found 20 rational so far
+Checking rationality for 170020 unique candidates...
+[batch check] processed 8501/170020, found 4 rational so far
+[batch check] processed 17002/170020, found 8 rational so far
+[batch check] processed 25503/170020, found 11 rational so far
+[batch check] processed 34004/170020, found 12 rational so far
+[batch check] processed 42505/170020, found 14 rational so far
+[batch check] processed 51006/170020, found 17 rational so far
+[batch check] processed 59507/170020, found 19 rational so far
+[batch check] processed 68008/170020, found 24 rational so far
+[batch check] processed 76509/170020, found 24 rational so far
+[batch check] processed 85010/170020, found 27 rational so far
+[batch check] processed 93511/170020, found 30 rational so far
+[batch check] processed 102012/170020, found 32 rational so far
+[batch check] processed 110513/170020, found 34 rational so far
+[batch check] processed 119014/170020, found 35 rational so far
+[batch check] processed 127515/170020, found 37 rational so far
+[batch check] processed 136016/170020, found 38 rational so far
+[batch check] processed 144517/170020, found 41 rational so far
+[batch check] processed 153018/170020, found 43 rational so far
+[batch check] processed 161519/170020, found 46 rational so far
+[batch check] processed 170020/170020, found 48 rational so far
 
-[subset stats] 1061/1061 subsets produced candidates (100.0%)
-[subset stats] 97576 total candidates from productive subsets
+[subset stats] 1215/1215 subsets produced candidates (100.0%)
+[subset stats] 209905 total candidates from productive subsets
 [subset stats] Productivity by size:
-  Size 3: 161/161 productive (100.0%), 7233 candidates
-  Size 4: 138/138 productive (100.0%), 14115 candidates
-  Size 5: 153/153 productive (100.0%), 28572 candidates
-  Size 6: 153/153 productive (100.0%), 21325 candidates
-  Size 7: 161/161 productive (100.0%), 16187 candidates
-  Size 8: 136/136 productive (100.0%), 5696 candidates
-  Size 9: 159/159 productive (100.0%), 4448 candidates
+  Size 3: 163/163 productive (100.0%), 11482 candidates
+  Size 4: 184/184 productive (100.0%), 29550 candidates
+  Size 5: 193/193 productive (100.0%), 60337 candidates
+  Size 6: 173/173 productive (100.0%), 55502 candidates
+  Size 7: 173/173 productive (100.0%), 34486 candidates
+  Size 8: 163/163 productive (100.0%), 14988 candidates
+  Size 9: 166/166 productive (100.0%), 3560 candidates
 [subset stats] Top 5 productive subsets:
-  [11, 29, 59, 61, 67]: 802 candidates
-  [11, 29, 31, 61, 67]: 769 candidates
-  [7, 11, 29, 31, 53, 61]: 716 candidates
-  [11, 43, 67, 73, 89]: 710 candidates
-  [7, 11, 13, 29, 31, 89]: 678 candidates
+  [19, 37, 61, 71, 83]: 1773 candidates
+  [11, 29, 53, 61, 71, 83, 89]: 1644 candidates
+  [5, 19, 41, 53, 61, 71]: 1532 candidates
+  [5, 11, 19, 23, 47, 53, 61]: 1521 candidates
+  [5, 7, 11, 19, 41, 43, 53, 59]: 1405 candidates
 
-Found 20 rational (m, vector) pairs after checking.
+Found 48 rational (m, vector) pairs after checking.
 
 ======================================================================
 RESIDUE PATTERN ANALYSIS
 ======================================================================
 
 Total primes analyzed: 20
-Total residues: 251
-Unused residues: 202
+Total residues: 271
+Unused residues: 155
 
 --- Discriminant Patterns ---
-  Used: {'smooth': 45, 'simple_ramification': 2, 'unknown': 2}
-  Unused: {'smooth': 199, 'simple_ramification': 3}
+  Used: {'simple_ramification': 3, 'smooth': 112, 'unknown': 1}
+  Unused: {'smooth': 153, 'unknown': 1, 'simple_ramification': 1}
 
 --- Quadratic Character ---
-  Used: {0: 19, 1: 19, -1: 11}
-  Unused: {1: 106, -1: 96}
+  Used: {0: 19, 1: 46, -1: 51}
+  Unused: {-1: 85, 1: 70}
 
 --- Liftability ---
-  Used: {'zero': 46, 'positive': 3}
-  Unused: {'zero': 198, 'positive': 4}
+  Used: {'positive': 2, 'zero': 114}
+  Unused: {'zero': 152, 'positive': 3}
 
 --- Local Height ---
   Used: mean=0.00, median=0.00, max=0
@@ -430,34 +429,33 @@ Unused residues: 202
 
 --- Composite Patterns ---
   High lift + high disc: used=0, unused=0
-  QC=-1 + lift>0: used=3, unused=1
-  Zero local height: used=49, unused=202
+  QC=-1 + lift>0: used=0, unused=1
+  Zero local height: used=116, unused=155
 
 --- Discriminative Power ---
-  disc_pattern: diff=0.067 at 'smooth' (used=91.8%, unused=98.5%)
-  lift_range: diff=0.041 at 'positive' (used=6.1%, unused=2.0%)
-  a_p_sign: diff=0.067 at 'singular' (used=8.2%, unused=1.5%)
+  disc_pattern: diff=0.022 at 'smooth' (used=96.6%, unused=98.7%)
+  lift_range: diff=0.002 at 'zero' (used=98.3%, unused=98.1%)
+  a_p_sign: diff=0.022 at 'singular' (used=3.4%, unused=1.3%)
 ======================================================================
 
 --- Search Statistics ---
-Total time: 6.38s
-Total Rational Points Found (Unique x): 4
+Total time: 11.71s
+Total Rational Points Found (Unique x): 11
 
 Phases (s):
-  search_subsets_and_check : 5.11s
+  search_subsets_and_check : 10.42s
   precompute_residues      : 0.72s
-  prep_mod_data            : 0.40s
-  post_process             : 0.10s
-  gen_subsets              : 0.01s
-  brauer                   : 0.00s
+  prep_mod_data            : 0.41s
+  post_process             : 0.11s
+  gen_subsets              : 0.02s
+  brauer                   : 0.01s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 75451
-  crt_lift_attempts             : 696593
+  crt_candidates_found          : 170020
+  crt_lift_attempts             : 1720449
   modular_checks                : 300
   modular_checks_p_11           : 15
-  modular_checks_p_13           : 15
   modular_checks_p_19           : 15
   modular_checks_p_23           : 15
   modular_checks_p_29           : 15
@@ -466,6 +464,7 @@ Counters:
   modular_checks_p_41           : 15
   modular_checks_p_43           : 15
   modular_checks_p_47           : 15
+  modular_checks_p_5            : 15
   modular_checks_p_53           : 15
   modular_checks_p_59           : 15
   modular_checks_p_61           : 15
@@ -479,64 +478,64 @@ Counters:
   modular_mults                 : 280
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 4
-  rational_recon_attempts_worker: 104423
+  rational_points_unique        : 11
+  rational_recon_attempts_worker: 233648
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 104423
-  rationality_tests_failure     : 75431
-  rationality_tests_success     : 20
-  rationality_tests_total       : 75451
-  residues_seen_p_11            : 9
-  residues_seen_p_13            : 5
-  residues_seen_p_19            : 5
-  residues_seen_p_23            : 7
-  residues_seen_p_29            : 10
-  residues_seen_p_31            : 10
-  residues_seen_p_37            : 16
-  residues_seen_p_41            : 18
-  residues_seen_p_43            : 19
-  residues_seen_p_47            : 10
-  residues_seen_p_53            : 13
+  rational_recon_success_worker : 233648
+  rationality_tests_failure     : 169972
+  rationality_tests_success     : 48
+  rationality_tests_total       : 170020
+  residues_seen_p_11            : 5
+  residues_seen_p_19            : 11
+  residues_seen_p_23            : 11
+  residues_seen_p_29            : 13
+  residues_seen_p_31            : 8
+  residues_seen_p_37            : 18
+  residues_seen_p_41            : 13
+  residues_seen_p_43            : 14
+  residues_seen_p_47            : 13
+  residues_seen_p_5             : 5
+  residues_seen_p_53            : 21
   residues_seen_p_59            : 18
-  residues_seen_p_61            : 18
-  residues_seen_p_67            : 17
-  residues_seen_p_7             : 3
-  residues_seen_p_71            : 11
-  residues_seen_p_73            : 17
-  residues_seen_p_79            : 14
-  residues_seen_p_83            : 14
-  residues_seen_p_89            : 17
+  residues_seen_p_61            : 16
+  residues_seen_p_67            : 15
+  residues_seen_p_7             : 4
+  residues_seen_p_71            : 20
+  residues_seen_p_73            : 21
+  residues_seen_p_79            : 12
+  residues_seen_p_83            : 17
+  residues_seen_p_89            : 16
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1061
-  subsets_processed             : 1061
+  subsets_generated_initial     : 1215
+  subsets_processed             : 1215
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
 
-Successes: 20, Failures: 75431
+Successes: 48, Failures: 169972
 Discard Reasons (Top 5):
-  y_not_rational                : 75431
+  y_not_rational                : 169972
 --------------------------------
-Found 4 new point(s) and 0 new section(s).
-New x-coordinates: {0, 1, -2, 1/2}
+Found 11 new point(s) and 0 new section(s).
+New x-coordinates: {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -1, -1/6, 7/5, -2}
 
 ======================================================================
 COMPLETENESS ANALYSIS
 ======================================================================
 
-Estimated Completeness Score: 31.3% (confidence: medium)
+Estimated Completeness Score: 36.2% (confidence: medium)
 
 Coverage Details:
-  Global m-space heuristic (avg density): 32.1%
+  Global m-space heuristic (avg density): 37.4%
   Findability of Found Points:
-    Average: 30.4%
-    Min:     20.8% (at x=0)
-    Max:     54.2% (at x=-2)
+    Average: 35.0%
+    Min:     20.8% (at x=-1)
+    Max:     79.2% (at x=1)
 
-Points Found: 4
+Points Found: 11
 
 Height Distribution:
-  Range: [0.00, 0.69]
-  Mean: 0.35, Median: 0.69
+  Range: [0.00, 5.20]
+  Mean: 1.26, Median: 1.10
   (Search height bound: 473.00)
 
 Recommendation:
@@ -544,86 +543,86 @@ Recommendation:
 ======================================================================
 
 === Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.273
-fraction >= 0.1 : 97.720%, fraction >= 0.5 : 0.940%
+avg_fraction (unbiased sample): 0.314
+fraction >= 0.1 : 99.260%, fraction >= 0.5 : 2.840%
 empirical visible fraction: (no prime_subsets available in analyzer)
 
 === Pairwise MI on first 24 primes (binary match indicators) ===
 Top MI pairs (p,q,MI bits):
-  (  7, 37)  0.0009 bits
-  ( 41, 59)  0.0009 bits
-  ( 43, 79)  0.0007 bits
-  ( 31, 47)  0.0007 bits
-  ( 11, 73)  0.0007 bits
-  ( 11, 43)  0.0006 bits
-  ( 23, 83)  0.0006 bits
-  ( 13, 29)  0.0006 bits
-  ( 31, 37)  0.0006 bits
-  ( 31, 83)  0.0006 bits
-  ( 13, 19)  0.0005 bits
-  ( 37, 47)  0.0005 bits
-  (  7, 67)  0.0005 bits
-  ( 13, 83)  0.0005 bits
-  ( 11, 61)  0.0005 bits
-  ( 11, 13)  0.0004 bits
-  ( 19, 89)  0.0004 bits
-  ( 73, 79)  0.0004 bits
-  ( 79, 83)  0.0004 bits
-  ( 73, 89)  0.0004 bits
+  (  5, 53)  0.0008 bits
+  ( 19, 61)  0.0008 bits
+  ( 23, 59)  0.0008 bits
+  (  5, 83)  0.0006 bits
+  ( 19, 79)  0.0006 bits
+  ( 23, 29)  0.0005 bits
+  (  5, 79)  0.0005 bits
+  ( 19, 71)  0.0005 bits
+  (  7, 71)  0.0005 bits
+  (  5, 89)  0.0005 bits
+  ( 11, 47)  0.0005 bits
+  ( 59, 79)  0.0005 bits
+  (  5, 31)  0.0004 bits
+  ( 31, 67)  0.0004 bits
+  ( 23, 79)  0.0004 bits
+  ( 59, 61)  0.0004 bits
+  (  5, 61)  0.0004 bits
+  (  5, 47)  0.0004 bits
+  ( 71, 89)  0.0003 bits
+  (  7, 73)  0.0003 bits
 fraction of pairs with MI >= 0.01 bits: 0.000%
 
 === Per-subset empirical coverage (first 30 subsets) ===
- subset [29, 41, 79]...  emp_p=0.0254  product_p=0.02459
- subset [13, 29, 37, 79, 83]...  emp_p=0.0016  product_p=0.0014
- subset [29, 41, 89]...  emp_p=0.0274  product_p=0.02634
- subset [7, 37, 73, 79, 83, 89]...  emp_p=0.0008  product_p=0.0001908
- subset [29, 31, 41]...  emp_p=0.0488  product_p=0.04663
- subset [11, 19, 29, 31, 73, 79]...  emp_p=0.0004  product_p=0.0001355
- subset [41, 79, 89]...  emp_p=0.012  product_p=0.01372
- subset [13, 41, 67, 83]...  emp_p=0.0068  product_p=0.006243
- subset [7, 13, 29, 47, 61, 79]...  emp_p=0.0002  product_p=1.375e-05
- subset [31, 41, 89]...  emp_p=0.0254  product_p=0.02602
- subset [7, 19, 29, 47, 73, 79]...  emp_p=0.0002  product_p=4.752e-05
- subset [13, 31, 41, 61, 79, 83]...  emp_p=0.0004  product_p=0.0004136
- subset [29, 41, 83]...  emp_p=0.0224  product_p=0.02402
- subset [29, 61, 67, 83]...  emp_p=0.0042  product_p=0.003881
- subset [41, 79, 83]...  emp_p=0.0152  product_p=0.01251
- subset [31, 47, 53, 59, 83]...  emp_p=0.0002  product_p=0.0008186
- subset [29, 79, 89]...  emp_p=0.0106  product_p=0.01039
- subset [29, 31, 47, 79, 89]...  emp_p=0.0016  product_p=0.0007059
- subset [29, 31, 83]...  emp_p=0.0214  product_p=0.01796
- subset [7, 61, 79]...  emp_p=0.0182  product_p=0.01845
- subset [29, 31, 79]...  emp_p=0.0206  product_p=0.01839
- subset [7, 11, 29, 41, 61, 79]...  emp_p=0.0002  product_p=0.0003308
- subset [41, 83, 89]...  emp_p=0.014  product_p=0.0134
- subset [19, 29, 37, 41, 53, 79]...  emp_p=0  product_p=0.0001069
- subset [29, 83, 89]...  emp_p=0.0108  product_p=0.01015
- subset [7, 11, 31, 43, 47, 73]...  emp_p=0.0002  product_p=5.658e-05
- subset [31, 41, 83]...  emp_p=0.0252  product_p=0.02372
- subset [7, 29, 47, 79, 83, 89]...  emp_p=0.0004  product_p=0.0001353
- subset [11, 23, 29, 37, 43, 61]...  emp_p=0.002  product_p=0.0006835
- subset [29, 37, 41, 53, 71, 73]...  emp_p=0.0002  product_p=2.743e-06
+ subset [19, 37, 89]...  emp_p=0.0428  product_p=0.04536
+ subset [7, 23, 37, 53, 89]...  emp_p=0.0064  product_p=0.007369
+ subset [7, 19, 89]...  emp_p=0.0508  product_p=0.04857
+ subset [29, 37, 53, 67]...  emp_p=0.0172  product_p=0.01731
+ subset [7, 37, 89]...  emp_p=0.0424  product_p=0.04175
+ subset [5, 7, 11, 29, 37, 41]...  emp_p=0  product_p=0.0001612
+ subset [19, 29, 53]...  emp_p=0.095  product_p=0.08993
+ subset [7, 19, 71]...  emp_p=0.0832  product_p=0.07425
+ subset [19, 53, 89]...  emp_p=0.0324  product_p=0.0375
+ subset [7, 19, 23, 47, 53, 89]...  emp_p=0.0014  product_p=0.002342
+ subset [7, 29, 53]...  emp_p=0.083  product_p=0.08277
+ subset [19, 29, 41, 53, 67, 71]...  emp_p=0.0004  product_p=0.0003394
+ subset [19, 29, 89]...  emp_p=0.0428  product_p=0.04116
+ subset [11, 29, 37, 47, 53, 61]...  emp_p=0.0002  product_p=0.0001123
+ subset [7, 37, 53]...  emp_p=0.088  product_p=0.09122
+ subset [7, 19, 37, 41, 47, 53]...  emp_p=0.0004  product_p=0.0001768
+ subset [7, 53, 89]...  emp_p=0.0338  product_p=0.03452
+ subset [7, 19, 23, 37, 53, 67]...  emp_p=0.0056  product_p=0.005075
+ subset [7, 19, 29, 37, 41, 53]...  emp_p=0  product_p=5.599e-05
+ subset [7, 11, 19, 29, 43, 53]...  emp_p=0.0062  product_p=0.006048
+ subset [7, 19, 37, 41, 53, 83]...  emp_p=0.0004  product_p=0.0005482
+ subset [29, 37, 89]...  emp_p=0.0356  product_p=0.03538
+ subset [5, 7, 29, 53]...  emp_p=0.0702  product_p=0.0686
+ subset [37, 53, 79, 83]...  emp_p=0.0056  product_p=0.005477
+ subset [7, 11, 29, 41, 67, 71]...  emp_p=0  product_p=5.904e-05
+ subset [5, 37, 83]...  emp_p=0.0844  product_p=0.07903
+ subset [5, 7, 19, 31, 37, 41]...  emp_p=0.0002  product_p=0.000137
+ subset [5, 7, 19, 23, 73, 89]...  emp_p=0.0052  product_p=0.005269
+ subset [19, 23, 31, 37, 53, 79]...  emp_p=0  product_p=0.0003182
+ subset [11, 23, 29, 31, 43, 47]...  emp_p=0.0002  product_p=5e-05
 
 ======================================================================
 SEARCH SUMMARY
 ======================================================================
-Total points found: 4
-Total time: 10.3s
-CRT candidates tested: 75,451
-Rationality tests: 75,451
+Total points found: 11
+Total time: 15.5s
+CRT candidates tested: 170,020
+Rationality tests: 170,020
 Hit rate: 0.03%
 ======================================================================
-Proof using OBSERVED max height: 0.69
+Proof using OBSERVED max height: 5.20
 
 ======================================================================
 FORMAL COMPLETENESS PROOF (Roadmap Step 3)
 ======================================================================
 LLL Guarantee Constant (C_lll) for rank d=1: 1.0000
-Smallest Modulus (M_min) used: 2093 (from subset [7, 13, 23])
-Height Bound (H): 0.69
+Smallest Modulus (M_min) used: 1015 (from subset [5, 7, 29])
+Height Bound (H): 5.20
 Required (in log-space): log(M) > log(2*C_lll) + H
-Actual log(M):  7.65
-Required log(M): > 1.39
+Actual log(M):  6.92
+Required log(M): > 5.90
 
 *** ✅ PASS ***
 The smallest modulus M is formally sufficient
@@ -631,35 +630,35 @@ to guarantee rational reconstruction for all sections up to height H.
 ======================================================================
 
 [fiber_collision_adjustment]
-  Collision primes: [5, 17]
+  Collision primes: [13, 17]
   Other rejected: [2, 3]
-  Reachable fraction: 0.7529
-  Adjustment factor: 0.7529
-  Raw p_visibility: 0.2727
-  Adjusted p_visibility: 0.2054
+  Reachable fraction: 0.8688
+  Adjustment factor: 0.8688
+  Raw p_visibility: 0.3144
+  Adjusted p_visibility: 0.2731
 
 --- Arithmetic-informed prior (with fiber collision adjustment) ---
-Fiber collision primes detected: [5, 17]
-p_visibility (raw): 0.2727
-p_visibility (adjusted): 0.2054
+Fiber collision primes detected: [13, 17]
+p_visibility (raw): 0.3144
+p_visibility (adjusted): 0.2731
 mu_selmer:   0
 mu_local:    0
 mu_height:   0
-mu_bootstrap:0.1548
---> mu_combined = 0.1548  (q = 0.134032)
+mu_bootstrap:0.2928
+--> mu_combined = 0.2928  (q = 0.226469)
 
 --- Posterior summary (geometric prior from arithmetic signals) ---
-Observed points (k) = 4
-Estimated detection probability p = 0.205
-P(true T == k)         = 56.945%   (probability we found all points)
-P(true T <= k+1)       = 87.270%   (probability we missed ≤ 1 point)
-P(true T <= k+2)       = 96.960%   (probability we missed ≤ 2 points)
-Posterior mean of T    = 4.596
+Observed points (k) = 11
+Estimated detection probability p = 0.273
+P(true T == k)         = 11.551%   (probability we found all points)
+P(true T <= k+1)       = 34.369%   (probability we missed ≤ 1 point)
+P(true T <= k+2)       = 58.784%   (probability we missed ≤ 2 points)
+Posterior mean of T    = 13.365
 Note: results depend on prior (mu_combined) computed from arithmetic signals above.
 
-Top posterior mass (T, prob): 4:56.945%, 5:30.325%, 6:9.690%, 7:2.408%, 8:0.513%, 9:0.098%, 10:0.017%, 11:0.003%
+Top posterior mass (T, prob): 13:24.416%, 12:22.818%, 14:18.757%, 15:11.579%, 11:11.551%, 16:6.100%, 17:2.845%, 18:1.204%
 
-✓ Fiber collision detection validated: {17, 5} ⊆ ramification locus {2, 3, 5, 18421801, 11, 461, 27479, 24847, 17, 151, 127}
+✓ Fiber collision detection validated: {17, 13} ⊆ ramification locus {97, 2, 3, 5, 7, 71, 50857, 683, 1104811, 13, 463, 17, 46872409}
 
 --- Automorphism Search ---
 No scaling automorphisms found.
@@ -675,25 +674,23 @@ Fiber component counts: [1, 1]  -> lcm bound: 1
 Base section 0 does not appear to be small order torsion.
 
 --- Running Saturation Diagnostics ---
-✅ p=2 appears to be saturated. Witness found: {'p': 2, 'm0': -2, 'ell': 11, 'subgroup_size': 8, 'E_mod_cardinality': 16}
-✅ p=3 appears to be saturated. Witness found: {'p': 3, 'm0': -2, 'ell': 17, 'subgroup_size': 9, 'E_mod_cardinality': 18}
+✅ p=2 appears to be saturated. Witness found: {'p': 2, 'm0': -3, 'ell': 11, 'subgroup_size': 14, 'E_mod_cardinality': 14}
+✅ p=3 appears to be saturated. Witness found: {'p': 3, 'm0': -3, 'ell': 17, 'subgroup_size': 6, 'E_mod_cardinality': 12}
 
 --- Running Picard-Van Luijk Analysis ---
 Using 10 good prime candidates for reduction: [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 [char 0] Using mw_rank = 1. Σ(m_v-1) = 0
 [char 0] ST lower bound: rho >= 3
+[skip] ell=5 dependence witnessed in reduction; witness={'p': 67, 'relation': (63,), 'm0s': [1, 2, 3], 'ell': 5}
 [rank_over_fq(t)] independent reduced sections: 1
-[mod 5] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
+[mod 7] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
 [rank_over_fq(t)] independent reduced sections: 1
-[mod 7] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[mod 11] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
 [rank_over_fq(t)] independent reduced sections: 1
-[mod 11] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
+[mod 13] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
 [rank_over_fq(t)] independent reduced sections: 1
-[mod 13] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 17] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 19] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[mod 17] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
+[skip] ell=19 dependence witnessed in reduction; witness={'p': 61, 'relation': (60,), 'm0s': [0, 1, 2, 3, 4, 5], 'ell': 19}
 [rank_over_fq(t)] independent reduced sections: 1
 [mod 23] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
 [rank_over_fq(t)] independent reduced sections: 1
@@ -702,17 +699,16 @@ Using 10 good prime candidates for reduction: [5, 7, 11, 13, 17, 19, 23, 29, 31,
 [mod 31] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
 [rank_over_fq(t)] independent reduced sections: 1
 [mod 37] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[summary] lower >= 3, best upper <= 3 at ell=7
+[summary] lower >= 3, best upper <= 3 at ell=11
+[collapsed fiber contribution / reduction-dependence primes] [5, 19]
 
 === Picard Report ===
 Lower bound (char 0): 3
 Upper bounds from reductions:
-  ell=5: rho <= 4    (rank_lb=1, Σ=1)
-  ell=7: rho <= 3    (rank_lb=1, Σ=0)
-  ell=11: rho <= 4    (rank_lb=1, Σ=1)
-  ell=13: rho <= 3    (rank_lb=1, Σ=0)
-  ell=17: rho <= 3    (rank_lb=1, Σ=0)
-  ell=19: rho <= 3    (rank_lb=1, Σ=0)
+  ell=7: rho <= 4    (rank_lb=1, Σ=1)
+  ell=11: rho <= 3    (rank_lb=1, Σ=0)
+  ell=13: rho <= 4    (rank_lb=1, Σ=1)
+  ell=17: rho <= 4    (rank_lb=1, Σ=1)
   ell=23: rho <= 3    (rank_lb=1, Σ=0)
   ell=29: rho <= 3    (rank_lb=1, Σ=0)
   ell=31: rho <= 3    (rank_lb=1, Σ=0)
@@ -734,32 +730,38 @@ Tamagawa product: 1
 Rank bounds:
   1 ≤ rank(S²) ≤ 5
 
-known_pts {(1, 1)}
-found {0, 1, 1/2, -2}
+known_pts {(-1, 1)}
+found {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, 7/5, -1}
 new x: 0
-new x: 1/2
+new x: 1
+new x: 2
+new x: -3/2
+new x: 1/3
+new x: -1/4
+new x: 182/141
 new x: -2
-TERMINATE_WHEN_6 (4) reached.
+new x: -1/6
+new x: 7/5
+TERMINATE_WHEN_6 (11) reached.
 
 --- Cumulative Run Statistics ---
-Total time: 11.03s
-Total Rational Points Found (Unique x): 4
+Total time: 16.12s
+Total Rational Points Found (Unique x): 11
 
 Phases (s):
-  search_subsets_and_check : 5.11s
+  search_subsets_and_check : 10.42s
   precompute_residues      : 0.72s
-  prep_mod_data            : 0.40s
-  post_process             : 0.10s
-  gen_subsets              : 0.01s
-  brauer                   : 0.00s
+  prep_mod_data            : 0.41s
+  post_process             : 0.11s
+  gen_subsets              : 0.02s
+  brauer                   : 0.01s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 75451
-  crt_lift_attempts             : 696593
+  crt_candidates_found          : 170020
+  crt_lift_attempts             : 1720449
   modular_checks                : 300
   modular_checks_p_11           : 15
-  modular_checks_p_13           : 15
   modular_checks_p_19           : 15
   modular_checks_p_23           : 15
   modular_checks_p_29           : 15
@@ -768,6 +770,7 @@ Counters:
   modular_checks_p_41           : 15
   modular_checks_p_43           : 15
   modular_checks_p_47           : 15
+  modular_checks_p_5            : 15
   modular_checks_p_53           : 15
   modular_checks_p_59           : 15
   modular_checks_p_61           : 15
@@ -781,43 +784,43 @@ Counters:
   modular_mults                 : 280
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 4
-  rational_recon_attempts_worker: 104423
+  rational_points_unique        : 11
+  rational_recon_attempts_worker: 233648
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 104423
-  rationality_tests_failure     : 75431
-  rationality_tests_success     : 20
-  rationality_tests_total       : 75451
-  residues_seen_p_11            : 9
-  residues_seen_p_13            : 5
-  residues_seen_p_19            : 5
-  residues_seen_p_23            : 7
-  residues_seen_p_29            : 10
-  residues_seen_p_31            : 10
-  residues_seen_p_37            : 16
-  residues_seen_p_41            : 18
-  residues_seen_p_43            : 19
-  residues_seen_p_47            : 10
-  residues_seen_p_53            : 13
+  rational_recon_success_worker : 233648
+  rationality_tests_failure     : 169972
+  rationality_tests_success     : 48
+  rationality_tests_total       : 170020
+  residues_seen_p_11            : 5
+  residues_seen_p_19            : 11
+  residues_seen_p_23            : 11
+  residues_seen_p_29            : 13
+  residues_seen_p_31            : 8
+  residues_seen_p_37            : 18
+  residues_seen_p_41            : 13
+  residues_seen_p_43            : 14
+  residues_seen_p_47            : 13
+  residues_seen_p_5             : 5
+  residues_seen_p_53            : 21
   residues_seen_p_59            : 18
-  residues_seen_p_61            : 18
-  residues_seen_p_67            : 17
-  residues_seen_p_7             : 3
-  residues_seen_p_71            : 11
-  residues_seen_p_73            : 17
-  residues_seen_p_79            : 14
-  residues_seen_p_83            : 14
-  residues_seen_p_89            : 17
+  residues_seen_p_61            : 16
+  residues_seen_p_67            : 15
+  residues_seen_p_7             : 4
+  residues_seen_p_71            : 20
+  residues_seen_p_73            : 21
+  residues_seen_p_79            : 12
+  residues_seen_p_83            : 17
+  residues_seen_p_89            : 16
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1061
-  subsets_processed             : 1061
+  subsets_generated_initial     : 1215
+  subsets_processed             : 1215
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
 
-Successes: 20, Failures: 75431
+Successes: 48, Failures: 169972
 Discard Reasons (Top 5):
-  y_not_rational                : 75431
+  y_not_rational                : 169972
 --------------------------------
 
 --- Final Results ---
-Final list of known points: [(-2, 19), (0, 1), (1/2, 7/8), (1, 1)]
+Final list of known points: [(-2, 1), (-3/2, 23/8), (-1, 1), (-1/4, 1/64), (-1/6, 139/216), (0, 1), (1/3, 13/27), (1, 1), (182/141, 13959301/2803221), (7/5, 827/125), (2, 19)]
