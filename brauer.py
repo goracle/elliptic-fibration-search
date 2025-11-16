@@ -477,3 +477,264 @@ def compute_ramification_locus(cd, verbose=False):
     if verbose: print(f"[ram_locus] Final ramification locus: {ram_locus}")
 
     return ram_locus
+
+
+
+def compute_ramification_locus(cd, verbose=False):
+    """
+    Robust computation of primes in the ramification locus:
+    - primes dividing denominators of a4/a6
+    - primes dividing the resultant of Delta and Delta'
+    Handles the Delta squarefree-case safely.
+    """
+    from sage.all import QQ, ZZ, PolynomialRing, gcd, Integer
+
+    ram_locus = set()
+
+    a4 = cd.a4
+    a6 = cd.a6
+
+    # 1) primes dividing denominators of a4,a6 (coefficient denominators)
+    for coeff in (a4, a6):
+        try:
+            den = coeff.denominator()
+        except Exception:
+            den = None
+        if den:
+            # factor() over ZZ or QQ will yield (prime, exponent) pairs
+            for ppair in Integer(den).factor():
+                p = int(ppair[0])
+                if p > 1:
+                    ram_locus.add(p)
+
+    # 2) Build Delta(m) polynomial (numerator/primitive part)
+    # Delta = -16*(4*a4^3 + 27*a6^2)
+    Delta = -16 * (4 * a4**3 + 27 * a6**2)
+
+    PR_m = PolynomialRing(QQ, 'm')
+    # Force Delta_poly to be a polynomial in QQ[m] (take numerator if rational function)
+    if hasattr(Delta, 'numerator'):
+        Delta_obj = Delta.numerator()
+    else:
+        Delta_obj = Delta
+    Delta_poly = PR_m(Delta_obj)
+
+    if Delta_poly.degree() <= 0:
+        if verbose:
+            print("[ram_locus] Delta is constant or zero; skipping resultant.")
+        return ram_locus
+
+    # Remove integer content to make resultant smaller (primitive part)
+    content = Delta_poly.content()
+    Delta_prim = Delta_poly // content
+
+    # Compute derivative and gcd (to detect repeated factors)
+    dDelta = Delta_prim.derivative()
+
+    # gcd gives the repeated factor part; square-free part is Delta_prim // gcd
+    g = gcd(Delta_prim, dDelta)
+    if g != 1:
+        if verbose:
+            print(f"[ram_locus] gcd(Delta, Delta') != 1 (deg g = {g.degree()}). "
+                  "Computing square-free part.")
+    Delta_sqf = Delta_prim // g
+
+    if Delta_sqf.degree() <= 0:
+        # degenerate: square-free part constant
+        if verbose: print("[ram_locus] square-free part is constant after gcd; nothing further.")
+        return ram_locus
+
+    # 3) resultant between square-free part and its derivative
+    dDelta_sqf = Delta_sqf.derivative()
+    R = Integer(Delta_sqf.resultant(dDelta_sqf))
+
+    # If somehow resultant still zero (very pathological), fall back to 1
+    if R == 0:
+        if verbose:
+            print("[ram_locus] resultant still zero after square-free extraction; treating as no primes.")
+        R = Integer(1)
+
+    # 4) factor integer R (and also factor content if present, content may have primes)
+    if content != 1:
+        try:
+            # content is an integer in QQ polynomial; factor it
+            for ppair in Integer(content).factor():
+                p = int(ppair[0])
+                if p > 1:
+                    ram_locus.add(p)
+        except Exception:
+            pass
+
+    # factor R and add primes
+    try:
+        for ppair in R.factor():
+            p = int(ppair[0])
+            if p > 1 and ZZ(p).is_prime():
+                ram_locus.add(p)
+    except Exception:
+        # If factoring R fails (too big), conservatively try small primes trial division
+        small_primes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71]
+        rem = abs(int(R))
+        for p in small_primes:
+            if rem % p == 0:
+                ram_locus.add(p)
+                while rem % p == 0:
+                    rem //= p
+
+    if verbose:
+        print(f"[ram_locus] Final ramification locus: {sorted(ram_locus)}")
+    return ram_locus
+
+
+def compute_ramification_locus(cd, verbose=False):
+    """
+    Compute the ramification locus for an elliptic fibration:
+    - primes dividing denominators of a4, a6
+    - primes where the Weierstrass discriminant Δ(m) has repeated roots mod p
+      (equivalently: primes dividing the resultant of square-free Δ and its derivative)
+
+    Fully robust:
+    - works with QQ-rational functions in m
+    - coerces to QQ[m], then clears denominators -> ZZ[m]
+    - extracts square-free part to avoid resultant=0 bugs
+    - handles all degeneracies gracefully
+    """
+
+    from sage.all import (
+        QQ, ZZ, Integer, PolynomialRing, lcm, gcd
+    )
+
+    ram_locus = set()
+
+    # ------------------------------------------------------------
+    # 1. primes dividing denominators of a4, a6
+    # ------------------------------------------------------------
+    def add_denominator_primes(x):
+        try:
+            den = x.denominator()
+        except Exception:
+            raise
+            return
+        if den:
+            for p, _ in Integer(den).factor():
+                ram_locus.add(int(p))
+
+    add_denominator_primes(cd.a4)
+    add_denominator_primes(cd.a6)
+
+    # ------------------------------------------------------------
+    # 2. build discriminant Δ(m) = -16 (4 a4^3 + 27 a6^2)
+    #    as a polynomial in QQ[m]
+    # ------------------------------------------------------------
+    Delta = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
+
+    PRQ = PolynomialRing(QQ, 'm')
+    PRZ = PolynomialRing(ZZ, 'm')
+
+    # rational_fct.numerator() if available (Sage rational function)
+    if hasattr(Delta, "numerator"):
+        Delta_rat = Delta.numerator()
+    else:
+        Delta_rat = Delta
+
+    try:
+        Delta_Q = PRQ(Delta_rat)
+    except Exception:
+        if verbose:
+            print("[ram_locus] Failed to coerce Δ into QQ[m]; skipping.")
+        raise
+        return ram_locus
+
+    if Delta_Q.degree() <= 0:
+        if verbose:
+            print("[ram_locus] Δ is constant. Ram locus = denom primes only.")
+        return ram_locus
+
+    # ------------------------------------------------------------
+    # 3. clear denominators → ZZ[m]
+    # ------------------------------------------------------------
+    coeffs = Delta_Q.coefficients()
+    if not coeffs:
+        if verbose:
+            print("[ram_locus] Δ has no coefficients—degenerate.")
+        return ram_locus
+
+    denoms = [c.denominator() if hasattr(c, "denominator") else 1 for c in coeffs]
+    common_den = int(lcm(denoms))
+
+    # Δ_Z = common_den * Δ_Q  converted to ZZ[m]
+    Delta_Z = PRZ((Delta_Q * common_den).change_ring(ZZ))
+
+    # ------------------------------------------------------------
+    # 4. extract content (integer factor) and primitive part
+    # ------------------------------------------------------------
+    content_int = Integer(Delta_Z.content())
+    if content_int == 0:
+        if verbose:
+            print("[ram_locus] Δ becomes 0 polynomial after clearing denominators.")
+        return ram_locus
+
+    Delta_prim = Delta_Z // content_int
+
+    # primes from denominator clearing + content
+    dencont = content_int * common_den
+    for p, _ in Integer(dencont).factor():
+        ram_locus.add(int(p))
+
+    if Delta_prim.degree() <= 0:
+        if verbose:
+            print("[ram_locus] primitive Δ is constant—no discriminant primes.")
+        return ram_locus
+
+    # ------------------------------------------------------------
+    # 5. extract square-free part: gcd(Δ, Δ')
+    # ------------------------------------------------------------
+    dDelta = Delta_prim.derivative()
+    g = gcd(Delta_prim, dDelta)
+
+    if g != 1 and verbose:
+        print(f"[ram_locus] Δ has repeated factors (gcd degree {g.degree()}). Using square-free part.")
+
+    Delta_sqf = Delta_prim // g
+
+    if Delta_sqf.degree() <= 0:
+        if verbose:
+            print("[ram_locus] Δ square-free part is constant; only denominator primes contribute.")
+        return ram_locus
+
+    # ------------------------------------------------------------
+    # 6. resultant of square-free part and derivative
+    # ------------------------------------------------------------
+    dDelta_sqf = Delta_sqf.derivative()
+    R = Integer(Delta_sqf.resultant(dDelta_sqf))
+
+    if R == 0:
+        # theoretically impossible after square-free extraction,
+        # unless something deeply degenerate occurred
+        if verbose:
+            print("[ram_locus] resultant is still zero after square-free extraction; ignoring.")
+        return ram_locus
+
+    # ------------------------------------------------------------
+    # 7. factor resultant → ramification primes
+    # ------------------------------------------------------------
+    try:
+        for p, _ in R.factor():
+            p = int(p)
+            if p > 1:
+                ram_locus.add(p)
+    except Exception:
+        # fallback: small primes (rarely needed)
+        small = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71]
+        Rabs = abs(int(R))
+        for p in small:
+            if Rabs % p == 0:
+                ram_locus.add(p)
+                while Rabs % p == 0:
+                    Rabs //= p
+        raise
+
+    if verbose:
+        print(f"[ram_locus] Final ramification locus: {sorted(ram_locus)}")
+
+    return ram_locus
