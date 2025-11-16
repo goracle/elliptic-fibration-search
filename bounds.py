@@ -532,36 +532,6 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
 
 # === Better canonical-height estimate from x-height ===
-def estimate_canonical_height_from_xheight(h_x, curve_discriminant=None, fudge_const=None, debug=DEBUG):
-    """
-    Conservative estimate of canonical height hat{h} from naive x-height h_x = log max(|num_x|,|den_x|).
-    We use the classical heuristic
-        hat{h}(P) ~= 1/2 * h_x(P) + O(1)
-    and bound the O(1) term using a crude curve-dependent constant:
-        O(1) <= (1/12)*log|Delta| + 2.0
-    Returns a nonnegative float.
-    """
-    if h_x is None:
-        return None
-
-    # default fudge: if user supplies curve_discriminant we use it, otherwise conservative small shift
-    c_curve = 0.0
-    if curve_discriminant is not None:
-        try:
-            c_curve = max(0.0, float(log(abs(int(curve_discriminant)) + 1.0)) / 12.0)
-        except Exception:
-            c_curve = 0.0
-
-    if fudge_const is None:
-        fudge_const = 2.0
-
-    est = 0.5 * float(h_x) + c_curve + float(fudge_const)
-    if debug:
-        print(f"[bounds] estimate_canonical_height_from_xheight: h_x={h_x}, c_curve={c_curve:.3f}, fudge={fudge_const} -> hat_h ≈ {est:.4g}")
-    return max(0.0, est)
-
-
-# === Replace modulus_needed_from_canonical_height with safer default scale ===
 def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=MAX_MODULUS, debug=DEBUG):
     """
     Translate canonical height to modulus bound B:
@@ -1969,3 +1939,97 @@ def print_conf(sconf):
             f"NUM_PRIME_SUBSETS={num_prime_subsets}, PRIME_POOL size={len(prime_pool)}, "
             f"TMAX={tmax}")
 
+
+"""
+Add this function to bounds.py
+Predicts QC=-1/QC=1 ratio from discriminant polynomial structure
+"""
+
+def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
+    """
+    Predict QC=-1/QC=1 ratio from discriminant polynomial structure.
+    
+    Args:
+        Delta_pr: Discriminant polynomial in QQ[m]
+        prime_sample: List of primes to sample (e.g., first 20-30 from prime_pool)
+        debug: Print diagnostics
+    
+    Returns:
+        float or None: Predicted QC=-1/QC=1 ratio
+    
+    Theory:
+        For polynomial f(m), the QC distribution depends on:
+        - Degree and leading coefficient
+        - Number of irreducible factors mod p
+        - Local behavior near roots of discriminant
+        
+    The ratio should stabilize across primes by Chebotarev density,
+    but specific polynomials can deviate from 1.0 due to arithmetic structure.
+    """
+    from sage.all import kronecker, QQ, GF, Integer
+    from collections import Counter
+    
+    if Delta_pr is None or not prime_sample:
+        return None
+    
+    qc_empirical = Counter()
+    primes_with_roots = 0
+    
+    for p in prime_sample:
+        try:
+            # Reduce discriminant mod p
+            fp = Delta_pr.change_ring(GF(p))
+            
+            # Find roots mod p
+            try:
+                roots_mod_p = fp.roots(multiplicities=False)
+            except Exception:
+                # Factorization might fail for some primes
+                continue
+            
+            if not roots_mod_p:
+                continue
+                
+            primes_with_roots += 1
+            
+            # Compute QC for each root
+            for r in roots_mod_p:
+                try:
+                    r_int = int(r)
+                    qc = kronecker(r_int, p)
+                    qc_empirical[qc] += 1
+                except Exception:
+                    continue
+                    
+        except Exception:
+            continue
+    
+    # Compute ratio with smoothing
+    qc_minus = qc_empirical.get(-1, 0)
+    qc_plus = qc_empirical.get(1, 0)
+    qc_zero = qc_empirical.get(0, 0)
+    
+    total_nonzero = qc_minus + qc_plus
+    
+    if qc_plus == 0:
+        # No QC=1 residues found - likely bad sample
+        predicted_ratio = None
+    else:
+        # Add small Laplace smoothing to stabilize
+        predicted_ratio = (qc_minus + 0.5) / (qc_plus + 0.5)
+    
+    if debug:
+        print(f"\n[QC Prediction from Discriminant]")
+        print(f"  Sample: {len(prime_sample)} primes, {primes_with_roots} with roots")
+        print(f"  QC distribution: -1:{qc_minus}, 0:{qc_zero}, 1:{qc_plus}")
+        if predicted_ratio is not None:
+            print(f"  Predicted QC=-1/QC=1 ratio: {predicted_ratio:.3f}")
+            
+            # Diagnostic: compare to uniform expectation
+            if total_nonzero > 0:
+                actual_minus_frac = qc_minus / total_nonzero
+                print(f"  QC=-1 fraction: {actual_minus_frac:.1%} (uniform: ~50%)")
+        else:
+            print(f"  (insufficient data for prediction)")
+    
+    return predicted_ratio
