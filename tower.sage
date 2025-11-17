@@ -17,6 +17,14 @@ import random # shadows something in sage.all called random; be careful!
 
 from search_common import DEBUG, SEED_INT
 
+# Add these constants near the top of tower.sage (with other config constants)
+
+# === ANCHOR POINT MODE CONFIGURATION ===
+USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
+USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
+NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
+ANCHOR_SEED = 42           # Seed for reproducible anchor point generation
+
 
 
 # ---------- Utilities ----------
@@ -478,250 +486,6 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
 
 
 @PROFILE
-def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
-                             verbose=False, forced_tangency_seq=None,
-                             forced_Qpoly=None, force_Q_constraint_indices=None,
-                             parameter_m=None):
-    """
-    Build a single fibration step.
-
-    Changes required by user:
-    - fibration of the form Q(x)^2 + Prod_i (x - x_i) * rest(x),
-      where rest(x) has degree (n-1 - deg(Prod)).
-    - all intersection points are r = x1 - m (i.e., x1 - m).
-    - eqns: first two force r to be a double root; remaining eqns are tangency
-      equations on the x_i's. Solve for the coefficients of rest(x).
-    - enforce degree drop: target fibration degree = n-1.
-    """
-    # deterministic choices
-    random.seed(int(seed_int))
-    xSR = SR.var('x')
-
-    # degree of current curve polynomial (expected to be an SR polynomial in x)
-    n = int(fx_SR.degree(xSR))
-
-    # ------------------------------
-    # build chosen points (numeric)
-    # ------------------------------
-    xs_chosen = [QQ(xv) for xv in pts_x]
-    if len(xs_chosen) == 0:
-        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
-    x1 = xs_chosen[0]
-
-    # ------------------------------
-    # enforce deg drop constraint for Q
-    # ------------------------------
-    # target fibration degree = n-1, so require deg(Q^2) <= n-1 => degQ <= floor((n-1)/2)
-    max_degQ = (n - 1) // 2
-    initial_degQ = choose_degQ(n)
-    degQ = min(initial_degQ, max_degQ)
-
-    # If user supplied forced_Qpoly, determine/verify its degree
-    if forced_Qpoly is not None:
-        try:
-            forced_Q_SR = SR(forced_Qpoly)
-            forced_deg = int(forced_Q_SR.degree(xSR))
-        except Exception:
-            # try coercing into a QQ polynomial and check degree
-            try:
-                Rtmp = PolynomialRing(QQ, str(xSR))
-                forced_deg = int(Rtmp(forced_Qpoly).degree())
-            except Exception:
-                raise RuntimeError("Could not determine degree of forced_Qpoly; provide a polynomial-like object.")
-        if forced_deg > max_degQ:
-            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} which is > allowed max {max_degQ} (would prevent degree drop).")
-        degQ = forced_deg
-
-    # ------------------------------
-    # Build or interpolate Q polynomial
-    # ------------------------------
-    if forced_Qpoly is not None:
-        # try to coerce forced_Qpoly into a QQ polynomial if it is numeric
-        try:
-            # attempt to interpret as a QQ polynomial (this will fail if coefficients depend on m)
-            Rqq = PolynomialRing(QQ, str(xSR))
-            Qpoly_QQ = Rqq(forced_Qpoly)
-        except Exception:
-            # fallback: keep the SR expression for Q
-            Qpoly_QQ = SR(forced_Qpoly)
-    else:
-        # Need (x,y) pairs for interpolate_Q_general. Compute y from f0 at the xs_chosen points.
-        chosen_pts_xy = []
-        f0_SR = SR(f0)
-        for xv in xs_chosen:
-            # Try to extract y from f0: y^2 = f0(x). We assume the square is exact for these chosen points.
-            y_val_expr = f0_SR.subs({xSR: SR(xv)})
-            try:
-                yi = sqrt(QQ(y_val_expr))
-            except Exception:
-                # last resort: keep symbolic sqrt (in case value depends on m or isn't a perfect square)
-                yi = SR(sqrt(y_val_expr))
-            chosen_pts_xy.append((QQ(xv), yi))
-        # interpolate_Q_general should be in the surrounding context
-        Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
-                                         seed_int=seed_int,
-                                         force_constraint_indices=force_Q_constraint_indices)
-
-    Q_SR = SR(Qpoly_QQ)
-
-    # ------------------------------
-    # Build product Prod(x) = prod (x - xi)
-    # ------------------------------
-    prod1 = poly_prod_numeric(xs_chosen, xSR)  # expects numeric xi and returns a QQ polynomial or SR
-    deg_prod = int(prod1.degree(xSR))
-
-    # rest degree: ensure fibration top-degree = n-1
-    rest_deg = int(n - 1 - deg_prod)
-    if rest_deg < 0:
-        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}. Reduce number/deg of points or change input.")
-
-    # Create symbolic unknowns for rest coefficients: b_rest_0 ... b_rest_k
-    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
-    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
-    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
-
-    # Build the fibration polynomial: Q(x)^2 + Prod(x) * rest(x)
-    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
-
-    # Intersection polynomial: fx_SR(x) - fibration(x)
-    diff_poly = (SR(fx_SR) - fibration_SR).expand()
-
-    # symbolic parameter m
-    if parameter_m is None:
-        m = SR.var('m')
-    else:
-        m = SR(parameter_m)
-
-    # r fixed to x1 - m
-    r_expr = SR(QQ(x1)) - m
-
-    # ------------------------------
-    # Build equations
-    # ------------------------------
-    eqs = []
-    # 1) enforce r is a root
-    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
-    # 2) enforce r is a double root
-    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
-
-    # Unknowns to solve for: coefficients of rest(x)
-    unknowns = rest_coeff_syms[:]
-
-    # Number of extra equations needed (beyond the two double-root eqs)
-    num_extra_eqs = len(unknowns) - 2
-    if num_extra_eqs < 0:
-        raise RuntimeError("Too few unknowns in rest polynomial to satisfy double-root + tangency constraints.")
-
-    # Build tangency allocation
-    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
-    if forced_tangency_seq is not None:
-        if not isinstance(forced_tangency_seq, (list, tuple)):
-            raise RuntimeError("forced_tangency_seq must be a list/tuple of x-values")
-        if len(forced_tangency_seq) != num_extra_eqs:
-            raise RuntimeError(f"forced_tangency_seq length must equal required extra eq count ({num_extra_eqs})")
-        sel_points = [QQ(xv) for xv in forced_tangency_seq]
-        for xv in sel_points:
-            if xv not in tangency_counts:
-                raise RuntimeError(f"forced_tangency_seq contains x={xv} not in pts_x {xs_chosen}")
-    else:
-        sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_extra_eqs)]
-
-    # Append tangency equations: for each selection, increment multiplicity and add the derivative^k condition at that x
-    for xv in sel_points:
-        tangency_counts[QQ(xv)] += 1
-        current_order = tangency_counts[QQ(xv)]
-        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
-        eqs.append(eq_t)
-
-    # Sanity check: number of equations should equal number of unknowns
-    if len(eqs) != len(unknowns):
-        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns.")
-
-    # ------------------------------
-    # Solve the system
-    # ------------------------------
-    sols = solve(eqs, unknowns, solution_dict=True)
-    sol = require_single_solution(sols, "solving for rest polynomial coefficients")
-
-    # ------------------------------
-    # Build solved coefficient map, detect symbolic dependencies
-    # (REPLACEMENT BLOCK: builds rest_poly_SR_solved, rest_poly_QQ)
-    # ------------------------------
-    solved_map = {}
-    contains_symbolic = False
-    for symb in unknowns:
-        val_SR = SR(sol[symb])
-        solved_map[symb] = val_SR
-        # Try to coerce to QQ to see if it's purely rational
-        try:
-            _ = QQ(val_SR)
-        except Exception:
-            contains_symbolic = True
-
-    # If all rational, create a QQ polynomial. Otherwise keep symbolic SR polynomial.
-    rest_poly_QQ = None
-    rest_poly_SR_solved = None
-    if not contains_symbolic:
-        Rqq = PolynomialRing(QQ, str(xSR))
-        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
-        rest_poly_QQ = Rqq(coeffs_q)
-        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
-    else:
-        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
-        rest_poly_QQ = None
-
-    # ------------------------------
-    # Construct the solved fibration polynomial: Q(x)^2 + Prod(x) * rest_solved(x)
-    # ------------------------------
-    # Q_SR was defined earlier as SR(Qpoly_QQ)
-    Q_SR = SR(Q_SR)  # ensure SR
-    prod_SR = SR(prod1)
-
-    fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
-    # normalize/expand
-    fibration_solved_SR = SR(fibration_solved_SR).expand()
-
-    # Sanity check: degree drop must happen (target = n-1)
-    try:
-        deg_fib = int(fibration_solved_SR.degree(xSR))
-    except Exception:
-        # If SR.degree fails, attempt a coarse heuristic by inspecting polynomial string
-        deg_fib = None
-
-    target_deg = n - 1
-    if deg_fib is None or deg_fib != target_deg:
-        # Assemble diagnostics to make debugging easier
-        diag = []
-        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
-        try:
-            deg_Q2 = int((Q_SR**2).degree(xSR))
-            diag.append(f"deg(Q^2) = {deg_Q2}")
-        except Exception:
-            diag.append("deg(Q^2) unknown (symbolic)")
-
-        try:
-            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
-            diag.append(f"deg(prod*rest) = {deg_prodrest}")
-        except Exception:
-            diag.append("deg(prod*rest) unknown (symbolic)")
-
-        diag_msg = "; ".join(diag)
-        # Dump some helpful pieces into the exception for debugging
-        raise RuntimeError("Degree drop failed: " + diag_msg + f"\nQ_SR = {Q_SR}\nprod = {prod_SR}\nrest = {rest_poly_SR_solved}\nfibration = {fibration_solved_SR}")
-
-    # ------------------------------
-    # Return the fibration (as SR) and other useful artifacts
-    # ------------------------------
-    return {
-        'f_i': fibration_solved_SR,              # the new f(x) (SR) — THIS IS THE FIX
-        'Q_i': Qpoly_QQ,
-        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, (type(PolynomialRing(QQ, 'x')(0)),)) else Q_SR,
-        'r_expr': r_expr,
-        'rest_poly_SR': rest_poly_SR_solved,
-        'rest_poly_QQ': rest_poly_QQ,
-        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} (double-root + {num_extra_eqs} tangency eqs) symbolic={contains_symbolic}",
-    }
-
 @PROFILE
 def _verify_fibration_step_properties(fx, r_expr, param):
     # fx: polynomial in x
@@ -1081,6 +845,568 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
     else:
         print(" [JET] a2 free (curvature unconstrained by double-root)")
 
+
+
+
+
+
+@PROFILE
+def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
+                                      verbose=False, forced_tangency_seq=None,
+                                      forced_Qpoly=None, force_Q_constraint_indices=None,
+                                      parameter_m=None):
+    """
+    Modified version that supports anchor point mode.
+    Set USE_ANCHOR_POINTS=True and NUM_ANCHOR_POINTS to control behavior.
+    """
+    random.seed(int(seed_int))
+    xSR = SR.var('x')
+    
+    n = int(fx_SR.degree(xSR))
+    xs_chosen = [QQ(xv) for xv in pts_x]
+    if len(xs_chosen) == 0:
+        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
+    x1 = xs_chosen[0]
+    
+    # Degree drop constraint
+    max_degQ = (n - 1) // 2
+    initial_degQ = choose_degQ(n)
+    degQ = min(initial_degQ, max_degQ)
+    
+    if forced_Qpoly is not None:
+        try:
+            forced_Q_SR = SR(forced_Qpoly)
+            forced_deg = int(forced_Q_SR.degree(xSR))
+        except Exception:
+            try:
+                Rtmp = PolynomialRing(QQ, str(xSR))
+                forced_deg = int(Rtmp(forced_Qpoly).degree())
+            except Exception:
+                raise RuntimeError("Could not determine degree of forced_Qpoly")
+        if forced_deg > max_degQ:
+            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
+        degQ = forced_deg
+    
+    # Build Q polynomial
+    if forced_Qpoly is not None:
+        try:
+            Rqq = PolynomialRing(QQ, str(xSR))
+            Qpoly_QQ = Rqq(forced_Qpoly)
+        except Exception:
+            Qpoly_QQ = SR(forced_Qpoly)
+    else:
+        # NEW: Check if we should use anchor points
+        if USE_ANCHOR_POINTS:
+            # Generate anchor points
+            num_anchors_needed = NUM_ANCHOR_POINTS
+            
+            # We need degQ+1 total points. We have 1 base point.
+            # So we need degQ more points total, NUM_ANCHOR_POINTS of which are anchors,
+            # and the rest come from tangency at base point
+            total_needed = degQ + 1
+            base_pts_count = 1
+            remaining_dof = total_needed - base_pts_count
+            
+            if num_anchors_needed > remaining_dof:
+                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
+            
+            # Generate anchor points
+            anchor_pts = generate_anchor_points(num_anchors_needed, f0, xSR, seed=seed_int)
+            
+            if verbose:
+                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
+            
+            # Build base point
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            # If we still need tangency conditions after anchors
+            num_tangency_needed = remaining_dof - num_anchors_needed
+            
+            if num_tangency_needed == 0:
+                # Pure anchor mode: no tangency conditions
+                Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, f0, degQ, xSR, anchor_pts, seed_int=seed_int)
+            else:
+                # Hybrid: some anchors + some tangency
+                # Use the general interpolator with combined constraint set
+                all_pts_for_interp = chosen_pts_xy + anchor_pts
+                # This requires modifying interpolate_Q_general to accept pre-provided points
+                # For now, fall back to tangency mode
+                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented. Set NUM_ANCHOR_POINTS to use all DOF or 0.")
+        else:
+            # Original tangency-based mode
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
+                                            seed_int=seed_int,
+                                            force_constraint_indices=force_Q_constraint_indices)
+    
+    Q_SR = SR(Qpoly_QQ)
+    
+    # Rest of the function remains the same
+    prod1 = poly_prod_numeric(xs_chosen, xSR)
+    deg_prod = int(prod1.degree(xSR))
+    rest_deg = int(n - 1 - deg_prod)
+    
+    if rest_deg < 0:
+        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
+    
+    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
+    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
+    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
+    
+    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
+    diff_poly = (SR(fx_SR) - fibration_SR).expand()
+    
+    if parameter_m is None:
+        m = SR.var('m')
+    else:
+        m = SR(parameter_m)
+    
+    r_expr = SR(QQ(x1)) - m
+    
+    eqs = []
+    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
+    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
+    
+    unknowns = rest_coeff_syms[:]
+    num_extra_eqs = len(unknowns) - 2
+    
+    if num_extra_eqs < 0:
+        raise RuntimeError("Too few unknowns in rest polynomial")
+    
+    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
+    if forced_tangency_seq is not None:
+        if not isinstance(forced_tangency_seq, (list, tuple)):
+            raise RuntimeError("forced_tangency_seq must be a list/tuple")
+        if len(forced_tangency_seq) != num_extra_eqs:
+            raise RuntimeError(f"forced_tangency_seq length must equal {num_extra_eqs}")
+        sel_points = [QQ(xv) for xv in forced_tangency_seq]
+        for xv in sel_points:
+            if xv not in tangency_counts:
+                raise RuntimeError(f"forced_tangency_seq contains x={xv} not in pts_x")
+    else:
+        sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_extra_eqs)]
+    
+    for xv in sel_points:
+        tangency_counts[QQ(xv)] += 1
+        current_order = tangency_counts[QQ(xv)]
+        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
+        eqs.append(eq_t)
+    
+    if len(eqs) != len(unknowns):
+        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
+    
+    sols = solve(eqs, unknowns, solution_dict=True)
+    sol = require_single_solution(sols, "solving for rest polynomial coefficients")
+    
+    solved_map = {}
+    contains_symbolic = False
+    for symb in unknowns:
+        val_SR = SR(sol[symb])
+        solved_map[symb] = val_SR
+        try:
+            _ = QQ(val_SR)
+        except Exception:
+            contains_symbolic = True
+    
+    rest_poly_QQ = None
+    rest_poly_SR_solved = None
+    if not contains_symbolic:
+        Rqq = PolynomialRing(QQ, str(xSR))
+        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
+        rest_poly_QQ = Rqq(coeffs_q)
+        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
+    else:
+        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
+        rest_poly_QQ = None
+    
+    Q_SR = SR(Q_SR)
+    prod_SR = SR(prod1)
+    fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
+    fibration_solved_SR = SR(fibration_solved_SR).expand()
+    
+    try:
+        deg_fib = int(fibration_solved_SR.degree(xSR))
+    except Exception:
+        deg_fib = None
+    
+    target_deg = n - 1
+    if deg_fib is None or deg_fib != target_deg:
+        diag = []
+        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
+        try:
+            deg_Q2 = int((Q_SR**2).degree(xSR))
+            diag.append(f"deg(Q^2) = {deg_Q2}")
+        except Exception:
+            diag.append("deg(Q^2) unknown")
+        try:
+            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
+            diag.append(f"deg(prod*rest) = {deg_prodrest}")
+        except Exception:
+            diag.append("deg(prod*rest) unknown")
+        diag_msg = "; ".join(diag)
+        raise RuntimeError("Degree drop failed: " + diag_msg)
+    
+    return {
+        'f_i': fibration_solved_SR,
+        'Q_i': Qpoly_QQ,
+        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
+        'r_expr': r_expr,
+        'rest_poly_SR': rest_poly_SR_solved,
+        'rest_poly_QQ': rest_poly_QQ,
+        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={USE_ANCHOR_POINTS} num_anchors={NUM_ANCHOR_POINTS if USE_ANCHOR_POINTS else 0}",
+    }
+
+
+
+
+# Add these constants near the top of tower.sage (with other config constants)
+
+# === ANCHOR POINT MODE CONFIGURATION ===
+USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
+NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
+ANCHOR_SEED = 42           # Seed for reproducible anchor point generation
+
+def generate_anchor_points(num_points, seed=ANCHOR_SEED):
+    """
+    Generate random rational anchor points (x,y) - just arbitrary rational pairs.
+    These don't need to lie on any curve; they simply pin down Q's free DOF.
+    
+    Args:
+        num_points: number of anchor points to generate
+        seed: random seed for reproducibility
+        
+    Returns:
+        List of (x, y) tuples with x, y in QQ
+    """
+    random.seed(int(seed))
+    anchor_pts = []
+    
+    for _ in range(num_points):
+        # Generate random rational x in [-10, 10]
+        num_x = random.randint(-10, 10)
+        den_x = random.randint(1, 10)
+        x_val = QQ(num_x) / QQ(den_x)
+        
+        # Generate random rational y in [-10, 10]
+        num_y = random.randint(-10, 10)
+        den_y = random.randint(1, 10)
+        y_val = QQ(num_y) / QQ(den_y)
+        
+        anchor_pts.append((x_val, y_val))
+        
+    return anchor_pts
+
+
+def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
+    """
+    Compute Q(x) using base interpolation points plus anchor points (no tangency).
+    Anchor points are just arbitrary rational (x,y) pairs that pin down Q's free DOF.
+    
+    Args:
+        base_pts: list of (x,y) from the fibration base point
+        degQ: degree of Q
+        x_sym: symbolic variable
+        anchor_pts: additional arbitrary rational (x,y) pairs
+        seed_int: random seed
+        
+    Returns:
+        Q polynomial over QQ
+    """
+    # Combine base points and anchor points
+    all_pts = list(base_pts) + list(anchor_pts)
+    
+    # We need exactly degQ+1 points for interpolation
+    if len(all_pts) != degQ + 1:
+        raise RuntimeError(f"Need exactly {degQ+1} points for degree {degQ} Q, but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})")
+    
+    # Use simple Lagrange interpolation (no tangency conditions)
+    R = PolynomialRing(QQ, str(x_sym))
+    
+    # Build the unique polynomial through these points
+    coeffs_sym = [SR.var(f'c{i}') for i in range(degQ + 1)]
+    Q_poly_sym = sum(c * x_sym**i for i, c in enumerate(coeffs_sym))
+    
+    # Create equations: Q(x_i) = y_i for each point
+    eqs = []
+    for x_val, y_val in all_pts:
+        eq = Q_poly_sym.subs({x_sym: SR(x_val)}) - SR(y_val)
+        eqs.append(eq)
+    
+    # Solve for coefficients
+    sols = solve(eqs, coeffs_sym, solution_dict=True)
+    if not sols:
+        raise RuntimeError(f"Could not solve for Q of degree {degQ} with {len(all_pts)} points")
+    
+    sol = require_single_solution(sols, "solving for Q coefficients (anchor mode)")
+    
+    # Extract rational coefficients
+    solved_coeffs = []
+    for c in coeffs_sym:
+        v = sol[c]
+        if has_free_variables(v):
+            raise RuntimeError(f"Solved Q coefficient depends on symbolic variables; expected numeric QQ. Coeff: {v}")
+        solved_coeffs.append(QQ(v))
+    
+    Qx = R(solved_coeffs)
+    return Qx
+
+
+# Modify build_one_fibration_step to use anchor points when enabled
+@PROFILE
+def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
+                                      verbose=False, forced_tangency_seq=None,
+                                      forced_Qpoly=None, force_Q_constraint_indices=None,
+                                      parameter_m=None):
+    """
+    Modified version that supports anchor point mode.
+    Set USE_ANCHOR_POINTS=True and NUM_ANCHOR_POINTS to control behavior.
+    """
+    random.seed(int(seed_int))
+    xSR = SR.var('x')
+    
+    n = int(fx_SR.degree(xSR))
+    xs_chosen = [QQ(xv) for xv in pts_x]
+    if len(xs_chosen) == 0:
+        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
+    x1 = xs_chosen[0]
+    
+    # Degree drop constraint
+    max_degQ = (n - 1) // 2
+    initial_degQ = choose_degQ(n)
+    degQ = min(initial_degQ, max_degQ)
+    
+    if forced_Qpoly is not None:
+        try:
+            forced_Q_SR = SR(forced_Qpoly)
+            forced_deg = int(forced_Q_SR.degree(xSR))
+        except Exception:
+            try:
+                Rtmp = PolynomialRing(QQ, str(xSR))
+                forced_deg = int(Rtmp(forced_Qpoly).degree())
+            except Exception:
+                raise RuntimeError("Could not determine degree of forced_Qpoly")
+        if forced_deg > max_degQ:
+            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
+        degQ = forced_deg
+    
+    # Build Q polynomial
+    if forced_Qpoly is not None:
+        try:
+            Rqq = PolynomialRing(QQ, str(xSR))
+            Qpoly_QQ = Rqq(forced_Qpoly)
+        except Exception:
+            Qpoly_QQ = SR(forced_Qpoly)
+    else:
+        # NEW: Check if we should use anchor points
+        if USE_ANCHOR_POINTS:
+            # Generate anchor points
+            num_anchors_needed = NUM_ANCHOR_POINTS
+            
+            # We need degQ+1 total points. We have 1 base point.
+            # So we need degQ more points total, NUM_ANCHOR_POINTS of which are anchors,
+            # and the rest come from tangency at base point
+            total_needed = degQ + 1
+            base_pts_count = 1
+            remaining_dof = total_needed - base_pts_count
+            
+            if num_anchors_needed > remaining_dof:
+                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
+            
+            # CRITICAL: Anchor points are arbitrary rational pairs, not curve points
+            anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int)
+            
+            if verbose:
+                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
+            
+            # Build base point on CURRENT curve
+            chosen_pts_xy = []
+            fx_SR_for_y = SR(fx_SR)
+            for xv in xs_chosen:
+                y_val_expr = fx_SR_for_y.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            # If we still need tangency conditions after anchors
+            num_tangency_needed = remaining_dof - num_anchors_needed
+            
+            if num_tangency_needed == 0:
+                # Pure anchor mode: no tangency conditions
+                # Don't pass f_expr - anchors are arbitrary, not on any curve
+                Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
+            else:
+                # Hybrid: some anchors + some tangency
+                # Use the general interpolator with combined constraint set
+                all_pts_for_interp = chosen_pts_xy + anchor_pts
+                # This requires modifying interpolate_Q_general to accept pre-provided points
+                # For now, fall back to tangency mode
+                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented. Set NUM_ANCHOR_POINTS to use all DOF or 0.")
+        else:
+            # Original tangency-based mode
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
+                                            seed_int=seed_int,
+                                            force_constraint_indices=force_Q_constraint_indices)
+    
+    Q_SR = SR(Qpoly_QQ)
+    
+    # Rest of the function remains the same
+    prod1 = poly_prod_numeric(xs_chosen, xSR)
+    deg_prod = int(prod1.degree(xSR))
+    rest_deg = int(n - 1 - deg_prod)
+    
+    if rest_deg < 0:
+        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
+    
+    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
+    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
+    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
+    
+    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
+    diff_poly = (SR(fx_SR) - fibration_SR).expand()
+    
+    if parameter_m is None:
+        m = SR.var('m')
+    else:
+        m = SR(parameter_m)
+    
+    r_expr = SR(QQ(x1)) - m
+    
+    eqs = []
+    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
+    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
+    
+    unknowns = rest_coeff_syms[:]
+    num_extra_eqs = len(unknowns) - 2
+    
+    if num_extra_eqs < 0:
+        raise RuntimeError("Too few unknowns in rest polynomial")
+    
+    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
+    if forced_tangency_seq is not None:
+        if not isinstance(forced_tangency_seq, (list, tuple)):
+            raise RuntimeError("forced_tangency_seq must be a list/tuple")
+        if len(forced_tangency_seq) != num_extra_eqs:
+            raise RuntimeError(f"forced_tangency_seq length must equal {num_extra_eqs}")
+        sel_points = [QQ(xv) for xv in forced_tangency_seq]
+        for xv in sel_points:
+            if xv not in tangency_counts:
+                raise RuntimeError(f"forced_tangency_seq contains x={xv} not in pts_x")
+    else:
+        sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_extra_eqs)]
+    
+    for xv in sel_points:
+        tangency_counts[QQ(xv)] += 1
+        current_order = tangency_counts[QQ(xv)]
+        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
+        eqs.append(eq_t)
+    
+    if len(eqs) != len(unknowns):
+        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
+    
+    sols = solve(eqs, unknowns, solution_dict=True)
+    sol = require_single_solution(sols, "solving for rest polynomial coefficients")
+    
+    solved_map = {}
+    contains_symbolic = False
+    for symb in unknowns:
+        val_SR = SR(sol[symb])
+        solved_map[symb] = val_SR
+        try:
+            _ = QQ(val_SR)
+        except Exception:
+            contains_symbolic = True
+    
+    rest_poly_QQ = None
+    rest_poly_SR_solved = None
+    if not contains_symbolic:
+        Rqq = PolynomialRing(QQ, str(xSR))
+        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
+        rest_poly_QQ = Rqq(coeffs_q)
+        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
+    else:
+        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
+        rest_poly_QQ = None
+    
+    Q_SR = SR(Q_SR)
+    prod_SR = SR(prod1)
+    fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
+    fibration_solved_SR = SR(fibration_solved_SR).expand()
+    
+    try:
+        deg_fib = int(fibration_solved_SR.degree(xSR))
+    except Exception:
+        deg_fib = None
+    
+    target_deg = n - 1
+    if deg_fib is None or deg_fib != target_deg:
+        diag = []
+        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
+        try:
+            deg_Q2 = int((Q_SR**2).degree(xSR))
+            diag.append(f"deg(Q^2) = {deg_Q2}")
+        except Exception:
+            diag.append("deg(Q^2) unknown")
+        try:
+            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
+            diag.append(f"deg(prod*rest) = {deg_prodrest}")
+        except Exception:
+            diag.append("deg(prod*rest) unknown")
+        diag_msg = "; ".join(diag)
+        raise RuntimeError("Degree drop failed: " + diag_msg)
+    
+    return {
+        'f_i': fibration_solved_SR,
+        'Q_i': Qpoly_QQ,
+        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
+        'r_expr': r_expr,
+        'rest_poly_SR': rest_poly_SR_solved,
+        'rest_poly_QQ': rest_poly_QQ,
+        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={USE_ANCHOR_POINTS} num_anchors={NUM_ANCHOR_POINTS if USE_ANCHOR_POINTS else 0}",
+    }
+
+
+
+
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
     pass
     #main() # only for testing
+
+
+

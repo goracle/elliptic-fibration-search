@@ -368,7 +368,7 @@ TERMINATE_WHEN_6 = 11
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_PRIME_SUBSETS = 350 # important for stability under different seeds, must be large enough >= 250 should be good...
+NUM_PRIME_SUBSETS = 1500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
 HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 
@@ -395,13 +395,19 @@ SEED_INT = random.randint(-10**6, 10**6)
 
 DEBUG = False
 DEBUG = True
-TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
 TARGETED_X = None # only set to numeric value to debug; None by default
+TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
 
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
+
+# Add to search_common.py or search_config.py
+USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
+USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
+NUM_CONSENSUS_FIBRATIONS = 3  # How many independent fibrations to use
+CONSENSUS_THRESHOLD = 0.8     # Fraction of fibrations that must agree (0.8 = 80%)
 
 
 

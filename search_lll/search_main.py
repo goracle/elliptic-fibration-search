@@ -1,6 +1,7 @@
 from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
+from .search_analysis import *
 from .modularthread import *
 from .modularthread import _compute_residues_for_prime_worker_old
 from .modularthread import _compute_residues_for_prime_worker
