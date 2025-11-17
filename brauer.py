@@ -1,14 +1,139 @@
-# brauer.py
-# Practical / heuristic algebraic Brauer-Manin checks for elliptic fibrations
-# - Sage-compatible (assumes `sage -python3` or imported inside a .sage driver)
-# - Minimal, explicit, no imports inside functions
-# - Relies on precomputed residue maps as in search_lll.py:
-#     compute_residues_for_m, compute_residue_coverage_for_m, build_targeted_subset
-#   See search_lll.py for the exact structures expected. :contentReference[oaicite:2]{index=2}:contentReference[oaicite:3]{index=3}
-#
-# Author: generated to fit user's repo style and constraints
-
 from sage.all import QQ, ZZ
+from collections import Counter
+
+# ---------------------------
+# Helper / sanity utilities
+# ---------------------------
+
+def compute_lll_constant(delta=0.98, d=1):
+    """
+    Compute the LLL guarantee constant for basis quality.
+    
+    Args:
+        delta: LLL reduction parameter (0.75 < delta < 1)
+        d: dimension (number of sections = MW rank)
+    
+    Returns:
+        C such that shortest vector b1 satisfies ||b1|| ≤ C × det(L)^(1/d)
+    """
+    # From Lenstra-Lenstra-Lovász 1982:
+    # ||b1|| ≤ (4/(4*delta - 1))^((d-1)/4) × det(L)^(1/d)
+    import math
+    C = (4.0 / (4.0 * delta - 1.0)) ** ((d - 1) / 4.0)
+    return C
+
+def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
+    """
+    Prove that prod(primes) > MAX_MODULUS is sufficient for reconstruction.
+    
+    Theorem: If M = prod(p in subset) > 2 * C_lll * exp(height_bound),
+    then rational reconstruction succeeds for all sections up to height H.
+    
+    FIX: This comparison is done in log-space to prevent overflow from exp(H).
+    """
+    from functools import reduce
+    from operator import mul
+    import math
+    
+    M = reduce(mul, [int(p) for p in prime_subset], 1)
+    
+    # --- FIX: Use logarithms to avoid overflow ---
+    if M <= 0 or C_lll <= 0: # Safety check
+        return False, {
+            'M': M, 'log_M': 0, 'log_threshold': 0, 'C_lll': C_lll,
+            'height_bound': height_bound, 'error': 'Non-positive M or C_lll'
+        }
+
+    log_M = math.log(float(M))
+    # log(Threshold) = log(2 * C_lll * exp(H)) = log(2) + log(C_lll) + H
+    log_threshold = math.log(2.0) + math.log(float(C_lll)) + float(height_bound)
+    
+    is_sufficient = log_M > log_threshold
+    # --- END FIX ---
+    
+    return is_sufficient, {
+        'M': M,
+        'log_M': log_M,                 # New value for reporting
+        'log_threshold': log_threshold, # New value for reporting
+        'C_lll': C_lll,
+        'height_bound': height_bound
+    }
+
+def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
+    """
+    Runs the formal "C-bound" check to verify that the CRT modulus
+    is sufficient for rational reconstruction up to the height bound.
+    """
+    print("\n" + "="*70)
+    print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
+    print("="*70)
+    
+    if not prime_subsets:
+        print("No prime subsets were used. Cannot run sufficiency proof.")
+        print("="*70)
+        return
+
+    # 1. Compute the LLL constant
+    d = mw_rank
+    if d == 0:
+        print("MW rank is 0, setting dimension d=1 for LLL constant.")
+        d = 1
+        
+    C_lll = compute_lll_constant(delta=0.98, d=d)
+    print(f"LLL Guarantee Constant (C_lll) for rank d={d}: {C_lll:.4f}")
+    
+    # 2. Find the smallest modulus M used
+    min_M = 0
+    min_M_subset = []
+    
+    for subset in prime_subsets:
+        if not subset:
+            continue
+        M = 1
+        for p in subset:
+            M *= int(p)
+        if M == 0:
+            continue
+        if min_M == 0 or M < min_M:
+            min_M = M
+            min_M_subset = subset
+            
+    if min_M == 0:
+        print("Could not find a valid prime subset modulus. Skipping check.")
+        print("="*70)
+        return
+        
+    print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
+    
+    # 3. Run the sufficiency proof
+    is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
+    
+    print(f"Height Bound (H): {details['height_bound']:.2f}")
+    
+    # --- FIX: Print log-domain values ---
+    log_M_str = f"{details['log_M']:.2f}"
+    log_thresh_str = f"{details['log_threshold']:.2f}"
+    
+    print(f"Required (in log-space): log(M) > log(2*C_lll) + H")
+    print(f"Actual log(M):  {log_M_str}")
+    print(f"Required log(M): > {log_thresh_str}")
+    # --- END FIX ---
+    
+    if is_sufficient:
+        print("\n*** ✅ PASS ***")
+        print("The smallest modulus M is formally sufficient")
+        print("to guarantee rational reconstruction for all sections up to height H.")
+    else:
+        print("\n*** ⚠️  FAIL ***")
+        print("The search modulus M is NOT large enough to guarantee reconstruction.")
+        print("This implies the search may be incomplete (missed points).")
+        print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
+        
+    print("="*70)
+
+
+
+from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
 from collections import Counter
 
 # ---------------------------
@@ -127,7 +252,7 @@ def m_is_locally_allowed(m, precomputed_residues, prime_pool, v_tuple=None):
       (allowed_bool, details)
     where details is a dict with per-prime status values:
       {'p': {'residue': r or None, 'status': 'matched'|'unseen'|'denom_zero'|'no_data'}}
-    Implementation re-uses the same expectations on precomputed_residues as search_lll.py. :contentReference[oaicite:4]{index=4}
+    Implementation re-uses the same expectations on precomputed_residues as search_lll.py.
     """
     m_q = _coerce_rational(m)
     a = ZZ(m_q.numerator()); b = ZZ(m_q.denominator())
@@ -268,142 +393,6 @@ def probe_algebraic_brauer_obstructions(precomputed_residues, prime_pool,
     }
     return result
 
-
-
-# In a new file: ramification.py
-
-def compute_lll_constant(delta=0.98, d=1):
-    """
-    Compute the LLL guarantee constant for basis quality.
-    
-    Args:
-        delta: LLL reduction parameter (0.75 < delta < 1)
-        d: dimension (number of sections = MW rank)
-    
-    Returns:
-        C such that shortest vector b1 satisfies ||b1|| ≤ C × det(L)^(1/d)
-    """
-    # From Lenstra-Lenstra-Lovász 1982:
-    # ||b1|| ≤ (4/(4*delta - 1))^((d-1)/4) × det(L)^(1/d)
-    import math
-    C = (4.0 / (4.0 * delta - 1.0)) ** ((d - 1) / 4.0)
-    return C
-
-def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
-    """
-    Prove that prod(primes) > MAX_MODULUS is sufficient for reconstruction.
-    
-    Theorem: If M = prod(p in subset) > 2 * C_lll * exp(height_bound),
-    then rational reconstruction succeeds for all sections up to height H.
-    
-    FIX: This comparison is done in log-space to prevent overflow from exp(H).
-    """
-    from functools import reduce
-    from operator import mul
-    import math
-    
-    M = reduce(mul, [int(p) for p in prime_subset], 1)
-    
-    # --- FIX: Use logarithms to avoid overflow ---
-    if M <= 0 or C_lll <= 0: # Safety check
-        return False, {
-            'M': M, 'log_M': 0, 'log_threshold': 0, 'C_lll': C_lll,
-            'height_bound': height_bound, 'error': 'Non-positive M or C_lll'
-        }
-
-    log_M = math.log(float(M))
-    # log(Threshold) = log(2 * C_lll * exp(H)) = log(2) + log(C_lll) + H
-    log_threshold = math.log(2.0) + math.log(float(C_lll)) + float(height_bound)
-    
-    is_sufficient = log_M > log_threshold
-    # --- END FIX ---
-    
-    return is_sufficient, {
-        'M': M,
-        'log_M': log_M,                 # New value for reporting
-        'log_threshold': log_threshold, # New value for reporting
-        'C_lll': C_lll,
-        'height_bound': height_bound
-    }
-
-def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
-    """
-    Runs the formal "C-bound" check to verify that the CRT modulus
-    is sufficient for rational reconstruction up to the height bound.
-    """
-    print("\n" + "="*70)
-    print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
-    print("="*70)
-    
-    if not prime_subsets:
-        print("No prime subsets were used. Cannot run sufficiency proof.")
-        print("="*70)
-        return
-
-    # 1. Compute the LLL constant
-    d = mw_rank
-    if d == 0:
-        print("MW rank is 0, setting dimension d=1 for LLL constant.")
-        d = 1
-        
-    C_lll = compute_lll_constant(delta=0.98, d=d)
-    print(f"LLL Guarantee Constant (C_lll) for rank d={d}: {C_lll:.4f}")
-    
-    # 2. Find the smallest modulus M used
-    min_M = 0
-    min_M_subset = []
-    
-    for subset in prime_subsets:
-        if not subset:
-            continue
-        M = 1
-        for p in subset:
-            M *= int(p)
-        if M == 0:
-            continue
-        if min_M == 0 or M < min_M:
-            min_M = M
-            min_M_subset = subset
-            
-    if min_M == 0:
-        print("Could not find a valid prime subset modulus. Skipping check.")
-        print("="*70)
-        return
-        
-    print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
-    
-    # 3. Run the sufficiency proof
-    is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
-    
-    print(f"Height Bound (H): {details['height_bound']:.2f}")
-    
-    # --- FIX: Print log-domain values ---
-    log_M_str = f"{details['log_M']:.2f}"
-    log_thresh_str = f"{details['log_threshold']:.2f}"
-    
-    print(f"Required (in log-space): log(M) > log(2*C_lll) + H")
-    print(f"Actual log(M):  {log_M_str}")
-    print(f"Required log(M): > {log_thresh_str}")
-    # --- END FIX ---
-    
-    if is_sufficient:
-        print("\n*** ✅ PASS ***")
-        print("The smallest modulus M is formally sufficient")
-        print("to guarantee rational reconstruction for all sections up to height H.")
-    else:
-        print("\n*** ⚠️  FAIL ***")
-        print("The search modulus M is NOT large enough to guarantee reconstruction.")
-        print("This implies the search may be incomplete (missed points).")
-        print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
-        
-    print("="*70)
-
-
-
-# brauer.py
-
-# ... (other code)
-
 def compute_ramification_locus(cd, verbose=False):
     """
     Compute the ramification locus for an elliptic fibration:
@@ -416,11 +405,8 @@ def compute_ramification_locus(cd, verbose=False):
     - coerces to QQ[m], then clears denominators -> ZZ[m]
     - extracts square-free part to avoid resultant=0 bugs
     - handles all degeneracies gracefully
+    - avoids factoring massive integers which hangs PARI
     """
-
-    from sage.all import (
-        QQ, ZZ, Integer, PolynomialRing, lcm, gcd
-    )
 
     ram_locus = set()
 
@@ -536,21 +522,28 @@ def compute_ramification_locus(cd, verbose=False):
     # ------------------------------------------------------------
     # 7. factor resultant → ramification primes
     # ------------------------------------------------------------
-    try:
-        for p, _ in R.factor():
-            p = int(p)
-            if p > 1:
-                ram_locus.add(p)
-    except Exception:
-        # fallback: small primes (rarely needed)
-        small = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71]
+    # PREVENT HANG: If R is huge (massive coefficients in high-height sections),
+    # factoring it will crash/hang. Check size first.
+    if R.abs().ndigits() > 80:
+        if verbose:
+            print(f"[ram_locus] Resultant has {R.abs().ndigits()} digits; skipping full factorization to prevent hang.")
+        
+        # Fallback: check small primes only, which are the most important for our modular filtering
+        small = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
         Rabs = abs(int(R))
         for p in small:
             if Rabs % p == 0:
                 ram_locus.add(p)
-                while Rabs % p == 0:
-                    Rabs //= p
-        raise
+    else:
+        try:
+            for p, _ in R.factor():
+                p = int(p)
+                if p > 1:
+                    ram_locus.add(p)
+        except Exception:
+            if verbose:
+                print("[ram_locus] factorization failed unexpectedly.")
+            pass
 
     if verbose:
         print(f"[ram_locus] Final ramification locus: {sorted(ram_locus)}")

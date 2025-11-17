@@ -14,7 +14,8 @@ from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
-                                         sconf, num_workers=8, debug=DEBUG):
+                                         sconf, num_workers=8, debug=DEBUG,
+                                         precomputed_residues=None):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
     Hardened against the "filtered to 0 subsets" failure:
@@ -51,77 +52,84 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         return set(), [], {}, stats  # <-- Return stats
 
     # === PHASE: PRECOMPUTE RESIDUES ===
-    stats.start_phase('precompute_residues')
-    primes_to_compute = list(Ep_dict.keys())
-    num_rhs_fns = len(rhs_list)
     vecs_list = list(vecs)
+    if precomputed_residues is None:
 
-    args_list = [
-        (
-            p,
-            Ep_dict[p],
-            mult_lll.get(p, {}),
-            vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
-            vecs_list,
-            rhs_modp_list,
-            num_rhs_fns,
-            stats  # pass the stats object (worker ignores if not used)
-        )
-        for p in primes_to_compute
-    ]
+        stats.start_phase('precompute_residues')
+        primes_to_compute = list(Ep_dict.keys())
+        num_rhs_fns = len(rhs_list)
 
-    precomputed_residues = {}
-    total_modular_checks = 0
+        args_list = [
+            (
+                p,
+                Ep_dict[p],
+                mult_lll.get(p, {}),
+                vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+                vecs_list,
+                rhs_modp_list,
+                num_rhs_fns,
+                stats  # pass the stats object (worker ignores if not used)
+            )
+            for p in primes_to_compute
+        ]
 
-    try:
-        ctx = multiprocessing.get_context("fork")
-        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-    except Exception:
-        exec_kwargs = {"max_workers": num_workers}
-        raise
+        precomputed_residues = {}
+        total_modular_checks = 0
 
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        if TORSION_SLOPPY:
-            futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
-        else:
-            futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
-            p = futures[future]
-            try:
-                p_ret, mapping, local_modular_checks = future.result()
-                mapping = mapping or {}
-                precomputed_residues[p_ret] = mapping
-                total_modular_checks += int(local_modular_checks or 0)
+        try:
+            ctx = multiprocessing.get_context("fork")
+            exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+        except Exception:
+            exec_kwargs = {"max_workers": num_workers}
+            raise
 
-                # Now compute the union of numeric residues (ignore non-int markers)
-                residues_union = set()
-                for vtuple, rhs_lists in mapping.items():
-                    for rl in rhs_lists:
-                        # ignore sentinel markers like "DEN_ZERO" or other non-integer entries
-                        for r in rl:
-                            if isinstance(r, int):
-                                residues_union.add(r)
+        with ProcessPoolExecutor(**exec_kwargs) as executor:
+            if TORSION_SLOPPY:
+                futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+            else:
+                futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
+                p = futures[future]
+                try:
+                    p_ret, mapping, local_modular_checks = future.result()
+                    mapping = mapping or {}
+                    precomputed_residues[p_ret] = mapping
+                    total_modular_checks += int(local_modular_checks or 0)
 
-                stats.residues_by_prime[p_ret].update(residues_union)
+                    # Now compute the union of numeric residues (ignore non-int markers)
+                    residues_union = set()
+                    for vtuple, rhs_lists in mapping.items():
+                        for rl in rhs_lists:
+                            # ignore sentinel markers like "DEN_ZERO" or other non-integer entries
+                            for r in rl:
+                                if isinstance(r, int):
+                                    residues_union.add(r)
 
-                # update main counters per-prime
-                stats.counters['modular_checks'] += int(local_modular_checks or 0)
-                stats.counters[f'modular_checks_p_{p_ret}'] += int(local_modular_checks or 0)
-                stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
+                    stats.residues_by_prime[p_ret].update(residues_union)
 
-            except Exception as e:
-                if debug:
-                    print(f"[precompute fail] p={p}: {e}")
-                precomputed_residues[p] = {}
-                stats.residues_by_prime[p].update(set())
-                stats.counters[f'modular_checks_p_{p}'] = 0
-                stats.counters[f'residues_seen_p_{p}'] = 0
-                raise
+                    # update main counters per-prime
+                    stats.counters['modular_checks'] += int(local_modular_checks or 0)
+                    stats.counters[f'modular_checks_p_{p_ret}'] += int(local_modular_checks or 0)
+                    stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
 
-    if debug:
-        print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
+                except Exception as e:
+                    if debug:
+                        print(f"[precompute fail] p={p}: {e}")
+                    precomputed_residues[p] = {}
+                    stats.residues_by_prime[p].update(set())
+                    stats.counters[f'modular_checks_p_{p}'] = 0
+                    stats.counters[f'residues_seen_p_{p}'] = 0
+                    raise
 
-    stats.end_phase('precompute_residues')
+        if debug:
+            print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
+
+        stats.end_phase('precompute_residues')
+    else:
+        # Use provided residues (already consensus-filtered)
+        print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
+        stats.incr('using_consensus_residues', n=1)
+ 
 
     stats.start_phase('brauer')
     from brauer import (

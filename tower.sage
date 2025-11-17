@@ -17,14 +17,6 @@ import random # shadows something in sage.all called random; be careful!
 
 from search_common import DEBUG, SEED_INT
 
-# Add these constants near the top of tower.sage (with other config constants)
-
-# === ANCHOR POINT MODE CONFIGURATION ===
-USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
-USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
-NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
-ANCHOR_SEED = 42           # Seed for reproducible anchor point generation
-
 
 
 # ---------- Utilities ----------
@@ -550,7 +542,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG):
                 current_fx, f0,
                 pts_x_subset,
                 g2,
-                seed_int=seed_int + step,
+                seed_int=seed_int * 100 + step,  # ← Use multiplicative offset
                 verbose=verbose,
                 parameter_m=m_parameter,
             )
@@ -911,7 +903,9 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
                 raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
             
             # Generate anchor points
-            anchor_pts = generate_anchor_points(num_anchors_needed, f0, xSR, seed=seed_int)
+            base_x_coords = [QQ(xv) for xv in xs_chosen]
+            anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=base_x_coords)
+            #anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int)
             
             if verbose:
                 print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
@@ -932,326 +926,6 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
             
             if num_tangency_needed == 0:
                 # Pure anchor mode: no tangency conditions
-                Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, f0, degQ, xSR, anchor_pts, seed_int=seed_int)
-            else:
-                # Hybrid: some anchors + some tangency
-                # Use the general interpolator with combined constraint set
-                all_pts_for_interp = chosen_pts_xy + anchor_pts
-                # This requires modifying interpolate_Q_general to accept pre-provided points
-                # For now, fall back to tangency mode
-                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented. Set NUM_ANCHOR_POINTS to use all DOF or 0.")
-        else:
-            # Original tangency-based mode
-            chosen_pts_xy = []
-            f0_SR = SR(f0)
-            for xv in xs_chosen:
-                y_val_expr = f0_SR.subs({xSR: SR(xv)})
-                try:
-                    yi = sqrt(QQ(y_val_expr))
-                except Exception:
-                    yi = SR(sqrt(y_val_expr))
-                chosen_pts_xy.append((QQ(xv), yi))
-            
-            Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
-                                            seed_int=seed_int,
-                                            force_constraint_indices=force_Q_constraint_indices)
-    
-    Q_SR = SR(Qpoly_QQ)
-    
-    # Rest of the function remains the same
-    prod1 = poly_prod_numeric(xs_chosen, xSR)
-    deg_prod = int(prod1.degree(xSR))
-    rest_deg = int(n - 1 - deg_prod)
-    
-    if rest_deg < 0:
-        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
-    
-    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
-    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
-    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
-    
-    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
-    diff_poly = (SR(fx_SR) - fibration_SR).expand()
-    
-    if parameter_m is None:
-        m = SR.var('m')
-    else:
-        m = SR(parameter_m)
-    
-    r_expr = SR(QQ(x1)) - m
-    
-    eqs = []
-    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
-    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
-    
-    unknowns = rest_coeff_syms[:]
-    num_extra_eqs = len(unknowns) - 2
-    
-    if num_extra_eqs < 0:
-        raise RuntimeError("Too few unknowns in rest polynomial")
-    
-    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
-    if forced_tangency_seq is not None:
-        if not isinstance(forced_tangency_seq, (list, tuple)):
-            raise RuntimeError("forced_tangency_seq must be a list/tuple")
-        if len(forced_tangency_seq) != num_extra_eqs:
-            raise RuntimeError(f"forced_tangency_seq length must equal {num_extra_eqs}")
-        sel_points = [QQ(xv) for xv in forced_tangency_seq]
-        for xv in sel_points:
-            if xv not in tangency_counts:
-                raise RuntimeError(f"forced_tangency_seq contains x={xv} not in pts_x")
-    else:
-        sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_extra_eqs)]
-    
-    for xv in sel_points:
-        tangency_counts[QQ(xv)] += 1
-        current_order = tangency_counts[QQ(xv)]
-        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
-        eqs.append(eq_t)
-    
-    if len(eqs) != len(unknowns):
-        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
-    
-    sols = solve(eqs, unknowns, solution_dict=True)
-    sol = require_single_solution(sols, "solving for rest polynomial coefficients")
-    
-    solved_map = {}
-    contains_symbolic = False
-    for symb in unknowns:
-        val_SR = SR(sol[symb])
-        solved_map[symb] = val_SR
-        try:
-            _ = QQ(val_SR)
-        except Exception:
-            contains_symbolic = True
-    
-    rest_poly_QQ = None
-    rest_poly_SR_solved = None
-    if not contains_symbolic:
-        Rqq = PolynomialRing(QQ, str(xSR))
-        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
-        rest_poly_QQ = Rqq(coeffs_q)
-        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
-    else:
-        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
-        rest_poly_QQ = None
-    
-    Q_SR = SR(Q_SR)
-    prod_SR = SR(prod1)
-    fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
-    fibration_solved_SR = SR(fibration_solved_SR).expand()
-    
-    try:
-        deg_fib = int(fibration_solved_SR.degree(xSR))
-    except Exception:
-        deg_fib = None
-    
-    target_deg = n - 1
-    if deg_fib is None or deg_fib != target_deg:
-        diag = []
-        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
-        try:
-            deg_Q2 = int((Q_SR**2).degree(xSR))
-            diag.append(f"deg(Q^2) = {deg_Q2}")
-        except Exception:
-            diag.append("deg(Q^2) unknown")
-        try:
-            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
-            diag.append(f"deg(prod*rest) = {deg_prodrest}")
-        except Exception:
-            diag.append("deg(prod*rest) unknown")
-        diag_msg = "; ".join(diag)
-        raise RuntimeError("Degree drop failed: " + diag_msg)
-    
-    return {
-        'f_i': fibration_solved_SR,
-        'Q_i': Qpoly_QQ,
-        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
-        'r_expr': r_expr,
-        'rest_poly_SR': rest_poly_SR_solved,
-        'rest_poly_QQ': rest_poly_QQ,
-        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={USE_ANCHOR_POINTS} num_anchors={NUM_ANCHOR_POINTS if USE_ANCHOR_POINTS else 0}",
-    }
-
-
-
-
-# Add these constants near the top of tower.sage (with other config constants)
-
-# === ANCHOR POINT MODE CONFIGURATION ===
-USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
-NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
-ANCHOR_SEED = 42           # Seed for reproducible anchor point generation
-
-def generate_anchor_points(num_points, seed=ANCHOR_SEED):
-    """
-    Generate random rational anchor points (x,y) - just arbitrary rational pairs.
-    These don't need to lie on any curve; they simply pin down Q's free DOF.
-    
-    Args:
-        num_points: number of anchor points to generate
-        seed: random seed for reproducibility
-        
-    Returns:
-        List of (x, y) tuples with x, y in QQ
-    """
-    random.seed(int(seed))
-    anchor_pts = []
-    
-    for _ in range(num_points):
-        # Generate random rational x in [-10, 10]
-        num_x = random.randint(-10, 10)
-        den_x = random.randint(1, 10)
-        x_val = QQ(num_x) / QQ(den_x)
-        
-        # Generate random rational y in [-10, 10]
-        num_y = random.randint(-10, 10)
-        den_y = random.randint(1, 10)
-        y_val = QQ(num_y) / QQ(den_y)
-        
-        anchor_pts.append((x_val, y_val))
-        
-    return anchor_pts
-
-
-def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
-    """
-    Compute Q(x) using base interpolation points plus anchor points (no tangency).
-    Anchor points are just arbitrary rational (x,y) pairs that pin down Q's free DOF.
-    
-    Args:
-        base_pts: list of (x,y) from the fibration base point
-        degQ: degree of Q
-        x_sym: symbolic variable
-        anchor_pts: additional arbitrary rational (x,y) pairs
-        seed_int: random seed
-        
-    Returns:
-        Q polynomial over QQ
-    """
-    # Combine base points and anchor points
-    all_pts = list(base_pts) + list(anchor_pts)
-    
-    # We need exactly degQ+1 points for interpolation
-    if len(all_pts) != degQ + 1:
-        raise RuntimeError(f"Need exactly {degQ+1} points for degree {degQ} Q, but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})")
-    
-    # Use simple Lagrange interpolation (no tangency conditions)
-    R = PolynomialRing(QQ, str(x_sym))
-    
-    # Build the unique polynomial through these points
-    coeffs_sym = [SR.var(f'c{i}') for i in range(degQ + 1)]
-    Q_poly_sym = sum(c * x_sym**i for i, c in enumerate(coeffs_sym))
-    
-    # Create equations: Q(x_i) = y_i for each point
-    eqs = []
-    for x_val, y_val in all_pts:
-        eq = Q_poly_sym.subs({x_sym: SR(x_val)}) - SR(y_val)
-        eqs.append(eq)
-    
-    # Solve for coefficients
-    sols = solve(eqs, coeffs_sym, solution_dict=True)
-    if not sols:
-        raise RuntimeError(f"Could not solve for Q of degree {degQ} with {len(all_pts)} points")
-    
-    sol = require_single_solution(sols, "solving for Q coefficients (anchor mode)")
-    
-    # Extract rational coefficients
-    solved_coeffs = []
-    for c in coeffs_sym:
-        v = sol[c]
-        if has_free_variables(v):
-            raise RuntimeError(f"Solved Q coefficient depends on symbolic variables; expected numeric QQ. Coeff: {v}")
-        solved_coeffs.append(QQ(v))
-    
-    Qx = R(solved_coeffs)
-    return Qx
-
-
-# Modify build_one_fibration_step to use anchor points when enabled
-@PROFILE
-def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
-                                      verbose=False, forced_tangency_seq=None,
-                                      forced_Qpoly=None, force_Q_constraint_indices=None,
-                                      parameter_m=None):
-    """
-    Modified version that supports anchor point mode.
-    Set USE_ANCHOR_POINTS=True and NUM_ANCHOR_POINTS to control behavior.
-    """
-    random.seed(int(seed_int))
-    xSR = SR.var('x')
-    
-    n = int(fx_SR.degree(xSR))
-    xs_chosen = [QQ(xv) for xv in pts_x]
-    if len(xs_chosen) == 0:
-        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
-    x1 = xs_chosen[0]
-    
-    # Degree drop constraint
-    max_degQ = (n - 1) // 2
-    initial_degQ = choose_degQ(n)
-    degQ = min(initial_degQ, max_degQ)
-    
-    if forced_Qpoly is not None:
-        try:
-            forced_Q_SR = SR(forced_Qpoly)
-            forced_deg = int(forced_Q_SR.degree(xSR))
-        except Exception:
-            try:
-                Rtmp = PolynomialRing(QQ, str(xSR))
-                forced_deg = int(Rtmp(forced_Qpoly).degree())
-            except Exception:
-                raise RuntimeError("Could not determine degree of forced_Qpoly")
-        if forced_deg > max_degQ:
-            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
-        degQ = forced_deg
-    
-    # Build Q polynomial
-    if forced_Qpoly is not None:
-        try:
-            Rqq = PolynomialRing(QQ, str(xSR))
-            Qpoly_QQ = Rqq(forced_Qpoly)
-        except Exception:
-            Qpoly_QQ = SR(forced_Qpoly)
-    else:
-        # NEW: Check if we should use anchor points
-        if USE_ANCHOR_POINTS:
-            # Generate anchor points
-            num_anchors_needed = NUM_ANCHOR_POINTS
-            
-            # We need degQ+1 total points. We have 1 base point.
-            # So we need degQ more points total, NUM_ANCHOR_POINTS of which are anchors,
-            # and the rest come from tangency at base point
-            total_needed = degQ + 1
-            base_pts_count = 1
-            remaining_dof = total_needed - base_pts_count
-            
-            if num_anchors_needed > remaining_dof:
-                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
-            
-            # CRITICAL: Anchor points are arbitrary rational pairs, not curve points
-            anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int)
-            
-            if verbose:
-                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
-            
-            # Build base point on CURRENT curve
-            chosen_pts_xy = []
-            fx_SR_for_y = SR(fx_SR)
-            for xv in xs_chosen:
-                y_val_expr = fx_SR_for_y.subs({xSR: SR(xv)})
-                try:
-                    yi = sqrt(QQ(y_val_expr))
-                except Exception:
-                    yi = SR(sqrt(y_val_expr))
-                chosen_pts_xy.append((QQ(xv), yi))
-            
-            # If we still need tangency conditions after anchors
-            num_tangency_needed = remaining_dof - num_anchors_needed
-            
-            if num_tangency_needed == 0:
-                # Pure anchor mode: no tangency conditions
-                # Don't pass f_expr - anchors are arbitrary, not on any curve
                 Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
             else:
                 # Hybrid: some anchors + some tangency
@@ -1276,7 +950,8 @@ def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
                                             seed_int=seed_int,
                                             force_constraint_indices=force_Q_constraint_indices)
     
-    Q_SR = SR(Qpoly_QQ)
+    import copy
+    Q_SR = copy.deepcopy(SR(Qpoly_QQ))
     
     # Rest of the function remains the same
     prod1 = poly_prod_numeric(xs_chosen, xSR)
@@ -1292,6 +967,7 @@ def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
     diff_poly = (SR(fx_SR) - fibration_SR).expand()
+    print("diff_poly", diff_poly)
     
     if parameter_m is None:
         m = SR.var('m')
@@ -1383,6 +1059,8 @@ def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         diag_msg = "; ".join(diag)
         raise RuntimeError("Degree drop failed: " + diag_msg)
     
+    print("f_i", fibration_solved_SR)
+    print("Qpoly_QQ", Qpoly_QQ)
     return {
         'f_i': fibration_solved_SR,
         'Q_i': Qpoly_QQ,
@@ -1396,7 +1074,221 @@ def build_one_fibration_step_modified(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
 
 
 
+# Add these constants near the top of tower.sage (with other config constants)
 
+
+
+
+
+
+def compute_consensus_residues(precomputed_residues_list, prime_pool, 
+                                consensus_threshold=CONSENSUS_THRESHOLD,
+                                debug=DEBUG):
+    """
+    Compute consensus residues across multiple fibrations.
+    A residue is kept if it appears in >= consensus_threshold fraction of fibrations.
+    
+    Args:
+        precomputed_residues_list: List of precomputed_residues dicts (one per fibration)
+        prime_pool: List of primes
+        consensus_threshold: Minimum fraction of fibrations that must agree
+        
+    Returns:
+        consensus_residues: Dict in same format as precomputed_residues
+        stats: Dict with filtering statistics
+    """
+    from collections import defaultdict, Counter
+    
+    num_fibrations = len(precomputed_residues_list)
+    min_votes_needed = int(consensus_threshold * num_fibrations)
+    
+    if debug:
+        print(f"\n{'='*70}")
+        print(f"CONSENSUS FILTER: {num_fibrations} fibrations, "
+              f"threshold={consensus_threshold:.1%} ({min_votes_needed} votes needed)")
+        print(f"{'='*70}")
+    
+    # Track votes for each (prime, vector, rhs_idx, residue) tuple
+    residue_votes = defaultdict(Counter)  # {(p, v_tuple, rhs_idx): Counter({residue: count})}
+    
+    # Count votes across all fibrations
+    for fib_idx, precomp in enumerate(precomputed_residues_list):
+        for p in prime_pool:
+            if p not in precomp:
+                continue
+            
+            mapping = precomp[p]
+            for v_tuple, rhs_lists in mapping.items():
+                for rhs_idx, residue_set in enumerate(rhs_lists):
+                    key = (p, v_tuple, rhs_idx)
+                    for r in residue_set:
+                        if isinstance(r, int):
+                            residue_votes[key][r] += 1
+    
+    # Build consensus: keep only residues with >= min_votes_needed
+    consensus_residues = {}
+    stats = {
+        'total_before': 0,
+        'total_after': 0,
+        'per_prime_before': {},
+        'per_prime_after': {},
+        'reduction_ratio': 0.0
+    }
+    
+    for p in prime_pool:
+        consensus_residues[p] = {}
+        
+        # Collect all (v_tuple, rhs_idx) pairs for this prime
+        #keys_for_prime = {(v_tuple, rhs_idx) 
+        #                  for (pp, v_tuple, rhs_idx) in residue_votes.keys() 
+        #                  if pp == p}
+        
+        prime_before = 0
+        prime_after = 0
+        
+        keys = residue_votes.keys()
+        for key in keys:
+            #key = (p, v_tuple, rhs_idx)
+            vote_counter = residue_votes.get(key, Counter())
+            
+            # Filter: keep residues with enough votes
+            consensus_set = {r for r, votes in vote_counter.items() 
+                            if votes >= min_votes_needed}
+            
+            # Track original size
+            original_set = {r for r in vote_counter.keys()}
+            prime_before += len(original_set)
+            prime_after += len(consensus_set)
+            
+            # Store in output format
+            if v_tuple not in consensus_residues[p]:
+                # Initialize with empty sets for all RHS indices
+                max_rhs = max(idx for (_, _, idx) in keys if _ == v_tuple)
+                consensus_residues[p][v_tuple] = [set() for _ in range(max_rhs + 1)]
+            
+            consensus_residues[p][v_tuple][rhs_idx] = consensus_set
+        
+        stats['per_prime_before'][p] = prime_before
+        stats['per_prime_after'][p] = prime_after
+        stats['total_before'] += prime_before
+        stats['total_after'] += prime_after
+    
+    if stats['total_before'] > 0:
+        stats['reduction_ratio'] = 1.0 - (stats['total_after'] / stats['total_before'])
+    
+    if debug:
+        print(f"\nConsensus Filter Results:")
+        print(f"  Total residues before: {stats['total_before']:,}")
+        print(f"  Total residues after:  {stats['total_after']:,}")
+        print(f"  Filtered out: {stats['total_before'] - stats['total_after']:,} "
+              f"({100*stats['reduction_ratio']:.1f}%)")
+        
+        # Show per-prime breakdown for top primes
+        sorted_primes = sorted(stats['per_prime_before'].items(), 
+                               key=lambda x: -x[1])[:10]
+        print(f"\n  Top 10 primes by original residue count:")
+        for p, before in sorted_primes:
+            after = stats['per_prime_after'].get(p, 0)
+            reduction = 1.0 - (after / before) if before > 0 else 0.0
+            print(f"    p={p}: {before} → {after} ({100*reduction:.1f}% filtered)")
+    
+    return consensus_residues, stats
+
+
+from stats import *
+# Utility: Print consensus effectiveness
+def build_multiple_fibrations(fx_PR, pts_xy, num_fibrations, max_steps=3, 
+                               base_seed=SEED_INT, verbose=DEBUG):
+    """
+    Build multiple independent fibrations with different anchor points.
+    Each fibration should find the same rational points (conjecturally).
+    
+    The number of anchor points is automatically determined to maximize
+    diversity while maintaining degree drop constraints.
+    """
+    if not USE_ANCHOR_POINTS:
+        raise RuntimeError("build_multiple_fibrations requires USE_ANCHOR_POINTS=True")
+    
+    # Calculate optimal number of anchor points
+    # For a degree n curve reducing to degree 4, we have multiple steps
+    # At each step, we can vary anchor points to create diversity
+    from sage.all import PolynomialRing, QQ
+    R_x = PolynomialRing(QQ, 'x')
+    x = R_x.gen()
+    #n = int(fx_PR.degree(x))
+    n = int(fx_PR.degree())
+ 
+    # For the first step (n -> n-1), degQ ~ (n-2)/2
+    # We need degQ+1 constraints total, have 1 base point
+    # So we have degQ degrees of freedom to distribute between tangency and anchors
+    initial_degQ = (n - 2) // 2 if (n - 2) % 2 == 0 else (n - 1) // 2
+    available_dof = initial_degQ  # After using 1 base point
+    
+    # Use 50% of DOF as anchor points (rest for tangency)
+    # This balances diversity with computational stability
+    num_anchors = available_dof
+    
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"MULTI-FIBRATION CONSENSUS MODE")
+        print(f"Building {num_fibrations} independent fibrations")
+        print(f"Using {num_anchors} anchor points per fibration")
+        print(f"{'='*70}")
+    
+    # Temporarily override the global settings
+    global NUM_ANCHOR_POINTS
+    original_num_anchors = NUM_ANCHOR_POINTS
+    NUM_ANCHOR_POINTS = num_anchors
+    
+    try:
+        fibrations = []
+        for k in range(num_fibrations):
+            if verbose:
+                print(f"\n{'='*70}")
+                print(f"Building Fibration {k+1}/{num_fibrations} (seed={base_seed + k})")
+                print(f"{'='*70}")
+            
+            tower = iterate_tower(
+                fx_PR=fx_PR,
+                pts_xy=pts_xy,
+                max_steps=max_steps,
+                seed_int=base_seed + k,
+                verbose=verbose
+            )
+
+            import copy
+
+            # inside build_multiple_fibrations(...) loop, replace the append with:
+            # old:
+            # fibrations.append({
+            #     'tower': tower,
+            #     'seed': base_seed + k,
+            #     'id': k
+            # })
+            #
+            # new (deepcopy snapshot + debug id print):
+            _fib_snapshot = {
+                'tower': copy.deepcopy(tower),
+                'seed': base_seed + k,
+                'id': k
+            }
+            fibrations.append(_fib_snapshot)
+
+            # quick debug check (temporary; remove once verified)
+            try:
+                print("DEBUG appended tower id:", id(_fib_snapshot['tower']), "seed:", _fib_snapshot['seed'])
+                # also show Q_i repr of last tower step if available (safe to call repr)
+                if isinstance(_fib_snapshot['tower'], (list, tuple)) and _fib_snapshot['tower']:
+                    last_step = _fib_snapshot['tower'][-1]
+                    print("DEBUG last step Q_i repr:", repr(last_step.get('Q_i', '<no Q_i>')))
+            except Exception:
+                raise
+
+
+        return fibrations
+    finally:
+        # Restore original setting
+        NUM_ANCHOR_POINTS = original_num_anchors
 
 
 
@@ -1410,3 +1302,138 @@ if __name__ == '__main__':
 
 
 
+def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
+    """
+    Compute Q(x) using base interpolation points plus anchor points (no tangency).
+    Anchor points are just arbitrary rational (x,y) pairs that pin down Q's free DOF.
+    
+    Args:
+        base_pts: list of (x,y) from the fibration base point
+        degQ: degree of Q
+        x_sym: symbolic variable
+        anchor_pts: additional arbitrary rational (x,y) pairs
+        seed_int: random seed
+        
+    Returns:
+        Q polynomial over QQ
+    """
+    # Combine base points and anchor points
+    all_pts = list(base_pts) + list(anchor_pts)
+    
+    # We need exactly degQ+1 points for interpolation
+    if len(all_pts) != degQ + 1:
+        raise RuntimeError(f"Need exactly {degQ+1} points for degree {degQ} Q, but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})")
+    
+    # Extract x and y coordinates
+    xs = [QQ(pt[0]) for pt in all_pts]
+    ys = [QQ(pt[1]) for pt in all_pts]
+    
+    # Check for duplicate x-coordinates
+    if len(set(xs)) != len(xs):
+        raise RuntimeError(f"Duplicate x-coordinates in interpolation points: {xs}")
+    
+    # Build polynomial using Lagrange interpolation
+    R = PolynomialRing(QQ, str(x_sym))
+    
+    # Lagrange interpolation: Q(x) = Σ y_i * L_i(x)
+    # where L_i(x) = Π_{j≠i} (x - x_j) / (x_i - x_j)
+    Qx = R(0)
+    for i, (xi, yi) in enumerate(zip(xs, ys)):
+        # Build Lagrange basis polynomial L_i(x)
+        Li = R(1)
+        for j, xj in enumerate(xs):
+            if i != j:
+                Li *= (R.gen() - xj) / (xi - xj)
+        Qx += yi * Li
+    
+    return Qx
+
+
+
+# Utility: Print consensus effectiveness
+def print_consensus_effectiveness(consensus_stats, cumulative_stats):
+    """
+    Print how effective the consensus filter was at reducing junk.
+    """
+    print(f"\n{'='*70}")
+    print("CONSENSUS FILTER EFFECTIVENESS")
+    print(f"{'='*70}")
+    
+    cs = consensus_stats
+    print(f"\nResidues filtered: {cs['total_before'] - cs['total_after']:,} / {cs['total_before']:,}")
+    print(f"Reduction: {100*cs['reduction_ratio']:.1f}%")
+    
+    # Compare to rationality test results
+    total_tests = cumulative_stats.counters.get('rationality_tests_total', 0)
+    successes = cumulative_stats.counters.get('rationality_tests_success', 0)
+    
+    if total_tests > 0:
+        hit_rate = successes / total_tests
+        print(f"\nRationality tests:")
+        print(f"  Total: {total_tests:,}")
+        print(f"  Successes: {successes:,}")
+        print(f"  Hit rate: {100*hit_rate:.2f}%")
+        
+        # Estimate how many tests we saved
+        tests_saved = int(cs['total_before'] - cs['total_after'])
+        
+        # Calculate average time per test from search phase
+        search_time = cumulative_stats.phase_times.get('search_subsets_and_check', 0)
+        if total_tests > 0:
+            time_per_test = search_time / total_tests
+            time_saved_est = tests_saved * time_per_test
+            
+            print(f"\nEstimated tests saved: ~{tests_saved:,}")
+            print(f"Estimated time saved: ~{time_saved_est:.1f}s")
+
+
+
+def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
+    """
+    Generate random rational anchor points (x,y) - just arbitrary rational pairs.
+    These don't need to lie on any curve; they simply pin down Q's free DOF.
+    
+    Args:
+        num_points: number of anchor points to generate
+        seed: random seed for reproducibility
+        exclude_x: set/list of x-values to avoid (e.g., base point x-coords)
+        
+    Returns:
+        List of (x, y) tuples with x, y in QQ
+    """
+    random.seed(int(seed))
+    anchor_pts = []
+    
+    # Convert exclude_x to a set of QQ values for comparison
+    if exclude_x is None:
+        used_x = set()
+    else:
+        used_x = set(QQ(x) for x in exclude_x)
+    
+    max_attempts = 1000
+    attempts = 0
+    
+    while len(anchor_pts) < num_points and attempts < max_attempts:
+        attempts += 1
+        
+        # Generate random rational x in [-10, 10]
+        num_x = random.randint(-10, 10)
+        den_x = random.randint(1, 10)
+        x_val = QQ(num_x) / QQ(den_x)
+        
+        # Check for uniqueness (against both existing anchors and excluded points)
+        if x_val in used_x:
+            continue
+        
+        # Generate random rational y in [-10, 10]
+        num_y = random.randint(-10, 10)
+        den_y = random.randint(1, 10)
+        y_val = QQ(num_y) / QQ(den_y)
+        
+        anchor_pts.append((x_val, y_val))
+        used_x.add(x_val)
+    
+    if len(anchor_pts) < num_points:
+        raise RuntimeError(f"Could not generate {num_points} unique anchor points after {max_attempts} attempts")
+    
+    return anchor_pts

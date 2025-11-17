@@ -1084,139 +1084,6 @@ def liftability_order(r, p, f):
     return num_val - den_val
 
 
-def detect_residue_patterns(per_prime):
-    """Detect patterns. RAISES on error."""
-    from collections import Counter
-    
-    patterns = {
-        'disc_pattern_used': Counter(),
-        'disc_pattern_unused': Counter(),
-        'qc_used': Counter(),
-        'qc_unused': Counter(),
-        'lift_range_used': Counter(),
-        'lift_range_unused': Counter(),
-        'a_p_sign_used': Counter(),
-        'a_p_sign_unused': Counter(),
-        'local_height_used': [],
-        'local_height_unused': [],
-        'composite_patterns': {
-            'used_high_lift_high_disc': 0,
-            'unused_high_lift_high_disc': 0,
-            'used_qc_minus_lift_pos': 0,
-            'unused_qc_minus_lift_pos': 0,
-            'used_zero_local_height': 0,
-            'unused_zero_local_height': 0,
-        }
-    }
-    
-    for p, info in per_prime.items():
-        diag = info['diagnostics']
-        used = info['used_residues']
-        unused = info['unused_residues']
-        
-        # Process used
-        for r in used:
-            if r not in diag:
-                continue
-            d = diag[r]
-            patterns['disc_pattern_used'][d.get('disc_pattern', 'unknown')] += 1
-            patterns['qc_used'][d.get('qc', 'NA')] += 1
-            
-            lh = d.get('local_height')
-            if lh is not None:
-                patterns['local_height_used'].append(lh)
-                if lh == 0:
-                    patterns['composite_patterns']['used_zero_local_height'] += 1
-            
-            lift = d.get('liftability_order', 0)
-            if lift < -1:
-                patterns['lift_range_used']['highly_negative'] += 1
-            elif lift == -1:
-                patterns['lift_range_used']['negative'] += 1
-            elif lift == 0:
-                patterns['lift_range_used']['zero'] += 1
-            elif lift == 1:
-                patterns['lift_range_used']['positive'] += 1
-            else:
-                patterns['lift_range_used']['highly_positive'] += 1
-            
-            ap = d.get('a_p')
-            if ap == 'sing':
-                patterns['a_p_sign_used']['singular'] += 1
-            elif isinstance(ap, (int, float)):
-                if ap > 0:
-                    patterns['a_p_sign_used']['positive'] += 1
-                elif ap < 0:
-                    patterns['a_p_sign_used']['negative'] += 1
-                else:
-                    patterns['a_p_sign_used']['zero'] += 1
-            
-            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
-                patterns['composite_patterns']['used_high_lift_high_disc'] += 1
-            if d.get('qc') == -1 and lift > 0:
-                patterns['composite_patterns']['used_qc_minus_lift_pos'] += 1
-        
-        # Process unused
-        for r in unused:
-            if r not in diag:
-                continue
-            d = diag[r]
-            patterns['disc_pattern_unused'][d.get('disc_pattern', 'unknown')] += 1
-            patterns['qc_unused'][d.get('qc', 'NA')] += 1
-            
-            lh = d.get('local_height')
-            if lh is not None:
-                patterns['local_height_unused'].append(lh)
-                if lh == 0:
-                    patterns['composite_patterns']['unused_zero_local_height'] += 1
-            
-            lift = d.get('liftability_order', 0)
-            if lift < -1:
-                patterns['lift_range_unused']['highly_negative'] += 1
-            elif lift == -1:
-                patterns['lift_range_unused']['negative'] += 1
-            elif lift == 0:
-                patterns['lift_range_unused']['zero'] += 1
-            elif lift == 1:
-                patterns['lift_range_unused']['positive'] += 1
-            else:
-                patterns['lift_range_unused']['highly_positive'] += 1
-            
-            ap = d.get('a_p')
-            if ap == 'sing':
-                patterns['a_p_sign_unused']['singular'] += 1
-            elif isinstance(ap, (int, float)):
-                if ap > 0:
-                    patterns['a_p_sign_unused']['positive'] += 1
-                elif ap < 0:
-                    patterns['a_p_sign_unused']['negative'] += 1
-                else:
-                    patterns['a_p_sign_unused']['zero'] += 1
-            
-            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
-                patterns['composite_patterns']['unused_high_lift_high_disc'] += 1
-            if d.get('qc') == -1 and lift > 0:
-                patterns['composite_patterns']['unused_qc_minus_lift_pos'] += 1
-    
-    # Compute stats - RAISES on error
-    if patterns['local_height_used']:
-        import statistics
-        patterns['local_height_stats_used'] = {
-            'mean': statistics.mean(patterns['local_height_used']),
-            'median': statistics.median(patterns['local_height_used']),
-            'max': max(patterns['local_height_used'])
-        }
-    if patterns['local_height_unused']:
-        import statistics
-        patterns['local_height_stats_unused'] = {
-            'mean': statistics.mean(patterns['local_height_unused']),
-            'median': statistics.median(patterns['local_height_unused']),
-            'max': max(patterns['local_height_unused'])
-        }
-    
-    return patterns
-
-
 def summarize_unused_residue_characteristics(analysis_ret, top_k=10):
     """Summary with patterns. RAISES on error."""
     per_prime = analysis_ret['per_prime']
@@ -1808,3 +1675,147 @@ def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
     adjusted = max(100, min(2000, adjusted))
     
     return int(adjusted)
+
+
+
+def detect_residue_patterns(per_prime):
+    """Detect patterns. RAISES on error."""
+    from collections import Counter
+    
+    patterns = {
+        'disc_pattern_used': Counter(),
+        'disc_pattern_unused': Counter(),
+        'qc_used': Counter(),
+        'qc_unused': Counter(),
+        'lift_range_used': Counter(),
+        'lift_range_unused': Counter(),
+        'a_p_sign_used': Counter(),
+        'a_p_sign_unused': Counter(),
+        'local_height_used': [],
+        'local_height_unused': [],
+        'composite_patterns': {
+            'used_high_lift_high_disc': 0,
+            'unused_high_lift_high_disc': 0,
+            'used_qc_minus_lift_pos': 0,
+            'unused_qc_minus_lift_pos': 0,
+            'used_zero_local_height': 0,
+            'unused_zero_local_height': 0,
+        }
+    }
+    
+    for p, info in per_prime.items():
+        diag = info['diagnostics']
+        used = info['used_residues']
+        unused = info['unused_residues']
+        
+        # Process used
+        for r in used:
+            if r not in diag:
+                continue
+            d = diag[r]
+            patterns['disc_pattern_used'][d.get('disc_pattern', 'unknown')] += 1
+            patterns['qc_used'][d.get('qc', 'NA')] += 1
+            
+            lh = d.get('local_height')
+            if lh is not None:
+                # *** FIX: Convert to Python float ***
+                try:
+                    lh_float = float(lh)
+                    patterns['local_height_used'].append(lh_float)
+                    if lh_float == 0.0:
+                        patterns['composite_patterns']['used_zero_local_height'] += 1
+                except (TypeError, ValueError):
+                    pass  # Skip non-numeric values
+            
+            lift = d.get('liftability_order', 0)
+            if lift < -1:
+                patterns['lift_range_used']['highly_negative'] += 1
+            elif lift == -1:
+                patterns['lift_range_used']['negative'] += 1
+            elif lift == 0:
+                patterns['lift_range_used']['zero'] += 1
+            elif lift == 1:
+                patterns['lift_range_used']['positive'] += 1
+            else:
+                patterns['lift_range_used']['highly_positive'] += 1
+            
+            ap = d.get('a_p')
+            if ap == 'sing':
+                patterns['a_p_sign_used']['singular'] += 1
+            elif isinstance(ap, (int, float)):
+                if ap > 0:
+                    patterns['a_p_sign_used']['positive'] += 1
+                elif ap < 0:
+                    patterns['a_p_sign_used']['negative'] += 1
+                else:
+                    patterns['a_p_sign_used']['zero'] += 1
+            
+            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
+                patterns['composite_patterns']['used_high_lift_high_disc'] += 1
+            if d.get('qc') == -1 and lift > 0:
+                patterns['composite_patterns']['used_qc_minus_lift_pos'] += 1
+        
+        # Process unused
+        for r in unused:
+            if r not in diag:
+                continue
+            d = diag[r]
+            patterns['disc_pattern_unused'][d.get('disc_pattern', 'unknown')] += 1
+            patterns['qc_unused'][d.get('qc', 'NA')] += 1
+            
+            lh = d.get('local_height')
+            if lh is not None:
+                # *** FIX: Convert to Python float ***
+                try:
+                    lh_float = float(lh)
+                    patterns['local_height_unused'].append(lh_float)
+                    if lh_float == 0.0:
+                        patterns['composite_patterns']['unused_zero_local_height'] += 1
+                except (TypeError, ValueError):
+                    pass  # Skip non-numeric values
+            
+            lift = d.get('liftability_order', 0)
+            if lift < -1:
+                patterns['lift_range_unused']['highly_negative'] += 1
+            elif lift == -1:
+                patterns['lift_range_unused']['negative'] += 1
+            elif lift == 0:
+                patterns['lift_range_unused']['zero'] += 1
+            elif lift == 1:
+                patterns['lift_range_unused']['positive'] += 1
+            else:
+                patterns['lift_range_unused']['highly_positive'] += 1
+            
+            ap = d.get('a_p')
+            if ap == 'sing':
+                patterns['a_p_sign_unused']['singular'] += 1
+            elif isinstance(ap, (int, float)):
+                if ap > 0:
+                    patterns['a_p_sign_unused']['positive'] += 1
+                elif ap < 0:
+                    patterns['a_p_sign_unused']['negative'] += 1
+                else:
+                    patterns['a_p_sign_unused']['zero'] += 1
+            
+            if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
+                patterns['composite_patterns']['unused_high_lift_high_disc'] += 1
+            if d.get('qc') == -1 and lift > 0:
+                patterns['composite_patterns']['unused_qc_minus_lift_pos'] += 1
+    
+    # Compute stats - RAISES on error
+    if patterns['local_height_used']:
+        import statistics
+        patterns['local_height_stats_used'] = {
+            'mean': statistics.mean(patterns['local_height_used']),
+            'median': statistics.median(patterns['local_height_used']),
+            'max': max(patterns['local_height_used'])
+        }
+    if patterns['local_height_unused']:
+        import statistics
+        patterns['local_height_stats_unused'] = {
+            'mean': statistics.mean(patterns['local_height_unused']),
+            'median': statistics.median(patterns['local_height_unused']),
+            'max': max(patterns['local_height_unused'])
+        }
+    
+    return patterns

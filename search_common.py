@@ -392,6 +392,7 @@ TORSION_SLOPPY = False
 
 # random seed for reproducibility.
 SEED_INT = random.randint(-10**6, 10**6)
+ANCHOR_SEED = SEED_INT           # Seed for reproducible anchor point generation
 
 DEBUG = False
 DEBUG = True
@@ -408,6 +409,13 @@ USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
 NUM_CONSENSUS_FIBRATIONS = 3  # How many independent fibrations to use
 CONSENSUS_THRESHOLD = 0.8     # Fraction of fibrations that must agree (0.8 = 80%)
+
+# Add these constants near the top of tower.sage (with other config constants)
+
+# === ANCHOR POINT MODE CONFIGURATION ===
+USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
+USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
+NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
 
 

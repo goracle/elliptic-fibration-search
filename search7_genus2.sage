@@ -104,15 +104,37 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     shifted_G_poly = G(x - shift)
     base_pts = [(X + shift, Y) for X, Y in real_pts]
 
-    # 2. Build the full fibration tower (deg 6 -> 5 -> 4)
-    print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") # Corrected print
     tower = iterate_tower(
-        fx_PR=shifted_G_poly,
-        pts_xy=base_pts,
-        max_steps=len(sextic_coeffs)-5, # 5, because general quartics have 5 coefficients!
-        seed_int=SEED_INT,
-        verbose=DEBUG
-    )
+            fx_PR=shifted_G_poly,
+            pts_xy=base_pts,
+            max_steps=len(sextic_coeffs) - 5,
+            seed_int=SEED_INT,
+            verbose=DEBUG
+        )
+
+    # Build MULTIPLE fibrations instead of one
+    print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") # Corrected print
+    if USE_CONSENSUS_FILTER:
+        print(f"\n{'='*70}")
+        print(f"MULTI-FIBRATION CONSENSUS MODE")
+        print(f"Building {NUM_CONSENSUS_FIBRATIONS} independent fibrations...")
+        print(f"{'='*70}")
+        
+        fibrations = build_multiple_fibrations(
+            fx_PR=shifted_G_poly,
+            pts_xy=base_pts,
+            num_fibrations=NUM_CONSENSUS_FIBRATIONS,
+            max_steps=len(sextic_coeffs) - 5,
+            base_seed=SEED_INT,
+            verbose=DEBUG
+        )
+        
+        
+    else:
+        # Original single-fibration mode
+        fibrations = None
+    
+
     # 3. Extract expressions from the tower
     roots = [i['r_expr'] for i in tower]
     E_rhs_m_symbolic = tower[-1]['f_i'] # The final quartic equation
@@ -303,6 +325,31 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("No search vectors found within height bound. Stopping.")
             break
 
+        if fibrations:
+            for fib_idx, fib_data in enumerate(fibrations):
+                print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
+
+                # 1. Extract THIS fibration's tower data
+                this_tower = fib_data['tower']
+                this_roots = [SR(step['r_expr']) for step in this_tower]
+                this_E_rhs_sym = this_tower[-1]['f_i']
+
+                # DEBUG check for diversity
+                try:
+                    print(f"  Equation checksum (start): {str(this_E_rhs_sym)[:80]}...")
+                    for i in this_tower:
+                        if isinstance(i, dict):
+                            for j in i:
+                                print(j, i[j])
+                        else:
+                            print(i)
+                    print("this roots:", this_roots)
+                except Exception:
+                    raise
+        sys.exit()
+
+
+
         # ***** MODIFIED SECTION *****
         # The modular search is replaced with the direct symbolic search.
         if SYMBOLIC_SEARCH:
@@ -324,25 +371,183 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
             residue_counts = sconf.get('RESIDUE_COUNTS', {})
  
-            # --- MODIFIED CALL to get stats object ---
-            newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
-                cd, current_sections,
-                prime_pool, height_bound,
-                vecs,
-                search_rhs_list,
-                r_m,
-                shift,
-                all_known_x,
-                num_prime_subsets,
-                get_y_unshifted_genus2,
-                sconf
-                )
-            # --- MERGE STATS ---
-            cumulative_stats.merge(iter_stats)
+            # In search7_genus2.sage, replace the section starting with "if USE_CONSENSUS_FILTER and fibrations:"
 
-            #if len(newly_found_x) < len(vecs) // 4:
-            #if len(newly_found_x) < 1:
-        # ***** END MODIFIED SECTION *****
+            if USE_CONSENSUS_FILTER and fibrations:
+                print(f"\n{'='*70}")
+                print(f"PRECOMPUTING RESIDUES FOR {len(fibrations)} FIBRATIONS")
+                print(f"{'='*70}")
+
+                # Import what we need
+                from search_lll.modularthread import _compute_residues_for_prime_worker_old, _compute_residues_for_prime_worker
+                from search_lll.ll_utilities import prepare_modular_data_lll
+                from concurrent.futures import ProcessPoolExecutor, as_completed
+                from tqdm import tqdm
+                import multiprocessing
+
+                all_precomputed_residues = []
+
+                for fib_idx, fib_data in enumerate(fibrations):
+                    print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
+
+                    # 1. Extract THIS fibration's tower data
+                    this_tower = fib_data['tower']
+                    this_roots = [SR(step['r_expr']) for step in this_tower]
+                    this_E_rhs_sym = this_tower[-1]['f_i']
+                    
+                    # DEBUG check for diversity
+                    try:
+                        print(f"  Equation checksum (start): {str(this_E_rhs_sym)[:80]}...")
+                    except Exception:
+                        raise
+
+                    # 2. Reconstruct the curve objects for THIS fibration
+                    # We need to rebuild E_rhs_m and the morphism for this specific tower
+                    try:
+                        # Convert symbolic quartic to polynomial ring
+                        coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
+                        coeffs_in_Fm = [F_m(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+                        this_E_rhs_m = R_x_m(coeffs_in_Fm)
+                        
+                        # Compute morphism for this specific fibration
+                        this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
+                        
+                        # Rebuild cd for this fibration (lightweight version if possible, but full is safer)
+                        lastrhs = this_E_rhs_m(x=this_roots[-1])
+                        last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
+                        
+                        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+                        
+                        # 3. Rebuild search_rhs_list for THIS fibration
+                        k_pow = this_cd.k_base_change
+                        n_exp = this_cd.tate_exponent
+                        blowup = this_cd.blowup_factor
+                        total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
+                        
+                        this_search_rhs_list = [SR(this_cd.phi_x)]
+                        
+                        for root_val in this_roots[:-1]:
+                            qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
+                            phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
+                            phi_x_r_SR = SR(phi_x_r)
+                            rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
+                            this_search_rhs_list.append(rhs_scaled)
+
+                        # 4. NOW compute residues using THIS list
+                        # Note: brauer.py fix ensures compute_ramification_locus won't hang here
+                        fib_Ep_dict, fib_rhs_modp_list, fib_mult_lll, fib_vecs_lll = prepare_modular_data_lll(
+                            this_cd, current_sections, prime_pool, this_search_rhs_list, vecs, 
+                            cumulative_stats, search_primes=prime_pool
+                        )
+                    except Exception as e:
+                        print(f"  Failed to construct geometry for fibration {fib_idx}: {e}")
+                        all_precomputed_residues.append({})
+                        raise
+                        continue
+
+                    if not fib_Ep_dict:
+                        print(f"  Warning: No valid primes for fibration {fib_idx+1}, skipping")
+                        all_precomputed_residues.append({})
+                        continue
+                    
+                    # Build args for worker pool
+                    primes_to_compute = list(fib_Ep_dict.keys())
+                    num_rhs_fns = len(search_rhs_list)
+                    vecs_list = list(vecs)
+
+                    args_list = [
+                        (
+                            p,
+                            fib_Ep_dict[p],
+                            fib_mult_lll.get(p, {}),
+                            fib_vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+                            vecs_list,
+                            fib_rhs_modp_list,
+                            num_rhs_fns,
+                            cumulative_stats
+                        )
+                        for p in primes_to_compute
+                    ]
+
+                    fib_precomputed = {}
+
+                    # Run the worker pool
+                    try:
+                        ctx = multiprocessing.get_context("fork")
+                        exec_kwargs = {"max_workers": 8, "mp_context": ctx}
+                    except Exception:
+                        exec_kwargs = {"max_workers": 8}
+                        raise
+
+                    with ProcessPoolExecutor(**exec_kwargs) as executor:
+                        if TORSION_SLOPPY:
+                            futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] 
+                                    for args in args_list}
+                        else:
+                            futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] 
+                                    for args in args_list}
+
+                        for future in tqdm(as_completed(futures), total=len(futures), 
+                                    desc=f"Fib {fib_idx+1}/{len(fibrations)}"):
+                            p = futures[future]
+                            try:
+                                p_ret, mapping, local_checks = future.result()
+                                fib_precomputed[p_ret] = mapping or {}
+                            except Exception as e:
+                                if DEBUG:
+                                    print(f"  Residue computation failed for p={p}: {e}")
+                                fib_precomputed[p] = {}
+                                raise
+
+                    all_precomputed_residues.append(fib_precomputed)
+                    print(f"  Computed residues for {len(fib_precomputed)} primes")
+
+                # Apply consensus filter
+                print(f"\n{'='*70}")
+                print("APPLYING CONSENSUS FILTER")
+                print(f"{'='*70}")
+
+                precomputed_residues, consensus_stats = compute_consensus_residues(
+                    all_precomputed_residues,
+                    prime_pool,
+                    consensus_threshold=CONSENSUS_THRESHOLD,
+                    debug=DEBUG
+                )
+
+                # Store stats and print effectiveness
+                cumulative_stats.consensus_filter_stats = consensus_stats
+                print_consensus_effectiveness(consensus_stats, cumulative_stats)
+
+
+                newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
+                    cd, current_sections,
+                    prime_pool, height_bound,
+                    vecs,
+                    search_rhs_list,
+                    r_m,
+                    shift,
+                    all_known_x,
+                    num_prime_subsets,
+                    get_y_unshifted_genus2,
+                    sconf,
+                    precomputed_residues=precomputed_residues  # <-- Pass filtered residues
+                )
+            else:
+                # Normal path - function does its own precomputation
+                newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
+                    cd, current_sections,
+                    prime_pool, height_bound,
+                    vecs,
+                    search_rhs_list,
+                    r_m,
+                    shift,
+                    all_known_x,
+                    num_prime_subsets,
+                    get_y_unshifted_genus2,
+                    sconf
+                )
+
+            cumulative_stats.merge(iter_stats)
 
 
         print(f"Found {len(newly_found_x)} new point(s) and {len(new_sections)} new section(s).")
