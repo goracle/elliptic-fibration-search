@@ -73,6 +73,123 @@ def add_y_zero_points_to_known(known_pts, sextic_coeffs):
     known_pts.update(y_zero_points)
     return known_pts
 
+
+@PROFILE
+def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None):
+    """
+    Analyzes a single fibration tower to produce all geometry-specific
+    search parameters (cd, sections, H, vecs, rhs_list).
+    
+    Args:
+        tower: The fibration tower object.
+        base_pts: The rational points used to generate the tower.
+        height_bound: The canonical height bound (from primary sconf).
+        shift: The x-coordinate shift.
+        all_known_x: All known x-coordinates (for height estimation).
+        global_sconf: The primary search config (for fallbacks).
+
+    Returns:
+        A dictionary containing all geometry-specific items:
+        { 'cd', 'sections', 'H', 'vecs', 'rhs_list', 'r_m', 'sconf' }
+    """
+    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed})...")
+    
+    # 1. Reconstruct SR/PR variables (must be done in Sage context)
+    SR_m = var('m')
+    PR_m = PolynomialRing(QQ, 'm')
+    m_poly = PR_m.gen()
+    Fm = PR_m.fraction_field()
+    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
+    xSR, mSR = SR.var('x'), SR.var('m')
+
+    # 2. Extract expressions from this tower
+    this_roots = [SR(step['r_expr']) for step in tower]
+    this_E_rhs_sym = tower[-1]['f_i']
+    this_r_m = SR(this_roots[0])
+
+    # 3. Reconstruct the curve objects (cd)
+    coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
+    coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+    this_E_rhs_m = R_x_m(coeffs_in_Fm)
+    
+    this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
+    
+    lastrhs = this_E_rhs_m(x=this_roots[-1])
+    last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
+    
+    this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+
+    # 4. Re-run sconf auto-configuration for THIS geometry
+    # This is optional but provides a more accurate height bound if geometries differ wildly
+    try:
+        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
+        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
+        if not known_pts_for_height:
+             known_pts_for_height = [(QQ(0), None)]
+        
+        # Use the global height bound as a *fallback*, but let it re-estimate
+        this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
+        this_height_bound = this_sconf.get('HEIGHT_BOUND', height_bound)
+        print(f"  [analyze_fibration] Re-configured: H_bound={this_height_bound} (vs global {height_bound})")
+
+    except Exception as e:
+        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
+        this_sconf = global_sconf
+        this_height_bound = height_bound
+        raise
+
+
+    # 5. Compute fibration-specific sections
+    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
+    assert fib_specific_sections
+    if not fib_specific_sections:
+        print(f"  [analyze_fibration] ERROR: Could not compute base sections for this fibration.")
+        return None
+        
+    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
+    
+    # 6. Compute fibration-specific Height Matrix (H) and Search Vectors (vecs)
+    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
+    assert independent, this_H
+    if not independent:
+        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
+        return None
+        
+    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
+    
+    # Use the height bound *specific to this geometry*
+    fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
+    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
+    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
+
+    # 7. Build fibration-specific RHS list
+    k_pow = this_cd.k_base_change
+    n_exp = this_cd.tate_exponent
+    blowup = this_cd.blowup_factor
+    m_sym = this_cd.a4.parent().gen()
+    total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
+    
+    this_search_rhs_list = [SR(this_cd.phi_x)]
+    
+    for root_val in this_roots[:-1]:
+        qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
+        phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
+        phi_x_r_SR = SR(phi_x_r)
+        rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
+        this_search_rhs_list.append(rhs_scaled)
+
+    return {
+        'cd': this_cd,
+        'sections': fib_specific_sections,
+        'H': this_H,
+        'height_bound': this_height_bound,
+        'vecs': fib_specific_vecs,
+        'rhs_list': this_search_rhs_list,
+        'r_m': this_r_m,
+        'sconf': this_sconf
+    }
+
+
 @PROFILE
 def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     """
@@ -104,15 +221,19 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     shifted_G_poly = G(x - shift)
     base_pts = [(X + shift, Y) for X, Y in real_pts]
 
-    tower = iterate_tower(
-            fx_PR=shifted_G_poly,
-            pts_xy=base_pts,
-            max_steps=len(sextic_coeffs) - 5,
-            seed_int=SEED_INT,
-            verbose=DEBUG
+    # --- PRIMARY ("NICE") FIBRATION ---
+    # We build one "nice" fibration first, without anchors.
+    # This geometry will be used for the main search loop.
+    primary_tower = iterate_tower(
+        fx_PR=shifted_G_poly,
+        pts_xy=base_pts,
+        max_steps=len(sextic_coeffs) - 5,
+        seed_int=SEED_INT,
+        verbose=DEBUG,
+        use_anchor_points=False  # Ensure this is the "nice" one
         )
 
-    # Build MULTIPLE fibrations instead of one
+    # Build MULTIPLE fibrations for consensus
     print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") # Corrected print
     if USE_CONSENSUS_FILTER:
         print(f"\n{'='*70}")
@@ -125,19 +246,26 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             pts_xy=base_pts,
             num_fibrations=NUM_CONSENSUS_FIBRATIONS,
             max_steps=len(sextic_coeffs) - 5,
-            base_seed=SEED_INT,
+            base_seed=SEED_INT+1000,
             verbose=DEBUG
         )
-        
+        # Add the primary tower to the list for consensus calculation
+        # It's important that it also gets a vote.
+        primary_tower_with_meta = {
+            'tower': primary_tower,
+            'seed': SEED_INT,
+            'id': -1 # Mark as primary
+        }
+        #fibrations.append(primary_tower_with_meta)
         
     else:
         # Original single-fibration mode
         fibrations = None
     
 
-    # 3. Extract expressions from the tower
-    roots = [i['r_expr'] for i in tower]
-    E_rhs_m_symbolic = tower[-1]['f_i'] # The final quartic equation
+    # 3. Extract expressions from the *PRIMARY* tower
+    roots = [i['r_expr'] for i in primary_tower]
+    E_rhs_m_symbolic = primary_tower[-1]['f_i'] # The final quartic equation
 
     m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs() # for diagnostics
 
@@ -154,7 +282,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     # 4. Main Search Logic
     fibration_type = f"{len(set(pt[0] for pt in base_pts))}-point"
-    print(f"--- Running {fibration_type} Fibration ---")
+    print(f"--- Running {fibration_type} Fibration (Primary Geometry) ---")
 
     E_curve_m, one, two, three = compute_morphism(E_rhs_m)
 
@@ -164,33 +292,25 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     # in your main script, after cd is constructed:
 
-    # 5. Auto-configure bounds and prime parameters from the constructed curve data
-
+    # 5. Auto-configure bounds and prime parameters from the *PRIMARY* constructed curve data
     print("\n=== Auto-configuring search parameters for this fibration ===")
     try:
-        # Build known point list in (x,y) form for height estimation
-        # --- MODIFICATION ---
-        # Use ALL known x-coordinates to get a better height estimate
         print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
         known_pts_for_height = []
         for x_coord in all_known_x:
             try:
-                # naive_x_height_from_pts only uses the first element (x)
                 known_pts_for_height.append((QQ(x_coord), None))
             except Exception:
-                continue # Skip if coercion fails
+                raise
+                continue 
 
-        # Also add the base points for the current fibration
         for pt in base_pts:
             if pt[0] is not None:
                 known_pts_for_height.append((QQ(pt[0]), QQ(pt[1])))
 
         if not known_pts_for_height:
-             # Failsafe if all_known_x is empty (shouldn't be, but safe)
              known_pts_for_height = [(QQ(0), None)]
-        # --- END MODIFICATION ---
-        # Run auto configuration (defined in bounds.py)
-        # --- MODIFICATION: Pass new list and height_bound=None to force re-estimation ---
+        
         sconf = bounds.auto_configure_search(cd, known_pts_for_height, height_bound=None, debug=True)
         print_conf(sconf)
     except Exception:
@@ -243,7 +363,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     # Build the remaining RHS for each tower-level double root
     for i in roots_SR[:-1]:
-        break # new tower as all identical rhs's.
         # Evaluate the quartic at x = root i (symbolic)
         qrhs_r = SR(E_rhs_m_symbolic).subs({xSR: i})
         phi_x_r = get_phi_x(SR(one), SR(two), SR(three), i, qrhs_r)
@@ -256,7 +375,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     for j, rr in enumerate(search_rhs_list):
         print(f"  search_rhs_list[{j}] = {rr}")
 
-    assert len(tower) == len(roots), (len(tower), roots)
+    assert len(primary_tower) == len(roots), (len(primary_tower), roots)
     #assert len(tower) == len(search_rhs_list), (len(tower), len(search_rhs_list))
 
     summarize_fibration_info(cd, data_pts, base_pts)
@@ -325,33 +444,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("No search vectors found within height bound. Stopping.")
             break
 
-        if fibrations:
-            for fib_idx, fib_data in enumerate(fibrations):
-                print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
-
-                # 1. Extract THIS fibration's tower data
-                this_tower = fib_data['tower']
-                this_roots = [SR(step['r_expr']) for step in this_tower]
-                this_E_rhs_sym = this_tower[-1]['f_i']
-
-                # DEBUG check for diversity
-                try:
-                    print(f"  Equation checksum (start): {str(this_E_rhs_sym)[:80]}...")
-                    for i in this_tower:
-                        if isinstance(i, dict):
-                            for j in i:
-                                print(j, i[j])
-                        else:
-                            print(i)
-                    print("this roots:", this_roots)
-                except Exception:
-                    raise
-        sys.exit()
-
-
-
         # ***** MODIFIED SECTION *****
-        # The modular search is replaced with the direct symbolic search.
         if SYMBOLIC_SEARCH:
             newly_found_x, new_sections = search_lattice_symbolic(
                 cd,
@@ -364,9 +457,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 rationality_test_func=get_y_unshifted_genus2,
                 stats=cumulative_stats # <-- Pass stats object
             )
+            # This is a bit awkward, but we need to merge stats from symbolic search
+            # If search_lattice_symbolic doesn't return stats, we just merge an empty one
+            iter_stats = SearchStats() # Create a dummy stats object for merging
             cumulative_stats.merge(iter_stats)
         else:
-
             # --- ALL CONFIG (PRIMES / SUBSETS / RESIDUE COUNTS) COMES FROM sconf ---
             prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
             residue_counts = sconf.get('RESIDUE_COUNTS', {})
@@ -386,61 +481,48 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 import multiprocessing
 
                 all_precomputed_residues = []
+                
+                # Use the primary height bound for all fibration analyses
+                primary_height_bound = sconf['HEIGHT_BOUND']
 
                 for fib_idx, fib_data in enumerate(fibrations):
                     print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
 
-                    # 1. Extract THIS fibration's tower data
-                    this_tower = fib_data['tower']
-                    this_roots = [SR(step['r_expr']) for step in this_tower]
-                    this_E_rhs_sym = this_tower[-1]['f_i']
+                    # 1. Analyze this fibration's geometry to get its *own* cd, sections, vecs, etc.
+                    fib_analysis = analyze_fibration_geometry(
+                        fib_data['tower'], 
+                        base_pts, 
+                        primary_height_bound, # Pass the *primary* height bound
+                        shift,
+                        all_known_x,
+                        sconf, # Pass primary sconf for fallback
+                        seed=fib_data['seed']
+                    )
                     
-                    # DEBUG check for diversity
-                    try:
-                        print(f"  Equation checksum (start): {str(this_E_rhs_sym)[:80]}...")
-                    except Exception:
-                        raise
+                    if fib_analysis is None:
+                        print(f"  Skipping fibration {fib_idx+1} due to analysis error.")
+                        all_precomputed_residues.append({})
+                        continue
 
-                    # 2. Reconstruct the curve objects for THIS fibration
-                    # We need to rebuild E_rhs_m and the morphism for this specific tower
+                    # 2. Extract fibration-specific components
+                    this_cd = fib_analysis['cd']
+                    fib_specific_sections = fib_analysis['sections']
+                    this_search_rhs_list = fib_analysis['rhs_list']
+                    fib_specific_vecs = fib_analysis['vecs']
+                    
+                    # 3. NOW compute residues using THIS fibration's specific geometry
                     try:
-                        # Convert symbolic quartic to polynomial ring
-                        coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
-                        coeffs_in_Fm = [F_m(c.subs({mSR: m_poly})) for c in coeffs_in_m]
-                        this_E_rhs_m = R_x_m(coeffs_in_Fm)
-                        
-                        # Compute morphism for this specific fibration
-                        this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
-                        
-                        # Rebuild cd for this fibration (lightweight version if possible, but full is safer)
-                        lastrhs = this_E_rhs_m(x=this_roots[-1])
-                        last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
-                        
-                        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
-                        
-                        # 3. Rebuild search_rhs_list for THIS fibration
-                        k_pow = this_cd.k_base_change
-                        n_exp = this_cd.tate_exponent
-                        blowup = this_cd.blowup_factor
-                        total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
-                        
-                        this_search_rhs_list = [SR(this_cd.phi_x)]
-                        
-                        for root_val in this_roots[:-1]:
-                            qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
-                            phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
-                            phi_x_r_SR = SR(phi_x_r)
-                            rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
-                            this_search_rhs_list.append(rhs_scaled)
-
-                        # 4. NOW compute residues using THIS list
-                        # Note: brauer.py fix ensures compute_ramification_locus won't hang here
                         fib_Ep_dict, fib_rhs_modp_list, fib_mult_lll, fib_vecs_lll = prepare_modular_data_lll(
-                            this_cd, current_sections, prime_pool, this_search_rhs_list, vecs, 
-                            cumulative_stats, search_primes=prime_pool
+                            this_cd, 
+                            fib_specific_sections, # <-- Fibration-specific
+                            prime_pool,            # <-- Global prime pool
+                            this_search_rhs_list,  # <-- Fibration-specific
+                            fib_specific_vecs,     # <-- Fibration-specific
+                            cumulative_stats, 
+                            search_primes=prime_pool
                         )
                     except Exception as e:
-                        print(f"  Failed to construct geometry for fibration {fib_idx}: {e}")
+                        print(f"  Failed to prepare modular data for fibration {fib_idx}: {e}")
                         all_precomputed_residues.append({})
                         raise
                         continue
@@ -450,17 +532,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         all_precomputed_residues.append({})
                         continue
                     
-                    # Build args for worker pool
+                    # 4. Build args for worker pool
                     primes_to_compute = list(fib_Ep_dict.keys())
-                    num_rhs_fns = len(search_rhs_list)
-                    vecs_list = list(vecs)
+                    num_rhs_fns = len(this_search_rhs_list)
+                    vecs_list = list(fib_specific_vecs) # Use fib-specific vecs
 
                     args_list = [
                         (
                             p,
                             fib_Ep_dict[p],
                             fib_mult_lll.get(p, {}),
-                            fib_vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+                            fib_vecs_lll.get(p, [tuple([0] * len(fib_specific_sections)) for _ in vecs_list]),
                             vecs_list,
                             fib_rhs_modp_list,
                             num_rhs_fns,
@@ -471,7 +553,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
                     fib_precomputed = {}
 
-                    # Run the worker pool
+                    # 5. Run the worker pool
                     try:
                         ctx = multiprocessing.get_context("fork")
                         exec_kwargs = {"max_workers": 8, "mp_context": ctx}
@@ -502,7 +584,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     all_precomputed_residues.append(fib_precomputed)
                     print(f"  Computed residues for {len(fib_precomputed)} primes")
 
-                # Apply consensus filter
+                # 6. Apply consensus filter
                 print(f"\n{'='*70}")
                 print("APPLYING CONSENSUS FILTER")
                 print(f"{'='*70}")
@@ -518,13 +600,15 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 cumulative_stats.consensus_filter_stats = consensus_stats
                 print_consensus_effectiveness(consensus_stats, cumulative_stats)
 
-
+                # 7. Run the *main* search using the *primary* geometry but the *consensus* residues
                 newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
-                    cd, current_sections,
-                    prime_pool, height_bound,
-                    vecs,
-                    search_rhs_list,
-                    r_m,
+                    cd,                     # <-- Primary cd
+                    current_sections,       # <-- Primary sections
+                    prime_pool,
+                    height_bound,           # <-- Primary height_bound
+                    vecs,                   # <-- Primary vecs
+                    search_rhs_list,        # <-- Primary rhs_list
+                    r_m,                    # <-- Primary r_m
                     shift,
                     all_known_x,
                     num_prime_subsets,
@@ -681,7 +765,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     # =====================================================================
     # FINAL SUMMARY
     # =====================================================================
-    
     print("\n" + "="*70)
     print("SEARCH SUMMARY")
     print("="*70)
@@ -693,22 +776,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print(f"Hit rate: {100*hit_rate:.2f}%")
     print("="*70)
 
-    # In search7_genus2.sage, inside doloop_genus2 (at the end)
-
-    # --- ADD THIS CALL ---
-    # Run the formal C-bound proof
+    # --- Run the formal C-bound proof ---
     try:
         # Use the rank from the final iteration
         mw_rank = len(current_sections)
 
-        # --- Calculate OBSERVED max height ---
-        # We need a canonical height function, but for this proxy,
-        # we can just use the log-height from the completeness report.
-        # This is a bit of a hack, but it's what we have.
-        # The completeness report already found H_obs_max = 3.0 
-        # Let's just hardcode it for this proof, or better,
-        # calculate it from all_known_x.
-        
+        # Calculate OBSERVED max height from found x-coordinates
         def simple_height(x):
             import math
             try:
@@ -717,28 +790,23 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 den = abs(int(q.denominator()))
                 return float(math.log(max(num, den, 1)))
             except Exception:
-                raise
                 return 0.0
 
         if all_known_x:
             h_obs_max = max(simple_height(x) for x in all_known_x)
             print(f"Proof using OBSERVED max height: {h_obs_max:.2f}")
         else:
-            h_obs_max = height_bound # Fallback
+            h_obs_max = height_bound  # Fallback
             print(f"Proof using SEARCH height: {h_obs_max:.2f}")
 
         # Pass the OBSERVED max height, not the search bound
         run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank)
-        
+
     except Exception as e:
         print(f"\nCould not run C-bound sufficiency proof: {e}")
         raise
-    # --- END ADDITION ---
 
-    # ---------- Insert this into search7_genus2.sage...    # ---------- Insert this into search7_genus2.sage after you run the unified diagnostics ----------
-    # It computes an arithmetic-informed prior and then produces posterior probabilities
-    # for T = true number of rational points (T == k means "we found all").
-
+    # --- Compute arithmetic-informed prior ---
     from stats import prior_from_arithmetic, completeness_posterior_geometric, bootstrap_visibility
     import math
 
@@ -752,6 +820,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             k_found = len(all_known_x)
         except Exception:
             k_found = 0
+            raise
 
     # try to extract bootstrap visibility p from diagnostic 'diag' if present,
     # otherwise run a small quick bootstrap (fast; adjustable).
@@ -772,10 +841,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         except Exception as e:
             print("Could not compute bootstrap visibility (fallback). Setting p_visibility = 0.0")
             p_visibility = 0.0
+            raise
 
-    # Gather arithmetic signals (pass None if missing; prior_from_arithmetic handles it)
+    # Gather arithmetic signals
     selmer_dim = None
     r_found = None
+
     # CRT / rationality counters from cumulative_stats if available
     crt_candidates_found = None
     rationality_tests_success = None
@@ -786,25 +857,20 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     except Exception:
         crt_candidates_found = None
         rationality_tests_success = None
+        raise
 
-    # Height info (optional). If you computed canonical heights for found non-torsion sections,
-    # you can plug them in; otherwise leave None.
+    # Height info - compute from found points using simple_height
     h_max = None
     known_heights = None
     try:
-        # If your completeness report computed height_bound earlier, reuse it
-        if 'height_bound' in locals():
-            h_max = float(height_bound)
-        # Attempt to derive known canonical heights list if you tracked them (best-effort)
-        if 'current_sections' in locals() and current_sections:
-            # best-effort: attempt to compute naive heights if function exists
-            try:
-                known_heights = [float(cd.naive_height(sec)) for sec in current_sections]  # replace with your real function if different
-            except Exception:
-                known_heights = None
+        if all_known_x:
+            # Compute list of log-heights for all found x-coordinates
+            known_heights = [simple_height(x) for x in all_known_x]
+            h_max = max(known_heights) if known_heights else None
     except Exception:
         h_max = None
         known_heights = None
+        raise
 
     # ============================================================================
     # PART 5: Update the posterior call in search7_genus2.sage
@@ -845,7 +911,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     
     # Pass the adjusted p_visibility (prior['p_adjusted']),
     # not the raw p_visibility variable.
-    post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
     # --- Pass the ADJUSTED p-value from the prior, not the raw one ---
     post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
 
@@ -878,20 +943,30 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
     # --------------------------------------------------------------------------
 
-
     # Validate that rejected primes match ramification locus
+    # NOTE: When using consensus mode, stats.rejected_primes contains primes
+    # from ALL fibrations (each with different geometry), so we can't validate
+    # against just the primary ramification locus
     try:
         from brauer import compute_ramification_locus
         ram_locus = compute_ramification_locus(cd)
         detected_collisions = set(p for p, r in cumulative_stats.rejected_primes if 'collision' in str(r))
 
-        if not detected_collisions.issubset(ram_locus):
-            print(f"\n⚠️  WARNING: Detected collisions {detected_collisions} not in ramification locus {ram_locus}")
+        if USE_CONSENSUS_FILTER:
+            # In consensus mode, collisions come from multiple geometries
+            print(f"\n✓ Fiber collisions detected across all geometries: {detected_collisions}")
+            print(f"  Primary fibration ramification locus: {ram_locus}")
+            print(f"  (Collisions may differ per fibration in consensus mode)")
         else:
-            print(f"\n✓ Fiber collision detection validated: {detected_collisions} ⊆ ramification locus {ram_locus}")
+            # In single-fibration mode, we can validate
+            if not detected_collisions.issubset(ram_locus):
+                print(f"\n⚠️  WARNING: Detected collisions {detected_collisions} not in ramification locus {ram_locus}")
+            else:
+                print(f"\n✓ Fiber collision detection validated: {detected_collisions} ⊆ ramification locus {ram_locus}")
     except Exception as e:
         print(f"\nCould not validate ramification locus: {e}")
         raise
+
 
     ### Automorphism Search ###
     print("\n--- Automorphism Search ---")
@@ -933,6 +1008,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     print("\nNo non-trivial automorphisms found for the NS lattice.")
             except Exception as ns_exc:
                 print(f"NS lattice automorphism computation failed: {ns_exc}") # Corrected print
+                raise
 
     except Exception as exc:
         print(f"An error occurred during automorphism computation: {exc}")

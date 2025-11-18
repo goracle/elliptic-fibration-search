@@ -2157,3 +2157,22 @@ def enumerate_rationals_height_bound(B):
                 continue
             out.append(QQ(a) / QQ(b))
     return out
+
+
+
+def get_sections_for_fibration(cd, base_pts):
+    """
+    Compute and reduce base sections for a specific fibration geometry.
+    """
+    # Compute raw sections from base points
+    raw_sections = compute_base_sections_m(cd, base_pts)
+    
+    if not raw_sections:
+        return []
+
+    # Reduce them (LLL) to get a nice basis
+    reduced_sections = lll_reduce_mw_basis(cd, raw_sections)
+    
+    # Ensure uniqueness
+    unique_sections = list(set(reduced_sections))
+    return unique_sections

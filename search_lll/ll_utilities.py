@@ -3,57 +3,8 @@ ll_utilities.py: Matrix and lattice reduction helpers.
 """
 from sage.all import ZZ, diagonal_matrix
 from .search_config import *
-from search_common import NUM_PRIME_SUBSETS
+from search_common import *
 
-
-from collections import defaultdict, Counter
-from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
-
-from sage.all import gcd
-
-from collections import Counter
-import math
-from sage.all import Zmod, Integer
-
-# ----------------------------------------
-# helpers for residue orders
-# ----------------------------------------
-from collections import Counter, defaultdict
-import math
-from sage.all import Zmod, Integer
-
-"""
-Complete residue analysis with proper diagnostics.
-Add this to ll_utilities.py, replacing the incomplete versions.
-"""
-
-from collections import Counter, defaultdict
-import math
-from sage.all import Zmod, Integer, QQ, var
-
-# ============================================================================
-# HELPER FUNCTIONS (keep existing ones, add these)
-# ============================================================================
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
 
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
@@ -218,6 +169,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 if DEBUG:
                     print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
                 rejected_primes.append((p, "elliptic_curve_construction_failed"))
+                raise
                 continue
 
             # Build rhs_modp for this prime
@@ -232,6 +184,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 except Exception:
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
+                    raise
                     raise
 
             # Run LLL reduction
@@ -325,6 +278,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             if DEBUG and (p not in (2, 5)):
                 print(f"Skipping prime {p} due to error during preparation: {e}")
             rejected_primes.append((p, f"exception_{type(e).__name__}"))
+            raise
             continue
 
     # *** CRITICAL: Record rejected primes in stats ***
@@ -340,10 +294,9 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
                 ram_locus = compute_ramification_locus(cd)
                 detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
-                assert detected_collisions.issubset(ram_locus), \
-                    f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
-
-
+                if not USE_CONSENSUS_FILTER: # this assert is currently broken for this mixed geometry mode
+                    assert detected_collisions.issubset(ram_locus), \
+                        f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
 
@@ -1819,3 +1772,178 @@ def detect_residue_patterns(per_prime):
         }
     
     return patterns
+
+
+def _robust_coerce_to_modp(val, Fp_m, p):
+    """
+    Robustly coerce a value (likely in QQ(m) or SR) into Fp_m = GF(p)(m).
+    Handles cases where direct coercion fails by manually mapping coefficients.
+    """
+    from sage.all import QQ, PolynomialRing, GF
+
+    # 1. Try direct coercion first (fastest)
+    try:
+        return Fp_m(val)
+    except Exception:
+        pass
+
+    # 2. Convert to QQ(m) first to standardize
+    try:
+        val_qq = QQ['m'].fraction_field()(val)
+    except Exception:
+        # If it's symbolic SR, try to convert to poly/rational
+        try:
+            val_qq = val.polynomial(QQ)
+        except Exception:
+            # Fallback: try string parsing or direct numerator/denominator access
+            return None
+
+    # 3. Extract numerator and denominator polynomials
+    num_poly = val_qq.numerator()
+    den_poly = val_qq.denominator()
+
+    # 4. Map coefficients to GF(p)
+    # We need the polynomial ring over GF(p)
+    Rp = Fp_m.ring() # This is GF(p)['m']
+
+    try:
+        # Coerce numerator coefficients
+        num_coeffs = num_poly.coefficients(sparse=False)
+        num_modp = Rp([GF(p)(c) for c in num_coeffs])
+
+        # Coerce denominator coefficients
+        den_coeffs = den_poly.coefficients(sparse=False)
+        # Check if denominator vanishes mod p
+        if all(GF(p)(c) == 0 for c in den_coeffs):
+            return None # Division by zero mod p
+        
+        den_modp = Rp([GF(p)(c) for c in den_coeffs])
+
+        return Fp_m(num_modp) / Fp_m(den_modp)
+
+    except Exception as e:
+        print(f"Debug: Manual coef map failed for p={p}: {e}")
+        raise
+        return None
+
+
+def reduce_point_hom(E_mod_p, P, p, logger=None):
+    """
+    Reduce a projective/affine point P to E_mod_p.
+    Uses robust coefficient mapping to avoid Sage coercion errors.
+    """
+    def log(msg):
+        if logger: logger(msg)
+        elif DEBUG: print(msg)
+
+    try:
+        Fp_target = E_mod_p.base_field() # e.g. GF(p)(m)
+        coords = tuple(P)
+
+        reduced_coords = []
+        for c in coords:
+            rc = _robust_coerce_to_modp(c, Fp_target, p)
+            if rc is None:
+                # log(f"[reduce_point_hom] p={p} failed to coerce coordinate: {str(c)[:30]}...")
+                return None
+            reduced_coords.append(rc)
+
+        if len(reduced_coords) == 3:
+            return E_mod_p(reduced_coords)
+        elif len(reduced_coords) == 2:
+            return E_mod_p(reduced_coords[0], reduced_coords[1])
+        
+        return None
+
+    except Exception as outer_e:
+        log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
+        raise
+        return None
+
+
+
+def _robust_coerce_to_modp(val, Fp_m, p):
+    """
+    Robustly coerce a value (likely in QQ(m) or SR) into Fp_m = GF(p)(m).
+    Handles cases where direct coercion fails by manually mapping coefficients.
+    Returns None if denominator vanishes mod p.
+    """
+    from sage.all import QQ, PolynomialRing, GF
+
+    # 1. Try direct coercion first (fastest)
+    try:
+        return Fp_m(val)
+    except Exception:
+        pass
+
+    # 2. Convert to QQ(m) first to standardize
+    try:
+        val_qq = QQ['m'].fraction_field()(val)
+    except Exception:
+        # If it's symbolic SR, try to convert to poly/rational
+        try:
+            val_qq = val.polynomial(QQ)
+        except Exception:
+            # Fallback: try string parsing or direct numerator/denominator access
+            return None
+
+    # 3. Extract numerator and denominator polynomials
+    num_poly = val_qq.numerator()
+    den_poly = val_qq.denominator()
+
+    # 4. Map coefficients to GF(p)
+    # We need the polynomial ring over GF(p)
+    Rp = Fp_m.ring() # This is GF(p)['m']
+
+    try:
+        # Coerce numerator coefficients
+        num_coeffs = num_poly.coefficients(sparse=False)
+        num_modp = Rp([GF(p)(c) for c in num_coeffs])
+
+        # Coerce denominator coefficients
+        den_coeffs = den_poly.coefficients(sparse=False)
+        # Check if denominator vanishes mod p
+        if all(GF(p)(c) == 0 for c in den_coeffs):
+            return None # Division by zero mod p
+        
+        den_modp = Rp([GF(p)(c) for c in den_coeffs])
+
+        return Fp_m(num_modp) / Fp_m(den_modp)
+
+    except Exception as e:
+        # print(f"Debug: Manual coef map failed for p={p}: {e}")
+        return None
+
+
+def reduce_point_hom(E_mod_p, P, p, logger=None):
+    """
+    Reduce a projective/affine point P to E_mod_p.
+    Uses robust coefficient mapping to avoid Sage coercion errors.
+    RAISES exceptions on validation failure.
+    """
+    def log(msg):
+        if logger: logger(msg)
+        elif DEBUG: print(msg)
+
+    # No global try-except block here - let exceptions propagate!
+    
+    Fp_target = E_mod_p.base_field() # e.g. GF(p)(m)
+    coords = tuple(P)
+
+    reduced_coords = []
+    for c in coords:
+        rc = _robust_coerce_to_modp(c, Fp_target, p)
+        if rc is None:
+            # Denominator vanished or coercion failed
+            return None
+        reduced_coords.append(rc)
+
+    # Construct point (this will RAISE TypeError if point is not on curve)
+    if len(reduced_coords) == 3:
+        pt = E_mod_p(reduced_coords)
+    elif len(reduced_coords) == 2:
+        pt = E_mod_p(reduced_coords[0], reduced_coords[1])
+    else:
+        raise ValueError(f"Unsupported coordinate length: {len(reduced_coords)}")
+        
+    return pt

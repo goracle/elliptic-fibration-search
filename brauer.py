@@ -396,16 +396,9 @@ def probe_algebraic_brauer_obstructions(precomputed_residues, prime_pool,
 def compute_ramification_locus(cd, verbose=False):
     """
     Compute the ramification locus for an elliptic fibration:
-    - primes dividing denominators of a4, a6
+    - primes dividing denominators of a4, a6 (in their coefficients)
     - primes where the Weierstrass discriminant Δ(m) has repeated roots mod p
-      (equivalently: primes dividing the resultant of square-free Δ and its derivative)
-
-    Fully robust:
-    - works with QQ-rational functions in m
-    - coerces to QQ[m], then clears denominators -> ZZ[m]
-    - extracts square-free part to avoid resultant=0 bugs
-    - handles all degeneracies gracefully
-    - avoids factoring massive integers which hangs PARI
+    - primes where gcd(Δ, Δ') > 1 (fiber collisions)
     """
 
     ram_locus = set()
@@ -414,14 +407,33 @@ def compute_ramification_locus(cd, verbose=False):
     # 1. primes dividing denominators of a4, a6
     # ------------------------------------------------------------
     def add_denominator_primes(x):
-        try:
-            den = x.denominator()
-        except Exception:
-            raise
-            return
-        if den:
-            for p, _ in Integer(den).factor():
-                ram_locus.add(int(p))
+        # x is a rational function in m (element of QQ(m)) or polynomial in QQ[m]
+        # We want primes dividing the denominators of the COEFFICIENTS of x.
+        
+        polys_to_check = []
+        if hasattr(x, "numerator"):
+            polys_to_check.append(x.numerator())
+            polys_to_check.append(x.denominator())
+        else:
+            polys_to_check.append(x)
+
+        for poly in polys_to_check:
+            # If it's a polynomial, iterate coefficients. If scalar, check directly.
+            if hasattr(poly, "coefficients"):
+                coeffs = poly.coefficients()
+            else:
+                coeffs = [poly]
+
+            for c in coeffs:
+                # c is expected to be in QQ
+                try:
+                    val = QQ(c)
+                    denom = val.denominator()
+                    if denom != 1:
+                        for p, _ in Integer(denom).factor():
+                            ram_locus.add(int(p))
+                except Exception:
+                    pass
 
     add_denominator_primes(cd.a4)
     add_denominator_primes(cd.a6)
@@ -446,7 +458,7 @@ def compute_ramification_locus(cd, verbose=False):
     except Exception:
         if verbose:
             print("[ram_locus] Failed to coerce Δ into QQ[m]; skipping.")
-        raise
+        # Don't raise, just return what we have so far (denom primes)
         return ram_locus
 
     if Delta_Q.degree() <= 0:
@@ -473,17 +485,19 @@ def compute_ramification_locus(cd, verbose=False):
     # 4. extract content (integer factor) and primitive part
     # ------------------------------------------------------------
     content_int = Integer(Delta_Z.content())
+    
+    # Add primes from the content (and the cleared denominators)
+    dencont = content_int * common_den
+    if dencont != 0:
+        for p, _ in Integer(dencont).factor():
+            ram_locus.add(int(p))
+            
     if content_int == 0:
-        if verbose:
+         if verbose:
             print("[ram_locus] Δ becomes 0 polynomial after clearing denominators.")
-        return ram_locus
+         return ram_locus
 
     Delta_prim = Delta_Z // content_int
-
-    # primes from denominator clearing + content
-    dencont = content_int * common_den
-    for p, _ in Integer(dencont).factor():
-        ram_locus.add(int(p))
 
     if Delta_prim.degree() <= 0:
         if verbose:
@@ -491,59 +505,64 @@ def compute_ramification_locus(cd, verbose=False):
         return ram_locus
 
     # ------------------------------------------------------------
-    # 5. extract square-free part: gcd(Δ, Δ')
+    # 5. Compute gcd(Δ, Δ') to find repeated roots
+    #    This catches fiber collisions!
     # ------------------------------------------------------------
     dDelta = Delta_prim.derivative()
     g = gcd(Delta_prim, dDelta)
 
-    if g != 1 and verbose:
-        print(f"[ram_locus] Δ has repeated factors (gcd degree {g.degree()}). Using square-free part.")
-
-    Delta_sqf = Delta_prim // g
-
-    if Delta_sqf.degree() <= 0:
+    if g.degree() > 0:
+        # g contains the repeated root factors
         if verbose:
-            print("[ram_locus] Δ square-free part is constant; only denominator primes contribute.")
-        return ram_locus
-
-    # ------------------------------------------------------------
-    # 6. resultant of square-free part and derivative
-    # ------------------------------------------------------------
-    dDelta_sqf = Delta_sqf.derivative()
-    R = Integer(Delta_sqf.resultant(dDelta_sqf))
-
-    if R == 0:
-        # theoretically impossible after square-free extraction,
-        # unless something deeply degenerate occurred
-        if verbose:
-            print("[ram_locus] resultant is still zero after square-free extraction; ignoring.")
-        return ram_locus
-
-    # ------------------------------------------------------------
-    # 7. factor resultant → ramification primes
-    # ------------------------------------------------------------
-    # PREVENT HANG: If R is huge (massive coefficients in high-height sections),
-    # factoring it will crash/hang. Check size first.
-    if R.abs().ndigits() > 80:
-        if verbose:
-            print(f"[ram_locus] Resultant has {R.abs().ndigits()} digits; skipping full factorization to prevent hang.")
+            print(f"[ram_locus] Δ has repeated factors (gcd degree {g.degree()}).")
         
-        # Fallback: check small primes only, which are the most important for our modular filtering
-        small = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
-        Rabs = abs(int(R))
-        for p in small:
-            if Rabs % p == 0:
-                ram_locus.add(p)
-    else:
+        # Factor g to extract primes where roots collide
+        # First check if it's small enough to factor
         try:
-            for p, _ in R.factor():
-                p = int(p)
-                if p > 1:
-                    ram_locus.add(p)
+            # Try to get integer content from g
+            g_content = Integer(g.content())
+            if g_content != 0 and g_content.abs().ndigits() < 30:
+                for p, _ in g_content.factor():
+                    ram_locus.add(int(p))
+                    if verbose:
+                        print(f"[ram_locus] Added collision prime from gcd content: {p}")
         except Exception:
-            if verbose:
-                print("[ram_locus] factorization failed unexpectedly.")
             pass
+        
+        # Also try small primes by evaluation
+        small_primes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
+        for p in small_primes:
+            try:
+                # Check if g(m) ≡ 0 (mod p) for some m
+                Fp = GF(p)
+                PRp = PolynomialRing(Fp, 'm')
+                g_modp = PRp([Fp(c) for c in g.coefficients(sparse=False)])
+                
+                if g_modp.degree() > 0:
+                    roots_modp = g_modp.roots(multiplicities=False)
+                    if roots_modp:
+                        ram_locus.add(p)
+                        if verbose:
+                            print(f"[ram_locus] Added collision prime from gcd roots mod p: {p}")
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------
+    # 6. Use discriminant of Δ for additional primes (optional, more comprehensive)
+    # ------------------------------------------------------------
+    # The discriminant of Δ as a polynomial also captures ramification
+    try:
+        disc_Delta = Delta_prim.discriminant()
+        if disc_Delta != 0:
+            disc_int = Integer(disc_Delta)
+            if disc_int.abs().ndigits() < 50:  # Only if manageable size
+                for p, _ in disc_int.factor():
+                    ram_locus.add(int(p))
+                    if verbose:
+                        print(f"[ram_locus] Added prime from disc(Δ): {p}")
+    except Exception:
+        if verbose:
+            print("[ram_locus] Could not compute discriminant of Δ")
 
     if verbose:
         print(f"[ram_locus] Final ramification locus: {sorted(ram_locus)}")
