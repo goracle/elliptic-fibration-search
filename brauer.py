@@ -555,7 +555,7 @@ def compute_ramification_locus(cd, verbose=False):
         disc_Delta = Delta_prim.discriminant()
         if disc_Delta != 0:
             disc_int = Integer(disc_Delta)
-            if disc_int.abs().ndigits() < 50:  # Only if manageable size
+            if disc_int.abs().ndigits() < 100:  # Only if manageable size
                 for p, _ in disc_int.factor():
                     ram_locus.add(int(p))
                     if verbose:

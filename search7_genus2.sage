@@ -75,6 +75,64 @@ def add_y_zero_points_to_known(known_pts, sextic_coeffs):
 
 
 @PROFILE
+@PROFILE
+@PROFILE
+def main_genus2():
+    initial_xs = DATA_PTS_GENUS2
+    known_pts = { (QQ(x), get_y_unshifted_genus2(x)) for x in initial_xs if get_y_unshifted_genus2(x) is not None }
+    # Add y=0 points to initial known points
+
+    known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
+    print("known_pts start:", known_pts)
+
+    excluded = set()
+    all_found_x = {pt[0] for pt in known_pts}
+
+    # --- Create Cumulative Stats Object ---
+    cumulative_stats = SearchStats()
+
+    while True:
+        if len(known_pts) >= TERMINATE_WHEN_6:
+            print(f"TERMINATE_WHEN_6 ({TERMINATE_WHEN_6}) reached.")
+            break
+
+        data_pts = get_data_pts(known_pts, excluded)
+        if data_pts is None:
+            print("All combinations of points have been checked.")
+            break
+
+        # y=0 skip; presents problems for this method
+        skip = False
+        for i in data_pts:
+            if not i[1]:
+                skip = True
+                excluded.add(frozenset(data_pts))
+                print("skipping:", data_pts, "due to the presence of y=0 point.")
+                break
+        if skip:
+            continue
+
+        print("\n========================================================")
+        print(f"Constructing new fibration using: {data_pts}")
+        print(f"known pts so far: {sorted(list(known_pts))}")
+        print(f"found {len(known_pts)} / {TERMINATE_WHEN_6}")
+        print("========================================================\n")
+
+        # --- Pass cumulative_stats to doloop ---
+        found_from_fibration, cumulative_stats = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats)
+        all_found_x.update(found_from_fibration)
+
+        excluded.add(frozenset(data_pts))
+        known_pts = augment_known(known_pts, all_found_x, deg6=True)
+
+    print("\n--- Cumulative Run Statistics ---")
+    print(cumulative_stats.summary_string())
+
+    print("\n--- Final Results ---")
+    print(f"Final list of known points: {sorted(list(known_pts))}")
+
+
+@PROFILE
 def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None):
     """
     Analyzes a single fibration tower to produce all geometry-specific
@@ -234,7 +292,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         )
 
     # Build MULTIPLE fibrations for consensus
-    print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") # Corrected print
+    print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") 
     if USE_CONSENSUS_FILTER:
         print(f"\n{'='*70}")
         print(f"MULTI-FIBRATION CONSENSUS MODE")
@@ -289,8 +347,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     lastrhs = E_rhs_m(x=roots[-1])
     last_phi_x = get_phi_x(one, two, three, roots[-1], lastrhs)
     cd = buildcd(E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
-
-    # in your main script, after cd is constructed:
 
     # 5. Auto-configure bounds and prime parameters from the *PRIMARY* constructed curve data
     print("\n=== Auto-configuring search parameters for this fibration ===")
@@ -399,7 +455,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     base_sections = compute_base_sections_m(cd, base_pts)
     verify_morphism_on_samples(cd, base_pts)
     if not base_sections:
-        print("Could not compute base sections. Skipping search.") # Corrected print
+        print("Could not compute base sections. Skipping search.") 
         return set(), cumulative_stats # Return stats on early exit
 
     base_sections = lll_reduce_mw_basis(cd, base_sections)
@@ -444,7 +500,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("No search vectors found within height bound. Stopping.")
             break
 
-        # ***** MODIFIED SECTION *****
+        # ***** MODIFIED SECTION: CONSENSUS PRECOMPUTATION *****
         if SYMBOLIC_SEARCH:
             newly_found_x, new_sections = search_lattice_symbolic(
                 cd,
@@ -466,8 +522,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
             residue_counts = sconf.get('RESIDUE_COUNTS', {})
  
-            # In search7_genus2.sage, replace the section starting with "if USE_CONSENSUS_FILTER and fibrations:"
-
             if USE_CONSENSUS_FILTER and fibrations:
                 print(f"\n{'='*70}")
                 print(f"PRECOMPUTING RESIDUES FOR {len(fibrations)} FIBRATIONS")
@@ -508,7 +562,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     this_cd = fib_analysis['cd']
                     fib_specific_sections = fib_analysis['sections']
                     this_search_rhs_list = fib_analysis['rhs_list']
-                    fib_specific_vecs = fib_analysis['vecs']
+                    
+                    # --- CRITICAL FIX FOR CONSENSUS FILTER ---
+                    # We MUST use the vectors from the PRIMARY fibration ('vecs').
+                    # This ensures all fibrations vote on the same set of candidates.
+                    fib_specific_vecs = vecs 
+                    print(f"  [CONSENSUS FIX] Forced using {len(fib_specific_vecs)} PRIMARY search vectors.")
                     
                     # 3. NOW compute residues using THIS fibration's specific geometry
                     try:
@@ -517,7 +576,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                             fib_specific_sections, # <-- Fibration-specific
                             prime_pool,            # <-- Global prime pool
                             this_search_rhs_list,  # <-- Fibration-specific
-                            fib_specific_vecs,     # <-- Fibration-specific
+                            fib_specific_vecs,     # <-- FORCED to be PRIMARY vectors
                             cumulative_stats, 
                             search_primes=prime_pool
                         )
@@ -535,7 +594,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     # 4. Build args for worker pool
                     primes_to_compute = list(fib_Ep_dict.keys())
                     num_rhs_fns = len(this_search_rhs_list)
-                    vecs_list = list(fib_specific_vecs) # Use fib-specific vecs
+                    vecs_list = list(fib_specific_vecs) # Use the forced vectors
 
                     args_list = [
                         (
@@ -602,7 +661,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
                 # 7. Run the *main* search using the *primary* geometry but the *consensus* residues
                 newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
-                    cd,                     # <-- Primary cd
+                    cd,   
                     current_sections,       # <-- Primary sections
                     prime_pool,
                     height_bound,           # <-- Primary height_bound
@@ -660,13 +719,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
 
-    # REMOVE all the old scattered diagnostics and replace with this:
-
     # =====================================================================
     # PRIMARY COMPLETENESS REPORT
     # =====================================================================
     
-   
     from stats import CompletenessAnalyzer, print_unified_completeness_report
     
     found_x_list = list(all_known_x)
@@ -703,18 +759,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     )
 
     # diag contains raw bootstrap/mi/subset results if you want to further process them.
-
-
-
     # =====================================================================
     # OPTIONAL: DETAILED DIAGNOSTICS (for debugging only)
     # =====================================================================
-    
-    # --- DELETED Faulty Diagnostic Block ---
-    # The block starting with "if DEBUG and False:" was here.
-    # It was removed because it relied on the broken
-    # compute_actual_subset_cover and compute_product_model functions.
-    # The unified report above replaces it.
     
     # =====================================================================
     # POINT-SPECIFIC DIAGNOSTICS (if you suspect missing a specific point)
@@ -722,7 +769,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     
     if TARGETED_X:
         print("\n" + "="*70)
- 
         print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
         print("="*70)
         
@@ -740,6 +786,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         # Visibility analysis
         sig = analyzer.visibility_signature(target_m)
         print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
+        #assert sig['matched'], "no primes show target visibility"
         
         # --- MODIFIED CHECK ---
         # Instead of checking 'crt_visible' (which was broken),
@@ -747,14 +794,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         if sig['fraction'] < 0.5: # Heuristic threshold
             print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
             print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
- 
             print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
             print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
             
             # Suggest a targeted subset
             matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
             if len(matched_primes) >= 4:
- 
                 suggested = matched_primes[:6]
                 print(f"\nSuggested targeted subset: {suggested}")
                 print("Add this to prime_subsets_to_process and re-run.")
@@ -872,11 +917,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         known_heights = None
         raise
 
-    # ============================================================================
-    # PART 5: Update the posterior call in search7_genus2.sage
-    # ============================================================================
-    # Replace the posterior section in search7_genus2.sage:
-
     # Extract rejected primes from stats (will be populated by prepare_modular_data_lll)
     rejected_primes_list = getattr(cumulative_stats, 'rejected_primes', [])
 
@@ -972,7 +1012,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print("\n--- Automorphism Search ---")
     try:
         if 'cd' not in locals() or 'm_sym' not in locals():
-            print("Required objects 'cd' or 'm_sym' are not defined. Skipping automorphism search.") # Corrected print
+            print("Required objects 'cd' or 'm_sym' are not defined. Skipping automorphism search.") 
         else:
             if not current_sections:
                 print("No sections found; skipping automorphism search preserving fibration.")
@@ -1007,7 +1047,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 else:
                     print("\nNo non-trivial automorphisms found for the NS lattice.")
             except Exception as ns_exc:
-                print(f"NS lattice automorphism computation failed: {ns_exc}") # Corrected print
+                print(f"NS lattice automorphism computation failed: {ns_exc}") 
                 raise
 
     except Exception as exc:
@@ -1037,7 +1077,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 assert not is_torsion, base_sections
                 break
         if not is_torsion:
-            print(f"Base section {i} does not appear to be small order torsion.") # Corrected print
+            print(f"Base section {i} does not appear to be small order torsion.") 
 
     ### Saturation Diagnostics ###
     run_saturation_checks(cd, current_sections, prime_pool[:30])
@@ -1064,7 +1104,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     if picard_report['rho'] is not None:
         print(f"*** Concluded Picard number: ρ = {picard_report['rho']} ***")
     else:
-        print("*** Picard not pinned exactly (likely off by ≤ 1). Consider the discriminant step. ***") # Corrected print
+        print("*** Picard not pinned exactly (likely off by ≤ 1). Consider the discriminant step. ***") 
 
 
     ### Final Shioda-Tate Diagnostics ###
@@ -1119,13 +1159,13 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
         # pick sensible checkpoints
         runs = run_convergence_test(cd, current_sections, rho, chi, rank_guess,
-                                     max_coords_seq=(20, 24, 28, 31), require_S_coeff='positive')
+                                    max_coords_seq=(20, 24, 28, 31), require_S_coeff='positive')
 
         print(f"Found rational curve classes in {len(counts)} different degrees.")
         print("Counts per degree:", counts)
 
         # Display sample representatives for the first few degrees found.
-        print("\nSample representatives (first few degrees):") # Corrected print
+        print("\nSample representatives (first few degrees):") 
         for d in sorted(reps.keys())[:6]:
             print(f"\nDegree {d}, count {counts.get(d, 0)}:")
             # Print up to 8 sample vectors for that degree, decoded into a human-readable format.
@@ -1161,7 +1201,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             top = results[0]
             print("best coeffs:", top['a'])
             print("old heights:", top['heights_old'])
-            print("new heights:", top['heights_new']) # Corrected print
+            print("new heights:", top['heights_new']) 
             print("per-section delta (old-new):", top['delta'])
             print("total reduction:", top['total_reduction'])
         else:
@@ -1170,66 +1210,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
 
     return all_known_x, cumulative_stats
-
-
-
-@PROFILE
-def main_genus2():
-    initial_xs = DATA_PTS_GENUS2
-    known_pts = { (QQ(x), get_y_unshifted_genus2(x)) for x in initial_xs if get_y_unshifted_genus2(x) is not None }
-    # Add y=0 points to initial known points
-
-    known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
-    print("known_pts start:", known_pts)
-
-    excluded = set()
-    all_found_x = {pt[0] for pt in known_pts}
-
-    # --- Create Cumulative Stats Object ---
-    cumulative_stats = SearchStats()
-
-    while True:
-        if len(known_pts) >= TERMINATE_WHEN_6:
-            print(f"TERMINATE_WHEN_6 ({TERMINATE_WHEN_6}) reached.")
-            break
-
-        data_pts = get_data_pts(known_pts, excluded)
-        if data_pts is None:
-            print("All combinations of points have been checked.")
-            break
-
-        # y=0 skip; presents problems for this method
-        skip = False
-        for i in data_pts:
-            if not i[1]:
-                skip = True
-                excluded.add(frozenset(data_pts))
-                print("skipping:", data_pts, "due to the presence of y=0 point.")
-                break
-        if skip:
-            continue
-
-        print("\n========================================================")
-        print(f"Constructing new fibration using: {data_pts}")
-        print(f"known pts so far: {sorted(list(known_pts))}")
-        print(f"found {len(known_pts)} / {TERMINATE_WHEN_6}")
-        print("========================================================\n")
-
-        # --- Pass cumulative_stats to doloop ---
-        found_from_fibration, cumulative_stats = doloop_genus2(data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats)
-        all_found_x.update(found_from_fibration)
-
-        excluded.add(frozenset(data_pts))
-        known_pts = augment_known(known_pts, all_found_x, deg6=True)
-
-    print("\n--- Cumulative Run Statistics ---")
-    print(cumulative_stats.summary_string())
-
-    print("\n--- Final Results ---")
-    print(f"Final list of known points: {sorted(list(known_pts))}")
-
-
-
 
 
 # In search7_genus2.sage

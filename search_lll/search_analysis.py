@@ -452,6 +452,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         print(f"Total vectors: {len(vecs)}")
         print(f"Vectors with any coverage: {sum(1 for v in vector_coverage.values() if v['num_matched'] > 0)}")
         print(f"Viable reconstructions found: {len(viable_reconstructions)}")
+        #assert viable_reconstructions, ("no viable reconstructions found for target x:", target_x_q)
         
         if viable_reconstructions:
             print(f"\n✓ POINT IS FINDABLE")

@@ -407,8 +407,8 @@ SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
-NUM_CONSENSUS_FIBRATIONS = 3  # How many independent fibrations to use
-CONSENSUS_THRESHOLD = 0.8     # Fraction of fibrations that must agree (0.8 = 80%)
+NUM_CONSENSUS_FIBRATIONS = 9  # How many independent fibrations to use
+CONSENSUS_THRESHOLD = 0.3     # Fraction of fibrations that must agree (0.8 = 80%)
 
 # Add these constants near the top of tower.sage (with other config constants)
 
