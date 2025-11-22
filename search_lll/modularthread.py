@@ -682,9 +682,15 @@ def _compute_residues_for_prime_worker(args):
     for idx, v_orig in enumerate(vecs_list):
         v_orig_tuple = tuple(v_orig)
 
-        if all(c == 0 for c in v_orig):
+        # --- FIX: Don't skip zero vector if it's the ONLY vector provided (Dummy Mode) ---
+        if len(vecs_list) > 1 and all(c == 0 for c in v_orig):
             result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
             continue
+
+
+        #if all(c == 0 for c in v_orig):
+        #    result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+        #    continue
 
         try:
             v_p_transformed = vecs_lll_p[idx]
@@ -871,9 +877,14 @@ def _compute_residues_for_prime_worker_old(args):
     for idx, v_orig in enumerate(vecs_list):
         v_orig_tuple = tuple(v_orig)
 
-        if all(c == 0 for c in v_orig):
+        # --- FIX: Don't skip zero vector if it's the ONLY vector provided (Dummy Mode) ---
+        if len(vecs_list) > 1 and all(c == 0 for c in v_orig):
             result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
             continue
+
+        #if all(c == 0 for c in v_orig):
+        #    result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
+        #    continue
 
         try:
             v_p_transformed = vecs_lll_p[idx]
@@ -1027,7 +1038,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
     extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
 
     for v_orig in vecs:
-        if all(c == 0 for c in v_orig):
+        if len(vecs) > 1 and all(c == 0 for c in v_orig):
             continue
         v_orig_tuple = tuple(v_orig)
 
