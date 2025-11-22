@@ -786,7 +786,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         # Visibility analysis
         sig = analyzer.visibility_signature(target_m)
         print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
-        #assert sig['matched'], "no primes show target visibility"
+        assert sig['matched'], "no primes show target visibility"
         
         # --- MODIFIED CHECK ---
         # Instead of checking 'crt_visible' (which was broken),
@@ -1211,6 +1211,140 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     return all_known_x, cumulative_stats
 
+
+@PROFILE
+def compute_consensus_residues(precomputed_residues_list, prime_pool, 
+                                consensus_threshold=CONSENSUS_THRESHOLD,
+                                debug=DEBUG):
+    """
+    Compute consensus residues by intersecting the SET of valid m-values 
+    across fibrations, ignoring which vector produced them.
+    
+    Args:
+        precomputed_residues_list: List of dicts {p: {v_tuple: [residue_lists]}}
+    """
+    from collections import defaultdict, Counter
+    import math
+
+    num_fibrations = len(precomputed_residues_list)
+    if num_fibrations == 0:
+        return {}, {}
+
+    if debug:
+        print(f"\n{'='*70}")
+        print(f"VECTOR-BLIND CONSENSUS FILTER: {num_fibrations} fibrations, threshold={consensus_threshold:.1%}")
+        print(f"Policy: Intersecting global sets of valid m-residues per prime.")
+        print(f"{'='*70}")
+
+    # 1. Extract global valid m-residues per prime per fibration
+    # valid_m_sets[p][fib_idx] = set(all residues found in this fib for prime p)
+    valid_m_sets = defaultdict(lambda: defaultdict(set))
+    
+    # Also track participation
+    participating_counts = defaultdict(int)
+
+    for fib_idx, precomp in enumerate(precomputed_residues_list):
+        for p in prime_pool:
+            if p not in precomp or not precomp[p]:
+                continue
+            
+            participating_counts[p] += 1
+            
+            # Collect ALL residues for this prime in this fibration, regardless of vector
+            mapping = precomp[p]
+            for v_tuple, rhs_lists in mapping.items():
+                for r_list in rhs_lists:
+                    for r in r_list:
+                        if isinstance(r, int):
+                            valid_m_sets[p][fib_idx].add(r)
+
+    # 2. Determine the Consensus Set of m-values for each prime
+    consensus_m_values = {} # {p: set(allowed_m_residues)}
+    
+    for p in prime_pool:
+        n_part = participating_counts[p]
+        if n_part == 0:
+            continue
+            
+        min_votes = max(1, int(math.ceil(consensus_threshold * n_part)))
+        
+        # Count how many fibrations support each specific residue r
+        residue_counts = Counter()
+        for fib_idx, r_set in valid_m_sets[p].items():
+            for r in r_set:
+                residue_counts[r] += 1
+        
+        # Keep residues supported by enough fibrations
+        allowed = {r for r, count in residue_counts.items() if count >= min_votes}
+        consensus_m_values[p] = allowed
+
+    # 3. Filter the PRIMARY fibration (assumed to be the last one appended in doloop)
+    # We filter the detailed vector-map of the primary fibration against the global consensus set.
+    # Note: In doloop, we treat the last entry as primary for this purpose, 
+    # or we just return a structure that allows the search to proceed.
+    # Actually, the search usually uses the returned dictionary structure directly.
+    # We will filter *all* input structures, but usually we only need one for the search.
+    # Let's reconstruct the structure for the last fibration (Primary) filtered by consensus.
+    
+    primary_precomp = precomputed_residues_list[-1] # Primary is appended last in doloop
+    filtered_residues = {}
+    
+    stats = {
+        'total_before': 0,
+        'total_after': 0,
+        'reduction_ratio': 0.0,
+        'per_prime_before': {},
+        'per_prime_after': {}
+    }
+
+    for p in prime_pool:
+        if p not in primary_precomp:
+            continue
+            
+        allowed_m = consensus_m_values.get(p, set())
+        
+        # If no one participated (e.g. bad prime global), allow everything or nothing?
+        # If n_part > 0 but allowed is empty -> filter everything.
+        # If n_part == 0 -> keep original (conservative)
+        if participating_counts[p] == 0:
+            filtered_residues[p] = primary_precomp[p]
+            continue
+
+        # Filter the primary map
+        p_map_new = {}
+        count_before = 0
+        count_after = 0
+        
+        for v_tuple, rhs_lists in primary_precomp[p].items():
+            new_rhs_lists = []
+            for r_set in rhs_lists:
+                # Intersect vector-specific residues with global consensus
+                filtered_set = {r for r in r_set if isinstance(r, int) and r in allowed_m}
+                
+                # Also preserve non-int markers if any (though usually cleaned)
+                for r in r_set:
+                    if not isinstance(r, int):
+                        filtered_set.add(r)
+                        
+                new_rhs_lists.append(filtered_set)
+                
+                count_before += len(r_set)
+                count_after += len(filtered_set)
+            
+            # Only keep vectors that still have candidates
+            if any(s for s in new_rhs_lists):
+                p_map_new[v_tuple] = new_rhs_lists
+        
+        filtered_residues[p] = p_map_new
+        stats['per_prime_before'][p] = count_before
+        stats['per_prime_after'][p] = count_after
+        stats['total_before'] += count_before
+        stats['total_after'] += count_after
+
+    if stats['total_before'] > 0:
+        stats['reduction_ratio'] = 1.0 - (stats['total_after'] / stats['total_before'])
+
+    return filtered_residues, stats
 
 # In search7_genus2.sage
 

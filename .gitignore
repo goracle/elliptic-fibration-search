@@ -4,3 +4,4 @@
 *.pyc
 *.sage.py
 *.bak
+__pycache__/*.pyc
