@@ -256,7 +256,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             'seed': SEED_INT,
             'id': -1 # Mark as primary
         }
-        #fibrations.append(primary_tower_with_meta)
+        fibrations.append(primary_tower_with_meta)
         
     else:
         # Original single-fibration mode

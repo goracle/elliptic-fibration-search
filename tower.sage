@@ -843,9 +843,9 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
 
 
 
-@PROFILE
 from stats import *
 # Utility: Print consensus effectiveness
+@PROFILE
 def build_multiple_fibrations(fx_PR, pts_xy, num_fibrations, max_steps=3, 
                                base_seed=SEED_INT, verbose=DEBUG):
     """
@@ -1215,6 +1215,21 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     # Add Q-Mixing Constraint
     if use_mixing:
+        # Instead of arbitrary x1+3, use a point with denominator = power of 2
+        x_mix_num = 2 * int(QQ(x1).numerator()) + 3
+        x_mix_den = QQ(x1).denominator()  # Already a power of 2 from base point
+        # Ensure den is a power of 2
+        while x_mix_den % 2 == 0:
+            x_mix_den //= 2
+        x_mix_den = 2  # Force small power of 2
+        x_mix = QQ(x_mix_num) / QQ(x_mix_den)
+
+        val_Q = Q_SR.subs({xSR: x_mix})
+        val_R = rest_poly_SR.subs({xSR: x_mix})
+        eq_mix = (val_R - val_Q).expand()
+        eqs.append(eq_mix)
+
+    if use_mixing and False: # old logic
         # Choose a mixing point x_mix. 
         # Must not be a root of prod1 to ensure R(x) actually influences f(x) distinct from Q^2.
         # We just pick x1 + 3 (arbitrary rational shift).
@@ -1264,8 +1279,31 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     Q_SR = SR(Q_SR)
     prod_SR = SR(prod1)
     fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
+
+
+    # At the end of build_one_fibration_step, after computing fibration_solved_SR:
+
     fibration_solved_SR = SR(fibration_solved_SR).expand()
-    
+
+    # Extract all denominators from coefficients in m
+    coeffs_in_x = [fibration_solved_SR.coefficient(xSR, i) for i in range(n)]
+    all_denoms = []
+
+    for c in coeffs_in_x:
+        # c is a polynomial in m; extract denominators from its coefficients
+        try:
+            c_poly = Fm(c)  # Convert to poly in m over QQ
+            for coef in c_poly.list():
+                if coef != 0:
+                    all_denoms.append(QQ(coef).denominator())
+        except:
+            pass
+
+    if all_denoms:
+        from sage.arith.misc import lcm as sage_lcm
+        denom_lcm = sage_lcm(all_denoms)
+        fibration_solved_SR = (fibration_solved_SR * denom_lcm).expand()
+
     try:
         deg_fib = int(fibration_solved_SR.degree(xSR))
     except Exception:
