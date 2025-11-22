@@ -585,7 +585,8 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
 
 
     verify_tower_consistency(tower)
-    
+    # After building tower
+    verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1/2)]) 
     # Deep jet analysis across the entire tower
     print("\n" + "="*70)
     print("DEEP JET ANALYSIS ACROSS TOWER")
@@ -1040,9 +1041,9 @@ def print_consensus_effectiveness(consensus_stats, cumulative_stats):
 
 @PROFILE
 def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
-                                      verbose=False, forced_tangency_seq=None,
-                                      forced_Qpoly=None, force_Q_constraint_indices=None,
-                                      parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
+                             verbose=False, forced_tangency_seq=None,
+                             forced_Qpoly=None, force_Q_constraint_indices=None,
+                             parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
     """
     Modified version: Reduces tangency constraints by 1 to impose a Q-dependence mixing constraint.
     """
@@ -1190,7 +1191,7 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         use_mixing = True
 
     # mixing is only used on the anchor points strategy for multiple fibrations
-    if use_mixing: assert use_anchor_points
+    assert use_mixing == use_anchor_points, use_mixing
 
     tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
     
@@ -1278,12 +1279,23 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     Q_SR = SR(Q_SR)
     prod_SR = SR(prod1)
-    fibration_solved_SR = (Q_SR**2).expand() + (prod_SR * rest_poly_SR_solved).expand()
+    # Replace the line where you build fibration_solved_SR
+    Q_SR_symbolic = SR(Q_SR)
+    prod_SR_symbolic = SR(prod_SR) 
+    rest_SR_symbolic = SR(rest_poly_SR_solved)
+
+    fibration_solved_SR = (Q_SR_symbolic**2).expand() + (prod_SR_symbolic * rest_SR_symbolic).expand()
+    fibration_solved_SR = SR(fibration_solved_SR).expand()  # Final symbolic coercion
+
+    # Verify the solution actually satisfies the rail constraint
+    test_r = r_expr.subs({m: 0})  # Test at m=0
+    lhs = SR(fibration_solved_SR).subs({xSR: test_r, m: 0})
+    rhs = SR(fx_SR).subs({xSR: test_r})
+    diff_check = (lhs - rhs).expand()
+    assert diff_check.simplify() == 0, f"Rail consistency violated at m=0: diff = {diff_check}"
 
 
-    # At the end of build_one_fibration_step, after computing fibration_solved_SR:
 
-    fibration_solved_SR = SR(fibration_solved_SR).expand()
 
     # Extract all denominators from coefficients in m
     coeffs_in_x = [fibration_solved_SR.coefficient(xSR, i) for i in range(n)]
@@ -1328,6 +1340,18 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     print("f_i", fibration_solved_SR)
     print("Qpoly_QQ", Qpoly_QQ)
+    # At the end of build_one_fibration_step
+    return {
+        'f_i': SR(fibration_solved_SR),  # Force to symbolic ring
+        'Q_i': Qpoly_QQ,
+        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
+        'r_expr': SR(r_expr),  # Force to symbolic ring
+        'rest_poly_SR': SR(rest_poly_SR_solved),
+        'rest_poly_QQ': rest_poly_QQ,
+        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
+    }
+
+""" old code:
     return {
         'f_i': fibration_solved_SR,
         'Q_i': Qpoly_QQ,
@@ -1337,7 +1361,7 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         'rest_poly_QQ': rest_poly_QQ,
         'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
     }
-
+"""
 
 
 @PROFILE
@@ -1532,3 +1556,31 @@ def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
         raise RuntimeError(f"Could not generate {num_points} unique anchor points")
     
     return anchor_pts
+
+
+def verify_y2_consistency_on_rail(tower, x1, m_vals):
+    """Verify y²_i = y²_{i+1} along x = x₁ - m for each layer."""
+    x, m = var('x m')
+    
+    for i in range(len(tower) - 1):
+        # Force conversion to symbolic ring
+        f_i = SR(tower[i]['f_i'])
+        f_i_plus_1 = SR(tower[i+1]['f_i'])
+        
+        # Evaluate along the rail x = x₁ - m
+        r_expr = SR(x1) - m
+        
+        for m_val in m_vals:
+            # Substitute in two steps to ensure proper evaluation
+            y2_i = f_i.subs({x: r_expr}).subs({m: m_val})
+            y2_i_plus_1 = f_i_plus_1.subs({x: r_expr}).subs({m: m_val})
+            
+            diff = (y2_i - y2_i_plus_1).expand().simplify()
+            
+            if diff != 0:
+                print(f"diff = {diff}, m_val = {m_val}")
+                print(f"f_i type: {type(tower[i]['f_i'])}")
+                print(f"f_i parent: {tower[i]['f_i'].parent() if hasattr(tower[i]['f_i'], 'parent') else 'no parent'}")
+                raise RuntimeError(
+                    f"y² consistency violated at layer {i}->{i+1}, m={m_val}"
+                )

@@ -1007,15 +1007,42 @@ def _compute_residues_for_prime_worker_old(args):
     return p, result_for_p, local_modular_checks
 
 
+def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections, stats):
+    """
+    Test a batch of (m, v_tuple) candidates for rationality in parallel.
+    Returns set of (m, v_tuple) pairs that produced rational points.
+    UPDATED to accept and use a stats object with new counter names.
+    """
+    rational_candidates = set()
+
+    for m_val, v_tuple in candidates:
+        stats.incr('rationality_tests_total') # <-- STATS
+        try:
+            x_val = r_m(m=m_val) - shift
+            y_val = rationality_test_func(x_val)
+            if y_val is not None:
+                stats.record_success(m_val, point=x_val) # <-- STATS (increments rationality_tests_success)
+                rational_candidates.add((m_val, v_tuple))
+            else:
+                stats.record_failure(m_val, reason='y_not_rational') # <-- STATS (increments rationality_tests_failure)
+        except (TypeError, ZeroDivisionError, ArithmeticError):
+            stats.record_failure(m_val, reason='rationality_test_error') # <-- STATS (increments rationality_tests_failure)
+            continue
+
+    return rational_candidates
+
+
+# In modularthread.py
+
 def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
     """
     Worker function to find m-candidates for a single subset of primes.
     This version processes each RHS function independently.
     
-    *** MODIFIED to use O(1) t-filtering *after* O(1) t-minimization ***
+    *** MODIFIED to add a guard against combo_cap explosion ***
     """
     if not p_subset:
-        return set()
+        return set(), Counter(), set() # Return all 3 values
 
     found_candidates_for_subset = set()
     stats_counter = Counter()
@@ -1063,6 +1090,20 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
 
             lists = [residue_map_for_crt[p] for p in primes_for_crt]
             
+            # --- START SLOWDOWN FIX ---
+            # Check for combinatorial explosion BEFORE itertools.product
+            num_combos = 1
+            for l in lists:
+                # Use len(l) which is the number of residues for this prime
+                num_combos *= max(1, len(l)) # Use max(1,...) in case a list is empty? (shouldn't happen)
+                if num_combos > combo_cap:
+                    break # Stop multiplying, it's already too big
+            
+            if num_combos > combo_cap:
+                stats_counter['crt_lift_skipped_combo_cap'] += 1
+                continue # Skip this (v, rhs) pair, it's too big
+            # --- END SLOWDOWN FIX ---
+            
             for combo in itertools.product(*lists):
                 stats_counter['crt_lift_attempts'] += 1
                 M = 1
@@ -1083,8 +1124,8 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
                     #best_ms = minimize_archim_search_lll.pyidean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                     best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                 except TypeError:
-                    best_ms = [(0, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
-                    raise
+                    best_ms = [(t, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
+                    #raise # Don't raise, just use fallback
 
                 # Step 2: Filter *only* those t values (O(1))
                 for t_cand, m_cand, _, _ in best_ms:
@@ -1103,34 +1144,7 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
                     stats_counter['rational_recon_success_worker'] += 1
                 except RationalReconstructionError:
                     stats_counter['rational_recon_failure_worker'] += 1
-                    raise
+                    #pass # Don't raise, just fail silently
                 # --- END MODIFICATION ---
 
     return found_candidates_for_subset, stats_counter, tested_crt_classes
-
-
-def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, current_sections, stats):
-    """
-    Test a batch of (m, v_tuple) candidates for rationality in parallel.
-    Returns set of (m, v_tuple) pairs that produced rational points.
-    UPDATED to accept and use a stats object with new counter names.
-    """
-    rational_candidates = set()
-
-    for m_val, v_tuple in candidates:
-        stats.incr('rationality_tests_total') # <-- STATS
-        try:
-            x_val = r_m(m=m_val) - shift
-            y_val = rationality_test_func(x_val)
-            if y_val is not None:
-                stats.record_success(m_val, point=x_val) # <-- STATS (increments rationality_tests_success)
-                rational_candidates.add((m_val, v_tuple))
-            else:
-                stats.record_failure(m_val, reason='y_not_rational') # <-- STATS (increments rationality_tests_failure)
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            stats.record_failure(m_val, reason='rationality_test_error') # <-- STATS (increments rationality_tests_failure)
-            continue
-
-    return rational_candidates
-
-
