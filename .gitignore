@@ -5,3 +5,4 @@
 *.sage.py
 *.bak
 __pycache__/*.pyc
+__pycache__/
