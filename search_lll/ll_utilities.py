@@ -461,64 +461,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     # new_basis now has length r
     return new_basis, Uinv
 
-def reduce_point_hom(E_mod_p, P, p, logger=None):
-    """
-    Reduce a projective/affine point P (whose coordinates may be
-    in QQ or QQ(m)) to the curve E_mod_p (which is over GF(p) or GF(p)(m)).
-    
-    Returns:
-        - The reduced point on E_mod_p on success
-        - None if reduction fails (denominator non-invertible, bad coords, etc.)
-    
-    Returning None (not Ep(0)) allows callers to distinguish "couldn't reduce"
-    from "reduced to identity".
-    """
-    from sage.all import GF, ZZ
-    
-    def log(msg):
-        if logger:
-            logger(msg)
-        elif DEBUG:
-            print(msg)
-            
-    try:
-        # Get the target field, e.g., GF(p)(m) or GF(p)
-        Fp_target = E_mod_p.base_field()
-        
-        coords = tuple(P)
-        
-        # Coerce coordinates into the target field
-        if len(coords) == 3:
-            X, Y, Z = coords
-            try:
-                Xr = Fp_target(X)
-                Yr = Fp_target(Y)
-                Zr = Fp_target(Z)
-                return E_mod_p([Xr, Yr, Zr])
-            except Exception as e:
-                # This catches:
-                # 1. QQ denominators divisible by p
-                # 2. QQ(m) denominators that are 0 mod p
-                # 3. Other type/coercion errors
-                # log(f"[reduce_point_hom] p={p} failed to coerce projective coords: {e}")
-                return None
-                
-        if len(coords) == 2:
-            x, y = coords
-            try:
-                xr = Fp_target(x)
-                yr = Fp_target(y)
-                return E_mod_p(xr, yr)
-            except Exception as e:
-                # log(f"[reduce_point_hom] p={p} failed to coerce affine coords: {e}")
-                return None
-
-        log("[reduce_point_hom] unsupported coordinate shape")
-        return None
-        
-    except Exception as outer_e:
-        log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
-        return None
 
 
 
@@ -1385,172 +1327,6 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
     return scores
 
 
-def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
-                                     rhs_list, num_subsets, min_size, max_size,
-                                     combo_cap, seed=None, debug=False,
-                                     roots_threshold=12, target_qc_ratio=None):
-    """
-    Generate prime subsets biased toward primes with favorable QC distributions.
-    
-    Args:
-        target_qc_ratio: Target QC=-1/QC=1 ratio. If None, use coverage only (no QC bias)
-    
-    Strategy:
-        1. Score primes by how close their QC ratio is to target (if provided)
-        2. Weight subsets to include primes with good QC ratios + high coverage
-        3. Maintain diversity by including some "average" primes too
-    """
-    import random
-    import math
-    if seed is not None:
-        random.seed(seed)
-    
-    # Compute coverage (always use this)
-    coverage = compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=False)
-    
-    # Decide whether to use QC bias
-    if target_qc_ratio is None:
-        # Pure coverage-based (original behavior)
-        if debug:
-            print("[QC-Biased] target_qc_ratio=None, falling back to coverage-only")
-        composite_scores = coverage
-    else:
-        # Compute QC scores
-        qc_scores = compute_qc_bias_scores(prime_pool, precomputed_residues, 
-                                           rhs_list, target_qc_ratio=target_qc_ratio, 
-                                           debug=debug)
-        
-        # Build composite score: balance QC ratio + coverage
-        composite_scores = {}
-        for p in prime_pool:
-            qc_data = qc_scores[p]
-            cov = coverage.get(p, 0.0)
-            
-            # Distance from target QC ratio (smaller is better)
-            qc_distance = abs(qc_data['qc_ratio'] - target_qc_ratio)
-            
-            # QC score: exponential penalty for distance from target
-            # Use -3 instead of -2 to make it sharper
-            qc_score = math.exp(-3 * qc_distance)  # Peaks sharply at ratio=target
-            
-            # Composite score: balance coverage and QC
-            # Scale coverage to [0,1] range and weight equally
-            composite = 0.5 * cov + 0.5 * qc_score
-            
-            composite_scores[p] = composite
-        
-        if debug:
-            print(f"\n[QC-Biased Generation] Target QC ratio: {target_qc_ratio:.3f}")
-            print("Top primes by composite score:")
-            sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
-            for p, score in sorted_primes[:10]:
-                qc_r = qc_scores[p]['qc_ratio']
-                cov = coverage.get(p, 0)
-                print(f"  p={p}: score={score:.3f}, qc_ratio={qc_r:.3f}, coverage={cov:.1%}")
-    
-    # Normalize to weights
-    total_weight = sum(composite_scores.values())
-    if total_weight == 0:
-        weights = [1.0] * len(prime_pool)
-    else:
-        weights = [composite_scores[p] / total_weight for p in prime_pool]
-    
-    # Identify top primes by composite score
-    sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
-    top_k = max(5, len(sorted_primes) // 3)
-    top_primes = [p for p, _ in sorted_primes[:top_k]]
-    
-    if debug and target_qc_ratio is not None:
-        print(f"[QC-Biased] Top {len(top_primes)} primes: {top_primes[:10]}")
-    
-    # Generate subsets (rest of function unchanged)
-    subsets = []
-    
-    # Phase 1: Forced subsets featuring top primes
-    num_forced = min(30, max(5, num_subsets // 8))
-    for i in range(num_forced):
-        if i % 2 == 0:
-            size = min_size
-            num_top = min(size, len(top_primes))
-            subset = random.sample(top_primes, k=num_top)
-        else:
-            size = random.randint(min_size, min(max_size, len(prime_pool)))
-            num_top = min(3, size // 2, len(top_primes))
-            subset = random.sample(top_primes, k=num_top)
-            
-            remaining_slots = size - len(subset)
-            if remaining_slots > 0:
-                other_primes = [p for p in prime_pool if p not in subset]
-                if other_primes:
-                    other_weights = [composite_scores.get(p, 0.1) for p in other_primes]
-                    chosen = random.choices(other_primes, 
-                                          weights=other_weights,
-                                          k=min(remaining_slots, len(other_primes)))
-                    subset.extend(chosen)
-        
-        subsets.append(tuple(sorted(set(subset))))
-    
-    # Phase 2: Random weighted subsets
-    remaining = num_subsets - len(subsets)
-    for _ in range(remaining):
-        size = random.randint(min_size, min(max_size, len(prime_pool)))
-        
-        subset = []
-        attempts = 0
-        while len(subset) < size and attempts < size * 20:
-            p = random.choices(prime_pool, weights=weights, k=1)[0]
-            if p not in subset:
-                subset.append(p)
-            attempts += 1
-        
-        subsets.append(tuple(sorted(subset)))
-    
-    # Deduplicate and filter by combo_cap
-    unique_subsets = []
-    seen = set()
-    
-    residues_by_prime_numeric = {}
-    for p, mapping in precomputed_residues.items():
-        residues_set = set()
-        for vtuple, rhs_lists in mapping.items():
-            for rl in rhs_lists:
-                for r in rl:
-                    if isinstance(r, int):
-                        residues_set.add(r)
-        residues_by_prime_numeric[p] = residues_set
-    
-    for subset in subsets:
-        if subset in seen:
-            continue
-        
-        est = 1
-        viable = True
-        for p in subset:
-            count = len(residues_by_prime_numeric.get(p, set()))
-            if count == 0:
-                viable = False
-                break
-            if count > roots_threshold:
-                est *= count
-                if est > combo_cap:
-                    viable = False
-                    break
-            else:
-                est *= max(1, count)
-                if est > combo_cap:
-                    viable = False
-                    break
-        
-        if viable:
-            seen.add(subset)
-            unique_subsets.append(list(subset))
-    
-    if debug:
-        print(f"[QC-Biased] Generated {len(unique_subsets)} unique subsets")
-        if unique_subsets:
-            print("Sample subsets:", unique_subsets[:3])
-    
-    return unique_subsets
 
 
 # Drop-in replacement wrapper
@@ -1774,91 +1550,8 @@ def detect_residue_patterns(per_prime):
     return patterns
 
 
-def _robust_coerce_to_modp(val, Fp_m, p):
-    """
-    Robustly coerce a value (likely in QQ(m) or SR) into Fp_m = GF(p)(m).
-    Handles cases where direct coercion fails by manually mapping coefficients.
-    """
-    from sage.all import QQ, PolynomialRing, GF
-
-    # 1. Try direct coercion first (fastest)
-    try:
-        return Fp_m(val)
-    except Exception:
-        pass
-
-    # 2. Convert to QQ(m) first to standardize
-    try:
-        val_qq = QQ['m'].fraction_field()(val)
-    except Exception:
-        # If it's symbolic SR, try to convert to poly/rational
-        try:
-            val_qq = val.polynomial(QQ)
-        except Exception:
-            # Fallback: try string parsing or direct numerator/denominator access
-            return None
-
-    # 3. Extract numerator and denominator polynomials
-    num_poly = val_qq.numerator()
-    den_poly = val_qq.denominator()
-
-    # 4. Map coefficients to GF(p)
-    # We need the polynomial ring over GF(p)
-    Rp = Fp_m.ring() # This is GF(p)['m']
-
-    try:
-        # Coerce numerator coefficients
-        num_coeffs = num_poly.coefficients(sparse=False)
-        num_modp = Rp([GF(p)(c) for c in num_coeffs])
-
-        # Coerce denominator coefficients
-        den_coeffs = den_poly.coefficients(sparse=False)
-        # Check if denominator vanishes mod p
-        if all(GF(p)(c) == 0 for c in den_coeffs):
-            return None # Division by zero mod p
-        
-        den_modp = Rp([GF(p)(c) for c in den_coeffs])
-
-        return Fp_m(num_modp) / Fp_m(den_modp)
-
-    except Exception as e:
-        print(f"Debug: Manual coef map failed for p={p}: {e}")
-        raise
-        return None
 
 
-def reduce_point_hom(E_mod_p, P, p, logger=None):
-    """
-    Reduce a projective/affine point P to E_mod_p.
-    Uses robust coefficient mapping to avoid Sage coercion errors.
-    """
-    def log(msg):
-        if logger: logger(msg)
-        elif DEBUG: print(msg)
-
-    try:
-        Fp_target = E_mod_p.base_field() # e.g. GF(p)(m)
-        coords = tuple(P)
-
-        reduced_coords = []
-        for c in coords:
-            rc = _robust_coerce_to_modp(c, Fp_target, p)
-            if rc is None:
-                # log(f"[reduce_point_hom] p={p} failed to coerce coordinate: {str(c)[:30]}...")
-                return None
-            reduced_coords.append(rc)
-
-        if len(reduced_coords) == 3:
-            return E_mod_p(reduced_coords)
-        elif len(reduced_coords) == 2:
-            return E_mod_p(reduced_coords[0], reduced_coords[1])
-        
-        return None
-
-    except Exception as outer_e:
-        log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
-        raise
-        return None
 
 
 
@@ -1947,3 +1640,208 @@ def reduce_point_hom(E_mod_p, P, p, logger=None):
         raise ValueError(f"Unsupported coordinate length: {len(reduced_coords)}")
         
     return pt
+
+
+def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
+                                     rhs_list, num_subsets, min_size, max_size,
+                                     combo_cap, seed=None, debug=False,
+                                     roots_threshold=12, target_qc_ratio=None):
+    """
+    Generate prime subsets biased toward primes with favorable QC distributions.
+    
+    Args:
+        target_qc_ratio: Target QC=-1/QC=1 ratio. If None, use coverage only (no QC bias)
+    
+    Strategy:
+        1. Score primes by how close their QC ratio is to target (if provided)
+        2. Weight subsets to include primes with good QC ratios + high coverage
+        3. Maintain diversity by including some "average" primes too
+    """
+    import random
+    import math
+    if seed is not None:
+        random.seed(seed)
+    
+    # === FIX: Handle small prime pools gracefully ===
+    if len(prime_pool) < min_size:
+        if debug:
+            print(f"[QC-Biased] WARNING: prime_pool size ({len(prime_pool)}) < min_size ({min_size})")
+            print(f"[QC-Biased] Adjusting min_size to {len(prime_pool)}")
+        min_size = max(1, len(prime_pool))
+    
+    if max_size < min_size:
+        if debug:
+            print(f"[QC-Biased] WARNING: max_size ({max_size}) < min_size ({min_size})")
+            print(f"[QC-Biased] Adjusting max_size to {min_size}")
+        max_size = min_size
+    
+    if len(prime_pool) == 0:
+        if debug:
+            print("[QC-Biased] ERROR: Empty prime_pool, returning empty list")
+        return []
+    # === END FIX ===
+    
+    # Compute coverage (always use this)
+    coverage = compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=False)
+    
+    # Decide whether to use QC bias
+    if target_qc_ratio is None:
+        # Pure coverage-based (original behavior)
+        if debug:
+            print("[QC-Biased] target_qc_ratio=None, falling back to coverage-only")
+        composite_scores = coverage
+    else:
+        # Compute QC scores
+        qc_scores = compute_qc_bias_scores(prime_pool, precomputed_residues, 
+                                           rhs_list, target_qc_ratio=target_qc_ratio, 
+                                           debug=debug)
+        
+        # Build composite score: balance QC ratio + coverage
+        composite_scores = {}
+        for p in prime_pool:
+            qc_data = qc_scores[p]
+            cov = coverage.get(p, 0.0)
+            
+            # Distance from target QC ratio (smaller is better)
+            qc_distance = abs(qc_data['qc_ratio'] - target_qc_ratio)
+            
+            # QC score: exponential penalty for distance from target
+            # Use -3 instead of -2 to make it sharper
+            qc_score = math.exp(-3 * qc_distance)  # Peaks sharply at ratio=target
+            
+            # Composite score: balance coverage and QC
+            # Scale coverage to [0,1] range and weight equally
+            composite = 0.5 * cov + 0.5 * qc_score
+            
+            composite_scores[p] = composite
+        
+        if debug:
+            print(f"\n[QC-Biased Generation] Target QC ratio: {target_qc_ratio:.3f}")
+            print("Top primes by composite score:")
+            sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
+            for p, score in sorted_primes[:10]:
+                qc_r = qc_scores[p]['qc_ratio']
+                cov = coverage.get(p, 0)
+                print(f"  p={p}: score={score:.3f}, qc_ratio={qc_r:.3f}, coverage={cov:.1%}")
+    
+    # Normalize to weights
+    total_weight = sum(composite_scores.values())
+    if total_weight == 0:
+        weights = [1.0] * len(prime_pool)
+    else:
+        weights = [composite_scores[p] / total_weight for p in prime_pool]
+    
+    # Identify top primes by composite score
+    sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
+    top_k = max(5, len(sorted_primes) // 3)
+    top_primes = [p for p, _ in sorted_primes[:top_k]]
+    
+    if debug and target_qc_ratio is not None:
+        print(f"[QC-Biased] Top {len(top_primes)} primes: {top_primes[:10]}")
+    
+    # Generate subsets
+    subsets = []
+    
+    # Phase 1: Forced subsets featuring top primes
+    num_forced = min(30, max(5, num_subsets // 8))
+    for i in range(num_forced):
+        if i % 2 == 0:
+            # Small subsets
+            size = min(min_size, len(prime_pool))  # <-- FIX: Don't exceed pool size
+            num_top = min(size, len(top_primes))
+            if num_top > 0:
+                subset = random.sample(top_primes, k=num_top)
+            else:
+                subset = random.sample(prime_pool, k=size) if size <= len(prime_pool) else list(prime_pool)
+        else:
+            # Larger subsets
+            size = random.randint(min_size, min(max_size, len(prime_pool)))
+            num_top = min(3, size // 2, len(top_primes))
+            if num_top > 0:
+                subset = random.sample(top_primes, k=num_top)
+            else:
+                subset = []
+            
+            remaining_slots = size - len(subset)
+            if remaining_slots > 0:
+                other_primes = [p for p in prime_pool if p not in subset]
+                if other_primes:
+                    other_weights = [composite_scores.get(p, 0.1) for p in other_primes]
+                    # Ensure we don't sample more than available
+                    k = min(remaining_slots, len(other_primes))
+                    chosen = random.choices(other_primes, weights=other_weights, k=k)
+                    subset.extend(chosen)
+        
+        if subset:  # Only add non-empty subsets
+            subsets.append(tuple(sorted(set(subset))))
+    
+    # Phase 2: Random weighted subsets
+    remaining = num_subsets - len(subsets)
+    for _ in range(remaining):
+        size = random.randint(min_size, min(max_size, len(prime_pool)))
+        
+        subset = []
+        attempts = 0
+        while len(subset) < size and attempts < size * 20:
+            p = random.choices(prime_pool, weights=weights, k=1)[0]
+            if p not in subset:
+                subset.append(p)
+            attempts += 1
+        
+        if subset:  # Only add non-empty subsets
+            subsets.append(tuple(sorted(subset)))
+    
+    # Deduplicate and filter by combo_cap
+    unique_subsets = []
+    seen = set()
+    
+    # Build numeric residues map
+    residues_by_prime_numeric = {}
+    for p, mapping in precomputed_residues.items():
+        residues_set = set()
+        for vtuple, rhs_lists in mapping.items():
+            for rl in rhs_lists:
+                for r in rl:
+                    if isinstance(r, int):
+                        residues_set.add(r)
+        residues_by_prime_numeric[p] = residues_set
+    
+    for subset in subsets:
+        if subset in seen or not subset:
+            continue
+        
+        est = 1
+        viable = True
+        for p in subset:
+            count = len(residues_by_prime_numeric.get(p, set()))
+            if count == 0:
+                viable = False
+                break
+            if count > roots_threshold:
+                est *= count
+                if est > combo_cap:
+                    viable = False
+                    break
+            else:
+                est *= max(1, count)
+                if est > combo_cap:
+                    viable = False
+                    break
+        
+        if viable:
+            seen.add(subset)
+            unique_subsets.append(list(subset))
+    
+    if debug:
+        print(f"[QC-Biased] Generated {len(unique_subsets)} unique viable subsets")
+        if unique_subsets:
+            print("Sample subsets:", unique_subsets[:3])
+    
+    # === FIX: Ensure we return something even in pathological cases ===
+    if not unique_subsets and prime_pool:
+        if debug:
+            print("[QC-Biased] WARNING: No viable subsets generated, returning single full pool subset")
+        unique_subsets = [list(prime_pool)]
+    # === END FIX ===
+    
+    return unique_subsets
