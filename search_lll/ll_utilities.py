@@ -9,8 +9,6 @@ from search_common import *
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
-from sage.all import ZZ, diagonal_matrix
-from .search_config import *
 from search_common import NUM_PRIME_SUBSETS
 
 
@@ -888,8 +886,6 @@ def residue_order_additive(residue, p):
     return p // gcd(residue, p)
 
 from collections import Counter, defaultdict
-import math
-from sage.all import Zmod, Integer
 
 def summarize_order_stats(order_list):
     """Return frequency, dominance, and entropy of a list of orders"""
@@ -908,8 +904,6 @@ Complete residue analysis with proper diagnostics.
 Add this to ll_utilities.py, replacing the incomplete versions.
 """
 
-from collections import Counter, defaultdict
-import math
 from sage.all import Zmod, Integer, QQ, var
 
 # ============================================================================
