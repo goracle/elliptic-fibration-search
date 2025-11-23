@@ -199,281 +199,6 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
     return rational_candidates
 
 
-def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, tmax=TMAX, debug=True):
-    """
-    Diagnose why a specific x-value wasn't found by the CRT search.
-    
-    Check if target_x is theoretically findable via CRT + rational reconstruction
-    for any vector and prime subset combination.
-    
-    Args:
-        target_x: The x-coordinate we're looking for (QQ or coercible)
-        r_m_callable: Function to compute x from m (typically r_m from tower)
-        shift: The shift applied to x-coordinates
-        precomputed_residues: {p: {v_tuple: [roots_per_rhs]}} from workers
-        prime_pool: List of primes used in search
-        vecs: List of search vectors
-        tmax: Maximum |t| to check in m = m0 + t*M
-        debug: Print diagnostic info
-    
-    Returns:
-        dict with diagnostic information
-    """
-    from sage.all import QQ, ZZ
-    from itertools import combinations
-    
-    # Step 1: Solve for target m-value
-    # x = r_m(m) - shift, so m = r_m^(-1)(x + shift)
-    # For r_m(m) = -m - x1, we have: x = -m - x1 - shift
-    # So: m = -x - x1 - shift = -(x + shift) - x1
-    # But we need to be more careful. Let's solve symbolically.
-    
-    target_x_q = QQ(target_x)
-    
-    # For the linear case r_m(m) = -m - const, solve x = -m - const - shift
-    # => m = -x - shift - const
-    # We can get const by evaluating r_m at m=0
-    try:
-        const_term = r_m_callable(m=QQ(0))
-        #target_m = -(target_x_q + shift + const_term) # wrong lol
-        target_m = const_term - target_x_q - shift
-    except Exception as e:
-        if debug:
-            print(f"[diagnose] Failed to compute target_m: {e}")
-        return {'error': str(e)}
-    
-    if debug:
-        print(f"\n{'='*70}")
-        print(f"DIAGNOSTIC: Checking if x = {target_x_q} is findable")
-        print(f"{'='*70}")
-        print(f"Target m-value: {target_m}")
-        print(f"  (from x = r_m(m) - shift with shift={shift})")
-    
-    # Step 2: Express target_m = a/b and compute residues mod each prime
-    a = ZZ(target_m.numerator())
-    b = ZZ(target_m.denominator())
-    
-    residues_by_prime = {}
-    matched_vectors_by_prime = {}  # {p: {v_tuple: [rhs_indices where m_p appears]}}
-    
-    if debug:
-        print(f"\nComputing residues for m = {a}/{b} mod each prime...")
-    
-    for p in prime_pool:
-        p_int = int(p)
-        
-        # Check if denominator is zero mod p
-        if (b % p_int) == 0:
-            residues_by_prime[p_int] = 'DENOM_ZERO'
-            if debug:
-                print(f"  p={p_int}: denominator zero mod p (skipping)")
-            continue
-        
-        # Compute m_p = (a * b^(-1)) mod p
-        try:
-            b_inv = pow(int(b % p_int), -1, p_int)
-            m_p = (int(a % p_int) * b_inv) % p_int
-            residues_by_prime[p_int] = m_p
-        except ValueError:
-            residues_by_prime[p_int] = 'INV_FAIL'
-            if debug:
-                print(f"  p={p_int}: inverse computation failed")
-            continue
-        
-        # Step 3: Check which vectors have this residue in precomputed data
-        p_data = precomputed_residues.get(p_int, {})
-        matched_vectors_by_prime[p_int] = {}
-        
-        for v in vecs:
-            v_tuple = tuple(v)
-            roots_list = p_data.get(v_tuple, [])
-            
-            if not roots_list:
-                continue
-            
-            # roots_list is [roots_rhs0, roots_rhs1, ...]
-            matching_rhs = []
-            for rhs_idx, roots_set in enumerate(roots_list):
-                if m_p in roots_set:
-                    matching_rhs.append(rhs_idx)
-            
-            if matching_rhs:
-                matched_vectors_by_prime[p_int][v_tuple] = matching_rhs
-    
-    # Step 4: Analyze coverage per vector
-    if debug:
-        print(f"\n{'='*70}")
-        print("COVERAGE ANALYSIS BY VECTOR")
-        print(f"{'='*70}")
-    
-    vector_coverage = {}
-    for v in vecs:
-        v_tuple = tuple(v)
-        matched_primes = []
-        
-        for p_int in prime_pool:
-            if p_int in matched_vectors_by_prime:
-                if v_tuple in matched_vectors_by_prime[p_int]:
-                    matched_primes.append(p_int)
-        
-        coverage_frac = len(matched_primes) / float(len(prime_pool)) if prime_pool else 0.0
-        vector_coverage[v_tuple] = {
-            'matched_primes': matched_primes,
-            'coverage_fraction': coverage_frac,
-            'num_matched': len(matched_primes)
-        }
-        
-        if debug and coverage_frac > 0.0:
-            print(f"\nVector {v_tuple[:3]}... :")
-            print(f"  Matched primes: {matched_primes[:10]}{'...' if len(matched_primes) > 10 else ''}")
-            print(f"  Coverage: {coverage_frac:.1%} ({len(matched_primes)}/{len(prime_pool)} primes)")
-    
-    # Step 5: Try CRT + rational reconstruction for promising vectors
-    if debug:
-        print(f"\n{'='*70}")
-        print("TESTING CRT + RATIONAL RECONSTRUCTION")
-        print(f"{'='*70}")
-    
-    viable_reconstructions = []
-    
-    # Sort vectors by coverage (best first)
-    sorted_vectors = sorted(
-        vector_coverage.items(),
-        key=lambda x: x[1]['coverage_fraction'],
-        reverse=True
-    )
-    
-    for v_tuple, cov_info in sorted_vectors:
-        if cov_info['num_matched'] < MIN_PRIME_SUBSET_SIZE:
-            continue  # Not enough primes for a viable subset
-        
-        matched_primes = cov_info['matched_primes']
-        
-        if debug:
-            print(f"\nTesting vector {v_tuple[:3]}... ({cov_info['num_matched']} matched primes)")
-        
-        # Try subsets of various sizes
-        found_for_this_vector = False
-        for subset_size in range(MIN_PRIME_SUBSET_SIZE, 
-                                 min(MIN_MAX_PRIME_SUBSET_SIZE, len(matched_primes)) + 1):
-            
-            # Heuristic: try up to 100 random subsets of this size
-            import random
-            max_subsets_to_try = min(100, len(list(combinations(matched_primes, subset_size))))
-            
-            subsets_to_try = random.sample(
-                list(combinations(matched_primes, subset_size)),
-                min(max_subsets_to_try, len(list(combinations(matched_primes, subset_size))))
-            )
-            
-            for subset in subsets_to_try:
-                subset_list = list(subset)
-                
-                # Get residues for this subset
-                residues = tuple(residues_by_prime[p] for p in subset_list)
-                
-                # CRT lift
-                try:
-                    m0 = crt_cached(residues, tuple(subset_list))
-                    M = 1
-                    for p in subset_list:
-                        M *= int(p)
-                except Exception:
-                    continue
-                
-                # Check if target_m = m0 + t*M for some small |t|
-                # target_m = a/b, so we need: a/b = m0 + t*M
-                # => a = b*(m0 + t*M) = b*m0 + b*t*M
-                # => t = (a - b*m0) / (b*M)
-                
-                numerator = a - b * m0
-                denominator = b * M
-                
-                if numerator % denominator == 0:
-                    t = numerator // denominator
-                    
-                    if abs(t) <= tmax:
-                        m_reconstructed = QQ(m0 + t * M)
-                        
-                        if m_reconstructed == target_m:
-                            viable_reconstructions.append({
-                                'vector': v_tuple,
-                                'subset': subset_list,
-                                'subset_size': len(subset_list),
-                                'm0': m0,
-                                'M': M,
-                                't': t,
-                                'm_reconstructed': m_reconstructed
-                            })
-                            
-                            if debug:
-                                print(f"  ✓ FOUND via subset {subset_list}")
-                                print(f"    m0={m0}, M={M}, t={t}")
-                                print(f"    m = {m0} + {t}*{M} = {m_reconstructed}")
-                            
-                            found_for_this_vector = True
-                            break  # Found one, that's enough for this subset size
-                
-                # Also try rational reconstruction
-                try:
-                    a_recon, b_recon = rational_reconstruct(m0 % M, M)
-                    m_recon = QQ(a_recon) / QQ(b_recon)
-                    
-                    if m_recon == target_m:
-                        viable_reconstructions.append({
-                            'vector': v_tuple,
-                            'subset': subset_list,
-                            'subset_size': len(subset_list),
-                            'm0': m0,
-                            'M': M,
-                            't': 'rational_recon',
-                            'm_reconstructed': m_recon
-                        })
-                        
-                        if debug:
-                            print(f"  ✓ FOUND via rational reconstruction on subset {subset_list}")
-                            print(f"    m0={m0}, M={M}")
-                            print(f"    Reconstructed: {a_recon}/{b_recon} = {m_recon}")
-                        
-                        found_for_this_vector = True
-                        break
-                
-                except RationalReconstructionError:
-                    pass
-            
-            if found_for_this_vector:
-                break  # Found it for this vector, move to next vector
-    
-    # Step 6: Summary
-    if debug:
-        print(f"\n{'='*70}")
-        print("SUMMARY")
-        print(f"{'='*70}")
-        print(f"Target: x = {target_x_q}, m = {target_m}")
-        print(f"Total vectors: {len(vecs)}")
-        print(f"Vectors with any coverage: {sum(1 for v in vector_coverage.values() if v['num_matched'] > 0)}")
-        print(f"Viable reconstructions found: {len(viable_reconstructions)}")
-        #assert viable_reconstructions, ("no viable reconstructions found for target x:", target_x_q)
-        
-        if viable_reconstructions:
-            print(f"\n✓ POINT IS FINDABLE")
-            print(f"\nExample reconstructions:")
-            for i, recon in enumerate(viable_reconstructions[:3]):
-                print(f"\n  [{i+1}] Vector: {recon['vector'][:3]}...")
-                print(f"      Subset size: {recon['subset_size']}")
-                print(f"      Primes: {recon['subset']}")
-                print(f"      t: {recon['t']}")
-        else:
-            print(f"\n✗ POINT NOT FINDABLE with current search parameters")
-    
-    return {
-        'target_x': target_x_q,
-        'target_m': target_m,
-        'residues_by_prime': residues_by_prime,
-        'vector_coverage': vector_coverage,
-        'viable_reconstructions': viable_reconstructions,
-        'is_findable': len(viable_reconstructions) > 0
-    }
 
 
 
@@ -565,3 +290,147 @@ def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_
         'coverage_fraction': coverage,
         'per_prime': per_prime
     }
+
+
+"""
+search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
+"""
+
+# ... (Functions estimate_prime_stats, choose_extra_primes, expected_density, 
+# _assert_rhs_consistency, _print_subset_productivity_stats, _batch_check_rationality 
+# remain largely the same, focusing on utility and structure validation) ...
+
+def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, tmax=TMAX, debug=True):
+    """
+    Diagnose why a specific x-value wasn't found using Deterministic Capacity Check.
+    Instead of random sampling, we calculate the total product of compatible primes (M_capacity).
+    If M_capacity > M_required, the point is theoretically guaranteed to be found
+    by rational reconstruction, assuming the search explores the prime combination.
+    """
+    from sage.all import QQ, ZZ, crt
+    from search_lll.rational_reconstruction import rational_reconstruct
+
+    # 1. Compute Target m
+    try:
+        const_term = r_m_callable(m=QQ(0))
+        target_m = const_term - QQ(target_x) - shift
+    except Exception as e:
+        print(f"[diagnose] Error computing target m: {e}")
+        return {}
+
+    if debug:
+        print(f"\n{'='*70}")
+        print(f"DIAGNOSTIC: Strict Capacity Check for x = {target_x}")
+        print(f"{'='*70}")
+        print(f"Target m: {target_m}")
+
+    # 2. Compute Residues and Find Compatible Primes
+    a = ZZ(target_m.numerator())
+    b = ZZ(target_m.denominator())
+
+    # Required modulus size for reconstruction: M > 2 * max(|a|, |b|)^2
+    M_required = 2 * max(abs(a), abs(b))**2
+    log_M_req = math.log10(M_required) if M_required > 0 else 0
+
+    residues_by_prime = {}
+
+    for p in prime_pool:
+        p_int = int(p)
+        if b % p_int == 0:
+            residues_by_prime[p_int] = 'DENOM_ZERO'
+            continue
+        try:
+            val = (a * pow(b, -1, p_int)) % p_int
+            residues_by_prime[p_int] = val
+        except:
+            continue
+
+    # 3. Check Vectors (Find best matching vector)
+    vector_stats = []
+
+    for v in vecs:
+        v_tuple = tuple(v)
+        compatible_primes = []
+        M_capacity = 1
+        
+        for p in prime_pool:
+            p_int = int(p)
+            if p_int not in residues_by_prime or residues_by_prime[p_int] == 'DENOM_ZERO':
+                continue
+                
+            expected_r = residues_by_prime[p_int]
+            
+            # Check if expected_r appears in ANY of the RHS sets for this vector
+            p_data = precomputed_residues.get(p_int, {})
+            roots_list = p_data.get(v_tuple, [])
+            
+            if any(expected_r in r_set for r_set in roots_list):
+                compatible_primes.append(p_int)
+                M_capacity *= p_int
+                
+        vector_stats.append({
+            'vector': v_tuple,
+            'compatible_count': len(compatible_primes),
+            'primes': compatible_primes,
+            'capacity': M_capacity,
+            'log_capacity': math.log10(M_capacity) if M_capacity > 0 else 0
+        })
+
+    # Sort by capacity descending
+    vector_stats.sort(key=lambda x: x['capacity'], reverse=True)
+
+    best = vector_stats[0] if vector_stats else None
+
+    if debug and best:
+        print(f"Best matching vector: {best['vector'][:3]}...")
+        print(f"  Compatible Primes: {best['compatible_count']} / {len(prime_pool)}")
+        print(f"  Capacity (log10): {best['log_capacity']:.2f}")
+        print(f"  Required (log10): {log_M_req:.2f}")
+        
+        if best['capacity'] > M_required:
+            print("\n✓ STATUS: THEORETICALLY FINDABLE")
+            print("  The residues for this vector contain the target point with sufficient capacity.")
+            print("  If search failed, it likely didn't sample the specific subset of compatible primes.")
+            
+            # Proof of Concept Reconstruction attempt
+            print("\n  [Proof of Concept Reconstruction]")
+            proof_subset = []
+            proof_prod = 1
+            for p in best['primes']:
+                proof_subset.append(p)
+                proof_prod *= p
+                if proof_prod > M_required * 10: # Safety margin
+                    break
+            
+            print(f"  Using subset of size {len(proof_subset)}...")
+            try:
+                proof_residues = [residues_by_prime[p] for p in proof_subset]
+                m0 = crt(proof_residues, proof_subset)
+                M = proof_prod
+                
+                # Perform Rational Recon
+                m_recon = rational_reconstruct(m0, M)
+                
+                if m_recon == target_m:
+                    print("  ✓ MATCH! Target successfully reconstructed.")
+                else:
+                    print(f"  ✗ Mismatch (Got {m_recon}, Expected {target_m})")
+            except Exception as e:
+                print(f"  Reconstruction failed: {e}")
+                
+        else:
+            print("\n✗ STATUS: NOT FINDABLE (Insufficient Capacity)")
+            print("  The residues found do not carry enough information to reconstruct the point.")
+
+    return {}
+
+def rational_reconstruct(m0, M):
+    """Wrapper for rational reconstruction."""
+    from sage.all import QQ, ZZ
+    try:
+        ret = ZZ(m0).rational_reconstruction(ZZ(M))
+        if ret is None:
+            raise ValueError("Reconstruction failed")
+        return ret
+    except:
+        raise ValueError("Reconstruction failed")

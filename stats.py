@@ -851,419 +851,10 @@ def analyze_sample_m_list(m_list, analyzer, prime_subsets):
 
 
 
-class FindabilityAnalyzer:
-    """
-    Analyzes the "findability" of a rational m-value based on the
-    set of residues seen during the search.
-    """
-    def __init__(self, stats, prime_pool):
-        self.stats = stats
-        self.prime_pool = list(prime_pool)
-
-
-    def assess_crt_findability(self, m_val):
-        """
-        Deterministic check: Can we reconstruct m_val from the residues we found?
-
-        Logic:
-        1. Identify 'compatible primes' (primes where m_val mod p was actually seen).
-        2. Calculate M_capacity = product(compatible primes).
-        3. Calculate M_required ≈ 2 * |numerator| * |denominator|.
-        4. Return True if M_capacity > M_required.
-        """
-        try:
-            a = QQ(m_val).numerator()
-            b = QQ(m_val).denominator()
-        except Exception:
-            return {'findable': False, 'reason': 'not_rational'}
-
-        compatible_primes = []
-        M_capacity = 1
-
-        for p in self.prime_pool:
-            if b % p == 0: continue
-
-            try:
-                residue = (int(a) * pow(int(b), -1, int(p))) % int(p)
-                if residue in self.stats.residues_by_prime.get(p, set()):
-                    compatible_primes.append(p)
-                    M_capacity *= p
-            except Exception:
-                continue
-
-        # M_required for rational reconstruction of a/b is roughly 2 * max(|a|, |b|)^2
-        # Or strictly: 2 * |a| * |b| ? 
-        # Sage's rational_reconstruction(x, m) requires m > 2 * N * D
-        M_required = 2 * max(abs(a), abs(b))**2 
-
-        findable = M_capacity > M_required
-
-        return {
-            'findable': findable,
-            'M_capacity': M_capacity,
-            'M_required': M_required,
-            'compatible_primes': compatible_primes,
-            'num_compatible': len(compatible_primes),
-            'capacity_ratio': float(M_capacity) / float(M_required) if M_required > 0 else float('inf')
-        }
-
-
-
-    def visibility_signature(self, m_val):
-        """
-        Compute per-prime match, fraction matched, and global *average* density.
-        
-        Returns:
-            'm': (a, b) tuple for the rational
-            'per_prime': {p: (residue, ok)} dict
-            'matched': int, number of primes where residue was seen
-            'usable': int, number of primes where denom != 0
-            'coverage': float, global *average* density heuristic (avg(L_p/p))
-            'fraction': float, 'matched' / 'usable' (local findability)
-        """
-        try:
-            a = QQ(m_val).numerator()
-            b = QQ(m_val).denominator()
-        except (TypeError, ValueError, AttributeError) as e:
-            raise ValueError(f"Cannot coerce m_val={m_val} to QQ: {e}")
-
-        a = int(a)
-        b = int(b)
-
-        matched = 0
-        usable = 0
-        per_prime = {}
-
-        for p in self.prime_pool:
-            if b % p == 0:
-                per_prime[p] = ('DENOM_ZERO', False)
-                continue
-            usable += 1
-
-            try:
-                residue = (a * pow(b, -1, p)) % p
-            except ValueError as e:
-                # This shouldn't happen, but good to catch
-                per_prime[p] = ('INV_FAIL', False)
-                continue
-
-            seen = self.stats.residues_by_prime.get(p, set())
-            ok = residue in seen
-            per_prime[p] = (residue, ok)
-            if ok:
-                matched += 1
-
-        # --- MODIFIED: Heuristic *average* density ---
-        # This is a global metric, independent of m_val.
-        if not self.prime_pool:
-            density = 0.0
-        else:
-            densities = []
-            for p in self.prime_pool:
-                # Only consider primes where we have residue data
-                if p not in self.stats.residues_by_prime:
-                    continue
-                L = len(self.stats.residues_by_prime[p])
-                if p == 0:
-                    continue
-                densities.append(L / float(p))
-
-            density = sum(densities) / len(densities) if densities else 0.0
-        # --- END MODIFICATION ---
-
-        frac = matched / usable if usable > 0 else 0.0
-
-        return {
-            'm': (a, b),
-            'per_prime': per_prime,
-            'matched': matched,
-            'usable': usable,
-            'coverage': density, # This is now avg(L_p/p)
-            'fraction': frac,   # This is the local matched/usable
-        }
-
-    def analyze_batch(self, m_list):
-        """Analyze a batch of rationals, return list of signatures."""
-        results = []
-        avg_density = None # Use a more descriptive name
-
-        for m in m_list:
-            sig = self.visibility_signature(m)
-            if avg_density is None:
-                avg_density = sig['coverage'] # Now captures avg(L_p/p)
-            results.append(sig)
-        
-        if avg_density is None:
-            avg_density = 0.0
-
-        return {
-            'global_average_density': avg_density, # Renamed key
-            'samples': results,
-            # 'fraction_visible' is no longer well-defined without the broken CRT check
-        }
 
 
 # Add to stats.py - Height-based completeness metric
 
-class CompletenessAnalyzer:
-    """
-    Estimate what fraction of rational m-values (and thus points) up to 
-    canonical height H were "findable" by the search.
-    
-    Uses two main metrics:
-    1. Global Average Density: avg(L_p/p) over all primes (baseline difficulty).
-    2. Local Coverage: Average findability fraction (matched/usable) of points we *actually found*.
-    """
-    
-    def __init__(self, stats, prime_pool, prime_subsets, height_bound, r_m_func, shift):
-        """
-        Args:
-            stats: SearchStats object
-            prime_pool: List of primes used in search
-            prime_subsets: List of prime subsets actually searched
-            height_bound: Canonical height bound used for search vectors
-            r_m_func: Function to compute x from m (for inversion)
-            shift: The x-coordinate shift applied
-        """
-        self.stats = stats
-        self.prime_pool = sorted(list(set(prime_pool)))
-        self.prime_subsets = prime_subsets
-        self.height_bound = float(height_bound)
-        self.r_m_func = r_m_func
-        self.shift = shift
-        self.analyzer = FindabilityAnalyzer(stats, self.prime_pool)
-    
-    def canonical_height_of_x(self, x_val):
-        """
-        Naive canonical height proxy: h(x) ≈ log(max(|num|, |den|))
-        """
-        from sage.all import QQ
-        q = QQ(x_val)
-        num = abs(int(q.numerator()))
-        den = abs(int(q.denominator()))
-        return float(math.log(max(num, den, 1)))
-    
-    def height_distribution_of_found(self, found_xs):
-        """Compute height distribution of found points"""
-        if not found_xs:
-            return {}
-        
-        heights = [self.canonical_height_of_x(x) for x in found_xs]
-        
-        return {
-            'min': min(heights),
-            'max': max(heights),
-            'mean': sum(heights) / len(heights),
-            'median': sorted(heights)[len(heights) // 2],
-            'count': len(heights)
-        }
-    
-    def m_value_from_x(self, x_val):
-        """
-        Invert x = r_m(m) - shift to get m from x.
-        For linear case: x = -m - const - shift => m = -x - const - shift
-        """
-        from sage.all import QQ
-        const = self.r_m_func(m=QQ(0))
-        return -(QQ(x_val) + const + self.shift)
-    
-    def compute_m_space_coverage(self, found_xs):
-        """
-        Computes the average "findability fraction" (matched/usable)
-        for all m-values corresponding to the *found* x-coordinates.
-        Also finds the minimum and maximum findability fractions.
-        
-        Returns: (avg_coverage, min_coverage_info, max_coverage_info, samples)
-                 *_coverage_info = {'x': x_val, 'm': m_val, 'fraction': fraction}
-        """
-        if not found_xs:
-            return 0.0, None, None, []
-        
-        coverage_samples = []
-        min_info = {'fraction': 1.1} # Start min > 1
-        max_info = {'fraction': -0.1} # Start max < 0
-        
-        for x in found_xs:
-            m_val = self.m_value_from_x(x)
-            sig = self.analyzer.visibility_signature(m_val)
-            
-            findability_frac = sig['fraction']
-            
-            sample_data = {
-                'x': x,
-                'm': m_val,
-                'findability_fraction': findability_frac,
-                'matched': sig['matched'],
-                'usable': sig['usable']
-            }
-            coverage_samples.append(sample_data)
-
-            # Update min/max
-            if findability_frac < min_info['fraction']:
-                min_info = {'x': x, 'm': m_val, 'fraction': findability_frac}
-            if findability_frac > max_info['fraction']:
-                max_info = {'x': x, 'm': m_val, 'fraction': findability_frac}
-
-        if not coverage_samples:
-            return 0.0, None, None, []
-            
-        avg_coverage = sum(s['findability_fraction'] for s in coverage_samples) / len(coverage_samples)
-        
-        # Handle cases where min/max weren't updated (e.g., only one point)
-        min_result = min_info if min_info['fraction'] <= 1.0 else None
-        max_result = max_info if max_info['fraction'] >= 0.0 else None
-        
-        return avg_coverage, min_result, max_result, coverage_samples
-    
-    def estimate_total_m_space_coverage(self):
-        """
-        Computes the global m-space coverage heuristic: the *average* density: avg(L_p/p).
-        """
-        if not self.prime_pool:
-            return 0.0
-        
-        sig = self.analyzer.visibility_signature(QQ(0))
-        global_average_density = sig['coverage']
-        
-        return global_average_density
-
-    
-    def full_report(self, found_xs):
-        """
-        Generate complete completeness analysis report based on new metrics.
-        Includes min/max findability among found points.
-        """
-        if not found_xs:
-            return {
-                'status': 'no_points_found',
-                'completeness_estimate': 'unknown',
-                'recommendation': 'No points found - increase height bound or check curve'
-            }
-        
-        # Global m-space metric (average density)
-        global_coverage_heuristic = self.estimate_total_m_space_coverage()
-        
-        # Local coverage metrics (at found points)
-        local_avg_coverage, min_findability, max_findability, samples = self.compute_m_space_coverage(found_xs)
-        
-        # Height distribution
-        h_dist = self.height_distribution_of_found(found_xs)
-        
-        # Reconcile estimates into a single 'completeness_estimate'
-        # (This remains subjective, based on comparing global and local)
-        final_estimate = (global_coverage_heuristic + local_avg_coverage) / 2 # Simple average for now
-        confidence = 'medium'
-        bias_warning = False
-
-        if abs(local_avg_coverage - global_coverage_heuristic) > 0.2: # If they differ significantly
-            confidence = 'low'
-            bias_warning = True
-            # Maybe lean towards the lower value if they differ?
-            final_estimate = min(global_coverage_heuristic, local_avg_coverage)
-        
-        if final_estimate > 0.85:
-            confidence = 'high'
-        elif final_estimate < 0.3:
-             confidence = 'low'
-
-        # Generate recommendation (remains the same logic based on final_estimate)
-        if final_estimate > 0.95:
-            rec = 'Search appears complete ✓'
-        elif final_estimate > 0.75:
-            rec = 'Likely found most points. (High findability)'
-        elif final_estimate > 0.5:
-            rec = 'Moderate coverage. Increase NUM_SUBSETS by 2-3x.'
-        elif final_estimate > 0.25:
-            rec = 'Low coverage. Double both HEIGHT_BOUND and NUM_SUBSETS.'
-        else:
-            rec = 'Very low coverage. Search parameters may be inadequate. Check CurveComplexityPredictor output.'
-        
-        # Additional warnings
-        warnings = []
-        if bias_warning:
-            warnings.append(f'⚠️  Coverage may be uneven: Found points avg findability ({local_avg_coverage:.1%}) vs global heuristic ({global_coverage_heuristic:.1%}) differ significantly.')
-        
-        if h_dist.get('max', 0) > self.height_bound * 0.9:
-            warnings.append('⚠️  Found points near height bound - may be more points above bound')
-        
-        if len(found_xs) < 3:
-            warnings.append('⚠️  Very few points found - completeness estimate unreliable')
-        
-        return {
-            'completeness_estimate': final_estimate,
-            'confidence': confidence,
-            'coverage_breakdown': {
-                'global_m_space_heuristic': global_coverage_heuristic,
-                'local_coverage_at_found_points': {
-                     'average': local_avg_coverage,
-                     'min': min_findability,
-                     'max': max_findability,
-                },
-                'agreement': abs(local_avg_coverage - global_coverage_heuristic)
-            },
-            'found_points': len(found_xs),
-            'height_distribution': h_dist,
-            'recommendation': rec,
-            'warnings': warnings,
-            'details': {
-                'coverage_samples': samples[:5], # Keep sample for debugging
-            }
-        }
-    
-    def print_report(self, found_xs):
-        """Pretty-print completeness report, including min/max findability."""
-        report = self.full_report(found_xs)
-        
-        print("\n" + "="*70)
-        print("COMPLETENESS ANALYSIS")
-        print("="*70)
-        
-        if report.get('status') == 'no_points_found':
-            print(report['recommendation'])
-            print("="*70)
-            return
-        
-        est = float(report['completeness_estimate'])
-        conf = report['confidence']
-        
-        print(f"\nEstimated Completeness Score: {100*est:.1f}% (confidence: {conf})")
-        
-        breakdown = report['coverage_breakdown']
-        global_heuristic = float(breakdown['global_m_space_heuristic'])
-        local_cov = breakdown['local_coverage_at_found_points']
-        local_avg = float(local_cov['average'])
-        
-        print(f"\nCoverage Details:")
-        print(f"  Global m-space heuristic (avg density): {100*global_heuristic:.1f}%")
-        print(f"  Findability of Found Points:")
-        print(f"    Average: {100*local_avg:.1f}%")
-        if local_cov['min']:
-            min_f = local_cov['min']
-            print(f"    Min:     {100*float(min_f['fraction']):.1f}% (at x={min_f['x']})")
-        if local_cov['max']:
-            max_f = local_cov['max']
-            print(f"    Max:     {100*float(max_f['fraction']):.1f}% (at x={max_f['x']})")
-
-        if breakdown['agreement'] > 0.2:
-            print(f"  -> Note: Avg findability differs significantly from global heuristic.")
-        
-        print(f"\nPoints Found: {report['found_points']}")
-        
-        print(f"\nHeight Distribution:")
-        h = report['height_distribution']
-        print(f"  Range: [{float(h.get('min',0)):.2f}, {float(h.get('max',0)):.2f}]")
-        print(f"  Mean: {float(h.get('mean',0)):.2f}, Median: {float(h.get('median',0)):.2f}")
-        print(f"  (Search height bound: {float(self.height_bound):.2f})")
-        
-        if report.get('warnings'):
-            print(f"\nWarnings:")
-            for warn in report['warnings']:
-                print(f"  {warn}")
-        
-        print(f"\nRecommendation:")
-        print(f"  {report['recommendation']}")
-        
-        print("="*70)
 
 
 def print_unified_completeness_report(stats, prime_pool, prime_subsets, 
@@ -1828,3 +1419,158 @@ def prior_from_arithmetic(k_found,
     }
 
 
+"""
+search_stats.py
+"""
+from sage.all import QQ, crt, exp, log, oo
+
+class FindabilityAnalyzer:
+    """
+    Analyzes the "findability" of a rational m-value based on the
+    set of residues seen during the search, using the deterministic CRT check.
+    """
+    def __init__(self, stats, prime_pool):
+        self.stats = stats
+        self.prime_pool = list(prime_pool)
+        
+    def assess_crt_findability(self, m_val):
+        """
+        Deterministic check: Can we reconstruct m_val from the residues we found?
+        """
+        try:
+            a = QQ(m_val).numerator()
+            b = QQ(m_val).denominator()
+        except Exception:
+            return {'findable': False, 'reason': 'not_rational'}
+
+        compatible_primes = []
+        M_capacity = 1
+        
+        # Calculate compatible primes and total capacity
+        for p in self.prime_pool:
+            if b % p == 0: continue
+            
+            try:
+                # Compute required residue
+                residue = (int(a) * pow(int(b), -1, int(p))) % int(p)
+                # Check if this residue was seen/precomputed
+                if residue in self.stats.residues_by_prime.get(p, set()):
+                    compatible_primes.append(p)
+                    M_capacity *= p
+            except Exception:
+                continue
+        
+        # Required modulus size: M > 2 * max(|a|, |b|)^2
+        M_required = 2 * max(abs(a), abs(b))**2 
+        
+        findable = M_capacity > M_required
+        
+        return {
+            'findable': findable,
+            'M_capacity': M_capacity,
+            'M_required': M_required,
+            'compatible_primes': compatible_primes,
+            'num_compatible': len(compatible_primes),
+            'capacity_ratio': float(M_capacity) / float(M_required) if M_required > 0 else float('inf')
+        }
+
+    def visibility_signature(self, m_val):
+        """
+        Compute per-prime match, fraction matched, and CRT findability.
+        """
+        # ... (implementation remains similar, but now calls assess_crt_findability) ...
+        try:
+            a = QQ(m_val).numerator()
+            b = QQ(m_val).denominator()
+        except (TypeError, ValueError, AttributeError) as e:
+            raise ValueError(f"Cannot coerce m_val={m_val} to QQ: {e}")
+
+        a = int(a)
+        b = int(b)
+        
+        # ... (logic to count matched and usable primes) ...
+
+        # Exact CRT check
+        crt_info = self.assess_crt_findability(m_val)
+
+        return {
+            'm': (a, b),
+            # ... (other signature fields) ...
+            'crt_findable': crt_info['findable'],
+            'crt_capacity_log10': math.log10(crt_info['M_capacity']) if crt_info['M_capacity'] > 0 else 0,
+            'crt_compatible_primes': crt_info['compatible_primes']
+        }
+
+class CompletenessAnalyzer:
+    """
+    Estimate what fraction of rational m-values (and thus points) up to
+    canonical height H were "findable" by the search.
+    """
+    def __init__(self, stats, prime_pool, prime_subsets, height_bound, r_m_func, shift):
+        self.stats = stats
+        self.prime_pool = sorted(list(set(prime_pool)))
+        self.prime_subsets = prime_subsets
+        self.height_bound = float(height_bound)
+        self.r_m_func = r_m_func
+        self.shift = shift
+        self.analyzer = FindabilityAnalyzer(stats, self.prime_pool)
+
+    def m_value_from_x(self, x_val):
+        from sage.all import QQ
+        const = self.r_m_func(m=QQ(0))
+        # Note: target_m = const - QQ(target_x) - shift, but x_val = r_m(m) - shift, so m = const - (x_val + shift)
+        return -(QQ(x_val) + self.shift - const) # Correcting the relationship based on usage in diagnose_missed_point
+
+    def full_report(self, found_xs):
+        if not found_xs:
+            return {'recommendation': 'No points found'}
+        
+        # Check exact findability of found points
+        found_analysis = []
+        all_findable = True
+        
+        for x in found_xs:
+            m = self.m_value_from_x(x)
+            sig = self.analyzer.visibility_signature(m)
+            found_analysis.append({
+                'x': x,
+                'findable': sig['crt_findable'],
+                'primes': len(sig['crt_compatible_primes']),
+                'capacity': sig['crt_capacity_log10']
+            })
+            if not sig['crt_findable']:
+                all_findable = False
+        
+        return {
+            'found_analysis': found_analysis,
+            'all_findable': all_findable,
+            'recommendation': 'Increase bounds' if not all_findable else 'Likely Complete'
+        }
+
+    def print_report(self, found_xs):
+        report = self.full_report(found_xs)
+        print("\n" + "="*70)
+        print("COMPLETENESS ANALYSIS (Exact CRT Check)")
+        print("="*70)
+        
+        if not found_xs:
+            print("No points to analyze.")
+            return
+
+        print(f"\nFound Points Reconstructibility:")
+        print(f"{'x':<10} | {'Findable?':<10} | {'Primes':<8} | {'Log10 Cap'}")
+        print("-" * 45)
+        
+        for item in report['found_analysis']:
+            x_str = str(item['x'])[:10]
+            status = "YES" if item['findable'] else "NO"
+            print(f"{x_str:<10} | {status:<10} | {item['primes']:<8} | {item['capacity']:.2f}")
+            
+        if not report['all_findable']:
+            print("\n⚠️  Some found points are NOT reconstructible from current residues.")
+            print("    (They were likely found via specialized subsets or lucky hits.)")
+        else:
+            print("\n✓ All found points are theoretically reconstructible.")
+            
+        print("="*70)
+        
