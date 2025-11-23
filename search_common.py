@@ -2076,7 +2076,6 @@ def _kodaira_adjacency_and_mv(symbol, m_v):
 
 # Add this helper function near the top of search_common.py
 # (Ensure necessary imports like QQ, Integer, log, math are present)
-import math
 
 def point_height(pt):
     """Calculates a simple height for a point (x, y). Uses x-height."""

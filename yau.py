@@ -6,7 +6,6 @@ from sage.modules.free_module_integer import IntegerLattice
 from math import gcd as _py_gcd
 from math import gcd, ceil
 from itertools import product as iter_product
-from itertools import product as _product
 import multiprocessing
 import os
 
