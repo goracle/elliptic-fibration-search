@@ -16,7 +16,7 @@ from operator import mul
 import search_common
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
-from search_common import MAX_MODULUS, PRIME_POOL
+from search_common import MAX_MODULUS, PRIME_POOL, USE_CONSENSUS_FILTER
 
 # ==============================================================================
 # === High-Level Integration Function ==========================================
@@ -1644,17 +1644,20 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         print(f"[auto_cfg] residue_counts sample: {[(p, residue_counts.get(p)) for p in sample_primes]}")
         print(f"[auto_cfg] residue_counts all: {residue_counts}")
 
-    try:
-        SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
-        # --- MODIFIED: Call fixed caching function ---
-        galois_diag = _cached_galois_stats(str(SPLIT_POLY))
-        #galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
-        # --- END MODIFIED ---
-        galois_degree = galois_diag.get('splitting_field_degree_est')
-    except Exception as e:
-        if debug:
-            print(f"[auto_cfg] Galois degree estimation failed: {e}")
-        galois_degree = None
+
+    if not USE_CONSENSUS_FILTER:
+
+        try:
+            SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
+            # --- MODIFIED: Call fixed caching function ---
+            galois_diag = _cached_galois_stats(str(SPLIT_POLY))
+            #galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
+            # --- END MODIFIED ---
+            galois_degree = galois_diag.get('splitting_field_degree_est')
+        except Exception as e:
+            if debug:
+                print(f"[auto_cfg] Galois degree estimation failed: {e}")
+            galois_degree = None
 
     # Empirical pool adaptation: grow the pool until sampled subset survivor count <= target
     # Choose a target survivors-per-subset tuned to height; default is 1.0 (about one expected candidate)
@@ -2033,3 +2036,5 @@ def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
             print(f"  (insufficient data for prediction)")
     
     return predicted_ratio
+
+

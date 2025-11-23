@@ -22,7 +22,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r4,r3, b4→r4,r5,r3, b5→r4,r5,r3,r6
+  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r3,r4, b4→r3,r5,r4, b5→r3,r5,r4,r6
   Series expansion x(m) = -1 - m + ...
     a2 = r3
     a3 = r4
@@ -31,7 +31,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r3 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r8,r7, b4→r8,r9,r7, b5→r8,r9,r10,r7
+  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r8,r7, b4→r8,r7,r9, b5→r8,r7,r9,r10
   Series expansion x(m) = -1 - m + ...
     a2 = r7
     a3 = r8
@@ -58,15 +58,15 @@ Using 2 anchor points per fibration
 ======================================================================
 
 ======================================================================
-Building Fibration 1/9 (seed=-420859)
+Building Fibration 1/9 (seed=-66407)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(1/2, 5/2), (1/4, 5/4)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 6/25*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 666/25*x^3 - b_rest_0*x - b_rest_1*x - 508/25*x^2 - b_rest_0 - 2/25*x + 21/25
+[ANCHOR MODE] Using 2 anchor points: [(9/8, -3/8), (-5, 8)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 6916390/693889*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 6771565/693889*x^3 - b_rest_0*x - b_rest_1*x - 127703025/11102224*x^2 - b_rest_0 + 12219955/5551112*x + 10851223/11102224
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(9/4, -3/2), (-3/8, -3)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 3099/25*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 17392/75*m^2*x^3/(4*m^2 + 12*m + 9) - 9716/75*m*x^4/(4*m^2 + 12*m + 9) + 233472/41405*x^4 + 134/3*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 1982/25*m^2*x^2/(4*m^2 + 12*m + 9) - 25976/75*m*x^3/(4*m^2 + 12*m + 9) + 6509536/207025*x^3 - 287/75*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 1842/25*m^2*x/(4*m^2 + 12*m + 9) - 2596/25*m*x^2/(4*m^2 + 12*m + 9) + 54557/3185*x^2 - 11482/75*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 2627/75*m^2/(4*m^2 + 12*m + 9) + 10528/75*m*x/(4*m^2 + 12*m + 9) - 6135128/207025*x - 3841/75*x^2/(4*m^2 + 12*m + 9) + 3856/75*m/(4*m^2 + 12*m + 9) + 5896/75*x/(4*m^2 + 12*m + 9) + 1892/75/(4*m^2 + 12*m + 9) - 4339157/207025
+[ANCHOR MODE] Using 2 anchor points: [(-9/8, -3/2), (7, 1/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 57682787/693889*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 44975585/254898*m^2*x^3/(4*m^2 + 12*m + 9) - 27842963/892143*m*x^4/(4*m^2 + 12*m + 9) - 285366713161/46906896400*x^4 + 407049355/12490002*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 668130541/8326668*m^2*x^2/(4*m^2 + 12*m + 9) - 1501211984/6245001*m*x^3/(4*m^2 + 12*m + 9) + 13638362279463/187627585600*x^3 + 49350215/1784286*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 96954590/2081667*m^2*x/(4*m^2 + 12*m + 9) - 1190292913/8326668*m*x^2/(4*m^2 + 12*m + 9) - 380647022117753/3002041369600*x^2 - 761450350/6245001*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 587019665/24980004*m^2/(4*m^2 + 12*m + 9) + 126927599/1784286*m*x/(4*m^2 + 12*m + 9) - 806698686274113/1501020684800*x - 9254801665/99920016*x^2/(4*m^2 + 12*m + 9) + 722140249/24980004*m/(4*m^2 + 12*m + 9) + 1936562303/49960008*x/(4*m^2 + 12*m + 9) + 1437503471/99920016/(4*m^2 + 12*m + 9) - 996273084316761/3002041369600
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -74,7 +74,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r13, a3→r14, a4→r15, a5→r16, b2→r13, b3→r13,r14, b4→r14,r13,r15, b5→r16,r15,r13,r14
+  ✓ Solution found. Free parameters: a2→r13, a3→r14, a4→r15, a5→r16, b2→r13, b3→r14,r13, b4→r14,r15,r13, b5→r14,r15,r16,r13
   Series expansion x(m) = -1 - m + ...
     a2 = r13
     a3 = r14
@@ -83,7 +83,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r13 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r17, a3→r18, a4→r19, a5→r20, b2→r17, b3→r17,r18, b4→r19,r17,r18, b5→r19,r17,r20,r18
+  ✓ Solution found. Free parameters: a2→r17, a3→r18, a4→r19, a5→r20, b2→r17, b3→r18,r17, b4→r18,r19,r17, b5→r18,r19,r20,r17
   Series expansion x(m) = -1 - m + ...
     a2 = r17
     a3 = r18
@@ -96,19 +96,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820946516480 seed: -420859
-DEBUG last step Q_i repr: 976/455*x^2 - 314/91*x - 2091/455
+DEBUG appended tower id: 134540868644352 seed: -66407
+DEBUG last step Q_i repr: -643/260*x^2 + 30669/2080*x + 37893/2080
 
 ======================================================================
-Building Fibration 2/9 (seed=-420858)
+Building Fibration 2/9 (seed=-66406)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-3/8, -6), (7/8, -1)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 313414/5625*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 51386/5625*x^3 - b_rest_0*x - b_rest_1*x + 591101/5625*x^2 - b_rest_0 + 2318/1875*x - 31416/625
+[ANCHOR MODE] Using 2 anchor points: [(5/4, 0), (-1/2, 3)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 14090/3969*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 11950/1323*x^3 - b_rest_0*x - b_rest_1*x + 31397/3969*x^2 - b_rest_0 + 766/1323*x - 51256/3969
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(0, -5/4), (-5/4, -3/4)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 1945531/5625*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 510784/3375*m^2*x^3/(4*m^2 + 12*m + 9) - 2612996/3375*m*x^4/(4*m^2 + 12*m + 9) + 61639/5625*x^4 + 931462/16875*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 851122/1875*m^2*x^2/(4*m^2 + 12*m + 9) - 35128/675*m*x^3/(4*m^2 + 12*m + 9) - 1616453/11250*x^3 - 7601743/16875*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 621778/5625*m^2*x/(4*m^2 + 12*m + 9) + 1718312/1125*m*x^2/(4*m^2 + 12*m + 9) - 20493641/90000*x^2 + 1852198/16875*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 2680841/16875*m^2/(4*m^2 + 12*m + 9) + 811408/3375*m*x/(4*m^2 + 12*m + 9) - 350419/15000*x + 19958722/16875*x^2/(4*m^2 + 12*m + 9) - 1825172/3375*m/(4*m^2 + 12*m + 9) + 2415068/16875*x/(4*m^2 + 12*m + 9) - 7158251/16875/(4*m^2 + 12*m + 9) + 497031/10000
+[ANCHOR MODE] Using 2 anchor points: [(2, -3/4), (-10, -1/2)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 431827/3969*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 264640/1701*m^2*x^3/(4*m^2 + 12*m + 9) - 860852/11907*m*x^4/(4*m^2 + 12*m + 9) + 6549631/1016064*x^4 + 601910/11907*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 203590/3969*m^2*x^2/(4*m^2 + 12*m + 9) - 1047608/11907*m*x^3/(4*m^2 + 12*m + 9) - 174865/169344*x^3 + 710905/11907*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 372962/3969*m^2*x/(4*m^2 + 12*m + 9) + 173240/567*m*x^2/(4*m^2 + 12*m + 9) - 19421165/1016064*x^2 + 764630/11907*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 167953/11907*m^2/(4*m^2 + 12*m + 9) + 2326096/11907*m*x/(4*m^2 + 12*m + 9) + 168095/84672*x + 3116114/11907*x^2/(4*m^2 + 12*m + 9) - 173276/1701*m/(4*m^2 + 12*m + 9) + 1356988/11907*x/(4*m^2 + 12*m + 9) - 1103491/11907/(4*m^2 + 12*m + 9) + 3459871/254016
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -116,7 +116,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r23, a3→r24, a4→r25, a5→r26, b2→r23, b3→r24,r23, b4→r24,r23,r25, b5→r24,r26,r23,r25
+  ✓ Solution found. Free parameters: a2→r23, a3→r24, a4→r25, a5→r26, b2→r23, b3→r24,r23, b4→r24,r25,r23, b5→r24,r25,r23,r26
   Series expansion x(m) = -1 - m + ...
     a2 = r23
     a3 = r24
@@ -125,7 +125,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r23 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r27, a3→r28, a4→r29, a5→r30, b2→r27, b3→r28,r27, b4→r29,r27,r28, b5→r30,r29,r27,r28
+  ✓ Solution found. Free parameters: a2→r27, a3→r28, a4→r29, a5→r30, b2→r27, b3→r28,r27, b4→r28,r29,r27, b5→r30,r28,r29,r27
   Series expansion x(m) = -1 - m + ...
     a2 = r27
     a3 = r28
@@ -138,19 +138,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820946510080 seed: -420858
-DEBUG last step Q_i repr: -37/5*x^2 - 193/20*x - 5/4
+DEBUG appended tower id: 134540868637952 seed: -66406
+DEBUG last step Q_i repr: -1/16*x^2 - 25/48*x + 13/24
 
 ======================================================================
-Building Fibration 3/9 (seed=-420857)
+Building Fibration 3/9 (seed=-66405)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(1/2, 7/4), (-5/8, -5/2)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 48406/729*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 69358/729*x^3 - b_rest_0*x - b_rest_1*x + 15025/972*x^2 - b_rest_0 + 43681/1458*x - 21109/2916
+[ANCHOR MODE] Using 2 anchor points: [(-3, 10), (5, -5/4)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 39871/4096*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 3833/512*x^3 - b_rest_0*x - b_rest_1*x - 30571/2048*x^2 - b_rest_0 - 3851/512*x - 11529/4096
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(8, -4), (3/2, -9/2)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 283291/729*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 372526/729*m^2*x^3/(4*m^2 + 12*m + 9) - 226888/243*m*x^4/(4*m^2 + 12*m + 9) + 235118464/3080025*x^4 + 356/9*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 11785/243*m^2*x^2/(4*m^2 + 12*m + 9) - 293848/243*m*x^3/(4*m^2 + 12*m + 9) + 265863004/3080025*x^3 - 50611/81*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 130130/729*m^2*x/(4*m^2 + 12*m + 9) + 21397/81*m*x^2/(4*m^2 + 12*m + 9) - 127600129/4106700*x^2 - 66478/81*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 1750/729*m^2/(4*m^2 + 12*m + 9) + 111770/243*m*x/(4*m^2 + 12*m + 9) - 217504429/6160050*x + 23725/108*x^2/(4*m^2 + 12*m + 9) - 13549/243*m/(4*m^2 + 12*m + 9) + 52393/162*x/(4*m^2 + 12*m + 9) - 17041/324/(4*m^2 + 12*m + 9) + 70769689/12320100
+[ANCHOR MODE] Using 2 anchor points: [(-2, 2), (5/2, -1/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 86081/1024*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 2977981/18432*m^2*x^3/(4*m^2 + 12*m + 9) - 25841/1152*m*x^4/(4*m^2 + 12*m + 9) + 49265/200704*x^4 + 707411/18432*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 470449/6144*m^2*x^2/(4*m^2 + 12*m + 9) - 384307/2304*m*x^3/(4*m^2 + 12*m + 9) - 58967/25088*x^3 + 2009261/36864*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 153923/6144*m^2*x/(4*m^2 + 12*m + 9) - 10999/96*m*x^2/(4*m^2 + 12*m + 9) + 353147/100352*x^2 - 401651/9216*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 260273/18432*m^2/(4*m^2 + 12*m + 9) + 1793/2304*m*x/(4*m^2 + 12*m + 9) + 247067/25088*x - 1208221/18432*x^2/(4*m^2 + 12*m + 9) - 1445/288*m/(4*m^2 + 12*m + 9) - 364877/18432*x/(4*m^2 + 12*m + 9) - 514355/36864/(4*m^2 + 12*m + 9) + 749241/200704
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -158,7 +158,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r33, a3→r34, a4→r35, a5→r36, b2→r33, b3→r33,r34, b4→r33,r35,r34, b5→r33,r35,r34,r36
+  ✓ Solution found. Free parameters: a2→r33, a3→r34, a4→r35, a5→r36, b2→r33, b3→r34,r33, b4→r35,r34,r33, b5→r36,r35,r34,r33
   Series expansion x(m) = -1 - m + ...
     a2 = r33
     a3 = r34
@@ -167,7 +167,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r33 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r37, a3→r38, a4→r39, a5→r40, b2→r37, b3→r38,r37, b4→r38,r37,r39, b5→r38,r40,r37,r39
+  ✓ Solution found. Free parameters: a2→r37, a3→r38, a4→r39, a5→r40, b2→r37, b3→r38,r37, b4→r39,r38,r37, b5→r40,r39,r38,r37
   Series expansion x(m) = -1 - m + ...
     a2 = r37
     a3 = r38
@@ -180,19 +180,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820946403264 seed: -420857
-DEBUG last step Q_i repr: 148/585*x^2 - 1361/585*x - 308/195
+DEBUG appended tower id: 134540868611328 seed: -66405
+DEBUG last step Q_i repr: 1/7*x^2 - 4/7*x + 2/7
 
 ======================================================================
-Building Fibration 4/9 (seed=-420856)
+Building Fibration 4/9 (seed=-66404)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-1/2, -5), (7/4, -3)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 117286/9801*x^4 - b_rest_1*x^2 - b_rest_2*x^2 + 119522/3267*x^3 - b_rest_0*x - b_rest_1*x + 445421/9801*x^2 - b_rest_0 - 274562/3267*x - 724648/9801
+[ANCHOR MODE] Using 2 anchor points: [(-2, -1), (-3/2, 1)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 6*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 90*x^3 - b_rest_0*x - b_rest_1*x - 151*x^2 - b_rest_0 - 98*x - 24
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-5, 7/8), (1/2, 3/8)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 1674667/9801*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 + 3211712/29403*m^2*x^3/(4*m^2 + 12*m + 9) - 2758484/29403*m*x^4/(4*m^2 + 12*m + 9) + 55099135/2509056*x^4 + 3907430/29403*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 4395382/9801*m^2*x^2/(4*m^2 + 12*m + 9) + 2988824/2673*m*x^3/(4*m^2 + 12*m + 9) - 39023459/836352*x^3 + 9754753/29403*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 24626/9801*m^2*x/(4*m^2 + 12*m + 9) + 17093576/9801*m*x^2/(4*m^2 + 12*m + 9) - 567589037/10036224*x^2 + 38170502/29403*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 5170585/29403*m^2/(4*m^2 + 12*m + 9) - 4744304/29403*m*x/(4*m^2 + 12*m + 9) + 144876043/1672704*x + 41838722/29403*x^2/(4*m^2 + 12*m + 9) - 19683812/29403*m/(4*m^2 + 12*m + 9) - 6936404/29403*x/(4*m^2 + 12*m + 9) - 16451947/29403/(4*m^2 + 12*m + 9) + 748167247/10036224
+[ANCHOR MODE] Using 2 anchor points: [(-1/2, 5/2), (1/2, 7/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 147*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 1120/3*m^2*x^3/(4*m^2 + 12*m + 9) + 76/3*m*x^4/(4*m^2 + 12*m + 9) + 39/4*x^4 + 470/3*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 266*m^2*x^2/(4*m^2 + 12*m + 9) - 632/3*m*x^3/(4*m^2 + 12*m + 9) + 305/4*x^3 + 1513/3*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 18*m^2*x/(4*m^2 + 12*m + 9) - 328*m*x^2/(4*m^2 + 12*m + 9) + 2451/16*x^2 + 1190/3*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 143/3*m^2/(4*m^2 + 12*m + 9) - 416/3*m*x/(4*m^2 + 12*m + 9) + 833/8*x - 322/3*x^2/(4*m^2 + 12*m + 9) - 68/3*m/(4*m^2 + 12*m + 9) - 728/3*x/(4*m^2 + 12*m + 9) - 259/3/(4*m^2 + 12*m + 9) + 279/16
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -200,7 +200,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r43, a3→r44, a4→r45, a5→r46, b2→r43, b3→r44,r43, b4→r44,r43,r45, b5→r44,r45,r46,r43
+  ✓ Solution found. Free parameters: a2→r43, a3→r44, a4→r45, a5→r46, b2→r43, b3→r44,r43, b4→r44,r45,r43, b5→r44,r45,r43,r46
   Series expansion x(m) = -1 - m + ...
     a2 = r43
     a3 = r44
@@ -209,7 +209,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r43 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r47, a3→r48, a4→r49, a5→r50, b2→r47, b3→r47,r48, b4→r49,r47,r48, b5→r49,r47,r50,r48
+  ✓ Solution found. Free parameters: a2→r47, a3→r48, a4→r49, a5→r50, b2→r47, b3→r48,r47, b4→r48,r49,r47, b5→r48,r49,r50,r47
   Series expansion x(m) = -1 - m + ...
     a2 = r47
     a3 = r48
@@ -222,19 +222,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820946398464 seed: -420856
-DEBUG last step Q_i repr: -43/528*x^2 - 161/352*x + 659/1056
+DEBUG appended tower id: 134540868525568 seed: -66404
+DEBUG last step Q_i repr: -5/2*x^2 - 3/4*x + 11/4
 
 ======================================================================
-Building Fibration 5/9 (seed=-420855)
+Building Fibration 5/9 (seed=-66403)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(1, -1/4), (9/8, 0)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 2449/289*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 575/68*x^3 - b_rest_0*x - b_rest_1*x - 171369/18496*x^2 - b_rest_0 + 503/544*x + 4807/18496
+[ANCHOR MODE] Using 2 anchor points: [(-3, -8), (-8, -7)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 46791/4900*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 48141/2450*x^3 - b_rest_0*x - b_rest_1*x - 356353/4900*x^2 - b_rest_0 - 129839/1225*x - 67944/1225
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-5/2, 7/4), (-2, 1/4)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 25751/289*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 3571901/20808*m^2*x^3/(4*m^2 + 12*m + 9) - 520037/10404*m*x^4/(4*m^2 + 12*m + 9) - 5461/1156*x^4 + 669259/20808*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 1006693/13872*m^2*x^2/(4*m^2 + 12*m + 9) - 593450/2601*m*x^3/(4*m^2 + 12*m + 9) - 1455/34*x^3 + 14791/1224*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 34844/867*m^2*x/(4*m^2 + 12*m + 9) - 1681561/13872*m*x^2/(4*m^2 + 12*m + 9) - 1915211/18496*x^2 - 297730/2601*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 840773/41616*m^2/(4*m^2 + 12*m + 9) + 1090421/20808*m*x/(4*m^2 + 12*m + 9) - 60003/544*x - 12776329/166464*x^2/(4*m^2 + 12*m + 9) + 809257/41616*m/(4*m^2 + 12*m + 9) + 2092403/83232*x/(4*m^2 + 12*m + 9) + 1248911/166464/(4*m^2 + 12*m + 9) - 829035/18496
+[ANCHOR MODE] Using 2 anchor points: [(-1/2, -7/2), (9/2, -4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 103884/1225*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 331271/7350*m^2*x^3/(4*m^2 + 12*m + 9) + 224648/735*m*x^4/(4*m^2 + 12*m + 9) - 1285227/592900*x^4 + 30529/150*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 91963/490*m^2*x^2/(4*m^2 + 12*m + 9) + 3705946/3675*m*x^3/(4*m^2 + 12*m + 9) + 9166567/296450*x^3 + 12915067/14700*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 310209/2450*m^2*x/(4*m^2 + 12*m + 9) + 1437683/1225*m*x^2/(4*m^2 + 12*m + 9) + 6195324/148225*x^2 + 11013403/7350*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 46057/1470*m^2/(4*m^2 + 12*m + 9) + 103136/735*m*x/(4*m^2 + 12*m + 9) + 3991181/296450*x + 15666389/14700*x^2/(4*m^2 + 12*m + 9) - 1126463/3675*m/(4*m^2 + 12*m + 9) - 590101/7350*x/(4*m^2 + 12*m + 9) - 474301/1470/(4*m^2 + 12*m + 9) + 2819427/592900
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -242,7 +242,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r53, a3→r54, a4→r55, a5→r56, b2→r53, b3→r54,r53, b4→r55,r54,r53, b5→r56,r55,r54,r53
+  ✓ Solution found. Free parameters: a2→r53, a3→r54, a4→r55, a5→r56, b2→r53, b3→r53,r54, b4→r53,r54,r55, b5→r53,r56,r54,r55
   Series expansion x(m) = -1 - m + ...
     a2 = r53
     a3 = r54
@@ -251,7 +251,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r53 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r57, a3→r58, a4→r59, a5→r60, b2→r57, b3→r58,r57, b4→r59,r58,r57, b5→r59,r58,r60,r57
+  ✓ Solution found. Free parameters: a2→r57, a3→r58, a4→r59, a5→r60, b2→r57, b3→r58,r57, b4→r58,r59,r57, b5→r58,r59,r60,r57
   Series expansion x(m) = -1 - m + ...
     a2 = r57
     a3 = r58
@@ -264,19 +264,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820946397120 seed: -420855
-DEBUG last step Q_i repr: 5/2*x^2 + 33/4*x + 27/4
+DEBUG appended tower id: 134540868523072 seed: -66403
+DEBUG last step Q_i repr: 89/55*x^2 - 723/110*x - 791/110
 
 ======================================================================
-Building Fibration 6/9 (seed=-420854)
+Building Fibration 6/9 (seed=-66402)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(3, 6), (5, 7/4)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 2479/256*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 469/64*x^3 - b_rest_0*x - b_rest_1*x - 1563/128*x^2 - b_rest_0 - 1069/64*x - 3713/256
+[ANCHOR MODE] Using 2 anchor points: [(-9, 6), (5/4, 5)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 5416511/544644*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 11770855/1089288*x^3 - b_rest_0*x - b_rest_1*x - 131764609/8714304*x^2 - b_rest_0 - 3167869/484128*x - 556641/107584
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(1/2, 6), (-5/4, 4)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 5393/64*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 147677/1152*m^2*x^3/(4*m^2 + 12*m + 9) + 382/9*m*x^4/(4*m^2 + 12*m + 9) - 8631415/112896*x^4 + 81931/1152*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 12487/384*m^2*x^2/(4*m^2 + 12*m + 9) + 3493/36*m*x^3/(4*m^2 + 12*m + 9) - 432315/3136*x^3 + 501709/2304*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 33235/384*m^2*x/(4*m^2 + 12*m + 9) + 3731/12*m*x^2/(4*m^2 + 12*m + 9) - 3243773/56448*x^2 + 82153/288*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 121/1152*m^2/(4*m^2 + 12*m + 9) + 5491/36*m*x/(4*m^2 + 12*m + 9) + 60957/3136*x + 329827/1152*x^2/(4*m^2 + 12*m + 9) - 2873/36*m/(4*m^2 + 12*m + 9) + 70589/1152*x/(4*m^2 + 12*m + 9) - 199099/2304/(4*m^2 + 12*m + 9) + 1750073/112896
+[ANCHOR MODE] Using 2 anchor points: [(1/2, 4), (-2, -3/2)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 11331292/136161*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 524933435/3267864*m^2*x^3/(4*m^2 + 12*m + 9) + 13918789/1633932*m*x^4/(4*m^2 + 12*m + 9) + 203581/13616100*x^4 + 171853705/3267864*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 75629231/2178576*m^2*x^2/(4*m^2 + 12*m + 9) - 75945229/816966*m*x^3/(4*m^2 + 12*m + 9) + 42645847/27232200*x^3 + 416490719/3267864*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 19496401/272322*m^2*x/(4*m^2 + 12*m + 9) + 116819717/2178576*m*x^2/(4*m^2 + 12*m + 9) + 381359113/217857600*x^2 + 224292925/3267864*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 123479183/6535728*m^2/(4*m^2 + 12*m + 9) + 412373627/3267864*m*x/(4*m^2 + 12*m + 9) - 39172571/12103200*x + 1955634677/26142912*x^2/(4*m^2 + 12*m + 9) - 32091413/6535728*m/(4*m^2 + 12*m + 9) + 784992269/13071456*x/(4*m^2 + 12*m + 9) - 548402851/26142912/(4*m^2 + 12*m + 9) - 9241431/2689600
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -284,7 +284,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r63, a3→r64, a4→r65, a5→r66, b2→r63, b3→r64,r63, b4→r64,r65,r63, b5→r64,r66,r65,r63
+  ✓ Solution found. Free parameters: a2→r63, a3→r64, a4→r65, a5→r66, b2→r63, b3→r64,r63, b4→r64,r63,r65, b5→r64,r63,r65,r66
   Series expansion x(m) = -1 - m + ...
     a2 = r63
     a3 = r64
@@ -293,7 +293,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r63 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r67, a3→r68, a4→r69, a5→r70, b2→r67, b3→r67,r68, b4→r69,r67,r68, b5→r69,r67,r70,r68
+  ✓ Solution found. Free parameters: a2→r67, a3→r68, a4→r69, a5→r70, b2→r67, b3→r68,r67, b4→r69,r68,r67, b5→r69,r70,r68,r67
   Series expansion x(m) = -1 - m + ...
     a2 = r67
     a3 = r68
@@ -306,19 +306,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820945548736 seed: -420854
-DEBUG last step Q_i repr: 184/21*x^2 + 54/7*x - 1/21
+DEBUG appended tower id: 134540868527936 seed: -66402
+DEBUG last step Q_i repr: -1/5*x^2 + 19/10*x + 31/10
 
 ======================================================================
-Building Fibration 7/9 (seed=-420853)
+Building Fibration 7/9 (seed=-66401)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(5/2, -1/2), (1/4, 2)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 962666/99225*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 316646/33075*x^3 - b_rest_0*x - b_rest_1*x - 896764/99225*x^2 - b_rest_0 + 3226/6615*x - 10915/3969
+[ANCHOR MODE] Using 2 anchor points: [(7/8, 8), (1, -5)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 650614/225*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 1666/5*x^3 - b_rest_0*x - b_rest_1*x + 1252748/225*x^2 - b_rest_0 + 1566/5*x - 605059/225
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(5, -5/8), (1, -3/8)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 8354011/99225*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 7110784/42525*m^2*x^3/(4*m^2 + 12*m + 9) - 105812/6075*m*x^4/(4*m^2 + 12*m + 9) + 7297879/25401600*x^4 + 12228518/297675*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 4456238/99225*m^2*x^2/(4*m^2 + 12*m + 9) - 50676824/297675*m*x^3/(4*m^2 + 12*m + 9) - 1198937/4233600*x^3 + 2879671/42525*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 6468578/99225*m^2*x/(4*m^2 + 12*m + 9) - 1140196/99225*m*x^2/(4*m^2 + 12*m + 9) - 62954741/25401600*x^2 - 10526146/297675*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 5084243/297675*m^2/(4*m^2 + 12*m + 9) + 5038912/42525*m*x/(4*m^2 + 12*m + 9) + 761531/423360*x + 4304927/297675*x^2/(4*m^2 + 12*m + 9) + 345136/297675*m/(4*m^2 + 12*m + 9) + 3916784/59535*x/(4*m^2 + 12*m + 9) - 3176332/297675/(4*m^2 + 12*m + 9) + 941551/254016
+[ANCHOR MODE] Using 2 anchor points: [(5/2, 1/4), (0, -5/2)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 2630131/225*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 + 141328/675*m^2*x^3/(4*m^2 + 12*m + 9) - 21256468/675*m*x^4/(4*m^2 + 12*m + 9) + 31971292/11025*x^4 + 1155718/675*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 136378/5*m^2*x^2/(4*m^2 + 12*m + 9) + 6287624/675*m*x^3/(4*m^2 + 12*m + 9) + 402958/1225*x^3 - 11939863/675*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 1424098/225*m^2*x/(4*m^2 + 12*m + 9) + 19566748/225*m*x^2/(4*m^2 + 12*m + 9) - 245944589/44100*x^2 + 1857998/135*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 1222753/135*m^2/(4*m^2 + 12*m + 9) + 11636864/675*m*x/(4*m^2 + 12*m + 9) - 22549/70*x + 45168751/675*x^2/(4*m^2 + 12*m + 9) - 19503088/675*m/(4*m^2 + 12*m + 9) + 1516816/135*x/(4*m^2 + 12*m + 9) - 607964/27/(4*m^2 + 12*m + 9) + 2415511/900
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -326,7 +326,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r73, a3→r74, a4→r75, a5→r76, b2→r73, b3→r74,r73, b4→r75,r74,r73, b5→r73,r76,r74,r75
+  ✓ Solution found. Free parameters: a2→r73, a3→r74, a4→r75, a5→r76, b2→r73, b3→r73,r74, b4→r73,r74,r75, b5→r76,r73,r74,r75
   Series expansion x(m) = -1 - m + ...
     a2 = r73
     a3 = r74
@@ -335,7 +335,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r73 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r77, a3→r78, a4→r79, a5→r80, b2→r77, b3→r78,r77, b4→r78,r77,r79, b5→r78,r80,r77,r79
+  ✓ Solution found. Free parameters: a2→r77, a3→r78, a4→r79, a5→r80, b2→r77, b3→r78,r77, b4→r79,r78,r77, b5→r80,r79,r78,r77
   Series expansion x(m) = -1 - m + ...
     a2 = r77
     a3 = r78
@@ -348,19 +348,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820945539392 seed: -420853
-DEBUG last step Q_i repr: 5/48*x^2 - 11/16*x + 5/24
+DEBUG appended tower id: 134540867712128 seed: -66401
+DEBUG last step Q_i repr: 46/35*x^2 - 153/70*x - 5/2
 
 ======================================================================
-Building Fibration 8/9 (seed=-420852)
+Building Fibration 8/9 (seed=-66400)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-2, -1/4), (1, 1/4)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 5591/576*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 333/32*x^3 - b_rest_0*x - b_rest_1*x - 5689/576*x^2 - b_rest_0 + 23/8*x - 13/36
+[ANCHOR MODE] Using 2 anchor points: [(1/8, 5/4), (-2, 5/4)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 806/81*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 275/27*x^3 - b_rest_0*x - b_rest_1*x - 15169/1296*x^2 - b_rest_0 + 217/216*x - 553/1296
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-7, 9/4), (1, -6)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 12121/144*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 152467/864*m^2*x^3/(4*m^2 + 12*m + 9) - 1577/54*m*x^4/(4*m^2 + 12*m + 9) + 1525/12288*x^4 + 30377/864*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 2113/32*m^2*x^2/(4*m^2 + 12*m + 9) - 49163/216*m*x^3/(4*m^2 + 12*m + 9) - 475/192*x^3 + 65927/1728*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 16409/288*m^2*x/(4*m^2 + 12*m + 9) - 13337/144*m*x^2/(4*m^2 + 12*m + 9) - 92725/6144*x^2 - 88189/864*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 17897/864*m^2/(4*m^2 + 12*m + 9) + 10775/108*m*x/(4*m^2 + 12*m + 9) - 2975/192*x - 90383/1728*x^2/(4*m^2 + 12*m + 9) + 7769/432*m/(4*m^2 + 12*m + 9) + 49825/864*x/(4*m^2 + 12*m + 9) + 4241/864/(4*m^2 + 12*m + 9) - 36875/12288
+[ANCHOR MODE] Using 2 anchor points: [(-2, -5), (-9/8, 7/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 6739/81*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 83987/486*m^2*x^3/(4*m^2 + 12*m + 9) - 5039/243*m*x^4/(4*m^2 + 12*m + 9) - 746300/3969*x^4 + 18433/486*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 21071/324*m^2*x^2/(4*m^2 + 12*m + 9) - 49280/243*m*x^3/(4*m^2 + 12*m + 9) - 1275019/1323*x^3 + 26339/486*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 4682/81*m^2*x/(4*m^2 + 12*m + 9) - 26347/324*m*x^2/(4*m^2 + 12*m + 9) - 113966975/63504*x^2 - 17590/243*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 22571/972*m^2/(4*m^2 + 12*m + 9) + 48347/486*m*x/(4*m^2 + 12*m + 9) - 15186361/10584*x - 159643/3888*x^2/(4*m^2 + 12*m + 9) + 22099/972*m/(4*m^2 + 12*m + 9) + 106301/1944*x/(4*m^2 + 12*m + 9) + 27557/3888/(4*m^2 + 12*m + 9) - 26411303/63504
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -368,7 +368,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r83, a3→r84, a4→r85, a5→r86, b2→r83, b3→r84,r83, b4→r85,r84,r83, b5→r85,r86,r84,r83
+  ✓ Solution found. Free parameters: a2→r83, a3→r84, a4→r85, a5→r86, b2→r83, b3→r83,r84, b4→r85,r83,r84, b5→r86,r85,r83,r84
   Series expansion x(m) = -1 - m + ...
     a2 = r83
     a3 = r84
@@ -377,7 +377,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r83 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r87, a3→r88, a4→r89, a5→r90, b2→r87, b3→r87,r88, b4→r87,r89,r88, b5→r90,r87,r89,r88
+  ✓ Solution found. Free parameters: a2→r87, a3→r88, a4→r89, a5→r90, b2→r87, b3→r87,r88, b4→r87,r88,r89, b5→r90,r87,r88,r89
   Series expansion x(m) = -1 - m + ...
     a2 = r87
     a3 = r88
@@ -390,19 +390,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820945554176 seed: -420852
-DEBUG last step Q_i repr: -79/192*x^2 - 7/2*x - 401/192
+DEBUG appended tower id: 134540868529088 seed: -66400
+DEBUG last step Q_i repr: -96/7*x^2 - 246/7*x - 143/7
 
 ======================================================================
-Building Fibration 9/9 (seed=-420851)
+Building Fibration 9/9 (seed=-66399)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-5, -2), (-2, -5/8)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 5711/576*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 275/24*x^3 - b_rest_0*x - b_rest_1*x - 5507/288*x^2 - b_rest_0 - 337/24*x - 5353/576
+[ANCHOR MODE] Using 2 anchor points: [(5/4, -1/4), (1/2, -10)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 52246/729*x^4 - b_rest_1*x^2 - b_rest_2*x^2 + 29798/729*x^3 - b_rest_0*x - b_rest_1*x + 43063/243*x^2 - b_rest_0 - 43078/729*x - 85120/729
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(3/4, 1/2), (-5, -1/8)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 12001/144*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 43381/288*m^2*x^3/(4*m^2 + 12*m + 9) + 601/18*m*x^4/(4*m^2 + 12*m + 9) + 140621/1866312*x^4 + 18779/288*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 3707/288*m^2*x^2/(4*m^2 + 12*m + 9) + 5/36*m*x^3/(4*m^2 + 12*m + 9) + 13906541/9953664*x^3 + 109589/576*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 7627/96*m^2*x/(4*m^2 + 12*m + 9) + 157*m*x^2/(4*m^2 + 12*m + 9) + 84967721/10386432*x^2 + 27205/144*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 481/32*m^2/(4*m^2 + 12*m + 9) + 4937/36*m*x/(4*m^2 + 12*m + 9) + 658174057/39814656*x + 47507/288*x^2/(4*m^2 + 12*m + 9) - 262/9*m/(4*m^2 + 12*m + 9) + 16027/288*x/(4*m^2 + 12*m + 9) - 26171/576/(4*m^2 + 12*m + 9) + 2310544255/238887936
+[ANCHOR MODE] Using 2 anchor points: [(1, -5/8), (2, -1/2)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 298651/729*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 + 92624/729*m^2*x^3/(4*m^2 + 12*m + 9) - 196564/243*m*x^4/(4*m^2 + 12*m + 9) + 15222991/186624*x^4 + 1202/9*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 237538/243*m^2*x^2/(4*m^2 + 12*m + 9) + 285512/243*m*x^3/(4*m^2 + 12*m + 9) - 4699879/93312*x^3 - 16381/81*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 76034/729*m^2*x/(4*m^2 + 12*m + 9) + 269992/81*m*x^2/(4*m^2 + 12*m + 9) - 11744623/62208*x^2 + 108818/81*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 252595/729*m^2/(4*m^2 + 12*m + 9) + 34832/243*m*x/(4*m^2 + 12*m + 9) + 2840827/46656*x + 70618/27*x^2/(4*m^2 + 12*m + 9) - 287236/243*m/(4*m^2 + 12*m + 9) - 652/81*x/(4*m^2 + 12*m + 9) - 76489/81/(4*m^2 + 12*m + 9) + 5493607/46656
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -410,7 +410,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r93, a3→r94, a4→r95, a5→r96, b2→r93, b3→r94,r93, b4→r94,r93,r95, b5→r94,r96,r93,r95
+  ✓ Solution found. Free parameters: a2→r93, a3→r94, a4→r95, a5→r96, b2→r93, b3→r93,r94, b4→r95,r93,r94, b5→r96,r95,r93,r94
   Series expansion x(m) = -1 - m + ...
     a2 = r93
     a3 = r94
@@ -419,7 +419,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r93 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r97, a3→r98, a4→r99, a5→r100, b2→r97, b3→r97,r98, b4→r99,r97,r98, b5→r99,r97,r98,r100
+  ✓ Solution found. Free parameters: a2→r97, a3→r98, a4→r99, a5→r100, b2→r97, b3→r98,r97, b4→r99,r98,r97, b5→r99,r100,r98,r97
   Series expansion x(m) = -1 - m + ...
     a2 = r97
     a3 = r98
@@ -432,8 +432,8 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 131820945554944 seed: -420851
-DEBUG last step Q_i repr: -127/1288*x^2 - 1599/5152*x + 4061/5152
+DEBUG appended tower id: 134540867427392 seed: -66399
+DEBUG last step Q_i repr: 5/16*x^2 - 13/16*x - 1/8
 r_m -m - 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -515,12 +515,8 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
 [auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
 [auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 2, 7: 1, 11: 0, 13: 1, 17: 2, 19: 0, 23: 2, 29: 1, 31: 1, 37: 1, 41: 1, 43: 0, 47: 0, 53: 1, 59: 1, 61: 0, 67: 0, 71: 2, 73: 2, 79: 1, 83: 1, 89: 2}
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
-
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
-
-[empirical_pool] start pool size=24, avg_survivors≈9.54e-08, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈9.54e-08
+[empirical_pool] start pool size=24, avg_survivors≈2.01e-07, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈2.01e-07
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 1500
@@ -532,18 +528,18 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
   HEIGHT_BOUND: 473
   Prime pool: 24 -> 24 (scale 0.00x)
-  Prime subsets: 1977 (adjustment 1.33x)
+  Prime subsets: 1983 (adjustment 1.33x)
   Subset sizes: [3, 9]
   TMAX: 500 (scaled for height)
-  Sample subsets: [[2, 3, 5], [2, 3, 31], [2, 3, 73]]
+  Sample subsets: [[2, 3, 13], [2, 3, 23], [2, 5, 59]]
 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1977
+  NUM_PRIME_SUBSETS: 1983
   PRIME_POOL size: 24
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1977, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1983, PRIME_POOL size=24, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -673,173 +669,26 @@ Searching 15 vectors up to height 473...
 PRECOMPUTING RESIDUES FOR 10 FIBRATIONS
 ======================================================================
 
---- Fibration 1/10 (seed=-420859) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-420859)...
---- Entering buildcd ---
---- Computing Minimal Model ---
-
---- Identifying Globally Bad Primes ---
-Identified 4 globally bad prime(s) from the pool: [2, 3, 5, 13]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 100481657/811200*m^20 - 5912909/13520*m^19 + 18706669/202800*m^18 + 57925270387883/15422940000*m^17 + 367088880520601/41127840000*m^16 + 16035390920903/6854640000*m^15 - 137714073652235713283/3518743761000000*m^14 - 8482127601708397127/67668149250000*m^13 - 2062434383496492296699/14074975044000000*m^12 + 621310669853786338/2199214850625*m^11 + 221992892772264476984189641/178400308682700000000*m^10 + 17519572959818771149541171/22300038585337500000*m^9 - 43388490637991769223856501/11893353912180000000*m^8 - 111191089746953341484414641/17840030868270000000*m^7 + 1649193312207528453836596049/178400308682700000000*m^6 + 674339010706660129093224391/14866692390225000000*m^5 + 12953981673896659046127401341/178400308682700000000*m^4 + 74424929035315626982439/1172914587000000*m^3 + 44746754365380880819763/1407497504400000*m^2 + 9878978725560450734681/1172914587000000*m + 1381234549594850650703/1563886116000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
->>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
->>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
-
-Place analysis (finite algebraic places):
-factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
---------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 1004816      1      0      0      1      1        0        0        1      23 x I1
-m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
-Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
-
-Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 10048165 (deg 23) contrib=0
-  I4 at -3/2 (deg 1) contrib=3
-  I3* at inf (deg 1) contrib=8
-
-Total Euler characteristic: 36
-Sum of fiber contributions (Σ(m_v - 1)): 11
-
---- Exiting buildcd ---
-
---- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 3617339652/4225*m^20 - 2554376688/845*m^19 + 2693760336/4225*m^18 + 463402163103064/17850625*m^17 + 1101266641561803/17850625*m^16 + 288637036576254/17850625*m^15 - 550856294608942853132/2036310046875*m^14 - 135714041627334354032/156639234375*m^13 - 2062434383496492296699/2036310046875*m^12 + 159055531482569302528/81452401875*m^11 + 221992892772264476984189641/25810229844140625*m^10 + 140156583678550169196329368/25810229844140625*m^9 - 43388490637991769223856501/1720681989609375*m^8 - 222382179493906682968829282/5162045968828125*m^7 + 1649193312207528453836596049/25810229844140625*m^6 + 2697356042826640516372897564/8603409948046875*m^5 + 12953981673896659046127401341/25810229844140625*m^4 + 297699716141262507929756/678770015625*m^3 + 89493508730761761639526/407262009375*m^2 + 39515914902241802938724/678770015625*m + 1381234549594850650703/226256671875)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
-  Effective Discriminant Degree: 15
-  Weierstrass scaling exponent (n) used: 0
-  ⚠ NOTICE: Discriminant degree is 15, not 12.
-    This fibration may be non-minimal or use a different base parameterization.
---------------------------
-  [analyze_fibration] Scaling height bound: 473 -> 997 (deg ratio 1.92)
-[auto_cfg] starting prime pool size: 24
-[bounds] Starting with prime pool size: 24
-[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
-[bounds] mod 2 factorization: [2, 3, 3] -> pattern (2, 3, 3)
-[bounds] mod 3 factorization failed: inverse of Mod(0, 3) does not exist
-[bounds] mod 5 factorization failed: inverse of Mod(0, 5) does not exist
-[bounds] mod 7 factorization: [1, 15] -> pattern (1, 15)
-[bounds] mod 11 factorization: [7, 16] -> pattern (7, 16)
-[bounds] mod 13 factorization failed: inverse of Mod(0, 13) does not exist
-[bounds] mod 17 factorization: [1, 1, 1, 1, 2, 5, 11] -> pattern (1, 1, 1, 1, 2, 5, 11)
-[bounds] mod 19 factorization: [1, 2, 3, 8, 8] -> pattern (1, 2, 3, 8, 8)
-[bounds] mod 23 factorization: [1, 2, 6, 14] -> pattern (1, 2, 6, 14)
-[bounds] mod 29 factorization: [23] -> pattern (23,)
-[bounds] mod 31 factorization: [6, 17] -> pattern (6, 17)
-[bounds] mod 37 factorization: [10, 13] -> pattern (10, 13)
-[bounds] mod 41 factorization: [1, 1, 10, 11] -> pattern (1, 1, 10, 11)
-[bounds] mod 43 factorization: [1, 1, 2, 6, 13] -> pattern (1, 1, 2, 6, 13)
-[bounds] mod 47 factorization: [1, 1, 1, 1, 2, 13] -> pattern (1, 1, 1, 1, 2, 13)
-[bounds] mod 53 factorization: [23] -> pattern (23,)
-[bounds] mod 59 factorization: [1, 1, 1, 1, 19] -> pattern (1, 1, 1, 1, 19)
-[bounds] mod 61 factorization: [1, 2, 7, 13] -> pattern (1, 2, 7, 13)
-[bounds] mod 67 factorization: [1, 2, 2, 3, 7, 8] -> pattern (1, 2, 2, 3, 7, 8)
-[bounds] mod 71 factorization: [1, 22] -> pattern (1, 22)
-[bounds] mod 73 factorization: [5, 18] -> pattern (5, 18)
-[bounds] mod 79 factorization: [1, 1, 2, 19] -> pattern (1, 1, 2, 19)
-[bounds] mod 83 factorization: [1, 3, 7, 12] -> pattern (1, 3, 7, 12)
-[bounds] mod 89 factorization: [1, 1, 1, 1, 1, 3, 15] -> pattern (1, 1, 1, 1, 1, 3, 15)
-[bounds] Unique patterns from 21 primes: [(1, 1, 1, 1, 1, 3, 15), (1, 1, 1, 1, 2, 5, 11), (1, 1, 1, 1, 2, 13), (1, 1, 1, 1, 19), (1, 1, 2, 6, 13), (1, 1, 2, 19), (1, 1, 10, 11), (1, 2, 2, 3, 7, 8), (1, 2, 3, 8, 8), (1, 2, 6, 14), (1, 2, 7, 13), (1, 3, 7, 12), (1, 15), (1, 22), (2, 3, 3), (5, 18), (6, 17), (7, 16), (10, 13), (23,)]
-[bounds] Estimated splitting field degree: 5354228880
-
-DEBUG: RET: {'splitting_field_degree_est': 5354228880, 'unique_patterns': [(1, 1, 1, 1, 1, 3, 15), (1, 1, 1, 1, 2, 5, 11), (1, 1, 1, 1, 2, 13), (1, 1, 1, 1, 19), (1, 1, 2, 6, 13), (1, 1, 2, 19), (1, 1, 10, 11), (1, 2, 2, 3, 7, 8), (1, 2, 3, 8, 8), (1, 2, 6, 14), (1, 2, 7, 13), (1, 3, 7, 12), (1, 15), (1, 22), (2, 3, 3), (5, 18), (6, 17), (7, 16), (10, 13), (23,)], 'num_primes_tested': 21}
-
-[bounds] Diagnostics: {'discriminant': -4088534470575730281507847221079175865611285843517068210554251743046153976278934532230499781944623030307616859781939005992116732535093662697675911619433803209883586721698883252998367904306317062694347223229469340395757467261816945688695443998071760050491206026029137605500490266123696477009665442877356754403132475778942623423497450421297991035271522656986478112136971606670424884763131115150723252477638552950773796534435894272789318197106398787045427566523276261291157659653863000961145749313922972022368705483028940880852992322480752775219174700193797722278610754265309478957007422094810532692024000191304924554278874716620768604178195172665106802217261091960798111337927084168858708871929413049770499617894499028679462763785274194791776647846740911297024625720013397880660792689646685623779186936934555151549595648/13644358595330958630689216937364574748014540857061144899140540484289948197937067702559563306240144677420571830424570894664226302274447076559239433394807509461847954559237919517748876533112381950351234268149666240233906318062172663277704060301789180957430394527182504265441719876652464069686359771049962482191141131471441276247551377598876600081834731457866385265550743557628370031210893376875350198700845988865322749715722933092438420919594033176025504872086457908153533935546875, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[bounds] is_good_prime_for_surface rejected 2
-[bounds] is_good_prime_for_surface rejected 3
-[bounds] is_good_prime_for_surface rejected 5
-[bounds] is_good_prime_for_surface rejected 13
-[auto_cfg] naive_x_height_from_pts: max height from x = 0 (val=1)
-[auto_cfg] h_x=0.0, h_can≈log(2) + 1.5
-[auto_cfg] HEIGHT_BOUND set to 473
-[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
-[residue_counts] Using split_poly degree=23
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 21 primes -> avg_roots=1.524, patterns_sample=[(1, 1, 1, 1, 1, 3, 15), (1, 1, 1, 1, 2, 5, 11), (1, 1, 1, 1, 2, 13), (1, 1, 1, 1, 19), (1, 1, 2, 6, 13), (1, 1, 2, 19)]
-[residue_counts] denom zero mod 3; using fallback
-[residue_counts] denom zero mod 5; using fallback
-[residue_counts] sample: [(2, 1), (3, 2), (5, 2), (7, 2), (11, 2), (17, 1), (19, 2), (23, 0), (29, 1), (31, 1)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.5238095238095237}
-[auto_cfg] residue_counts sample: [(2, 1), (3, 2), (5, 2), (7, 2), (11, 2), (17, 1), (19, 2), (23, 0), (29, 1), (31, 1)]
-[auto_cfg] residue_counts all: {2: 1, 3: 2, 5: 2, 7: 2, 11: 2, 17: 1, 19: 2, 23: 0, 29: 1, 31: 1, 37: 1, 41: 0, 43: 0, 47: 1, 53: 1, 59: 1, 61: 0, 67: 0, 71: 2, 73: 1, 79: 1, 83: 1, 89: 1}
-[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
-
-DEBUG: RET: {'splitting_field_degree_est': 1784742960, 'unique_patterns': [(1, 1, 1, 1, 2, 5, 11), (1, 1, 1, 1, 2, 13), (1, 1, 1, 1, 19), (1, 1, 2, 6, 13), (1, 1, 10, 11), (1, 2, 2, 3, 7, 8), (1, 2, 3, 8, 8), (1, 2, 6, 14), (1, 2, 7, 13), (1, 15), (1, 22), (2, 3, 3), (6, 17), (7, 16), (10, 13), (23,)], 'num_primes_tested': 17}
-
-[empirical_pool] start pool size=23, avg_survivors≈1.24e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 23, final_avg_survivors≈1.24e-06
-[adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.22, avg_density=0.1055 -> size_bias='mixed (moderate density)'
-[adaptive_subsets] Density-adjusted base num_subsets: 1500
-[adaptive_subsets] Height scale factor (sqrt): 2.17
-[adaptive_subsets] Final num_subsets: 1500 * 2.17 ≈ 2000 (overall adj: 1.33x vs base 1500)
-[adaptive_subsets] Final subset sizes: [3, 9]
-[auto_cfg] density=0.1055, base_tmax=300, tmax_scale=2.17 -> TMAX=500
-
-[auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
-  HEIGHT_BOUND: 473
-  Prime pool: 23 -> 23 (scale 0.00x)
-  Prime subsets: 1977 (adjustment 1.33x)
-  Subset sizes: [3, 9]
-  TMAX: 500 (scaled for height)
-  Sample subsets: [[2, 3, 5], [2, 3, 37], [2, 3, 83]]
-  [analyze_fibration] Configured with H_bound=997
-
---- DEBUGGING POINT CONSTRUCTION ---
-Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+927076/12675*m^7+1831337/20280*m^6+220323/8450*m^5-3829028706829/7711470000*m^4-2249027/975*m^3-214848419/50700*m^2-27303547/8450*m-14270181/16900)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+38830457/405600*m^12+3949129/20280*m^11+33776633/405600*m^10-3815523291529/3855735000*m^9-15014378945359/3084588000*m^8-1321340725169/142805000*m^7+2390499294253029233/1759371880500000*m^6+11193461117633/296595000*m^5+279330441193469/3855735000*m^4+44743776433147/642622500*m^3+36024468634129/856830000*m^2+607051371/33800*m+56803293/13520)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
-
-Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (304200*m^5 + 380250*m^4 - 912600*m^3 + 1691246*m^2 + 12168000*m + 9126000)/(152100*m^2 + 456300*m + 342225)
-Y_aff: (-811200*m^5 - 1242150*m^4 + 2281500*m^3 + 1593312*m^2 - 16191446*m - 13917150)/(50700*m^2 + 152100*m + 114075)
-Z_aff: 1
-
-Equation Check:
-LHS (Y^2*Z): (658045440000*m^10 + 2015264160000*m^9 - 2158568977500*m^8 - 8252919838800*m^7 + 27515979238800*m^6 + 70073876113800*m^5 - 36768549223656*m^4 - 115100005868304*m^3 + 217814199369316*m^2 + 450677565397800*m + 193687064122500)/(2570490000*m^4 + 15422940000*m^3 + 34701615000*m^2 + 34701615000*m + 13013105625)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (658045440000*m^10 + 2015264160000*m^9 - 2158568977500*m^8 - 8252919838800*m^7 + 27515979238800*m^6 + 70073876113800*m^5 - 36768549223656*m^4 - 115100005868304*m^3 + 217814199369316*m^2 + 450677565397800*m + 193687064122500)/(2570490000*m^4 + 15422940000*m^3 + 34701615000*m^2 + 34701615000*m + 13013105625)
-
-Difference (LHS - RHS): 0
-✅ Algebraic identity holds.
---- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 845623/76050*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 132776/4225*m^2 - 8095723/25350*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
-Canonical height pairing matrix determinant = 133/24
-Sections are independent.
-Canonical height pairing matrix determinant = 133/24
-Sections are independent.
-  [analyze_fibration] Fibration H:
-[133/24]
-height bound: 997
-  [analyze_fibration] Found 13 search vectors (H=997).
-[prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
-[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
-[prepare_modular_data_lll] skip p=5: a4 numerator has coeff with denom divisible by p
-[prepare_modular_data_lll] skip p=13: a4 numerator has coeff with denom divisible by p
-
-[prepare_modular_data_lll] Rejected 4 primes:
-  p=2: a4_denom_divisible
-  p=3: a4_denom_divisible
-  p=5: a4_denom_divisible
-  p=13: a4_denom_divisible
-  Computed residues for 20 primes
-
---- Fibration 2/10 (seed=-420858) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-420858)...
+--- Fibration 1/10 (seed=-66407) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=-66407)...
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
 --- Identifying Globally Bad Primes ---
 Identified 3 globally bad prime(s) from the pool: [2, 3, 5]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 650317/4800*m^20 - 83913/160*m^19 + 1255349/19200*m^18 + 2870545163/540000*m^17 + 40380069697/2880000*m^16 + 831411773/1440000*m^15 - 1930770867979121/23328000000*m^14 - 10365855343850821/46656000000*m^13 - 32053986750891751/186624000000*m^12 + 484982745109913/746496000*m^11 + 137593354072446768541/55987200000000*m^10 + 74451303340506727259/27993600000000*m^9 - 1655633972823869809/414720000000*m^8 - 70907905000155062041/5598720000000*m^7 + 71624131665469967437/27993600000000*m^6 + 258870421743107525041/4665600000000*m^5 + 5728466320016724423841/55987200000000*m^4 + 1403932430310357361/15552000000*m^3 + 190343349376209493/4665600000*m^2 + 15386348634680693/1944000000*m + 270311070695167/1296000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 10410329/25600*m^20 - 26196347/10240*m^19 - 230072173/409600*m^18 + 132315471132241/1966080000*m^17 + 2704222809357553/7864320000*m^16 - 310252112017523/3932160000*m^15 - 2649245144615178212089/452984832000000*m^14 - 10487205020970611190757/452984832000000*m^13 + 29137964612308015016183/1811939328000000*m^12 + 400108652796068769779/1449551462400*m^11 + 8427020992446521579299042081/11596411699200000000*m^10 - 466017130259571365977182809/644245094400000000*m^9 - 13023977955251636472123851363/2319282339840000000*m^8 - 2700033053603244437009686027/386547056640000000*m^7 - 26553398340883708963723291033/5798205849600000000*m^6 - 1207841265967237357380777973/322122547200000000*m^5 + 23190179568721358953782350881/11596411699200000000*m^4 + 863315111515676736337687/150994944000000*m^3 + 44853772281605489261053/22649241600000*m^2 - 9238283514722224919819/18874368000000*m - 2928330784428466730311/12582912000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
 >>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 >>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 650317/      1      0      0      1      1        0        0        1      23 x I1
+m^23 + 31/4*m^22 + 91/16*m^21 - 1041032      1      0      0      1      1        0        0        1      23 x I1
 m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
 Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
 
 Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 650317/4 (deg 23) contrib=0
+  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 10410329 (deg 23) contrib=0
   I4 at -3/2 (deg 1) contrib=3
   I3* at inf (deg 1) contrib=8
 
@@ -849,7 +698,7 @@ Sum of fiber contributions (Σ(m_v - 1)): 11
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 23411412/25*m^20 - 18125208/5*m^19 + 11298141/25*m^18 + 22964361304/625*m^17 + 121140209091/1250*m^16 + 2494235319/625*m^15 - 1930770867979121/3375000*m^14 - 10365855343850821/6750000*m^13 - 32053986750891751/27000000*m^12 + 484982745109913/108000*m^11 + 137593354072446768541/8100000000*m^10 + 74451303340506727259/4050000000*m^9 - 1655633972823869809/60000000*m^8 - 70907905000155062041/810000000*m^7 + 71624131665469967437/4050000000*m^6 + 258870421743107525041/675000000*m^5 + 5728466320016724423841/8100000000*m^4 + 1403932430310357361/2250000*m^3 + 190343349376209493/675000*m^2 + 15386348634680693/281250*m + 270311070695167/187500)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
+Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 281078883/100*m^20 - 707301369/40*m^19 - 6211948671/1600*m^18 + 1190839240190169/2560000*m^17 + 24338005284217977/10240000*m^16 - 2792269008157707/5120000*m^15 - 2649245144615178212089/65536000000*m^14 - 10487205020970611190757/65536000000*m^13 + 29137964612308015016183/262144000000*m^12 + 400108652796068769779/209715200*m^11 + 8427020992446521579299042081/1677721600000000*m^10 - 4194154172336142293794645281/838860800000000*m^9 - 13023977955251636472123851363/335544320000000*m^8 - 8100099160809733311029058081/167772160000000*m^7 - 26553398340883708963723291033/838860800000000*m^6 - 10870571393705136216427001757/419430400000000*m^5 + 23190179568721358953782350881/1677721600000000*m^4 + 2589945334547030209013061/65536000000*m^3 + 44853772281605489261053/3276800000*m^2 - 27714850544166674759457/8192000000*m - 26354977059856200572799/16384000000)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
   Effective Discriminant Degree: 15
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 15, not 12.
@@ -860,35 +709,35 @@ Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 23411412/25*m^20 - 18125208/5*m^19
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
 [bounds] mod 2 factorization failed: inverse of Mod(0, 2) does not exist
-[bounds] mod 3 factorization failed: inverse of Mod(0, 3) does not exist
+[bounds] mod 3 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
 [bounds] mod 5 factorization failed: inverse of Mod(0, 5) does not exist
-[bounds] mod 7 factorization: [1, 15] -> pattern (1, 15)
+[bounds] mod 7 factorization: [1, 1, 5, 6, 8] -> pattern (1, 1, 5, 6, 8)
 [bounds] mod 11 factorization: [1, 1, 20] -> pattern (1, 1, 20)
-[bounds] mod 13 factorization: [3, 3, 8, 9] -> pattern (3, 3, 8, 9)
-[bounds] mod 17 factorization: [1, 1, 2, 2, 15] -> pattern (1, 1, 2, 2, 15)
-[bounds] mod 19 factorization: [7, 16] -> pattern (7, 16)
-[bounds] mod 23 factorization: [2, 21] -> pattern (2, 21)
+[bounds] mod 13 factorization: [1, 15] -> pattern (1, 15)
+[bounds] mod 17 factorization: [1, 6, 6, 9] -> pattern (1, 6, 6, 9)
+[bounds] mod 19 factorization: [1, 10, 12] -> pattern (1, 10, 12)
+[bounds] mod 23 factorization: [1, 1, 4, 17] -> pattern (1, 1, 4, 17)
 [bounds] mod 29 factorization: [1, 2, 3, 4, 13] -> pattern (1, 2, 3, 4, 13)
-[bounds] mod 31 factorization: [4, 9, 10] -> pattern (4, 9, 10)
-[bounds] mod 37 factorization: [1, 9, 13] -> pattern (1, 9, 13)
-[bounds] mod 41 factorization: [1, 2, 4, 7, 8] -> pattern (1, 2, 4, 7, 8)
-[bounds] mod 43 factorization: [1, 3, 7, 12] -> pattern (1, 3, 7, 12)
-[bounds] mod 47 factorization: [2, 3, 18] -> pattern (2, 3, 18)
-[bounds] mod 53 factorization: [23] -> pattern (23,)
-[bounds] mod 59 factorization: [3, 20] -> pattern (3, 20)
-[bounds] mod 61 factorization: [1, 4, 17] -> pattern (1, 4, 17)
-[bounds] mod 67 factorization: [1, 1, 9, 12] -> pattern (1, 1, 9, 12)
-[bounds] mod 71 factorization: [1, 3, 3, 16] -> pattern (1, 3, 3, 16)
-[bounds] mod 73 factorization: [5, 18] -> pattern (5, 18)
-[bounds] mod 79 factorization: [4, 19] -> pattern (4, 19)
-[bounds] mod 83 factorization: [1, 1, 2, 9, 10] -> pattern (1, 1, 2, 9, 10)
-[bounds] mod 89 factorization: [1, 2, 20] -> pattern (1, 2, 20)
-[bounds] Unique patterns from 21 primes: [(1, 1, 2, 2, 15), (1, 1, 2, 9, 10), (1, 1, 9, 12), (1, 1, 20), (1, 2, 3, 4, 13), (1, 2, 4, 7, 8), (1, 2, 20), (1, 3, 3, 16), (1, 3, 7, 12), (1, 4, 17), (1, 9, 13), (1, 15), (2, 3, 18), (2, 21), (3, 3, 8, 9), (3, 20), (4, 9, 10), (4, 19), (5, 18), (7, 16), (23,)]
-[bounds] Estimated splitting field degree: 486748080
+[bounds] mod 31 factorization: [1, 9, 12] -> pattern (1, 9, 12)
+[bounds] mod 37 factorization: [3, 8, 12] -> pattern (3, 8, 12)
+[bounds] mod 41 factorization: [1, 1, 10, 11] -> pattern (1, 1, 10, 11)
+[bounds] mod 43 factorization: [1, 1, 1, 3, 12] -> pattern (1, 1, 1, 3, 12)
+[bounds] mod 47 factorization: [8, 15] -> pattern (8, 15)
+[bounds] mod 53 factorization: [1, 4, 18] -> pattern (1, 4, 18)
+[bounds] mod 59 factorization: [1, 2, 20] -> pattern (1, 2, 20)
+[bounds] mod 61 factorization: [3, 4, 4, 8] -> pattern (3, 4, 4, 8)
+[bounds] mod 67 factorization: [1, 3, 3, 16] -> pattern (1, 3, 3, 16)
+[bounds] mod 71 factorization: [1, 2, 20] -> pattern (1, 2, 20)
+[bounds] mod 73 factorization: [1, 2, 2, 18] -> pattern (1, 2, 2, 18)
+[bounds] mod 79 factorization: [1, 2, 4, 8, 8] -> pattern (1, 2, 4, 8, 8)
+[bounds] mod 83 factorization: [3, 4, 16] -> pattern (3, 4, 16)
+[bounds] mod 89 factorization: [2, 21] -> pattern (2, 21)
+[bounds] Unique patterns from 22 primes: [(1, 1, 1, 3, 12), (1, 1, 4, 17), (1, 1, 5, 6, 8), (1, 1, 10, 11), (1, 1, 20), (1, 2, 2, 18), (1, 2, 3, 4, 13), (1, 2, 3, 5), (1, 2, 4, 8, 8), (1, 2, 20), (1, 3, 3, 16), (1, 4, 18), (1, 6, 6, 9), (1, 9, 12), (1, 10, 12), (1, 15), (2, 21), (3, 4, 4, 8), (3, 4, 16), (3, 8, 12), (8, 15)]
+[bounds] Estimated splitting field degree: 12252240
 
-DEBUG: RET: {'splitting_field_degree_est': 486748080, 'unique_patterns': [(1, 1, 2, 2, 15), (1, 1, 2, 9, 10), (1, 1, 9, 12), (1, 1, 20), (1, 2, 3, 4, 13), (1, 2, 4, 7, 8), (1, 2, 20), (1, 3, 3, 16), (1, 3, 7, 12), (1, 4, 17), (1, 9, 13), (1, 15), (2, 3, 18), (2, 21), (3, 3, 8, 9), (3, 20), (4, 9, 10), (4, 19), (5, 18), (7, 16), (23,)], 'num_primes_tested': 21}
+DEBUG: RET: {'splitting_field_degree_est': 12252240, 'unique_patterns': [(1, 1, 1, 3, 12), (1, 1, 4, 17), (1, 1, 5, 6, 8), (1, 1, 10, 11), (1, 1, 20), (1, 2, 2, 18), (1, 2, 3, 4, 13), (1, 2, 3, 5), (1, 2, 4, 8, 8), (1, 2, 20), (1, 3, 3, 16), (1, 4, 18), (1, 6, 6, 9), (1, 9, 12), (1, 10, 12), (1, 15), (2, 21), (3, 4, 4, 8), (3, 4, 16), (3, 8, 12), (8, 15)], 'num_primes_tested': 22}
 
-[bounds] Diagnostics: {'discriminant': 551078982799845049098712199969389660141352744766246807302916476685290055918896791537522928953697068401359174924428649800346912116531065344404697596530982912250723631782705115647231300024418493204845114041048341349932664059204488930890666404598384183182513032061492698012637263426209940189057736364307090748710632151519943383726632408139140220775352122581779458411931092699741260852983544499240007234558070182490603627700474825116944685315558965389766551447023346289858592714732019053694119879105039861164306604616010578556727906465163324525281879284853895050882693979333/15141014051822979283152130284121055488661202858584512010946106357035320520510667975205485353642979822140149091496961574758732288237565374866555600874562514945864677429199218750000000000000000000000000000000000000000000000, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] Diagnostics: {'discriminant': 7535476144028660195843423960260421776832634843719309046593062329034678172557950953939445805272960530370001649697579893748332129618232149250170373399046158434680990753122142217001476251709835545156593923754848391308531931571312837987171423083969318872927789823975714931641619826392180964950292158874140276807393143735806490278260981639583706556028888558921218259351646910026612947747546093854165234709260902804886819911897345330965299099584170806336733945921854936569216816996568782791516135522106998112839307172852828999902502094895884601594670859543124453738650234154433338536933333002496082853284819541810831452589883466284694006961123443856745503050601247927528881376211587010301777000745811022482175877869867098416899326527534546985783858710269070029230446752733484770911711582369008007710289324203054134322102128659808518340940876134874636718881849715159734983966053911577821599/40522612977353446860472733043858995615355920236742547851520091110260281361454181117184639149874060491095682486438484269359327647220818118241082762051894176631456853548842866442240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
 [bounds] is_good_prime_for_surface rejected 3
 [bounds] is_good_prime_for_surface rejected 5
@@ -899,54 +748,50 @@ DEBUG: RET: {'splitting_field_degree_est': 486748080, 'unique_patterns': [(1, 1,
 [residue_counts] Using split_poly degree=23
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 23 primes -> avg_roots=0.7391, patterns_sample=[(1, 1, 2, 2, 15), (1, 1, 2, 9, 10), (1, 1, 9, 12), (1, 1, 20), (1, 2, 3, 4, 13), (1, 2, 4, 7, 8)]
+[galois/empirical] Tested 23 primes -> avg_roots=0.9565, patterns_sample=[(1, 1, 1, 3, 12), (1, 1, 4, 17), (1, 1, 5, 6, 8), (1, 1, 10, 11), (1, 1, 20), (1, 2, 2, 18)]
 [residue_counts] denom zero mod 2; using fallback
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] denom zero mod 5; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 2), (11, 0), (13, 2), (17, 2), (19, 2), (23, 1), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 0.7391304347826086}
-[auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 1), (7, 2), (11, 0), (13, 2), (17, 2), (19, 2), (23, 1), (29, 1)]
-[auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 1, 7: 2, 11: 0, 13: 2, 17: 2, 19: 2, 23: 1, 29: 1, 31: 0, 37: 2, 41: 2, 43: 1, 47: 1, 53: 1, 59: 0, 61: 1, 67: 2, 71: 1, 73: 3, 79: 1, 83: 3, 89: 0}
-[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
-
-DEBUG: RET: {'splitting_field_degree_est': 25618320, 'unique_patterns': [(1, 1, 2, 2, 15), (1, 1, 9, 12), (1, 1, 20), (1, 2, 3, 4, 13), (1, 2, 4, 7, 8), (1, 3, 3, 16), (1, 3, 7, 12), (1, 4, 17), (1, 9, 13), (1, 15), (2, 3, 18), (2, 21), (3, 3, 8, 9), (3, 20), (4, 9, 10), (7, 16), (23,)], 'num_primes_tested': 17}
-
-[empirical_pool] start pool size=24, avg_survivors≈1.13e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈1.13e-06
+[residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 0), (11, 0), (13, 2), (17, 2), (19, 3), (23, 0), (29, 1)]
+[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 0.9565217391304348}
+[auto_cfg] residue_counts sample: [(2, 1), (3, 1), (5, 1), (7, 0), (11, 0), (13, 2), (17, 2), (19, 3), (23, 0), (29, 1)]
+[auto_cfg] residue_counts all: {2: 1, 3: 1, 5: 1, 7: 0, 11: 0, 13: 2, 17: 2, 19: 3, 23: 0, 29: 1, 31: 0, 37: 0, 41: 0, 43: 0, 47: 1, 53: 1, 59: 2, 61: 1, 67: 0, 71: 2, 73: 2, 79: 0, 83: 0, 89: 1}
+[empirical_pool] start pool size=24, avg_survivors≈2.29e-08, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈2.29e-08
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.17, avg_density=0.0871 -> size_bias='mixed (moderate density)'
+[adaptive_subsets] zero_ratio=0.42, avg_density=0.0689 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 1500
 [adaptive_subsets] Height scale factor (sqrt): 2.17
 [adaptive_subsets] Final num_subsets: 1500 * 2.17 ≈ 2000 (overall adj: 1.33x vs base 1500)
 [adaptive_subsets] Final subset sizes: [3, 9]
-[auto_cfg] density=0.0871, base_tmax=300, tmax_scale=2.17 -> TMAX=500
+[auto_cfg] density=0.0689, base_tmax=300, tmax_scale=2.17 -> TMAX=500
 
 [auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
   HEIGHT_BOUND: 473
   Prime pool: 24 -> 24 (scale 0.00x)
-  Prime subsets: 1977 (adjustment 1.33x)
+  Prime subsets: 1983 (adjustment 1.33x)
   Subset sizes: [3, 9]
   TMAX: 500 (scaled for height)
-  Sample subsets: [[2, 3, 5], [2, 3, 31], [2, 3, 73]]
+  Sample subsets: [[2, 3, 13], [2, 3, 23], [2, 5, 59]]
   [analyze_fibration] Configured with H_bound=997
 
 --- DEBUGGING POINT CONSTRUCTION ---
 Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+57823/600*m^7+57283/480*m^6-8723/200*m^5-3587710729/4320000*m^4-873199/300*m^3-6437131/1200*m^2-799553/200*m-379569/400)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+285517/2400*m^12+60673/240*m^11-190133/9600*m^10-3755760529/2160000*m^9-10777030249/1728000*m^8-7404755671/720000*m^7+153446323299067/23328000000*m^6+69241657327/1080000*m^5+560798358313/4320000*m^4+97874946719/720000*m^3+44110898929/480000*m^2+34898379/800*m+837873/80)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+8175529/12800*m^7+8164009/10240*m^6-21384187/12800*m^5-67216989463441/1966080000*m^4-108873877/6400*m^3-810696713/25600*m^2-280256457/12800*m-86770161/25600)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+8464729/12800*m^12+8236329/5120*m^11-496936159/204800*m^10-69159472778641/983040000*m^9-80298767659921/786432000*m^8+116978513529523/983040000*m^7+551886661812420322489/226492416000000*m^6+987470200743133/491520000*m^5+7763327337416177/1966080000*m^4+1104649342766651/327680000*m^3+973789961580723/655360000*m^2+32910069051/51200*m+200839203/1280)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (3600*m^5 + 4500*m^4 - 10800*m^3 + 6077*m^2 + 144000*m + 108000)/(1800*m^2 + 5400*m + 4050)
-Y_aff: (-9600*m^5 - 14700*m^4 + 27000*m^3 + 60669*m^2 - 177677*m - 164700)/(600*m^2 + 1800*m + 1350)
+X_aff: (76800*m^5 + 96000*m^4 - 230400*m^3 - 6812329*m^2 + 3072000*m + 2304000)/(38400*m^2 + 115200*m + 86400)
+Y_aff: (-204800*m^5 - 313600*m^4 + 576000*m^3 + 22120187*m^2 + 3151529*m - 3513600)/(12800*m^2 + 38400*m + 28800)
 Z_aff: 1
 
 Equation Check:
-LHS (Y^2*Z): (92160000*m^10 + 282240000*m^9 - 302310000*m^8 - 1958644800*m^7 + 2356729800*m^6 + 11662069800*m^5 - 1071650439*m^4 - 30452771826*m^3 + 11584747729*m^2 + 58526803800*m + 27126090000)/(360000*m^4 + 2160000*m^3 + 4860000*m^2 + 4860000*m + 1822500)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (92160000*m^10 + 282240000*m^9 - 302310000*m^8 - 1958644800*m^7 + 2356729800*m^6 + 11662069800*m^5 - 1071650439*m^4 - 30452771826*m^3 + 11584747729*m^2 + 58526803800*m + 27126090000)/(360000*m^4 + 2160000*m^3 + 4860000*m^2 + 4860000*m + 1822500)
+LHS (Y^2*Z): (41943040000*m^10 + 128450560000*m^9 - 137584640000*m^8 - 9421695795200*m^7 - 14832871564800*m^6 + 24944986995200*m^5 + 495136964242969*m^4 + 135377154431846*m^3 - 145510843048559*m^2 - 22146424588800*m + 12345384960000)/(163840000*m^4 + 983040000*m^3 + 2211840000*m^2 + 2211840000*m + 829440000)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (41943040000*m^10 + 128450560000*m^9 - 137584640000*m^8 - 9421695795200*m^7 - 14832871564800*m^6 + 24944986995200*m^5 + 495136964242969*m^4 + 135377154431846*m^3 - 145510843048559*m^2 - 22146424588800*m + 12345384960000)/(163840000*m^4 + 983040000*m^3 + 2211840000*m^2 + 2211840000*m + 829440000)
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 6077/1800*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 20223/200*m^2 - 177677/600*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
+section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 - 6812329/38400*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 22120187/12800*m^2 + 3151529/12800*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
 Canonical height pairing matrix determinant = 133/24
 Sections are independent.
 Canonical height pairing matrix determinant = 133/24
