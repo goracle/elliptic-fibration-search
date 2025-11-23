@@ -1287,17 +1287,13 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     fibration_solved_SR = (Q_SR_symbolic**2).expand() + (prod_SR_symbolic * rest_SR_symbolic).expand()
     fibration_solved_SR = SR(fibration_solved_SR).expand()  # Final symbolic coercion
 
-    # Verify the solution actually satisfies the rail constraint
-    test_r = r_expr.subs({m: 0})  # Test at m=0
-    lhs = SR(fibration_solved_SR).subs({xSR: test_r, m: 0})
-    rhs = SR(fx_SR).subs({xSR: test_r})
-    diff_check = (lhs - rhs).expand()
-    assert diff_check.simplify() == 0, f"Rail consistency violated at m=0: diff = {diff_check}"
+    # After line: fibration_solved_SR = SR(fibration_solved_SR).expand()
 
+    # Extract all denominators from coefficients
+    PR_m = PolynomialRing(QQ, 'm')
+    Fm = PR_m.fraction_field()
+    m_poly = PR_m.gen()
 
-
-
-    # Extract all denominators from coefficients in m
     coeffs_in_x = [fibration_solved_SR.coefficient(xSR, i) for i in range(n)]
     all_denoms = []
 
@@ -1315,6 +1311,14 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         from sage.arith.misc import lcm as sage_lcm
         denom_lcm = sage_lcm(all_denoms)
         fibration_solved_SR = (fibration_solved_SR * denom_lcm).expand()
+        print(f"[denom_clear] Cleared denominators by multiplying by {denom_lcm}")
+
+    # Verify the solution actually satisfies the rail constraint
+    test_r = r_expr.subs({m: 0})  # Test at m=0
+    lhs = SR(fibration_solved_SR).subs({xSR: test_r, m: 0})
+    rhs = SR(fx_SR).subs({xSR: test_r})
+    diff_check = (lhs - rhs).expand()
+    assert diff_check.simplify() == 0, f"Rail consistency violated at m=0: diff = {diff_check}"
 
     try:
         deg_fib = int(fibration_solved_SR.degree(xSR))
@@ -1338,8 +1342,8 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         diag_msg = "; ".join(diag)
         raise RuntimeError("Degree drop failed: " + diag_msg)
     
-    print("f_i", fibration_solved_SR)
-    print("Qpoly_QQ", Qpoly_QQ)
+    #print("f_i", fibration_solved_SR)
+    #print("Qpoly_QQ", Qpoly_QQ)
     # At the end of build_one_fibration_step
     return {
         'f_i': SR(fibration_solved_SR),  # Force to symbolic ring
@@ -1350,18 +1354,6 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         'rest_poly_QQ': rest_poly_QQ,
         'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
     }
-
-""" old code:
-    return {
-        'f_i': fibration_solved_SR,
-        'Q_i': Qpoly_QQ,
-        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
-        'r_expr': r_expr,
-        'rest_poly_SR': rest_poly_SR_solved,
-        'rest_poly_QQ': rest_poly_QQ,
-        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
-    }
-"""
 
 
 @PROFILE

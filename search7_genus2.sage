@@ -539,7 +539,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     all_fibration_geometries,
                     prime_pool,
                     consensus_threshold=CONSENSUS_THRESHOLD,  # Not used (strict intersection)
-                    height_tolerance_log=0.5,
+                    height_tolerance_log=2.5,
                     use_delta_scaling=True,
                     debug=DEBUG
                 )
@@ -1111,26 +1111,25 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 # Replace the analyze_fibration_geometry function and the consensus section in doloop_genus2
 
 @PROFILE
-def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None):
-    """
-    Analyzes a single fibration tower to produce all geometry-specific
-    search parameters (cd, sections, H, vecs, rhs_list).
-    
-    Args:
-        tower: The fibration tower object.
-        base_pts: The rational points used to generate the tower.
-        height_bound: The canonical height bound (from primary sconf).
-        shift: The x-coordinate shift.
-        all_known_x: All known x-coordinates (for height estimation).
-        global_sconf: The primary search config (for fallbacks).
 
-    Returns:
-        A dictionary containing all geometry-specific items:
-        { 'cd', 'sections', 'H', 'vecs', 'rhs_list', 'r_m', 'sconf', 'deg' }
+
+# In search7_genus2.sage
+
+@PROFILE
+
+
+
+# In search7_genus2.sage
+
+@PROFILE
+def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+    """
+    Analyzes a single fibration tower.
+    SCALES the height bound based on the discriminant degree relative to primary_deg.
     """
     print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed})...")
     
-    # 1. Reconstruct SR/PR variables (must be done in Sage context)
+    # 1. Reconstruct SR/PR variables
     SR_m = var('m')
     PR_m = PolynomialRing(QQ, 'm')
     m_poly = PR_m.gen()
@@ -1149,49 +1148,65 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
     this_E_rhs_m = R_x_m(coeffs_in_Fm)
     
     this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
-    
     lastrhs = this_E_rhs_m(x=this_roots[-1])
     last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
-    
     this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+
+    # --- KEY FIX: SCALE HEIGHT BOUND ---
+    # Determine degree of this fibration's discriminant
+    try:
+        Delta = this_cd.E_weier.discriminant()
+        if hasattr(Delta, 'numerator'):
+             this_disc_deg = Delta.numerator().degree()
+        else:
+             this_disc_deg = Delta.degree()
+    except Exception:
+        this_disc_deg = primary_deg # Fallback
+        
+    # Height scales with degree.
+    scaling_factor = float(this_disc_deg) / float(primary_deg)
+    this_height_bound = int(height_bound * scaling_factor * 1.1) # 10% safety
+    
+    if abs(scaling_factor - 1.0) > 0.1:
+        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f})")
 
     # 4. Re-run sconf auto-configuration for THIS geometry
     try:
         known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
         known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
         if not known_pts_for_height:
-             known_pts_for_height = [(QQ(0), None)]
+            known_pts_for_height = [(QQ(0), None)]
         
+        # Auto-config might suggest a bound, but we override with our scaled bound
         this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
-        this_height_bound = this_sconf.get('HEIGHT_BOUND', height_bound)
-        print(f"  [analyze_fibration] Re-configured: H_bound={this_height_bound} (vs global {height_bound})")
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
+        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
 
     except Exception as e:
         print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
-        this_sconf = global_sconf
-        this_height_bound = height_bound
-        raise
+        this_sconf = global_sconf.copy()
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
 
     # 5. Compute fibration-specific sections
     fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
-    assert fib_specific_sections
     if not fib_specific_sections:
-        print(f"  [analyze_fibration] ERROR: Could not compute base sections for this fibration.")
+        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
         return None
         
     fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
     
     # 6. Compute fibration-specific Height Matrix (H) and Search Vectors (vecs)
     independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
-    assert independent, this_H
     if not independent:
         print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
         return None
         
     print(f"  [analyze_fibration] Fibration H:\n{this_H}")
     
+    # Use the SCALED height bound here!
     fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
     fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
+    
     print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
 
     # 7. Build fibration-specific RHS list
@@ -1210,13 +1225,6 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
         rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
         this_search_rhs_list.append(rhs_scaled)
 
-    # 8. Compute degree of the fibration (for height normalization)
-    # Degree is the degree of the x-coordinate function phi_x in m
-    try:
-        deg = this_cd.phi_x.numerator().degree() if hasattr(this_cd.phi_x, 'degree') else 2
-    except Exception:
-        deg = 2  # Fallback
-    
     return {
         'cd': this_cd,
         'sections': fib_specific_sections,
@@ -1226,11 +1234,9 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
         'rhs_list': this_search_rhs_list,
         'r_m': this_r_m,
         'sconf': this_sconf,
-        'deg': deg,
+        'deg': this_disc_deg,
         'name': f"fib_seed_{seed}"
     }
-
-
 # In doloop_genus2, replace the consensus precomputation section
 # (starting from "if USE_CONSENSUS_FILTER and fibrations:")
 # with this updated version:
