@@ -132,7 +132,6 @@ def main_genus2():
 
 
 @PROFILE
-@PROFILE
 def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     """
     Main search loop adapted for the genus-2 strategy.
@@ -535,14 +534,19 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
                 from consensus import compute_consensus_residues_with_height_matching
 
+                print(f"DEBUG: r_m = {r_m}")
+                print(f"DEBUG: r_m(m=0) = {r_m(m=QQ(0))}")
                 precomputed_residues, consensus_stats = compute_consensus_residues_with_height_matching(
                     all_precomputed_residues,
                     all_fibration_geometries,
                     prime_pool,
-                    consensus_threshold=CONSENSUS_THRESHOLD,  # Not used (strict intersection)
+                    consensus_threshold=CONSENSUS_THRESHOLD,
                     height_tolerance_log=2.5,
                     use_delta_scaling=True,
-                    debug=DEBUG
+                    debug=DEBUG,
+                    target_x=TARGETED_X if TARGETED_X else None,
+                    r_m=r_m,
+                    shift=shift
                 )
 
                 cumulative_stats.consensus_filter_stats = consensus_stats
@@ -678,8 +682,23 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         target_m = QQ(-1) * TARGETED_X + const
         
         print(f"Target m-value: {target_m}")
-        
-        
+
+        # Use the ACTUAL precomputed residues that were used in search
+        cov = compute_residue_coverage_for_m(target_m, precomputed_residues, prime_pool)
+
+        print(f"\nPer-prime visibility: {len(cov['matched_primes'])}/{len(prime_pool)} primes matched ({cov['coverage_fraction']:.1%})")
+
+        if cov['coverage_fraction'] > 0.5:
+            print(f"\n✓ Target point has high visibility ({cov['coverage_fraction']:.1%})")
+            print("It should have been found. Check rationality_test_func or height bounds.")
+        elif cov['coverage_fraction'] > 0.1:
+            print(f"\n⚠️  Target point has moderate visibility ({cov['coverage_fraction']:.1%})")
+            print("May need larger prime subsets or more iterations.")
+        else:
+            print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
+            print("Increase HEIGHT_BOUND or add more primes to pool.")
+
+
         # Visibility analysis
         sig = analyzer.visibility_signature(target_m)
         print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")

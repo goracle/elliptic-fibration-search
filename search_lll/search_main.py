@@ -408,7 +408,15 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         # Use provided residues (already consensus-filtered)
         print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
         stats.incr('using_consensus_residues', n=1)
- 
+
+
+    # ADD THIS: Populate stats.residues_by_prime from precomputed residues
+    for p, p_mapping in precomputed_residues.items():
+        for v_tuple, rhs_lists in p_mapping.items():
+            for rhs_list in rhs_lists:
+                for residue in rhs_list:
+                    if isinstance(residue, (int, Integer)):
+                        stats.add_residue(p, residue)
 
     stats.start_phase('brauer')
     from brauer import (

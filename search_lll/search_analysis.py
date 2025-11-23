@@ -235,7 +235,8 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
     # We can get const by evaluating r_m at m=0
     try:
         const_term = r_m_callable(m=QQ(0))
-        target_m = -(target_x_q + shift + const_term)
+        #target_m = -(target_x_q + shift + const_term) # wrong lol
+        target_m = const_term - target_x_q - shift
     except Exception as e:
         if debug:
             print(f"[diagnose] Failed to compute target_m: {e}")

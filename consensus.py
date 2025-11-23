@@ -5,51 +5,12 @@ from collections import Counter, defaultdict
 
 
 
-
-
-
 # DEPRECATED / COMPATIBILITY FUNCTIONS (Kept to avoid import errors)
-
-
-
-
-
 
 # Deprecated function kept for compatibility
 def compute_consensus_residues(precomputed_residues_list, prime_pool, consensus_threshold=0.7, debug=False):
     print("WARNING: calling deprecated compute_consensus_residues")
     return {}, {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @PROFILE
@@ -139,25 +100,28 @@ def sample_delta_ratios(cd, sections, num_samples=200, m_range=(-1000, 1000), se
     
     return samples
 
+
+
+
 @PROFILE
-def compute_consensus_residues_with_height_matching(
-    all_precomputed_residues,
-    fibration_geometries,
-    prime_pool,
-    consensus_threshold=0.5,
-    height_tolerance_log=2.5,
-    use_delta_scaling=True,
-    debug=DEBUG
-):
-    """
-    Height-aware consensus filter with ROBUST FINGERPRINTING and SAFETY FALLBACK.
-    
-    Key Updates:
-    1. Fingerprinting: Pairs vectors based on Height AND Residue Jaccard Similarity.
-    2. Voting: Partners only vote if they have data (empty = abstain).
-    3. SAFETY FALLBACK: If consensus results in an empty set for a vector that
-       had data in the Primary, we RESTORE the Primary's data.
-       This prevents "veto by confusion" (false matches killing valid points).
+def compute_consensus_residues_with_height_matching( all_precomputed_residues,
+                                                     fibration_geometries, prime_pool,
+                                                     consensus_threshold=0.8,
+                                                     height_tolerance_log=2.5,
+                                                     use_delta_scaling=True,
+                                                     debug=DEBUG, target_x=None, r_m=None, shift=QQ(0) ):
+    """ Strict Height-Matching Consensus with Non-Empty Intersection Guard.
+
+    Strategy:
+    1. Iterate through vectors in the Primary Fibration.
+    2. For each Partner Fibration, find the vector with the closest normalized canonical height.
+    3. If a partner vector is found:
+    - Compute Intersection(PrimaryResidues, PartnerResidues).
+    - IF Intersection is NOT EMPTY: Update Primary with Intersection (Filtering).
+    - IF Intersection IS EMPTY: Keep Primary (Assuming Partner is Blind/Inconsistent).
+
+    This guarantees that we never ADD junk (unlike Union) and never DELETE a vector purely 
+    due to a partner having disjoint residues (unlike Strict Intersection).
     """
     import math
     from collections import Counter, defaultdict
@@ -166,10 +130,9 @@ def compute_consensus_residues_with_height_matching(
     num_fibs = len(all_precomputed_residues)
     if num_fibs == 0:
         return {}, {}
-    
-    # 1. Metadata Setup
+
     primary_residues_map = all_precomputed_residues[0]
-    
+
     # Pre-calculate geometry constants
     fib_constants = []
     for geom in fibration_geometries:
@@ -190,191 +153,97 @@ def compute_consensus_residues_with_height_matching(
         except Exception:
             return None
 
-    # Define "Fingerprint Primes" dynamically - pick primes where Primary actually has data
-    fingerprint_primes = []
-    for p in prime_pool:
-        if p in primary_residues_map and primary_residues_map[p]:
-            fingerprint_primes.append(p)
-        if len(fingerprint_primes) >= 5:
-            break
-            
-    if not fingerprint_primes:
-        fingerprint_primes = [p for p in prime_pool if p >= 5][:5]
-
     consensus_residues = {}
     stats = {
         'total_vectors_primary': 0,
         'total_residues_before': 0,
         'total_residues_after': 0,
-        'vectors_kept': 0,
-        'partners_found': defaultdict(int),
-        'false_matches_rejected': 0,
-        'fallback_restorations': 0
+        'vectors_matched_all_fibs': 0,
+        'vectors_with_consensus': 0,
+        'reduction_ratio': 0.0,
+        'intersections_applied': 0,
+        'empty_intersections_ignored': 0
     }
 
-    # 2. Identify Matches (Fingerprinting)
-    primary_vectors = set()
-    for p in prime_pool:
-        if p in primary_residues_map:
-            primary_vectors.update(primary_residues_map[p].keys())
-            
-    primary_vectors = sorted(list(primary_vectors))
-    vector_matches = defaultdict(list)
-    
-    if debug:
-        print(f"  [Consensus] Fingerprinting {len(primary_vectors)} primary vectors using primes {fingerprint_primes}...")
-    
-    for v_prim in primary_vectors:
-        stats['total_vectors_primary'] += 1
-        log_h_prim = get_log_norm_height(v_prim, fib_constants[0])
-        if log_h_prim is None: continue
-
-        # For each other fibration, find the best PARTNER vector
-        for fib_idx in range(1, num_fibs):
-            best_match = None
-            best_score = -1.0
-            
-            fib_res_map = all_precomputed_residues[fib_idx]
-            
-            # Find a sample prime where this fibration has data
-            candidate_vectors = []
-            for p_check in fingerprint_primes:
-                if p_check in fib_res_map:
-                    candidate_vectors = list(fib_res_map[p_check].keys())
-                    break
-            if not candidate_vectors and fib_res_map:
-                 # Fallback to first available key
-                 first_p = next(iter(fib_res_map))
-                 candidate_vectors = list(fib_res_map[first_p].keys())
-
-            for v_cand in candidate_vectors:
-                # 1. Height Check (Loose Filter)
-                log_h_cand = get_log_norm_height(v_cand, fib_constants[fib_idx])
-                if log_h_cand is None: continue
-                
-                if abs(log_h_prim - log_h_cand) > height_tolerance_log:
-                    continue
-                
-                # 2. Residue Correlation (Strict Filter)
-                intersection_count = 0
-                union_count = 0
-                
-                for fp in fingerprint_primes:
-                    r_prim = set()
-                    if fp in primary_residues_map and v_prim in primary_residues_map[fp]:
-                        for rhs_l in primary_residues_map[fp][v_prim]:
-                            r_prim.update(rhs_l)
-                            
-                    r_cand = set()
-                    if fp in fib_res_map and v_cand in fib_res_map[fp]:
-                        for rhs_l in fib_res_map[fp][v_cand]:
-                            r_cand.update(rhs_l)
-                    
-                    if not r_prim and not r_cand: continue
-                    
-                    common = r_prim.intersection(r_cand)
-                    total = r_prim.union(r_cand)
-                    
-                    intersection_count += len(common)
-                    union_count += len(total)
-                
-                if union_count == 0:
-                    score = 0.0
-                else:
-                    score = intersection_count / float(union_count)
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = v_cand
-
-            # THRESHOLD: 0.3 to allow some noise but reject randoms
-            if best_match and best_score > 0.3:
-                vector_matches[v_prim].append((fib_idx, best_match))
-            elif best_match:
-                stats['false_matches_rejected'] += 1
-
-        stats['partners_found'][len(vector_matches[v_prim])] += 1
-
-    # 3. Generate Consensus Residues
+    # We iterate per prime, then per vector
     for p in prime_pool:
         consensus_residues[p] = {}
-        if p not in primary_residues_map: continue
-        
+        if p not in primary_residues_map: 
+            continue
+
         for v_prim, rhs_lists_primary in primary_residues_map[p].items():
+            stats['total_vectors_primary'] += 1 if p == prime_pool[0] else 0 
+
             count_before = sum(len(s) for s in rhs_lists_primary)
             stats['total_residues_before'] += count_before
-            
-            partners = vector_matches.get(v_prim, [])
-            
-            # If no partners, keep primary (Abstention Logic)
-            if not partners:
-                consensus_residues[p][v_prim] = rhs_lists_primary
-                stats['total_residues_after'] += count_before
-                stats['vectors_kept'] += 1
-                continue
-                
-            num_rhs = len(rhs_lists_primary)
-            
-            final_rhs_lists = []
-            has_any_consensus = False
-            
-            # Process each RHS index
-            for i in range(num_rhs):
-                residue_votes = Counter()
-                # Primary Vote
-                current_valid_voters = 1
-                for r in rhs_lists_primary[i]:
-                    residue_votes[r] += 1
-                
-                # Partner Votes
-                for fib_idx, v_match in partners:
-                    fib_res = all_precomputed_residues[fib_idx]
-                    if p in fib_res and v_match in fib_res[p]:
-                        matched_rhs_lists = fib_res[p][v_match]
-                        if i < len(matched_rhs_lists):
-                            partner_list = matched_rhs_lists[i]
-                            # An empty list means "I don't know" (blind), not "No" (veto)
-                            if partner_list:
-                                current_valid_voters += 1
-                                for r in partner_list:
-                                    residue_votes[r] += 1
-                
-                # Consensus Decision
-                req_votes = max(1, int(math.ceil(consensus_threshold * current_valid_voters)))
-                
-                kept = []
-                for r, count in residue_votes.items():
-                    if count >= req_votes:
-                        kept.append(r)
-                kept.sort()
-                final_rhs_lists.append(kept)
-                if kept: has_any_consensus = True
-            
-            # SAFETY FALLBACK: 
-            # If we have partners but the result is EMPTY, it likely means 
-            # the partners were false matches or confused. 
-            # We restore the Primary data to avoid deleting valid points.
-            if not has_any_consensus and count_before > 0:
-                consensus_residues[p][v_prim] = rhs_lists_primary
-                stats['total_residues_after'] += count_before
-                stats['vectors_kept'] += 1
-                stats['fallback_restorations'] += 1
-            elif has_any_consensus:
-                consensus_residues[p][v_prim] = final_rhs_lists
-                stats['total_residues_after'] += sum(len(x) for x in final_rhs_lists)
-                stats['vectors_kept'] += 1
 
-    # Final Stats
+            # Calculate Height of Primary Vector
+            log_h_prim = get_log_norm_height(v_prim, fib_constants[0])
+
+            # Start with the Primary's residues
+            current_consensus_lists = [set(s) for s in rhs_lists_primary]
+            partners_found = 0
+
+            # Attempt to match with other fibrations
+            for fib_idx in range(1, num_fibs):
+                fib_res_map = all_precomputed_residues[fib_idx]
+                if p not in fib_res_map:
+                    continue 
+
+                # Find best height match in this fibration
+                best_match_vec = None
+                min_diff = float('inf')
+
+                # Scan all vectors in this fibration for this prime
+                for v_cand in fib_res_map[p].keys():
+                    log_h_cand = get_log_norm_height(v_cand, fib_constants[fib_idx])
+                    if log_h_prim is None or log_h_cand is None: 
+                        continue
+
+                    diff = abs(log_h_prim - log_h_cand)
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_match_vec = v_cand
+
+                # If we found a valid match within tolerance
+                if best_match_vec and min_diff < height_tolerance_log:
+                    partners_found += 1
+                    partner_rhs_lists = fib_res_map[p][best_match_vec]
+
+                    # Guarded Intersection:
+                    # For each polynomial root index
+                    for i in range(len(current_consensus_lists)):
+                        if i < len(partner_rhs_lists):
+                            # Calculate intersection
+                            common = current_consensus_lists[i].intersection(partner_rhs_lists[i])
+
+                            # SAFETY CHECK: Only apply intersection if it is NOT empty
+                            # If empty, we assume the partner is inconsistent/blind and ignore it
+                            # to prevent killing the Primary data.
+                            if len(common) > 0:
+                                current_consensus_lists[i] = common
+                                stats['intersections_applied'] += 1
+                            else:
+                                stats['empty_intersections_ignored'] += 1
+
+            final_lists = [sorted(list(s)) for s in current_consensus_lists]
+            consensus_residues[p][v_prim] = final_lists
+
+            count_after = sum(len(s) for s in final_lists)
+            stats['total_residues_after'] += count_after
+
+            if partners_found == (num_fibs - 1):
+                stats['vectors_matched_all_fibs'] += 1 if p == prime_pool[0] else 0
+
     if stats['total_residues_before'] > 0:
         stats['reduction_ratio'] = 1.0 - (stats['total_residues_after'] / stats['total_residues_before'])
-        
-    stats['vectors_matched_all_fibs'] = stats['partners_found'].get(num_fibs-1, 0)
-    stats['vectors_with_consensus'] = len(vector_matches)
+
+    stats['vectors_with_consensus'] = stats['total_vectors_primary']
 
     if debug:
         print(f"\nConsensus Stats:")
-        print(f"  Fingerprinting rejected {stats['false_matches_rejected']} height-matches due to low correlation.")
-        print(f"  Restored Primary data (fallback) for {stats['fallback_restorations']} vector-prime pairs.")
-        print(f"  Vectors matched across ALL {num_fibs} fibs: {stats['vectors_matched_all_fibs']}")
-        
+        print(f"  Applied Intersections: {stats['intersections_applied']}")
+        print(f"  Ignored Empty Intersections: {stats['empty_intersections_ignored']}")
+        print(f"  Residues: {stats['total_residues_before']} -> {stats['total_residues_after']}")
+
     return consensus_residues, stats

@@ -849,6 +849,8 @@ def analyze_sample_m_list(m_list, analyzer, prime_subsets):
     }
 
 
+
+
 class FindabilityAnalyzer:
     """
     Analyzes the "findability" of a rational m-value based on the
@@ -857,6 +859,54 @@ class FindabilityAnalyzer:
     def __init__(self, stats, prime_pool):
         self.stats = stats
         self.prime_pool = list(prime_pool)
+
+
+    def assess_crt_findability(self, m_val):
+        """
+        Deterministic check: Can we reconstruct m_val from the residues we found?
+
+        Logic:
+        1. Identify 'compatible primes' (primes where m_val mod p was actually seen).
+        2. Calculate M_capacity = product(compatible primes).
+        3. Calculate M_required ≈ 2 * |numerator| * |denominator|.
+        4. Return True if M_capacity > M_required.
+        """
+        try:
+            a = QQ(m_val).numerator()
+            b = QQ(m_val).denominator()
+        except Exception:
+            return {'findable': False, 'reason': 'not_rational'}
+
+        compatible_primes = []
+        M_capacity = 1
+
+        for p in self.prime_pool:
+            if b % p == 0: continue
+
+            try:
+                residue = (int(a) * pow(int(b), -1, int(p))) % int(p)
+                if residue in self.stats.residues_by_prime.get(p, set()):
+                    compatible_primes.append(p)
+                    M_capacity *= p
+            except Exception:
+                continue
+
+        # M_required for rational reconstruction of a/b is roughly 2 * max(|a|, |b|)^2
+        # Or strictly: 2 * |a| * |b| ? 
+        # Sage's rational_reconstruction(x, m) requires m > 2 * N * D
+        M_required = 2 * max(abs(a), abs(b))**2 
+
+        findable = M_capacity > M_required
+
+        return {
+            'findable': findable,
+            'M_capacity': M_capacity,
+            'M_required': M_required,
+            'compatible_primes': compatible_primes,
+            'num_compatible': len(compatible_primes),
+            'capacity_ratio': float(M_capacity) / float(M_required) if M_required > 0 else float('inf')
+        }
+
 
 
     def visibility_signature(self, m_val):

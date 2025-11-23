@@ -1144,16 +1144,31 @@ def analyze_unused_residue_orders(precomputed_residues,
         # Compute diagnostics for all residues
         diagnostics = {}
         
+        # Get first RHS function (convert to list to index)
+        if isinstance(rhs_list, set):
+            rhs_list_as_list = list(rhs_list)
+        else:
+            rhs_list_as_list = list(rhs_list)
+        
+        if not rhs_list_as_list:
+            # No RHS functions available, skip diagnostics
+            continue
+
+        # Ensure we have a symbolic expression
+        from sage.all import SR
+        rhs_fn = SR(rhs_list_as_list[0])
+    
+        if debug:
+            print(f"[analyze_unused_residue_orders] Using RHS function: {rhs_fn}")
+        
         for r in residues:
-            rhs_fn = rhs_list[0]
-            
             # All these RAISE on error
             vp = liftability_order(r, p, rhs_fn)
             qc = quadratic_character(r, p)
             dv = discriminant_valuation(r, p, Delta_pr)
             ap = compute_trace_of_frobenius(r, p, Ep_m_p)
             lh = local_height_contribution(r, p, rhs_fn)
-            
+        
             # Composite diagnostics
             lift_disc = vp * (dv if isinstance(dv, (int, SageInteger)) else 0)
             qc_lift = qc * vp
