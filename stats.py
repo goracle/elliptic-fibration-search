@@ -744,6 +744,7 @@ class CoverageEstimator:
         """Record that we tested this residue class"""
         canonical = (int(m0) % int(M), int(M))
         self.tested_classes.add(canonical)
+
     
     def estimate_coverage(self, prime_subsets_used):
         """Estimate what fraction of search space we've covered"""
@@ -1465,11 +1466,19 @@ class FindabilityAnalyzer:
             'capacity_ratio': float(M_capacity) / float(M_required) if M_required > 0 else float('inf')
         }
 
+
     def visibility_signature(self, m_val):
         """
-        Compute per-prime match, fraction matched, and CRT findability.
+        Compute per-prime match, fraction matched, and global *average* density.
+        
+        Returns:
+            'm': (a, b) tuple for the rational
+            'per_prime': {p: (residue, ok)} dict
+            'matched': int, number of primes where residue was seen
+            'usable': int, number of primes where denom != 0
+            'coverage': float, global *average* density heuristic (avg(L_p/p))
+            'fraction': float, 'matched' / 'usable' (local findability)
         """
-        # ... (implementation remains similar, but now calls assess_crt_findability) ...
         try:
             a = QQ(m_val).numerator()
             b = QQ(m_val).denominator()
@@ -1478,19 +1487,64 @@ class FindabilityAnalyzer:
 
         a = int(a)
         b = int(b)
-        
-        # ... (logic to count matched and usable primes) ...
 
-        # Exact CRT check
+        matched = 0
+        usable = 0
+        per_prime = {}
+
+        for p in self.prime_pool:
+            if b % p == 0:
+                per_prime[p] = ('DENOM_ZERO', False)
+                continue
+            usable += 1
+
+            try:
+                residue = (a * pow(b, -1, p)) % p
+            except ValueError as e:
+                # This shouldn't happen, but good to catch
+                per_prime[p] = ('INV_FAIL', False)
+                continue
+
+            seen = self.stats.residues_by_prime.get(p, set())
+            ok = residue in seen
+            per_prime[p] = (residue, ok)
+            if ok:
+                matched += 1
+
+        # --- MODIFIED: Heuristic *average* density ---
+        # This is a global metric, independent of m_val.
+        if not self.prime_pool:
+            density = 0.0
+        else:
+            densities = []
+            for p in self.prime_pool:
+                # Only consider primes where we have residue data
+                if p not in self.stats.residues_by_prime:
+                    continue
+                L = len(self.stats.residues_by_prime[p])
+                if p == 0:
+                    continue
+                densities.append(L / float(p))
+
+            density = sum(densities) / len(densities) if densities else 0.0
+        # --- END MODIFICATION ---
+
+        frac = matched / usable if usable > 0 else 0.0
+
         crt_info = self.assess_crt_findability(m_val)
 
         return {
             'm': (a, b),
-            # ... (other signature fields) ...
+            'per_prime': per_prime,
+            'matched': matched,
+            'usable': usable,
+            'coverage': density, # This is now avg(L_p/p)
+            'fraction': frac,   # This is the local matched/usable
             'crt_findable': crt_info['findable'],
             'crt_capacity_log10': math.log10(crt_info['M_capacity']) if crt_info['M_capacity'] > 0 else 0,
             'crt_compatible_primes': crt_info['compatible_primes']
         }
+
 
     def analyze_batch(self, m_list):
         """Analyze a batch of rationals, return list of signatures."""

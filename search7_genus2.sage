@@ -65,8 +65,6 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
     return y_zero_points
 
 
-
-
 # Simple integration into your existing code:
 def add_y_zero_points_to_known(known_pts, sextic_coeffs):
     """Add y=0 points to the known points set."""
@@ -1124,22 +1122,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("no isotropic candidates found in box")
 
 
-
     return all_known_x, cumulative_stats
-
-# Patch for search7_genus2.sage
-# Replace the analyze_fibration_geometry function and the consensus section in doloop_genus2
-
-@PROFILE
-
-
-# In search7_genus2.sage
-
-@PROFILE
-
-
-
-# In search7_genus2.sage
 
 @PROFILE
 def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
@@ -1266,6 +1249,5 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
 
 if __name__ == '__main__':
     main_genus2()
-
 
 
