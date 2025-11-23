@@ -450,6 +450,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     geom_info = {
                         'H': fib_analysis['H'],
                         'deg': fib_analysis['deg'],
+                        'disc_deg': fib_analysis['deg'],
                         'name': fib_analysis['name'],
                         'cd': this_cd,
                         'sections': fib_specific_sections

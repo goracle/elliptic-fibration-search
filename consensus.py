@@ -563,3 +563,5 @@ def compute_consensus_residues_with_height_matching(
         print(f"  Reduction: {stats['reduction_ratio']:.1%}") # Positive % means reduction
         
     return consensus_residues, stats
+
+
