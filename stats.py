@@ -7,8 +7,6 @@ from functools import reduce
 from operator import mul
 # stats_utils.py (or inside stats.py)
 from sage.all import QQ, crt
-from functools import reduce
-import math
 
 
 from sage.all import *
@@ -493,7 +491,6 @@ class QuickBench:
 # write_run_summary.py
 # Pure stdlib. Call write_run_summary(summary_dict, "summaries") at end of run.
 
-import json
 import os
 from datetime import datetime
 from fractions import Fraction
@@ -548,10 +545,6 @@ def write_run_summary(run_dict, outdir="summaries"):
 
 # analyze_summaries.py
 # Usage: python analyze_summaries.py summaries/
-import json
-import os
-import math
-from collections import defaultdict, Counter
 from statistics import mean, pstdev
 
 def chao1_estimator(counts):
@@ -1257,7 +1250,6 @@ def print_unified_completeness_report(stats, prime_pool, prime_subsets,
 
 # --- Add these imports at top of stats.py if not already present ---
 import random
-import math
 from collections import Counter, defaultdict
 
 # --- Bootstrap empirical visibility ---
@@ -1496,7 +1488,6 @@ def print_unified_diagnostics(findability_analyzer,
     return {'bootstrap': boot, 'mi': mires, 'subset_res': locals().get('subset_res', None)}
 
 
-import math
 
 def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
     """
