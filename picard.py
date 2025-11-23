@@ -12,7 +12,6 @@
 from math import gcd
 from sage.all import PolynomialRing, FractionField, QQ, GF, is_prime
 from sage.all import matrix, ZZ, EllipticCurve, Integer
-from math import gcd
 from itertools import product
 from sage.all import randint
 

@@ -134,7 +134,6 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
 
 
 from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
-from collections import Counter
 
 # ---------------------------
 # Helper / sanity utilities
