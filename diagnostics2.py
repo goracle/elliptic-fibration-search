@@ -1,7 +1,6 @@
 from sage.all import FractionField, QQ
 from sage.rings.fraction_field_element import FractionFieldElement
 from sage.all import QQ, PolynomialRing, Integer
-from sage.rings.fraction_field_element import FractionFieldElement
 from sage.rings.integer import Integer
 from sage.rings.rational import Rational
 # Unified singular fiber finder (replacement for two older functions)

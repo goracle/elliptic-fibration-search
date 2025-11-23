@@ -638,7 +638,6 @@ from sage.all import (
 # Runs automatically, safe, pure-Python syntax, no new interface
 ###############################################################
 
-from sage.all import SR, var, solve
 
 
 # Replace previous jet_check_safe with this exact function (top-level in tower.sage)

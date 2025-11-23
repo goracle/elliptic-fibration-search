@@ -446,10 +446,6 @@ from sage.all import (
     floor, ceil, log, exp, pi, I, CC, AA, QQbar,
     Integer, Rational, next_prime
 )
-from functools import lru_cache
-import itertools
-from collections import defaultdict
-import re
 from math import prod
 
 from diagnostics2 import find_singular_fibers, compute_euler_and_chi
@@ -1041,12 +1037,7 @@ from sage.all import (
     QQ, ZZ, EllipticCurve, var, sqrt, crt, primes,
     gcd, lcm, SR, Integer, Rational
 )
-from collections import defaultdict
-from functools import lru_cache
-from math import prod
-import itertools
 
-from diagnostics2 import find_singular_fibers, compute_euler_and_chi
 from tate import kodaira_components_count, kodaira_euler_number
 from torsion import good_specializations, torsion_test, compute_fiber_lcm
 
@@ -1062,18 +1053,7 @@ Practical 2-Selmer computation pipeline.
 Integrates: descent homomorphism, Heegner points, Faltings-Serre bounds, torsion analysis.
 """
 
-from sage.all import (
-    QQ, ZZ, EllipticCurve, var, sqrt, crt, primes,
-    gcd, lcm, SR, Integer, Rational
-)
-from collections import defaultdict
-from functools import lru_cache
-from math import prod
-import itertools
 
-from diagnostics2 import find_singular_fibers, compute_euler_and_chi
-from tate import kodaira_components_count, kodaira_euler_number
-from torsion import good_specializations, torsion_test, compute_fiber_lcm
 
 
 # ============================================================================
@@ -1644,7 +1624,6 @@ Computes rank bounds via Tamagawa numbers and fiber analysis.
 """
 
 from sage.all import QQ, gcd
-from diagnostics2 import find_singular_fibers, compute_euler_and_chi
 
 def compute_selmer_rank_bounds(cd, mw_rank, verbose=True):
     """
