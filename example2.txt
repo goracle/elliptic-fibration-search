@@ -22,7 +22,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r3,r4, b4→r3,r4,r5, b5→r3,r4,r6,r5
+  ✓ Solution found. Free parameters: a2→r3, a3→r4, a4→r5, a5→r6, b2→r3, b3→r4,r3, b4→r4,r3,r5, b5→r4,r3,r5,r6
   Series expansion x(m) = -1 - m + ...
     a2 = r3
     a3 = r4
@@ -31,7 +31,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r3 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r7,r8, b4→r7,r9,r8, b5→r7,r9,r8,r10
+  ✓ Solution found. Free parameters: a2→r7, a3→r8, a4→r9, a5→r10, b2→r7, b3→r8,r7, b4→r8,r7,r9, b5→r10,r7,r9,r8
   Series expansion x(m) = -1 - m + ...
     a2 = r7
     a3 = r8
@@ -58,15 +58,15 @@ Using 2 anchor points per fibration
 ======================================================================
 
 ======================================================================
-Building Fibration 1/9 (seed=531444)
+Building Fibration 1/9 (seed=-504338)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(10, 1/2), (-3, 0)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 204454/20449*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 203920/20449*x^3 - b_rest_0*x - b_rest_1*x - 81759/7436*x^2 - b_rest_0 + 44461/40898*x - 72653/81796
+[ANCHOR MODE] Using 2 anchor points: [(-4, -6), (-7/8, -9/2)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 - 1180294/5625*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 802166/375*x^3 - b_rest_0*x - b_rest_1*x - 38396452/5625*x^2 - b_rest_0 - 3013414/375*x - 17617579/5625
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(3/2, -10), (-1/2, -5/2)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 1697411/20449*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 31577902/184041*m^2*x^3/(4*m^2 + 12*m + 9) - 3571448/184041*m*x^4/(4*m^2 + 12*m + 9) - 3452281/2044900*x^4 + 7050188/184041*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 3745663/61347*m^2*x^2/(4*m^2 + 12*m + 9) - 36293600/184041*m*x^3/(4*m^2 + 12*m + 9) + 26792537/2044900*x^3 + 10402489/184041*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 3636134/61347*m^2*x/(4*m^2 + 12*m + 9) - 4186801/61347*m*x^2/(4*m^2 + 12*m + 9) - 8623883/743600*x^2 - 12270400/184041*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 4003778/184041*m^2/(4*m^2 + 12*m + 9) + 19049542/184041*m*x/(4*m^2 + 12*m + 9) - 217258843/4089800*x - 22731409/736164*x^2/(4*m^2 + 12*m + 9) + 3304777/184041*m/(4*m^2 + 12*m + 9) + 21099413/368082*x/(4*m^2 + 12*m + 9) + 2439431/736164/(4*m^2 + 12*m + 9) - 218675701/8179600
+[ANCHOR MODE] Using 2 anchor points: [(1/2, -1/2), (4, -5/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 5413051/5625*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 + 33138448/16875*m^2*x^3/(4*m^2 + 12*m + 9) + 314658572/16875*m*x^4/(4*m^2 + 12*m + 9) + 242335399/1102500*x^4 + 180397078/16875*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 + 579306/125*m^2*x^2/(4*m^2 + 12*m + 9) + 1003526984/16875*m*x^3/(4*m^2 + 12*m + 9) + 156510821/73500*x^3 + 866320577/16875*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x - 745262/5625*m^2*x/(4*m^2 + 12*m + 9) + 258603388/5625*m*x^2/(4*m^2 + 12*m + 9) + 30050673043/4410000*x^2 + 58920742/675*x^3/(4*m^2 + 12*m + 9) - b_rest_0 - 6246649/3375*m^2/(4*m^2 + 12*m + 9) - 187711936/16875*m*x/(4*m^2 + 12*m + 9) + 1181531003/147000*x + 761950951/16875*x^2/(4*m^2 + 12*m + 9) - 274248688/16875*m/(4*m^2 + 12*m + 9) - 64175456/3375*x/(4*m^2 + 12*m + 9) - 59146636/3375/(4*m^2 + 12*m + 9) + 13816564711/4410000
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -74,7 +74,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r13, a3→r14, a4→r15, a5→r16, b2→r13, b3→r13,r14, b4→r13,r15,r14, b5→r13,r15,r14,r16
+  ✓ Solution found. Free parameters: a2→r13, a3→r14, a4→r15, a5→r16, b2→r13, b3→r14,r13, b4→r13,r14,r15, b5→r13,r16,r14,r15
   Series expansion x(m) = -1 - m + ...
     a2 = r13
     a3 = r14
@@ -83,7 +83,7 @@ DEEP JET ANALYSIS ACROSS TOWER
     b2 = -6*r13 - 11
 
 [DEEP JET] Layer 2
-  ✓ Solution found. Free parameters: a2→r17, a3→r18, a4→r19, a5→r20, b2→r17, b3→r17,r18, b4→r17,r18,r19, b5→r17,r18,r19,r20
+  ✓ Solution found. Free parameters: a2→r17, a3→r18, a4→r19, a5→r20, b2→r17, b3→r18,r17, b4→r19,r18,r17, b5→r19,r18,r20,r17
   Series expansion x(m) = -1 - m + ...
     a2 = r17
     a3 = r18
@@ -96,19 +96,19 @@ TOWER JET SUMMARY
 ======================================================================
 Total layers: 2
 ✓ All layers formally smooth (no obstructions)
-DEBUG appended tower id: 132127037304128 seed: 531444
-DEBUG last step Q_i repr: 13/10*x^2 - 101/20*x - 107/20
+DEBUG appended tower id: 123434928567104 seed: -504338
+DEBUG last step Q_i repr: 11/70*x^2 - 129/140*x - 11/140
 
 ======================================================================
-Building Fibration 2/9 (seed=531445)
+Building Fibration 2/9 (seed=-504337)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(1, -1), (-5/2, 5/2)]
-diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 10*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 10*x^3 - b_rest_0*x - b_rest_1*x - 12*x^2 - b_rest_0 + 2*x + 1
+[ANCHOR MODE] Using 2 anchor points: [(-8, 0), (1, 5)]
+diff_poly -b_rest_4*x^5 + x^6 - b_rest_3*x^4 - b_rest_4*x^4 + 8*x^5 - b_rest_2*x^3 - b_rest_3*x^3 + 39521/3969*x^4 - b_rest_1*x^2 - b_rest_2*x^2 - 682/63*x^3 - b_rest_0*x - b_rest_1*x - 64111/3969*x^2 - b_rest_0 - 578/63*x - 27007/3969
  [JET] a2 free (curvature unconstrained by double-root)
 --- Tower Step 2: Building fibration for degree 5 curve, using g2=1 ---
-[ANCHOR MODE] Using 2 anchor points: [(-3/8, -5/4), (3/4, 1)]
-diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 83*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 1600/9*m^2*x^3/(4*m^2 + 12*m + 9) - 284/9*m*x^4/(4*m^2 + 12*m + 9) - 256/25*x^4 + 290/9*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 250/3*m^2*x^2/(4*m^2 + 12*m + 9) - 2216/9*m*x^3/(4*m^2 + 12*m + 9) - 128/25*x^3 + 235/9*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 134/3*m^2*x/(4*m^2 + 12*m + 9) - 460/3*m*x^2/(4*m^2 + 12*m + 9) + 233/25*x^2 - 1150/9*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 209/9*m^2/(4*m^2 + 12*m + 9) + 592/9*m*x/(4*m^2 + 12*m + 9) + 56/25*x - 907/9*x^2/(4*m^2 + 12*m + 9) + 256/9*m/(4*m^2 + 12*m + 9) + 316/9*x/(4*m^2 + 12*m + 9) + 128/9/(4*m^2 + 12*m + 9) - 49/25
+[ANCHOR MODE] Using 2 anchor points: [(1, -2), (1/2, -7/4)]
+diff_poly -4*m^4*x^4/(4*m^2 + 12*m + 9) - 8*m^3*x^5/(4*m^2 + 12*m + 9) - 10*m^4*x^3/(4*m^2 + 12*m + 9) - 40*m^3*x^4/(4*m^2 + 12*m + 9) - 10*m^2*x^5/(4*m^2 + 12*m + 9) - 6*m^4*x^2/(4*m^2 + 12*m + 9) - 62*m^3*x^3/(4*m^2 + 12*m + 9) - b_rest_3*x^4 - 330103/3969*m^2*x^4/(4*m^2 + 12*m + 9) + 24*m*x^5/(4*m^2 + 12*m + 9) + 2*m^4*x/(4*m^2 + 12*m + 9) - 26*m^3*x^2/(4*m^2 + 12*m + 9) - b_rest_2*x^3 - b_rest_3*x^3 - 1859002/11907*m^2*x^3/(4*m^2 + 12*m + 9) + 212404/11907*m*x^4/(4*m^2 + 12*m + 9) - 1595/3969*x^4 + 680780/11907*x^5/(4*m^2 + 12*m + 9) + 2*m^4/(4*m^2 + 12*m + 9) + 14*m^3*x/(4*m^2 + 12*m + 9) - b_rest_1*x^2 - b_rest_2*x^2 - 99572/3969*m^2*x^2/(4*m^2 + 12*m + 9) - 672824/11907*m*x^3/(4*m^2 + 12*m + 9) + 178/63*x^3 + 1791892/11907*x^4/(4*m^2 + 12*m + 9) + 10*m^3/(4*m^2 + 12*m + 9) - b_rest_0*x - b_rest_1*x + 296984/3969*m^2*x/(4*m^2 + 12*m + 9) + 382064/3969*m*x^2/(4*m^2 + 12*m + 9) + 70783/15876*x^2 + 1361198/11907*x^3/(4*m^2 + 12*m + 9) - b_rest_0 + 201905/11907*m^2/(4*m^2 + 12*m + 9) + 1563424/11907*m*x/(4*m^2 + 12*m + 9) + 967/126*x + 1326098/11907*x^2/(4*m^2 + 12*m + 9) - 182228/11907*m/(4*m^2 + 12*m + 9) + 706114/11907*x/(4*m^2 + 12*m + 9) - 369898/11907/(4*m^2 + 12*m + 9) + 102295/15876
  [JET] a2 free (curvature unconstrained by double-root)
 
 ======================================================================
@@ -116,12 +116,7 @@ DEEP JET ANALYSIS ACROSS TOWER
 ======================================================================
 
 [DEEP JET] Layer 1
-  ✓ Solution found. Free parameters: a2→r23, a3→r24, a4→r25, a5→r26, b2→r23, b3→r23,r24, b4→r23,r25,r24, b5→r23,r25,r26,r24
+  ✓ Solution found. Free parameters: a2→r23, a3→r24, a4→r25, a5→r26, b2→r23, b3→r24,r23, b4→r24,r23,r25, b5→r24,r26,r23,r25
   Series expansion x(m) = -1 - m + ...
     a2 = r23
     a3 = r24
-  Series expansion y(m) = 1 + ...
-    b1 = 6
-    b2 = -6*r23 - 11
-
-[DEEP JET] Layer 2

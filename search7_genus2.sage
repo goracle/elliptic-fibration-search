@@ -1235,6 +1235,7 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
         'r_m': this_r_m,
         'sconf': this_sconf,
         'deg': this_disc_deg,
+        'disc_deg': this_disc_deg,
         'name': f"fib_seed_{seed}"
     }
 # In doloop_genus2, replace the consensus precomputation section

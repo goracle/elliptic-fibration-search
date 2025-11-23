@@ -112,397 +112,14 @@ def compute_consensus_residues(precomputed_residues_list, prime_pool, consensus_
 
 
 
-@PROFILE
-def compute_consensus_residues_with_height_matching(
-    all_precomputed_residues,
-    fibration_geometries,
-    prime_pool,
-    consensus_threshold=0.2,  # RELAXED: 20% means ~2/10 agreement is enough
-    height_tolerance_log=2.5,
-    use_delta_scaling=True,
-    debug=DEBUG
-):
-    """
-    Height-aware consensus filter with RELAXED VOTING.
-    
-    Addresses the "Basis Span" problem: A fibration might find the correct vector (height match)
-    but fail to find the residue because its section basis doesn't span that specific point 
-    modulo p. 
-    
-    Strategy:
-    1. Match vectors by height.
-    2. If a fibration doesn't find a matching vector, it ABSTAINS.
-    3. If a fibration finds a vector but has different/empty residues, it votes NO.
-    4. We require (Primary + k others) to agree, where k is small (threshold ~0.2).
-    """
-    num_fibs = len(all_precomputed_residues)
-    if num_fibs == 0:
-        return {}, {}
-
-    # Policy: If only the primary sees the vector (e.g. difficult height), 
-    # we trust it (min_participating=1).
-    MIN_PARTICIPATING = 1 
-    
-    if debug:
-        print(f"\n{'='*70}")
-        print(f"HEIGHT-AWARE CONSENSUS: {num_fibs} fibrations")
-        print(f"Metric: Normalized Height h_norm = h_canonical / deg(Delta)")
-        print(f"Tolerance: |log(h_norm_A) - log(h_norm_B)| < {height_tolerance_log}")
-        print(f"Policy: RELAXED VOTE (Threshold {consensus_threshold:.1%} of PARTICIPATING)")
-        print(f"        (Primary + 1 confirmation is usually sufficient)")
-        print(f"{'='*70}")
-    
-    # 1. Pre-calculate Discriminant Degrees
-    fib_meta = []
-    for i, geom in enumerate(fibration_geometries):
-        cd_obj = geom.get('cd')
-        try:
-            Delta = cd_obj.E_weier.discriminant()
-            if hasattr(Delta, 'numerator'):
-                d_deg = Delta.numerator().degree() 
-            else:
-                d_deg = Delta.degree()
-        except:
-            d_deg = max(1, 2 * int(cd_obj.a4.degree()))
-            
-        fib_meta.append({
-            'H': geom['H'],
-            'disc_deg': float(max(1, d_deg)),
-            'name': geom.get('name', f"fib_{i}")
-        })
-
-    primary_deg = fib_meta[0]['disc_deg']
-    primary_H = fib_meta[0]['H']
-
-    # 2. Main Consensus Loop
-    consensus_residues = {}
-    stats = {
-        'total_vectors_primary': 0,
-        'vectors_matched_all_fibs': 0,
-        'vectors_with_consensus': 0,
-        'total_residues_before': 0,
-        'total_residues_after': 0,
-        'per_prime_stats': {},
-        'blame_height': defaultdict(int),
-        'participation_dist': defaultdict(int)
-    }
-    
-    for p in prime_pool:
-        consensus_residues[p] = {}
-        primary_map = all_precomputed_residues[0].get(p, {})
-        if not primary_map:
-            continue
-        
-        prime_stats = {'vectors_primary': 0, 'residues_before': 0, 'residues_after': 0}
-        
-        for v_primary_tuple, rhs_lists_primary in primary_map.items():
-            stats['total_vectors_primary'] += 1
-            prime_stats['vectors_primary'] += 1
-            
-            # Count residues
-            total_res_this_vec = sum(len(r_list) for r_list in rhs_lists_primary)
-            prime_stats['residues_before'] += total_res_this_vec
-            
-            # --- Primary Height ---
-            try:
-                v_primary = vector(QQ, v_primary_tuple)
-                hcanon_p = float(v_primary * primary_H * v_primary)
-                hcanon_p = max(hcanon_p, 1e-20)
-                log_h_primary_norm = math.log(hcanon_p) - math.log(primary_deg)
-            except Exception:
-                continue
-            
-            # Initialize VOTES
-            num_rhs = len(rhs_lists_primary)
-            rhs_votes = [Counter() for _ in range(num_rhs)]
-            
-            # Primary always votes
-            for i in range(num_rhs):
-                for r in rhs_lists_primary[i]:
-                    if isinstance(r, int):
-                        rhs_votes[i][r] += 1
-
-            # Track who participated (found a matching vector)
-            participating_fibs_count = 1 
-            
-            # --- Check against other fibrations ---
-            for fib_idx in range(1, num_fibs):
-                other_map = all_precomputed_residues[fib_idx].get(p, {})
-                if not other_map: 
-                    continue
-                
-                H_other = fib_meta[fib_idx]['H']
-                deg_other = fib_meta[fib_idx]['disc_deg']
-                
-                best_match_residues = None
-                best_diff = float('inf')
-                
-                # Search for height-compatible vector
-                for v_o_t, rhs_o in other_map.items():
-                    try:
-                        v_o = vector(QQ, v_o_t)
-                        h_o = max(float(v_o * H_other * v_o), 1e-20)
-                        log_h_o = math.log(h_o) - math.log(deg_other)
-                        diff = abs(log_h_primary_norm - log_h_o)
-                        
-                        if diff < best_diff:
-                            best_diff = diff
-                            best_match_residues = rhs_o
-                    except: pass
-                
-                # DECISION: Did this fibration find the point?
-                if best_match_residues is not None and best_diff <= height_tolerance_log:
-                    participating_fibs_count += 1
-                    
-                    # Cast Votes
-                    for i in range(num_rhs):
-                        if i < len(best_match_residues):
-                            unique_res = set(r for r in best_match_residues[i] if isinstance(r, int))
-                            for r in unique_res:
-                                rhs_votes[i][r] += 1
-                else:
-                    # Log abstention reason
-                    stats['blame_height'][fib_idx] += 1
-
-            # --- DYNAMIC THRESHOLDING ---
-            stats['participation_dist'][participating_fibs_count] += 1
-            
-            if participating_fibs_count < MIN_PARTICIPATING:
-                continue
-
-            # Calculate required votes. 
-            # If threshold is 0.2 and participants is 10, requires 2 votes.
-            # This ensures Primary + 1 Confirmation is enough.
-            # If only Primary participates (1), requires 1 vote (Primary itself).
-            min_votes_required = max(1, int(math.ceil(consensus_threshold * participating_fibs_count)))
-            
-            final_residue_sets = []
-            has_consensus = False
-            
-            for i in range(num_rhs):
-                kept = {r for r, count in rhs_votes[i].items() if count >= min_votes_required}
-                final_residue_sets.append(kept)
-                if kept:
-                    has_consensus = True
-                
-            if has_consensus:
-                consensus_residues[p][v_primary_tuple] = final_residue_sets
-                stats['vectors_with_consensus'] += 1
-                
-                if participating_fibs_count == num_fibs:
-                    stats['vectors_matched_all_fibs'] += 1
-                
-                prime_stats['residues_after'] += sum(len(s) for s in final_residue_sets)
-        
-        stats['per_prime_stats'][p] = prime_stats
-        stats['total_residues_before'] += prime_stats['residues_before']
-        stats['total_residues_after'] += prime_stats['residues_after']
-
-    if stats['total_residues_before'] > 0:
-        stats['reduction_ratio'] = 1.0 - (stats['total_residues_after'] / stats['total_residues_before'])
-    
-    if debug:
-        print(f"\nConsensus Diagnostics:")
-        print(f"  Participation Histogram (How many fibs saw a vector?):")
-        for k in sorted(stats['participation_dist'].keys()):
-            print(f"    Saw by {k} fibs: {stats['participation_dist'][k]} vectors")
-            
-        print(f"  Height Abstentions (Fibs that missed the vector):")
-        for fid, count in sorted(stats['blame_height'].items()):
-            name = fib_meta[fid]['name']
-            print(f"    Fib {fid} ({name}): {count}")
-        
-        print(f"\nConsensus Statistics:")
-        print(f"  Primary vectors: {stats['total_vectors_primary']}")
-        print(f"  With consensus: {stats['vectors_with_consensus']}")
-        print(f"  Residues: {stats['total_residues_before']:,} -> {stats['total_residues_after']:,}")
-        print(f"  Reduction: {stats['reduction_ratio']:.1%}")
-
-    return consensus_residues, stats
 
 
 
-@PROFILE
-def compute_consensus_residues_with_height_matching(
-    all_precomputed_residues,
-    fibration_geometries,
-    prime_pool,
-    consensus_threshold=0.3,  # 30% agreement on residues
-    height_tolerance_log=2.5,
-    use_delta_scaling=True, # dummy arg, backwards compat.
-    debug=DEBUG
-):
-    """
-    HYBRID consensus: Keep all PRIMARY vectors, but filter residues by cross-fibration agreement.
-    
-    Philosophy:
-    - Don't lose vectors (primary knows best what heights to search)
-    - Do filter junk residues (they won't be consistent across fibrations)
-    - Abstentions don't vote NO, they just don't vote
-    """
-    residue_agreement_threshold= consensus_threshold 
-    num_fibs = len(all_precomputed_residues)
-    if num_fibs == 0:
-        return {}, {}
-    
-    primary_precomputed = all_precomputed_residues[0]
-    primary_deg = fibration_geometries[0].get('disc_deg', 12)
-    primary_H = fibration_geometries[0]['H']
-    
-    # Pre-calculate metadata
-    fib_meta = []
-    for i, geom in enumerate(fibration_geometries):
-        cd_obj = geom.get('cd')
-        try:
-            Delta = cd_obj.E_weier.discriminant()
-            d_deg = Delta.numerator().degree() if hasattr(Delta, 'numerator') else Delta.degree()
-        except:
-            d_deg = max(1, 2 * int(cd_obj.a4.degree()))
-        fib_meta.append({
-            'H': geom['H'],
-            'disc_deg': float(max(1, d_deg)),
-            'name': geom.get('name', f"fib_{i}")
-        })
-    
-    if debug:
-        print(f"\n{'='*70}")
-        print(f"HYBRID CONSENSUS: {num_fibs} fibrations")
-        print(f"Strategy: Keep all primary vectors, filter residues by agreement")
-        print(f"Residue threshold: {residue_agreement_threshold:.1%} of participants")
-        print(f"{'='*70}")
-    
-    consensus_residues = {}
-    stats = {
-        'total_vectors_primary': 0,
-        'vectors_kept': 0,
-        'vectors_matched_all_fibs': 0,  # Added for backwards compatibility
-        'vectors_with_consensus': 0,     # Added for backwards compatibility
-        'total_residues_before': 0,
-        'total_residues_after': 0,
-        'per_vector_participants': [],
-        'per_prime_stats': {},
-        'blame_height': defaultdict(int),  # Added for backwards compatibility
-        'participation_dist': defaultdict(int)  # Added for backwards compatibility
-    }
-    
-    for p in prime_pool:
-        consensus_residues[p] = {}
-        primary_map = primary_precomputed.get(p, {})
-        if not primary_map:
-            continue
-        
-        prime_stats = {'vectors': 0, 'residues_before': 0, 'residues_after': 0}
-        
-        for v_primary_tuple, rhs_lists_primary in primary_map.items():
-            stats['total_vectors_primary'] += 1
-            prime_stats['vectors'] += 1
-            
-            # Count original residues
-            total_res_before = sum(len(r_list) for r_list in rhs_lists_primary)
-            prime_stats['residues_before'] += total_res_before
-            
-            # Calculate primary height
-            try:
-                v_primary = vector(QQ, v_primary_tuple)
-                hcanon_p = float(v_primary * primary_H * v_primary)
-                hcanon_p = max(hcanon_p, 1e-20)
-                log_h_primary_norm = math.log(hcanon_p) - math.log(primary_deg)
-            except:
-                # Keep primary vector as-is if height calculation fails
-                consensus_residues[p][v_primary_tuple] = rhs_lists_primary
-                stats['vectors_kept'] += 1
-                prime_stats['residues_after'] += total_res_before
-                continue
-            
-            # Initialize vote counters for residues
-            num_rhs = len(rhs_lists_primary)
-            rhs_votes = [Counter() for _ in range(num_rhs)]
-            
-            # Primary always votes
-            for i in range(num_rhs):
-                for r in rhs_lists_primary[i]:
-                    if isinstance(r, int):
-                        rhs_votes[i][r] += 1
-            
-            participants = 1
-            
-            # Collect votes from other fibrations
-            for fib_idx in range(1, num_fibs):
-                other_map = all_precomputed_residues[fib_idx].get(p, {})
-                if not other_map:
-                    continue
-                
-                H_other = fib_meta[fib_idx]['H']
-                deg_other = fib_meta[fib_idx]['disc_deg']
-                
-                # Find height-matching vector
-                best_match_residues = None
-                best_diff = float('inf')
-                
-                for v_o_t, rhs_o in other_map.items():
-                    try:
-                        v_o = vector(QQ, v_o_t)
-                        h_o = max(float(v_o * H_other * v_o), 1e-20)
-                        log_h_o = math.log(h_o) - math.log(deg_other)
-                        diff = abs(log_h_primary_norm - log_h_o)
-                        
-                        if diff < best_diff:
-                            best_diff = diff
-                            best_match_residues = rhs_o
-                    except:
-                        pass
-                
-                # If found matching vector, cast votes
-                if best_match_residues and best_diff <= height_tolerance_log:
-                    participants += 1
-                    for i in range(num_rhs):
-                        if i < len(best_match_residues):
-                            for r in best_match_residues[i]:
-                                if isinstance(r, int):
-                                    rhs_votes[i][r] += 1
-            
-            stats['per_vector_participants'].append(participants)
-            
-            # Apply threshold: keep residues seen by >= threshold * participants
-            min_votes = max(1, int(math.ceil(residue_agreement_threshold * participants)))
-            
-            filtered_rhs_lists = []
-            total_res_after = 0
-            
-            for i in range(num_rhs):
-                if participants == 1:
-                    # Only primary saw this vector - trust it completely
-                    kept = set(rhs_lists_primary[i])
-                else:
-                    # Multiple fibrations saw it - filter by agreement
-                    kept = {r for r, count in rhs_votes[i].items() if count >= min_votes}
-                
-                filtered_rhs_lists.append(list(kept))
-                total_res_after += len(kept)
-            
-            consensus_residues[p][v_primary_tuple] = filtered_rhs_lists
-            stats['vectors_kept'] += 1
-            prime_stats['residues_after'] += total_res_after
-        
-        stats['per_prime_stats'][p] = prime_stats
-        stats['total_residues_before'] += prime_stats['residues_before']
-        stats['total_residues_after'] += prime_stats['residues_after']
-    
-    if stats['total_residues_before'] > 0:
-        stats['reduction_ratio'] = 1.0 - (stats['total_residues_after'] / stats['total_residues_before'])
-    
-    if debug:
-        print(f"\nHybrid Consensus Results:")
-        print(f"  Vectors: {stats['total_vectors_primary']} primary → {stats['vectors_kept']} kept")
-        print(f"  Residues: {stats['total_residues_before']:,} → {stats['total_residues_after']:,}")
-        print(f"  Reduction: {stats['reduction_ratio']:.1%}")
-        
-        part_dist = Counter(stats['per_vector_participants'])
-        print(f"  Participation distribution:")
-        for k in sorted(part_dist.keys()):
-            print(f"    {k} fibrations: {part_dist[k]} vectors")
-    
-    return consensus_residues, stats
+
+
+
+
+
 
 
 @PROFILE
@@ -582,7 +199,10 @@ def compute_consensus_residues_with_height_matching(
         'participation_dist': defaultdict(int)
     }
     
-    first = True
+    # Track which vectors we've seen to count stats only once per vector
+    seen_vectors = set()
+    vector_max_participants = {}  # Track max participants seen for each vector
+    
     for p in prime_pool:
         consensus_residues[p] = {}
         primary_map = primary_precomputed.get(p, {})
@@ -592,9 +212,10 @@ def compute_consensus_residues_with_height_matching(
         prime_stats = {'vectors': 0, 'residues_before': 0, 'residues_after': 0}
         
         for v_primary_tuple, rhs_lists_primary in primary_map.items():
-            if first:
+            # Count this vector only once across all primes
+            if v_primary_tuple not in seen_vectors:
                 stats['total_vectors_primary'] += 1
-                prime_stats['vectors'] += 1
+                seen_vectors.add(v_primary_tuple)
             
             total_res_before = sum(len(r_list) for r_list in rhs_lists_primary)
             prime_stats['residues_before'] += total_res_before
@@ -668,14 +289,23 @@ def compute_consensus_residues_with_height_matching(
                     # Track why this fibration didn't participate
                     stats['blame_height'][fib_idx] += 1
             
-            stats['per_vector_participants'].append(participants)
-            stats['participation_dist'][participants] += 1
+            # Track participation stats per vector (not per vector-prime pair)
+            if v_primary_tuple not in vector_max_participants:
+                vector_max_participants[v_primary_tuple] = participants
+            else:
+                # Update to max participants seen across all primes
+                vector_max_participants[v_primary_tuple] = max(
+                    vector_max_participants[v_primary_tuple], 
+                    participants
+                )
             
+            # Count vectors matched by all fibs (check at each prime)
             if participants == num_fibs:
                 stats['vectors_matched_all_fibs'] += 1
             
-            # Apply voting threshold to residues
-            min_votes = max(1, int(math.ceil(consensus_threshold * participants)))
+            # DECISION: Use PRIMARY + 1 confirmation (require 2 votes minimum)
+            # This is lenient enough to catch rare residues where few fibs' sections span the point
+            min_votes = 2
             
             filtered_rhs_lists = []
             total_kept = 0
@@ -685,16 +315,28 @@ def compute_consensus_residues_with_height_matching(
                 filtered_rhs_lists.append(list(kept))
                 total_kept += len(kept)
             
+            # If NO residues survived voting, fall back to primary's residues
+            if total_kept == 0:
+                filtered_rhs_lists = [list(r_list) for r_list in rhs_lists_primary]
+                total_kept = sum(len(r_list) for r_list in rhs_lists_primary)
+            
+            # Only add if we have residues
             if total_kept > 0:
                 consensus_residues[p][v_primary_tuple] = filtered_rhs_lists
+                prime_stats['residues_after'] += total_kept
+                
+                # Count this as a kept entry (one per vector-prime pair)
                 stats['vectors_kept'] += 1
                 stats['vectors_with_consensus'] += 1
-                prime_stats['residues_after'] += total_kept
         
-        first = False
         stats['per_prime_stats'][p] = prime_stats
         stats['total_residues_before'] += prime_stats['residues_before']
         stats['total_residues_after'] += prime_stats['residues_after']
+    
+    # Build final participation distribution from per-vector max participants
+    for v, max_part in vector_max_participants.items():
+        stats['per_vector_participants'].append(max_part)
+        stats['participation_dist'][max_part] += 1
     
     if stats['total_residues_before'] > 0:
         stats['reduction_ratio'] = 1.0 - (stats['total_residues_after'] / stats['total_residues_before'])
@@ -716,4 +358,208 @@ def compute_consensus_residues_with_height_matching(
                 name = fib_meta[fid]['name']
                 print(f"    Fib {fid} ({name}): {count} misses")
     
+    return consensus_residues, stats
+
+
+@PROFILE
+def compute_consensus_residues_with_height_matching(
+    all_precomputed_residues,
+    fibration_geometries,
+    prime_pool,
+    consensus_threshold=0.5,
+    height_tolerance_log=2.5,
+    use_delta_scaling=True,
+    debug=DEBUG
+):
+    """
+    Height-aware consensus filter.
+    
+    1. For every vector v in the Primary Fibration:
+       - Calculate its normalized canonical height h_norm.
+    2. For every Other Fibration:
+       - Find the single vector v' that minimizes |log(h_norm) - log(h_norm')|.
+       - If error > tolerance, this fibration ABSTAINS.
+    3. Collect residues from Primary v and all matching Other v'.
+    4. Keep residues that appear in >= threshold fraction of participating fibrations.
+    """
+    num_fibs = len(all_precomputed_residues)
+    if num_fibs == 0:
+        return {}, {}
+    
+    # 1. Metadata Setup
+    primary_residues_map = all_precomputed_residues[0]
+    primary_geom = fibration_geometries[0]
+    
+    # Pre-calculate geometry constants to speed up loop
+    # Structure: [ {'H': matrix, 'deg': float, 'log_deg': float}, ... ]
+    fib_constants = []
+    for geom in fibration_geometries:
+        d = float(max(1, geom['disc_deg']))
+        fib_constants.append({
+            'H': geom['H'],
+            'deg': d,
+            'log_deg': math.log(d)
+        })
+
+    # Helper to calc log normalized height
+    def get_log_norm_height(v_tup, consts):
+        try:
+            # Check zero vector explicitly to avoid log(0) error
+            if all(c == 0 for c in v_tup):
+                return -9999.0 # Arbitrary small number representing 0 height
+            
+            v = vector(QQ, v_tup)
+            h_can = float(v * consts['H'] * v)
+            if h_can <= 1e-20: 
+                return -9999.0
+            return math.log(h_can) - consts['log_deg']
+        except Exception:
+            return None
+
+    consensus_residues = {}
+    
+    # Stats containers
+    unique_vectors_processed = set()
+    vectors_with_consensus_kept = set()
+    
+    stats = {
+        'total_vectors_primary': 0, # Unique vector tuples
+        'total_residues_before': 0,
+        'total_residues_after': 0,
+        'vectors_kept': 0, # (prime, vector) pairs kept
+        'participation_dist': defaultdict(int),
+        'height_match_failures': defaultdict(int)
+    }
+
+    # 2. Main Loop over Primes
+    for p in prime_pool:
+        consensus_residues[p] = {}
+        
+        # If primary has no data for this prime, skip
+        if p not in primary_residues_map:
+            continue
+            
+        primary_vec_map = primary_residues_map[p]
+        
+        for v_prim_tuple, rhs_lists_primary in primary_vec_map.items():
+            
+            # --- Stats Counting ---
+            if v_prim_tuple not in unique_vectors_processed:
+                unique_vectors_processed.add(v_prim_tuple)
+                stats['total_vectors_primary'] += 1
+            
+            # Calculate stats "Before"
+            count_before = sum(len(s) for s in rhs_lists_primary)
+            stats['total_residues_before'] += count_before
+            
+            # --- Identify Matching Vectors in Other Fibrations ---
+            # We rely on the geometry (H), not the prime.
+            log_h_prim = get_log_norm_height(v_prim_tuple, fib_constants[0])
+            
+            if log_h_prim is None:
+                # If height calc fails, we can't match. Keep primary residues (conservative)
+                consensus_residues[p][v_prim_tuple] = rhs_lists_primary
+                stats['total_residues_after'] += count_before
+                stats['vectors_kept'] += 1
+                continue
+
+            # We will collect sets of residues for each RHS index
+            # distinct_rhs_votes[rhs_index] = Counter(residue -> count)
+            num_rhs = len(rhs_lists_primary)
+            distinct_rhs_votes = [Counter() for _ in range(num_rhs)]
+            
+            # Primary always votes
+            participants = 1
+            for i in range(num_rhs):
+                for r in rhs_lists_primary[i]:
+                    if isinstance(r, int):
+                        distinct_rhs_votes[i][r] += 1
+
+            # Check other fibrations
+            for fib_idx in range(1, num_fibs):
+                other_residues_map = all_precomputed_residues[fib_idx].get(p, {})
+                if not other_residues_map:
+                    continue # This fibration has no data for this prime, it abstains
+                
+                # --- Find Best Height Match ---
+                # Note: Ideally we cache this mapping outside the prime loop, 
+                # but vecs might change per prime if LLL was unstable. 
+                # Assuming vectors are consistent enough or small enough to scan.
+                
+                best_v_match = None
+                best_diff = float('inf')
+                
+                consts_other = fib_constants[fib_idx]
+                
+                # Scan all vectors in this fibration to find the height partner
+                for v_other_tuple in other_residues_map.keys():
+                    log_h_other = get_log_norm_height(v_other_tuple, consts_other)
+                    if log_h_other is None: continue
+                    
+                    diff = abs(log_h_prim - log_h_other)
+                    if diff < best_diff:
+                        best_diff = diff
+                        best_v_match = v_other_tuple
+                
+                # Did we find a valid geometric match?
+                if best_v_match is not None and best_diff < height_tolerance_log:
+                    # Valid match found, collect votes
+                    participants += 1
+                    matched_rhs_lists = other_residues_map[best_v_match]
+                    
+                    for i in range(min(num_rhs, len(matched_rhs_lists))):
+                        for r in matched_rhs_lists[i]:
+                            if isinstance(r, int):
+                                distinct_rhs_votes[i][r] += 1
+                else:
+                    stats['height_match_failures'][fib_idx] += 1
+
+            # --- Consensus Logic ---
+            # Calculate dynamic threshold based on ACTUAL participants
+            # (e.g. if 5 fibrations didn't have data for this prime, don't require 7 votes)
+            req_votes = max(1, int(math.ceil(consensus_threshold * participants)))
+            
+            # If strict intersection is desired (threshold 1.0), ensure req_votes == participants
+            if consensus_threshold >= 0.99:
+                req_votes = participants
+
+            final_rhs_lists = []
+            has_any_residues = False
+            
+            for i in range(num_rhs):
+                kept_residues = []
+                for r, count in distinct_rhs_votes[i].items():
+                    if count >= req_votes:
+                        kept_residues.append(r)
+                
+                # Sort for determinism
+                kept_residues.sort()
+                final_rhs_lists.append(kept_residues)
+                if kept_residues:
+                    has_any_residues = True
+            
+            # Store results if anything survived
+            if has_any_residues:
+                consensus_residues[p][v_prim_tuple] = final_rhs_lists
+                stats['total_residues_after'] += sum(len(x) for x in final_rhs_lists)
+                stats['vectors_kept'] += 1
+                
+                if v_prim_tuple not in vectors_with_consensus_kept:
+                    vectors_with_consensus_kept.add(v_prim_tuple)
+                    stats['participation_dist'][participants] += 1
+
+    # Final Stats Calculation
+    if stats['total_residues_before'] > 0:
+        stats['reduction_ratio'] = 1.0 - (stats['total_residues_after'] / stats['total_residues_before'])
+    
+    stats['vectors_matched_all_fibs'] = stats['participation_dist'].get(num_fibs, 0)
+    stats['vectors_with_consensus'] = len(vectors_with_consensus_kept)
+
+    if debug:
+        print(f"\nConsensus Results:")
+        print(f"  Vectors: {stats['total_vectors_primary']} primary -> {stats['vectors_with_consensus']} kept")
+        print(f"  Matched all {num_fibs} fibs: {stats['vectors_matched_all_fibs']}")
+        print(f"  Residues: {stats['total_residues_before']:,} -> {stats['total_residues_after']:,}")
+        print(f"  Reduction: {stats['reduction_ratio']:.1%}") # Positive % means reduction
+        
     return consensus_residues, stats
