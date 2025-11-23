@@ -389,7 +389,6 @@ class BenchmarkStats:
         self.current_fib = None
 
 
-
     def start_fibration(self, base_pts, height_bound):
         self.current_fib = {
             'base_pts': tuple(sorted(base_pts)),
@@ -458,8 +457,6 @@ class BenchmarkStats:
         for i, fib in enumerate(self.fibration_stats):
             if fib['found_here']:
                 print(f"  Fib {i} ({fib['base_pts']}): found {fib['found_here']} in {fib['duration']:.2f}s ({fib['crt_candidates']} candidates)")
-
-
 
 
 class QuickBench:
@@ -849,12 +846,7 @@ def analyze_sample_m_list(m_list, analyzer, prime_subsets):
     }
 
 
-
-
-
-
 # Add to stats.py - Height-based completeness metric
-
 
 
 def print_unified_completeness_report(stats, prime_pool, prime_subsets, 
@@ -885,8 +877,6 @@ def print_unified_completeness_report(stats, prime_pool, prime_subsets,
         # traceback.print_exc() # Uncomment for full stack trace during debugging
         print("Please check CompletenessAnalyzer implementation.")
         print("="*70)
-
-
 
 
 # --- Add these imports at top of stats.py if not already present ---
@@ -1129,7 +1119,6 @@ def print_unified_diagnostics(findability_analyzer,
     return {'bootstrap': boot, 'mi': mires, 'subset_res': locals().get('subset_res', None)}
 
 
-
 def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
     """
     Bayesian posterior for true number of points T given:
@@ -1179,7 +1168,6 @@ def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
         'P_all_but_2': P_all_but_2,
         'posterior_mean_T': mean_T
     }
-
 
 
 # Add this helper to stats.py
@@ -1258,7 +1246,6 @@ def prior_from_arithmetic_fixed(k_found,
         'p_adjusted': p_adjusted,  # Return for transparency
         'p_raw': p_visibility
     }
-
 
 
 # ============================================================================
@@ -1424,6 +1411,10 @@ search_stats.py
 """
 from sage.all import QQ, crt, exp, log, oo
 
+# ... (Class SearchStats methods for init, merge, start/end_phase, 
+# incr, add_residue, record_discard, record_success/failure, 
+# prime_coverage_fraction, summary/summary_string remain the same) ...
+
 class FindabilityAnalyzer:
     """
     Analyzes the "findability" of a rational m-value based on the
@@ -1501,6 +1492,27 @@ class FindabilityAnalyzer:
             'crt_compatible_primes': crt_info['compatible_primes']
         }
 
+    def analyze_batch(self, m_list):
+        """Analyze a batch of rationals, return list of signatures."""
+        results = []
+        avg_density = None # Use a more descriptive name
+
+        for m in m_list:
+            sig = self.visibility_signature(m)
+            if avg_density is None:
+                avg_density = sig['coverage'] # Now captures avg(L_p/p)
+            results.append(sig)
+        
+        if avg_density is None:
+            avg_density = 0.0
+
+        return {
+            'global_average_density': avg_density, # Renamed key
+            'samples': results,
+            # 'fraction_visible' is no longer well-defined without the broken CRT check
+        }
+
+
 class CompletenessAnalyzer:
     """
     Estimate what fraction of rational m-values (and thus points) up to
@@ -1573,4 +1585,93 @@ class CompletenessAnalyzer:
             print("\n✓ All found points are theoretically reconstructible.")
             
         print("="*70)
+
+    def canonical_height_of_x(self, x_val):
+        """
+        Naive canonical height proxy: h(x) ≈ log(max(|num|, |den|))
+        """
+        from sage.all import QQ
+        q = QQ(x_val)
+        num = abs(int(q.numerator()))
+        den = abs(int(q.denominator()))
+        return float(math.log(max(num, den, 1)))
+
+
+    def height_distribution_of_found(self, found_xs):
+        """Compute height distribution of found points"""
+        if not found_xs:
+            return {}
+        
+        heights = [self.canonical_height_of_x(x) for x in found_xs]
+        
+        return {
+            'min': min(heights),
+            'max': max(heights),
+            'mean': sum(heights) / len(heights),
+            'median': sorted(heights)[len(heights) // 2],
+            'count': len(heights)
+        }
+
+
+    def compute_m_space_coverage(self, found_xs):
+        """
+        Computes the average "findability fraction" (matched/usable)
+        for all m-values corresponding to the *found* x-coordinates.
+        Also finds the minimum and maximum findability fractions.
+        
+        Returns: (avg_coverage, min_coverage_info, max_coverage_info, samples)
+                 *_coverage_info = {'x': x_val, 'm': m_val, 'fraction': fraction}
+        """
+        if not found_xs:
+            return 0.0, None, None, []
+        
+        coverage_samples = []
+        min_info = {'fraction': 1.1} # Start min > 1
+        max_info = {'fraction': -0.1} # Start max < 0
+        
+        for x in found_xs:
+            m_val = self.m_value_from_x(x)
+            sig = self.analyzer.visibility_signature(m_val)
+            
+            findability_frac = sig['fraction']
+            
+            sample_data = {
+                'x': x,
+                'm': m_val,
+                'findability_fraction': findability_frac,
+                'matched': sig['matched'],
+                'usable': sig['usable']
+            }
+            coverage_samples.append(sample_data)
+
+            # Update min/max
+            if findability_frac < min_info['fraction']:
+                min_info = {'x': x, 'm': m_val, 'fraction': findability_frac}
+            if findability_frac > max_info['fraction']:
+                max_info = {'x': x, 'm': m_val, 'fraction': findability_frac}
+
+        if not coverage_samples:
+            return 0.0, None, None, []
+            
+        avg_coverage = sum(s['findability_fraction'] for s in coverage_samples) / len(coverage_samples)
+        
+        # Handle cases where min/max weren't updated (e.g., only one point)
+        min_result = min_info if min_info['fraction'] <= 1.0 else None
+        max_result = max_info if max_info['fraction'] >= 0.0 else None
+        
+        return avg_coverage, min_result, max_result, coverage_samples
+
+
+    def estimate_total_m_space_coverage(self):
+        """
+        Computes the global m-space coverage heuristic: the *average* density: avg(L_p/p).
+        """
+        if not self.prime_pool:
+            return 0.0
+        
+        sig = self.analyzer.visibility_signature(QQ(0))
+        global_average_density = sig['coverage']
+        
+        return global_average_density
+
         

@@ -308,7 +308,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
     by rational reconstruction, assuming the search explores the prime combination.
     """
     from sage.all import QQ, ZZ, crt
-    from search_lll.rational_reconstruction import rational_reconstruct
+    from search_lll.rational_arithmetic import rational_reconstruct
 
     # 1. Compute Target m
     try:
