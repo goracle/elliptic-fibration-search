@@ -28,7 +28,6 @@ from search_common import MAX_MODULUS, PRIME_POOL, USE_CONSENSUS_FILTER
 # ==============================================================================
 
 
-
 def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, fudge=10):
     """
     Rough GRH-inspired bound for how large primes might be needed to see all conjugacy classes.
@@ -132,7 +131,6 @@ def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
     return out
 
 
-
 def choose_primes_for_modulus(prime_pool, B, ascending=True):
     """
     Greedily chooses primes from the pool whose product exceeds B.
@@ -194,7 +192,6 @@ def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B):
     return list(chosen_subsets)
 
 
-
 # ---- paste this into bounds.py, replacing the old functions ----
 def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
                                      target_expected_survivors=1.0,
@@ -234,8 +231,6 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 
 
 # Add these functions to bounds.py or search_lll.py
-
-
 
 
 # Add these functions to bounds.py or search_lll.py
@@ -314,8 +309,6 @@ def _worker_splitting_field(poly, q):
                       'gal_group_order': g_order}))
     except Exception as e:
         q.put((False, str(traceback.format_exc())))
-
-
 
 
 # ==== safe subprocess-based splitting-field helper ====
@@ -437,7 +430,6 @@ except Exception:
     except Exception:
         pass
     return result
-
 
 
 # === Replace recommend_and_update_prime_pool ===
@@ -1067,7 +1059,6 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
 # ========== Galois + Chebotarev-informed residue estimation ==========
 
 from sage.all import primes, GF, PolynomialRing, QQ
-import math
 import time
 
 def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_primes=50, debug=DEBUG):
@@ -1278,7 +1269,6 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
 
     return residue_counts
 
-import random
 from sage.all import next_prime
 
 def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
@@ -1367,7 +1357,6 @@ def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
         'final_expected_survivors': current_avg,
         'iterations': iterations
     }
-
 
 
 def _expected_survivors_for_subset(subset, residue_counts, num_vecs_est=1):
@@ -1543,226 +1532,6 @@ def _poly_from_str_cached(poly_str, var='m'):
         except Exception as e_inner:
             print(f"[bounds] _poly_from_str_cached failed fallback: {e_inner}")
             return None # Give up
-
-
-
-
-def auto_configure_search(cd, known_pts, prime_pool=None,
-                          height_bound=None,
-                          base_height_bound=100,
-                          max_modulus=MAX_MODULUS,
-                          update_search_common=False,
-                          num_subsets_hint=NUM_PRIME_SUBSETS,
-                          debug=DEBUG):
-    """
-    Automatic configuration for search, with adaptive prime pool and subset scaling.
-    ... (rest of docstring) ...
-    """
-    src_pool = PRIME_POOL
-
-    if debug:
-        print("[auto_cfg] starting prime pool size:", len(src_pool))
-
-    galois_degree = None
-    try:
-        pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
-                                                        run_heavy=True, debug=debug,
-                                                        update_search_common=update_search_common)
-    except Exception as e:
-        if debug:
-            print("[auto_cfg] recommend_and_update_prime_pool failed:", e)
-        pool_filtered = src_pool
-
-    for p in (2, 3, 5):
-        if p in src_pool and p not in pool_filtered:
-            pool_filtered.insert(0, p)
-    pool_filtered = sorted(set(pool_filtered))
-
-    def naive_x_height_from_pts(pts):
-        vals = []
-        max_val_debug = 1
-        max_x_debug = 0
-        for x, y in pts:
-            try:
-                n = abs(Integer(x).numerator())
-                d = abs(Integer(x).denominator())
-                val = max(1, max(n, d))
-                if val > max_val_debug: # <-- NEW
-                    max_val_debug = val # <-- NEW
-                    max_x_debug = x     # <-- NEW
-                vals.append(val)
-            except Exception:
-                vals.append(1)
-        if not vals:
-            return 0.0
-        
-        if debug: # <-- NEW
-            print(f"[auto_cfg] naive_x_height_from_pts: max height from x = {max_x_debug} (val={max_val_debug})") # <-- NEW
-
-        return float(log(max(vals)))
-
-
-    h_x = naive_x_height_from_pts(known_pts)
-    h_can = estimate_canonical_height_from_xheight(h_x, None, fudge=1.5)
-
-    if debug:
-        print(f"[auto_cfg] h_x={h_x}, h_can≈{h_can}")
-
-    if height_bound is None:
-        if h_can is not None:
-            # --- MODIFICATION: Increased base offset ---
-            # Old: base = 100 * exp(h_can / 4.0)
-            # Old: height_bound = int(base + 100)
-            # New formula: Increase base offset significantly
-            base_offset = 300 # Changed from 100 to 300
-            scale_factor = 100
-            exponent_scale = 4.0
-            base = scale_factor * exp(h_can / exponent_scale)
-            height_bound = int(base + base_offset)
-            # --- END MODIFICATION ---
-
-            # Keep a reasonable cap
-            height_bound = min(height_bound, 2000)
-        else:
-            # Fallback if h_can calculation fails
-            height_bound = 300 # Increased fallback from 200
-
-    if debug:
-        print(f"[auto_cfg] HEIGHT_BOUND set to {height_bound}") # This print remains
-
-    try:
-        residue_counts = compute_residue_counts_for_primes(cd, [SR(cd.phi_x)], 
-                                                           pool_filtered, 
-                                                           max_primes=min(len(pool_filtered), 30))
-    except Exception as e:
-        if debug:
-            print(f"[auto_cfg] residue count computation failed: {e}")
-        residue_counts = {p: max(1, p // 4) for p in pool_filtered}
-    
-    if debug:
-        sample_primes = pool_filtered[:min(10, len(pool_filtered))]
-        print(f"[auto_cfg] residue_counts sample: {[(p, residue_counts.get(p)) for p in sample_primes]}")
-        print(f"[auto_cfg] residue_counts all: {residue_counts}")
-
-
-    if not USE_CONSENSUS_FILTER:
-
-        try:
-            SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
-            # --- MODIFIED: Call fixed caching function ---
-            galois_diag = _cached_galois_stats(str(SPLIT_POLY))
-            #galois_diag = estimate_galois_signature_modp(SPLIT_POLY, primes_to_test=pool_filtered, debug=debug)
-            # --- END MODIFIED ---
-            galois_degree = galois_diag.get('splitting_field_degree_est')
-        except Exception as e:
-            if debug:
-                print(f"[auto_cfg] Galois degree estimation failed: {e}")
-            galois_degree = None
-
-    # Empirical pool adaptation: grow the pool until sampled subset survivor count <= target
-    # Choose a target survivors-per-subset tuned to height; default is 1.0 (about one expected candidate)
-    # You can tweak the factor below if you want more redundancy for noisy residue_counts.
-    target_survivors = 1.0  # conservative default
-    # optionally scale target with height if desired:
-    # target_survivors = max(1.0, float(height_bound) / 1000.0)
-
-    adapt_result = adaptive_prime_pool_empirical_survivor_count(
-        base_pool=pool_filtered,
-        residue_counts=residue_counts,
-        target_survivors=target_survivors,
-        subset_size=5,
-        sample_size=50,
-        max_iterations=200,
-        max_extra=200,
-        verbose=debug
-    )
-    pool_adapted = adapt_result['pool']
-    # right after adaptive pool call: # for backwards compat.
-    adapt_result['scale_factor'] = adapt_result.get('final_expected_survivors', 1.0)
-
-    for p in pool_adapted:
-        if p not in residue_counts:
-            try:
-                residue_counts[p] = max(1, p // 4)
-            except Exception:
-                residue_counts[p] = 1
-
-    subset_plan = recommend_subset_strategy_adaptive(
-        pool_adapted, residue_counts, height_bound,
-        base_height=base_height_bound,
-        target_survivors_per_subset=1.0,
-        base_num_subsets=num_subsets_hint,
-        debug=debug
-    )
-
-    try:
-
-        prime_subsets = generate_diverse_prime_subsets(
-            prime_pool=pool_adapted,
-            residue_counts=residue_counts,
-            num_subsets=subset_plan['num_subsets'],
-            min_size=subset_plan['min_size'],
-            max_size=subset_plan['max_size'],
-            seed=SEED_INT, # <-- This call is now valid
-            force_full_pool=False
-        )
-
-        prime_subsets = sorted({tuple(sorted(s)) for s in prime_subsets}, key=lambda t: (len(t), t))
-        prime_subsets = [list(t) for t in prime_subsets]
-    except Exception as e:
-        if debug:
-            print("[auto_cfg] generate_diverse_prime_subsets failed:", e)
-        import random
-        rnd = random.Random(SEED_INT)
-        prime_subsets = []
-        for _ in range(subset_plan['num_subsets']):
-            size = rnd.randint(subset_plan['min_size'], min(len(pool_adapted), subset_plan['max_size']))
-            prime_subsets.append(sorted(rnd.sample(pool_adapted, size)))
-        prime_subsets = sorted({tuple(s) for s in prime_subsets}, key=lambda t: (len(t), t))
-        prime_subsets = [list(t) for t in prime_subsets]
-
-    avg_density = sum((residue_counts.get(p, 1) / float(p)) for p in pool_adapted) / max(1, len(pool_adapted))
-    if avg_density < 0.05:
-        base_tmax = 400
-    elif avg_density < 0.15:
-        base_tmax = 300
-    else:
-        base_tmax = 200
-
-    tmax_scale = sqrt(height_bound / float(max(base_height_bound, 1)))
-    tmax = int(base_tmax * tmax_scale)
-    tmax = min(tmax, 500)
-
-    if debug:
-        print(f"[auto_cfg] density={avg_density:.4f}, base_tmax={base_tmax}, tmax_scale={tmax_scale:.2f} -> TMAX={tmax}")
-
-    sconf = {
-        'HEIGHT_BOUND': height_bound,
-        'PRIME_POOL': pool_adapted,
-        'RESIDUE_COUNTS': residue_counts,
-        'SUBSET_PLAN': subset_plan,
-        'PRIME_SUBSETS': prime_subsets,
-        'NUM_PRIME_SUBSETS': len(prime_subsets),
-        'MIN_PRIME_SUBSET_SIZE': subset_plan['min_size'],
-        'MIN_MAX_PRIME_SUBSET_SIZE': subset_plan['max_size'],
-        'MAX_MODULUS': int(max_modulus),
-        'TMAX': int(tmax),
-        'AVG_DENSITY': avg_density,
-        'H_CAN_ESTIMATE': h_can,
-        'ADAPTIVE_POOL_SCALE': adapt_result['scale_factor'],
-        'ADAPTIVE_SUBSET_SCALE': subset_plan['adjustment_factor'],
-    }
-
-    if debug:
-        print("\n[auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===")
-        print(f"  HEIGHT_BOUND: {sconf['HEIGHT_BOUND']}")
-        print(f"  Prime pool: {len(pool_filtered)} -> {len(pool_adapted)} (scale {adapt_result['scale_factor']:.2f}x)")
-        print(f"  Prime subsets: {len(prime_subsets)} (adjustment {subset_plan['adjustment_factor']:.2f}x)")
-        print(f"  Subset sizes: [{subset_plan['min_size']}, {subset_plan['max_size']}]")
-        print(f"  TMAX: {sconf['TMAX']} (scaled for height)")
-        print(f"  Sample subsets: {prime_subsets[:3]}")
-
-    return sconf
 
 
 # In bounds.py, REPLACE the existing recommend_subset_strategy_adaptive function with this:
@@ -2038,3 +1807,185 @@ def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
     return predicted_ratio
 
 
+def auto_configure_search(cd, known_pts, prime_pool=None,
+                          height_bound=None,
+                          base_height_bound=100,
+                          max_modulus=MAX_MODULUS,
+                          update_search_common=False,
+                          num_subsets_hint=NUM_PRIME_SUBSETS,
+                          run_heavy_analysis=True,  # <--- NEW PARAMETER
+                          debug=DEBUG):
+    """
+    Automatic configuration for search.
+    If run_heavy_analysis is False, skips Galois/Splitting field and adaptive sizing
+    (useful for secondary consensus fibrations).
+    """
+    src_pool = PRIME_POOL
+
+    if debug:
+        print(f"[auto_cfg] starting prime pool size: {len(src_pool)} (Heavy analysis: {run_heavy_analysis})")
+
+    galois_degree = None
+    
+    # 1. Prime Pool Recommendation
+    # If not heavy, we skip the splitting field computation within recommend_and_update_prime_pool
+    try:
+        pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
+                                                        run_heavy=run_heavy_analysis, 
+                                                        debug=debug and run_heavy_analysis,
+                                                        update_search_common=update_search_common)
+    except Exception as e:
+        if debug:
+            print("[auto_cfg] recommend_and_update_prime_pool failed:", e)
+        pool_filtered = src_pool
+
+    for p in (2, 3, 5):
+        if p in src_pool and p not in pool_filtered:
+            pool_filtered.insert(0, p)
+    pool_filtered = sorted(set(pool_filtered))
+
+    # 2. Height Estimation
+    def naive_x_height_from_pts(pts):
+        vals = []
+        for x, y in pts:
+            try:
+                n = abs(Integer(x).numerator())
+                d = abs(Integer(x).denominator())
+                vals.append(max(1, max(n, d)))
+            except Exception:
+                vals.append(1)
+        if not vals:
+            return 0.0
+        return float(log(max(vals)))
+
+    h_x = naive_x_height_from_pts(known_pts)
+    h_can = estimate_canonical_height_from_xheight(h_x, None, fudge=1.5)
+
+    if height_bound is None:
+        if h_can is not None:
+            # Increase base offset significantly
+            base_offset = 300 
+            scale_factor = 100
+            exponent_scale = 4.0
+            base = scale_factor * exp(h_can / exponent_scale)
+            height_bound = int(base + base_offset)
+            height_bound = min(height_bound, 2000)
+        else:
+            height_bound = 300
+
+    if debug:
+        print(f"[auto_cfg] HEIGHT_BOUND set to {height_bound}")
+
+    # 3. Residue Counts
+    # We always need residue counts, but if not heavy, we can rely on fallbacks or smaller samples
+    try:
+        residue_counts = compute_residue_counts_for_primes(cd, [SR(cd.phi_x)], 
+                                                           pool_filtered, 
+                                                           max_primes=min(len(pool_filtered), 30))
+    except Exception as e:
+        if debug:
+            print(f"[auto_cfg] residue count computation failed: {e}")
+        residue_counts = {p: max(1, p // 4) for p in pool_filtered}
+    
+    # 4. Galois Stats (Skip if not heavy)
+    if run_heavy_analysis and not USE_CONSENSUS_FILTER:
+        try:
+            SPLIT_POLY = build_split_poly_from_cd(cd, debug=debug)
+            galois_diag = _cached_galois_stats(str(SPLIT_POLY))
+            galois_degree = galois_diag.get('splitting_field_degree_est')
+        except Exception as e:
+            if debug:
+                print(f"[auto_cfg] Galois degree estimation failed: {e}")
+            galois_degree = None
+
+    # 5. Adaptive Pool Sizing (Skip if not heavy)
+    # Secondary fibrations should just use the pool we give them (or the filtered version)
+    # without running Monte Carlo simulations to expand it.
+    if run_heavy_analysis:
+        target_survivors = 1.0
+        adapt_result = adaptive_prime_pool_empirical_survivor_count(
+            base_pool=pool_filtered,
+            residue_counts=residue_counts,
+            target_survivors=target_survivors,
+            subset_size=5,
+            sample_size=50,
+            max_iterations=200,
+            max_extra=200,
+            verbose=debug
+        )
+        pool_adapted = adapt_result['pool']
+        scale_factor = adapt_result.get('final_expected_survivors', 1.0)
+    else:
+        # Lightweight path: just use what we have
+        pool_adapted = pool_filtered
+        scale_factor = 1.0
+
+    # Ensure residue counts exist for all primes in the adapted pool
+    for p in pool_adapted:
+        if p not in residue_counts:
+            residue_counts[p] = max(1, p // 4)
+
+    # 6. Subset Strategy
+    # We still need a subset plan, but we can do it quickly.
+    subset_plan = recommend_subset_strategy_adaptive(
+        pool_adapted, residue_counts, height_bound,
+        base_height=base_height_bound,
+        target_survivors_per_subset=1.0,
+        base_num_subsets=num_subsets_hint,
+        debug=debug and run_heavy_analysis
+    )
+
+    # 7. Generate Subsets
+    # If secondary, we don't strictly need to generate the subsets list here unless 
+    # the calling code explicitly demands it. We'll generate it to be safe, but using the seed.
+    try:
+        prime_subsets = generate_diverse_prime_subsets(
+            prime_pool=pool_adapted,
+            residue_counts=residue_counts,
+            num_subsets=subset_plan['num_subsets'],
+            min_size=subset_plan['min_size'],
+            max_size=subset_plan['max_size'],
+            seed=SEED_INT, 
+            force_full_pool=False
+        )
+        prime_subsets = sorted({tuple(sorted(s)) for s in prime_subsets}, key=lambda t: (len(t), t))
+        prime_subsets = [list(t) for t in prime_subsets]
+    except Exception as e:
+        prime_subsets = []
+
+    # 8. TMAX calculation
+    avg_density = sum((residue_counts.get(p, 1) / float(p)) for p in pool_adapted) / max(1, len(pool_adapted))
+    if avg_density < 0.05:
+        base_tmax = 400
+    elif avg_density < 0.15:
+        base_tmax = 300
+    else:
+        base_tmax = 200
+
+    tmax_scale = sqrt(height_bound / float(max(base_height_bound, 1)))
+    tmax = int(base_tmax * tmax_scale)
+    tmax = min(tmax, 500)
+
+    sconf = {
+        'HEIGHT_BOUND': height_bound,
+        'PRIME_POOL': pool_adapted,
+        'RESIDUE_COUNTS': residue_counts,
+        'SUBSET_PLAN': subset_plan,
+        'PRIME_SUBSETS': prime_subsets,
+        'NUM_PRIME_SUBSETS': len(prime_subsets),
+        'MIN_PRIME_SUBSET_SIZE': subset_plan['min_size'],
+        'MIN_MAX_PRIME_SUBSET_SIZE': subset_plan['max_size'],
+        'MAX_MODULUS': int(max_modulus),
+        'TMAX': int(tmax),
+        'AVG_DENSITY': avg_density,
+        'H_CAN_ESTIMATE': h_can,
+        'ADAPTIVE_POOL_SCALE': scale_factor,
+        'ADAPTIVE_SUBSET_SCALE': subset_plan['adjustment_factor'],
+    }
+
+    if debug and run_heavy_analysis:
+        print("\n[auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===")
+        print(f"  HEIGHT_BOUND: {sconf['HEIGHT_BOUND']}")
+        print(f"  Prime pool: {len(pool_filtered)} -> {len(pool_adapted)}")
+
+    return sconf

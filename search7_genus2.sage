@@ -1181,7 +1181,15 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
             known_pts_for_height = [(QQ(0), None)]
         
         # Auto-config might suggest a bound, but we override with our scaled bound
-        this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
+        this_sconf = bounds.auto_configure_search(
+                    this_cd, 
+                    known_pts_for_height, 
+                    height_bound=None, 
+                    run_heavy_analysis=False,  # <--- Disable expensive Galois/Adaptive steps
+                    debug=False                # <--- Reduce noise
+                )
+
+        #this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
         this_sconf['HEIGHT_BOUND'] = this_height_bound
         print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
 

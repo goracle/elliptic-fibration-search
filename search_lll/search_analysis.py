@@ -410,6 +410,7 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                 
                 # Perform Rational Recon
                 m_recon = rational_reconstruct(m0, M)
+                m_recon = QQ(m_recon[0])/QQ(m_recon[1])
                 
                 if m_recon == target_m:
                     print("  ✓ MATCH! Target successfully reconstructed.")

@@ -99,8 +99,6 @@ def parse_hyperelliptic_db_entry(db_string):
     return coeffs
 
 
-
-
 # Add these with your other Sage imports
 #from sage.libs.pari.pari_error import PariError
 from cysignals.signals import SignalError
@@ -368,7 +366,7 @@ TERMINATE_WHEN_6 = 11
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_PRIME_SUBSETS = 1500 # important for stability under different seeds, must be large enough >= 250 should be good...
+NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
 HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 
@@ -407,7 +405,7 @@ SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
-NUM_CONSENSUS_FIBRATIONS = 9  # How many independent fibrations to use
+NUM_CONSENSUS_FIBRATIONS = 14  # How many independent fibrations to use
 CONSENSUS_THRESHOLD = 0.5     # Fraction of fibrations that must agree (0.8 = 80%)
 
 # Add these constants near the top of tower.sage (with other config constants)
@@ -418,7 +416,6 @@ USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use
 NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
 
-
 try:
     PROFILE = profile
 except NameError:
@@ -427,11 +424,6 @@ except NameError:
         return arg2
     PROFILE = profile
 
-
-# This defines the data structure used to pass around curve information.
-#CurveData = namedtuple('CurveData', ['E_curve', 'E_weier', 'E_rhs', 'a4', 'a6', 'phi_x', 'blowup_factor',
-#                                     'quartic_rhs', 'tate_exponent', 'k_base_change', 'bad_primes',
-#                                     'morphs', 'use_minimal', 'singfibs'])
 
 
 class CurveDataExt(NamedTuple):
@@ -454,7 +446,6 @@ class CurveDataExt(NamedTuple):
     SR_a6: object
     SR_phi_x: object
     SR_m: object
-
 
 
 # --- START: Modular Reduction Helpers (centralized from picard.py) ---
@@ -501,7 +492,6 @@ def to_mod_poly(poly_q, R, debug=False):
         res *= inv_lcm
 
     return res
-
 
 
 def reduce_cd_mod_ell(cd, ell, debug=False):
@@ -840,7 +830,6 @@ def canonicalize_by_sign(vecs):
     return out
 
 
-
 def compute_search_vectors(H, height_bound):
     print("height bound:", height_bound)
 
@@ -967,7 +956,6 @@ def check_independence(sections, curve, cd):
     independent = (det != 0)
     print(f"Sections are {'independent' if independent else 'dependent'}.")
     return independent, H
-
 
 
 @PROFILE
@@ -1341,7 +1329,6 @@ def to_rational(c):
     return QQ(c)
 
 
-
 def min_order_in_m(expr, m):
     """
     Find the minimum order of m in an expression using Sage's valuation.
@@ -1563,8 +1550,6 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
         except (TypeError, ZeroDivisionError):
             continue
     return found
-
-
 
 
 @PROFILE
@@ -1942,9 +1927,6 @@ def build_ns_basis_and_Q(cd, rho, mw_rank, chi):
     return basis_labels, Q, h_vec
 
 
-
-
-
 @PROFILE
 def compute_canonical_height_matrix(sections, cd):
     """
@@ -2156,7 +2138,6 @@ def enumerate_rationals_height_bound(B):
                 continue
             out.append(QQ(a) / QQ(b))
     return out
-
 
 
 def get_sections_for_fibration(cd, base_pts):
