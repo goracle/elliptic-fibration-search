@@ -195,7 +195,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             'seed': SEED_INT,
             'id': -1 # Mark as primary
         }
-        fibrations.append(primary_tower_with_meta)
+        #fibrations.append(primary_tower_with_meta)
+        fibrations.insert(0, primary_tower_with_meta) # NEW FIX: Insert at the front
         
     else:
         # Original single-fibration mode
@@ -424,7 +425,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
 
                     fib_analysis = analyze_fibration_geometry(
-                        fib_data['tower'], 
+                        #fib_data['tower'], 
+                        fib_data, 
                         base_pts, 
                         primary_height_bound,
                         shift,
@@ -441,7 +443,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     this_cd = fib_analysis['cd']
                     fib_specific_sections = fib_analysis['sections']
                     this_search_rhs_list = fib_analysis['rhs_list']
-                    fib_specific_vecs = vecs  # Force using PRIMARY vectors
+                    #fib_specific_vecs = vecs  # Force using PRIMARY vectors
+                    fib_specific_vecs = fib_analysis['vecs'] # NEW: Use scaled-height vectors
                     
                     # Store geometry info for consensus (including cd and sections for Δ-sampling)
                     geom_info = {
@@ -1125,13 +1128,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     return all_known_x, cumulative_stats
 
 @PROFILE
-def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
     """
     Analyzes a single fibration tower.
     SCALES the height bound based on the discriminant degree relative to primary_deg.
     """
-    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed})...")
+    tower = fib_data['tower'] # Extract tower
+    fib_id = fib_data.get('id', 0) # Extract id, default to 0 (non-primary)
+    seed = fib_data.get('seed', seed) # Extract seed
     
+    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
+
     # 1. Reconstruct SR/PR variables
     SR_m = var('m')
     PR_m = PolynomialRing(QQ, 'm')
@@ -1166,12 +1173,25 @@ def analyze_fibration_geometry(tower, base_pts, height_bound, shift, all_known_x
     except Exception:
         this_disc_deg = primary_deg # Fallback
         
-    # Height scales with degree.
+    # Height scales with degree AND coefficient complexity.
+    # Secondary fibrations (anchors) have much larger coeffs, requiring a looser bound.
+    is_primary = (fib_id == -1)
     scaling_factor = float(this_disc_deg) / float(primary_deg)
-    this_height_bound = int(height_bound * scaling_factor * 1.1) # 10% safety
+
+    if is_primary:
+        # This is the primary fibration. Do NOT scale its height bound.
+        this_height_bound = height_bound
+        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+    else:
+        # This is a secondary fibration. Apply 4.0x multiplier.
+        this_height_bound = int(height_bound * scaling_factor * 1.2)
+        # Apply 4.0x multiplier for coefficient blowup in secondary towers
+        
+        if abs(scaling_factor - 1.0) > 0.1 or True:
+            print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 4.0 safety)")
     
-    if abs(scaling_factor - 1.0) > 0.1:
-        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f})")
+    if abs(scaling_factor - 1.0) > 0.1 or True:
+        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 2.0 safety)")
 
     # 4. Re-run sconf auto-configuration for THIS geometry
     try:

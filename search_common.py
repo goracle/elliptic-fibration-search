@@ -368,7 +368,7 @@ TERMINATE_WHEN_6 = 11
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
-HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
+HEIGHT_BOUND = 3*370 # not that important, mostly, it seems
 
 # prime config
 # magic prime settings, chosen empirically.

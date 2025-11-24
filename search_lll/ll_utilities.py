@@ -1168,10 +1168,26 @@ def analyze_unused_residue_orders(precomputed_residues,
             dv = discriminant_valuation(r, p, Delta_pr)
             ap = compute_trace_of_frobenius(r, p, Ep_m_p)
             lh = local_height_contribution(r, p, rhs_fn)
-        
+
+
+
+            # --- FIX START ---
+            from sage.rings.infinity import infinity
+            
             # Composite diagnostics
-            lift_disc = vp * (dv if isinstance(dv, (int, SageInteger)) else 0)
-            qc_lift = qc * vp
+            # Safely compute lift_disc
+            dv_safe = dv if isinstance(dv, (int, SageInteger)) else 0
+            if vp is infinity:
+                lift_disc = 100  # Arbitrary high value for "perfect lift"
+            else:
+                lift_disc = vp * dv_safe
+
+            # Safely compute qc_lift
+            if vp is infinity:
+                qc_lift = 100 * qc 
+            else:
+                qc_lift = qc * vp
+            # --- FIX END ---
             
             # Categorize - FIXED to handle Sage Integers
             if dv == "inf":

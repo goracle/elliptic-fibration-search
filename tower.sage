@@ -18,7 +18,6 @@ import random # shadows something in sage.all called random; be careful!
 from search_common import DEBUG, SEED_INT
 
 
-
 # ---------- Utilities ----------
 try:
     PROFILE = profile
@@ -27,7 +26,6 @@ except NameError:
         """Line profiler default."""
         return arg2
     PROFILE = profile
-
 
 
 # === normalize and check helpers (drop-in) ===
@@ -179,10 +177,6 @@ def expr_variables(expr):
             return set()
 
 
-
-
-
-
 # -----------------------
 # Deterministic branch chooser for solve() results
 # -----------------------
@@ -231,8 +225,6 @@ def pick_solution_by_degree(solutions, target_var, prefer_max_degree=True):
 # Robust extraction + comparison wrapper for a layer vs Mathematica output
 # -----------------------
 # keys we commonly store generated expressions under in layer dicts
-
-
 
 
 @PROFILE
@@ -317,7 +309,6 @@ def force_QQ(val, name=''):
         raise RuntimeError(f"Could not coerce {name!s} to QQ: {val!r} — error: {e}")
 
 # ---------- Core Tower Builder ----------
-
 
 
 # ---------- Replacement: interpolate_Q_general ----------
@@ -507,93 +498,6 @@ def _verify_fibration_step_properties(fx, r_expr, param):
     return {'dfx_dx': dfx_dx, 'dr_dm': dr_dm}
 
 
-@PROFILE
-def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
-    """
-    Iterates through the fibration tower construction process, ensuring a single
-    consistent fibration parameter 'm' is used throughout.
-    """
-    tower = []
-    
-    # Get the polynomial generator's name and create a corresponding symbolic variable.
-    # This ensures that all symbolic operations use a variable of the correct type (SR).
-    poly_x_gen = fx_PR.parent().gen()
-    x = SR.var(str(poly_x_gen))
-
-    # Convert the initial polynomial to a symbolic expression (SR)
-    # to ensure a consistent type throughout the loop.
-    f0 = SR(fx_PR)
-    current_fx = SR(fx_PR)
-
-    # Manage a single parameter for the entire tower
-    m_parameter = None
-
-    for step in range(max_steps):
-        # Use the symbolic 'x' to get the degree of the symbolic expression
-        n = int(current_fx.degree(x))
-        g2 = len(pts_xy)
-        if verbose:
-            print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve, using g2={g2} ---")
-
-        try:
-            pts_x_subset = [p[0] for p in pts_xy[:g2]]
-
-            step_result = build_one_fibration_step(
-                current_fx, f0,
-                pts_x_subset,
-                g2,
-                seed_int=seed_int * 100 + step,  # ← Use multiplicative offset
-                verbose=verbose,
-                parameter_m=m_parameter,
-                use_anchor_points=use_anchor_points
-            )
-
-            check_fibration_step(step_result, prev_fx=current_fx)
-
-            # After the first step, capture the parameter 'm' to be reused.
-            if m_parameter is None:
-                # Ensure r_expr is not constant before trying to get variables
-                if has_free_variables(step_result['r_expr']):
-                    m_parameter = list(step_result['r_expr'].variables())[0]
-                else:
-                    # This case should not happen in a real search but is possible
-                    # if the geometry is degenerate.
-                    raise RuntimeError("First step of fibration resulted in a constant root r, cannot define parameter.")
-
-            # Pass the correct symbolic variable 'x' to the verification function.
-            # current_fx, step_result, pts_x_subset, g2, x
-            # Pass the correct symbolic variable 'x' and the current parameter 'm'
-            _verify_fibration_step_properties(
-                current_fx,
-                step_result['r_expr'],
-                m_parameter
-            )
-
-            tower.append(step_result)
-            # Create the full curve equation y^2 = f_i(x,m)
-            y = SR.var('y')
-            full_equation = y**2 - step_result['f_i']
-            jet_check_safe(full_equation, pts_xy)
-
-
-            # The 'f_i' result is already a symbolic expression, so the type remains consistent.
-            current_fx = step_result['f_i']
-
-        except RuntimeError as e:
-            print(f"Failed at step {step + 1}: {e}")
-            raise # Re-raise to halt execution on failure
-
-
-    verify_tower_consistency(tower)
-    # After building tower
-    verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1/2)]) 
-    # Deep jet analysis across the entire tower
-    print("\n" + "="*70)
-    print("DEEP JET ANALYSIS ACROSS TOWER")
-    print("="*70)
-    jet_results = jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0)
-    
-    return tower
     
 # ---------- Main Driver ----------
 
@@ -626,9 +530,6 @@ def main():
         print("\n❌ Tower construction failed or produced no layers.")
 
 
-
-
-
 from sage.all import (
     SR, var, solve
 )
@@ -637,7 +538,6 @@ from sage.all import (
 # Minimal jet checker for tower.sage
 # Runs automatically, safe, pure-Python syntax, no new interface
 ###############################################################
-
 
 
 # Replace previous jet_check_safe with this exact function (top-level in tower.sage)
@@ -762,7 +662,6 @@ def jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0):
     return tower_jets
 
 
-
 # Replace previous jet_check_safe with this exact function (top-level in tower.sage)
 def jet_check_safe(F_sr, pts_xy, m0=0):
     """
@@ -837,10 +736,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
         print(" [JET] a2 =", first['a2'])
     else:
         print(" [JET] a2 free (curvature unconstrained by double-root)")
-
-
-
-
 
 
 from stats import *
@@ -941,15 +836,9 @@ def build_multiple_fibrations(fx_PR, pts_xy, num_fibrations, max_steps=3,
         NUM_ANCHOR_POINTS = original_num_anchors
 
 
-
-
-
-
-
 if __name__ == '__main__':
     pass
     #main() # only for testing
-
 
 
 def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
@@ -999,7 +888,6 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
     return Qx
 
 
-
 # Utility: Print consensus effectiveness
 def print_consensus_effectiveness(consensus_stats, cumulative_stats):
     """
@@ -1035,7 +923,6 @@ def print_consensus_effectiveness(consensus_stats, cumulative_stats):
             
             print(f"\nEstimated tests saved: ~{tests_saved:,}")
             print(f"Estimated time saved: ~{time_saved_est:.1f}s")
-
 
 
 @PROFILE
@@ -1577,8 +1464,6 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
                 )
 
 
-
-
 def measure_poly_complexity(expr_sr):
     """
     Estimate arithmetic complexity of a symbolic expression (sum of log heights of coeffs).
@@ -1630,7 +1515,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
     # --- CONFIG: STABILITY SETTINGS ---
     # Number of random geometries to try per step. 
     # Higher = more stable capacity, slightly slower build.
-    CANDIDATES_PER_STEP = 10
+    CANDIDATES_PER_STEP = 50
     # ----------------------------------
 
     for step in range(max_steps):
