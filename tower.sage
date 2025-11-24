@@ -1154,7 +1154,7 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
     diff_poly = (SR(fx_SR) - fibration_SR).expand()
-    print("diff_poly", diff_poly)
+    #print("diff_poly", diff_poly)
     
     if parameter_m is None:
         m = SR.var('m')
@@ -1575,3 +1575,137 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
                 raise RuntimeError(
                     f"y² consistency violated at layer {i}->{i+1}, m={m_val}"
                 )
+
+
+
+
+def measure_poly_complexity(expr_sr):
+    """
+    Estimate arithmetic complexity of a symbolic expression (sum of log heights of coeffs).
+    Lower is better.
+    """
+    try:
+        # Convert to polynomial in x, m
+        # We treat it as a multivariate polynomial over QQ
+        from sage.all import log, RR
+        
+        # Quick conversion to list of coefficients (numeric)
+        # This flattens the expression into a list of rational numbers found in the tree
+        coeffs = expr_sr.coefficients()
+        
+        score = 0.0
+        for c in coeffs:
+            # c is typically (expr, power). We look at the expr part.
+            # Extract numerical constants from the coefficient expression
+            try:
+                # Simple heuristic: sum of log of num/denom of all rational numbers in the expression
+                # coerce to rational to catch scalars
+                val = QQ(c[0])
+                if val != 0:
+                    h = max(abs(val.numerator()), abs(val.denominator()))
+                    score += float(log(h))
+            except:
+                # If it's a complex symbolic expression in m, just count complexity by string length
+                # as a fallback (proxy for term count + coefficient size)
+                score += len(str(c[0])) * 0.1
+        return score
+    except Exception:
+        return 999999.9
+
+
+@PROFILE
+def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
+    """
+    Iterates through the fibration tower construction process.
+    Now uses a "Best-of-N" strategy to minimize coefficient height and stabilize Capacity.
+    """
+    tower = []
+    
+    poly_x_gen = fx_PR.parent().gen()
+    x = SR.var(str(poly_x_gen))
+    f0 = SR(fx_PR)
+    current_fx = SR(fx_PR)
+    m_parameter = None
+
+    # --- CONFIG: STABILITY SETTINGS ---
+    # Number of random geometries to try per step. 
+    # Higher = more stable capacity, slightly slower build.
+    CANDIDATES_PER_STEP = 10
+    # ----------------------------------
+
+    for step in range(max_steps):
+        n = int(current_fx.degree(x))
+        g2 = len(pts_xy)
+        if verbose:
+            print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
+
+        best_step_result = None
+        best_score = float('inf')
+        
+        pts_x_subset = [p[0] for p in pts_xy[:g2]]
+
+        # Try multiple seeds to find the "cleanest" geometry
+        for attempt in range(CANDIDATES_PER_STEP):
+            try:
+                # Diverge the seed for each attempt
+                # We use a deterministic offset so the "best" result is reproducible
+                attempt_seed = seed_int * 1000 + step * 100 + attempt
+                
+                step_result = build_one_fibration_step(
+                    current_fx, f0,
+                    pts_x_subset,
+                    g2,
+                    seed_int=attempt_seed,
+                    verbose=False, # Silence inner prints
+                    parameter_m=m_parameter,
+                    use_anchor_points=use_anchor_points
+                )
+
+                # Validate
+                check_fibration_step(step_result, prev_fx=current_fx)
+                
+                # Verify properties (derivs, etc)
+                temp_m = m_parameter
+                if temp_m is None and has_free_variables(step_result['r_expr']):
+                     temp_m = list(step_result['r_expr'].variables())[0]
+                
+                _verify_fibration_step_properties(current_fx, step_result['r_expr'], temp_m)
+
+                # Score it
+                score = measure_poly_complexity(step_result['f_i'])
+                
+                if score < best_score:
+                    best_score = score
+                    best_step_result = step_result
+                    # If we set parameter_m for the first time, keep it consistent
+                    if m_parameter is None:
+                        m_parameter = temp_m
+
+            except RuntimeError:
+                continue # Skip failed attempts
+        
+        if best_step_result is None:
+            raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts")
+
+        if verbose:
+            print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
+
+        tower.append(best_step_result)
+        
+        # Create the full curve equation y^2 = f_i(x,m)
+        y = SR.var('y')
+        full_equation = y**2 - best_step_result['f_i']
+        #jet_check_safe(full_equation, pts_xy) # only for debugging
+
+        current_fx = best_step_result['f_i']
+
+    verify_tower_consistency(tower)
+    verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1/2)]) 
+    
+    if False: # only for debugging
+        print("\n" + "="*70)
+        print("DEEP JET ANALYSIS ACROSS TOWER")
+        print("="*70)
+        jet_results = jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0)
+    
+    return tower
