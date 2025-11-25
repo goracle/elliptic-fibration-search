@@ -542,7 +542,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     all_fibration_geometries,
                     prime_pool,
                     consensus_threshold=CONSENSUS_THRESHOLD,
-                    height_tolerance_log=2.5,
+                    height_tolerance_log=0.1,
                     use_delta_scaling=True,
                     debug=DEBUG,
                     target_x=TARGETED_X if TARGETED_X else None,

@@ -14,8 +14,23 @@ from sage.all import SR, var, PolynomialRing, QQ
 from sage.all import *
 from sage.functions.other import binomial
 import random # shadows something in sage.all called random; be careful!
+from sage.all import QQ, ZZ, gcd, factor, primes, SR, PolynomialRing, Integer, cached_function
+import random, math
+
 
 from search_common import DEBUG, SEED_INT
+
+
+# CONFIG: tune these to trade runtime vs accuracy
+_SMALL_PRIMES = [2,3,5,7,11,13,17,19,23,29,31,37,41]   # primes to test for rejections and collisions
+_SAMPLE_M_VALUES = [ -7, -3, -1, 0, 1, 2, 3, 7 ]      # small integer m samples to probe modular behaviour
+_NUM_RANDOM_M = 5                                      # additional random m samples (drawn small)
+_MAX_DEGREE_PENALTY = 5.0
+_WEIGHT_HEIGHT = 1.0
+_WEIGHT_DEG = 1.2
+_WEIGHT_DISC = 1.5
+_WEIGHT_BADPRIME = 6.0    # each small bad prime is expensive -> large penalty
+_WEIGHT_COLLISION = 8.0   # collisions are deadly for consensus; heavy penalty
 
 
 # ---------- Utilities ----------
@@ -926,323 +941,6 @@ def print_consensus_effectiveness(consensus_stats, cumulative_stats):
 
 
 @PROFILE
-def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
-                             verbose=False, forced_tangency_seq=None,
-                             forced_Qpoly=None, force_Q_constraint_indices=None,
-                             parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
-    """
-    Modified version: Reduces tangency constraints by 1 to impose a Q-dependence mixing constraint.
-    """
-    random.seed(int(seed_int))
-    xSR = SR.var('x')
-    
-    n = int(fx_SR.degree(xSR))
-    xs_chosen = [QQ(xv) for xv in pts_x]
-    if len(xs_chosen) == 0:
-        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
-    x1 = xs_chosen[0]
-    
-    # Degree drop constraint
-    max_degQ = (n - 1) // 2
-    initial_degQ = choose_degQ(n)
-    degQ = min(initial_degQ, max_degQ)
-    
-    if forced_Qpoly is not None:
-        try:
-            forced_Q_SR = SR(forced_Qpoly)
-            forced_deg = int(forced_Q_SR.degree(xSR))
-        except Exception:
-            try:
-                Rtmp = PolynomialRing(QQ, str(xSR))
-                forced_deg = int(Rtmp(forced_Qpoly).degree())
-            except Exception:
-                raise RuntimeError("Could not determine degree of forced_Qpoly")
-        if forced_deg > max_degQ:
-            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
-        degQ = forced_deg
-    
-    # Build Q polynomial
-    if forced_Qpoly is not None:
-        try:
-            Rqq = PolynomialRing(QQ, str(xSR))
-            Qpoly_QQ = Rqq(forced_Qpoly)
-        except Exception:
-            Qpoly_QQ = SR(forced_Qpoly)
-    else:
-        # Check if we should use anchor points
-        if use_anchor_points:
-            # Generate anchor points
-            num_anchors_needed = NUM_ANCHOR_POINTS
-            
-            # We need degQ+1 total points. We have 1 base point.
-            total_needed = degQ + 1
-            base_pts_count = 1
-            remaining_dof = total_needed - base_pts_count
-            
-            if num_anchors_needed > remaining_dof:
-                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
-            
-            # Generate anchor points
-            base_x_coords = [QQ(xv) for xv in xs_chosen]
-            anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=base_x_coords)
-            
-            if verbose:
-                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
-            
-            # Build base point
-            chosen_pts_xy = []
-            f0_SR = SR(f0)
-            for xv in xs_chosen:
-                y_val_expr = f0_SR.subs({xSR: SR(xv)})
-                try:
-                    yi = sqrt(QQ(y_val_expr))
-                except Exception:
-                    yi = SR(sqrt(y_val_expr))
-                chosen_pts_xy.append((QQ(xv), yi))
-            
-            # If we still need tangency conditions after anchors
-            num_tangency_needed = remaining_dof - num_anchors_needed
-            
-            if num_tangency_needed == 0:
-                # Pure anchor mode: no tangency conditions
-                Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
-            else:
-                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented. Set NUM_ANCHOR_POINTS to use all DOF or 0.")
-        else:
-            # Original tangency-based mode
-            chosen_pts_xy = []
-            f0_SR = SR(f0)
-            for xv in xs_chosen:
-                y_val_expr = f0_SR.subs({xSR: SR(xv)})
-                try:
-                    yi = sqrt(QQ(y_val_expr))
-                except Exception:
-                    yi = SR(sqrt(y_val_expr))
-                chosen_pts_xy.append((QQ(xv), yi))
-            
-            Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
-                                            seed_int=seed_int,
-                                            force_constraint_indices=force_Q_constraint_indices)
-    
-    import copy
-    Q_SR = copy.deepcopy(SR(Qpoly_QQ))
-    
-    # Rest of the function remains the same
-    prod1 = poly_prod_numeric(xs_chosen, xSR)
-    deg_prod = int(prod1.degree(xSR))
-    rest_deg = int(n - 1 - deg_prod)
-    
-    if rest_deg < 0:
-        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
-    
-    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
-    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
-    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
-    
-    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
-    diff_poly = (SR(fx_SR) - fibration_SR).expand()
-    #print("diff_poly", diff_poly)
-    
-    if parameter_m is None:
-        m = SR.var('m')
-    else:
-        m = SR(parameter_m)
-    
-    r_expr = SR(QQ(x1)) - m
-    
-    eqs = []
-    # 1. Root condition: f(r) = f0(r)
-    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
-    # 2. Derivative condition at r
-    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
-    
-    unknowns = rest_coeff_syms[:]
-    
-    # --- MODIFIED LOGIC START ---
-    # Total equations needed = len(unknowns)
-    # We have 2 from the root conditions (param m).
-    # We reserve 1 equation for the Q-dependence mixing.
-    # Remaining must come from tangency.
-    
-    num_tangency_eqs = len(unknowns) - 2 - 1 if use_anchor_points else len(unknowns) - 2
-    
-    if num_tangency_eqs < 0 or not use_anchor_points:
-        # Fallback if degree is too small to support this strategy (e.g. genus 1 steps might be tight)
-        # But for genus 2 reduction steps this is usually fine.
-        if use_anchor_points:
-            print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
-        num_tangency_eqs = len(unknowns) - 2
-        use_mixing = False
-    else:
-        use_mixing = True
-
-    # mixing is only used on the anchor points strategy for multiple fibrations
-    assert use_mixing == use_anchor_points, use_mixing
-
-    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
-    
-    # Select tangency points
-    sel_points = []
-    if num_tangency_eqs > 0:
-        if forced_tangency_seq is not None:
-             # This path might need manual adjustment if used, but standard flow uses random
-            if len(forced_tangency_seq) >= num_tangency_eqs:
-                sel_points = [QQ(xv) for xv in forced_tangency_seq[:num_tangency_eqs]]
-            else:
-                 raise RuntimeError("forced_tangency_seq too short for requested tangency count")
-        else:
-            sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_tangency_eqs)]
-
-    # Add tangency equations
-    for xv in sel_points:
-        tangency_counts[QQ(xv)] += 1
-        current_order = tangency_counts[QQ(xv)]
-        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
-        eqs.append(eq_t)
-    
-    # Add Q-Mixing Constraint
-    if use_mixing:
-        # Instead of arbitrary x1+3, use a point with denominator = power of 2
-        x_mix_num = 2 * int(QQ(x1).numerator()) + 3
-        x_mix_den = QQ(x1).denominator()  # Already a power of 2 from base point
-        # Ensure den is a power of 2
-        while x_mix_den % 2 == 0:
-            x_mix_den //= 2
-        x_mix_den = 2  # Force small power of 2
-        x_mix = QQ(x_mix_num) / QQ(x_mix_den)
-
-        val_Q = Q_SR.subs({xSR: x_mix})
-        val_R = rest_poly_SR.subs({xSR: x_mix})
-        eq_mix = (val_R - val_Q).expand()
-        eqs.append(eq_mix)
-
-    if use_mixing and False: # old logic
-        # Choose a mixing point x_mix. 
-        # Must not be a root of prod1 to ensure R(x) actually influences f(x) distinct from Q^2.
-        # We just pick x1 + 3 (arbitrary rational shift).
-        x_mix = QQ(x1) + 3
-        
-        # Constraint: rest_poly(x_mix) = Q(x_mix)
-        # This forces the "rest" of the fibration to algebraically couple with Q
-        # outside of the base point.
-        val_Q = Q_SR.subs({xSR: x_mix})
-        val_R = rest_poly_SR.subs({xSR: x_mix})
-        
-        eq_mix = (val_R - val_Q).expand()
-        eqs.append(eq_mix)
-        
-        if verbose:
-            print(f"[Q-MIX] Added constraint R({x_mix}) = Q({x_mix}) to induce dependence.")
-
-    # --- MODIFIED LOGIC END ---
-    
-    if len(eqs) != len(unknowns):
-        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
-    
-    sols = solve(eqs, unknowns, solution_dict=True)
-    sol = require_single_solution(sols, "solving for rest polynomial coefficients")
-    
-    solved_map = {}
-    contains_symbolic = False
-    for symb in unknowns:
-        val_SR = SR(sol[symb])
-        solved_map[symb] = val_SR
-        try:
-            _ = QQ(val_SR)
-        except Exception:
-            contains_symbolic = True
-    
-    rest_poly_QQ = None
-    rest_poly_SR_solved = None
-    if not contains_symbolic:
-        Rqq = PolynomialRing(QQ, str(xSR))
-        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
-        rest_poly_QQ = Rqq(coeffs_q)
-        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
-    else:
-        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
-        rest_poly_QQ = None
-    
-    Q_SR = SR(Q_SR)
-    prod_SR = SR(prod1)
-    # Replace the line where you build fibration_solved_SR
-    Q_SR_symbolic = SR(Q_SR)
-    prod_SR_symbolic = SR(prod_SR) 
-    rest_SR_symbolic = SR(rest_poly_SR_solved)
-
-    fibration_solved_SR = (Q_SR_symbolic**2).expand() + (prod_SR_symbolic * rest_SR_symbolic).expand()
-    fibration_solved_SR = SR(fibration_solved_SR).expand()  # Final symbolic coercion
-
-    # After line: fibration_solved_SR = SR(fibration_solved_SR).expand()
-
-    # Extract all denominators from coefficients
-    PR_m = PolynomialRing(QQ, 'm')
-    Fm = PR_m.fraction_field()
-    m_poly = PR_m.gen()
-
-    coeffs_in_x = [fibration_solved_SR.coefficient(xSR, i) for i in range(n)]
-    all_denoms = []
-
-    for c in coeffs_in_x:
-        # c is a polynomial in m; extract denominators from its coefficients
-        try:
-            c_poly = Fm(c)  # Convert to poly in m over QQ
-            for coef in c_poly.list():
-                if coef != 0:
-                    all_denoms.append(QQ(coef).denominator())
-        except:
-            pass
-
-    if all_denoms:
-        from sage.arith.misc import lcm as sage_lcm
-        denom_lcm = sage_lcm(all_denoms)
-        fibration_solved_SR = (fibration_solved_SR * denom_lcm).expand()
-        print(f"[denom_clear] Cleared denominators by multiplying by {denom_lcm}")
-
-    # Verify the solution actually satisfies the rail constraint
-    test_r = r_expr.subs({m: 0})  # Test at m=0
-    lhs = SR(fibration_solved_SR).subs({xSR: test_r, m: 0})
-    rhs = SR(fx_SR).subs({xSR: test_r})
-    diff_check = (lhs - rhs).expand()
-    assert diff_check.simplify() == 0, f"Rail consistency violated at m=0: diff = {diff_check}"
-
-    try:
-        deg_fib = int(fibration_solved_SR.degree(xSR))
-    except Exception:
-        deg_fib = None
-    
-    target_deg = n - 1
-    if deg_fib is None or deg_fib != target_deg:
-        diag = []
-        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
-        try:
-            deg_Q2 = int((Q_SR**2).degree(xSR))
-            diag.append(f"deg(Q^2) = {deg_Q2}")
-        except Exception:
-            diag.append("deg(Q^2) unknown")
-        try:
-            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
-            diag.append(f"deg(prod*rest) = {deg_prodrest}")
-        except Exception:
-            diag.append("deg(prod*rest) unknown")
-        diag_msg = "; ".join(diag)
-        raise RuntimeError("Degree drop failed: " + diag_msg)
-    
-    #print("f_i", fibration_solved_SR)
-    #print("Qpoly_QQ", Qpoly_QQ)
-    # At the end of build_one_fibration_step
-    return {
-        'f_i': SR(fibration_solved_SR),  # Force to symbolic ring
-        'Q_i': Qpoly_QQ,
-        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
-        'r_expr': SR(r_expr),  # Force to symbolic ring
-        'rest_poly_SR': SR(rest_poly_SR_solved),
-        'rest_poly_QQ': rest_poly_QQ,
-        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
-    }
-
-
-@PROFILE
 def compute_consensus_residues(precomputed_residues_list, prime_pool, 
                                 consensus_threshold=CONSENSUS_THRESHOLD,
                                 debug=DEBUG):
@@ -1464,40 +1162,6 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
                 )
 
 
-def measure_poly_complexity(expr_sr):
-    """
-    Estimate arithmetic complexity of a symbolic expression (sum of log heights of coeffs).
-    Lower is better.
-    """
-    try:
-        # Convert to polynomial in x, m
-        # We treat it as a multivariate polynomial over QQ
-        from sage.all import log, RR
-        
-        # Quick conversion to list of coefficients (numeric)
-        # This flattens the expression into a list of rational numbers found in the tree
-        coeffs = expr_sr.coefficients()
-        
-        score = 0.0
-        for c in coeffs:
-            # c is typically (expr, power). We look at the expr part.
-            # Extract numerical constants from the coefficient expression
-            try:
-                # Simple heuristic: sum of log of num/denom of all rational numbers in the expression
-                # coerce to rational to catch scalars
-                val = QQ(c[0])
-                if val != 0:
-                    h = max(abs(val.numerator()), abs(val.denominator()))
-                    score += float(log(h))
-            except:
-                # If it's a complex symbolic expression in m, just count complexity by string length
-                # as a fallback (proxy for term count + coefficient size)
-                score += len(str(c[0])) * 0.1
-        return score
-    except Exception:
-        return 999999.9
-
-
 @PROFILE
 def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
     """
@@ -1567,6 +1231,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
                         m_parameter = temp_m
 
             except RuntimeError:
+                raise
                 continue # Skip failed attempts
         
         if best_step_result is None:
@@ -1594,3 +1259,473 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
         jet_results = jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0)
     
     return tower
+
+
+# Replace measure_poly_complexity with this more robust geometry scorer.
+# Uses Sage objects but written in plain Python style.
+
+def _int_log(x):
+    if x <= 1:
+        return 0.0
+    return math.log(float(x))
+
+
+def measure_poly_complexity(expr_sr):
+    """
+    Improved scoring: lower is better. Raises exceptions on failure.
+    Input: expr_sr is an SR polynomial-like object representing the fibration polynomial f_i(x,m).
+    """
+    if expr_sr is None:
+        raise ValueError("measure_poly_complexity: expr_sr is None")
+    
+    fx_sr = SR(expr_sr)
+    x_var = SR.var('x')
+    
+    # 1. Coefficient Extraction
+    coeffs = []
+    raw_coeffs = None
+    try:
+        raw_coeffs = fx_sr.coefficients(x_var)
+        coeffs = [c[0] for c in raw_coeffs]
+    except Exception:
+        coeffs = [fx_sr]
+        raw_coeffs = None
+
+    # 1. Height Score
+    height_score = 0.0
+    for c in coeffs:
+        try:
+            q = QQ(c)
+            h = max(abs(int(q.numerator())), abs(int(q.denominator())))
+            height_score += _int_log(h + 1)
+        except (TypeError, ValueError):
+            # Symbolic coefficient: penalize existence + complexity proxy (nops)
+            # CRITICAL FIX: Do NOT use str(c) or repr(c) here, it causes segfaults/hangs on huge expressions.
+            try:
+                # nops() counts top-level operands; decent proxy for tree width
+                n = c.nops()
+            except:
+                n = 1
+            height_score += 1.0 + 0.1 * n
+            
+    # 2. Degree Score
+    deg_x = 0
+    deg_m = 0
+    m_var = None
+    
+    try:
+        # variables() is usually safe even for large expressions
+        vars_list = fx_sr.variables()
+        for v in vars_list:
+            if str(v) == 'm':
+                m_var = v
+                break
+                
+        try:
+            deg_x = int(fx_sr.degree(x_var))
+        except Exception:
+            deg_x = 0
+            
+        if m_var is not None:
+            try:
+                deg_m = int(fx_sr.degree(m_var))
+            except Exception:
+                deg_m = 0
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract degree info: {e}")
+
+    degree_penalty = _int_log(1 + deg_x) * 0.7 + _int_log(1 + deg_m) * 0.5
+    
+    # 3. Discriminant / Size Score
+    # CRITICAL FIX: Do NOT use len(str(fx_sr))
+    try:
+        disc_score = 0.1 * fx_sr.nops()
+    except:
+        disc_score = 1.0
+    
+    # 4. Bad Prime / Collision Score
+    bad_prime_count = 0
+    collision_count = 0
+    
+    for p in _SMALL_PRIMES:
+        p_bad = False
+        
+        # Check coefficients (numeric only)
+        for c in coeffs:
+            try:
+                q = QQ(c)
+                if int(q.denominator()) % p == 0:
+                    p_bad = True
+                    break
+            except (TypeError, ValueError):
+                # Skip symbolic check to avoid string conversion
+                pass
+        
+        if p_bad:
+            bad_prime_count += 1
+            continue
+            
+        # Collision Check (Heuristic)
+        # Safe construction of GF(p) polynomial
+        for mval in (_SAMPLE_M_VALUES + [random.randint(-17,17) for _ in range(_NUM_RANDOM_M)]):
+            collision_detected = False
+            try:
+                if raw_coeffs is not None:
+                    poly_dict = {}
+                    for c_expr, expon in raw_coeffs:
+                        if m_var is not None:
+                            val_sr = c_expr.subs({m_var: Integer(mval)})
+                        else:
+                            val_sr = c_expr
+                        
+                        val_qq = QQ(val_sr)
+                        val_gf = GF(p)(val_qq)
+                        
+                        if val_gf != 0:
+                            poly_dict[int(expon)] = val_gf
+                    
+                    if poly_dict:
+                        R_p = PolynomialRing(GF(p), 'x')
+                        poly_x = R_p(poly_dict)
+                        
+                        if poly_x.degree() > 0:
+                            if poly_x.gcd(poly_x.derivative()).degree() > 0:
+                                collision_detected = True
+            
+            except (ZeroDivisionError, ValueError, TypeError):
+                # Denominator issue -> bad prime
+                collision_detected = True
+            except Exception:
+                pass
+            
+            if collision_detected:
+                collision_count += 1
+                break
+    
+    max_checks = len(_SMALL_PRIMES) * (_NUM_RANDOM_M + len(_SAMPLE_M_VALUES))
+    collision_frac = float(collision_count) / max(1, max_checks)
+    
+    total_score = (
+        _WEIGHT_HEIGHT * height_score +
+        _WEIGHT_DEG * degree_penalty +
+        _WEIGHT_DISC * disc_score +
+        _WEIGHT_BADPRIME * bad_prime_count +
+        _WEIGHT_COLLISION * collision_frac * 10.0
+    )
+    
+    return float(total_score)
+
+
+@PROFILE
+def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
+                             verbose=False, forced_tangency_seq=None,
+                             forced_Qpoly=None, force_Q_constraint_indices=None,
+                             parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
+    """
+    Modified version: Reduces tangency constraints by 1 to impose a Q-dependence 
+    mixing constraint. Uses linear algebra for solving to avoid Maxima hangs.
+    """
+    random.seed(int(seed_int))
+    xSR = SR.var('x')
+    
+    n = int(fx_SR.degree(xSR))
+    xs_chosen = [QQ(xv) for xv in pts_x]
+    if len(xs_chosen) == 0:
+        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one x-value (x1).")
+    x1 = xs_chosen[0]
+    
+    # Degree drop constraint
+    max_degQ = (n - 1) // 2
+    initial_degQ = choose_degQ(n)
+    degQ = min(initial_degQ, max_degQ)
+    
+    if forced_Qpoly is not None:
+        try:
+            forced_Q_SR = SR(forced_Qpoly)
+            forced_deg = int(forced_Q_SR.degree(xSR))
+        except Exception:
+            try:
+                Rtmp = PolynomialRing(QQ, str(xSR))
+                forced_deg = int(Rtmp(forced_Qpoly).degree())
+            except Exception:
+                raise RuntimeError("Could not determine degree of forced_Qpoly")
+        if forced_deg > max_degQ:
+            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
+        degQ = forced_deg
+    
+    # Build Q polynomial
+    if forced_Qpoly is not None:
+        try:
+            Rqq = PolynomialRing(QQ, str(xSR))
+            Qpoly_QQ = Rqq(forced_Qpoly)
+        except Exception:
+            Qpoly_QQ = SR(forced_Qpoly)
+    else:
+        # Check if we should use anchor points
+        if use_anchor_points:
+            # Generate anchor points
+            num_anchors_needed = NUM_ANCHOR_POINTS
+            
+            # We need degQ+1 total points. We have 1 base point.
+            total_needed = degQ + 1
+            base_pts_count = 1
+            remaining_dof = total_needed - base_pts_count
+            
+            if num_anchors_needed > remaining_dof:
+                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
+            
+            # Generate anchor points
+            base_x_coords = [QQ(xv) for xv in xs_chosen]
+            anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=base_x_coords)
+            
+            if verbose:
+                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
+            
+            # Build base point
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            # If we still need tangency conditions after anchors
+            num_tangency_needed = remaining_dof - num_anchors_needed
+            
+            if num_tangency_needed == 0:
+                # Pure anchor mode: no tangency conditions
+                Qpoly_QQ = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
+            else:
+                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented. Set NUM_ANCHOR_POINTS to use all DOF or 0.")
+        else:
+            # Original tangency-based mode
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+            
+            Qpoly_QQ = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
+                                            seed_int=seed_int,
+                                            force_constraint_indices=force_Q_constraint_indices)
+    
+    import copy
+    Q_SR = copy.deepcopy(SR(Qpoly_QQ))
+    
+    prod1 = poly_prod_numeric(xs_chosen, xSR)
+    deg_prod = int(prod1.degree(xSR))
+    rest_deg = int(n - 1 - deg_prod)
+    
+    if rest_deg < 0:
+        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
+    
+    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
+    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
+    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
+    
+    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
+    diff_poly = (SR(fx_SR) - fibration_SR).expand()
+    
+    if parameter_m is None:
+        m = SR.var('m')
+    else:
+        m = SR(parameter_m)
+    
+    r_expr = SR(QQ(x1)) - m
+    
+    eqs = []
+    # 1. Root condition: f(r) = f0(r)
+    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
+    # 2. Derivative condition at r
+    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
+    
+    unknowns = rest_coeff_syms[:]
+    
+    # We reserve equations based on strategy
+    num_tangency_eqs = len(unknowns) - 2 - 1 if use_anchor_points else len(unknowns) - 2
+    
+    if num_tangency_eqs < 0 or not use_anchor_points:
+        if use_anchor_points:
+            print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
+        num_tangency_eqs = len(unknowns) - 2
+        use_mixing = False
+    else:
+        use_mixing = True
+
+    assert use_mixing == use_anchor_points, use_mixing
+
+    tangency_counts = {QQ(xi): 0 for xi in xs_chosen}
+    
+    # Select tangency points
+    sel_points = []
+    if num_tangency_eqs > 0:
+        if forced_tangency_seq is not None:
+            if len(forced_tangency_seq) >= num_tangency_eqs:
+                sel_points = [QQ(xv) for xv in forced_tangency_seq[:num_tangency_eqs]]
+            else:
+                 raise RuntimeError("forced_tangency_seq too short for requested tangency count")
+        else:
+            sel_points = [QQ(random.choice(xs_chosen)) for _ in range(num_tangency_eqs)]
+
+    # Add tangency equations
+    for xv in sel_points:
+        tangency_counts[QQ(xv)] += 1
+        current_order = tangency_counts[QQ(xv)]
+        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
+        eqs.append(eq_t)
+    
+    # Add Q-Mixing Constraint
+    if use_mixing:
+        x_mix_num = 2 * int(QQ(x1).numerator()) + 3
+        x_mix_den = QQ(x1).denominator()
+        while x_mix_den % 2 == 0:
+            x_mix_den //= 2
+        x_mix_den = 2
+        x_mix = QQ(x_mix_num) / QQ(x_mix_den)
+
+        val_Q = Q_SR.subs({xSR: x_mix})
+        val_R = rest_poly_SR.subs({xSR: x_mix})
+        eq_mix = (val_R - val_Q).expand()
+        eqs.append(eq_mix)
+
+    if len(eqs) != len(unknowns):
+        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
+    
+    # --- REPLACEMENT: Linear Algebra Solver instead of Maxima ---
+    # The system is linear in `unknowns`.
+    # Convert to Ax=b and solve using matrix(SR).
+    
+    from sage.matrix.constructor import matrix
+    
+    # 0. Prepare RHS (constant terms) and Matrix rows
+    # Since equations are linear, eq = c0*b0 + c1*b1 + ... + const
+    # const = eq.subs({all_unknowns: 0})
+    # coeff_i = eq.coefficient(bi)
+    
+    zero_sub = {u: 0 for u in unknowns}
+    rhs_vec = []
+    rows = []
+    
+    for eq in eqs:
+        # constant term is eq evaluated at all unknowns=0
+        c_term = eq.subs(zero_sub)
+        rhs_vec.append(-c_term) # Move constant to RHS
+        
+        row = []
+        for u in unknowns:
+            # Efficiently extract coefficient in SR
+            row.append(eq.coefficient(u))
+        rows.append(row)
+
+    try:
+        M = matrix(SR, rows)
+        b_vec = vector(SR, rhs_vec)
+        sol_vec = M.solve_right(b_vec)
+        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
+    except Exception as e:
+        # Fallback to symbolic solve only if linear algebra fails (e.g. singular matrix)
+        if verbose:
+            print(f"Linear solve failed ({e}), falling back to symbolic solve.")
+        sols = solve(eqs, unknowns, solution_dict=True)
+        sol = require_single_solution(sols, "solving for rest polynomial coefficients")
+    # -----------------------------------------------------------
+    
+    solved_map = {}
+    contains_symbolic = False
+    for symb in unknowns:
+        val_SR = SR(sol[symb])
+        solved_map[symb] = val_SR
+        try:
+            _ = QQ(val_SR)
+        except Exception:
+            contains_symbolic = True
+    
+    rest_poly_QQ = None
+    rest_poly_SR_solved = None
+    if not contains_symbolic:
+        Rqq = PolynomialRing(QQ, str(xSR))
+        coeffs_q = [QQ(solved_map[s]) for s in rest_coeff_syms]
+        rest_poly_QQ = Rqq(coeffs_q)
+        rest_poly_SR_solved = sum(SR(coeffs_q[i]) * xSR**i for i in range(len(coeffs_q)))
+    else:
+        rest_poly_SR_solved = sum(solved_map[rest_coeff_syms[i]] * xSR**i for i in range(len(rest_coeff_syms)))
+        rest_poly_QQ = None
+    
+    Q_SR = SR(Q_SR)
+    prod_SR = SR(prod1)
+    
+    Q_SR_symbolic = SR(Q_SR)
+    prod_SR_symbolic = SR(prod_SR) 
+    rest_SR_symbolic = SR(rest_poly_SR_solved)
+
+    fibration_solved_SR = (Q_SR_symbolic**2).expand() + (prod_SR_symbolic * rest_SR_symbolic).expand()
+    fibration_solved_SR = SR(fibration_solved_SR).expand()
+
+    # Extract all denominators from coefficients
+    PR_m = PolynomialRing(QQ, 'm')
+    Fm = PR_m.fraction_field()
+    m_poly = PR_m.gen()
+
+    coeffs_in_x = [fibration_solved_SR.coefficient(xSR, i) for i in range(n)]
+    all_denoms = []
+
+    for c in coeffs_in_x:
+        try:
+            c_poly = Fm(c)
+            for coef in c_poly.list():
+                if coef != 0:
+                    all_denoms.append(QQ(coef).denominator())
+        except:
+            pass
+
+    if all_denoms:
+        from sage.arith.misc import lcm as sage_lcm
+        denom_lcm = sage_lcm(all_denoms)
+        fibration_solved_SR = (fibration_solved_SR * denom_lcm).expand()
+        if verbose:
+            print(f"[denom_clear] Cleared denominators by multiplying by {denom_lcm}")
+
+    test_r = r_expr.subs({m: 0})
+    lhs = SR(fibration_solved_SR).subs({xSR: test_r, m: 0})
+    rhs = SR(fx_SR).subs({xSR: test_r})
+    diff_check = (lhs - rhs).expand()
+    assert diff_check.simplify() == 0, f"Rail consistency violated at m=0: diff = {diff_check}"
+
+    try:
+        deg_fib = int(fibration_solved_SR.degree(xSR))
+    except Exception:
+        deg_fib = None
+    
+    target_deg = n - 1
+    if deg_fib is None or deg_fib != target_deg:
+        diag = []
+        diag.append(f"expected fibration degree {target_deg}, got {deg_fib}")
+        try:
+            deg_Q2 = int((Q_SR**2).degree(xSR))
+            diag.append(f"deg(Q^2) = {deg_Q2}")
+        except Exception:
+            diag.append("deg(Q^2) unknown")
+        try:
+            deg_prodrest = int((prod_SR * rest_poly_SR_solved).degree(xSR))
+            diag.append(f"deg(prod*rest) = {deg_prodrest}")
+        except Exception:
+            diag.append("deg(prod*rest) unknown")
+        diag_msg = "; ".join(diag)
+        raise RuntimeError("Degree drop failed: " + diag_msg)
+    
+    return {
+        'f_i': SR(fibration_solved_SR),
+        'Q_i': Qpoly_QQ,
+        'Q_QQ': Qpoly_QQ if isinstance(Qpoly_QQ, type(PolynomialRing(QQ, 'x')(0))) else Q_SR,
+        'r_expr': SR(r_expr),
+        'rest_poly_SR': SR(rest_poly_SR_solved),
+        'rest_poly_QQ': rest_poly_QQ,
+        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
+    }
