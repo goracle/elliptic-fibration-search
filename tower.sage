@@ -1110,7 +1110,7 @@ def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
     #allowed_denoms = PRIME_POOL[3:]
     allowed_denoms = [2, 4, 8, 16, 32]
 
-    max_attempts = 500
+    max_attempts = 100
     attempts = 0
     
     while len(anchor_pts) < num_points and attempts < max_attempts:
@@ -1183,7 +1183,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
     # --- CONFIG: STABILITY SETTINGS ---
     # Number of random geometries to try per step. 
     # Higher = more stable capacity, slightly slower build.
-    CANDIDATES_PER_STEP = 10
+    CANDIDATES_PER_STEP = 40
     # ----------------------------------
 
     for step in range(max_steps):
@@ -1383,11 +1383,9 @@ def measure_poly_complexity(expr_sr):
                             val_sr = c_expr
                         
                         val_qq = QQ(val_sr)
-                        val_gf = GF(p)(val_qq)
-                        
-                        if val_gf != 0:
-                            poly_dict[int(expon)] = val_gf
-                    
+                        if Integer(val_qq.numerator()) % p != 0:
+                            poly_dict[int(expon)] = GF(p)(val_qq)
+
                     if poly_dict:
                         R_p = PolynomialRing(GF(p), 'x')
                         poly_x = R_p(poly_dict)
@@ -1396,11 +1394,12 @@ def measure_poly_complexity(expr_sr):
                             if poly_x.gcd(poly_x.derivative()).degree() > 0:
                                 collision_detected = True
             
+
             except (ZeroDivisionError, ValueError, TypeError):
                 # Denominator issue -> bad prime
                 collision_detected = True
             except Exception:
-                pass
+                raise
             
             if collision_detected:
                 collision_count += 1
@@ -1423,6 +1422,8 @@ def measure_poly_complexity(expr_sr):
     
     # 0. Prepare RHS (constant terms) and Matrix rows
     # Since equations are linear, eq = c0*
+
+from sage.rings.rational_field import QQ
 
 
 @PROFILE
@@ -1550,9 +1551,9 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     
     eqs = []
     # 1. Root condition: f(r) = f0(r)
-    eqs.append(diff_poly.subs({xSR: r_expr}).expand())
+    eqs.append(diff_poly.subs({xSR: r_expr}))
     # 2. Derivative condition at r
-    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}).expand())
+    eqs.append(diff(diff_poly, xSR).subs({xSR: r_expr}))
     
     unknowns = rest_coeff_syms[:]
     
@@ -1634,17 +1635,51 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
 
 
     # ... inside build_one_fibration_step ...
-    
+
+    # Define Fraction Field for m to solve system exactly and quickly
+
+    # We need to detect the variable name used for m
+    m_name = 'm'
+    if parameter_m is not None:
+        m_name = str(parameter_m)
+
+    R_m = PolynomialRing(QQ, m_name)
+    Fm = R_m.fraction_field()
+
+    # Helper to coerce SR expression to Fm
+    def to_Fm(expr):
+        try:
+            return Fm(expr) 
+        except:
+            # Fallback: conversion via numerator/denominator polynomials
+            try:
+                # This handles cases where direct conversion fails but it is rational
+                ex_sr = SR(expr)
+                numer = ex_sr.numerator()
+                denom = ex_sr.denominator()
+                return R_m(SR(numer)) / R_m(SR(denom))
+            except Exception:
+                raise ValueError(f"Cannot coerce {expr} to Fm")
+
+    # STRATEGY: Solve over FractionField(QQ['m']) - Fast & Exact
+    # We skip trying QQ because we know 'm' is involved in the equations (via r_expr).
     try:
-        # OPTIMIZATION: Try to coerce to QQ immediately. 
-        # The system should be rational.
-        M_QQ = matrix(QQ, [[QQ(c) for c in row] for row in rows])
-        b_vec_QQ = vector(QQ, [QQ(x) for x in rhs_vec])
-        sol_vec = M_QQ.solve_right(b_vec_QQ)
+        rows_Fm = []
+        rhs_Fm = []
+        for r_idx, row in enumerate(rows):
+            rows_Fm.append([to_Fm(c) for c in row])
+            rhs_Fm.append(to_Fm(rhs_vec[r_idx]))
+
+        M_Fm = matrix(Fm, rows_Fm)
+        b_vec_Fm = vector(Fm, rhs_Fm)
+
+        # This solve is fast (Gaussian elimination on rational functions)
+        sol_vec = M_Fm.solve_right(b_vec_Fm)
         sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
-    except (TypeError, ValueError):
-        # Fallback to SR only if coercion fails (rare)
-        if verbose: print("Matrix QQ coercion failed, using SR...")
+
+    except Exception as e:
+        # Fallback to SR (Slow, Maxima) only if Fm fails (e.g. sqrt(2) in coeffs)
+        if verbose: print(f"Matrix QQ(m) solve failed ({e}), falling back to SR (slow)...")
         M = matrix(SR, rows)
         b_vec = vector(SR, rhs_vec)
         sol_vec = M.solve_right(b_vec)
@@ -1747,74 +1782,258 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
 
 
 
-@PROFILE
+from sage.all import Integer, PolynomialRing, GF, inverse_mod, ZZ
+
 def measure_poly_complexity(expr_sr):
     """
-    Optimized scoring: Fast heuristic that avoids heavy symbolic substitution.
-    Prioritizes low height and low degree.
+    Improved scoring: lower is better. Raises exceptions on unexpected failure.
+    Input: expr_sr is an SR polynomial-like object representing f_i(x,m).
+    This version avoids heavy QQ(...) conversions in the inner loops and
+    reuses per-prime rings. If a coefficient cannot be cheaply reduced to
+    numerator/denominator integers we treat that (p,m) check as failing
+    (counts as a bad prime / collision as configured).
     """
     if expr_sr is None:
         raise ValueError("measure_poly_complexity: expr_sr is None")
-    
+
     fx_sr = SR(expr_sr)
     x_var = SR.var('x')
-    
-    # 1. Coefficient Extraction (Safe)
+
+    # 1. Coefficient extraction (best-effort, fall back to whole expr)
     try:
-        raw_coeffs = fx_sr.coefficients(x_var)
-        coeffs = [c[0] for c in raw_coeffs]
-    except Exception:
-        coeffs = [fx_sr]
+        raw_coeffs = fx_sr.coefficients(x_var)  # list of (coeff_expr, exponent)
+    except Exception as e:
+        # If coefficient extraction itself fails, escalate (this should be rare).
+        raise RuntimeError(f"Failed to extract coefficients: {e}")
 
-    # 2. Height Score (The most important metric)
-    height_score = 0.0
-    for c in coeffs:
+    if not raw_coeffs:
+        # treat as constant
+        raw_coeffs = [(fx_sr, 0)]
+
+    # Helper: cheap conversion of a coefficient expression (after m-substitution)
+    def _cheap_num_den_from_sr(val_sr):
+        """
+        Try to obtain (num, den) as plain Python ints from val_sr without triggering
+        heavy symbolic evaluation. Returns (num, den) or raises ValueError if not possible.
+        """
+        # Fast path: already a Sage Integer or Python int
+        if isinstance(val_sr, Integer) or isinstance(val_sr, int):
+            return int(val_sr), 1
+
+        # Some SR results expose numerator()/denominator() cheaply
         try:
-            # Fast QQ conversion
-            q = QQ(c)
-            h = max(abs(int(q.numerator())), abs(int(q.denominator())))
-            height_score += _int_log(h + 1)
-        except (TypeError, ValueError):
-            # If symbolic, assume it's complex (e.g. has 'm')
-            # Estimate complexity by string length (faster than tree traversal)
-            try:
-                s = str(c)
-                height_score += 1.0 + 0.05 * len(s)
-            except:
-                height_score += 5.0 # Penalty
+            num_obj = val_sr.numerator()
+            den_obj = val_sr.denominator()
+            # if these are Sage ints or Python ints, convert without QQ()
+            if (isinstance(num_obj, Integer) or isinstance(num_obj, int)) and \
+               (isinstance(den_obj, Integer) or isinstance(den_obj, int)):
+                return int(num_obj), int(den_obj)
+        except Exception:
+            # numerator/denominator might call Maxima for complicated SR; bail out
+            raise ValueError("Cannot cheaply extract numerator/denominator")
 
-    # 3. Degree Score (Fast metadata lookup)
-    deg_penalty = 0
-    try:
-        # Heuristic: We want low degree in m.
-        # Convert to polynomial ring over SR to get degree quickly if possible
-        if hasattr(fx_sr, 'degree'):
-            m_var = SR.var('m')
-            deg_m = int(fx_sr.degree(m_var))
-            deg_penalty = deg_m * 2.0
-    except:
-        pass
-
-    # 4. Bad Prime Score (Only check denominators, skip collision simulation)
-    bad_prime_count = 0
-    for c in coeffs:
+        # Last-chance cheap rationalization: some SR objects support .is_rational() -> then cast
         try:
-            q = QQ(c)
-            denom = int(q.denominator())
-            for p in _SMALL_PRIMES:
-                if denom % p == 0:
-                    bad_prime_count += 1
-                    # Don't break; punish multiple bad primes
-        except:
+            # do not use QQ(val_sr) here (heavy). Instead try int() promotion if it is exact
+            if hasattr(val_sr, 'is_integer') and val_sr.is_integer():
+                return int(val_sr), 1
+        except Exception:
             pass
 
-    # Total Score
-    # We removed the expensive collision check loop. 
-    # Height and bad primes are usually good proxies for bad geometry anyway.
+        raise ValueError("Cannot cheaply extract numerator/denominator (fallback)")
+
+    # Helper: produce modular integer 0..p-1 for a coefficient after substituting m
+    def _coeff_mod_p(c_expr, m_var, mval, p):
+        """
+        Return integer in [0, p-1] representing c_expr(m:=mval) mod p.
+        If the denominator is divisible by p (bad prime), raise ZeroDivisionError.
+        If coefficient cannot be cheaply reduced, raise ValueError.
+        """
+        # Substitute m value if present; keep this substitution minimal
+        if m_var is not None:
+            try:
+                val_sr = c_expr.subs({m_var: Integer(mval)})
+            except Exception:
+                # heavy substitution triggered; treat as non-evaluable cheaply
+                raise ValueError("Substitution too heavy")
+        else:
+            val_sr = c_expr
+
+        # Try to get numerator/denominator without QQ(...)
+        num, den = _cheap_num_den_from_sr(val_sr)
+
+        den_mod_p = int(den) % p
+        if den_mod_p == 0:
+            # denominator zero mod p => bad prime for this coefficient
+            raise ZeroDivisionError("denominator divisible by p")
+
+        # compute modular integer without constructing GF(p) element
+        inv = inverse_mod(den_mod_p, p)
+        val_mod = (int(num) % p) * inv % p
+        return int(val_mod)
+
+    # 1. Height score (keeps your original heuristic but cheaper on symbolic coeffs)
+    height_score = 0.0
+    for c_expr, _ in raw_coeffs:
+        try:
+            # cheap numeric check first
+            if isinstance(c_expr, (Integer, int)):
+                h = abs(int(c_expr))
+                height_score += _int_log(h + 1)
+                continue
+            # try to extract numerator/denominator cheaply
+            num, den = _cheap_num_den_from_sr(c_expr)
+            h = max(abs(int(num)), abs(int(den)))
+            height_score += _int_log(h + 1)
+        except ValueError:
+            # symbolic / complex coefficient: use operand count proxy
+            try:
+                n = c_expr.nops()
+            except Exception:
+                n = 1
+            height_score += 1.0 + 0.1 * n
+        except Exception as e:
+            # unexpected problem: escalate
+            raise RuntimeError(f"Unexpected error when computing height score: {e}")
+
+    # 2. Degree info
+    try:
+        vars_list = fx_sr.variables()
+        m_var = None
+        for v in vars_list:
+            if str(v) == 'm':
+                m_var = v
+                break
+
+        try:
+            deg_x = int(fx_sr.degree(x_var))
+        except Exception:
+            deg_x = 0
+
+        if m_var is not None:
+            try:
+                deg_m = int(fx_sr.degree(m_var))
+            except Exception:
+                deg_m = 0
+        else:
+            deg_m = 0
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract degree info: {e}")
+
+    degree_penalty = _int_log(1 + deg_x) * 0.7 + _int_log(1 + deg_m) * 0.5
+
+    # 3. Discriminant / size proxy (cheap)
+    try:
+        disc_score = 0.1 * fx_sr.nops()
+    except Exception:
+        disc_score = 1.0
+
+    # 4. Bad prime / collision checks (optimized)
+    bad_prime_count = 0
+    collision_count = 0
+
+    # Pre-generate m samples once
+    sample_m_list = list(_SAMPLE_M_VALUES) + [random.randint(-17, 17) for _ in range(_NUM_RANDOM_M)]
+
+    # Cache PolynomialRing per p
+    ring_cache = {}
+
+    # For each small prime -- try a limited number of (m) checks; cheap-fail if coefficients cannot be reduced
+    for p in _SMALL_PRIMES:
+        try:
+            if p not in ring_cache:
+                GFp = GF(p)
+                R_p = PolynomialRing(GFp, 'x')
+                ring_cache[p] = (GFp, R_p)
+            else:
+                GFp, R_p = ring_cache[p]
+        except Exception as e:
+            # If a prime fails to build (shouldn't happen), count as bad and continue
+            bad_prime_count += 1
+            continue
+
+        p_bad = False
+        collision_for_this_p = False
+
+        # For each sampled m value, try to build fast integer-list coefficients mod p
+        for mval in sample_m_list:
+            # Build dense coefficient list as integers modulo p (fast Python ints)
+            try:
+                # determine maximum exponent to allocate list
+                max_expon = max(int(exp) for (_, exp) in raw_coeffs)
+            except Exception:
+                max_expon = 0
+
+            # initialize dense list of zeros
+            coeffs_modp = [0] * (max_expon + 1)
+            any_nonzero = False
+
+            try:
+                for c_expr, expon in raw_coeffs:
+                    try:
+                        val_mod = _coeff_mod_p(c_expr, m_var, mval, p)
+                    except ZeroDivisionError:
+                        # denominator divisible by p => prime is bad for this polynomial
+                        p_bad = True
+                        break
+                    except ValueError:
+                        # this coefficient couldn't be cheaply reduced -> treat this (p,m) check as uninterpretable
+                        # Mark prime as bad-ish and break (cheap fallback). This avoids heavy QQ calls.
+                        p_bad = True
+                        break
+
+                    if val_mod != 0:
+                        any_nonzero = True
+                        coeffs_modp[int(expon)] = int(val_mod)
+
+                if p_bad:
+                    break  # stop m-loop for this prime
+
+                if not any_nonzero:
+                    # zero polynomial mod p for this mval -> treat as collision/bad
+                    collision_for_this_p = True
+                    break
+
+                # Construct polynomial in GF(p) ring (we pass list of coefficients)
+                poly_x = R_p(coeffs_modp)
+
+                # If polynomial degree 0 or negative, skip
+                if poly_x.degree() <= 0:
+                    # no nontrivial polynomial -> treat as no collision for this mval and continue
+                    continue
+
+                # gcd with derivative: use ring's gcd (cheap)
+                try:
+                    gcd_poly = poly_x.gcd(poly_x.derivative())
+                    if gcd_poly.degree() > 0:
+                        collision_for_this_p = True
+                        break
+                except Exception as e:
+                    # if gcd computation fails unexpectedly, mark prime as bad and continue
+                    p_bad = True
+                    break
+
+            except Exception as e:
+                # Any unexpected problem in inner loop: escalate
+                raise RuntimeError(f"Unexpected error during collision check for p={p}, m={mval}: {e}")
+
+        if p_bad:
+            bad_prime_count += 1
+            continue
+
+        if collision_for_this_p:
+            collision_count += 1
+            # continue to next prime
+
+    max_checks = len(_SMALL_PRIMES) * max(1, len(sample_m_list))
+    collision_frac = float(collision_count) / max(1, max_checks)
+
     total_score = (
-        1.0 * height_score +
-        0.5 * deg_penalty +
-        3.0 * bad_prime_count 
+        _WEIGHT_HEIGHT * height_score +
+        _WEIGHT_DEG * degree_penalty +
+        _WEIGHT_DISC * disc_score +
+        _WEIGHT_BADPRIME * bad_prime_count +
+        _WEIGHT_COLLISION * collision_frac * 10.0
     )
-    
+
     return float(total_score)

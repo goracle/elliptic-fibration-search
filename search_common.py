@@ -345,10 +345,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
 
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
 # prestige curve lol
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
@@ -359,6 +355,10 @@ db_entry = '9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 5
+
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
 
 
 ##### END TEST CURVES ######
@@ -374,7 +374,7 @@ HEIGHT_BOUND = 3*370 # not that important, mostly, it seems
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(120))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(120))[2:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
 MAX_MODULUS = 10**9 # idk
