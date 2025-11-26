@@ -11,7 +11,7 @@ found 1 / 11
 ========================================================
 
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
-  [Step 1] Selected best geometry (Score=16.0)
+  [Step 1] Selected best geometry (Score=15.5)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
   [Step 2] Selected best geometry (Score=14.8)
 --- Building 2 Step Fibration Tower (deg 6 -> 4 (-> 3)) ---
@@ -28,44 +28,44 @@ Using 2 anchor points per fibration
 ======================================================================
 
 ======================================================================
-Building Fibration 1/4 (seed=-445123)
+Building Fibration 1/4 (seed=982652)
 ======================================================================
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
   [Step 1] Selected best geometry (Score=24.7)
---- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
-  [Step 2] Selected best geometry (Score=22.9)
-DEBUG appended tower id: 125057755675264 seed: -445123
-DEBUG last step Q_i repr: 29/714*x^2 + 89/476*x + 1637/1428
-
-======================================================================
-Building Fibration 2/4 (seed=-445122)
-======================================================================
---- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
-  [Step 1] Selected best geometry (Score=24.2)
---- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
-  [Step 2] Selected best geometry (Score=22.9)
-DEBUG appended tower id: 125057568366976 seed: -445122
-DEBUG last step Q_i repr: -368/55*x^2 - 50/11*x + 173/55
-
-======================================================================
-Building Fibration 3/4 (seed=-445121)
-======================================================================
---- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
-  [Step 1] Selected best geometry (Score=24.7)
---- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
-  [Step 2] Selected best geometry (Score=22.9)
-DEBUG appended tower id: 125057568363712 seed: -445121
-DEBUG last step Q_i repr: -96*x^2 - 148*x - 51
-
-======================================================================
-Building Fibration 4/4 (seed=-445120)
-======================================================================
---- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
-  [Step 1] Selected best geometry (Score=24.2)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
   [Step 2] Selected best geometry (Score=23.4)
-DEBUG appended tower id: 125057696608512 seed: -445120
-DEBUG last step Q_i repr: -58/15*x^2 - 5*x - 2/15
+DEBUG appended tower id: 126313752294784 seed: 982652
+DEBUG last step Q_i repr: 3328/189*x^2 + 440/21*x + 821/189
+
+======================================================================
+Building Fibration 2/4 (seed=982653)
+======================================================================
+--- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
+  [Step 1] Selected best geometry (Score=24.7)
+--- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
+  [Step 2] Selected best geometry (Score=22.9)
+DEBUG appended tower id: 126313875077184 seed: 982653
+DEBUG last step Q_i repr: 392/627*x^2 - 1600/627*x - 455/209
+
+======================================================================
+Building Fibration 3/4 (seed=982654)
+======================================================================
+--- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
+  [Step 1] Selected best geometry (Score=24.7)
+--- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
+  [Step 2] Selected best geometry (Score=23.4)
+DEBUG appended tower id: 126313815298432 seed: 982654
+DEBUG last step Q_i repr: -512/275*x^2 - 1372/275*x - 117/55
+
+======================================================================
+Building Fibration 4/4 (seed=982655)
+======================================================================
+--- Tower Step 1: Building fibration for degree 6 curve (Best-of-50) ---
+  [Step 1] Selected best geometry (Score=24.7)
+--- Tower Step 2: Building fibration for degree 5 curve (Best-of-50) ---
+  [Step 2] Selected best geometry (Score=22.9)
+DEBUG appended tower id: 126313752635584 seed: 982655
+DEBUG last step Q_i repr: 46*x^2 + 74*x + 29
 r_m -m - 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -99,8 +99,8 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 
 === Auto-configuring search parameters for this fibration ===
 [auto_cfg] Building height estimation from 1 known x-coords.
-[auto_cfg] starting prime pool size: 24 (Heavy analysis: True)
-[bounds] Starting with prime pool size: 24
+[auto_cfg] starting prime pool size: 30 (Heavy analysis: True)
+[bounds] Starting with prime pool size: 30
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
 [bounds] mod 3 factorization: [1, 1, 3] -> pattern (1, 1, 3)
@@ -126,10 +126,16 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [bounds] mod 79 factorization: [3, 9] -> pattern (3, 9)
 [bounds] mod 83 factorization: [2, 10] -> pattern (2, 10)
 [bounds] mod 89 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
-[bounds] Unique patterns from 23 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
-[bounds] Estimated splitting field degree: 2520
+[bounds] mod 97 factorization: [1, 2, 8] -> pattern (1, 2, 8)
+[bounds] mod 101 factorization: [1, 1, 1, 2, 7] -> pattern (1, 1, 1, 2, 7)
+[bounds] mod 103 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 107 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 109 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 113 factorization: [2, 4, 6] -> pattern (2, 4, 6)
+[bounds] Unique patterns from 29 primes: [(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 1, 10), (1, 2, 3, 5), (1, 2, 8), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (1, 11), (2, 4, 6), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
+[bounds] Estimated splitting field degree: 27720
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 23}
+DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 1, 10), (1, 2, 3, 5), (1, 2, 8), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (1, 11), (2, 4, 6), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 29}
 
 [bounds] Diagnostics: {'discriminant': 73615519716626917783353189507988973474904803477750353152977660754149811621585377980627300970434904710958086560085440049933447636878465833727442582241280, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
@@ -138,15 +144,15 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.13s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 24 primes -> avg_roots=1.083, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
+[galois] poly.galois_group() took 0.15s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 30 primes -> avg_roots=1.033, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
-[empirical_pool] start pool size=24, avg_survivors≈6.79e-07, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈6.79e-07
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0333333333333334}
+[empirical_pool] start pool size=30, avg_survivors≈1.15e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 30, final_avg_survivors≈1.15e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
+[adaptive_subsets] zero_ratio=0.23, avg_density=0.0672 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
 [adaptive_subsets] Height scale factor (sqrt): 2.17
 [adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
@@ -154,17 +160,17 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 
 [auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
   HEIGHT_BOUND: 473
-  Prime pool: 24 -> 24
+  Prime pool: 30 -> 30
 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
-  PRIME_POOL size: 24
+  NUM_PRIME_SUBSETS: 1081
+  PRIME_POOL size: 30
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1081, PRIME_POOL size=30, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
-[bounds] Starting with prime pool size: 24
+[bounds] Starting with prime pool size: 30
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
 [bounds] mod 3 factorization: [1, 1, 3] -> pattern (1, 1, 3)
@@ -190,15 +196,21 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [bounds] mod 79 factorization: [3, 9] -> pattern (3, 9)
 [bounds] mod 83 factorization: [2, 10] -> pattern (2, 10)
 [bounds] mod 89 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
-[bounds] Unique patterns from 23 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
-[bounds] Estimated splitting field degree: 2520
+[bounds] mod 97 factorization: [1, 2, 8] -> pattern (1, 2, 8)
+[bounds] mod 101 factorization: [1, 1, 1, 2, 7] -> pattern (1, 1, 1, 2, 7)
+[bounds] mod 103 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 107 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 109 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] mod 113 factorization: [2, 4, 6] -> pattern (2, 4, 6)
+[bounds] Unique patterns from 29 primes: [(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 1, 10), (1, 2, 3, 5), (1, 2, 8), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (1, 11), (2, 4, 6), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
+[bounds] Estimated splitting field degree: 27720
 
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 23}
+DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 1, 10), (1, 2, 3, 5), (1, 2, 8), (1, 2, 9), (1, 3, 8), (1, 4, 7), (1, 9), (1, 10), (1, 11), (2, 4, 6), (2, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 29}
 
 [bounds] Diagnostics: {'discriminant': 73615519716626917783353189507988973474904803477750353152977660754149811621585377980627300970434904710958086560085440049933447636878465833727442582241280, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
 [bounds] is_good_prime_for_surface rejected 3
-[prime_pool] Final pool has 22 primes up to 89
+[prime_pool] Final pool has 28 primes up to 113
 DEBUG: roots (SR) repr/type samples:
   root[0] = -m - 1
   root[1] = -m - 1
@@ -226,6 +238,9 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
   ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
 --------------------------
 =========================
+FIBERS:
+{'r': 'm^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^8 - 436/3*m^7 - 17794/27*m^6 + 151580/27*m^5 - 120238/27*m^4 - 104188/3*m^3 + 2260/9*m^2 + 1249408/27*m + 423755/27', 'factor': m^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^8 - 436/3*m^7 - 17794/27*m^6 + 151580/27*m^5 - 120238/27*m^4 - 104188/3*m^3 + 2260/9*m^2 + 1249408/27*m + 423755/27, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 12, 'm_v': 1, 'contribution': 0, 'e_contrib': 12}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -3, 'v_c6': -6, 'v_D': -12, 't': -1, 'v4_min': 1, 'v6_min': 0, 'vD_min': 0, 'symbol': 'I0', 'type': 'additive', 'n': 0, 'degree': 1, 'm_v': 1, 'contribution': 0, 'e_contrib': 0}
 
 --- Searching for CM Fibers ---
 
@@ -292,8 +307,8 @@ Searching 15 vectors up to height 473...
 PRECOMPUTING RESIDUES FOR 5 FIBRATIONS
 ======================================================================
 
---- Fibration 1/5 (seed=-446123) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-446123, id=-1)...
+--- Fibration 1/5 (seed=981652) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=981652, id=-1)...
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
@@ -328,10 +343,10 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 24 primes -> avg_roots=1.083, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
+[galois/empirical] Tested 30 primes -> avg_roots=1.033, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0333333333333334}
   [analyze_fibration] Configured with H_bound=473
 
 --- DEBUGGING POINT CONSTRUCTION ---
@@ -359,6 +374,14 @@ Sections are independent.
 [2]
 height bound: 473
   [analyze_fibration] Found 15 search vectors (H=473).
+FIBERS:
+{'r': 'm^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^8 - 436/3*m^7 - 17794/27*m^6 + 151580/27*m^5 - 120238/27*m^4 - 104188/3*m^3 + 2260/9*m^2 + 1249408/27*m + 423755/27', 'factor': m^12 - 4*m^11 + 6*m^10 - 56*m^9 + 125*m^8 - 436/3*m^7 - 17794/27*m^6 + 151580/27*m^5 - 120238/27*m^4 - 104188/3*m^3 + 2260/9*m^2 + 1249408/27*m + 423755/27, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 12, 'm_v': 1, 'contribution': 0, 'e_contrib': 12}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -3, 'v_c6': -6, 'v_D': -12, 't': -1, 'v4_min': 1, 'v6_min': 0, 'vD_min': 0, 'symbol': 'I0', 'type': 'additive', 'n': 0, 'degree': 1, 'm_v': 1, 'contribution': 0, 'e_contrib': 0}
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: set()
 Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
 ⚠️  Fiber collision detected at p=13: gcd degree 3
@@ -371,28 +394,28 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=3: a4_denom_divisible
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
-  Computed residues for 20 primes
+  Computed residues for 26 primes
 
---- Fibration 2/5 (seed=-445123) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-445123, id=0)...
+--- Fibration 2/5 (seed=982652) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=982652, id=0)...
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
 --- Identifying Globally Bad Primes ---
 Identified 2 globally bad prime(s) from the pool: [2, 3]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 21961/192*m^20 - 5859/16*m^19 + 21923/192*m^18 + 4403263/1728*m^17 + 6121699/1152*m^16 + 2118839/576*m^15 - 640363969/46656*m^14 - 3361243405/46656*m^13 - 20047098769/186624*m^12 + 7672722353/46656*m^11 + 168835786541/279936*m^10 - 29765081227/69984*m^9 - 233864814521/62208*m^8 - 267407429525/69984*m^7 + 75605522699/8748*m^6 + 729320071049/23328*m^5 + 12796855390961/279936*m^4 + 76025229089/1944*m^3 + 952313674147/46656*m^2 + 47132568197/7776*m + 16365347647/20736] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 13524955/46656*m^20 - 6541507/3888*m^19 - 3402115/11664*m^18 + 1765194857903/51018336*m^17 + 20713430116025/136048896*m^16 - 2425950057739/68024448*m^15 - 1431820963855306675/669462604992*m^14 - 145971475091926613/20920706406*m^13 + 10230066982065106559/2677850419968*m^12 + 11445938274420992135/167365651248*m^11 + 305932021426893417987817/1952152956156672*m^10 - 17489814398142400125259/244019119519584*m^9 - 560654958752329146897497/650717652052224*m^8 - 1384516646554441137941957/976076478078336*m^7 - 3040086219773022951047671/1952152956156672*m^6 - 187495529240360371517657/162679413013056*m^5 + 1141518335148622555565293/1952152956156672*m^4 + 295916010074183936509/223154201664*m^3 + 404103849720334863989/1338925209984*m^2 - 53176685768910621605/223154201664*m - 25395193484521607675/297538935552] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
 >>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 >>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 21961/1      1      0      0      1      1        0        0        1      23 x I1
+m^23 + 31/4*m^22 + 91/16*m^21 - 1352495      1      0      0      1      1        0        0        1      23 x I1
 m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
 Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
 
 Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 21961/19 (deg 23) contrib=0
+  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 13524955 (deg 23) contrib=0
   I4 at -3/2 (deg 1) contrib=3
   I3* at inf (deg 1) contrib=8
 
@@ -402,7 +425,7 @@ Sum of fiber contributions (Σ(m_v - 1)): 11
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 790596*m^20 - 2531088*m^19 + 789228*m^18 + 17613052*m^17 + 36730194*m^16 + 25426068*m^15 - 2561455876/27*m^14 - 13444973620/27*m^13 - 20047098769/27*m^12 + 30690889412/27*m^11 + 337671573082/81*m^10 - 238120649816/81*m^9 - 233864814521/9*m^8 - 2139259436200/81*m^7 + 4838753452736/81*m^6 + 5834560568392/27*m^5 + 25593710781922/81*m^4 + 2432807330848/9*m^3 + 3809254696588/27*m^2 + 377060545576/9*m + 16365347647/3)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
+Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 54099820/27*m^20 - 104664112/9*m^19 - 54433840/27*m^18 + 14121558863224/59049*m^17 + 20713430116025/19683*m^16 - 4851900115478/19683*m^15 - 5727283855421226700/387420489*m^14 - 18684348811766606464/387420489*m^13 + 10230066982065106559/387420489*m^12 + 183135012390735874160/387420489*m^11 + 305932021426893417987817/282429536481*m^10 - 139918515185139201002072/282429536481*m^9 - 560654958752329146897497/94143178827*m^8 - 2769033293108882275883914/282429536481*m^7 - 3040086219773022951047671/282429536481*m^6 - 749982116961441486070628/94143178827*m^5 + 1141518335148622555565293/282429536481*m^4 + 1183664040296735746036/129140163*m^3 + 808207699440669727978/387420489*m^2 - 212706743075642486420/129140163*m - 25395193484521607675/43046721)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
   Effective Discriminant Degree: 15
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 15, not 12.
@@ -414,29 +437,29 @@ Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 790596*m^20 - 2531088*m^19 + 78922
 [residue_counts] Using split_poly degree=23
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 24 primes -> avg_roots=1.042, patterns_sample=[(1, 1, 1, 1, 2, 5, 6), (1, 1, 1, 1, 19), (1, 1, 3, 3, 7, 8), (1, 1, 4, 4, 13), (1, 1, 6, 15), (1, 1, 7, 12)]
+[galois/empirical] Tested 30 primes -> avg_roots=1.1, patterns_sample=[(1, 1, 1, 1, 2, 3, 7), (1, 1, 1, 2, 3, 15), (1, 1, 2, 2, 15), (1, 1, 2, 2, 16), (1, 1, 2, 2, 17), (1, 1, 2, 3, 15)]
 [residue_counts] denom zero mod 3; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 0), (13, 1), (17, 2), (19, 0), (23, 1), (29, 0)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.0416666666666667}
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (11, 0), (13, 2), (17, 2), (19, 1), (23, 0), (29, 1)]
+[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.1}
   [analyze_fibration] Configured with H_bound=1087
 
 --- DEBUGGING POINT CONSTRUCTION ---
 Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+325/6*m^7+799/12*m^6+83*m^5-7843/27*m^4-5440/3*m^3-9952/3*m^2-2605*m-759)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+7369/96*m^12+3535/24*m^11+8039/48*m^10-55193/108*m^9-1691701/432*m^8-288347/36*m^7-7071293/5832*m^6+2124067/108*m^5+13848337/432*m^4+178783/9*m^3+46097/24*m^2-3003*m-14751/16)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+295376/729*m^7+2947199/5832*m^6-471439/486*m^5-352399328389/25509168*m^4-7975021/729*m^3-59315713/2916*m^2-6895577/486*m-757693/324)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+9979099/23328*m^12+5976775/5832*m^11-32429213/23328*m^10-367177158577/12754584*m^9-2336619760115/51018336*m^8+115936863823/4251528*m^7+209491056597215539/334731302496*m^6+10956538658717/12754584*m^5+21954398774957/12754584*m^4+3361684588471/2125764*m^3+2356886809657/2834352*m^2+249336563/648*m+40543883/432)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (72*m^5 + 90*m^4 - 216*m^3 + 628*m^2 + 2880*m + 2160)/(36*m^2 + 108*m + 81)
-Y_aff: (-192*m^5 - 294*m^4 + 540*m^3 - 306*m^2 - 4060*m - 3294)/(12*m^2 + 36*m + 27)
+X_aff: (17496*m^5 + 21870*m^4 - 52488*m^3 - 870950*m^2 + 699840*m + 524880)/(8748*m^2 + 26244*m + 19683)
+Y_aff: (-46656*m^5 - 71442*m^4 + 131220*m^3 + 2996304*m^2 + 36974*m - 800442)/(2916*m^2 + 8748*m + 6561)
 Z_aff: 1
 
 Equation Check:
-LHS (Y^2*Z): (36864*m^10 + 112896*m^9 - 120924*m^8 - 200016*m^7 + 2030568*m^6 + 3321696*m^5 - 2354292*m^4 - 1072800*m^3 + 18499528*m^2 + 26747280*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (36864*m^10 + 112896*m^9 - 120924*m^8 - 200016*m^7 + 2030568*m^6 + 3321696*m^5 - 2354292*m^4 - 1072800*m^3 + 18499528*m^2 + 26747280*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
+LHS (Y^2*Z): (2176782336*m^10 + 6666395904*m^9 - 7140441276*m^8 - 298340357328*m^7 - 414355330224*m^6 + 855757872648*m^5 + 9101911471704*m^4 + 11502689712*m^3 - 4795368056060*m^2 - 59191085016*m + 640707395364)/(8503056*m^4 + 51018336*m^3 + 114791256*m^2 + 114791256*m + 43046721)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (2176782336*m^10 + 6666395904*m^9 - 7140441276*m^8 - 298340357328*m^7 - 414355330224*m^6 + 855757872648*m^5 + 9101911471704*m^4 + 11502689712*m^3 - 4795368056060*m^2 - 59191085016*m + 640707395364)/(8503056*m^4 + 51018336*m^3 + 114791256*m^2 + 114791256*m + 43046721)
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 157/9*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 - 51/2*m^2 - 1015/3*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
+section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 - 435475/4374*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 249692/243*m^2 + 18487/1458*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
 Canonical height pairing matrix determinant = 133/24
 Sections are independent.
 Canonical height pairing matrix determinant = 133/24
@@ -445,34 +468,43 @@ Sections are independent.
 [133/24]
 height bound: 1087
   [analyze_fibration] Found 14 search vectors (H=1087).
+FIBERS:
+{'r': 'm^23 + 31/4*m^22 + 91/16*m^21 - 13524955/46656*m^20 - 6541507/3888*m^19 - 3402115/11664*m^18 + 1765194857903/51018336*m^17 + 20713430116025/136048896*m^16 - 2425950057739/68024448*m^15 - 1431820963855306675/669462604992*m^14 - 145971475091926613/20920706406*m^13 + 10230066982065106559/2677850419968*m^12 + 11445938274420992135/167365651248*m^11 + 305932021426893417987817/1952152956156672*m^10 - 17489814398142400125259/244019119519584*m^9 - 560654958752329146897497/650717652052224*m^8 - 1384516646554441137941957/976076478078336*m^7 - 3040086219773022951047671/1952152956156672*m^6 - 187495529240360371517657/162679413013056*m^5 + 1141518335148622555565293/1952152956156672*m^4 + 295916010074183936509/223154201664*m^3 + 404103849720334863989/1338925209984*m^2 - 53176685768910621605/223154201664*m - 25395193484521607675/297538935552', 'factor': m^23 + 31/4*m^22 + 91/16*m^21 - 13524955/46656*m^20 - 6541507/3888*m^19 - 3402115/11664*m^18 + 1765194857903/51018336*m^17 + 20713430116025/136048896*m^16 - 2425950057739/68024448*m^15 - 1431820963855306675/669462604992*m^14 - 145971475091926613/20920706406*m^13 + 10230066982065106559/2677850419968*m^12 + 11445938274420992135/167365651248*m^11 + 305932021426893417987817/1952152956156672*m^10 - 17489814398142400125259/244019119519584*m^9 - 560654958752329146897497/650717652052224*m^8 - 1384516646554441137941957/976076478078336*m^7 - 3040086219773022951047671/1952152956156672*m^6 - 187495529240360371517657/162679413013056*m^5 + 1141518335148622555565293/1952152956156672*m^4 + 295916010074183936509/223154201664*m^3 + 404103849720334863989/1338925209984*m^2 - 53176685768910621605/223154201664*m - 25395193484521607675/297538935552, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 23, 'm_v': 1, 'contribution': 0, 'e_contrib': 23}
+{'r': -3/2, 'factor': m + 3/2, 'root_type': 'pole', 'v_c4': -4, 'v_c6': -6, 'v_D': -8, 't': -1, 'v4_min': 0, 'v6_min': 0, 'vD_min': 4, 'symbol': 'I4', 'type': 'multiplicative', 'n': 4, 'degree': 1, 'm_v': 4, 'contribution': 3, 'e_contrib': 4}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -6, 'v_c6': -9, 'v_D': -15, 't': -2, 'v4_min': 2, 'v6_min': 3, 'vD_min': 9, 'symbol': 'I3*', 'type': 'additive', 'n': 9, 'degree': 1, 'm_v': 9, 'contribution': 8, 'e_contrib': 9}
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-3/2}
 [prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
 
 [prepare_modular_data_lll] Rejected 2 primes:
   p=2: a4_denom_divisible
   p=3: a4_denom_divisible
-  Computed residues for 22 primes
+  Computed residues for 28 primes
 
---- Fibration 3/5 (seed=-445122) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-445122, id=1)...
+--- Fibration 3/5 (seed=982653) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=982653, id=1)...
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
 --- Identifying Globally Bad Primes ---
-Identified 3 globally bad prime(s) from the pool: [2, 3, 5]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 540497/4800*m^20 - 28229/80*m^19 + 141949/1200*m^18 + 1257509003/540000*m^17 + 6757497641/1440000*m^16 + 940634423/240000*m^15 - 7269491852963/729000000*m^14 - 11740262309711/182250000*m^13 - 287065397314739/2916000000*m^12 + 57042702059/364500*m^11 + 111869420778447721/218700000000*m^10 - 16726424712012949/27337500000*m^9 - 55153859694319061/14580000000*m^8 - 78431237663448721/21870000000*m^7 + 1757618880044554769/218700000000*m^6 + 512831972215570471/18225000000*m^5 + 8829602205680605021/218700000000*m^4 + 8306692810181279/243000000*m^3 + 5193762058951883/291600000*m^2 + 1295144431416641/243000000*m + 228917221254983/324000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+Identified 4 globally bad prime(s) from the pool: [2, 3, 11, 19]
+>>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 968542745/8386752*m^20 - 261717169/698896*m^19 + 234048715/2096688*m^18 + 4427472061023167/1648537713504*m^17 + 2281575599422915/399645506304*m^16 + 2584358087023103/732683428224*m^15 - 63063158323951262866445/3888527896632684096*m^14 - 37497936697768839434431/486065987079085512*m^13 - 1753708544659513224000083/15554111586530736384*m^12 + 8770487446629227838265/51164840745166896*m^11 + 1353904806248084856810577156537/2038257444633747287968512*m^10 - 77070521971559581241219563519/254782180579218410996064*m^9 - 2543339813220781894009613574217/679419148211249095989504*m^8 - 4074163648543901569158565260917/1019128722316873643984256*m^7 + 18237820566725317155270794953769/2038257444633747287968512*m^6 + 5628180301568223220592486048983/169854787052812273997376*m^5 + 99840554678612484948745940164573/2038257444633747287968512*m^4 + 54573988608016488251256887/1296175965544228032*m^3 + 170702631459071260442797567/7777055793265368192*m^2 + 8385457559260446940585025/1296175965544228032*m + 1434864136373386783622255/1728234620725637376] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
 >>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 >>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 540497/      1      0      0      1      1        0        0        1      23 x I1
+m^23 + 31/4*m^22 + 91/16*m^21 - 9685427      1      0      0      1      1        0        0        1      23 x I1
 m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
 Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
 
 Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 540497/4 (deg 23) contrib=0
+  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 96854274 (deg 23) contrib=0
   I4 at -3/2 (deg 1) contrib=3
   I3* at inf (deg 1) contrib=8
 
@@ -482,7 +514,7 @@ Sum of fiber contributions (Σ(m_v - 1)): 11
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 19457892/25*m^20 - 12194928/5*m^19 + 20440656/25*m^18 + 10060072024/625*m^17 + 20272492923/625*m^16 + 16931419614/625*m^15 - 29077967411852/421875*m^14 - 187844196955376/421875*m^13 - 287065397314739/421875*m^12 + 3650732931776/3375*m^11 + 111869420778447721/31640625*m^10 - 133811397696103592/31640625*m^9 - 55153859694319061/2109375*m^8 - 156862475326897442/6328125*m^7 + 1757618880044554769/31640625*m^6 + 2051327888862281884/10546875*m^5 + 8829602205680605021/31640625*m^4 + 33226771240725116/140625*m^3 + 10387524117903766/84375*m^2 + 5180577725666564/140625*m + 228917221254983/46875)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
+Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 34867538820/43681*m^20 - 113061817008/43681*m^19 + 33703014960/43681*m^18 + 35419776488185336/1908029761*m^17 + 6844726798268745/173457251*m^16 + 46518445566415854/1908029761*m^15 - 252252633295805051465780/2250305495736507*m^14 - 1199933974328602861901792/2250305495736507*m^13 - 1753708544659513224000083/2250305495736507*m^12 + 140327799146067645412240/118437131354553*m^11 + 1353904806248084856810577156537/294886783077799086801*m^10 - 616564175772476649929756508152/294886783077799086801*m^9 - 2543339813220781894009613574217/98295594359266362267*m^8 - 8148327297087803138317130521834/294886783077799086801*m^7 + 18237820566725317155270794953769/294886783077799086801*m^6 + 22512721206272892882369944195932/98295594359266362267*m^5 + 99840554678612484948745940164573/294886783077799086801*m^4 + 218295954432065953005027548/750101831912169*m^3 + 341405262918142520885595134/2250305495736507*m^2 + 33541830237041787762340100/750101831912169*m + 1434864136373386783622255/250033943970723)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
   Effective Discriminant Degree: 15
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 15, not 12.
@@ -494,30 +526,29 @@ Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 19457892/25*m^20 - 12194928/5*m^19
 [residue_counts] Using split_poly degree=23
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 23 primes -> avg_roots=0.8696, patterns_sample=[(1, 1, 1, 5, 7, 8), (1, 1, 2, 2, 15), (1, 1, 2, 3, 5, 11), (1, 1, 2, 5, 14), (1, 1, 6, 14), (1, 2, 2, 2, 4, 7)]
+[galois/empirical] Tested 26 primes -> avg_roots=0.9615, patterns_sample=[(1, 1, 1, 1, 5, 14), (1, 1, 1, 3, 5, 6, 6), (1, 1, 1, 4, 4, 12), (1, 1, 2, 3, 3, 13), (1, 1, 2, 3, 5, 11), (1, 1, 2, 7, 12)]
 [residue_counts] denom zero mod 3; using fallback
-[residue_counts] denom zero mod 5; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 0), (11, 0), (13, 1), (17, 2), (19, 2), (23, 1), (29, 2)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 0.8695652173913043}
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 2), (13, 1), (17, 2), (23, 0), (29, 0), (31, 2), (37, 1)]
+[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 0.9615384615384616}
   [analyze_fibration] Configured with H_bound=1087
 
 --- DEBUGGING POINT CONSTRUCTION ---
 Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+3796/75*m^7+7457/120*m^6+4683/50*m^5-69812989/270000*m^4-129071/75*m^3-943499/300*m^2-124387/50*m-74301/100)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+175697/2400*m^12+16609/120*m^11+439793/2400*m^10-58695289/135000*m^9-405481759/108000*m^8-38684129/5000*m^7-568171512487/364500000*m^6+2245037789/135000*m^5+3393922829/135000*m^4+247199227/22500*m^3-165981311/30000*m^2-1385709/200*m-150507/80)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+7387672/131043*m^7+72697333/1048344*m^6+6672027/87362*m^5-256665243781981/824268856752*m^4-245151887/131043*m^3-1795018091/524172*m^2-21267929/7942*m-134352573/174724)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+331149593/4193376*m^12+160202525/1048344*m^11+661192769/4193376*m^10-231036986577673/412134428376*m^9-6625551266140955/1648537713504*m^8-124752996448097/15264238088*m^7-1900865269289440607383/1944263948316342048*m^6+8906609462049413/412134428376*m^5+15026151359871893/412134428376*m^4+158951201421029/6244461036*m^3+601202509221073/91585428528*m^2-196497357/349448*m-227444751/698896)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (1800*m^5 + 2250*m^4 - 5400*m^3 + 16766*m^2 + 72000*m + 54000)/(900*m^2 + 2700*m + 2025)
-Y_aff: (-4800*m^5 - 7350*m^4 + 13500*m^3 - 10848*m^2 - 102566*m - 82350)/(300*m^2 + 900*m + 675)
+X_aff: (3145032*m^5 + 3931290*m^4 - 9435096*m^3 + 26273630*m^2 + 125801280*m + 94350960)/(1572516*m^2 + 4717548*m + 3538161)
+Y_aff: (-8386752*m^5 - 12842214*m^4 + 23587740*m^3 - 9892272*m^2 - 176186822*m - 143885214)/(524172*m^2 + 1572516*m + 1179387)
 Z_aff: 1
 
 Equation Check:
-LHS (Y^2*Z): (23040000*m^10 + 70560000*m^9 - 75577500*m^8 - 94309200*m^7 + 1326349200*m^6 + 2005384200*m^5 - 1441057896*m^4 + 1821936*m^3 + 12306449956*m^2 + 16892620200*m + 6781522500)/(90000*m^4 + 540000*m^3 + 1215000*m^2 + 1215000*m + 455625)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (23040000*m^10 + 70560000*m^9 - 75577500*m^8 - 94309200*m^7 + 1326349200*m^6 + 2005384200*m^5 - 1441057896*m^4 + 1821936*m^3 + 12306449956*m^2 + 16892620200*m + 6781522500)/(90000*m^4 + 540000*m^3 + 1215000*m^2 + 1215000*m + 455625)
+LHS (Y^2*Z): (70337609109504*m^10 + 215408927897856*m^9 - 230726590819164*m^8 - 439909545751632*m^7 + 3765729189812304*m^6 + 6472044276887112*m^5 - 4518231432954984*m^4 - 3302078103273552*m^3 + 33888499593792100*m^2 + 50701357174899816*m + 20702954807825796)/(274756285584*m^4 + 1648537713504*m^3 + 3709209855384*m^2 + 3709209855384*m + 1390953695769)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (70337609109504*m^10 + 215408927897856*m^9 - 230726590819164*m^8 - 439909545751632*m^7 + 3765729189812304*m^6 + 6472044276887112*m^5 - 4518231432954984*m^4 - 3302078103273552*m^3 + 33888499593792100*m^2 + 50701357174899816*m + 20702954807825796)/(274756285584*m^4 + 1648537713504*m^3 + 3709209855384*m^2 + 3709209855384*m + 1390953695769)
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 8383/450*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 - 904/25*m^2 - 51283/150*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
+section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 13136815/786258*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 - 824356/43681*m^2 - 88093411/262086*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
 Canonical height pairing matrix determinant = 133/24
 Sections are independent.
 Canonical height pairing matrix determinant = 133/24
@@ -526,36 +557,144 @@ Sections are independent.
 [133/24]
 height bound: 1087
   [analyze_fibration] Found 14 search vectors (H=1087).
+FIBERS:
+{'r': 'm^23 + 31/4*m^22 + 91/16*m^21 - 968542745/8386752*m^20 - 261717169/698896*m^19 + 234048715/2096688*m^18 + 4427472061023167/1648537713504*m^17 + 2281575599422915/399645506304*m^16 + 2584358087023103/732683428224*m^15 - 63063158323951262866445/3888527896632684096*m^14 - 37497936697768839434431/486065987079085512*m^13 - 1753708544659513224000083/15554111586530736384*m^12 + 8770487446629227838265/51164840745166896*m^11 + 1353904806248084856810577156537/2038257444633747287968512*m^10 - 77070521971559581241219563519/254782180579218410996064*m^9 - 2543339813220781894009613574217/679419148211249095989504*m^8 - 4074163648543901569158565260917/1019128722316873643984256*m^7 + 18237820566725317155270794953769/2038257444633747287968512*m^6 + 5628180301568223220592486048983/169854787052812273997376*m^5 + 99840554678612484948745940164573/2038257444633747287968512*m^4 + 54573988608016488251256887/1296175965544228032*m^3 + 170702631459071260442797567/7777055793265368192*m^2 + 8385457559260446940585025/1296175965544228032*m + 1434864136373386783622255/1728234620725637376', 'factor': m^23 + 31/4*m^22 + 91/16*m^21 - 968542745/8386752*m^20 - 261717169/698896*m^19 + 234048715/2096688*m^18 + 4427472061023167/1648537713504*m^17 + 2281575599422915/399645506304*m^16 + 2584358087023103/732683428224*m^15 - 63063158323951262866445/3888527896632684096*m^14 - 37497936697768839434431/486065987079085512*m^13 - 1753708544659513224000083/15554111586530736384*m^12 + 8770487446629227838265/51164840745166896*m^11 + 1353904806248084856810577156537/2038257444633747287968512*m^10 - 77070521971559581241219563519/254782180579218410996064*m^9 - 2543339813220781894009613574217/679419148211249095989504*m^8 - 4074163648543901569158565260917/1019128722316873643984256*m^7 + 18237820566725317155270794953769/2038257444633747287968512*m^6 + 5628180301568223220592486048983/169854787052812273997376*m^5 + 99840554678612484948745940164573/2038257444633747287968512*m^4 + 54573988608016488251256887/1296175965544228032*m^3 + 170702631459071260442797567/7777055793265368192*m^2 + 8385457559260446940585025/1296175965544228032*m + 1434864136373386783622255/1728234620725637376, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 23, 'm_v': 1, 'contribution': 0, 'e_contrib': 23}
+{'r': -3/2, 'factor': m + 3/2, 'root_type': 'pole', 'v_c4': -4, 'v_c6': -6, 'v_D': -8, 't': -1, 'v4_min': 0, 'v6_min': 0, 'vD_min': 4, 'symbol': 'I4', 'type': 'multiplicative', 'n': 4, 'degree': 1, 'm_v': 4, 'contribution': 3, 'e_contrib': 4}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -6, 'v_c6': -9, 'v_D': -15, 't': -2, 'v4_min': 2, 'v6_min': 3, 'vD_min': 9, 'symbol': 'I3*', 'type': 'additive', 'n': 9, 'degree': 1, 'm_v': 9, 'contribution': 8, 'e_contrib': 9}
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-3/2}
+[prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
+[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
+[prepare_modular_data_lll] skip p=11: a4 numerator has coeff with denom divisible by p
+[prepare_modular_data_lll] skip p=19: a4 numerator has coeff with denom divisible by p
+
+[prepare_modular_data_lll] Rejected 4 primes:
+  p=2: a4_denom_divisible
+  p=3: a4_denom_divisible
+  p=11: a4_denom_divisible
+  p=19: a4_denom_divisible
+  Computed residues for 26 primes
+
+--- Fibration 4/5 (seed=982654) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=982654, id=2)...
+--- Entering buildcd ---
+--- Computing Minimal Model ---
+
+--- Identifying Globally Bad Primes ---
+Identified 4 globally bad prime(s) from the pool: [2, 3, 5, 11]
+>>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 1756386977/14520000*m^20 - 100565669/242000*m^19 + 359220859/3630000*m^18 + 16700285845513343/4941337500000*m^17 + 9304448460609811/1197900000000*m^16 + 2019651210470021/732050000000*m^15 - 613266393536979993765773/20179187015625000000*m^14 - 269140436377727853218053/2522398376953125000*m^13 - 10993991503905781770327419/80716748062500000000*m^12 + 46703530718644498572439/201791870156250000*m^11 + 18654257344533798362060291801881/18312612216679687500000000*m^10 + 867976076927784610034425661561/2289076527084960937500000*m^9 - 4478305188549864433697364575381/1220840814445312500000000*m^8 - 9640673954728244747164988876881/1831261221667968750000000*m^7 + 175288089553054395418584917943209/18312612216679687500000000*m^6 + 63395720633162580972177285120631/1526051018056640625000000*m^5 + 1183964636445710560351447086784381/18312612216679687500000000*m^4 + 378736176711793363655254559/6726395671875000000*m^3 + 231919363053769683058688123/8071674806250000000*m^2 + 53622647759417656653139961/6726395671875000000*m + 8218859320709258740566743/8968527562500000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
+>>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
+
+Place analysis (finite algebraic places):
+factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
+--------------------------------------------------------------------------------------------------------------------------
+m^23 + 31/4*m^22 + 91/16*m^21 - 1756386      1      0      0      1      1        0        0        1      23 x I1
+m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
+Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
+
+Summary of fibers (per-center):
+  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 17563869 (deg 23) contrib=0
+  I4 at -3/2 (deg 1) contrib=3
+  I3* at inf (deg 1) contrib=8
+
+Total Euler characteristic: 36
+Sum of fiber contributions (Σ(m_v - 1)): 11
+
+--- Exiting buildcd ---
+
+--- Geometric Validation ---
+Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 63229931172/75625*m^20 - 43444369008/15125*m^19 + 51727803696/75625*m^18 + 133602286764106744/5719140625*m^17 + 27913345381829433/519921875*m^16 + 109061165365381134/5719140625*m^15 - 2453065574147919975063092/11677770263671875*m^14 - 8612493964087291302977696/11677770263671875*m^13 - 10993991503905781770327419/11677770263671875*m^12 + 747256491498311977159024/467110810546875*m^11 + 18654257344533798362060291801881/2649394128570556640625*m^10 + 6943808615422276880275405292488/2649394128570556640625*m^9 - 4478305188549864433697364575381/176626275238037109375*m^8 - 19281347909456489494329977753762/529878825714111328125*m^7 + 175288089553054395418584917943209/2649394128570556640625*m^6 + 253582882532650323888709140482524/883131376190185546875*m^5 + 1183964636445710560351447086784381/2649394128570556640625*m^4 + 1514944706847173454621018236/3892590087890625*m^3 + 463838726107539366117376246/2335554052734375*m^2 + 214490591037670626612559844/3892590087890625*m + 8218859320709258740566743/1297530029296875)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
+  Effective Discriminant Degree: 15
+  Weierstrass scaling exponent (n) used: 0
+  ⚠ NOTICE: Discriminant degree is 15, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
+--------------------------
+  [analyze_fibration] Scaling height bound: 473 -> 1087 (deg ratio 1.92 * 4.0 safety)
+  [analyze_fibration] Scaling height bound: 473 -> 1087 (deg ratio 1.92 * 2.0 safety)
+[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
+[residue_counts] Using split_poly degree=23
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
+[galois/empirical] Tested 27 primes -> avg_roots=1.222, patterns_sample=[(1, 1, 1, 1, 9, 10), (1, 1, 1, 2, 18), (1, 1, 2, 2, 17), (1, 1, 2, 3, 6, 10), (1, 1, 4, 7, 9), (1, 1, 4, 8)]
+[residue_counts] denom zero mod 3; using fallback
+[residue_counts] denom zero mod 5; using fallback
+[residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 0), (13, 2), (17, 4), (19, 2), (23, 2), (29, 1), (31, 0)]
+[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.2222222222222223}
+  [analyze_fibration] Configured with H_bound=1087
+
+--- DEBUGGING POINT CONSTRUCTION ---
+Attempting to create point for (x,y) = (-1, 1)
+Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+15276136/226875*m^7+30143897/363000*m^6+6579603/151250*m^5-1055172922200109/2470668750000*m^4-489063911/226875*m^3-3589972259/907500*m^2-41792897/13750*m-247519941/302500)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+652866977/7260000*m^12+65415169/363000*m^11+791734313/7260000*m^10-1025728613707609/1235334375000*m^9-4506788689049359/988267500000*m^8-1223039677134547/137259375000*m^7+4343774987741613098273/10089593507812500000*m^6+39377004776254709/1235334375000*m^5+73455701547289349/1235334375000*m^4+1010198236154117/18717187500*m^3+8154018236392609/274518750000*m^2+6983103531/605000*m+637168293/242000)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+
+Point Coordinates (X_aff, Y_aff, Z_aff):
+X_aff: (5445000*m^5 + 6806250*m^4 - 16335000*m^3 + 35544206*m^2 + 217800000*m + 163350000)/(2722500*m^2 + 8167500*m + 6125625)
+Y_aff: (-14520000*m^5 - 22233750*m^4 + 40837500*m^3 + 12703632*m^2 - 295089206*m - 249108750)/(907500*m^2 + 2722500*m + 2041875)
+Z_aff: 1
+
+Equation Check:
+LHS (Y^2*Z): (210830400000000*m^10 + 645668100000000*m^9 - 691581360937500*m^8 - 2184855004530000*m^7 + 9672193192530000*m^6 + 21393566511405000*m^5 - 12862785293433576*m^4 - 27843366516642384*m^3 + 80748467721750436*m^2 + 147018606490305000*m + 62055169326562500)/(823556250000*m^4 + 4941337500000*m^3 + 11118009375000*m^2 + 11118009375000*m + 4169253515625)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (210830400000000*m^10 + 645668100000000*m^9 - 691581360937500*m^8 - 2184855004530000*m^7 + 9672193192530000*m^6 + 21393566511405000*m^5 - 12862785293433576*m^4 - 27843366516642384*m^3 + 80748467721750436*m^2 + 147018606490305000*m + 62055169326562500)/(823556250000*m^4 + 4941337500000*m^3 + 11118009375000*m^2 + 11118009375000*m + 4169253515625)
+
+Difference (LHS - RHS): 0
+✅ Algebraic identity holds.
+--- END DEBUGGING ---
+section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 17772103/1361250*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 1058636/75625*m^2 - 147544603/453750*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
+Canonical height pairing matrix determinant = 133/24
+Sections are independent.
+Canonical height pairing matrix determinant = 133/24
+Sections are independent.
+  [analyze_fibration] Fibration H:
+[133/24]
+height bound: 1087
+  [analyze_fibration] Found 14 search vectors (H=1087).
+FIBERS:
+{'r': 'm^23 + 31/4*m^22 + 91/16*m^21 - 1756386977/14520000*m^20 - 100565669/242000*m^19 + 359220859/3630000*m^18 + 16700285845513343/4941337500000*m^17 + 9304448460609811/1197900000000*m^16 + 2019651210470021/732050000000*m^15 - 613266393536979993765773/20179187015625000000*m^14 - 269140436377727853218053/2522398376953125000*m^13 - 10993991503905781770327419/80716748062500000000*m^12 + 46703530718644498572439/201791870156250000*m^11 + 18654257344533798362060291801881/18312612216679687500000000*m^10 + 867976076927784610034425661561/2289076527084960937500000*m^9 - 4478305188549864433697364575381/1220840814445312500000000*m^8 - 9640673954728244747164988876881/1831261221667968750000000*m^7 + 175288089553054395418584917943209/18312612216679687500000000*m^6 + 63395720633162580972177285120631/1526051018056640625000000*m^5 + 1183964636445710560351447086784381/18312612216679687500000000*m^4 + 378736176711793363655254559/6726395671875000000*m^3 + 231919363053769683058688123/8071674806250000000*m^2 + 53622647759417656653139961/6726395671875000000*m + 8218859320709258740566743/8968527562500000000', 'factor': m^23 + 31/4*m^22 + 91/16*m^21 - 1756386977/14520000*m^20 - 100565669/242000*m^19 + 359220859/3630000*m^18 + 16700285845513343/4941337500000*m^17 + 9304448460609811/1197900000000*m^16 + 2019651210470021/732050000000*m^15 - 613266393536979993765773/20179187015625000000*m^14 - 269140436377727853218053/2522398376953125000*m^13 - 10993991503905781770327419/80716748062500000000*m^12 + 46703530718644498572439/201791870156250000*m^11 + 18654257344533798362060291801881/18312612216679687500000000*m^10 + 867976076927784610034425661561/2289076527084960937500000*m^9 - 4478305188549864433697364575381/1220840814445312500000000*m^8 - 9640673954728244747164988876881/1831261221667968750000000*m^7 + 175288089553054395418584917943209/18312612216679687500000000*m^6 + 63395720633162580972177285120631/1526051018056640625000000*m^5 + 1183964636445710560351447086784381/18312612216679687500000000*m^4 + 378736176711793363655254559/6726395671875000000*m^3 + 231919363053769683058688123/8071674806250000000*m^2 + 53622647759417656653139961/6726395671875000000*m + 8218859320709258740566743/8968527562500000000, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 23, 'm_v': 1, 'contribution': 0, 'e_contrib': 23}
+{'r': -3/2, 'factor': m + 3/2, 'root_type': 'pole', 'v_c4': -4, 'v_c6': -6, 'v_D': -8, 't': -1, 'v4_min': 0, 'v6_min': 0, 'vD_min': 4, 'symbol': 'I4', 'type': 'multiplicative', 'n': 4, 'degree': 1, 'm_v': 4, 'contribution': 3, 'e_contrib': 4}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -6, 'v_c6': -9, 'v_D': -15, 't': -2, 'v4_min': 2, 'v6_min': 3, 'vD_min': 9, 'symbol': 'I3*', 'type': 'additive', 'n': 9, 'degree': 1, 'm_v': 9, 'contribution': 8, 'e_contrib': 9}
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-3/2}
 [prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
 [prepare_modular_data_lll] skip p=5: a4 numerator has coeff with denom divisible by p
+[prepare_modular_data_lll] skip p=11: a4 numerator has coeff with denom divisible by p
+⚠️  Fiber collision detected at p=23: gcd degree 2
+Skipping prime 23: fiber collision detected (gcd degree=2)
 
-[prepare_modular_data_lll] Rejected 3 primes:
+[prepare_modular_data_lll] Rejected 5 primes:
   p=2: a4_denom_divisible
   p=3: a4_denom_divisible
   p=5: a4_denom_divisible
-  Computed residues for 21 primes
+  p=11: a4_denom_divisible
+  p=23: fiber_collision_deg_2
+  Computed residues for 25 primes
 
---- Fibration 4/5 (seed=-445121) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-445121, id=2)...
+--- Fibration 5/5 (seed=982655) ---
+  [analyze_fibration] Analyzing geometry for tower (seed=982655, id=3)...
 --- Entering buildcd ---
 --- Computing Minimal Model ---
 
 --- Identifying Globally Bad Primes ---
 Identified 2 globally bad prime(s) from the pool: [2, 3]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 1897081/192*m^20 - 1177809/16*m^19 - 1078573/48*m^18 + 28518850799/864*m^17 + 612315920513/2304*m^16 - 56469102947/1152*m^15 - 1832902746247909/46656*m^14 - 2679368983393505/5832*m^13 + 77052238511159981/186624*m^12 + 96283857925640927/11664*m^11 + 195551162056479926137/559872*m^10 - 48182132136952776727/69984*m^9 - 35344978713734007019/6912*m^8 - 978991115515806140405/279936*m^7 + 2503502853178905205961/559872*m^6 + 178793579680207700503/46656*m^5 + 233055595758443791837/559872*m^4 + 3806107490895032407/15552*m^3 + 12466605012921379679/93312*m^2 + 351756590708292289/15552*m + 19309540971460687/20736] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 544121/192*m^20 - 332209/16*m^19 - 296393/48*m^18 + 2423930759/864*m^17 + 49095838193/2304*m^16 - 1561096849/384*m^15 - 52272953753489/46656*m^14 - 30736807963535/2916*m^13 + 1740310728513181/186624*m^12 + 2119064261337817/11664*m^11 + 1287545856984233497/559872*m^10 - 304827124456965427/69984*m^9 - 5911056083790723913/186624*m^8 - 6459005869867461365/279936*m^7 + 12844610053307124761/559872*m^6 + 916261439707459063/46656*m^5 + 2050287816810687517/559872*m^4 + 80612286901859447/15552*m^3 + 257300767508179999/93312*m^2 + 6394588999175729/15552*m + 58053983058767/20736] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
 >>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 >>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 1897081      1      0      0      1      1        0        0        1      23 x I1
+m^23 + 31/4*m^22 + 91/16*m^21 - 544121/      1      0      0      1      1        0        0        1      23 x I1
 m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
 Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
 
 Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 1897081/ (deg 23) contrib=0
+  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 544121/1 (deg 23) contrib=0
   I4 at -3/2 (deg 1) contrib=3
   I3* at inf (deg 1) contrib=8
 
@@ -565,7 +704,7 @@ Sum of fiber contributions (Σ(m_v - 1)): 11
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 68294916*m^20 - 508813488*m^19 - 155314512*m^18 + 228150806392*m^17 + 1836947761539*m^16 - 338814617682*m^15 - 7331610984991636/27*m^14 - 85739807468592160/27*m^13 + 77052238511159981/27*m^12 + 1540541726810254832/27*m^11 + 195551162056479926137/81*m^10 - 385457057095622213816/81*m^9 - 35344978713734007019*m^8 - 1957982231031612280810/81*m^7 + 2503502853178905205961/81*m^6 + 715174318720830802012/27*m^5 + 233055595758443791837/81*m^4 + 15224429963580129628/9*m^3 + 24933210025842759358/27*m^2 + 1407026362833169156/9*m + 19309540971460687/3)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
+Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 19588356*m^20 - 143514288*m^19 - 42680592*m^18 + 19391446072*m^17 + 147287514579*m^16 - 28099743282*m^15 - 209091815013956/27*m^14 - 1967155709666240/27*m^13 + 1740310728513181/27*m^12 + 33905028181405072/27*m^11 + 1287545856984233497/81*m^10 - 2438616995655723416/81*m^9 - 5911056083790723913/27*m^8 - 12918011739734922730/81*m^7 + 12844610053307124761/81*m^6 + 3665045758829836252/27*m^5 + 2050287816810687517/81*m^4 + 322449147607437788/9*m^3 + 514601535016359998/27*m^2 + 25578355996702916/9*m + 58053983058767/3)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
   Effective Discriminant Degree: 15
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 15, not 12.
@@ -577,29 +716,29 @@ Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 68294916*m^20 - 508813488*m^19 - 1
 [residue_counts] Using split_poly degree=23
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 24 primes -> avg_roots=0.8333, patterns_sample=[(1, 1, 2, 7, 12), (1, 1, 3, 18), (1, 1, 4, 8), (1, 1, 5, 6, 8), (1, 1, 20), (1, 2, 2, 5, 7)]
+[galois/empirical] Tested 30 primes -> avg_roots=1.133, patterns_sample=[(1, 1, 1, 1, 3, 5, 7), (1, 1, 1, 2, 18), (1, 1, 2, 2, 15), (1, 1, 2, 7, 12), (1, 1, 3, 8, 10), (1, 1, 5, 6, 8)]
 [residue_counts] denom zero mod 3; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 0), (11, 0), (13, 1), (17, 4), (19, 2), (23, 0), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 0.8333333333333334}
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 0), (11, 1), (13, 2), (17, 2), (19, 1), (23, 1), (29, 2)]
+[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.1333333333333333}
   [analyze_fibration] Configured with H_bound=1087
 
 --- DEBUGGING POINT CONSTRUCTION ---
 Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+58760/3*m^7+587573/24*m^6-117029/2*m^5-13813079773/432*m^4-1528975/3*m^3-11407723/12*m^2-1294355/2*m-354621/4)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+1882489/96*m^12+1175485/24*m^11-8304767/96*m^10-13827831241/216*m^9-69456304667/864*m^8+13628615831/72*m^7+1623443381889193/23328*m^6+360776984549/216*m^5+674471356661/216*m^4+77312029927/36*m^3+15703870609/48*m^2+172604211/8*m+84365649/16)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+16480/3*m^7+164773/24*m^6-32469/2*m^5-1086968893/432*m^4-429695/3*m^3-3205403/12*m^2-364195/2*m-100941/4)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+529529/96*m^12+329885/24*m^11-2301007/96*m^10-1091065801/216*m^9-5545687547/864*m^8+115010559/8*m^7+35837877886073/23328*m^6+28717728629/216*m^5+53981999621/216*m^4+6351518767/36*m^3+1613468689/48*m^2+48047331/8*m+23482449/16)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (72*m^5 + 90*m^4 - 216*m^3 - 233762*m^2 + 2880*m + 2160)/(36*m^2 + 108*m + 81)
-Y_aff: (-192*m^5 - 294*m^4 + 540*m^3 + 702864*m^2 + 230330*m - 3294)/(12*m^2 + 36*m + 27)
+X_aff: (72*m^5 + 90*m^4 - 216*m^3 - 64642*m^2 + 2880*m + 2160)/(36*m^2 + 108*m + 81)
+Y_aff: (-192*m^5 - 294*m^4 + 540*m^3 + 195504*m^2 + 61210*m - 3294)/(12*m^2 + 36*m + 27)
 Z_aff: 1
 
 Equation Check:
-LHS (Y^2*Z): (36864*m^10 + 112896*m^9 - 120924*m^8 - 270217296*m^7 - 501439152*m^6 + 624923976*m^5 + 494268495768*m^4 + 323777772720*m^3 + 48421440868*m^2 - 1517414040*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (36864*m^10 + 112896*m^9 - 120924*m^8 - 270217296*m^7 - 501439152*m^6 + 624923976*m^5 + 494268495768*m^4 + 323777772720*m^3 + 48421440868*m^2 - 1517414040*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
+LHS (Y^2*Z): (36864*m^10 + 112896*m^9 - 120924*m^8 - 75391056*m^7 - 138169392*m^6 + 176417736*m^5 + 38289857688*m^4 + 23930042160*m^3 + 2458683748*m^2 - 403251480*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (36864*m^10 + 112896*m^9 - 120924*m^8 - 75391056*m^7 - 138169392*m^6 + 176417736*m^5 + 38289857688*m^4 + 23930042160*m^3 + 2458683748*m^2 - 403251480*m + 10850436)/(144*m^4 + 864*m^3 + 1944*m^2 + 1944*m + 729)
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 - 116881/18*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 58572*m^2 + 115165/6*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
+section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 - 32321/18*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 + 16292*m^2 + 30605/6*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
 Canonical height pairing matrix determinant = 133/24
 Sections are independent.
 Canonical height pairing matrix determinant = 133/24
@@ -608,99 +747,22 @@ Sections are independent.
 [133/24]
 height bound: 1087
   [analyze_fibration] Found 14 search vectors (H=1087).
+FIBERS:
+{'r': 'm^23 + 31/4*m^22 + 91/16*m^21 - 544121/192*m^20 - 332209/16*m^19 - 296393/48*m^18 + 2423930759/864*m^17 + 49095838193/2304*m^16 - 1561096849/384*m^15 - 52272953753489/46656*m^14 - 30736807963535/2916*m^13 + 1740310728513181/186624*m^12 + 2119064261337817/11664*m^11 + 1287545856984233497/559872*m^10 - 304827124456965427/69984*m^9 - 5911056083790723913/186624*m^8 - 6459005869867461365/279936*m^7 + 12844610053307124761/559872*m^6 + 916261439707459063/46656*m^5 + 2050287816810687517/559872*m^4 + 80612286901859447/15552*m^3 + 257300767508179999/93312*m^2 + 6394588999175729/15552*m + 58053983058767/20736', 'factor': m^23 + 31/4*m^22 + 91/16*m^21 - 544121/192*m^20 - 332209/16*m^19 - 296393/48*m^18 + 2423930759/864*m^17 + 49095838193/2304*m^16 - 1561096849/384*m^15 - 52272953753489/46656*m^14 - 30736807963535/2916*m^13 + 1740310728513181/186624*m^12 + 2119064261337817/11664*m^11 + 1287545856984233497/559872*m^10 - 304827124456965427/69984*m^9 - 5911056083790723913/186624*m^8 - 6459005869867461365/279936*m^7 + 12844610053307124761/559872*m^6 + 916261439707459063/46656*m^5 + 2050287816810687517/559872*m^4 + 80612286901859447/15552*m^3 + 257300767508179999/93312*m^2 + 6394588999175729/15552*m + 58053983058767/20736, 'root_type': 'irrational', 'v_c4': 0, 'v_c6': 0, 'v_D': 1, 't': 0, 'v4_min': 0, 'v6_min': 0, 'vD_min': 1, 'symbol': 'I1', 'type': 'multiplicative', 'n': 1, 'degree': 23, 'm_v': 1, 'contribution': 0, 'e_contrib': 23}
+{'r': -3/2, 'factor': m + 3/2, 'root_type': 'pole', 'v_c4': -4, 'v_c6': -6, 'v_D': -8, 't': -1, 'v4_min': 0, 'v6_min': 0, 'vD_min': 4, 'symbol': 'I4', 'type': 'multiplicative', 'n': 4, 'degree': 1, 'm_v': 4, 'contribution': 3, 'e_contrib': 4}
+{'r': 'inf', 'factor': None, 'root_type': 'inf', 'v_c4': -6, 'v_c6': -9, 'v_D': -15, 't': -2, 'v4_min': 2, 'v6_min': 3, 'vD_min': 9, 'symbol': 'I3*', 'type': 'additive', 'n': 9, 'degree': 1, 'm_v': 9, 'contribution': 8, 'e_contrib': 9}
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-3/2}
 [prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
-⚠️  Fiber collision detected at p=5: gcd degree 2
-Skipping prime 5: fiber collision detected (gcd degree=2)
 
-[prepare_modular_data_lll] Rejected 3 primes:
+[prepare_modular_data_lll] Rejected 2 primes:
   p=2: a4_denom_divisible
   p=3: a4_denom_divisible
-  p=5: fiber_collision_deg_2
-  Computed residues for 21 primes
-
---- Fibration 5/5 (seed=-445120) ---
-  [analyze_fibration] Analyzing geometry for tower (seed=-445120, id=3)...
---- Entering buildcd ---
---- Computing Minimal Model ---
-
---- Identifying Globally Bad Primes ---
-Identified 3 globally bad prime(s) from the pool: [2, 3, 5]
->>> Diagnostic: [m^23 + 31/4*m^22 + 91/16*m^21 - 1673459/14400*m^20 - 91183/240*m^19 + 395803/3600*m^18 + 13494837227/4860000*m^17 + 77408181569/12960000*m^16 + 22206537821/6480000*m^15 - 352841747514749/19683000000*m^14 - 396911097909503/4920750000*m^13 - 9144865304957297/78732000000*m^12 + 17408567438087/98415000*m^11 + 12512175266957496601/17714700000000*m^10 - 484525485146672569/2214337500000*m^9 - 4408103496484089061/1180980000000*m^8 - 7311978856808421601/1771470000000*m^7 + 161513737726612625489/17714700000000*m^6 + 50689165133781391351/1476225000000*m^5 + 905508566761602240301/17714700000000*m^4 + 289020999724396517/6561000000*m^3 + 180536110953051689/7873200000*m^2 + 44081693037680843/6561000000*m + 7461394105200509/8748000000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
->>> Diagnostic: [m + 3/2] I4: v=(-4,-6,-8) -> (0,0,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
->>> Diagnostic: [∞] I3*: v=(-6,-9,-15) -> (2,3,9), target vΔ=9. Extra blow UP by k=2 (u=t^-2)
-
-Place analysis (finite algebraic places):
-factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
---------------------------------------------------------------------------------------------------------------------------
-m^23 + 31/4*m^22 + 91/16*m^21 - 1673459      1      0      0      1      1        0        0        1      23 x I1
-m + 3/2                                     -8     -4     -6     -8      4        0        0        4           I4
-Infinity: v_c4 = -6, v_c6 = -9, v_D = -15 -> I3*
-
-Summary of fibers (per-center):
-  I1 at m^23 + 31/4*m^22 + 91/16*m^21 - 1673459/ (deg 23) contrib=0
-  I4 at -3/2 (deg 1) contrib=3
-  I3* at inf (deg 1) contrib=8
-
-Total Euler characteristic: 36
-Sum of fiber contributions (Σ(m_v - 1)): 11
-
---- Exiting buildcd ---
-
---- Geometric Validation ---
-Delta: (6912*m^23 + 53568*m^22 + 39312*m^21 - 20081508/25*m^20 - 13130352/5*m^19 + 18998544/25*m^18 + 107958697816/5625*m^17 + 77408181569/1875*m^16 + 44413075642/1875*m^15 - 1411366990058996/11390625*m^14 - 6350577566552048/11390625*m^13 - 9144865304957297/11390625*m^12 + 557074158018784/455625*m^11 + 12512175266957496601/2562890625*m^10 - 3876203881173380552/2562890625*m^9 - 4408103496484089061/170859375*m^8 - 14623957713616843202/512578125*m^7 + 161513737726612625489/2562890625*m^6 + 202756660535125565404/854296875*m^5 + 905508566761602240301/2562890625*m^4 + 1156083998897586068/3796875*m^3 + 361072221906103378/2278125*m^2 + 176326772150723372/3796875*m + 7461394105200509/1265625)/(m^8 + 12*m^7 + 63*m^6 + 189*m^5 + 2835/8*m^4 + 1701/4*m^3 + 5103/16*m^2 + 2187/16*m + 6561/256)
-  Effective Discriminant Degree: 15
-  Weierstrass scaling exponent (n) used: 0
-  ⚠ NOTICE: Discriminant degree is 15, not 12.
-    This fibration may be non-minimal or use a different base parameterization.
---------------------------
-  [analyze_fibration] Scaling height bound: 473 -> 1087 (deg ratio 1.92 * 4.0 safety)
-  [analyze_fibration] Scaling height bound: 473 -> 1087 (deg ratio 1.92 * 2.0 safety)
-[bounds] Built SPLIT_POLY of degree 23 from Delta numerator.
-[residue_counts] Using split_poly degree=23
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() failed: Galois group computation is supported for degrees up to 11 using PARI, or up to 21 if KASH is installed.  Try algorithm='magma' if you have magma.
-[galois/empirical] Tested 23 primes -> avg_roots=1.478, patterns_sample=[(1, 1, 1, 1, 1, 1, 6, 11), (1, 1, 1, 1, 9, 10), (1, 1, 2, 2, 17), (1, 1, 2, 3, 4, 12), (1, 1, 2, 3, 9), (1, 1, 2, 4, 7, 8)]
-[residue_counts] denom zero mod 3; using fallback
-[residue_counts] denom zero mod 5; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 0), (11, 3), (13, 2), (17, 2), (19, 0), (23, 0), (29, 2)]
-[residue_counts] galois_info: {'galois_group_info': None, 'galois_group_order': None, 'avg_roots': 1.4782608695652173}
-  [analyze_fibration] Configured with H_bound=1087
-
---- DEBUGGING POINT CONSTRUCTION ---
-Attempting to create point for (x,y) = (-1, 1)
-Curve: Elliptic Curve defined by y^2 = x^3 + ((-3*m^10-15/2*m^9+213/16*m^8+13012/225*m^7+25619/360*m^6+10801/150*m^5-791204101/2430000*m^4-429437/225*m^3-3145553/900*m^2-408889/150*m-77549/100)/(m^4+6*m^3+27/2*m^2+27/2*m+81/16))*x + ((-2*m^15-15/2*m^14+69/8*m^13+579059/7200*m^12+56323/360*m^11+1088771/7200*m^10-721838401/1215000*m^9-3973583671/972000*m^8-3352492049/405000*m^7-8015654349901/9841500000*m^6+27840819701/1215000*m^5+47874116261/1215000*m^4+5906116843/202500*m^3+2599297801/270000*m^2+209059/200*m+5397/80)/(m^6+9*m^5+135/4*m^4+135/2*m^3+1215/16*m^2+729/16*m+729/64)) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
-
-Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: (5400*m^5 + 6750*m^4 - 16200*m^3 + 43802*m^2 + 216000*m + 162000)/(2700*m^2 + 8100*m + 6075)
-Y_aff: (-14400*m^5 - 22050*m^4 + 40500*m^3 - 13056*m^2 - 301202*m - 247050)/(900*m^2 + 2700*m + 2025)
-Z_aff: 1
-
-Equation Check:
-LHS (Y^2*Z): (207360000*m^10 + 635040000*m^9 - 680197500*m^8 - 1410037200*m^7 + 10890637200*m^6 + 19340512200*m^5 - 13331997864*m^4 - 12146063376*m^3 + 97173614404*m^2 + 148823908200*m + 61033702500)/(810000*m^4 + 4860000*m^3 + 10935000*m^2 + 10935000*m + 4100625)
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (207360000*m^10 + 635040000*m^9 - 680197500*m^8 - 1410037200*m^7 + 10890637200*m^6 + 19340512200*m^5 - 13331997864*m^4 - 12146063376*m^3 + 97173614404*m^2 + 148823908200*m + 61033702500)/(810000*m^4 + 4860000*m^3 + 10935000*m^2 + 10935000*m + 4100625)
-
-Difference (LHS - RHS): 0
-✅ Algebraic identity holds.
---- END DEBUGGING ---
-section weierstrass coordinates: ((2*m^5 + 5/2*m^4 - 6*m^3 + 21901/1350*m^2 + 80*m + 60)/(m^2 + 3*m + 9/4) : (-16*m^5 - 49/2*m^4 + 45*m^3 - 1088/75*m^2 - 150601/450*m - 549/2)/(m^2 + 3*m + 9/4) : 1)
-Canonical height pairing matrix determinant = 133/24
-Sections are independent.
-Canonical height pairing matrix determinant = 133/24
-Sections are independent.
-  [analyze_fibration] Fibration H:
-[133/24]
-height bound: 1087
-  [analyze_fibration] Found 14 search vectors (H=1087).
-[prepare_modular_data_lll] skip p=2: a4 numerator has coeff with denom divisible by p
-[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
-[prepare_modular_data_lll] skip p=5: a4 numerator has coeff with denom divisible by p
-
-[prepare_modular_data_lll] Rejected 3 primes:
-  p=2: a4_denom_divisible
-  p=3: a4_denom_divisible
-  p=5: a4_denom_divisible
-  Computed residues for 21 primes
+  Computed residues for 28 primes
 
 ======================================================================
 APPLYING HEIGHT-AWARE CONSENSUS FILTER
@@ -710,26 +772,26 @@ DEBUG: r_m(m=0) = -1
 Consensus Config: VETO MODE (Filtering ghosts, preserving blind points)
 
 Consensus Stats (Veto Mode):
-  Vectors Kept: 130
-  Vectors Vetoed: 170
-  Partners: 507 abstain, 87 confirm, 606 veto
-  Residues: 878 -> 402
+  Vectors Kept: 165
+  Vectors Vetoed: 225
+  Partners: 669 abstain, 74 confirm, 817 veto
+  Residues: 1116 -> 524
 
 Consensus Filter Results:
-  Primary vectors: 300
-  Matched across all fibs: 3
-  With consensus residues: 130
-  Residues: 878 → 402
-  Reduction: 54.2%
+  Primary vectors: 390
+  Matched across all fibs: 1
+  With consensus residues: 165
+  Residues: 1,116 → 524
+  Reduction: 53.0%
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 24 primes -> avg_roots=1.083, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
+[galois/empirical] Tested 30 primes -> avg_roots=1.033, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0833333333333333}
-prime pool used for search: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0333333333333334}
+prime pool used for search: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113]
 --- Preparing modular data for LLL search ---
 Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
 [prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
@@ -743,10 +805,10 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=3: a4_denom_divisible
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
-Using provided precomputed residues (24 primes)
+Using provided precomputed residues (30 primes)
 [brauer] estimated survival fraction ≈ 0.000000
 [brauer] estimated ruled-out fraction ≈ 1.000000
-[brauer] Monte Carlo blocked fraction ≈ 0.878000
+[brauer] Monte Carlo blocked fraction ≈ 0.860000
 [brauer] example m=1 locally allowed? False
 
 ======================================================================
@@ -754,8 +816,8 @@ DIAGNOSTIC: Strict Capacity Check for x = 182/141
 ======================================================================
 Target m: -323/141
 Best matching vector: (2,)...
-  Compatible Primes: 4 / 24
-  Capacity (log10): 6.58
+  Compatible Primes: 5 / 30
+  Capacity (log10): 8.57
   Required (log10): 5.32
 
 ✓ STATUS: THEORETICALLY FINDABLE
@@ -765,127 +827,128 @@ Best matching vector: (2,)...
   [Proof of Concept Reconstruction]
   Using subset of size 4...
   ✓ MATCH! Target successfully reconstructed.
-cov1: m =  -323/141  coverage: 0.45454545454545453
-cov1: matched primes: [5, 19, 23, 29, 41, 43, 53, 59, 79, 83]
-[filter] Removed 4 primes with no numeric data. Using 20 usable primes.
-[auto-tune] selected extra primes [5, 7, 11, 19, 23, 29] with expected density 4.29e-06
+cov1: m =  -323/141  coverage: 0.39285714285714285
+cov1: matched primes: [5, 19, 23, 29, 43, 53, 59, 79, 83, 97, 101]
+[filter] Removed 4 primes with no numeric data. Using 26 usable primes.
+[auto-tune] selected extra primes [5, 11, 19, 7, 23, 29] with expected density 5.04e-06
 combo_cap: 781249999999999975495047718109184 roots_threshold: 12
 
 [QC Prediction from Discriminant]
-  Sample: 20 primes, 13 with roots
-  QC distribution: -1:7, 0:1, 1:11
-  Predicted QC=-1/QC=1 ratio: 0.652
-  QC=-1 fraction: 38.9% (uniform: ~50%)
-[QC Target] Using QC ratio: 0.652 (predicted)
-density factor 2.6915887850467293
-reachability factor 1.0555555555555556
-[Adaptive] Fiber collisions: 2/20 (10.0%)
-[Adaptive] Empirical density: 0.2972
-[Adaptive] Recommended NUM_SUBSETS: 2000 (configured: 1078)
+  Sample: 26 primes, 18 with roots
+  QC distribution: -1:10, 0:1, 1:17
+  Predicted QC=-1/QC=1 ratio: 0.600
+  QC=-1 fraction: 37.0% (uniform: ~50%)
+[QC Target] Using QC ratio: 0.600 (predicted)
+density factor 2.6865671641791047
+reachability factor 1.0291666666666666
+[Adaptive] Fiber collisions: 2/26 (7.7%)
+[Adaptive] Empirical density: 0.2978
+[Adaptive] Recommended NUM_SUBSETS: 2000 (configured: 1081)
 
 [QC Bias Analysis]
-Primes closest to target QC ratio (0.652):
-  p=7: qc_ratio=0.667, entropy=1.500, coverage=75.0%, counts={0: 1, 1: 2, -1: 1}
-  p=19: qc_ratio=0.800, entropy=1.406, coverage=100.0%, counts={0: 1, -1: 3, 1: 4}
+Primes closest to target QC ratio (0.600):
+  p=113: qc_ratio=0.556, entropy=1.239, coverage=100.0%, counts={0: 1, 1: 8, -1: 4}
+  p=7: qc_ratio=0.667, entropy=1.500, coverage=71.4%, counts={0: 1, 1: 2, -1: 1}
   p=37: qc_ratio=0.500, entropy=1.299, coverage=66.7%, counts={0: 1, 1: 5, -1: 2}
   p=89: qc_ratio=0.500, entropy=1.241, coverage=100.0%, counts={0: 1, 1: 7, -1: 3}
+  p=109: qc_ratio=0.500, entropy=1.371, coverage=50.0%, counts={0: 1, 1: 3, -1: 1}
+  p=19: qc_ratio=0.833, entropy=1.361, coverage=100.0%, counts={0: 1, -1: 4, 1: 5}
   p=73: qc_ratio=0.857, entropy=1.325, coverage=100.0%, counts={0: 1, 1: 6, -1: 5}
+  p=97: qc_ratio=0.857, entropy=1.325, coverage=83.3%, counts={0: 1, 1: 6, -1: 5}
   p=5: qc_ratio=1.000, entropy=1.522, coverage=88.9%, counts={0: 1, 1: 2, -1: 2}
   p=59: qc_ratio=1.000, entropy=1.392, coverage=100.0%, counts={0: 1, -1: 4, 1: 4}
-  p=71: qc_ratio=1.000, entropy=1.392, coverage=66.7%, counts={0: 1, 1: 4, -1: 4}
-  p=31: qc_ratio=0.167, entropy=0.650, coverage=66.7%, counts={0: 1, 1: 5}
-  p=79: qc_ratio=1.250, entropy=1.406, coverage=83.3%, counts={0: 1, -1: 4, 1: 3}
 
-[QC-Biased Generation] Target QC ratio: 0.652
+[QC-Biased Generation] Target QC ratio: 0.600
 Top primes by composite score:
-  p=7: score=0.679, qc_ratio=0.667, coverage=40.0%
-  p=19: score=0.521, qc_ratio=0.800, coverage=40.0%
-  p=89: score=0.517, qc_ratio=0.500, coverage=40.0%
-  p=73: score=0.470, qc_ratio=0.857, coverage=40.0%
-  p=37: score=0.450, qc_ratio=0.500, coverage=26.7%
-  p=5: score=0.443, qc_ratio=1.000, coverage=53.3%
-  p=59: score=0.376, qc_ratio=1.000, coverage=40.0%
-  p=71: score=0.309, qc_ratio=1.000, coverage=26.7%
-  p=79: score=0.250, qc_ratio=1.250, coverage=33.3%
-  p=31: score=0.250, qc_ratio=0.167, coverage=26.7%
-[QC-Biased] Top 6 primes: [7, 19, 89, 73, 37, 5]
-[QC-Biased] Generated 1890 unique viable subsets
-Sample subsets: [[5, 73, 89], [7, 11, 37], [7, 37, 73]]
-Generated 1890 prime_subsets -> filtered to 1890
-using 245 subsets of len = 3
-using 257 subsets of len = 4
-using 269 subsets of len = 5
-using 279 subsets of len = 6
-using 283 subsets of len = 7
-using 290 subsets of len = 8
-using 260 subsets of len = 9
+  p=113: score=0.638, qc_ratio=0.556, coverage=40.0%
+  p=7: score=0.576, qc_ratio=0.667, coverage=33.3%
+  p=89: score=0.570, qc_ratio=0.500, coverage=40.0%
+  p=19: score=0.515, qc_ratio=0.833, coverage=53.3%
+  p=37: score=0.504, qc_ratio=0.500, coverage=26.7%
+  p=109: score=0.470, qc_ratio=0.500, coverage=20.0%
+  p=73: score=0.431, qc_ratio=0.857, coverage=40.0%
+  p=5: score=0.417, qc_ratio=1.000, coverage=53.3%
+  p=97: score=0.398, qc_ratio=0.857, coverage=33.3%
+  p=59: score=0.351, qc_ratio=1.000, coverage=40.0%
+[QC-Biased] Top 8 primes: [113, 7, 89, 19, 37, 109, 73, 5]
+[QC-Biased] Generated 1949 unique viable subsets
+Sample subsets: [[5, 73, 89], [5, 71, 83], [5, 37, 109]]
+Generated 1949 prime_subsets -> filtered to 1949
+using 267 subsets of len = 3
+using 267 subsets of len = 4
+using 294 subsets of len = 5
+using 259 subsets of len = 6
+using 272 subsets of len = 7
+using 304 subsets of len = 8
+using 279 subsets of len = 9
 
 --- Coverage Estimate ---
   Heuristic (density): 0.0000%
-  CRT classes tested: 104,261
-  Search space size: ~5.37e+16
+  CRT classes tested: 100,267
+  Search space size: ~2.01e+18
   ⚠️  Recommend +Infinity more run(s) to reach 95% coverage
 
-Checking rationality for 76340 unique candidates...
-[batch check] processed 3817/76340, found 0 rational so far
-[batch check] processed 7634/76340, found 0 rational so far
-[batch check] processed 11451/76340, found 3 rational so far
-[batch check] processed 15268/76340, found 5 rational so far
-[batch check] processed 19085/76340, found 7 rational so far
-[batch check] processed 22902/76340, found 7 rational so far
-[batch check] processed 26719/76340, found 9 rational so far
-[batch check] processed 30536/76340, found 12 rational so far
-[batch check] processed 34353/76340, found 14 rational so far
-[batch check] processed 38170/76340, found 15 rational so far
-[batch check] processed 41987/76340, found 20 rational so far
-[batch check] processed 45804/76340, found 20 rational so far
-[batch check] processed 49621/76340, found 20 rational so far
-[batch check] processed 53438/76340, found 21 rational so far
-[batch check] processed 57255/76340, found 21 rational so far
-[batch check] processed 61072/76340, found 22 rational so far
-[batch check] processed 64889/76340, found 23 rational so far
-[batch check] processed 68706/76340, found 25 rational so far
-[batch check] processed 72523/76340, found 26 rational so far
-[batch check] processed 76340/76340, found 26 rational so far
+Checking rationality for 80264 unique candidates...
+[batch check] processed 4013/80264, found 0 rational so far
+[batch check] processed 8026/80264, found 3 rational so far
+[batch check] processed 12039/80264, found 4 rational so far
+[batch check] processed 16052/80264, found 7 rational so far
+[batch check] processed 20065/80264, found 8 rational so far
+[batch check] processed 24078/80264, found 9 rational so far
+[batch check] processed 28091/80264, found 9 rational so far
+[batch check] processed 32104/80264, found 9 rational so far
+[batch check] processed 36117/80264, found 10 rational so far
+[batch check] processed 40130/80264, found 10 rational so far
+[batch check] processed 44143/80264, found 11 rational so far
+[batch check] processed 48156/80264, found 13 rational so far
+[batch check] processed 52169/80264, found 14 rational so far
+[batch check] processed 56182/80264, found 15 rational so far
+[batch check] processed 60195/80264, found 17 rational so far
+[batch check] processed 64208/80264, found 21 rational so far
+[batch check] processed 68221/80264, found 22 rational so far
+[batch check] processed 72234/80264, found 22 rational so far
+[batch check] processed 76247/80264, found 23 rational so far
+[batch check] processed 80260/80264, found 24 rational so far
+[batch check] processed 80264/80264, found 24 rational so far
 
-[subset stats] 1837/1890 subsets produced candidates (97.2%)
-[subset stats] 106268 total candidates from productive subsets
+[subset stats] 1796/1949 subsets produced candidates (92.1%)
+[subset stats] 98830 total candidates from productive subsets
 [subset stats] Productivity by size:
-  Size 3: 246/246 productive (100.0%), 6619 candidates
-  Size 4: 258/258 productive (100.0%), 15597 candidates
-  Size 5: 270/270 productive (100.0%), 28695 candidates
-  Size 6: 279/280 productive (99.6%), 30521 candidates
-  Size 7: 281/284 productive (98.9%), 16987 candidates
-  Size 8: 278/291 productive (95.5%), 4687 candidates
-  Size 9: 225/261 productive (86.2%), 3162 candidates
+  Size 3: 268/268 productive (100.0%), 7459 candidates
+  Size 4: 268/268 productive (100.0%), 16747 candidates
+  Size 5: 294/295 productive (99.7%), 32334 candidates
+  Size 6: 256/260 productive (98.5%), 24589 candidates
+  Size 7: 256/273 productive (93.8%), 10364 candidates
+  Size 8: 269/305 productive (88.2%), 5025 candidates
+  Size 9: 185/280 productive (66.1%), 2312 candidates
 [subset stats] Top 5 productive subsets:
-  [5, 7, 19, 37, 43, 53, 73]: 816 candidates
-  [5, 7, 19, 29, 37, 47, 73]: 684 candidates
-  [5, 7, 11, 19, 23, 53, 73]: 578 candidates
-  [5, 19, 29, 31, 73, 89]: 542 candidates
-  [5, 7, 11, 19, 23, 53, 89]: 452 candidates
+  [7, 19, 37, 53, 97, 113]: 1246 candidates
+  [5, 19, 31, 37, 73, 109, 113]: 936 candidates
+  [5, 7, 19, 37, 97, 113]: 894 candidates
+  [19, 31, 37, 97, 113]: 886 candidates
+  [7, 19, 53, 89, 97, 113]: 860 candidates
 
-Found 26 rational (m, vector) pairs after checking.
+Found 24 rational (m, vector) pairs after checking.
 
 ======================================================================
 RESIDUE PATTERN ANALYSIS
 ======================================================================
 
-Total primes analyzed: 20
-Total residues: 155
-Unused residues: 79
+Total primes analyzed: 26
+Total residues: 211
+Unused residues: 116
 
 --- Discriminant Patterns ---
-  Used: {'simple_ramification': 2, 'smooth': 73, 'unknown': 1}
-  Unused: {'smooth': 78, 'simple_ramification': 1}
+  Used: {'simple_ramification': 3, 'smooth': 90, 'unknown': 2}
+  Unused: {'smooth': 115, 'simple_ramification': 1}
 
 --- Quadratic Character ---
-  Used: {0: 19, 1: 27, -1: 30}
-  Unused: {-1: 45, 1: 34}
+  Used: {0: 25, 1: 35, -1: 35}
+  Unused: {-1: 63, 1: 53}
 
 --- Liftability ---
-  Used: {'zero': 70, 'positive': 6}
-  Unused: {'zero': 75, 'positive': 4}
+  Used: {'zero': 95}
+  Unused: {'zero': 116}
 
 --- Local Height ---
   Used: mean=0.00, median=0.00, max=0.0
@@ -893,54 +956,53 @@ Unused residues: 79
 
 --- Composite Patterns ---
   High lift + high disc: used=0, unused=0
-  QC=-1 + lift>0: used=3, unused=3
-  Zero local height: used=76, unused=79
+  QC=-1 + lift>0: used=0, unused=0
+  Zero local height: used=95, unused=116
 
 --- Discriminative Power ---
-  disc_pattern: diff=0.027 at 'smooth' (used=96.1%, unused=98.7%)
-  lift_range: diff=0.028 at 'positive' (used=7.9%, unused=5.1%)
-  a_p_sign: diff=0.027 at 'singular' (used=3.9%, unused=1.3%)
+  disc_pattern: diff=0.044 at 'smooth' (used=94.7%, unused=99.1%)
+  a_p_sign: diff=0.044 at 'singular' (used=5.3%, unused=0.9%)
 ======================================================================
 
 --- Search Statistics ---
-Total time: 8.99s
+Total time: 8.57s
 Total Rational Points Found (Unique x): 11
 
 Phases (s):
-  search_subsets_and_check : 8.38s
-  prep_mod_data            : 0.47s
-  post_process             : 0.07s
+  search_subsets_and_check : 7.82s
+  prep_mod_data            : 0.49s
+  post_process             : 0.09s
   gen_subsets              : 0.02s
   brauer                   : 0.00s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 76340
-  crt_lift_attempts             : 1450904
+  crt_candidates_found          : 80264
+  crt_lift_attempts             : 2376628
   modular_checks                : 0
-  modular_mults                 : 280
+  modular_mults                 : 364
   multiply_ops                  : 0
   new_sections_unique           : 0
   rational_points_unique        : 11
-  rational_recon_attempts_worker: 236452
+  rational_recon_attempts_worker: 213680
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 236452
-  rationality_tests_failure     : 76314
-  rationality_tests_success     : 26
-  rationality_tests_total       : 76340
+  rational_recon_success_worker : 213680
+  rationality_tests_failure     : 80240
+  rationality_tests_success     : 24
+  rationality_tests_total       : 80264
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1890
-  subsets_processed             : 1890
+  subsets_generated_initial     : 1949
+  subsets_processed             : 1949
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
   using_consensus_residues      : 1
 
-Successes: 26, Failures: 76314
+Successes: 24, Failures: 80240
 Discard Reasons (Top 5):
-  y_not_rational                : 76314
+  y_not_rational                : 80240
 --------------------------------
 Found 11 new point(s) and 0 new section(s).
-New x-coordinates: {0, 1, -3/2, 2, 1/3, -1/4, 182/141, -1, -1/6, 7/5, -2}
+New x-coordinates: {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -1, -1/6, 7/5, -2}
 
 ======================================================================
 COMPLETENESS ANALYSIS (Exact CRT Check)
@@ -949,110 +1011,110 @@ COMPLETENESS ANALYSIS (Exact CRT Check)
 Found Points Reconstructibility:
 x          | Findable?  | Primes   | Log10 Cap
 ---------------------------------------------
-0          | YES        | 6        | 8.10
-1          | YES        | 7        | 8.57
--3/2       | YES        | 8        | 10.26
-2          | YES        | 6        | 7.69
-1/3        | YES        | 10       | 14.36
--1/4       | YES        | 8        | 11.22
-182/141    | YES        | 10       | 15.36
--2         | YES        | 6        | 8.21
--1/6       | YES        | 7        | 9.07
-7/5        | YES        | 4        | 6.09
--1         | YES        | 19       | 29.47
+0          | YES        | 9        | 13.40
+1          | YES        | 6        | 6.96
+2          | YES        | 6        | 8.07
+-3/2       | YES        | 9        | 12.26
+1/3        | YES        | 12       | 17.67
+-1/4       | YES        | 8        | 11.56
+182/141    | YES        | 11       | 17.74
+-2         | YES        | 8        | 11.95
+-1/6       | YES        | 8        | 11.08
+7/5        | YES        | 7        | 12.16
+-1         | YES        | 25       | 41.59
 
 ✓ All found points are theoretically reconstructible.
 ======================================================================
 
 === Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.217
-fraction >= 0.1 : 92.960%, fraction >= 0.5 : 0.080%
+avg_fraction (unbiased sample): 0.192
+fraction >= 0.1 : 95.720%, fraction >= 0.5 : 0.000%
 empirical visible fraction: (no prime_subsets available in analyzer)
 
-=== Pairwise MI on first 24 primes (binary match indicators) ===
+=== Pairwise MI on first 30 primes (binary match indicators) ===
 Top MI pairs (p,q,MI bits):
-  ( 53, 59)  0.0018 bits
-  ( 37, 53)  0.0014 bits
-  ( 61, 67)  0.0012 bits
-  ( 19, 71)  0.0009 bits
-  ( 31, 73)  0.0008 bits
-  ( 43, 83)  0.0008 bits
-  ( 53, 67)  0.0006 bits
-  ( 61, 79)  0.0006 bits
-  (  5, 29)  0.0006 bits
-  ( 41, 59)  0.0005 bits
-  (  5, 71)  0.0005 bits
-  (  7, 31)  0.0005 bits
-  ( 41, 43)  0.0005 bits
-  ( 19, 53)  0.0005 bits
-  ( 41, 73)  0.0005 bits
-  ( 37, 67)  0.0004 bits
-  ( 43, 89)  0.0004 bits
-  (  7, 61)  0.0004 bits
-  ( 11, 19)  0.0004 bits
-  ( 59, 79)  0.0004 bits
+  (101,113)  0.0018 bits
+  ( 41,109)  0.0011 bits
+  ( 53,103)  0.0009 bits
+  ( 61, 89)  0.0007 bits
+  (  5,107)  0.0007 bits
+  ( 11, 61)  0.0006 bits
+  (  5, 11)  0.0006 bits
+  ( 61,103)  0.0006 bits
+  ( 61,113)  0.0006 bits
+  (  7,109)  0.0005 bits
+  ( 23, 71)  0.0005 bits
+  (  7, 83)  0.0005 bits
+  (  5, 61)  0.0005 bits
+  ( 41, 71)  0.0005 bits
+  ( 37, 59)  0.0004 bits
+  ( 37, 41)  0.0004 bits
+  ( 19,109)  0.0004 bits
+  ( 11, 89)  0.0004 bits
+  ( 59,103)  0.0004 bits
+  ( 43, 83)  0.0004 bits
 fraction of pairs with MI >= 0.01 bits: 0.000%
 
 === Per-subset empirical coverage (first 30 subsets) ===
- subset [5, 73, 89]...  emp_p=0.0156  product_p=0.01747
- subset [7, 11, 37]...  emp_p=0.0428  product_p=0.04155
- subset [7, 37, 73]...  emp_p=0.0156  product_p=0.01661
- subset [19, 29, 37, 59, 83, 89]...  emp_p=0  product_p=3.63e-05
- subset [7, 73, 89]...  emp_p=0.0098  product_p=0.01031
- subset [7, 19, 31, 37, 73]...  emp_p=0.0016  product_p=0.001338
- subset [5, 7, 19]...  emp_p=0.1628  product_p=0.1638
- subset [5, 11, 19, 29, 37, 43]...  emp_p=0  product_p=4.577e-06
- subset [7, 19, 73]...  emp_p=0.0318  product_p=0.03317
- subset [5, 7, 73, 89]...  emp_p=0.0074  product_p=0.008508
- subset [5, 7, 37]...  emp_p=0.0836  product_p=0.08204
- subset [5, 19, 23, 59, 83, 89]...  emp_p=0.0002  product_p=0.0001661
- subset [19, 73, 89]...  emp_p=0.0094  product_p=0.008635
- subset [7, 11, 37, 43, 47, 61]...  emp_p=0  product_p=2.192e-07
- subset [7, 19, 37, 59]...  emp_p=0.0088  product_p=0.005742
- subset [19, 37, 89]...  emp_p=0.011  product_p=0.01056
- subset [5, 19, 37, 59, 89]...  emp_p=0.0014  product_p=0.001234
- subset [19, 41, 61, 67, 89]...  emp_p=0.0002  product_p=7.983e-05
- subset [19, 43, 67, 73]...  emp_p=0.0006  product_p=0.001179
- subset [5, 7, 89]...  emp_p=0.0502  product_p=0.05095
- subset [5, 7, 37, 59, 73, 89]...  emp_p=0  product_p=0.000246
- subset [7, 19, 37]...  emp_p=0.0424  product_p=0.04055
- subset [7, 19, 23, 37, 67, 71]...  emp_p=0  product_p=2.423e-05
- subset [37, 73, 89]...  emp_p=0.0044  product_p=0.004324
- subset [7, 37, 59, 61, 71, 73]...  emp_p=0  product_p=2.636e-07
- subset [19, 37, 73]...  emp_p=0.014  product_p=0.01391
- subset [7, 37, 73, 89]...  emp_p=0.0022  product_p=0.002106
- subset [7, 19, 43, 73]...  emp_p=0.005  product_p=0.00587
- subset [5, 23, 37, 43, 47, 53]...  emp_p=0  product_p=5.555e-07
- subset [5, 7, 11, 37, 43, 59]...  emp_p=0  product_p=1.463e-05
+ subset [5, 73, 89]...  emp_p=0.0134  product_p=0.01629
+ subset [5, 71, 83]...  emp_p=0.0066  product_p=0.006896
+ subset [5, 37, 109]...  emp_p=0.0076  product_p=0.008253
+ subset [5, 7, 59, 89, 103, 107]...  emp_p=0  product_p=5.321e-06
+ subset [5, 73, 109]...  emp_p=0.0058  product_p=0.006081
+ subset [5, 41, 89]...  emp_p=0.017  product_p=0.01777
+ subset [7, 73, 109]...  emp_p=0.0026  product_p=0.003545
+ subset [7, 73, 89, 113]...  emp_p=0.001  product_p=0.001151
+ subset [19, 73, 89]...  emp_p=0.0084  product_p=0.009888
+ subset [31, 37, 47, 103, 113]...  emp_p=0.0002  product_p=5.805e-05
+ subset [37, 73, 109]...  emp_p=0.0012  product_p=0.00155
+ subset [7, 23, 37, 97]...  emp_p=0.0036  product_p=0.004663
+ subset [7, 37, 89]...  emp_p=0.0126  product_p=0.01289
+ subset [5, 7, 19, 37, 97, 113]...  emp_p=0.0012  product_p=0.0006258
+ subset [19, 53, 71, 83, 113]...  emp_p=0  product_p=9.922e-05
+ subset [5, 7, 89]...  emp_p=0.0482  product_p=0.05059
+ subset [5, 23, 59, 67, 73, 97]...  emp_p=0  product_p=3.504e-06
+ subset [7, 19, 23, 59, 73, 89]...  emp_p=0.0002  product_p=3.161e-05
+ subset [5, 7, 19]...  emp_p=0.2048  product_p=0.2036
+ subset [11, 19, 37, 71, 83, 113]...  emp_p=0  product_p=4.596e-05
+ subset [5, 11, 19, 41, 53, 79]...  emp_p=0  product_p=6.053e-06
+ subset [7, 89, 109]...  emp_p=0.0032  product_p=0.002846
+ subset [5, 37, 71, 73, 103]...  emp_p=0.0004  product_p=0.0002728
+ subset [73, 89, 113]...  emp_p=0.003  product_p=0.002374
+ subset [7, 31, 37, 73, 83, 89]...  emp_p=0  product_p=9.054e-08
+ subset [5, 7, 37, 53, 79, 101]...  emp_p=0  product_p=6.941e-08
+ subset [7, 19, 29, 31, 43, 53]...  emp_p=0  product_p=3.29e-06
+ subset [67, 73, 109]...  emp_p=0.0004  product_p=0.0006477
+ subset [19, 23, 31, 37, 43, 53]...  emp_p=0  product_p=1.251e-07
+ subset [41, 59, 71, 109, 113]...  emp_p=0  product_p=1.746e-05
 
 ======================================================================
 TARGETED POINT ANALYSIS: x = 182/141
 ======================================================================
 Target m-value: -323/141
 
-Per-prime visibility: 10/24 primes matched (45.5%)
+Per-prime visibility: 11/30 primes matched (39.3%)
 
-⚠️  Target point has moderate visibility (45.5%)
+⚠️  Target point has moderate visibility (39.3%)
 May need larger prime subsets or more iterations.
 
-Per-prime visibility: 10/22 primes matched (45.5%)
+Per-prime visibility: 11/28 primes matched (39.3%)
 
 ⚠️  TARGET POINT HAS LOW VISIBILITY
-This point is only visible at 45.5% of usable primes.
+This point is only visible at 39.3% of usable primes.
 
-Matched primes: [5, 19, 23, 29, 41, 43, 53, 59, 79, 83]
-Missing primes (sample): [2, 3, 7, 11, 13, 17, 31, 37, 47, 61]
+Matched primes: [5, 19, 23, 29, 43, 53, 59, 79, 83, 97, 101]
+Missing primes (sample): [2, 3, 7, 11, 13, 17, 31, 37, 41, 47]
 
-Suggested targeted subset: [5, 19, 23, 29, 41, 43]
+Suggested targeted subset: [5, 19, 23, 29, 43, 53]
 Add this to prime_subsets_to_process and re-run.
 
 ======================================================================
 SEARCH SUMMARY
 ======================================================================
 Total points found: 11
-Total time: 87.1s
-CRT candidates tested: 76,340
-Rationality tests: 76,340
+Total time: 91.9s
+CRT candidates tested: 80,264
+Rationality tests: 80,264
 Hit rate: 0.03%
 ======================================================================
 Proof using OBSERVED max height: 5.20
@@ -1073,35 +1135,35 @@ to guarantee rational reconstruction for all sections up to height H.
 ======================================================================
 
 [fiber_collision_adjustment]
-  Collision primes: [13, 17, 5]
-  Other rejected: [2, 3, 2, 5]
-  Reachable fraction: 0.6950
-  Adjustment factor: 0.6950
-  Raw p_visibility: 0.2170
-  Adjusted p_visibility: 0.1508
+  Collision primes: [13, 17, 23]
+  Other rejected: [2, 3, 2, 11, 19, 5]
+  Reachable fraction: 0.8310
+  Adjustment factor: 0.8310
+  Raw p_visibility: 0.1922
+  Adjusted p_visibility: 0.1598
 
 --- Arithmetic-informed prior (with fiber collision adjustment) ---
-Fiber collision primes detected: [13, 17, 5]
-p_visibility (raw): 0.2170
-p_visibility (adjusted): 0.1508
+Fiber collision primes detected: [13, 17, 23]
+p_visibility (raw): 0.1922
+p_visibility (adjusted): 0.1598
 mu_selmer:   0
 mu_local:    0
 mu_height:   0.01
-mu_bootstrap:0.6195
---> mu_combined = 0.6195  (q = 0.382509)
+mu_bootstrap:0.5786
+--> mu_combined = 0.5786  (q = 0.366514)
 
 --- Posterior summary (geometric prior from arithmetic signals) ---
 Observed points (k) = 11
-Estimated detection probability p = 0.151
-P(true T == k)         = 0.897%   (probability we found all points)
-P(true T <= k+1)       = 4.395%   (probability we missed ≤ 1 point)
-P(true T <= k+2)       = 11.781%   (probability we missed ≤ 2 points)
-Posterior mean of T    = 16.773
+Estimated detection probability p = 0.160
+P(true T == k)         = 1.207%   (probability we found all points)
+P(true T <= k+1)       = 5.666%   (probability we missed ≤ 1 point)
+P(true T <= k+2)       = 14.591%   (probability we missed ≤ 2 points)
+Posterior mean of T    = 16.340
 Note: results depend on prior (mu_combined) computed from arithmetic signals above.
 
-Top posterior mass (T, prob): 16:14.175%, 15:13.637%, 17:13.046%, 14:11.195%, 18:10.897%, 19:8.407%, 13:7.385%, 20:6.068%
+Top posterior mass (T, prob): 15:14.814%, 16:14.599%, 14:12.828%, 17:12.739%, 18:10.088%, 13:8.926%, 19:7.378%, 20:5.049%
 
-✓ Fiber collisions detected across all geometries: {17, 5, 13}
+✓ Fiber collisions detected across all geometries: {17, 13, 23}
   Primary fibration ramification locus: {97, 2, 3, 5, 7, 71, 50857, 683, 1104811, 13, 463, 17, 46872409}
   (Collisions may differ per fibration in consensus mode)
 
@@ -1176,11 +1238,11 @@ Rank bounds:
   1 ≤ rank(S²) ≤ 5
 
 known_pts {(-1, 1)}
-found {0, 1, -3/2, 2, 1/3, -1/4, 182/141, -2, -1/6, 7/5, -1}
+found {0, 1, 2, -3/2, 1/3, -1/4, 182/141, -2, -1/6, 7/5, -1}
 new x: 0
 new x: 1
-new x: -3/2
 new x: 2
+new x: -3/2
 new x: 1/3
 new x: -1/4
 new x: 182/141
@@ -1190,41 +1252,41 @@ new x: 7/5
 TERMINATE_WHEN_6 (11) reached.
 
 --- Cumulative Run Statistics ---
-Total time: 87.67s
+Total time: 92.82s
 Total Rational Points Found (Unique x): 11
 
 Phases (s):
-  search_subsets_and_check : 8.38s
-  prep_mod_data            : 0.47s
-  post_process             : 0.07s
+  search_subsets_and_check : 7.82s
+  prep_mod_data            : 0.49s
+  post_process             : 0.09s
   gen_subsets              : 0.02s
   brauer                   : 0.00s
   autotune_primes          : 0.00s
 
 Counters:
-  crt_candidates_found          : 76340
-  crt_lift_attempts             : 1450904
+  crt_candidates_found          : 80264
+  crt_lift_attempts             : 2376628
   modular_checks                : 0
-  modular_mults                 : 1665
+  modular_mults                 : 2119
   multiply_ops                  : 0
   new_sections_unique           : 0
   rational_points_unique        : 11
-  rational_recon_attempts_worker: 236452
+  rational_recon_attempts_worker: 213680
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 236452
-  rationality_tests_failure     : 76314
-  rationality_tests_success     : 26
-  rationality_tests_total       : 76340
+  rational_recon_success_worker : 213680
+  rationality_tests_failure     : 80240
+  rationality_tests_success     : 24
+  rationality_tests_total       : 80264
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1890
-  subsets_processed             : 1890
+  subsets_generated_initial     : 1949
+  subsets_processed             : 1949
   symbolic_solves_attempted     : 0
   symbolic_solves_success       : 0
   using_consensus_residues      : 1
 
-Successes: 26, Failures: 76314
+Successes: 24, Failures: 80240
 Discard Reasons (Top 5):
-  y_not_rational                : 76314
+  y_not_rational                : 80240
 --------------------------------
 
 --- Final Results ---

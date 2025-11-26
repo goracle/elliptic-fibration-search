@@ -18,7 +18,7 @@ from sage.all import QQ, ZZ, gcd, factor, primes, SR, PolynomialRing, Integer, c
 import random, math
 
 
-from search_common import DEBUG, SEED_INT
+from search_common import DEBUG, SEED_INT, PRIME_POOL
 
 
 # CONFIG: tune these to trade runtime vs accuracy
@@ -1104,9 +1104,13 @@ def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
         used_x = set(QQ(x) for x in exclude_x)
     
     # Use only denominators that are powers of 2 (or 3, but 2 is safest)
-    allowed_denoms = [1, 2, 4, 8]  # Powers of 2
-    
-    max_attempts = 1000
+    #allowed_denoms = [1, 2, 4, 8]  # Powers of 2
+    # Use larger primes to push singularities away from simple integers
+    #allowed_denoms = [2, 3, 5, 7, 11, 13] 
+    #allowed_denoms = PRIME_POOL[3:]
+    allowed_denoms = [2, 4, 8, 16, 32]
+
+    max_attempts = 500
     attempts = 0
     
     while len(anchor_pts) < num_points and attempts < max_attempts:

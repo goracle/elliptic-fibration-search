@@ -129,6 +129,30 @@ def main_genus2():
     print(f"Final list of known points: {sorted(list(known_pts))}")
 
 
+def scancd_for_special_fibers(cd, r_m, shift):
+    """scan singular and other special fibers for m values which may give rational points"""
+    singfibs = cd.singfibs
+    fibers = singfibs['fibers']
+    euler = singfibs['euler_characteristic']
+    sigma = singfibs['sigma_sum']
+    singular_fibers_m = [f['r'] for f in fibers if (f.get('root_type') == 'rational' or f.get('root_type') == 'pole')]
+    print("FIBERS:")
+    for f in fibers:
+        print(f)
+
+    cm_fibers = find_cm_fibers(cd)
+    j_targets = [0, 1728, -12**3, -32**3, -96**3]
+    special_fibers_m = find_special_j_invariant_fibers(cd, j_targets)
+    test_fibers = {m for m in set(singular_fibers_m).union(cm_fibers).union(special_fibers_m) if m is not None}
+    print("Testing special m-values from fibers:", test_fibers)
+
+    found_from_fibers = test_y_rationality_genus2(list(test_fibers), r_m, shift)
+    if found_from_fibers:
+        print(f"Points found from special fibers: {found_from_fibers}")
+    return found_from_fibers
+
+
+
 @PROFILE
 def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     """
@@ -201,7 +225,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     else:
         # Original single-fibration mode
         fibrations = None
-    
 
     # 3. Extract expressions from the *PRIMARY* tower
     roots = [i['r_expr'] for i in primary_tower]
@@ -317,23 +340,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     #assert len(tower) == len(search_rhs_list), (len(tower), len(search_rhs_list))
 
     summarize_fibration_info(cd, data_pts, base_pts)
+    extra_pts = scancd_for_special_fibers(cd, r_m, shift)
+    if extra_pts:
+        all_known_x.update(extra_pts)
     singfibs = cd.singfibs
-    fibers = singfibs['fibers']
     euler = singfibs['euler_characteristic']
-    sigma = singfibs['sigma_sum']
-    singular_fibers_m = [f['r'] for f in fibers if f.get('root_type') == 'rational']
-
-    cm_fibers = find_cm_fibers(cd)
-    j_targets = [0, 1728, -12**3, -32**3, -96**3]
-    special_fibers_m = find_special_j_invariant_fibers(cd, j_targets)
-    test_fibers = {m for m in set(singular_fibers_m).union(cm_fibers).union(special_fibers_m) if m is not None}
-    print("Testing special m-values from fibers:", test_fibers)
-
-    found_from_fibers = test_y_rationality_genus2(list(test_fibers), r_m, shift)
-    if found_from_fibers:
-        print(f"Points found from special fibers: {found_from_fibers}")
-        all_known_x.update(found_from_fibers)
-
     base_sections = compute_base_sections_m(cd, base_pts)
     verify_morphism_on_samples(cd, base_pts)
     if not base_sections:
@@ -434,6 +445,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         sconf,
                         seed=fib_data['seed']
                     )
+
+                    extra_pts = scancd_for_special_fibers(fib_analysis['cd'], fib_analysis['r_m'], shift)
+                    if extra_pts:
+                        all_known_x.update(extra_pts)
                     
                     if fib_analysis is None:
                         print(f"  Skipping fibration {fib_idx+1} due to analysis error.")
@@ -1267,7 +1282,8 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
         'sconf': this_sconf,
         'deg': this_disc_deg,
         'disc_deg': this_disc_deg,
-        'name': f"fib_seed_{seed}"
+        'name': f"fib_seed_{seed}",
+        'r_m': this_r_m
     }
 # In doloop_genus2, replace the consensus precomputation section
 # (starting from "if USE_CONSENSUS_FILTER and fibrations:")

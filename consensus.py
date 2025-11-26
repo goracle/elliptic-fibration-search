@@ -4,17 +4,6 @@ import math
 from collections import Counter, defaultdict
 
 
-# DEPRECATED / COMPATIBILITY FUNCTIONS (Kept to avoid import errors)
-
-# Deprecated function kept for compatibility
-
-
-# DEPRECATED / COMPATIBILITY FUNCTIONS (Kept to avoid import errors)
-
-
-# DEPRECATED / COMPATIBILITY FUNCTIONS
-
-
 # DEPRECATED / COMPATIBILITY FUNCTIONS
 def compute_consensus_residues(precomputed_residues_list, prime_pool, consensus_threshold=0.7, debug=False):
     print("WARNING: calling deprecated compute_consensus_residues")
@@ -237,3 +226,87 @@ def compute_consensus_residues_with_height_matching(all_precomputed_residues,
         print(f"  Residues: {stats['total_residues_before']} -> {stats['total_residues_after']}")
 
     return consensus_residues, stats
+
+
+# --- Helper to Scan Singular Fibers ---
+def scan_singular_fibers_for_fibration(fib_data, shift):
+    """
+    Extracts the discriminant of a fibration tower and solves for rational singular fibers.
+    Maps these m-values back to x-values and tests them.
+    """
+    assert None, "there are a number of problems with this function"
+    found_x = set()
+    try:
+        tower = fib_data['tower']
+        if not tower: return set()
+
+        # 1. Reconstruct variables
+        SR_m = var('m')
+        xSR = var('x')
+        
+        # 2. Get the final equation f_i(x,m)
+        last_step = tower[-1]
+        f_expr = SR(last_step['f_i'])
+        r_expr = SR(last_step['r_expr'])
+        
+        # 3. Compute Discriminant with respect to x
+        # We treat it as a polynomial in x over fraction field of QQ[m]
+        # or just symbolic discriminant
+        try:
+            # Symbolic way (safer for complex expressions)
+            P = PolynomialRing(QQ['m'], 'x')
+            f_poly_x = P(f_expr)
+            Delta = f_poly_x.discriminant()
+        except Exception:
+            # Fallback to pure symbolic
+            Delta = f_expr.discriminant(xSR)
+            raise
+
+        # 4. Find Rational Roots of Discriminant
+        # We only care about the numerator
+        if hasattr(Delta, 'numerator'):
+            Delta = Delta.numerator()
+        
+        if Delta == 0: return set()
+
+        try:
+            # Convert to polynomial in m over QQ
+            R_m = PolynomialRing(QQ, 'm')
+            Delta_poly = R_m(Delta)
+            roots = Delta_poly.roots(QQ, multiplicities=False)
+        except Exception:
+            # Fallback: try symbolic solve if coeff coercion fails
+            try:
+                sols = solve(Delta == 0, SR_m, solution_dict=True)
+                roots = []
+                for s in sols:
+                    try: roots.append(QQ(s[SR_m]))
+                    except: raise
+            except:
+                roots = []
+                raise
+            raise
+
+        # 5. Map m -> x using r_expr
+        # r_expr is usually linear like -m - 1
+        # x = r(m)
+        for m_val in roots:
+            try:
+                # x_val is the value ON THE RAIL (shifted coordinates)
+                x_shifted = r_expr.subs({SR_m: m_val})
+                x_qq = QQ(x_shifted)
+                
+                # Unshift to get real x
+                x_real = x_qq - shift
+                
+                # Quick check (optional, but saves checking junk)
+                # We return it, main loop will verify rationality of y
+                found_x.add(x_real)
+            except Exception:
+                raise
+
+    except Exception as e:
+        if DEBUG: print(f"  [Singular Scan Error] {e}")
+        raise
+    
+    return found_x
