@@ -1420,6 +1420,11 @@ def measure_poly_complexity(expr_sr):
     return float(total_score)
 
 
+    
+    # 0. Prepare RHS (constant terms) and Matrix rows
+    # Since equations are linear, eq = c0*
+
+
 @PROFILE
 def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
                              verbose=False, forced_tangency_seq=None,
@@ -1428,6 +1433,7 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     """
     Modified version: Reduces tangency constraints by 1 to impose a Q-dependence 
     mixing constraint. Uses linear algebra for solving to avoid Maxima hangs.
+    Now clamps anchor usage to available degrees of freedom to prevent tower crashes.
     """
     random.seed(int(seed_int))
     xSR = SR.var('x')
@@ -1467,16 +1473,14 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     else:
         # Check if we should use anchor points
         if use_anchor_points:
-            # Generate anchor points
-            num_anchors_needed = NUM_ANCHOR_POINTS
-            
             # We need degQ+1 total points. We have 1 base point.
             total_needed = degQ + 1
             base_pts_count = 1
             remaining_dof = total_needed - base_pts_count
             
-            if num_anchors_needed > remaining_dof:
-                raise RuntimeError(f"NUM_ANCHOR_POINTS={num_anchors_needed} too large for degQ={degQ} (only {remaining_dof} DOF available)")
+            # Fix: Clamp the requested anchors to the actual available DOF
+            # This prevents crashes when the tower gets deeper and degQ drops (e.g. n=6->5)
+            num_anchors_needed = min(NUM_ANCHOR_POINTS, remaining_dof)
             
             # Generate anchor points
             base_x_coords = [QQ(xv) for xv in xs_chosen]
