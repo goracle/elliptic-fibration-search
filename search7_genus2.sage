@@ -136,9 +136,9 @@ def scancd_for_special_fibers(cd, r_m, shift):
     euler = singfibs['euler_characteristic']
     sigma = singfibs['sigma_sum']
     singular_fibers_m = [f['r'] for f in fibers if (f.get('root_type') == 'rational' or f.get('root_type') == 'pole')]
-    print("FIBERS:")
-    for f in fibers:
-        print(f)
+    #print("FIBERS:")
+    #for f in fibers:
+    #    print(f)
 
     cm_fibers = find_cm_fibers(cd)
     j_targets = [0, 1728, -12**3, -32**3, -96**3]
