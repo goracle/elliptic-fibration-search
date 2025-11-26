@@ -1183,7 +1183,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
     # --- CONFIG: STABILITY SETTINGS ---
     # Number of random geometries to try per step. 
     # Higher = more stable capacity, slightly slower build.
-    CANDIDATES_PER_STEP = 40
+    CANDIDATES_PER_STEP = 80
     # ----------------------------------
 
     for step in range(max_steps):
