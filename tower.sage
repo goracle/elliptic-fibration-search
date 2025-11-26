@@ -1183,7 +1183,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
     # --- CONFIG: STABILITY SETTINGS ---
     # Number of random geometries to try per step. 
     # Higher = more stable capacity, slightly slower build.
-    CANDIDATES_PER_STEP = 50
+    CANDIDATES_PER_STEP = 10
     # ----------------------------------
 
     for step in range(max_steps):
@@ -1632,17 +1632,24 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
             row.append(eq.coefficient(u))
         rows.append(row)
 
+
+    # ... inside build_one_fibration_step ...
+    
     try:
+        # OPTIMIZATION: Try to coerce to QQ immediately. 
+        # The system should be rational.
+        M_QQ = matrix(QQ, [[QQ(c) for c in row] for row in rows])
+        b_vec_QQ = vector(QQ, [QQ(x) for x in rhs_vec])
+        sol_vec = M_QQ.solve_right(b_vec_QQ)
+        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
+    except (TypeError, ValueError):
+        # Fallback to SR only if coercion fails (rare)
+        if verbose: print("Matrix QQ coercion failed, using SR...")
         M = matrix(SR, rows)
         b_vec = vector(SR, rhs_vec)
         sol_vec = M.solve_right(b_vec)
         sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
-    except Exception as e:
-        # Fallback to symbolic solve only if linear algebra fails (e.g. singular matrix)
-        if verbose:
-            print(f"Linear solve failed ({e}), falling back to symbolic solve.")
-        sols = solve(eqs, unknowns, solution_dict=True)
-        sol = require_single_solution(sols, "solving for rest polynomial coefficients")
+
     # -----------------------------------------------------------
     
     solved_map = {}
@@ -1737,3 +1744,77 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         'rest_poly_QQ': rest_poly_QQ,
         'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing}",
     }
+
+
+
+@PROFILE
+def measure_poly_complexity(expr_sr):
+    """
+    Optimized scoring: Fast heuristic that avoids heavy symbolic substitution.
+    Prioritizes low height and low degree.
+    """
+    if expr_sr is None:
+        raise ValueError("measure_poly_complexity: expr_sr is None")
+    
+    fx_sr = SR(expr_sr)
+    x_var = SR.var('x')
+    
+    # 1. Coefficient Extraction (Safe)
+    try:
+        raw_coeffs = fx_sr.coefficients(x_var)
+        coeffs = [c[0] for c in raw_coeffs]
+    except Exception:
+        coeffs = [fx_sr]
+
+    # 2. Height Score (The most important metric)
+    height_score = 0.0
+    for c in coeffs:
+        try:
+            # Fast QQ conversion
+            q = QQ(c)
+            h = max(abs(int(q.numerator())), abs(int(q.denominator())))
+            height_score += _int_log(h + 1)
+        except (TypeError, ValueError):
+            # If symbolic, assume it's complex (e.g. has 'm')
+            # Estimate complexity by string length (faster than tree traversal)
+            try:
+                s = str(c)
+                height_score += 1.0 + 0.05 * len(s)
+            except:
+                height_score += 5.0 # Penalty
+
+    # 3. Degree Score (Fast metadata lookup)
+    deg_penalty = 0
+    try:
+        # Heuristic: We want low degree in m.
+        # Convert to polynomial ring over SR to get degree quickly if possible
+        if hasattr(fx_sr, 'degree'):
+            m_var = SR.var('m')
+            deg_m = int(fx_sr.degree(m_var))
+            deg_penalty = deg_m * 2.0
+    except:
+        pass
+
+    # 4. Bad Prime Score (Only check denominators, skip collision simulation)
+    bad_prime_count = 0
+    for c in coeffs:
+        try:
+            q = QQ(c)
+            denom = int(q.denominator())
+            for p in _SMALL_PRIMES:
+                if denom % p == 0:
+                    bad_prime_count += 1
+                    # Don't break; punish multiple bad primes
+        except:
+            pass
+
+    # Total Score
+    # We removed the expensive collision check loop. 
+    # Height and bad primes are usually good proxies for bad geometry anyway.
+    total_score = (
+        1.0 * height_score +
+        0.5 * deg_penalty +
+        3.0 * bad_prime_count 
+    )
+    
+    return float(total_score)

@@ -1199,8 +1199,17 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
         print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
     else:
         # This is a secondary fibration. Apply 4.0x multiplier.
-        this_height_bound = int(height_bound * scaling_factor * 1.2)
-        # Apply 4.0x multiplier for coefficient blowup in secondary towers
+
+        # OLD CODE:
+        this_height_bound = int(height_bound * scaling_factor)
+    
+        # NEW FIX: Clamp the scaling to a maximum of 1.2x the primary bound
+        # We trust the primary geometry is the "nicest" one.
+        #effective_scale = min(scaling_factor, 1.2) 
+        #this_height_bound = int(height_bound * effective_scale)
+    
+        if is_primary:
+            this_height_bound = height_bound
         
         if abs(scaling_factor - 1.0) > 0.1 or True:
             print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 4.0 safety)")
