@@ -173,7 +173,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
 
-    shift = QQ(0)
+    shift = QQ(4)/QQ(15)
     while any((pt[0] + shift) == 0 for pt in real_pts):
         shift += 1
     if shift:
@@ -1201,7 +1201,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
         # This is a secondary fibration. Apply 4.0x multiplier.
 
         # OLD CODE:
-        this_height_bound = int(height_bound * scaling_factor)
+        this_height_bound = int(height_bound * scaling_factor * 1.2)
     
         # NEW FIX: Clamp the scaling to a maximum of 1.2x the primary bound
         # We trust the primary geometry is the "nicest" one.

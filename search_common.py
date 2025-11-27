@@ -368,16 +368,16 @@ TERMINATE_WHEN_6 = 12
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
-HEIGHT_BOUND = 3*370 # not that important, mostly, it seems
+HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 
 # prime config
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(130))[2:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(130))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
-MAX_MODULUS = 10**9 # idk
+MAX_MODULUS = 10**9# idk
 NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
 HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
 HENSEL_SLOPPY = False
@@ -405,7 +405,7 @@ SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
-NUM_CONSENSUS_FIBRATIONS = 4  # How many independent fibrations to use
+NUM_CONSENSUS_FIBRATIONS = 5  # How many independent fibrations to use
 CONSENSUS_THRESHOLD = 0.5     # Fraction of fibrations that must agree (0.8 = 80%)
 
 # Add these constants near the top of tower.sage (with other config constants)

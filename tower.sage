@@ -1106,9 +1106,10 @@ def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
     # Use only denominators that are powers of 2 (or 3, but 2 is safest)
     #allowed_denoms = [1, 2, 4, 8]  # Powers of 2
     # Use larger primes to push singularities away from simple integers
-    #allowed_denoms = [2, 3, 5, 7, 11, 13] 
     #allowed_denoms = PRIME_POOL[3:]
-    allowed_denoms = [2, 4, 8, 16, 32]
+    allowed_denoms = [1, 2, 4, 8, 16, 32, 64]
+    allowed_denoms = [2, 3, 5, 7, 11, 13] 
+    allowed_denoms =  PRIME_POOL[:-10]
 
     max_attempts = 100
     attempts = 0
@@ -1183,7 +1184,7 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
     # --- CONFIG: STABILITY SETTINGS ---
     # Number of random geometries to try per step. 
     # Higher = more stable capacity, slightly slower build.
-    CANDIDATES_PER_STEP = 80
+    CANDIDATES_PER_STEP = 10
     # ----------------------------------
 
     for step in range(max_steps):
