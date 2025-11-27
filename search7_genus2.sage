@@ -173,7 +173,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
 
-    shift = QQ(4)/QQ(15)
+    shift = QQ(4)/QQ(31)
     while any((pt[0] + shift) == 0 for pt in real_pts):
         shift += 1
     if shift:
