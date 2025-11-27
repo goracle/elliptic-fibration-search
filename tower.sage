@@ -24,7 +24,7 @@ from search_common import DEBUG, SEED_INT, PRIME_POOL
 # CONFIG: tune these to trade runtime vs accuracy
 _SMALL_PRIMES = [2,3,5,7,11,13,17,19,23,29,31,37,41]   # primes to test for rejections and collisions
 _SAMPLE_M_VALUES = [ -7, -3, -1, 0, 1, 2, 3, 7 ]      # small integer m samples to probe modular behaviour
-_NUM_RANDOM_M = 5                                      # additional random m samples (drawn small)
+_NUM_RANDOM_M = 5                                     # additional random m samples (drawn small)
 _MAX_DEGREE_PENALTY = 5.0
 _WEIGHT_HEIGHT = 1.0
 _WEIGHT_DEG = 1.2
@@ -1109,7 +1109,7 @@ def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
     #allowed_denoms = PRIME_POOL[3:]
     allowed_denoms = [1, 2, 4, 8, 16, 32, 64]
     allowed_denoms = [2, 3, 5, 7, 11, 13] 
-    allowed_denoms =  PRIME_POOL[:-10]
+    allowed_denoms =  (PRIME_POOL[:-50])[:-10]
 
     max_attempts = 100
     attempts = 0

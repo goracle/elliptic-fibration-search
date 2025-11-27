@@ -374,7 +374,7 @@ HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(230))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(90))[2:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
 MAX_MODULUS = 10**9# idk
@@ -403,16 +403,17 @@ SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 
 # Add to search_common.py or search_config.py
-USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
-NUM_CONSENSUS_FIBRATIONS = 5  # How many independent fibrations to use
+USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
+NUM_CONSENSUS_FIBRATIONS = 4  # How many independent fibrations to use
 CONSENSUS_THRESHOLD = 0.5     # Fraction of fibrations that must agree (0.8 = 80%)
 
 # Add these constants near the top of tower.sage (with other config constants)
 
 # === ANCHOR POINT MODE CONFIGURATION ===
-USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
 USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
+USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
+USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
 NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
 
