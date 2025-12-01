@@ -8,6 +8,7 @@ from .rational_arithmetic import *
 from .ll_utilities import *
 from .search_analysis import *
 from .search_main import *
+from .diagnostics_univariate import *
 
 # Expose main execution functions
 # Expose main utilities (as needed by the parent scripts)

@@ -91,8 +91,8 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈3.46e-09, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈3.46e-09
+[empirical_pool] start pool size=22, avg_survivors≈4.97e-09, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈4.97e-09
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -205,7 +205,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -231,9 +231,69 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 height bound: 473
 Searching 15 vectors up to height 473...
+
+======================================================================
+UNIVARIATE SEARCH EQUATION DIAGNOSTICS
+======================================================================
+Extracting search polynomials for 1 section(s)...
+Computing up to [15]P for each section...
+Extracted 30 search polynomial(s).
+
+Analyzing polynomials...
+
+----------------------------------------------------------------------
+SUMMARY STATISTICS
+----------------------------------------------------------------------
+Total polynomials analyzed: 30
+
+Obstruction types:
+  HAS_RATIONAL_ROOTS: 2
+  LOCAL_OBSTRUCTION: 28
+
+----------------------------------------------------------------------
+DETAILED DIAGNOSTICS (sample)
+----------------------------------------------------------------------
+
+Section 0, n=1, RHS 0:
+  degree = 10
+  irreducible = False
+  rational roots = [0]
+  HAS RATIONAL ROOTS: [0]
+
+Section 0, n=1, RHS 1:
+  degree = 10
+  irreducible = False
+  rational roots = [0]
+  HAS RATIONAL ROOTS: [0]
+
+Section 0, n=2, RHS 0:
+  degree = 16
+  irreducible = True
+  Galois group = S16 (assumed, deg > 8)
+  rational roots = NONE
+  LOCAL OBSTRUCTION at primes: [3, 5, 7, 11, 13]
+
+Section 0, n=2, RHS 1:
+  degree = 16
+  irreducible = True
+  Galois group = S16 (assumed, deg > 8)
+  rational roots = NONE
+  LOCAL OBSTRUCTION at primes: [3, 5, 7, 11, 13]
+
+Section 0, n=3, RHS 0:
+  degree = 24
+  irreducible = False
+  rational roots = NONE
+  LOCAL OBSTRUCTION at primes: [2, 3, 5, 7, 11]
+
+======================================================================
+VERDICT
+======================================================================
+Some search equations have rational roots.
+Symbolic search should find points.
+======================================================================
+
 --- Starting symbolic search over QQ ---
-Symbolic solve success! Found root(s): [0]
-Symbolic solve success! Found root(s): [0]
 Found 0 new point(s) and 0 new section(s).
 
 ======================================================================
@@ -288,7 +348,7 @@ Target m-value: -41/141
 SEARCH SUMMARY
 ======================================================================
 Total points found: 1
-Total time: 5.0s
+Total time: 12.4s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -393,11 +453,11 @@ found {1}
 All combinations of points have been checked.
 
 --- Cumulative Run Statistics ---
-Total time: 5.65s
+Total time: 13.00s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  symbolic_search          : 2.22s
+  symbolic_search          : 2.25s
 
 Counters:
   crt_candidates_found          : 0

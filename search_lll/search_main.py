@@ -8,6 +8,7 @@ from .modularthread import _compute_residues_for_prime_worker
 from .modularthread import _process_prime_subset_precomputed
 from .modularthread import _batch_check_rationality
 from .ll_utilities import *
+from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 
 
@@ -31,6 +32,22 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
         if DEBUG:
             print("Symbolic search: no current sections provided, skipping.")
         return set(), []
+
+
+    # === NEW: RUN UNIVARIATE DIAGNOSTICS ===
+    try:
+        run_univariate_diagnostics(
+            cd=cd,
+            current_sections=current_sections,
+            rhs_list=rhs_list,
+            vecs=vecs,
+            max_n=len(vecs)  # Analyze up to [12]P
+        )
+    except Exception as e:
+        print(f"Univariate diagnostics failed: {e}")
+        raise
+    # === END NEW DIAGNOSTICS ===
+
 
     print("--- Starting symbolic search over QQ ---")
     stats.start_phase('symbolic_search') # <-- STATS
