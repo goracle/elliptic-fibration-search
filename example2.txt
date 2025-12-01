@@ -91,8 +91,8 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈9.22e-09, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈9.22e-09
+[empirical_pool] start pool size=22, avg_survivors≈3.46e-09, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈3.46e-09
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -107,10 +107,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
+  NUM_PRIME_SUBSETS: 1081
   PRIME_POOL size: 22
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=22, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1081, PRIME_POOL size=22, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 22
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -205,7 +205,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -231,254 +231,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 height bound: 473
 Searching 15 vectors up to height 473...
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
-[residue_counts] Using split_poly degree=12
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 22 primes -> avg_roots=1.182, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10)]
-[residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1818181818181819}
-prime pool used for search: [5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89]
---- Preparing modular data for LLL search ---
-
-[prepare_modular_data_lll] Rejected 0 primes:
-[precompute] total_modular_checks=660, primes precomputed=22
-[brauer] estimated survival fraction ≈ 0.000000
-[brauer] estimated ruled-out fraction ≈ 1.000000
-[brauer] Monte Carlo blocked fraction ≈ 1.000000
-[brauer] example m=1 locally allowed? False
-
-======================================================================
-DIAGNOSTIC: Strict Capacity Check for x = 182/141
-======================================================================
-Target m: -41/141
-Best matching vector: (15,)...
-  Compatible Primes: 2 / 22
-  Capacity (log10): 2.89
-  Required (log10): 4.60
-
-✗ STATUS: NOT FINDABLE (Insufficient Capacity)
-  The residues found do not carry enough information to reconstruct the point.
-cov1: m =  -41/141  coverage: 0.42857142857142855
-cov1: matched primes: [5, 7, 13, 17, 19, 41, 53, 67, 79]
-[auto-tune] selected extra primes [5, 7, 13, 17, 23] with expected density 8.54e-06
-combo_cap: 781249999999999975495047718109184 roots_threshold: 12
-
-[QC Prediction from Discriminant]
-  Sample: 22 primes, 18 with roots
-  QC distribution: -1:11, 0:2, 1:13
-  Predicted QC=-1/QC=1 ratio: 0.852
-  QC=-1 fraction: 45.8% (uniform: ~50%)
-[QC Target] Using QC ratio: 0.852 (predicted)
-density factor 1.1578947368421053
-reachability factor 0.95
-[Adaptive] Fiber collisions: 0/22 (0.0%)
-[Adaptive] Empirical density: 0.6909
-[Adaptive] Recommended NUM_SUBSETS: 1185 (configured: 1078)
-
-[QC Bias Analysis]
-Primes closest to target QC ratio (0.852):
-  p=41: qc_ratio=0.900, entropy=1.252, coverage=86.7%, counts={0: 1, 1: 9, -1: 8}
-  p=73: qc_ratio=0.800, entropy=1.187, coverage=66.7%, counts={0: 1, 1: 14, -1: 11}
-  p=47: qc_ratio=0.778, entropy=1.273, coverage=66.7%, counts={0: 1, 1: 8, -1: 6}
-  p=79: qc_ratio=0.929, entropy=1.196, coverage=86.7%, counts={0: 1, 1: 13, -1: 12}
-  p=13: qc_ratio=0.750, entropy=1.459, coverage=60.0%, counts={0: 1, 1: 3, -1: 2}
-  p=83: qc_ratio=0.750, entropy=1.219, coverage=73.3%, counts={0: 1, -1: 8, 1: 11}
-  p=43: qc_ratio=0.714, entropy=1.322, coverage=60.0%, counts={0: 1, 1: 6, -1: 4}
-  p=7: qc_ratio=1.000, entropy=1.522, coverage=73.3%, counts={0: 1, 1: 2, -1: 2}
-  p=23: qc_ratio=1.000, entropy=1.314, coverage=73.3%, counts={0: 1, 1: 6, -1: 6}
-  p=31: qc_ratio=0.667, entropy=1.264, coverage=93.3%, counts={0: 1, 1: 8, -1: 5}
-
-[QC-Biased Generation] Target QC ratio: 0.852
-Top primes by composite score:
-  p=41: score=0.866, qc_ratio=0.900, coverage=86.7%
-  p=79: score=0.831, qc_ratio=0.929, coverage=86.7%
-  p=73: score=0.761, qc_ratio=0.800, coverage=66.7%
-  p=31: score=0.754, qc_ratio=0.667, coverage=93.3%
-  p=83: score=0.735, qc_ratio=0.750, coverage=73.3%
-  p=47: score=0.734, qc_ratio=0.778, coverage=66.7%
-  p=7: score=0.687, qc_ratio=1.000, coverage=73.3%
-  p=23: score=0.687, qc_ratio=1.000, coverage=73.3%
-  p=13: score=0.668, qc_ratio=0.750, coverage=60.0%
-  p=53: score=0.654, qc_ratio=1.125, coverage=86.7%
-[QC-Biased] Top 7 primes: [41, 79, 73, 31, 83, 47, 7]
-[QC-Biased] Generated 1158 unique viable subsets
-Sample subsets: [[41, 47, 83], [7, 11, 31, 47, 67, 83], [73, 79, 83]]
-Generated 1158 prime_subsets -> filtered to 1158
-using 160 subsets of len = 3
-using 157 subsets of len = 4
-using 164 subsets of len = 5
-using 189 subsets of len = 6
-using 162 subsets of len = 7
-using 165 subsets of len = 8
-using 154 subsets of len = 9
-
---- Coverage Estimate ---
-  Heuristic (density): 0.0000%
-  CRT classes tested: 201,997
-  Search space size: ~4.24e+16
-  ⚠️  Recommend +Infinity more run(s) to reach 95% coverage
-
-Checking rationality for 157976 unique candidates...
-[batch check] processed 7898/157976, found 3 rational so far
-[batch check] processed 15796/157976, found 7 rational so far
-[batch check] processed 23694/157976, found 8 rational so far
-[batch check] processed 31592/157976, found 9 rational so far
-[batch check] processed 39490/157976, found 11 rational so far
-[batch check] processed 47388/157976, found 16 rational so far
-[batch check] processed 55286/157976, found 19 rational so far
-[batch check] processed 63184/157976, found 25 rational so far
-[batch check] processed 71082/157976, found 28 rational so far
-[batch check] processed 78980/157976, found 29 rational so far
-[batch check] processed 86878/157976, found 33 rational so far
-[batch check] processed 94776/157976, found 38 rational so far
-[batch check] processed 102674/157976, found 39 rational so far
-[batch check] processed 110572/157976, found 43 rational so far
-[batch check] processed 118470/157976, found 44 rational so far
-[batch check] processed 126368/157976, found 45 rational so far
-[batch check] processed 134266/157976, found 47 rational so far
-[batch check] processed 142164/157976, found 52 rational so far
-[batch check] processed 150062/157976, found 53 rational so far
-[batch check] processed 157960/157976, found 59 rational so far
-[batch check] processed 157976/157976, found 59 rational so far
-
-[subset stats] 1158/1158 subsets produced candidates (100.0%)
-[subset stats] 200637 total candidates from productive subsets
-[subset stats] Productivity by size:
-  Size 3: 161/161 productive (100.0%), 9713 candidates
-  Size 4: 158/158 productive (100.0%), 23423 candidates
-  Size 5: 165/165 productive (100.0%), 48695 candidates
-  Size 6: 190/190 productive (100.0%), 55652 candidates
-  Size 7: 163/163 productive (100.0%), 32993 candidates
-  Size 8: 166/166 productive (100.0%), 19693 candidates
-  Size 9: 155/155 productive (100.0%), 10468 candidates
-[subset stats] Top 5 productive subsets:
-  [17, 67, 73, 79, 83]: 1810 candidates
-  [5, 7, 11, 37, 53, 73, 79]: 1501 candidates
-  [7, 13, 41, 53, 59, 71]: 1404 candidates
-  [37, 53, 67, 71, 79]: 1231 candidates
-  [17, 47, 61, 71, 73, 79]: 1090 candidates
-
-Found 59 rational (m, vector) pairs after checking.
-
-======================================================================
-RESIDUE PATTERN ANALYSIS
-======================================================================
-
-Total primes analyzed: 22
-Total residues: 291
-Unused residues: 154
-
---- Discriminant Patterns ---
-  Used: {'smooth': 130, 'high_ramification': 1, 'unknown': 1, 'simple_ramification': 5}
-  Unused: {'unknown': 1, 'smooth': 150, 'simple_ramification': 3}
-
---- Quadratic Character ---
-  Used: {0: 20, 1: 64, -1: 53}
-  Unused: {1: 69, -1: 85}
-
---- Liftability ---
-  Used: {'zero': 137}
-  Unused: {'zero': 154}
-
---- Local Height ---
-  Used: mean=0.00, median=0.00, max=0.0
-  Unused: mean=0.00, median=0.00, max=0.0
-
---- Composite Patterns ---
-  High lift + high disc: used=0, unused=0
-  QC=-1 + lift>0: used=0, unused=0
-  Zero local height: used=137, unused=154
-
---- Discriminative Power ---
-  qc: diff=0.165 at '-1' (used=38.7%, unused=55.2%)
-  disc_pattern: diff=0.025 at 'smooth' (used=94.9%, unused=97.4%)
-  a_p_sign: diff=0.025 at 'singular' (used=5.1%, unused=2.6%)
-======================================================================
-
---- Search Statistics ---
-Total time: 11.48s
-Total Rational Points Found (Unique x): 12
-
-Phases (s):
-  search_subsets_and_check : 9.85s
-  precompute_residues      : 1.05s
-  prep_mod_data            : 0.43s
-  post_process             : 0.10s
-  gen_subsets              : 0.01s
-  brauer                   : 0.00s
-  autotune_primes          : 0.00s
-
-Counters:
-  crt_candidates_found          : 157976
-  crt_lift_attempts             : 1675555
-  modular_checks                : 660
-  modular_checks_p_11           : 30
-  modular_checks_p_13           : 30
-  modular_checks_p_17           : 30
-  modular_checks_p_19           : 30
-  modular_checks_p_23           : 30
-  modular_checks_p_29           : 30
-  modular_checks_p_31           : 30
-  modular_checks_p_37           : 30
-  modular_checks_p_41           : 30
-  modular_checks_p_43           : 30
-  modular_checks_p_47           : 30
-  modular_checks_p_5            : 30
-  modular_checks_p_53           : 30
-  modular_checks_p_59           : 30
-  modular_checks_p_61           : 30
-  modular_checks_p_67           : 30
-  modular_checks_p_7            : 30
-  modular_checks_p_71           : 30
-  modular_checks_p_73           : 30
-  modular_checks_p_79           : 30
-  modular_checks_p_83           : 30
-  modular_checks_p_89           : 30
-  modular_mults                 : 308
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 12
-  rational_recon_attempts_worker: 217514
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 217514
-  rationality_tests_failure     : 157917
-  rationality_tests_success     : 59
-  rationality_tests_total       : 157976
-  residues_seen_p_11            : 1
-  residues_seen_p_13            : 6
-  residues_seen_p_17            : 6
-  residues_seen_p_19            : 8
-  residues_seen_p_23            : 13
-  residues_seen_p_29            : 10
-  residues_seen_p_31            : 14
-  residues_seen_p_37            : 13
-  residues_seen_p_41            : 18
-  residues_seen_p_43            : 11
-  residues_seen_p_47            : 15
-  residues_seen_p_5             : 3
-  residues_seen_p_53            : 16
-  residues_seen_p_59            : 12
-  residues_seen_p_61            : 18
-  residues_seen_p_67            : 20
-  residues_seen_p_7             : 5
-  residues_seen_p_71            : 15
-  residues_seen_p_73            : 26
-  residues_seen_p_79            : 26
-  residues_seen_p_83            : 20
-  residues_seen_p_89            : 15
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1158
-  subsets_processed             : 1158
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 59, Failures: 157917
-Discard Reasons (Top 5):
-  y_not_rational                : 157917
---------------------------------
-Found 12 new point(s) and 0 new section(s).
-New x-coordinates: {0, 1, 2, 3, -1/8, 1/2, -2/3, 4/15, 1/3, 13/20, -15/14, -1}
+--- Starting symbolic search over QQ ---
+Symbolic solve success! Found root(s): [0]
+Symbolic solve success! Found root(s): [0]
+Found 0 new point(s) and 0 new section(s).
 
 ======================================================================
 COMPLETENESS ANALYSIS (Exact CRT Check)
@@ -487,149 +243,78 @@ COMPLETENESS ANALYSIS (Exact CRT Check)
 Found Points Reconstructibility:
 x          | Findable?  | Primes   | Log10 Cap
 ---------------------------------------------
-0          | YES        | 16       | 23.69
-1          | YES        | 20       | 31.09
-2          | YES        | 8        | 10.86
-3          | YES        | 17       | 26.36
--1/8       | YES        | 11       | 16.70
-1/2        | YES        | 11       | 17.69
--2/3       | YES        | 10       | 14.16
-4/15       | YES        | 10       | 16.45
-1/3        | YES        | 11       | 16.16
-13/20      | YES        | 17       | 26.84
--15/14     | YES        | 10       | 14.27
--1         | YES        | 13       | 20.00
+1          | NO         | 0        | 0.00
 
-✓ All found points are theoretically reconstructible.
+⚠️  Some found points are NOT reconstructible from current residues.
+    (They were likely found via specialized subsets or lucky hits.)
 ======================================================================
 
 === Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.350
-fraction >= 0.1 : 99.660%, fraction >= 0.5 : 9.200%
+avg_fraction (unbiased sample): 0.000
+fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
 empirical visible fraction: (no prime_subsets available in analyzer)
 
 === Pairwise MI on first 22 primes (binary match indicators) ===
 Top MI pairs (p,q,MI bits):
-  (  5, 17)  0.0011 bits
-  ( 19, 53)  0.0011 bits
-  (  7, 71)  0.0010 bits
-  ( 53, 67)  0.0009 bits
-  (  5, 19)  0.0009 bits
-  ( 29, 79)  0.0008 bits
-  ( 61, 67)  0.0007 bits
-  (  5, 89)  0.0007 bits
-  ( 31, 41)  0.0007 bits
-  ( 13, 43)  0.0006 bits
-  ( 13, 89)  0.0006 bits
-  ( 47, 73)  0.0006 bits
-  ( 23, 41)  0.0006 bits
-  (  7, 47)  0.0006 bits
-  (  5, 59)  0.0006 bits
-  ( 29, 73)  0.0006 bits
-  ( 19, 67)  0.0005 bits
-  ( 61, 89)  0.0005 bits
-  ( 59, 67)  0.0005 bits
-  (  7, 23)  0.0005 bits
+  (  5,  7)  0.0000 bits
+  (  5, 11)  0.0000 bits
+  (  5, 13)  0.0000 bits
+  (  5, 17)  0.0000 bits
+  (  5, 19)  0.0000 bits
+  (  5, 23)  0.0000 bits
+  (  5, 29)  0.0000 bits
+  (  5, 31)  0.0000 bits
+  (  5, 37)  0.0000 bits
+  (  5, 41)  0.0000 bits
+  (  5, 43)  0.0000 bits
+  (  5, 47)  0.0000 bits
+  (  5, 53)  0.0000 bits
+  (  5, 59)  0.0000 bits
+  (  5, 61)  0.0000 bits
+  (  5, 67)  0.0000 bits
+  (  5, 71)  0.0000 bits
+  (  5, 73)  0.0000 bits
+  (  5, 79)  0.0000 bits
+  (  5, 83)  0.0000 bits
 fraction of pairs with MI >= 0.01 bits: 0.000%
-
-=== Per-subset empirical coverage (first 30 subsets) ===
- subset [41, 47, 83]...  emp_p=0.0334  product_p=0.0326
- subset [7, 11, 31, 47, 67, 83]...  emp_p=0.0002  product_p=0.0004574
- subset [73, 79, 83]...  emp_p=0.0232  product_p=0.02622
- subset [17, 47, 73, 79]...  emp_p=0.0114  product_p=0.01177
- subset [7, 79, 83]...  emp_p=0.046  product_p=0.0468
- subset [7, 29, 37, 73]...  emp_p=0.0228  product_p=0.02552
- subset [31, 47, 73]...  emp_p=0.0496  product_p=0.04702
- subset [7, 17, 23, 41, 47, 79]...  emp_p=0.0056  product_p=0.005043
- subset [17, 41, 47, 61]...  emp_p=0.0158  product_p=0.01316
- subset [41, 47, 79]...  emp_p=0.0468  product_p=0.0438
- subset [5, 7, 31, 73, 79, 89]...  emp_p=0.0026  product_p=0.002494
- subset [7, 31, 41, 53, 73, 79]...  emp_p=0.0034  product_p=0.003953
- subset [7, 31, 79]...  emp_p=0.0804  product_p=0.08559
- subset [11, 23, 47, 53, 59, 79]...  emp_p=0  product_p=1.048e-05
- subset [7, 47, 73]...  emp_p=0.072  product_p=0.06628
- subset [31, 41, 47]...  emp_p=0.062  product_p=0.05962
- subset [31, 41, 73]...  emp_p=0.0656  product_p=0.06536
- subset [7, 31, 61, 73]...  emp_p=0.0244  product_p=0.02596
- subset [7, 31, 47]...  emp_p=0.0854  product_p=0.08393
- subset [23, 29, 79, 83]...  emp_p=0.0164  product_p=0.01454
- subset [7, 23, 31, 41, 47, 79]...  emp_p=0.0074  product_p=0.006446
- subset [41, 73, 83]...  emp_p=0.0362  product_p=0.03574
- subset [7, 47, 61]...  emp_p=0.0594  product_p=0.05437
- subset [31, 41, 79]...  emp_p=0.0664  product_p=0.0608
- subset [7, 19, 47, 73, 83]...  emp_p=0.0082  product_p=0.006359
- subset [7, 31, 83]...  emp_p=0.0656  product_p=0.06371
- subset [7, 37, 41, 47, 59, 71]...  emp_p=0.0006  product_p=0.0001304
- subset [13, 41, 59, 61, 67, 73]...  emp_p=0.002  product_p=0.001079
- subset [13, 19, 31, 41, 43, 53]...  emp_p=0.0004  product_p=4.784e-05
- subset [7, 11, 19, 37, 41, 53]...  emp_p=0  product_p=6.044e-06
+No prime_subsets available to check.
 
 ======================================================================
 TARGETED POINT ANALYSIS: x = 182/141
 ======================================================================
 Target m-value: -41/141
 
-Per-prime visibility: 9/22 primes matched (42.9%)
-
-⚠️  Target point has moderate visibility (42.9%)
-May need larger prime subsets or more iterations.
-
-Per-prime visibility: 9/21 primes matched (42.9%)
-
-⚠️  TARGET POINT HAS LOW VISIBILITY
-This point is only visible at 42.9% of usable primes.
-
-Matched primes: [5, 7, 13, 17, 19, 41, 53, 67, 79]
-Missing primes (sample): [11, 23, 29, 31, 37, 43, 47, 59, 61, 71]
-
-Suggested targeted subset: [5, 7, 13, 17, 19, 41]
-Add this to prime_subsets_to_process and re-run.
-
 ======================================================================
 SEARCH SUMMARY
 ======================================================================
-Total points found: 12
-Total time: 16.2s
-CRT candidates tested: 157,976
-Rationality tests: 157,976
-Hit rate: 0.04%
+Total points found: 1
+Total time: 5.0s
+CRT candidates tested: 0
+Rationality tests: 0
+Hit rate: 0.00%
 ======================================================================
-Proof using OBSERVED max height: 3.00
+Proof using OBSERVED max height: 0.00
 
 ======================================================================
 FORMAL COMPLETENESS PROOF (Roadmap Step 3)
 ======================================================================
-LLL Guarantee Constant (C_lll) for rank d=1: 1.0000
-Smallest Modulus (M_min) used: 1729 (from subset [7, 13, 19])
-Height Bound (H): 3.00
-Required (in log-space): log(M) > log(2*C_lll) + H
-Actual log(M):  7.46
-Required log(M): > 3.69
-
-*** ✅ PASS ***
-The smallest modulus M is formally sufficient
-to guarantee rational reconstruction for all sections up to height H.
+No prime subsets were used. Cannot run sufficiency proof.
 ======================================================================
 
 --- Arithmetic-informed prior (with fiber collision adjustment) ---
-p_visibility (raw): 0.3501
-p_visibility (adjusted): 0.3501
+p_visibility (raw): 0.0000
+p_visibility (adjusted): 0.0000
 mu_selmer:   0
 mu_local:    0
 mu_height:   0.01
-mu_bootstrap:0.2227
---> mu_combined = 0.2227  (q = 0.182162)
+mu_bootstrap:0
+--> mu_combined = 0.01  (q = 0.009901)
 
 --- Posterior summary (geometric prior from arithmetic signals) ---
-Observed points (k) = 12
-Estimated detection probability p = 0.350
-P(true T == k)         = 19.437%   (probability we found all points)
-P(true T <= k+1)       = 49.351%   (probability we missed ≤ 1 point)
-P(true T <= k+2)       = 74.140%   (probability we missed ≤ 2 points)
-Posterior mean of T    = 13.746
-Note: results depend on prior (mu_combined) computed from arithmetic signals above.
-
-Top posterior mass (T, prob): 13:29.914%, 14:24.789%, 12:19.437%, 15:14.673%, 16:6.948%, 17:2.797%, 18:0.993%, 19:0.319%
+Observed points (k) = 1
+Estimated detection probability p = 0.000
+⚠️  Could not compute posterior probabilities (p_visibility likely 0).
+    Search may have been starved of valid primes.
 
 ✓ Fiber collision detection validated: set() ⊆ ramification locus {2}
 
@@ -704,101 +389,39 @@ Rank bounds:
   1 ≤ rank(S²) ≤ 3
 
 known_pts {(1, 3)}
-found {0, 1, 2, 3, -1/8, 1/2, -2/3, 4/15, 1/3, 13/20, -15/14, -1}
-new x: 0
-new x: 2
-new x: 3
-new x: -1/8
-new x: 1/2
-new x: -2/3
-new x: 4/15
-new x: 1/3
-new x: 13/20
-new x: -15/14
-new x: -1
-TERMINATE_WHEN_6 (12) reached.
+found {1}
+All combinations of points have been checked.
 
 --- Cumulative Run Statistics ---
-Total time: 16.91s
-Total Rational Points Found (Unique x): 12
+Total time: 5.65s
+Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  search_subsets_and_check : 9.85s
-  precompute_residues      : 1.05s
-  prep_mod_data            : 0.43s
-  post_process             : 0.10s
-  gen_subsets              : 0.01s
-  brauer                   : 0.00s
-  autotune_primes          : 0.00s
+  symbolic_search          : 2.22s
 
 Counters:
-  crt_candidates_found          : 157976
-  crt_lift_attempts             : 1675555
-  modular_checks                : 660
-  modular_checks_p_11           : 30
-  modular_checks_p_13           : 30
-  modular_checks_p_17           : 30
-  modular_checks_p_19           : 30
-  modular_checks_p_23           : 30
-  modular_checks_p_29           : 30
-  modular_checks_p_31           : 30
-  modular_checks_p_37           : 30
-  modular_checks_p_41           : 30
-  modular_checks_p_43           : 30
-  modular_checks_p_47           : 30
-  modular_checks_p_5            : 30
-  modular_checks_p_53           : 30
-  modular_checks_p_59           : 30
-  modular_checks_p_61           : 30
-  modular_checks_p_67           : 30
-  modular_checks_p_7            : 30
-  modular_checks_p_71           : 30
-  modular_checks_p_73           : 30
-  modular_checks_p_79           : 30
-  modular_checks_p_83           : 30
-  modular_checks_p_89           : 30
-  modular_mults                 : 308
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 12
-  rational_recon_attempts_worker: 217514
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
   rational_recon_failure_worker : 0
-  rational_recon_success_worker : 217514
-  rationality_tests_failure     : 157917
-  rationality_tests_success     : 59
-  rationality_tests_total       : 157976
-  residues_seen_p_11            : 1
-  residues_seen_p_13            : 6
-  residues_seen_p_17            : 6
-  residues_seen_p_19            : 8
-  residues_seen_p_23            : 13
-  residues_seen_p_29            : 10
-  residues_seen_p_31            : 14
-  residues_seen_p_37            : 13
-  residues_seen_p_41            : 18
-  residues_seen_p_43            : 11
-  residues_seen_p_47            : 15
-  residues_seen_p_5             : 3
-  residues_seen_p_53            : 16
-  residues_seen_p_59            : 12
-  residues_seen_p_61            : 18
-  residues_seen_p_67            : 20
-  residues_seen_p_7             : 5
-  residues_seen_p_71            : 15
-  residues_seen_p_73            : 26
-  residues_seen_p_79            : 26
-  residues_seen_p_83            : 20
-  residues_seen_p_89            : 15
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
   subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 1158
-  subsets_processed             : 1158
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 30
+  symbolic_solves_success       : 2
 
-Successes: 59, Failures: 157917
+Successes: 0, Failures: 0
 Discard Reasons (Top 5):
-  y_not_rational                : 157917
+  (None)
 --------------------------------
 
 --- Final Results ---
-Final list of known points: [(-15/14, 16729/2744), (-1, 5), (-2/3, 1/27), (-1/8, 369/512), (0, 1), (4/15, 2701/3375), (1/3, 17/27), (1/2, 1/8), (13/20, 5933/8000), (1, 3), (2, 11), (3, 13)]
+Final list of known points: [(1, 3)]

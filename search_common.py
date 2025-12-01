@@ -399,8 +399,8 @@ TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
 
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
-SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
+SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
 
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
@@ -424,7 +424,6 @@ except NameError:
         """Line profiler default."""
         return arg2
     PROFILE = profile
-
 
 
 class CurveDataExt(NamedTuple):
@@ -1301,6 +1300,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         SR_m=SR_m,
     )
 
+    cd = try_scale_out_power_of_two(cd)
 
     # attach SR copies for downstream code to use
     assert cd.SR_a4 == cd_extra['SR_a4']
@@ -1551,6 +1551,10 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
         except (TypeError, ZeroDivisionError):
             continue
     return found
+
+
+# pseudo-code sketch (raise on unexpected failure)
+from sage.all import valuation, gcd
 
 
 @PROFILE
@@ -2157,3 +2161,137 @@ def get_sections_for_fibration(cd, base_pts):
     # Ensure uniqueness
     unique_sections = list(set(reduced_sections))
     return unique_sections
+
+
+def try_scale_out_power_of_two(cd, max_t=2, debug=False):
+    """
+    Robust version that avoids coercion errors when testing Δ' mod 2.
+
+    - For each candidate u = 2^t, builds a4', a6', Δ' (rational polynomial).
+    - Converts Δ' to an integer polynomial by multiplying by the LCM of denominators.
+    - Divides out any overall 2-power from the integer polynomial (but only for
+      the purpose of the mod-2 test — we don't mutate a4'/a6' here).
+    - Tests whether the resulting polynomial is identically zero in GF(2).
+    - On success returns a new CurveDataExt with scaled a4/a6; on failure raises.
+    """
+    from sage.all import ZZ, GF, lcm as sage_lcm, gcd as sage_gcd, valuation
+
+    a4 = cd.a4
+    a6 = cd.a6
+
+    # Compute original Δ and quick-check (guard clause)
+    Delta = -16 * (4 * a4**3 + 27 * a6**2)
+    Delta_num = Delta.numerator()
+
+    # Helper: safe polynomial -> GF(2) zero-check
+    def poly_is_zero_mod2_safe(poly_q):
+        """
+        poly_q: polynomial over QQ (rational coefficients)
+        Returns True if poly_q is zero in GF(2), False otherwise.
+        """
+        # Extract coefficients as rationals
+        coeffs = poly_q.coefficients()
+        if not coeffs:
+            # zero polynomial already
+            return True
+
+        # compute LCM of denominators
+        dens = [c.denominator() for c in coeffs]
+        try:
+            D = ZZ(1)
+            for d in dens:
+                D = sage_lcm(D, ZZ(d))
+        except Exception as e:
+            raise RuntimeError(f"Failed to compute denominator LCM for Δ: {e}")
+
+        # Multiply to get integer polynomial
+        try:
+            poly_int = (poly_q * D).change_ring(ZZ)   # now polynomial over ZZ
+        except Exception as e:
+            raise RuntimeError(f"Failed to coerce Δ*LCM to ZZ polynomial: {e}")
+
+        # If all integer coefficients share a power of 2, divide it out for mod-2 test.
+        int_coeffs = [int(c) for c in poly_int.coefficients()]
+        # gcd could be 0 if polynomial is zero, so guard
+        if all(c == 0 for c in int_coeffs):
+            return True
+        common_g = abs(int(int(sage_gcd(int_coeffs))))
+        # compute v2 of common_g
+        v2 = 0
+        if common_g != 0:
+            while common_g % 2 == 0:
+                common_g //= 2
+                v2 += 1
+
+        if v2 > 0:
+            poly_int_trim = poly_int // (ZZ(2)**v2)
+        else:
+            poly_int_trim = poly_int
+
+        # Now safe to change ring to GF(2).
+        try:
+            poly_gf2 = poly_int_trim.change_ring(GF(2))
+        except Exception as e:
+            # This should not normally happen, but surface it with context if it does.
+            raise RuntimeError(f"Failed converting Δ to GF(2): {e}")
+
+        return poly_gf2.is_zero()
+
+    # If already OK w/o scaling, return original
+    try:
+        if not poly_is_zero_mod2_safe(Delta_num):
+            if debug:
+                print("[try_scale_out_power_of_two] Δ already nonzero mod 2; no scaling.")
+            return cd
+    except Exception as e:
+        # Surface a friendly error rather than letting Sage raise raw low-level exceptions.
+        raise RuntimeError(f"Pre-scale Δ mod 2 test failed: {e}")
+
+    # Try scale factors u = 2^t
+    for t in range(1, max_t + 1):
+        u = ZZ(2) ** t
+        try:
+            a4_new = a4 / (u**4)
+            a6_new = a6 / (u**6)
+        except Exception as e:
+            raise RuntimeError(f"Scaling a4/a6 by u=2^{t} failed: {e}")
+
+        try:
+            Delta_new = -16 * (4 * a4_new**3 + 27 * a6_new**2)
+            Delta_new_num = Delta_new.numerator()
+        except Exception as e:
+            raise RuntimeError(f"Failed to form Δ' for u=2^{t}: {e}")
+
+        # Use safe conversion/test
+        try:
+            is_zero_mod2 = poly_is_zero_mod2_safe(Delta_new_num)
+        except Exception as e:
+            raise RuntimeError(f"Δ mod 2 test failed for u=2^{t}: {e}")
+
+        if not is_zero_mod2:
+            # Success: rebuild cd with the new coefficients
+            if debug:
+                print(f"[try_scale_out_power_of_two] Success with u=2^{t}.")
+            return CurveDataExt(
+                E_curve     = cd.E_curve,
+                E_weier     = cd.E_weier,
+                E_rhs       = cd.E_rhs,
+                a4          = a4_new,
+                a6          = a6_new,
+                phi_x       = cd.phi_x,
+                quartic_rhs = cd.quartic_rhs,
+                tate_exponent = cd.tate_exponent,
+                k_base_change = cd.k_base_change,
+                bad_primes    = cd.bad_primes,
+                morphs        = cd.morphs,
+                use_minimal   = cd.use_minimal,
+                blowup_factor = cd.blowup_factor,
+                singfibs      = cd.singfibs,
+                SR_a4         = cd.SR_a4,
+                SR_a6         = cd.SR_a6,
+                SR_phi_x      = cd.SR_phi_x,
+                SR_m          = cd.SR_m,
+            )
+
+    # If reached, scaling didn't remove the mod-2 collapse up to max_t
+    raise RuntimeError(f"Failed to remove 2-adic global factor up to u=2^{max_t}.")

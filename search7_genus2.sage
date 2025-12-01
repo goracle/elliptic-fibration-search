@@ -700,45 +700,46 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         print(f"Target m-value: {target_m}")
 
         # Use the ACTUAL precomputed residues that were used in search
-        cov = compute_residue_coverage_for_m(target_m, precomputed_residues, prime_pool)
+        if not SYMBOLIC_SEARCH:
+            cov = compute_residue_coverage_for_m(target_m, precomputed_residues, prime_pool)
 
-        print(f"\nPer-prime visibility: {len(cov['matched_primes'])}/{len(prime_pool)} primes matched ({cov['coverage_fraction']:.1%})")
+            print(f"\nPer-prime visibility: {len(cov['matched_primes'])}/{len(prime_pool)} primes matched ({cov['coverage_fraction']:.1%})")
 
-        if cov['coverage_fraction'] > 0.5:
-            print(f"\n✓ Target point has high visibility ({cov['coverage_fraction']:.1%})")
-            print("It should have been found. Check rationality_test_func or height bounds.")
-        elif cov['coverage_fraction'] > 0.1:
-            print(f"\n⚠️  Target point has moderate visibility ({cov['coverage_fraction']:.1%})")
-            print("May need larger prime subsets or more iterations.")
-        else:
-            print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
-            print("Increase HEIGHT_BOUND or add more primes to pool.")
+            if cov['coverage_fraction'] > 0.5:
+                print(f"\n✓ Target point has high visibility ({cov['coverage_fraction']:.1%})")
+                print("It should have been found. Check rationality_test_func or height bounds.")
+            elif cov['coverage_fraction'] > 0.1:
+                print(f"\n⚠️  Target point has moderate visibility ({cov['coverage_fraction']:.1%})")
+                print("May need larger prime subsets or more iterations.")
+            else:
+                print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
+                print("Increase HEIGHT_BOUND or add more primes to pool.")
 
 
-        # Visibility analysis
-        sig = analyzer.visibility_signature(target_m)
-        print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
-        assert sig['matched'], "no primes show target visibility"
-        
-        # --- MODIFIED CHECK ---
-        # Instead of checking 'crt_visible' (which was broken),
-        # we check the 'fraction' of matching primes.
-        if sig['fraction'] < 0.5: # Heuristic threshold
-            print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
-            print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
-            print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
-            print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
-            
-            # Suggest a targeted subset
-            matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
-            if len(matched_primes) >= 4:
-                suggested = matched_primes[:6]
-                print(f"\nSuggested targeted subset: {suggested}")
-                print("Add this to prime_subsets_to_process and re-run.")
-        else:
-            print(f"\n✓ Target point has high visibility ({sig['fraction']:.1%})")
-            print("It should have been found. Check rationality_test_func or height bounds.")
-    
+            # Visibility analysis
+            sig = analyzer.visibility_signature(target_m)
+            print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
+            assert sig['matched'], "no primes show target visibility"
+
+            # --- MODIFIED CHECK ---
+            # Instead of checking 'crt_visible' (which was broken),
+            # we check the 'fraction' of matching primes.
+            if sig['fraction'] < 0.5: # Heuristic threshold
+                print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
+                print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
+                print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
+                print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
+
+                # Suggest a targeted subset
+                matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
+                if len(matched_primes) >= 4:
+                    suggested = matched_primes[:6]
+                    print(f"\nSuggested targeted subset: {suggested}")
+                    print("Add this to prime_subsets_to_process and re-run.")
+            else:
+                print(f"\n✓ Target point has high visibility ({sig['fraction']:.1%})")
+                print("It should have been found. Check rationality_test_func or height bounds.")
+
     # =====================================================================
     # FINAL SUMMARY
     # =====================================================================
