@@ -591,37 +591,24 @@ def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift
 
             try:
                 a, b = rational_reconstruct(m0 % M, M)
-                found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
+
+                m_val_rational = QQ(a) / QQ(b)
+                # Pass filter_primes_keys instead of extra_primes_for_filtering
+                if _check_rational_m_candidate(m_val_rational, residue_map_for_filter,
+                                                filter_primes_keys,
+                                                coeffs_genus2=coeffs_genus2, shift=shift,
+                                                r_m_linear=r_m_linear, r_m_sym=r_m):
+                    found_candidates_for_subset.add( (m_val_rational, v_orig_tuple) )
+                    stats_counter['rational_recon_success_worker'] += 1
+                else:
+                    stats_counter['rational_recon_failure_worker'] += 1
+
+                #found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
             except RationalReconstructionError:
                 pass
 
     return found_candidates_for_subset, Counter(), set() # Return empty stats
 
-
-def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_primes, verbose=False):
-    """
-    Checks if a *single* integer t is valid against the extra prime constraints.
-    """
-    m0 = int(m0)
-    M = int(M)
-    t_candidate = int(t_candidate)
-
-    for q in extra_primes:
-        allowed_m_residues = residue_map_for_filter.get(q)
-
-        if not allowed_m_residues:
-            if verbose:
-                print(f"Filter fail: Prime {q} has no allowed m-residues.")
-            return False
-
-        m_cand_mod_q = (m0 + t_candidate * M) % q
-
-        if m_cand_mod_q not in allowed_m_residues:
-            if verbose: print(f"Filter fail: t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
-            return False
-
-    if verbose: print(f"Filter pass: t={t_candidate} is valid.")
-    return True
 
 
 def _make_executor(max_workers=None):
@@ -1034,7 +1021,165 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
 
 # In modularthread.py
 
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns):
+
+def check_specific_t_value2(t_candidate, m0, M, residue_map_for_filter, extra_primes,
+                           coeffs_genus2: list[QQ], shift: QQ, 
+                           r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Checks if a single integer t is valid against the extra prime constraints.
+    Computes x correctly using r_m relation, and performs the Kronecker check.
+    """
+    m0_val = ZZ(m0)
+    M_val = ZZ(M)
+    t_candidate_val = ZZ(t_candidate)
+    
+    m_candidate_val = m0_val + t_candidate_val * M_val
+    
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+        m_cand_mod_q = m_candidate_val % q
+        
+        # --- FIXED: Correct handling of allowed_m_residues being set() ---
+        if allowed_m_residues is None:
+             # Should not happen if extra_primes == residue_map_for_filter.keys()
+             continue 
+             
+        if not allowed_m_residues or m_cand_mod_q not in allowed_m_residues:
+            if verbose: 
+                print(f"Filter fail (x-coord): t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            return False
+        # --- END FIX ---
+
+        # --- UNIFIED MODULAR CHECK ---
+        try:
+            x_mod_q = 0 # Placeholder for initial state
+
+            # 1. Calculate x_mod_q correctly using the generalized r_m relation: x = r_m(m) - shift
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                # Modular reduction of coefficients and shift
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                # x = slope*m + intercept - shift (mod q)
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                # Fallback to evaluating rational
+                m_q = QQ(m_candidate_val)
+                x_val = r_m_sym.subs({var('m'): m_q}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            # 2. Calculate G(x_mod_q) = RHS_mod_q
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            # 3. Perform Kronecker check
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue 
+        # --- END UNIFIED MODULAR CHECK ---
+            
+    return True
+
+
+def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
+                                coeffs_genus2: list[QQ], shift: QQ,
+                                r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Applies consistency checks for a rational m_candidate.
+    Computes x correctly using r_m relation, and performs the Kronecker check.
+    """
+    m_candidate_val_num = ZZ(m_candidate.numerator())
+    m_candidate_val_den = ZZ(m_candidate.denominator())
+
+    found = False
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+        found = bool(allowed_m_residues) or found
+    #assert found, residue_map_for_filter
+
+    for q in extra_primes:
+        if m_candidate_val_den % q == 0:
+            return False 
+        
+        m_cand_mod_q = (m_candidate_val_num * m_candidate_val_den.inverse_mod(q)) % q
+
+        allowed_m_residues = residue_map_for_filter.get(q)
+        
+        # --- FIXED: Correct handling of allowed_m_residues being set() ---
+        if allowed_m_residues is None:
+             continue 
+             
+        if not allowed_m_residues or m_cand_mod_q not in allowed_m_residues:
+            if verbose: 
+                pass
+                #print(f"Filter fail (rational m, x-coord): m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            pass
+            #return False
+        # --- END FIX ---
+
+        # --- UNIFIED MODULAR CHECK ---
+        try:
+            x_mod_q = 0 # Placeholder for initial state
+
+            # 1. Calculate x_mod_q correctly using the generalized r_m relation: x = r_m(m) - shift
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                # Modular reduction of coefficients and shift
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                # x = slope*m + intercept - shift (mod q)
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                # Fallback to evaluating rational
+                x_val = r_m_sym.subs({var('m'): m_candidate}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            # 2. Calculate G(x_mod_q) = RHS_mod_q
+            # Evaluate G(x) = sum of coeffs * x^i
+            # Horner's method is faster than repeated exponentiation
+            #rhs = COEFFS_GENUS2[0]
+            #for coeff in COEFFS_GENUS2[1:]:
+            #    rhs = rhs * x + coeff
+
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            # 3. Perform Kronecker check
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (rational m, y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue 
+        # --- END UNIFIED MODULAR CHECK ---
+            
+    return True
+
+
+def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None):
     """
     Worker function to find m-candidates for a single subset of primes.
     This version processes each RHS function independently.
@@ -1042,19 +1187,17 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
     *** MODIFIED to add a guard against combo_cap explosion ***
     """
     if not p_subset:
-        return set(), Counter(), set() # Return all 3 values
+        return set(), Counter(), set()
 
     found_candidates_for_subset = set()
     stats_counter = Counter()
     tested_crt_classes = set()
 
-    # these are now skipped!  this shouldn't print anymore!
     if len(p_subset) > 1 and all(p in precomputed_residues for p in p_subset):
         est = 1
         for p in p_subset:
             vks = precomputed_residues[p]
             for roots_list in vks.values():
-                # roots_list is a list of sets per RHS function
                 if any(len(roots) > ROOTS_THRESHOLD for roots in roots_list):
                     est *= sum(len(roots) for roots in roots_list)
         if est > combo_cap and DEBUG:
@@ -1070,10 +1213,26 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
         v_orig_tuple = tuple(v_orig)
 
         for rhs_idx in range(num_rhs_fns):
+
+            # --- BUILD FILTER MAP ONCE (with proper fallbacks) ---
+            residue_map_for_filter = {}
+            for p in extra_primes_for_filtering:
+                if p not in precomputed_residues:
+                    continue 
+                
+                p_data = precomputed_residues[p]
+                roots_lists = p_data.get(v_orig_tuple, [])
+
+                if rhs_idx < len(roots_lists) and roots_lists[rhs_idx]:
+                    residue_map_for_filter[p] = roots_lists[rhs_idx]
+                else:
+                    residue_map_for_filter[p] = set()
             
+            filter_primes_keys = list(residue_map_for_filter.keys())
+            
+            # --- BUILD CRT MAP ---
             residue_map_for_crt = {}
             for p in p_subset:
-                # precomputed_residues[p][v_tuple] is now a list of sets
                 roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
                 if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
                     residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
@@ -1082,27 +1241,21 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
             if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
                 continue
 
-            residue_map_for_filter = {}
-            for p in extra_primes_for_filtering:
-                roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
-                if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
-                     residue_map_for_filter[p] = roots_for_this_rhs[rhs_idx]
+            # --- DO NOT REBUILD residue_map_for_filter HERE! ---
+            # (This was the bug - second construction was overwriting the first)
 
             lists = [residue_map_for_crt[p] for p in primes_for_crt]
             
-            # --- START SLOWDOWN FIX ---
             # Check for combinatorial explosion BEFORE itertools.product
             num_combos = 1
             for l in lists:
-                # Use len(l) which is the number of residues for this prime
-                num_combos *= max(1, len(l)) # Use max(1,...) in case a list is empty? (shouldn't happen)
+                num_combos *= max(1, len(l))
                 if num_combos > combo_cap:
-                    break # Stop multiplying, it's already too big
+                    break
             
             if num_combos > combo_cap:
                 stats_counter['crt_lift_skipped_combo_cap'] += 1
-                continue # Skip this (v, rhs) pair, it's too big
-            # --- END SLOWDOWN FIX ---
+                continue
             
             for combo in itertools.product(*lists):
                 stats_counter['crt_lift_attempts'] += 1
@@ -1116,35 +1269,362 @@ def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_ca
                 m0 = crt_cached(combo, tuple(primes_for_crt))
                 tested_crt_classes.add((int(m0) % int(M), int(M)))
 
-                # --- START MODIFICATION ---
-                # Path 1: t-search (now O(1) find + O(1) filter)
-                
-                # Step 1: Find the 1-3 best t candidates (O(1))
+                # Path 1: t-search (O(1) find + O(1) filter)
                 try:
-                    #best_ms = minimize_archim_search_lll.pyidean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                     best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
                 except TypeError:
-                    best_ms = [(t, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
-                    #raise # Don't raise, just use fallback
+                    best_ms = [(t, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)]
 
-                # Step 2: Filter *only* those t values (O(1))
                 for t_cand, m_cand, _, _ in best_ms:
-                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, extra_primes_for_filtering):
-                        # --- THIS IS THE FIX ---
-                        # Wrap (m_cand, v_orig_tuple) in an outer tuple to add it as a single element
-                        found_candidates_for_subset.add( (QQ(m_cand), v_orig_tuple) )
+                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, filter_primes_keys,
+                                              coeffs_genus2=coeffs_genus2, shift=shift,
+                                              r_m_linear=None, r_m_sym=r_m): 
+                        found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
 
-                # Path 2: Rational Reconstruction (still run unconditionally)
+                # Path 2: Rational Reconstruction
                 stats_counter['rational_recon_attempts_worker'] += 1
                 try:
                     a, b = rational_reconstruct(m0 % M, M)
-                    # --- THIS IS THE FIX ---
-                    # Wrap in an outer tuple here as well
-                    found_candidates_for_subset.add( (QQ(a) / QQ(b), v_orig_tuple) )
-                    stats_counter['rational_recon_success_worker'] += 1
+                    m_val_rational = QQ(a) / QQ(b)
+                    
+                    if _check_rational_m_candidate(m_val_rational, residue_map_for_filter,
+                                                    filter_primes_keys,
+                                                    coeffs_genus2=coeffs_genus2, shift=shift,
+                                                    r_m_linear=None, r_m_sym=r_m):
+                        found_candidates_for_subset.add((m_val_rational, v_orig_tuple))
+                        stats_counter['rational_recon_success_worker'] += 1
+                    else:
+                        stats_counter['rational_recon_failure_worker'] += 1
+
                 except RationalReconstructionError:
                     stats_counter['rational_recon_failure_worker'] += 1
-                    #pass # Don't raise, just fail silently
-                # --- END MODIFICATION ---
 
     return found_candidates_for_subset, stats_counter, tested_crt_classes
+
+
+
+def check_specific_t_value3(t_candidate, m0, M, residue_map_for_filter, extra_primes,
+                           coeffs_genus2: list[QQ], shift: QQ, 
+                           r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Checks if a single integer t is valid against the extra prime constraints.
+    Returns False if any constraint is violated, True otherwise.
+    
+    If residue_map_for_filter is empty or all primes have empty residues,
+    returns True (no constraints to check).
+    """
+    m0_val = ZZ(m0)
+    M_val = ZZ(M)
+    t_candidate_val = ZZ(t_candidate)
+    
+    m_candidate_val = m0_val + t_candidate_val * M_val
+    
+    # If no filtering primes, accept by default
+    if not extra_primes or not residue_map_for_filter:
+        return True
+    
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+        
+        # Skip primes not in filter map
+        if allowed_m_residues is None:
+            continue
+        
+        # If empty set, this prime forbids ALL residues -> reject
+        if not allowed_m_residues:
+            if verbose:
+                print(f"Filter fail: Prime {q} has empty allowed residue set (forbids all)")
+            return False
+        
+        m_cand_mod_q = m_candidate_val % q
+        
+        if m_cand_mod_q not in allowed_m_residues:
+            if verbose: 
+                print(f"Filter fail (x-coord): t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            return False
+
+        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
+        try:
+            x_mod_q = 0
+            
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                m_q = QQ(m_candidate_val)
+                x_val = r_m_sym.subs({var('m'): m_q}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue
+            
+    return True
+
+
+def _check_rational_m_candidate2(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
+                                coeffs_genus2: list[QQ], shift: QQ,
+                                r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Applies consistency checks for a rational m_candidate.
+    Returns False if any constraint is violated, True otherwise.
+    
+    If residue_map_for_filter is empty or all primes have empty residues,
+    returns True (no constraints to check).
+    """
+    m_candidate_val_num = ZZ(m_candidate.numerator())
+    m_candidate_val_den = ZZ(m_candidate.denominator())
+    
+    # If no filtering primes, accept by default
+    if not extra_primes or not residue_map_for_filter:
+        return True
+
+    for q in extra_primes:
+        # Reject if denominator divisible by filter prime
+        if m_candidate_val_den % q == 0:
+            return False 
+        
+        m_cand_mod_q = (m_candidate_val_num * m_candidate_val_den.inverse_mod(q)) % q
+
+        allowed_m_residues = residue_map_for_filter.get(q)
+        
+        # Skip primes not in filter map
+        if allowed_m_residues is None:
+            continue
+        
+        # If empty set, this prime forbids ALL residues -> reject
+        if not allowed_m_residues:
+            if verbose:
+                print(f"Filter fail: Prime {q} has empty allowed residue set (forbids all)")
+            return False
+        
+        if m_cand_mod_q not in allowed_m_residues:
+            if verbose: 
+                pass
+            return False
+
+        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
+        try:
+            x_mod_q = 0
+
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                x_val = r_m_sym.subs({var('m'): m_candidate}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (rational m, y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue
+            
+    return True
+
+
+
+# seems of limited value
+def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_primes,
+                           coeffs_genus2: list[QQ], shift: QQ, 
+                           r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Checks if a single integer t is valid against the extra prime constraints.
+    Returns False if any constraint is violated, True otherwise.
+    
+    When x-coordinate filters are empty (all primes have set()), only y-coordinate
+    Kronecker check is performed.
+    """
+    m0_val = ZZ(m0)
+    M_val = ZZ(M)
+    t_candidate_val = ZZ(t_candidate)
+    
+    m_candidate_val = m0_val + t_candidate_val * M_val
+    
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+        m_cand_mod_q = m_candidate_val % q
+        
+        # Skip x-coordinate check if:
+        # - Prime not in map (None)
+        # - Prime has empty residue set (set())
+        if allowed_m_residues is None or not allowed_m_residues:
+            pass  # Continue to y-coordinate check below
+        elif m_cand_mod_q not in allowed_m_residues:
+            # x-coordinate constraint violated
+            if verbose: 
+                print(f"Filter fail (x-coord): t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            #pass
+            return False
+
+        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
+        # Always run this check, even if x-check was skipped
+        try:
+            x_mod_q = 0
+            
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                m_q = QQ(m_candidate_val)
+                x_val = r_m_sym.subs({var('m'): m_q}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue
+            
+    return True
+
+
+# seems of limited value
+def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
+                                coeffs_genus2: list[QQ], shift: QQ,
+                                r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+    """
+    Applies consistency checks for a rational m_candidate.
+    Returns False if any constraint is violated, True otherwise.
+    
+    When x-coordinate filters are empty (all primes have set()), only y-coordinate
+    Kronecker check is performed.
+    """
+    return True
+    m_candidate_val_num = ZZ(m_candidate.numerator())
+    m_candidate_val_den = ZZ(m_candidate.denominator())
+
+    for q in extra_primes:
+        # Reject if denominator divisible by filter prime
+        if m_candidate_val_den % q == 0:
+            return False 
+        
+        m_cand_mod_q = (m_candidate_val_num * m_candidate_val_den.inverse_mod(q)) % q
+
+        allowed_m_residues = residue_map_for_filter.get(q)
+        
+        # Skip x-coordinate check if:
+        # - Prime not in map (None)
+        # - Prime has empty residue set (set())
+        if allowed_m_residues is None or not allowed_m_residues:
+            pass  # Continue to y-coordinate check below
+        elif m_cand_mod_q not in allowed_m_residues:
+            # x-coordinate constraint violated
+            #print("here", m_cand_mod_q, allowed_m_residues)
+            if verbose: 
+                print(f"Filter fail (rational m, x-coord): m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            pass
+            #return False
+
+        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
+        # Always run this check, even if x-check was skipped
+        try:
+            x_mod_q = 0
+
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
+                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
+            else:
+                x_val = r_m_sym.subs({var('m'): m_candidate}) - shift
+                x_val = QQ(x_val)
+                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
+        
+            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
+                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
+            
+            if RHS_mod_q < 0:
+                RHS_mod_q = RHS_mod_q + q
+        
+            if kronecker(RHS_mod_q, q) == -1:
+                if verbose:
+                    print(f"Filter fail (rational m, y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                return False
+                
+        except Exception:
+            if verbose:
+                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
+            continue
+            
+    return True
+
+
+def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_primes, verbose=False, coeffs_genus2=None, shift=None, r_m_linear=None, r_m_sym=None):
+    """
+    Checks if a *single* integer t is valid against the extra prime constraints.
+    """
+    m0 = int(m0)
+    M = int(M)
+    t_candidate = int(t_candidate)
+
+    for q in extra_primes:
+        allowed_m_residues = residue_map_for_filter.get(q)
+
+        if not allowed_m_residues:
+            if verbose:
+                print(f"Filter fail: Prime {q} has no allowed m-residues.")
+            return False
+
+        m_cand_mod_q = (m0 + t_candidate * M) % q
+
+        if m_cand_mod_q not in allowed_m_residues:
+            if verbose: print(f"Filter fail: t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
+            return False
+
+    if verbose: print(f"Filter pass: t={t_candidate} is valid.")
+    return True
+

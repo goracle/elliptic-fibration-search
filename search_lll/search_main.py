@@ -280,7 +280,7 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
-                                         sconf, num_workers=8, debug=DEBUG,
+                                         sconf, coeffs_genus2, num_workers=8, debug=DEBUG,
                                          precomputed_residues=None):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
@@ -711,7 +711,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         combo_cap=combo_cap,
         precomputed_residues=precomputed_residues,
         prime_pool=prime_pool,  # current (filtered) prime_pool
-        num_rhs_fns=len(rhs_list)
+        num_rhs_fns=len(rhs_list),
+        coeffs_genus2=coeffs_genus2 # <-- ADDED THIS ARGUMENT
     )
 
     subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(

@@ -7,19 +7,7 @@ Checks for Galois obstructions on the torsor equations x([n]P)(m) = -m + x1.
 
 from sage.all import *
 from collections import defaultdict
-
-DEBUG = False
-
-
-# diagnostics_univariate.py
-"""
-Univariate search equation diagnostics.
-Analyzes why symbolic search may fail while modular search succeeds.
-Checks for Galois obstructions on the torsor equations x([n]P)(m) = -m + x1.
-"""
-
-
-DEBUG = False
+from search_common import DEBUG
 
 
 # diagnostics_univariate.py
@@ -29,8 +17,6 @@ Analyzes why symbolic search may fail while modular search succeeds.
 Checks for Galois obstructions on the torsor equations x([n]P)(m) = -m + x1.
 """
 
-
-DEBUG = False
 
 def extract_search_polynomials(cd, current_sections, rhs_list, vecs, max_n=12):
     """
@@ -68,9 +54,22 @@ def extract_search_polynomials(cd, current_sections, rhs_list, vecs, max_n=12):
                 F = x_nP_Fm - rhs_Fm
                 
                 num = F.numerator()
+                den = F.denominator()
                 
-                if num.degree() > 0:
-                    polys[(sec_idx, n, rhs_idx)] = PR_m(num)
+                num_pr = PR_m(num)
+                den_pr = PR_m(den)
+                
+                g = gcd(num_pr, den_pr)
+                if g.degree() > 0 or g != 1:
+                    num_pr = num_pr // g
+                    den_pr = den_pr // g
+                
+                content_num = gcd(num_pr.coefficients())
+                if content_num != 1:
+                    num_pr = PR_m([QQ(c) / QQ(content_num) for c in num_pr.list()])
+                
+                if num_pr.degree() > 0:
+                    polys[(sec_idx, n, rhs_idx)] = num_pr
             
             current_sec = elliptic_add_generic(current_sec, section, cd)
     
@@ -331,7 +330,8 @@ def run_univariate_diagnostics(cd, current_sections, rhs_list, vecs, max_n=12):
     print("-"*70)
     
     printed_per_type = defaultdict(int)
-    max_print_per_type = 3
+    #max_print_per_type = 3
+    max_print_per_type = max_n
     
     for key in sorted(polys.keys()):
         analysis = analyses[key]
@@ -339,6 +339,18 @@ def run_univariate_diagnostics(cd, current_sections, rhs_list, vecs, max_n=12):
         
         if printed_per_type[obstruction] < max_print_per_type:
             print_polynomial_diagnostics(key, analysis)
+            
+            sec_idx, n, rhs_idx = key
+            F = polys[key]
+            coeffs = F.list()
+            content = gcd([abs(c.numerator()) for c in coeffs if c != 0])
+            max_coeff = max([abs(c.numerator()) for c in coeffs] + [abs(c.denominator()) for c in coeffs])
+            
+            print(f"     Polynomial degree: {F.degree()}")
+            print(f"     Content (gcd of coeffs): {content}")
+            print(f"     Max coefficient size: {max_coeff}")
+            print(f"     Leading coeff: {F.leading_coefficient()}")
+            
             printed_per_type[obstruction] += 1
     
     print("\n" + "="*70)

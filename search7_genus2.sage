@@ -588,9 +588,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     num_prime_subsets,
                     get_y_unshifted_genus2,
                     sconf,
-                    precomputed_residues=precomputed_residues
+                    precomputed_residues=precomputed_residues,
+                    coeffs_genus2=sextic_coeffs # <-- ADDED THIS ARGUMENT
                 )
-
 
             else:
                 # Normal path - function does its own precomputation
@@ -604,7 +604,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     all_known_x,
                     num_prime_subsets,
                     get_y_unshifted_genus2,
-                    sconf
+                    sconf,
+                    coeffs_genus2=sextic_coeffs # <-- ADDED THIS ARGUMENT
                 )
 
             cumulative_stats.merge(iter_stats)

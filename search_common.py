@@ -399,8 +399,8 @@ TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
 
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
-SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
+SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
