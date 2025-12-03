@@ -402,6 +402,11 @@ USE_MINIMAL_MODEL = True # more correct, and more slow
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 
+AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like
+PREFER = set()                  # or {23,29} if you want to force primes upward
+
+
+
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus

@@ -4,6 +4,7 @@ import itertools
 from collections import Counter
 from sympy import symbols, expand
 from sage.all import *
+from sage.rings.polynomial.polynomial_ring_constructor import PolynomialRing
 import math  # <-- ADD THIS LINE
 # application modules
 from search_common import *
@@ -20,6 +21,7 @@ from bounds import *
 from selmer import *
 from stats import *
 from consensus import *
+from mobius import *
 load('tower.sage')
 from stats import SearchStats # <-- Make sure stats is imported
 
@@ -152,6 +154,162 @@ def scancd_for_special_fibers(cd, r_m, shift):
     return found_from_fibers
 
 
+@PROFILE
+def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+    """
+    Analyzes a single fibration tower.
+    SCALES the height bound based on the discriminant degree relative to primary_deg.
+    """
+    tower = fib_data['tower'] # Extract tower
+    fib_id = fib_data.get('id', 0) # Extract id, default to 0 (non-primary)
+    seed = fib_data.get('seed', seed) # Extract seed
+    
+    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
+
+    # 1. Reconstruct SR/PR variables
+    SR_m = var('m')
+    PR_m = PolynomialRing(QQ, 'm')
+    m_poly = PR_m.gen()
+    Fm = PR_m.fraction_field()
+    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
+    xSR, mSR = SR.var('x'), SR.var('m')
+
+    # 2. Extract expressions from this tower
+    this_roots = [SR(step['r_expr']) for step in tower]
+    this_E_rhs_sym = tower[-1]['f_i']
+    this_r_m = SR(this_roots[0])
+
+    # 3. Reconstruct the curve objects (cd)
+    coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
+    coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+    this_E_rhs_m = R_x_m(coeffs_in_Fm)
+    
+    this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
+    lastrhs = this_E_rhs_m(x=this_roots[-1])
+    last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
+    this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+
+    # --- KEY FIX: SCALE HEIGHT BOUND ---
+    # Determine degree of this fibration's discriminant
+    try:
+        Delta = this_cd.E_weier.discriminant()
+        if hasattr(Delta, 'numerator'):
+             this_disc_deg = Delta.numerator().degree()
+        else:
+             this_disc_deg = Delta.degree()
+    except Exception:
+        this_disc_deg = primary_deg # Fallback
+        
+    # Height scales with degree AND coefficient complexity.
+    # Secondary fibrations (anchors) have much larger coeffs, requiring a looser bound.
+    is_primary = (fib_id == -1)
+    scaling_factor = float(this_disc_deg) / float(primary_deg)
+
+    if is_primary:
+        # This is the primary fibration. Do NOT scale its height bound.
+        this_height_bound = height_bound
+        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+    else:
+        # This is a secondary fibration. Apply 4.0x multiplier.
+
+        # OLD CODE:
+        this_height_bound = int(height_bound * scaling_factor * 1.2)
+    
+        # NEW FIX: Clamp the scaling to a maximum of 1.2x the primary bound
+        # We trust the primary geometry is the "nicest" one.
+        #effective_scale = min(scaling_factor, 1.2) 
+        #this_height_bound = int(height_bound * effective_scale)
+    
+        if is_primary:
+            this_height_bound = height_bound
+        
+        if abs(scaling_factor - 1.0) > 0.1 or True:
+            print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 4.0 safety)")
+    
+    if abs(scaling_factor - 1.0) > 0.1 or True:
+        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 2.0 safety)")
+
+    # 4. Re-run sconf auto-configuration for THIS geometry
+    try:
+        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
+        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
+        if not known_pts_for_height:
+            known_pts_for_height = [(QQ(0), None)]
+        
+        # Auto-config might suggest a bound, but we override with our scaled bound
+        this_sconf = bounds.auto_configure_search(
+                    this_cd, 
+                    known_pts_for_height, 
+                    height_bound=None, 
+                    run_heavy_analysis=False,  # <--- Disable expensive Galois/Adaptive steps
+                    debug=False                # <--- Reduce noise
+                )
+
+        #this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
+        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
+
+    except Exception as e:
+        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
+        this_sconf = global_sconf.copy()
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
+
+    # 5. Compute fibration-specific sections
+    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
+    if not fib_specific_sections:
+        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
+        return None
+        
+    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
+    
+    # 6. Compute fibration-specific Height Matrix (H) and Search Vectors (vecs)
+    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
+    if not independent:
+        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
+        return None
+        
+    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
+    
+    # Use the SCALED height bound here!
+    fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
+    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
+    
+    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
+
+    # 7. Build fibration-specific RHS list
+    k_pow = this_cd.k_base_change
+    n_exp = this_cd.tate_exponent
+    blowup = this_cd.blowup_factor
+    m_sym = this_cd.a4.parent().gen()
+    total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
+    
+    this_search_rhs_list = [SR(this_cd.phi_x)]
+    
+    for root_val in this_roots[:-1]:
+        qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
+        phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
+        phi_x_r_SR = SR(phi_x_r)
+        rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
+        this_search_rhs_list.append(rhs_scaled)
+
+    return {
+        'cd': this_cd,
+        'sections': fib_specific_sections,
+        'H': this_H,
+        'height_bound': this_height_bound,
+        'vecs': fib_specific_vecs,
+        'rhs_list': this_search_rhs_list,
+        'r_m': this_r_m,
+        'sconf': this_sconf,
+        'deg': this_disc_deg,
+        'disc_deg': this_disc_deg,
+        'name': f"fib_seed_{seed}",
+        'r_m': this_r_m
+    }
+# In doloop_genus2, replace the consensus precomputation section
+# (starting from "if USE_CONSENSUS_FILTER and fibrations:")
+# with this updated version:
+
 
 @PROFILE
 def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
@@ -159,9 +317,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     Main search loop adapted for the genus-2 strategy.
     Now accepts and merges into a cumulative_stats object.
     """
-
     # 1. Initial Setup and Shifting
-    # at top of function
     SR_m = var('m')
     PR_m = PolynomialRing(QQ, 'm')
     m_poly = PR_m.gen()
@@ -177,27 +333,107 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     while any((pt[0] + shift) == 0 for pt in real_pts):
         shift += 1
     if shift:
-        print("")
-        print("SHIFT =", shift)
-        print("")
+        print(f"\nSHIFT = {shift}\n")
 
     shifted_G_poly = G(x - shift)
     base_pts = [(X + shift, Y) for X, Y in real_pts]
 
+    print("shifted G poly1:", shifted_G_poly)
+    T = None
+    T_inv = None  # <-- FIX: Initialize T_inv
+    if SYMBOLIC_SEARCH: # we're only testing mobius stuff on symbolic search for right now
+        try:
+            T = choose_transform(
+                shifted_G_poly,
+                all_known_x,
+                avoid_primes=AVOID,
+                prefer_primes=PREFER,
+                search_range=15,
+                allow_c_nonzero=True
+            )
+            print(f"[mobius] Using transform: {T}")
+
+            # Construct Inverse Transform T^-1 for polynomial substitution
+            # T^-1(x) = (dx - b) / (-cx + a)
+            # Maps to MobiusTransform(a=d, b=-b, c=-c, d=a)
+            try:
+                T_inv = MobiusTransform(T.d, -T.b, -T.c, T.a)
+            except Exception as e:
+                raise RuntimeError(f"Failed to construct inverse transform object: {e}")
+
+            # Apply T^-1 to polynomial G(x) to get G_new(x) = G(T^-1(x)) * Den(x)^deg
+            # This replaces the buggy manual substitution code.
+            try:
+                shifted_G_poly = apply_to_poly(shifted_G_poly, T_inv)
+            except Exception as e:
+                raise RuntimeError(f"Failed to transform polynomial G by T^-1: {e}")
+
+            print("shifted G poly:", shifted_G_poly)
+
+            # Transform X-coordinates
+            all_known_x = set(apply_to_points(all_known_x, T))
+            base_pts_x_only = [pt[0] for pt in base_pts]
+            transformed_x = apply_to_points(base_pts_x_only, T)
+
+            # Re-evaluate Y-coordinates on the NEW curve
+            # The transformation scales Y by some factor D(x)^(deg/2), but calculating that
+            # analytically is fragile (as seen by the degree doubling).
+            # We simply evaluate G_new(x_new) and take the square root.
+            updated_base_pts = []
+
+            print("\n[mobius] Updating base points to new curve geometry:")
+            for i, (new_x, old_y) in enumerate(zip(transformed_x, [pt[1] for pt in base_pts])):
+                if new_x is None:
+                    updated_base_pts.append((None, None))
+                    continue
+
+                try:
+                    # 1. Evaluate G_new(x_new)
+                    rhs_val = shifted_G_poly(new_x)
+
+                    # 2. Solve y^2 = rhs_val
+                    # Since we started with a rational point and rational transform,
+                    # this MUST be a perfect square in Q.
+                    new_y = QQ(sqrt(rhs_val))
+
+                    # (Sign ambiguity doesn't matter for section generation, + is fine)
+                    updated_base_pts.append((new_x, new_y))
+                    print(f"  ✓ Point {i}: x={new_x} -> y={new_y} (verified on new curve)")
+
+                except (ValueError, TypeError, ArithmeticError) as e:
+                    print(f"  ✗ Point {i}: x={new_x}, RHS={rhs_val}")
+                    print(f"    Error: {e}")
+                    raise RuntimeError(f"Transformed point {i} is no longer rational! Transform invalid.")
+
+            base_pts = updated_base_pts
+
+            # Verify degree (just for info)
+            trans_degree = shifted_G_poly.degree()
+            print(f"  Transformed polynomial degree: {trans_degree}")
+
+        except Exception as e:
+            print(f"[mobius] Could not find acceptable transform: {e}")
+            raise
+
     # --- PRIMARY ("NICE") FIBRATION ---
-    # We build one "nice" fibration first, without anchors.
-    # This geometry will be used for the main search loop.
+    
+    # Calculate required steps dynamically based on current degree
+    # We want to reduce to degree 4 (genus 1).
+    current_deg = shifted_G_poly.degree()
+    needed_steps = max(0, current_deg - 4)
+    
+    print(f"--- Building {needed_steps} Step Fibration Tower (deg {current_deg} -> 4) ---")
+    
     primary_tower = iterate_tower(
         fx_PR=shifted_G_poly,
         pts_xy=base_pts,
-        max_steps=len(sextic_coeffs) - 5,
+        max_steps=needed_steps,
         seed_int=SEED_INT,
         verbose=DEBUG,
-        use_anchor_points=False  # Ensure this is the "nice" one
+        use_anchor_points=False
         )
 
     # Build MULTIPLE fibrations for consensus
-    print(f"--- Building {len(sextic_coeffs)-5} Step Fibration Tower (deg {len(sextic_coeffs)-1} -> 4 (-> 3)) ---") 
     if USE_CONSENSUS_FILTER:
         print(f"\n{'='*70}")
         print(f"MULTI-FIBRATION CONSENSUS MODE")
@@ -208,33 +444,30 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             fx_PR=shifted_G_poly,
             pts_xy=base_pts,
             num_fibrations=NUM_CONSENSUS_FIBRATIONS,
-            max_steps=len(sextic_coeffs) - 5,
+            max_steps=needed_steps,
             base_seed=SEED_INT+1000,
             verbose=DEBUG
         )
-        # Add the primary tower to the list for consensus calculation
-        # It's important that it also gets a vote.
+        # Add the primary tower to the list
         primary_tower_with_meta = {
             'tower': primary_tower,
             'seed': SEED_INT,
             'id': -1 # Mark as primary
         }
-        #fibrations.append(primary_tower_with_meta)
-        fibrations.insert(0, primary_tower_with_meta) # NEW FIX: Insert at the front
+        fibrations.insert(0, primary_tower_with_meta)
         
     else:
-        # Original single-fibration mode
         fibrations = None
 
     # 3. Extract expressions from the *PRIMARY* tower
     roots = [i['r_expr'] for i in primary_tower]
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] # The final quartic equation
 
-    m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs() # for diagnostics
+    m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs() 
 
-    # Convert the symbolic quartic into the required polynomial type for Sage's curve functions
+    # Convert the symbolic quartic into the required polynomial type
     F_m = PR_m.fraction_field()
-    r_m = SR(roots[0]) # get r_m for converting solutions back to x-coordinates
+    r_m = SR(roots[0])
     print("r_m", r_m)
     R_x_m, x_poly = PolynomialRing(F_m, 'x').objgen()
     xSR, mSR = SR.var('x'), SR.var('m')
@@ -253,21 +486,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     last_phi_x = get_phi_x(one, two, three, roots[-1], lastrhs)
     cd = buildcd(E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
 
-    # 5. Auto-configure bounds and prime parameters from the *PRIMARY* constructed curve data
+    # 5. Auto-configure bounds
     print("\n=== Auto-configuring search parameters for this fibration ===")
     try:
         print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
         known_pts_for_height = []
         for x_coord in all_known_x:
-            try:
-                known_pts_for_height.append((QQ(x_coord), None))
-            except Exception:
-                raise
-                continue 
+            known_pts_for_height.append((QQ(x_coord), None))
 
         for pt in base_pts:
             if pt[0] is not None:
-                known_pts_for_height.append((QQ(pt[0]), QQ(pt[1])))
+                known_pts_for_height.append((QQ(pt[0]), QQ(pt[1]) if pt[1] is not None else None))
 
         if not known_pts_for_height:
              known_pts_for_height = [(QQ(0), None)]
@@ -278,18 +507,16 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         print("config failed")
         raise
 
-    # 6. Diagnostic check: confirm the modulus capping works safely
-    _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0,
-                                                    max_modulus=MAX_MODULUS, debug=True)
+    # 6. Diagnostic check
+    _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0, max_modulus=MAX_MODULUS, debug=True)
 
-    # Recompute prime pool with possible heavier diagnostics (optional)
+    # Recompute prime pool
     prime_pool = sconf['PRIME_POOL']
-    prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True,
-                                                        grh_fudge=10, debug=True)
+    prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True, grh_fudge=10, debug=True)
     prime_pool = sorted(set(prime_pool))
     print(f"[prime_pool] Final pool has {len(prime_pool)} primes up to {max(prime_pool)}")
 
-    # 7. Continue with your normal tower search logic (no other structural changes)
+    # 7. Continue with tower search logic
     k = cd.k_base_change
     n = cd.tate_exponent
     blowup = cd.blowup_factor
@@ -298,46 +525,28 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
 
     # --- BUILD search_rhs_list with symbolic SR consistency ---
-    # canonical symbolic m
     SR_m = var('m')
-    PR_m = cd.a4.parent()   # QQ[m] where m_sym comes from
+    PR_m = cd.a4.parent()
     m_sym = PR_m.gen()
 
-    # Ensure roots are SR objects
     roots_SR = [SR(r) for r in roots]
 
-    print("DEBUG: roots (SR) repr/type samples:")
-    for j, rr in enumerate(roots_SR[:4]):
-        print(f"  root[{j}] = {rr}")
-
-    # Start the search_rhs_list with the top-level phi_x (coerced to SR)
+    # Start the search_rhs_list with the top-level phi_x
     try:
         search_rhs_list = [SR(cd.phi_x)]
     except Exception:
         search_rhs_list = [SR(str(cd.phi_x))]
         raise
 
-    print("")
-    print("RHS:", search_rhs_list[0])
-    print("")
-
-
     # Build the remaining RHS for each tower-level double root
     for i in roots_SR[:-1]:
-        # Evaluate the quartic at x = root i (symbolic)
         qrhs_r = SR(E_rhs_m_symbolic).subs({xSR: i})
         phi_x_r = get_phi_x(SR(one), SR(two), SR(three), i, qrhs_r)
         phi_x_r_SR = SR(phi_x_r)
-        # apply base-change scaling and total_x_scale as before
         rhs_scaled_SR = (phi_x_r_SR.subs({m_sym: m_sym**k}) if k != 0 else phi_x_r_SR) / SR(str(total_x_scale_factor))
         search_rhs_list.append(rhs_scaled_SR)
 
-    print("DEBUG: final search_rhs_list (SR reprs):")
-    for j, rr in enumerate(search_rhs_list):
-        print(f"  search_rhs_list[{j}] = {rr}")
-
     assert len(primary_tower) == len(roots), (len(primary_tower), roots)
-    #assert len(tower) == len(search_rhs_list), (len(tower), len(search_rhs_list))
 
     summarize_fibration_info(cd, data_pts, base_pts)
     extra_pts = scancd_for_special_fibers(cd, r_m, shift)
@@ -345,24 +554,25 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         all_known_x.update(extra_pts)
     singfibs = cd.singfibs
     euler = singfibs['euler_characteristic']
+    
+    # Compute base sections with re-evaluated points
     base_sections = compute_base_sections_m(cd, base_pts)
     verify_morphism_on_samples(cd, base_pts)
     if not base_sections:
         print("Could not compute base sections. Skipping search.") 
-        return set(), cumulative_stats # Return stats on early exit
+        return set(), cumulative_stats
 
     base_sections = lll_reduce_mw_basis(cd, base_sections)
     current_sections = list(set(base_sections))
 
-
     iteration = 0
     H = None
+    all_newly_found_transformed_x = set() # <-- FIX: Accumulator for new points
     while True:
-        print(f"\n--- Search Iteration {iteration} with {len(current_sections)} sections for fibration {data_pts} ---")
+        print(f"\n--- Search Iteration {iteration} with {len(current_sections)} sections ---")
         if not current_sections:
             print("No independent sections to search with. Stopping.")
             break
-
 
         independent, H = check_independence(current_sections, E_curve_m, cd)
         if not independent:
@@ -377,23 +587,19 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
         if difficulty['difficulty_score'] > 2.0:
             print(f"⚠️  WARNING: Curve predicted to be difficult (score {difficulty['difficulty_score']:.2f})")
-            print(f"   Allocating {difficulty['recommended_height_multiplier']:.1f}x height bound")
-            print(f"   Allocating {difficulty['recommended_subset_multiplier']:.1f}x prime subsets")
             height_bound *= difficulty['recommended_height_multiplier']
             num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
-        #height_bound *= 2
 
 
-        vecs = compute_search_vectors(H, height_bound) # MW canonical height bound version (old)
-        #vecs = compute_search_vectors_hodge(cd, current_sections) # new and fancy hodge index theorem version
-        vecs = canonicalize_by_sign(vecs) # we search by x value, so P and -P are the same! only keep one of them!
+        vecs = compute_search_vectors(H, height_bound)
+        vecs = canonicalize_by_sign(vecs)
         print(f"Searching {len(vecs)} vectors up to height {height_bound}...")
 
         if not vecs:
             print("No search vectors found within height bound. Stopping.")
             break
 
-        # ***** MODIFIED SECTION: CONSENSUS PRECOMPUTATION *****
+        # ***** CONSENSUS PRECOMPUTATION *****
         if SYMBOLIC_SEARCH:
             newly_found_x, new_sections = search_lattice_symbolic(
                 cd,
@@ -404,17 +610,13 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 shift=shift,
                 all_found_x=all_known_x,
                 rationality_test_func=get_y_unshifted_genus2,
-                stats=cumulative_stats # <-- Pass stats object
+                stats=cumulative_stats
             )
-            # This is a bit awkward, but we need to merge stats from symbolic search
-            # If search_lattice_symbolic doesn't return stats, we just merge an empty one
-            iter_stats = SearchStats() # Create a dummy stats object for merging
+            all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
+            iter_stats = SearchStats()
             cumulative_stats.merge(iter_stats)
         else:
-            # --- ALL CONFIG (PRIMES / SUBSETS / RESIDUE COUNTS) COMES FROM sconf ---
             prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
-            residue_counts = sconf.get('RESIDUE_COUNTS', {})
-
 
             if USE_CONSENSUS_FILTER and fibrations:
                 print(f"\n{'='*70}")
@@ -436,7 +638,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
 
                     fib_analysis = analyze_fibration_geometry(
-                        #fib_data['tower'], 
                         fib_data, 
                         base_pts, 
                         primary_height_bound,
@@ -458,10 +659,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     this_cd = fib_analysis['cd']
                     fib_specific_sections = fib_analysis['sections']
                     this_search_rhs_list = fib_analysis['rhs_list']
-                    #fib_specific_vecs = vecs  # Force using PRIMARY vectors
-                    fib_specific_vecs = fib_analysis['vecs'] # NEW: Use scaled-height vectors
+                    fib_specific_vecs = fib_analysis['vecs'] 
                     
-                    # Store geometry info for consensus (including cd and sections for Δ-sampling)
                     geom_info = {
                         'H': fib_analysis['H'],
                         'deg': fib_analysis['deg'],
@@ -485,7 +684,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     except Exception as e:
                         print(f"  Failed to prepare modular data for fibration {fib_idx}: {e}")
                         all_precomputed_residues.append({})
-                        raise
                         continue
 
                     if not fib_Ep_dict:
@@ -518,15 +716,14 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         exec_kwargs = {"max_workers": 8, "mp_context": ctx}
                     except Exception:
                         exec_kwargs = {"max_workers": 8}
-                        raise
 
                     with ProcessPoolExecutor(**exec_kwargs) as executor:
                         if TORSION_SLOPPY:
                             futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] 
-                                    for args in args_list}
+                                       for args in args_list}
                         else:
                             futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] 
-                                    for args in args_list}
+                                       for args in args_list}
 
                         for future in tqdm(as_completed(futures), total=len(futures), 
                                     desc=f"Fib {fib_idx+1}/{len(fibrations)}"):
@@ -535,23 +732,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                                 p_ret, mapping, local_checks = future.result()
                                 fib_precomputed[p_ret] = mapping or {}
                             except Exception as e:
-                                if DEBUG:
-                                    print(f"  Residue computation failed for p={p}: {e}")
                                 fib_precomputed[p] = {}
-                                raise
 
                     all_precomputed_residues.append(fib_precomputed)
-                    print(f"  Computed residues for {len(fib_precomputed)} primes")
 
-                # 6. Apply HEIGHT-AWARE consensus filter with strict intersection
+                # 6. Apply HEIGHT-AWARE consensus filter
                 print(f"\n{'='*70}")
                 print("APPLYING HEIGHT-AWARE CONSENSUS FILTER")
                 print(f"{'='*70}")
 
                 from consensus import compute_consensus_residues_with_height_matching
 
-                print(f"DEBUG: r_m = {r_m}")
-                print(f"DEBUG: r_m(m=0) = {r_m(m=QQ(0))}")
                 precomputed_residues, consensus_stats = compute_consensus_residues_with_height_matching(
                     all_precomputed_residues,
                     all_fibration_geometries,
@@ -568,13 +759,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 cumulative_stats.consensus_filter_stats = consensus_stats
                 
                 print(f"\nConsensus Filter Results:")
-                print(f"  Primary vectors: {consensus_stats['total_vectors_primary']}")
-                print(f"  Matched across all fibs: {consensus_stats['vectors_matched_all_fibs']}")
-                print(f"  With consensus residues: {consensus_stats['vectors_with_consensus']}")
                 print(f"  Residues: {consensus_stats['total_residues_before']:,} → {consensus_stats['total_residues_after']:,}")
                 print(f"  Reduction: {consensus_stats['reduction_ratio']:.1%}")
 
-                # 7. Run the main search using the primary geometry with consensus residues
+                # 7. Run the main search
                 newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
                     cd,   
                     current_sections,
@@ -589,11 +777,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     get_y_unshifted_genus2,
                     sconf,
                     precomputed_residues=precomputed_residues,
-                    coeffs_genus2=sextic_coeffs # <-- ADDED THIS ARGUMENT
+                    coeffs_genus2=sextic_coeffs 
                 )
+                all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
 
             else:
-                # Normal path - function does its own precomputation
                 newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
                     cd, current_sections,
                     prime_pool, height_bound,
@@ -605,8 +793,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     num_prime_subsets,
                     get_y_unshifted_genus2,
                     sconf,
-                    coeffs_genus2=sextic_coeffs # <-- ADDED THIS ARGUMENT
+                    coeffs_genus2=sextic_coeffs
                 )
+
+                all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
 
             cumulative_stats.merge(iter_stats)
 
@@ -633,7 +823,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     xtest = base_pts[0][0]  # This is the shifted x (equals r)
     xtest_unshifted = real_pts[0][0]  # This is the original x
     mtest = m_r(r=xtest)
-    assert_base_m_found(mtest, xtest_unshifted, r_m, shift)
+    assert_base_m_found(mtest, xtest_unshifted, r_m, shift, T=T)
 
     #### COMPLETENESS, HEURISTIC - CLEANED UP VERSION
 
@@ -1141,164 +1331,26 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         else:
             print("no isotropic candidates found in box")
 
-
-    return all_known_x, cumulative_stats
-
-@PROFILE
-def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
-    """
-    Analyzes a single fibration tower.
-    SCALES the height bound based on the discriminant degree relative to primary_deg.
-    """
-    tower = fib_data['tower'] # Extract tower
-    fib_id = fib_data.get('id', 0) # Extract id, default to 0 (non-primary)
-    seed = fib_data.get('seed', seed) # Extract seed
+    # --- FIX: Return only NEW points, transformed back to ORIGINAL coordinates ---
+    new_points_original_coords = set()
     
-    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
-
-    # 1. Reconstruct SR/PR variables
-    SR_m = var('m')
-    PR_m = PolynomialRing(QQ, 'm')
-    m_poly = PR_m.gen()
-    Fm = PR_m.fraction_field()
-    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
-    xSR, mSR = SR.var('x'), SR.var('m')
-
-    # 2. Extract expressions from this tower
-    this_roots = [SR(step['r_expr']) for step in tower]
-    this_E_rhs_sym = tower[-1]['f_i']
-    this_r_m = SR(this_roots[0])
-
-    # 3. Reconstruct the curve objects (cd)
-    coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
-    coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
-    this_E_rhs_m = R_x_m(coeffs_in_Fm)
-    
-    this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
-    lastrhs = this_E_rhs_m(x=this_roots[-1])
-    last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
-    this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
-
-    # --- KEY FIX: SCALE HEIGHT BOUND ---
-    # Determine degree of this fibration's discriminant
-    try:
-        Delta = this_cd.E_weier.discriminant()
-        if hasattr(Delta, 'numerator'):
-             this_disc_deg = Delta.numerator().degree()
-        else:
-             this_disc_deg = Delta.degree()
-    except Exception:
-        this_disc_deg = primary_deg # Fallback
-        
-    # Height scales with degree AND coefficient complexity.
-    # Secondary fibrations (anchors) have much larger coeffs, requiring a looser bound.
-    is_primary = (fib_id == -1)
-    scaling_factor = float(this_disc_deg) / float(primary_deg)
-
-    if is_primary:
-        # This is the primary fibration. Do NOT scale its height bound.
-        this_height_bound = height_bound
-        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+    # T_inv was defined in the mobius transform block
+    if T_inv: 
+        try:
+            # apply_to_points is imported via 'from mobius import *'
+            new_points_original_coords = set(apply_to_points(all_newly_found_transformed_x, T_inv))
+            if all_newly_found_transformed_x:
+                print(f"Transformed {len(all_newly_found_transformed_x)} new points back to original geometry.")
+        except Exception as e:
+            print(f"CRITICAL: Failed to apply inverse transform to new points: {e}")
+            # Return empty set to be safe
+            return set(), cumulative_stats
     else:
-        # This is a secondary fibration. Apply 4.0x multiplier.
+        # No transform was used
+        new_points_original_coords = all_newly_found_transformed_x
 
-        # OLD CODE:
-        this_height_bound = int(height_bound * scaling_factor * 1.2)
-    
-        # NEW FIX: Clamp the scaling to a maximum of 1.2x the primary bound
-        # We trust the primary geometry is the "nicest" one.
-        #effective_scale = min(scaling_factor, 1.2) 
-        #this_height_bound = int(height_bound * effective_scale)
-    
-        if is_primary:
-            this_height_bound = height_bound
-        
-        if abs(scaling_factor - 1.0) > 0.1 or True:
-            print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 4.0 safety)")
-    
-    if abs(scaling_factor - 1.0) > 0.1 or True:
-        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 2.0 safety)")
+    return new_points_original_coords, cumulative_stats
 
-    # 4. Re-run sconf auto-configuration for THIS geometry
-    try:
-        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
-        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
-        if not known_pts_for_height:
-            known_pts_for_height = [(QQ(0), None)]
-        
-        # Auto-config might suggest a bound, but we override with our scaled bound
-        this_sconf = bounds.auto_configure_search(
-                    this_cd, 
-                    known_pts_for_height, 
-                    height_bound=None, 
-                    run_heavy_analysis=False,  # <--- Disable expensive Galois/Adaptive steps
-                    debug=False                # <--- Reduce noise
-                )
-
-        #this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
-
-    except Exception as e:
-        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
-        this_sconf = global_sconf.copy()
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-
-    # 5. Compute fibration-specific sections
-    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
-    if not fib_specific_sections:
-        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
-        return None
-        
-    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
-    
-    # 6. Compute fibration-specific Height Matrix (H) and Search Vectors (vecs)
-    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
-    if not independent:
-        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
-        return None
-        
-    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
-    
-    # Use the SCALED height bound here!
-    fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
-    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
-    
-    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
-
-    # 7. Build fibration-specific RHS list
-    k_pow = this_cd.k_base_change
-    n_exp = this_cd.tate_exponent
-    blowup = this_cd.blowup_factor
-    m_sym = this_cd.a4.parent().gen()
-    total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
-    
-    this_search_rhs_list = [SR(this_cd.phi_x)]
-    
-    for root_val in this_roots[:-1]:
-        qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
-        phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
-        phi_x_r_SR = SR(phi_x_r)
-        rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
-        this_search_rhs_list.append(rhs_scaled)
-
-    return {
-        'cd': this_cd,
-        'sections': fib_specific_sections,
-        'H': this_H,
-        'height_bound': this_height_bound,
-        'vecs': fib_specific_vecs,
-        'rhs_list': this_search_rhs_list,
-        'r_m': this_r_m,
-        'sconf': this_sconf,
-        'deg': this_disc_deg,
-        'disc_deg': this_disc_deg,
-        'name': f"fib_seed_{seed}",
-        'r_m': this_r_m
-    }
-# In doloop_genus2, replace the consensus precomputation section
-# (starting from "if USE_CONSENSUS_FILTER and fibrations:")
-# with this updated version:
 
 # In search7_genus2.sage
 

@@ -74,24 +74,47 @@ def find_minimal_abs_representative(t_mod_Q, Q, T):
     return False
 
 
-def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=True):
+def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_raise=True):
     """
-    Ensure that x = r_m(base_m) - shift equals expected_x.
+    Ensure that x = T^-1(r_m(base_m)) - shift equals expected_x.
     This checks that the base point (mtest, xtest) relationship is respected
-    by the parametrization. It does not scan through newly_found_x; instead
-    it asserts consistency between r_m and the supplied base point.
+    by the parametrization, handling the global shift and optional Mobius transform T.
+    
+    r_m_callable(m) returns the x-coordinate (x'') on the most-transformed curve.
+    If T is present, the shifted x-coordinate is T^-1(x'').
+    Then the original x-coordinate is x_shifted - shift.
     """
     assert base_m is not None, "assert_base_m_found requires a base_m (rational) to check"
+    
     try:
-        x_base = r_m_callable(m=QQ(base_m)) - shift
+        # r_m_callable(m=QQ(base_m)) evaluates to the final transformed x-coordinate (x'')
+        x_final_transformed = r_m_callable(m=QQ(base_m))
     except Exception as e:
         msg = f"assert_base_m_found: r_m_callable evaluation failed at m,shift={base_m},{shift}: {e}"
         if allow_raise:
             raise AssertionError(msg)
         return False
+        
+    # 1. Apply Inverse Mobius transform T^-1 to get the shifted x-coordinate (x')
+    if T is not None:
+        try:
+            # We must use inverse_transform, as T maps x' -> x''
+            x_shifted = T.inverse_transform(x_final_transformed)
+        except Exception as e:
+             msg = f"assert_base_m_found: Mobius inverse transform failed at x={x_final_transformed}: {e}"
+             if allow_raise:
+                 raise AssertionError(msg)
+             return False
+    else:
+        # If no T, x_final_transformed is x'
+        x_shifted = x_final_transformed
 
+    # 2. Subtract shift to get the original x-coordinate (x_orig)
+    # Since x_shifted = x_orig + shift, we have x_orig = x_shifted - shift.
+    x_orig = x_shifted - shift
+    
     try:
-        x_base_q = QQ(x_base)
+        x_orig_q = QQ(x_orig)
         expected_x_q = QQ(expected_x)
     except Exception:
         msg = "assert_base_m_found: coercion to QQ failed"
@@ -99,14 +122,9 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, allow_raise=Tru
             raise AssertionError(msg)
         return False
 
-    if x_base_q == expected_x_q:
-        return True
-
-    msg = (f"assert_base_m_found: mismatch.\n"
-           f"  m = {base_m}\n"
-           f"  expected x = {expected_x_q}\n"
-           f"  got x = {x_base_q}")
-    if allow_raise:
-        raise AssertionError(msg)
-    return False
-
+    if x_orig_q != expected_x_q:
+        msg = f"assert_base_m_found: mismatch. m={base_m} expected x={expected_x} got x={x_orig}"
+        if allow_raise:
+            raise AssertionError(msg)
+        return False
+    return True

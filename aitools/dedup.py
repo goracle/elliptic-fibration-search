@@ -245,7 +245,7 @@ def repair_source_code(source_code: str) -> str:
                     current_source = "".join(lines)
                     continue
             
-            print(f"Error: Syntax check failed at line {e.lineno}. Cannot auto-heal.", file=sys.stderr)
+            print(f"Error: Syntax check failed at line {e.lineno}. Cannot auto-heal.: "+str(error_line), file=sys.stderr)
             raise e
             
     return current_source
