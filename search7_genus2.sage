@@ -330,10 +330,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
 
     shift = QQ(0)
-    while any((pt[0] + shift) == 0 for pt in real_pts):
-        shift += 1
-    if shift:
-        print(f"\nSHIFT = {shift}\n")
+    if not MOBIUS_TRANS: # don't use shift and a mobius trans on x, they conflict
+        while any((pt[0] + shift) == 0 for pt in real_pts):
+            shift += 1
+        if shift:
+            print(f"\nSHIFT = {shift}\n")
 
     shifted_G_poly = G(x - shift)
     base_pts = [(X + shift, Y) for X, Y in real_pts]
@@ -341,7 +342,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     print("shifted G poly1:", shifted_G_poly)
     T = None
     T_inv = None  # <-- FIX: Initialize T_inv
-    if SYMBOLIC_SEARCH: # we're only testing mobius stuff on symbolic search for right now
+    if MOBIUS_TRANS: # we're only testing mobius stuff on symbolic search for right now
         try:
             T = choose_transform(
                 shifted_G_poly,
@@ -565,9 +566,38 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     base_sections = lll_reduce_mw_basis(cd, base_sections)
     current_sections = list(set(base_sections))
 
+    def check_rationality_transformed(x_val_search):
+        """
+        Maps x_val (from search space) -> x_shifted -> x_original
+        and checks against the original curve equation.
+        """
+        try:
+            x_val_q = QQ(x_val_search)
+            # 1. Apply Inverse Mobius (if T exists) to get x_shifted
+            if T_inv:
+                x_shifted = T_inv.apply(x_val_q)
+            else:
+                x_shifted = x_val_q
+
+            # 2. Apply Inverse Shift to get x_original
+            x_original = x_shifted + shift
+
+            # 3. Test against original curve
+            return get_y_unshifted_genus2(x_original)
+        except Exception:
+            return None
+
     iteration = 0
     H = None
     all_newly_found_transformed_x = set() # <-- FIX: Accumulator for new points
+
+    if T:
+        shift = 0
+        testfunc = check_rationality_transformed
+    else:
+        testfunc = get_y_unshifted_genus2
+
+
     while True:
         print(f"\n--- Search Iteration {iteration} with {len(current_sections)} sections ---")
         if not current_sections:
@@ -609,7 +639,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 r_m=r_m,
                 shift=shift,
                 all_found_x=all_known_x,
-                rationality_test_func=get_y_unshifted_genus2,
+                rationality_test_func=testfunc,
                 stats=cumulative_stats
             )
             all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
@@ -774,7 +804,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     shift,
                     all_known_x,
                     num_prime_subsets,
-                    get_y_unshifted_genus2,
+                    testfunc,
                     sconf,
                     precomputed_residues=precomputed_residues,
                     coeffs_genus2=sextic_coeffs 
@@ -791,7 +821,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     shift,
                     all_known_x,
                     num_prime_subsets,
-                    get_y_unshifted_genus2,
+                    testfunc,
                     sconf,
                     coeffs_genus2=sextic_coeffs
                 )

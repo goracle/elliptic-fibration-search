@@ -1,5 +1,6 @@
 from sage.all import QQ, ZZ
 from collections import Counter
+from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd, GF
 
 # ---------------------------
 # Helper / sanity utilities
@@ -546,10 +547,11 @@ def compute_ramification_locus(cd, verbose=False):
             except Exception:
                 pass
 
+
+
     # ------------------------------------------------------------
     # 6. Use discriminant of Δ for additional primes (optional, more comprehensive)
     # ------------------------------------------------------------
-    # The discriminant of Δ as a polynomial also captures ramification
     try:
         disc_Delta = Delta_prim.discriminant()
         if disc_Delta != 0:
@@ -562,6 +564,33 @@ def compute_ramification_locus(cd, verbose=False):
     except Exception:
         if verbose:
             print("[ram_locus] Could not compute discriminant of Δ")
+
+    # ------------------------------------------------------------
+    # 7. Explicitly scan small primes for mod-p collisions
+    #    (Fixes AssertionError where search finds collisions missed by global analysis)
+    # ------------------------------------------------------------
+    # We check the primes typically used in the pool to ensure consistency with search_lll
+    small_primes_scan = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113]
+    
+    for p in small_primes_scan:
+        try:
+            # If Delta_prim vanishes or drops degree significantly, it's ramified
+            # (Use leading_coefficient() to be safe across Sage versions)
+            lc = Delta_prim.leading_coefficient() 
+            if lc % p == 0:
+                ram_locus.add(int(p))
+                continue
+
+            R_p = PolynomialRing(GF(p), 'm')
+            Delta_p = R_p(Delta_prim)
+            
+            # Check for repeated roots: discriminant == 0 mod p
+            if Delta_p.discriminant() == 0:
+                ram_locus.add(int(p))
+                if verbose:
+                    print(f"[ram_locus] Added collision prime {p} (mod-p discriminant is 0)")
+        except Exception:
+            pass
 
     if verbose:
         print(f"[ram_locus] Final ramification locus: {sorted(ram_locus)}")
