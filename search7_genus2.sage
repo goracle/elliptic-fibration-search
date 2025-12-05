@@ -827,6 +827,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     num_prime_subsets,
                     testfunc,
                     sconf,
+                    tower_data=tower_for_mumford,  # <-- PASS TOWER
                     coeffs_genus2=sextic_coeffs
                 )
 

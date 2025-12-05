@@ -19,6 +19,7 @@ try:
     MUMFORD_AVAILABLE = True
 except ImportError:
     MUMFORD_AVAILABLE = False
+assert MUMFORD_AVAILABLE
 
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
@@ -308,6 +309,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         MUMFORD_AVAILABLE and 
         tower_data is not None
     )
+    #print("USE_MUMFORD:", globals().get('MUMFORD_SEARCH', False),MUMFORD_AVAILABLE,tower_data)
+    if MUMFORD_SEARCH:
+        assert USE_MUMFORD
     
     if USE_MUMFORD:
         print("\n" + "="*70)

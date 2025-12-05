@@ -1,0 +1,347 @@
+
+--- Searching for y=0 points ---
+hyper elliptic curve: y^2(x) = x^6 - 12*x^5 + 30*x^4 + 2*x^3 - 15*x^2 + 2*x + 1
+No rational points found where y=0
+known_pts start: {(1, 3)}
+
+========================================================
+Constructing new fibration using: ((1, 3),)
+known pts so far: [(1, 3)]
+found 1 / 12
+========================================================
+
+shifted G poly1: x^6 - 12*x^5 + 30*x^4 + 2*x^3 - 15*x^2 + 2*x + 1
+--- Building 2 Step Fibration Tower (deg 6 -> 4) ---
+--- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
+  [Step 1] Selected best geometry (Score=18.3)
+--- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
+  [Step 2] Selected best geometry (Score=15.0)
+r_m -m + 1
+--- Running 1-point Fibration (Primary Geometry) ---
+--- Entering buildcd ---
+--- Computing Minimal Model ---
+
+--- Identifying Globally Bad Primes ---
+Identified 0 globally bad prime(s) from the pool: []
+>>> Diagnostic: [m^12 + 12*m^11 + 54*m^10 + 267568/2187*m^9 - 4385/243*m^8 - 124916/81*m^7 - 1681342/729*m^6 + 2078284/243*m^5 + 439670/81*m^4 - 18638012/729*m^3 + 5080372/243*m^2 - 175168/27*m + 1484651/2187] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+
+Place analysis (finite algebraic places):
+factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
+--------------------------------------------------------------------------------------------------------------------------
+m^12 + 12*m^11 + 54*m^10 + 267568/2187*      1      0      0      1      1        0        0        1      12 x I1
+Infinity: v_c4 = -3, v_c6 = -6, v_D = -12 -> I0
+
+Summary of fibers (per-center):
+  I1 at m^12 + 12*m^11 + 54*m^10 + 267568/2187*m (deg 12) contrib=0
+  I0 at inf (deg 1) contrib=0
+
+Total Euler characteristic: 12
+Sum of fiber contributions (Σ(m_v - 1)): 0
+
+--- Exiting buildcd ---
+
+--- Geometric Validation ---
+Delta: -559872*m^12 - 6718464*m^11 - 30233088*m^10 - 68497408*m^9 + 10103040*m^8 + 863419392*m^7 + 1291270656*m^6 - 4788366336*m^5 - 3038999040*m^4 + 14313993216*m^3 - 11705177088*m^2 + 3632283648*m - 380070656
+  Effective Discriminant Degree: 12
+  Weierstrass scaling exponent (n) used: 0
+  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+--------------------------
+
+=== Auto-configuring search parameters for this fibration ===
+[auto_cfg] Building height estimation from 1 known x-coords.
+[auto_cfg] starting prime pool size: 22 (Heavy analysis: True)
+[bounds] Starting with prime pool size: 22
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] mod 5 factorization: [1, 10] -> pattern (1, 10)
+[bounds] mod 7 factorization: [1, 3, 7] -> pattern (1, 3, 7)
+[bounds] mod 11 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 13 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
+[bounds] mod 17 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 19 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 23 factorization: [12] -> pattern (12,)
+[bounds] mod 29 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 31 factorization: [2, 4, 6] -> pattern (2, 4, 6)
+[bounds] mod 37 factorization: [1, 1, 1, 9] -> pattern (1, 1, 1, 9)
+[bounds] mod 41 factorization: [1, 1, 9] -> pattern (1, 1, 9)
+[bounds] mod 43 factorization: [1, 1, 2, 2, 2, 2, 2] -> pattern (1, 1, 2, 2, 2, 2, 2)
+[bounds] mod 47 factorization: [1, 5, 6] -> pattern (1, 5, 6)
+[bounds] mod 53 factorization: [1, 2, 9] -> pattern (1, 2, 9)
+[bounds] mod 59 factorization: [1, 1, 2, 3, 4] -> pattern (1, 1, 2, 3, 4)
+[bounds] mod 61 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 67 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
+[bounds] mod 71 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 73 factorization: [1, 3, 4, 4] -> pattern (1, 3, 4, 4)
+[bounds] mod 79 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 83 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 89 factorization: [1, 11] -> pattern (1, 11)
+[bounds] Unique patterns from 22 primes: [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10), (1, 2, 9), (1, 3, 4, 4), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)]
+[bounds] Estimated splitting field degree: 13860
+
+DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10), (1, 2, 9), (1, 3, 4, 4), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 22}
+
+[bounds] Diagnostics: {'discriminant': 63094977017831868336337428280879340301496573288915420891662218960503065718659129717765171849149723481010891291936222026662262903611399164026062040786795025203056350870421844787200, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[auto_cfg] HEIGHT_BOUND set to 473
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.24s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 22 primes -> avg_roots=1.182, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10)]
+[residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1818181818181819}
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+
+DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
+
+[empirical_pool] start pool size=22, avg_survivors≈5.56e-10, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈5.56e-10
+[adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
+[adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
+[adaptive_subsets] Density-adjusted base num_subsets: 500
+[adaptive_subsets] Height scale factor (sqrt): 2.17
+[adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
+[adaptive_subsets] Final subset sizes: [3, 9]
+
+[auto_cfg] === ADAPTIVE CONFIGURATION SUMMARY ===
+  HEIGHT_BOUND: 473
+  Prime pool: 22 -> 22
+
+[auto_cfg] Applied adaptive parameters:
+  HEIGHT_BOUND: 473
+  TMAX: 500
+  NUM_PRIME_SUBSETS: 1076
+  PRIME_POOL size: 22
+
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1076, PRIME_POOL size=22, TMAX=500
+[bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
+[bounds] Starting with prime pool size: 22
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] mod 5 factorization: [1, 10] -> pattern (1, 10)
+[bounds] mod 7 factorization: [1, 3, 7] -> pattern (1, 3, 7)
+[bounds] mod 11 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 13 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
+[bounds] mod 17 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 19 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 23 factorization: [12] -> pattern (12,)
+[bounds] mod 29 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 31 factorization: [2, 4, 6] -> pattern (2, 4, 6)
+[bounds] mod 37 factorization: [1, 1, 1, 9] -> pattern (1, 1, 1, 9)
+[bounds] mod 41 factorization: [1, 1, 9] -> pattern (1, 1, 9)
+[bounds] mod 43 factorization: [1, 1, 2, 2, 2, 2, 2] -> pattern (1, 1, 2, 2, 2, 2, 2)
+[bounds] mod 47 factorization: [1, 5, 6] -> pattern (1, 5, 6)
+[bounds] mod 53 factorization: [1, 2, 9] -> pattern (1, 2, 9)
+[bounds] mod 59 factorization: [1, 1, 2, 3, 4] -> pattern (1, 1, 2, 3, 4)
+[bounds] mod 61 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 67 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
+[bounds] mod 71 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 73 factorization: [1, 3, 4, 4] -> pattern (1, 3, 4, 4)
+[bounds] mod 79 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 83 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] mod 89 factorization: [1, 11] -> pattern (1, 11)
+[bounds] Unique patterns from 22 primes: [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10), (1, 2, 9), (1, 3, 4, 4), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)]
+[bounds] Estimated splitting field degree: 13860
+
+DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10), (1, 2, 9), (1, 3, 4, 4), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 22}
+
+[bounds] Diagnostics: {'discriminant': 63094977017831868336337428280879340301496573288915420891662218960503065718659129717765171849149723481010891291936222026662262903611399164026062040786795025203056350870421844787200, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[prime_pool] Final pool has 22 primes up to 89
+=== Fibration Summary ===
+Data points: ((1, 3),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 - 12*m + 15)*x^4 + (-2*m^3 + 6*m^2 + 48*m - 82)*x^3 + (6*m^3 - 72*m + 90)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 48*m - 38)*x + (2*m^3 + 3*m^2 - 12*m + 6)
+Defining polynomial f: (-3*m^2 - 12*m + 15)*x^4 + (-2*m^3 + 6*m^2 + 48*m - 82)*x^3 + (6*m^3 - 72*m + 90)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 48*m - 38)*x + (2*m^3 + 3*m^2 - 12*m + 6)
+Discriminant of f: (12*m^2 + 48*m - 60)*x^4 + (8*m^3 - 24*m^2 - 192*m + 328)*x^3 + (-24*m^3 + 288*m - 360)*x^2 + (24*m^3 + 24*m^2 - 192*m + 152)*x + (-8*m^3 - 12*m^2 + 48*m - 24)
+Weierstrass discriminant: -559872*m^12 - 6718464*m^11 - 30233088*m^10 - 68497408*m^9 + 10103040*m^8 + 863419392*m^7 + 1291270656*m^6 - 4788366336*m^5 - 3038999040*m^4 + 14313993216*m^3 - 11705177088*m^2 + 3632283648*m - 380070656
+Weierstrass model coefficients:
+  a4(m): 88*m^3 + 156*m^2 - 432*m + 56
+  a6(m): 36*m^6 + 216*m^5 + 324*m^4 - 1144*m^3 - 2376*m^2 + 4224*m - 924
+P1: (1, 3)
+
+--- Geometric Validation ---
+Delta: -559872*m^12 - 6718464*m^11 - 30233088*m^10 - 68497408*m^9 + 10103040*m^8 + 863419392*m^7 + 1291270656*m^6 - 4788366336*m^5 - 3038999040*m^4 + 14313993216*m^3 - 11705177088*m^2 + 3632283648*m - 380070656
+  Effective Discriminant Degree: 12
+  Weierstrass scaling exponent (n) used: 0
+  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+--------------------------
+=========================
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: set()
+
+--- DEBUGGING POINT CONSTRUCTION ---
+Attempting to create point for (x,y) = (1, 3)
+Curve: Elliptic Curve defined by y^2 = x^3 + (88*m^3+156*m^2-432*m+56)*x + (36*m^6+216*m^5+324*m^4-1144*m^3-2376*m^2+4224*m-924) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+
+Point Coordinates (X_aff, Y_aff, Z_aff):
+X_aff: 264
+Y_aff: (162*m^3 + 486*m^2 - 638)
+Z_aff: 27
+
+Equation Check:
+LHS (Y^2*Z): (708588*m^6 + 4251528*m^5 + 6377292*m^4 - 5581224*m^3 - 16743672*m^2 + 10990188)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (708588*m^6 + 4251528*m^5 + 6377292*m^4 - 5581224*m^3 - 16743672*m^2 + 10990188)
+
+Difference (LHS - RHS): 0
+✅ Algebraic identity holds.
+--- END DEBUGGING ---
+section weierstrass coordinates: (88/9 : 6*m^3 + 18*m^2 - 638/27 : 1)
+Canonical height pairing matrix determinant = 2
+Sections are independent.
+
+--- Search Iteration 0 with 1 sections ---
+Canonical height pairing matrix determinant = 2
+Sections are independent.
+Height Pairing Matrix H:
+ [2]
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
+[residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
+[bounds] mod 5 factorization: [1, 10] -> pattern (1, 10)
+[bounds] mod 7 factorization: [1, 3, 7] -> pattern (1, 3, 7)
+[bounds] mod 11 factorization: [1, 11] -> pattern (1, 11)
+[bounds] mod 13 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
+[bounds] mod 17 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 19 factorization: [5, 7] -> pattern (5, 7)
+[bounds] mod 23 factorization: [12] -> pattern (12,)
+[bounds] mod 29 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 31 factorization: [2, 4, 6] -> pattern (2, 4, 6)
+[bounds] mod 37 factorization: [1, 1, 1, 9] -> pattern (1, 1, 1, 9)
+[bounds] mod 41 factorization: [1, 1, 9] -> pattern (1, 1, 9)
+[bounds] mod 43 factorization: [1, 1, 2, 2, 2, 2, 2] -> pattern (1, 1, 2, 2, 2, 2, 2)
+[bounds] mod 47 factorization: [1, 5, 6] -> pattern (1, 5, 6)
+[bounds] mod 53 factorization: [1, 2, 9] -> pattern (1, 2, 9)
+[bounds] mod 59 factorization: [1, 1, 2, 3, 4] -> pattern (1, 1, 2, 3, 4)
+[bounds] Unique patterns from 15 primes: [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)]
+[bounds] Estimated splitting field degree: 13860
+
+DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 15}
+
+height bound: 473
+Searching 15 vectors up to height 473...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+
+[prepare_modular_data_lll] Rejected 0 primes:
+Prime 5 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 7 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 11 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 13 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 17 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 19 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 23 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 29 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 31 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 37 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 41 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 43 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 47 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 53 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 59 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 61 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 67 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 71 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 73 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 79 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 83 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+Prime 89 failed: Can't pickle local object 'mumford_precompute_residues_parallel.<locals>.worker'
+
+Mumford search found 0 rational points
+Total time: 0.88s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  prep_mod_data            : 0.75s
+  mumford_residues         : 0.12s
+  mumford_setup            : 0.01s
+  mumford_reconstruction   : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 308
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+Found 0 new point(s) and 0 new section(s).
+
+======================================================================
+COMPLETENESS ANALYSIS (Exact CRT Check)
+======================================================================
+
+Found Points Reconstructibility:
+x          | Findable?  | Primes   | Log10 Cap
+---------------------------------------------
+1          | NO         | 0        | 0.00
+
+⚠️  Some found points are NOT reconstructible from current residues.
+    (They were likely found via specialized subsets or lucky hits.)
+======================================================================
+
+=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
+avg_fraction (unbiased sample): 0.000
+fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
+empirical visible fraction: (no prime_subsets available in analyzer)
+
+=== Pairwise MI on first 22 primes (binary match indicators) ===
+Top MI pairs (p,q,MI bits):
+  (  5,  7)  0.0000 bits
+  (  5, 11)  0.0000 bits
+  (  5, 13)  0.0000 bits
+  (  5, 17)  0.0000 bits
+  (  5, 19)  0.0000 bits
+  (  5, 23)  0.0000 bits
+  (  5, 29)  0.0000 bits
+  (  5, 31)  0.0000 bits
+  (  5, 37)  0.0000 bits
+  (  5, 41)  0.0000 bits
+  (  5, 43)  0.0000 bits
+  (  5, 47)  0.0000 bits
+  (  5, 53)  0.0000 bits
+  (  5, 59)  0.0000 bits
+  (  5, 61)  0.0000 bits
+  (  5, 67)  0.0000 bits
+  (  5, 71)  0.0000 bits
+  (  5, 73)  0.0000 bits
+  (  5, 79)  0.0000 bits
+  (  5, 83)  0.0000 bits
+fraction of pairs with MI >= 0.01 bits: 0.000%
+No prime_subsets available to check.
+
+======================================================================
+TARGETED POINT ANALYSIS: x = 182/141
+======================================================================
+Target m-value: -41/141
+
+Per-prime visibility: 0/22 primes matched (0.0%)
+
+✗ Target point has low visibility (0.0%)
+Increase HEIGHT_BOUND or add more primes to pool.
+
+Per-prime visibility: 0/21 primes matched (0.0%)

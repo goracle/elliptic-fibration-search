@@ -11,6 +11,17 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector
 from collections import defaultdict, Counter
 from itertools import product
 
+
+# mumford_complete.py
+#
+# Complete working integration of Mumford search.
+# Drop this into your codebase and add to search_common.py:
+#   MUMFORD_SEARCH = True  # Enable Mumford mode
+#
+# Key insight: We eliminate m from the 5-equation system by substituting
+# the known relation m = -x_residue + const, reducing to 4 unknowns.
+
+
 def build_mumford_equations_from_fibration(tower, f_coeffs):
     """
     Build polynomial system for Mumford coordinates from fibration tower.
@@ -186,21 +197,27 @@ def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=False):
     return solutions
 
 
-def mumford_precompute_residues_parallel(
+def mumford_precompute_residues_sequential(
     eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll, 
-    rhs_modp_list, vecs_list, num_workers=8, debug=False
+    rhs_modp_list, vecs_list, debug=False
 ):
     """
-    Parallel computation of Mumford residues across primes.
+    Sequential computation of Mumford residues across primes.
+    Avoids pickling issues with symbolic expressions.
     
     Returns: {p: {v_tuple: [(s,p,v0,v1), ...]}}
     """
-    from concurrent.futures import ProcessPoolExecutor, as_completed
     from tqdm import tqdm
-    import multiprocessing
     
-    def worker(p):
+    residues = {}
+    total_solutions = 0
+    
+    for p in tqdm(prime_pool, desc="Mumford Residues"):
+        if p not in Ep_dict:
+            continue
+            
         p_results = {}
+        p_solution_count = 0
         
         for v_idx, v_tuple in enumerate(vecs_list):
             if len(vecs_list) > 1 and all(c == 0 for c in v_tuple):
@@ -209,7 +226,7 @@ def mumford_precompute_residues_parallel(
             # Get transformed vector for this prime
             try:
                 v_p = vecs_lll[p][v_idx]
-            except (KeyError, IndexError):
+            except (KeyError, IndexError, TypeError):
                 continue
             
             mults = mult_lll.get(p)
@@ -255,43 +272,46 @@ def mumford_precompute_residues_parallel(
             
             if all_sols:
                 p_results[v_tuple] = all_sols
+                p_solution_count += len(all_sols)
         
-        return p, p_results
-    
-    # Parallel execution
-    residues = {}
-    
-    try:
-        ctx = multiprocessing.get_context("fork")
-        exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-    except Exception:
-        exec_kwargs = {"max_workers": num_workers}
-    
-    with ProcessPoolExecutor(**exec_kwargs) as executor:
-        futures = {executor.submit(worker, p): p for p in prime_pool if p in Ep_dict}
+        residues[p] = p_results
+        total_solutions += p_solution_count
         
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Mumford Residues"):
-            p = futures[future]
-            try:
-                p_ret, p_results = future.result()
-                residues[p_ret] = p_results
-            except Exception as e:
-                if debug:
-                    print(f"Prime {p} failed: {e}")
-                residues[p] = {}
+        if debug and p_solution_count > 0:
+            print(f"  p={p}: {p_solution_count} Mumford solutions found")
+    
+    if debug:
+        print(f"\nTotal Mumford solutions across all primes: {total_solutions}")
+        non_empty_primes = sum(1 for p_res in residues.values() if p_res)
+        print(f"Primes with solutions: {non_empty_primes}/{len(residues)}")
     
     return residues
 
 
-def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test):
+def mumford_precompute_residues_parallel(
+    eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll, 
+    rhs_modp_list, vecs_list, num_workers=8, debug=False
+):
+    """
+    Parallel computation wrapper - currently falls back to sequential.
+    TODO: Fix pickling of symbolic expressions for true parallelism.
+    """
+    # For now, just call sequential version
+    return mumford_precompute_residues_sequential(
+        eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
+        rhs_modp_list, vecs_list, debug=debug
+    )
+
+
+def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=False):
     """
     CRT + rational reconstruction of Mumford coordinates.
     
-    Returns: set of rational (x, y) points found
+    Returns: set of rational x-coordinates found
     """
-    from .rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+    from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
     
-    found_points = set()
+    found_xs = set()
     
     # Group by vector
     by_vector = defaultdict(lambda: defaultdict(list))
@@ -301,64 +321,98 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
         for v_tuple, sols in residues[p].items():
             by_vector[v_tuple][p] = sols
     
-    for v_tuple, prime_data in by_vector.items():
-        if len(prime_data) < 4:  # Need enough primes
+    if debug:
+        print(f"\nReconstruction phase: {len(by_vector)} vectors to process")
+    
+    for v_idx, (v_tuple, prime_data) in enumerate(by_vector.items()):
+        primes_with_data = sorted(prime_data.keys())
+        
+        if len(primes_with_data) < 4:
+            if debug:
+                print(f"  Vector {v_idx}: only {len(primes_with_data)} primes, skipping (need ≥4)")
             continue
         
-        primes = sorted(prime_data.keys())
+        if debug:
+            print(f"\n  Vector {v_idx} ({v_tuple}): {len(primes_with_data)} primes")
         
-        # Try to find consistent solution across primes
-        # For simplicity, try all combinations of first solution per prime
+        # Try to reconstruct s, p, v0, v1
+        reconstructed = {}
         
         for coord_idx, coord_name in enumerate(['s', 'p', 'v_0', 'v_1']):
             residue_list = []
             
-            for p in primes:
+            for p in primes_with_data:
                 sols = prime_data[p]
                 if not sols:
                     break
+                # Use first solution per prime (consensus could be added)
                 residue_list.append(sols[0][coord_idx])
             
-            if len(residue_list) < len(primes):
+            if len(residue_list) < len(primes_with_data):
+                if debug:
+                    print(f"    {coord_name}: missing residues, skipping vector")
                 break
             
             # CRT
             M = 1
-            for p in primes:
+            for p in primes_with_data:
                 M *= p
             
-            m_crt = crt_cached(tuple(residue_list), tuple(primes))
+            m_crt = crt_cached(tuple(residue_list), tuple(primes_with_data))
             
             # Rational reconstruction
             try:
                 a, b = rational_reconstruct(m_crt, M)
                 val = QQ(a) / QQ(b)
+                reconstructed[coord_name] = val
                 
-                if coord_idx == 0:
-                    s_rat = val
-                if coord_idx == 1:
-                    p_rat = val
-                if coord_idx == 2:
-                    v0_rat = val
-                if coord_idx == 3:
-                    v1_rat = val
-            except RationalReconstructionError:
+                if debug:
+                    print(f"    {coord_name} = {val}")
+                    
+            except RationalReconstructionError as e:
+                if debug:
+                    print(f"    {coord_name}: reconstruction failed ({e})")
                 break
-        else:
-            # All coords reconstructed
+        
+        # Check if all coords were reconstructed
+        if len(reconstructed) == 4:
+            s_rat = reconstructed['s']
+            p_rat = reconstructed['p']
+            v0_rat = reconstructed['v_0']
+            v1_rat = reconstructed['v_1']
+            
             # Build u(x) = x^2 - s*x + p
             PR = PolynomialRing(QQ, 'x')
             x = PR.gen()
             u_poly = x**2 - s_rat * x + p_rat
             
-            # Find roots
-            roots = u_poly.roots(QQ, multiplicities=False)
+            if debug:
+                print(f"    u(x) = {u_poly}")
             
-            for x_root in roots:
-                x_orig = x_root + shift
-                y_val = rationality_test(x_orig)
+            # Find roots
+            try:
+                roots = u_poly.roots(QQ, multiplicities=False)
                 
-                if y_val is not None:
-                    found_points.add(x_orig)
+                if debug:
+                    print(f"    Roots of u: {roots}")
+                
+                for x_root in roots:
+                    # Undo shift
+                    x_orig = x_root + shift
+                    
+                    # Test rationality
+                    y_val = rationality_test(x_orig)
+                    
+                    if y_val is not None:
+                        found_xs.add(x_orig)
+                        if debug:
+                            print(f"     Found rational point: x = {x_orig}, y = {y_val}")
+                    else:
+                        if debug:
+                            print(f"    — Point x = {x_orig} has irrational y")
+                            
+            except Exception as e:
+                if debug:
+                    print(f"    Error finding roots: {e}")
     
-    return found_points
+    return found_xs
