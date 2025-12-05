@@ -460,6 +460,9 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     else:
         fibrations = None
 
+    # Store for Mumford mode
+    tower_for_mumford = primary_tower if MUMFORD_SEARCH else None
+
     # 3. Extract expressions from the *PRIMARY* tower
     roots = [i['r_expr'] for i in primary_tower]
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] # The final quartic equation
@@ -806,6 +809,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     num_prime_subsets,
                     testfunc,
                     sconf,
+                    tower_data=tower_for_mumford,  # <-- PASS TOWER
                     precomputed_residues=precomputed_residues,
                     coeffs_genus2=sextic_coeffs 
                 )

@@ -10,6 +10,15 @@ from .modularthread import _batch_check_rationality
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
+try:
+    from .mumford_complete import (
+        build_mumford_equations_from_fibration,
+        mumford_precompute_residues_parallel,
+        reconstruct_and_verify_mumford
+    )
+    MUMFORD_AVAILABLE = True
+except ImportError:
+    MUMFORD_AVAILABLE = False
 
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
@@ -280,7 +289,9 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
-                                         sconf, coeffs_genus2, num_workers=8, debug=DEBUG,
+                                         sconf, coeffs_genus2,
+                                         tower_data=None,  # <-- ADD THIS
+                                         num_workers=8, debug=DEBUG,
                                          precomputed_residues=None):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
@@ -290,6 +301,60 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
       - fall back deterministically if coverage-based generator returns nothing
     Returns: new_xs, new_sections, precomputed_residues, stats
     """
+    
+    # === CHECK FOR MUMFORD MODE ===
+    USE_MUMFORD = (
+        globals().get('MUMFORD_SEARCH', False) and 
+        MUMFORD_AVAILABLE and 
+        tower_data is not None
+    )
+    
+    if USE_MUMFORD:
+        print("\n" + "="*70)
+        print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
+        print("Searching for (s,p,v_0,v_1) instead of rational m")
+        print("="*70 + "\n")
+        
+        stats = SearchStats()
+        
+        # Build equation system
+        stats.start_phase('mumford_setup')
+        print("Building 5-equation Mumford system from fibration...")
+        eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
+        stats.end_phase('mumford_setup')
+        
+        # Prepare modular data (same as standard search)
+        stats.start_phase('prep_mod_data')
+        Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+            cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
+        )
+        stats.end_phase('prep_mod_data')
+        
+        if not Ep_dict:
+            return set(), [], {}, stats
+        
+        # Compute Mumford residues
+        stats.start_phase('mumford_residues')
+        vecs_list = list(vecs)
+        mumford_residues = mumford_precompute_residues_parallel(
+            eqs_dict, list(Ep_dict.keys()), Ep_dict, mult_lll, vecs_lll,
+            rhs_modp_list, vecs_list, num_workers=num_workers, debug=debug
+        )
+        stats.end_phase('mumford_residues')
+        
+        # Reconstruct
+        stats.start_phase('mumford_reconstruction')
+        prime_list = sorted(Ep_dict.keys())
+        found_xs = reconstruct_and_verify_mumford(
+            mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
+        )
+        stats.end_phase('mumford_reconstruction')
+        
+        print(f"\nMumford search found {len(found_xs)} rational points")
+        print(stats.summary_string())
+        
+        return found_xs, [], mumford_residues, stats
+
     # === UNPACK: SCONF ===
     min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
     min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']

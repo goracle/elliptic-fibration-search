@@ -403,6 +403,8 @@ SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
 MOBIUS_TRANS = True # search after applying a mobius transformation to x to attempt to improve the prime content.
 MOBIUS_TRANS = False
+MUMFORD_SEARCH = True # look for elements of J(C)
+MUMFORD_SEARCH = False
 
 AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like, for MOBIUS_TRANS mode, avoid primes
 PREFER =  {31,37,41,43,47,53}   # or {23,29} if you want to force primes upward, for MOBIUS_TRANS
