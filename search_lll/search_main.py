@@ -10,17 +10,7 @@ from .modularthread import _batch_check_rationality
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
-try:
-    from .mumford_complete import (
-        build_mumford_equations_from_fibration,
-        mumford_precompute_residues_parallel,
-        reconstruct_and_verify_mumford
-    )
-    MUMFORD_AVAILABLE = True
-except ImportError:
-    MUMFORD_AVAILABLE = False
-assert MUMFORD_AVAILABLE
-
+from .mumford_complete import *
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -306,7 +296,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     # === CHECK FOR MUMFORD MODE ===
     USE_MUMFORD = (
         globals().get('MUMFORD_SEARCH', False) and 
-        MUMFORD_AVAILABLE and 
         tower_data is not None
     )
     #print("USE_MUMFORD:", globals().get('MUMFORD_SEARCH', False),MUMFORD_AVAILABLE,tower_data)
@@ -337,13 +326,25 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         if not Ep_dict:
             return set(), [], {}, stats
         
-        # Compute Mumford residues
+        # Ensure 'prime_pool' is a list
+        prime_list = sorted(list(Ep_dict.keys()))
+        
         stats.start_phase('mumford_residues')
         vecs_list = list(vecs)
+        
+        # Updated call signature
         mumford_residues = mumford_precompute_residues_parallel(
-            eqs_dict, list(Ep_dict.keys()), Ep_dict, mult_lll, vecs_lll,
-            rhs_modp_list, vecs_list, num_workers=num_workers, debug=debug
+            eqs_dict, 
+            prime_list, # explicit list
+            Ep_dict, 
+            mult_lll, 
+            vecs_lll,
+            rhs_modp_list, 
+            vecs_list, 
+            num_workers=num_workers, 
+            debug=debug
         )
+        print("mumford residues:", mumford_residues)
         stats.end_phase('mumford_residues')
         
         # Reconstruct

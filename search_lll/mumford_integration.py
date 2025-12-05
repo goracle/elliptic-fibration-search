@@ -94,6 +94,7 @@ def build_mumford_system_from_tower(tower, f_coeffs, shift):
         # Fallback: just use the remainder itself
         F2 = remainder
         F3 = 0
+        raise
     
     return {
         'equations': {
@@ -146,6 +147,7 @@ def solve_mumford_system_modp(system_dict, prime, x_residue):
         const = r_m.subs({m_sym: 0})
         const_mod_p = int(QQ(const)) % p
     except Exception:
+        raise
         const_mod_p = 0
     
     # m = -x_residue + const (mod p)
@@ -159,6 +161,7 @@ def solve_mumford_system_modp(system_dict, prime, x_residue):
             substituted_eqs[name] = eq_sub
         except Exception as e:
             print(f"ERROR substituting into {name}: {e}")
+            raise
             return []
     
     # Now we have 5 equations in 4 unknowns: s, p, v_0, v_1
@@ -178,6 +181,7 @@ def solve_mumford_system_modp(system_dict, prime, x_residue):
                 if int(F1_val) % p != 0:
                     continue
             except Exception:
+                raise
                 continue
             
             # Check F4: should be 0
@@ -189,6 +193,7 @@ def solve_mumford_system_modp(system_dict, prime, x_residue):
                 if int(F4_val) % p != 0:
                     continue
             except Exception:
+                raise
                 continue
             
             # Now solve F5 for v_0 given s
@@ -242,6 +247,7 @@ def solve_mumford_system_modp(system_dict, prime, x_residue):
                         # All checks passed!
                         solutions.append((s_val, p_val, v0_val, v1_val))
                     except Exception:
+                        raise
                         continue
     
     return solutions
@@ -322,6 +328,7 @@ def reconstruct_mumford_element(residues_by_prime, prime_list, f_coeffs):
             rational_val = QQ(num) / QQ(den)
             # Store this coordinate
         except Exception:
+            raise
             continue
     
     # TODO: Build u(x), v(x) polynomials and verify
