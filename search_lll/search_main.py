@@ -92,7 +92,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
             # If coercion fails, skip this vector (diagnostic if DEBUG)
             if DEBUG:
                 print("Symbolic coercion failed for a section; skipping vector:", v_tuple)
-            # raise # Let's not raise here unless debugging is critical
+            raise # Let's not raise here unless debugging is critical
             continue
         #print("search x:", x_coerced)
 
@@ -245,6 +245,7 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
         exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
     except Exception:
         exec_kwargs = {"max_workers": num_workers}
+        raise
 
     # List to store results per subset
     subset_results_list = []
@@ -610,8 +611,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         Delta_pr = PR_m(SR(Delta_poly))
     except Exception as e:
         print(f"[WARNING] Could not compute Delta_pr: {e}")
-        raise
         Delta_pr = None
+        raise
 
     # *** NEW: Predict target QC ratio from discriminant structure ***
     predicted_qc_ratio = None

@@ -84,7 +84,7 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.14s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.24s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 22 primes -> avg_roots=1.182, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1818181818181819}
@@ -92,8 +92,8 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈2.02e-10, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈2.02e-10
+[empirical_pool] start pool size=22, avg_survivors≈4.88e-09, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈4.88e-09
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -108,10 +108,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
+  NUM_PRIME_SUBSETS: 1076
   PRIME_POOL size: 22
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=22, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1076, PRIME_POOL size=22, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 22
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -197,7 +197,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -232,186 +232,9 @@ Searching for (s,p,v_0,v_1) instead of rational m
 Building 5-equation Mumford system from fibration...
 
 [prepare_modular_data_lll] Rejected 0 primes:
-[mumford/parallel] f_coeffs order check:
-  First 3: [1, 2, -15] (should be a_0, a_1, a_2)
-  Last 3: [30, -12, 1] (should be a_{n-2}, a_{n-1}, a_n)
-  For y^2 = x^6 - 12x^5 + ..., expect:
-    First 3: [1, 2, -15]
-    Last 3: [30, -12, 1]
-[mumford] Curve coefficients (LOW->HIGH): [1, 2, -15]...[30, -12, 1]
-[mumford] Intersection const: 1
 [mumford] Generating tasks for 22 primes...
-  p=5: 7 x-residues, 6 vectors
-  p=7: 12 x-residues, 9 vectors
-  p=11: 10 x-residues, 10 vectors
-  p=13: 7 x-residues, 7 vectors
-  p=17: 17 x-residues, 12 vectors
-  p=19: 20 x-residues, 14 vectors
-  p=23: 9 x-residues, 9 vectors
-  p=29: 17 x-residues, 11 vectors
-  p=31: 14 x-residues, 10 vectors
-  p=37: 18 x-residues, 11 vectors
-  p=41: 21 x-residues, 12 vectors
-  p=43: 13 x-residues, 8 vectors
-  p=47: 11 x-residues, 7 vectors
-  p=53: 11 x-residues, 10 vectors
-  p=59: 11 x-residues, 8 vectors
-  p=61: 13 x-residues, 10 vectors
-  p=67: 14 x-residues, 11 vectors
-  p=71: 16 x-residues, 10 vectors
-  p=73: 20 x-residues, 11 vectors
-  p=79: 19 x-residues, 12 vectors
-  p=83: 17 x-residues, 9 vectors
-  p=89: 8 x-residues, 7 vectors
-[mumford] Total x-residues: 305
-[mumford] Tasks: 22/22 primes
-[mumford] Solutions: 486 across 21 primes
-[reconstruct] f_coeffs received (HIGH->LOW): [1, -12, 30]...[-15, 2, 1]
-[reconstruct] f_coeffs for verify (LOW->HIGH): [1, 2, -15]...[30, -12, 1]
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
 ======================================================================
 Grouped into 15 distinct vectors
-
-[Vector 0] (1,): 1 distinct x-residue families
-  x_res=unknown: 11 primes, 147456 combos
-
-[Vector 1] (2,): 1 distinct x-residue families
-  x_res=unknown: 7 primes, 6144 combos
-
-[Vector 2] (6,): 1 distinct x-residue families
-  x_res=unknown: 6 primes, 576 combos
-
-======================================================================
-VERIFICATION AND DEDUPLICATION
-======================================================================
-  Raw reconstructions: 104656
-
-[DIAGNOSTIC] Testing mod-p solver at p=5, x_residue=1:
-  Found 2 solution(s) mod 5
-  Sample: s=4, p=3, v0=1, v1=2
-  Check: f(1) mod 5 = 4, v^2(1) mod 5 = 4
-  MOD-5 verification PASSED
-
-DEBUG FIRST FAILURE:
-  f_coeffs = [1, 2, -15, 2, 30]...[30, -12, 1]
-  s=12733714/37710257, p=-85876835/30920446, v0=195251/538570, v1=109318292/21684647
-  v^2 coeffs = [38122953001/290057644900, 21344505831292/5839350167395, 11950488965797264/470223915514609]
-  f - v^2 = [251934691899/290057644900, -9665805496502/5839350167395, -19003847698516399/470223915514609, 2, 30]...
-  remainder mod u = [186951929177909906944241772444348530478554136819837508653814812813621900038099269/2038469679880506490092924707740278948468980243429660815817597533177226609769400, -221427951339552180534823963590138131444130368985896979240439600009535468549/4616106717700844102944329978831302639520355582675138570412400817118058890]
-  u(x) = x^2 - (12733714/37710257)*x + (-85876835/30920446)
-
-======================================================================
-FIRST VERIFICATION FAILURE DETAILS
-======================================================================
-Mumford congruence failed: remainder = [186951929177909906944241772444348530478554136819837508653814812813621900038099269/2038469679880506490092924707740278948468980243429660815817597533177226609769400, -221427951339552180534823963590138131444130368985896979240439600009535468549/4616106717700844102944329978831302639520355582675138570412400817118058890]
-======================================================================
-
-  WARNING: 104656 divisors failed verification (excluded)
-  Verified & deduplicated: 0
-======================================================================
-
-======================================================================
-RECONSTRUCTION SUMMARY
-======================================================================
-  Combinations attempted: 104656
-  Reconstruction failures: 0
-  Successful reconstructions: 104656
-  After verification & dedup: 0
-  Divisors with rational roots: 0
-  Rational points found: 0
-======================================================================
-
-
-Mumford search reconstructed 0 divisors
-Mumford search found 0 rational points
-Total time: 22.49s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  mumford_reconstruction   : 21.05s
-  mumford_residues         : 1.01s
-  prep_mod_data            : 0.43s
-  mumford_setup            : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 308
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-Found 0 new point(s) and 0 new section(s).
-
-======================================================================
-COMPLETENESS ANALYSIS (Exact CRT Check)
-======================================================================
-
-Found Points Reconstructibility:
-x          | Findable?  | Primes   | Log10 Cap
----------------------------------------------
-1          | NO         | 0        | 0.00
-
-⚠️  Some found points are NOT reconstructible from current residues.
-    (They were likely found via specialized subsets or lucky hits.)
-======================================================================
-
-=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.000
-fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
-empirical visible fraction: (no prime_subsets available in analyzer)
-
-=== Pairwise MI on first 22 primes (binary match indicators) ===
-Top MI pairs (p,q,MI bits):
-  (  5,  7)  0.0000 bits
-  (  5, 11)  0.0000 bits
-  (  5, 13)  0.0000 bits
-  (  5, 17)  0.0000 bits
-  (  5, 19)  0.0000 bits
-  (  5, 23)  0.0000 bits
-  (  5, 29)  0.0000 bits
-  (  5, 31)  0.0000 bits
-  (  5, 37)  0.0000 bits
-  (  5, 41)  0.0000 bits
-  (  5, 43)  0.0000 bits
-  (  5, 47)  0.0000 bits
-  (  5, 53)  0.0000 bits
-  (  5, 59)  0.0000 bits
-  (  5, 61)  0.0000 bits
-  (  5, 67)  0.0000 bits
-  (  5, 71)  0.0000 bits
-  (  5, 73)  0.0000 bits
-  (  5, 79)  0.0000 bits
-  (  5, 83)  0.0000 bits
-fraction of pairs with MI >= 0.01 bits: 0.000%
-No prime_subsets available to check.
-
-======================================================================
-TARGETED POINT ANALYSIS: x = 182/141
-======================================================================
-Target m-value: -41/141
-
-Per-prime visibility: 11/22 primes matched (52.4%)
-
-✓ Target point has high visibility (52.4%)
-It should have been found. Check rationality_test_func or height bounds.
-
-Per-prime visibility: 0/21 primes matched (0.0%)
