@@ -218,8 +218,6 @@ def mumford_precompute_residues_sequential(
     return residues
 
 
-# mumford_complete.py
-
 from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, parallel
 from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 import multiprocessing
@@ -342,7 +340,6 @@ def _mumford_worker_entry(args):
 from collections import defaultdict
 
 
-# mumford_complete.py
 #
 # Complete working integration of Mumford search.
 # Drop this into your codebase and add to search_common.py:
@@ -374,71 +371,128 @@ import traceback
 from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR
 
 
-mumford_complete.py
 # Complete working integration of Mumford search.
 # Drop this into your codebase and add to search_common.py:
 # MUMFORD_SEARCH = True  # Enable Mumford mode
 
 # Using sage.all ensures access to necessary SageMath objects (QQ, ZZ, GF, SR)
 
-def build_mumford_equations_from_fibration(tower, f_coeffs):
-    """
-    Build polynomial system for Mumford coordinates from fibration tower.
-    
-    The variable 'm' here represents the parameter that the X and Z
-    coordinates of the point are rational functions of.
-    """
-    try:
-        # Attempt to get the expression for m
-        r_m = SR(tower[0]['r_expr'])
-    except Exception:
-        # Fallback for different tower structures or exceptions during SR conversion
-        r_m = SR(tower[0].get('r_expr', '0'))
 
-    m_sym = var('m')
-    try:
-        # Get the constant term by substituting m=0
-        const = r_m.subs({m_sym: 0})
-    except Exception:
-        const = 0
-        
-    return {
-        'r_m': r_m,
-        'const': const,
-        'f_coeffs': f_coeffs
-    }
+# mumford_complete.py - FIXED VERSION
+# Key fix: Coefficient ordering for polynomial reduction
+
+
+# mumford_complete.py - FIXED VERSION
+# Key fix: Coefficient ordering for polynomial reduction
+
+
+# mumford_complete.py - FIXED VERSION WITH VALIDATION
+# Key fix: Coefficient ordering for polynomial reduction
+
+
+# mumford_complete.py - FIXED VERSION WITH VALIDATION
+# Key fix: Coefficient ordering for polynomial reduction
+
+
+# mumford_complete.py - FIXED VERSION WITH VALIDATION
+# Key fix: Coefficient ordering for polynomial reduction
+
+
+def validate_mumford_solver():
+    """
+    Test the Mumford solver on a simple known case.
+    Curve: y^2 = x^6 - 12x^5 + 30x^4 + 2x^3 - 15x^2 + 2x + 1
+    Known point: (1, 3)
+    """
+    print("\n" + "="*70)
+    print("VALIDATING MUMFORD SOLVER")
+    print("="*70)
+    
+    # Coefficients in LOW to HIGH order
+    f_coeffs = [1, 2, -15, 2, 30, -12, 1]  # x^0, x^1, ..., x^6
+    
+    # At known point x=1: f(1) = 1 + 2 - 15 + 2 + 30 - 12 + 1 = 9
+    # So y^2 = 9, y = ±3 ✓
+    
+    # For the Mumford divisor at (1, 3):
+    # We need u(x) with x=1 as a root, e.g., u(x) = (x-1)^2 = x^2 - 2x + 1
+    # So s=2, p=1
+    # And v(1) = 3, so v = v_1*x + v_0 with v_1*1 + v_0 = 3
+    # Let's try v_1=0, v_0=3
+    
+    expected_s = 2
+    expected_p = 1
+    expected_x = 1
+    
+    print(f"Testing at x={expected_x} (should be root of u(x) = x^2 - {expected_s}x + {expected_p})")
+    
+    # Test at prime p=5
+    test_prime = 5
+    print(f"\nTesting at prime {test_prime}:")
+    
+    solutions = solve_mumford_mod_p_optimized(f_coeffs, test_prime, expected_x, const_val=1)
+    
+    print(f"Found {len(solutions)} solutions mod {test_prime}")
+    
+    # Check if expected solution is present
+    found_expected = False
+    for s, p, v0, v1 in solutions:
+        if s == expected_s % test_prime and p == expected_p % test_prime:
+            print(f"  ✓ Found expected (s={s}, p={p}, v_0={v0}, v_1={v1}) mod {test_prime}")
+            found_expected = True
+    
+    if not found_expected:
+        print(f"  ✗ Expected (s={expected_s}, p={expected_p}) NOT FOUND mod {test_prime}")
+        print(f"  Found solutions: {solutions}")
+        return False
+    
+    # Test at multiple primes
+    test_primes = [5, 7, 11, 13]
+    all_found = True
+    
+    for tp in test_primes:
+        sols = solve_mumford_mod_p_optimized(f_coeffs, tp, expected_x, const_val=1)
+        s_match = any(s == expected_s % tp and p == expected_p % tp for s, p, v0, v1 in sols)
+        status = "✓" if s_match else "✗"
+        print(f"  {status} p={tp}: {len(sols)} solutions, expected (s,p)=({expected_s%tp},{expected_p%tp}) {'found' if s_match else 'NOT FOUND'}")
+        if not s_match:
+            print(f"      Solutions: {sols}")
+            all_found = False
+    
+    print("="*70)
+    return all_found
+
 
 def _poly_mod_quad_fast(f_coeffs, s_val, p_val, mod_p):
     """
-    Computes f(x) mod (x^2 - s*x + p) over GF(p) using a fast division algorithm.
+    Computes f(x) mod (x^2 - s*x + p) over GF(p) using Horner-like reduction.
     
-    The result is a linear polynomial r1*x + r0.
-    Returns (linear_coeff, const_coeff) -> (r1, r0).
+    CRITICAL: f_coeffs must be ordered LOW to HIGH degree: [a_0, a_1, ..., a_n]
+    This function processes them in order, treating each as progressively higher powers.
+    
+    Returns (linear_coeff, const_coeff) -> (r1, r0) where result = r1*x + r0.
     """
     r1 = 0
     r0 = 0
-    # The coefficients are for f(x) = sum(coeff_i * x^i)
-    # The iteration runs from low-degree to high-degree coefficients.
+    # Process coefficients from low to high degree
     for coeff in f_coeffs:
-        # New r1 (coefficient of x)
+        # Multiply current remainder by x: (r1*x + r0)*x = r1*x^2 + r0*x
+        # Reduce using x^2 ≡ s*x - p: r1*(s*x - p) + r0*x = (r1*s + r0)*x - r1*p
         new_r1 = (r1 * s_val + r0) % mod_p
-        # New r0 (constant term)
-        # Note: x^2 = s*x - p mod u(x), so the constant term needs to incorporate
-        # the -r1*p_val term.
-        new_r0 = (-r1 * p_val) % mod_p
-        # Add the next coefficient from f(x)
-        new_r0 = (new_r0 + int(coeff)) % mod_p
-        
+        new_r0 = (-r1 * p_val + int(coeff)) % mod_p
         r1, r0 = new_r1, new_r0
         
     return r1, r0
+
 
 def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val):
     """
     Optimized O(p) solver for Mumford system F1-F5 over GF(p).
     
-    Finds solutions (s, p, v0, v1) for the Mumford system based on the
+    Finds solutions (s, p, v0, v1) for the Mumford system based on
     intersection point x_residue.
+    
+    f_coeffs must be in LOW to HIGH degree order: [a_0, a_1, ..., a_n]
     """
     solutions = []
     x_res = int(x_residue) % p
@@ -451,70 +505,53 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val):
 
     for s_val in range(p):
         # 1. Determine p from Root Condition (F1): p = s*x - x^2
-        # F1: x is a root of u(t) = t^2 - s*t + p = 0 mod p
-        # Thus: x^2 - s*x + p = 0 => p = s*x - x^2
         p_val = (s_val * x_res - x_sq) % p
         
         # 2. Check symmetry F4 (linear term of f mod u must be 0)
-        # This is a necessary condition for the Mumford divisor D to be of the form (u, v)
         A, B = _poly_mod_quad_fast(f_coeffs, s_val, p_val, p)
         if A != 0:
             continue
             
         # 3. Solve for v using F5 and F3
-        # F5: v0^2 - v1^2*p = B mod p
-        # F3: 2*v0 + v1*s = 0 mod p (used to eliminate v0)
-        
         discriminant_u = (s_val * s_val - 4 * p_val) % p
         
         if p == 2:
-            # Separate case for p=2 due to division by 2
+            # Special case for p=2
             if s_val == 1:
                 if B == 0: solutions.append((s_val, p_val, 0, 0))
                 elif B == 1: solutions.append((s_val, p_val, 1, 0))
-            else: # s_val == 0
+            else:
                 for v1_try in range(2):
                     for v0_try in range(2):
-                        # F5: v0 - v1*p = B (since p=2)
                         if (v0_try - v1_try * p_val) % 2 == B:
                              solutions.append((s_val, p_val, v0_try, v1_try))
             continue
             
         # From F3: v0 = -v1*s*inv_2 mod p
-        # Substitute into F5: (-v1*s*inv_2)^2 - v1^2*p = B
-        # v1^2 * (s^2*inv_4 - p) = B
-        # v1^2 * (s^2 - 4*p) * inv_4 = B
-        # v1^2 * discriminant_u = 4*B mod p
+        # Substitute into F5: v1^2 * discriminant_u = 4*B mod p
         rhs = (4 * B) % p
         
         if discriminant_u == 0:
-            # Special case for zero discriminant
             if rhs == 0:
                 for v1_try in range(p):
-                    # F3: 2*v0 + v1*s = 0 => v0 = -v1*s*inv_2
                     v0_try = (-v1_try * s_val * inv_2) % p
-                    # Check F5: v0^2 - v1^2*p = B
                     if (v0_try**2 - v1_try**2 * p_val) % p == B:
                          solutions.append((s_val, p_val, v0_try, v1_try))
             continue
             
         try:
-            # Solve for v1^2
             inv_disc = pow(discriminant_u, -1, p)
             v1_sq = (rhs * inv_disc) % p
             
             if v1_sq == 0:
                 roots_v1 = [0]
             elif pow(v1_sq, (p-1)//2, p) != 1:
-                # v1^2 is not a quadratic residue
                 continue 
             else:
-                # Find square roots of v1_sq (Tonelli-Shanks or simple exponentiation)
                 if p % 4 == 3:
                     r = pow(v1_sq, (p+1)//4, p)
                     roots_v1 = [r, p - r]
                 else:
-                    # General case (iterative search for simplicity, though Tonelli-Shanks is better)
                     r = None
                     for x in range(1, p):
                         if (x*x) % p == v1_sq:
@@ -524,27 +561,22 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val):
                     roots_v1 = [r, p - r]
             
             for v1_val in roots_v1:
-                # Determine v0 using F3
                 v0_val = (-v1_val * s_val * inv_2) % p
                 solutions.append((s_val, p_val, v0_val, v1_val))
                 
         except ValueError:
-            # Error during pow(..., -1, p) suggests not coprime, which should
-            # be caught by discriminant_u == 0, but included for robustness.
             continue
             
     return solutions
 
+
 def _solve_worker_wrapper(args):
-    """
-    Worker function for multiprocessing. Handles a LIST of residues per vector.
-    """
+    """Worker function for multiprocessing. Handles a LIST of residues per vector."""
     try:
         p, f_coeffs_ints, x_residues_map, const_val_int = args
         p_results = {}
         
         for v_tuple, x_res_list in x_residues_map.items():
-            # Support both single int (legacy) and list of ints
             if isinstance(x_res_list, int):
                 x_res_list = [x_res_list]
                 
@@ -561,30 +593,355 @@ def _solve_worker_wrapper(args):
     except Exception:
         sys.stderr.write(f"\nCRITICAL ERROR IN MUMFORD WORKER (p={args[0]}):\n")
         traceback.print_exc(file=sys.stderr)
-        # Re-raise the exception to be caught by the pool
         raise
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: build_mumford_equations_from_fibration
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: mumford_precompute_residues_parallel
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: build_mumford_equations_from_fibration
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: mumford_precompute_residues_parallel
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: build_mumford_equations_from_fibration
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: mumford_precompute_residues_parallel
+# ============================================================================
+
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+
+# Add this to mumford_complete.py after the existing imports
+
+# ============================================================================
+# MUMFORD DIVISOR VERIFICATION (from mumford_verify.py)
+# ============================================================================
+
+def _poly_reduce_mod_u(poly_coeffs, s, p):
+    """
+    Reduce polynomial modulo u(x)=x^2 - s x + p.
+    Returns reduced coeffs [r0, r1] (degree <= 1).
+    """
+    coeffs = list(poly_coeffs)
+    while len(coeffs) > 0 and coeffs[-1] == 0:
+        coeffs.pop()
+    
+    while len(coeffs) > 2:
+        a = coeffs.pop()
+        d = len(coeffs)
+        if d - 1 >= 0:
+            coeffs[d-1] = coeffs[d-1] + a * s
+        else:
+            coeffs = [a * s] + coeffs
+        if d - 2 >= 0:
+            coeffs[d-2] = coeffs[d-2] - a * p
+        else:
+            coeffs = [-a * p] + coeffs
+        while len(coeffs) > 0 and coeffs[-1] == 0:
+            coeffs.pop()
+    
+    if len(coeffs) == 0:
+        coeffs = [0, 0]
+    elif len(coeffs) == 1:
+        coeffs = [coeffs[0], 0]
+    return coeffs
+
+def verify_mumford_pair(f_coeffs, s, p, v0, v1, debug_first_failure=False):
+    """
+    Exact verification that v(x)^2 == f(x) (mod u(x)).
+    Raises AssertionError with message on failure.
+    """
+    c0 = v0 * v0
+    c1 = 2 * v0 * v1
+    c2 = v1 * v1
+    v2 = [c0, c1, c2]
+    
+    f_copy = list(f_coeffs)
+    while len(f_copy) < 3:
+        f_copy.append(0)
+    
+    n = max(len(f_copy), len(v2))
+    diff = [0] * n
+    for i in range(n):
+        fi = f_copy[i] if i < len(f_copy) else 0
+        vi = v2[i] if i < len(v2) else 0
+        diff[i] = fi - vi
+    
+    rem = _poly_reduce_mod_u(diff, s, p)
+    if rem[0] != 0 or rem[1] != 0:
+        if debug_first_failure:
+            print(f"\nDEBUG FIRST FAILURE:")
+            print(f"  f_coeffs = {f_coeffs[:5]}...{f_coeffs[-3:]}")
+            print(f"  s={s}, p={p}, v0={v0}, v1={v1}")
+            print(f"  v^2 coeffs = {v2}")
+            print(f"  f - v^2 = {diff[:5]}...")
+            print(f"  remainder mod u = {rem}")
+            print(f"  u(x) = x^2 - ({s})*x + ({p})")
+        raise AssertionError(f"Mumford congruence failed: remainder = {rem}")
+    return True
+
+def _normalize_sign(s, p, v0, v1):
+    """Canonical sign normalization for v polynomial."""
+    if v1 != 0:
+        if v1 < 0:
+            return (s, p, -v0, -v1)
+        else:
+            return (s, p, v0, v1)
+    else:
+        if v0 < 0:
+            return (s, p, -v0, -v1)
+        else:
+            return (s, p, v0, v1)
+
+def canonicalize_and_dedup(divisors, f_coeffs):
+    """
+    Verify and deduplicate Mumford divisors.
+    Returns list of unique canonicalized divisors.
+    """
+    seen = {}
+    out = []
+    failed_count = 0
+    first_failure_logged = False
+    
+    # DIAGNOSTIC: Test solver at prime p=5 with a known x-residue
+    if not first_failure_logged:
+        print("\n[DIAGNOSTIC] Testing mod-p solver at p=5, x_residue=1:")
+        try:
+            test_sols = solve_mumford_mod_p_optimized(f_coeffs, 5, 1, 1)
+            print(f"  Found {len(test_sols)} solution(s) mod 5")
+            if test_sols:
+                print(f"  Sample: s={test_sols[0][0]}, p={test_sols[0][1]}, v0={test_sols[0][2]}, v1={test_sols[0][3]}")
+                # Verify this solution mod 5
+                s5, p5, v05, v15 = test_sols[0]
+                # Compute v^2 mod 5
+                v2_0 = (v05 * v05) % 5
+                v2_1 = (2 * v05 * v15) % 5
+                v2_2 = (v15 * v15) % 5
+                # Compute f mod u at x=1 (should equal v^2(1) = v0^2 + 2*v0*v1 + v1^2 mod 5)
+                f_at_1 = sum(int(f_coeffs[i]) for i in range(len(f_coeffs))) % 5
+                v2_at_1 = (v05**2 + 2*v05*v15 + v15**2) % 5
+                print(f"  Check: f(1) mod 5 = {f_at_1}, v^2(1) mod 5 = {v2_at_1}")
+                if f_at_1 == v2_at_1:
+                    print("  MOD-5 verification PASSED")
+                else:
+                    print("  MOD-5 verification FAILED - solver has bug!")
+        except Exception as e:
+            print(f"  Solver test failed: {e}")
+    
+    for tup in divisors:
+        s, p, v0, v1 = tup['s'], tup['p'], tup['v_0'], tup['v_1']
+        
+        try:
+            verify_mumford_pair(f_coeffs, s, p, v0, v1, 
+                              debug_first_failure=(not first_failure_logged))
+        except AssertionError as e:
+            failed_count += 1
+            if not first_failure_logged:
+                first_failure_logged = True
+                print("\n" + "="*70)
+                print("FIRST VERIFICATION FAILURE DETAILS")
+                print("="*70)
+                print(str(e))
+                print("="*70 + "\n")
+            continue
+        
+        s1, p1, v01, v11 = _normalize_sign(s, p, v0, v1)
+        key = (s1, p1)
+        
+        if key not in seen:
+            seen[key] = {
+                's': s1, 'p': p1, 'v_0': v01, 'v_1': v11,
+                'u_poly': f"x^2 - ({s1})*x + ({p1})",
+                'v_poly': f"({v11})*x + ({v01})",
+                'vector': tup['vector']
+            }
+            out.append(seen[key])
+    
+    if failed_count > 0:
+        print(f"  WARNING: {failed_count} divisors failed verification (excluded)")
+    
+    return out
+
+
+# ============================================================================
+# MODIFIED: build_mumford_equations_from_fibration
+# ============================================================================
+
+def build_mumford_equations_from_fibration(tower, f_coeffs):
+    """
+    Build polynomial system for Mumford coordinates from fibration tower.
+    
+    EXPECTS: f_coeffs in HIGH->LOW order [a_n, ..., a_1, a_0] (canonical format)
+    RETURNS: f_coeffs reversed to LOW->HIGH order [a_0, a_1, ..., a_n] (solver format)
+    """
+    try:
+        r_m = SR(tower[0]['r_expr'])
+    except Exception:
+        r_m = SR(tower[0].get('r_expr', '0'))
+
+    m_sym = var('m')
+    try:
+        const = r_m.subs({m_sym: 0})
+    except Exception:
+        const = 0
+    
+    f_coeffs_low_to_high = list(reversed(f_coeffs))
+    
+    return {
+        'r_m': r_m,
+        'const': const,
+        'f_coeffs': f_coeffs_low_to_high
+    }
+
+
+# ============================================================================
+# MODIFIED: mumford_precompute_residues_parallel
+# ============================================================================
 
 def mumford_precompute_residues_parallel(
     eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
     rhs_modp_list, vecs_list, num_workers=8, debug=False
 ):
     """
-    Parallel Mumford residue computation.
+    Parallel Mumford residue computation with enhanced diagnostics.
     
     1. Resolves x(m) roots in Fp (the intersection points)
     2. Dispatches the resulting x-residues to the O(p) solver in parallel.
     """
     f_coeffs = eqs_dict['f_coeffs']
+    
+    if debug:
+        print(f"[mumford/parallel] f_coeffs order check:")
+        print(f"  First 3: {f_coeffs[:3]} (should be a_0, a_1, a_2)")
+        print(f"  Last 3: {f_coeffs[-3:]} (should be a_{{n-2}}, a_{{n-1}}, a_n)")
+        print(f"  For y^2 = x^6 - 12x^5 + ..., expect:")
+        print(f"    First 3: [1, 2, -15]")
+        print(f"    Last 3: [30, -12, 1]")
+    
     f_coeffs_ints = [int(c) for c in f_coeffs]
     try:
         const_val_int = int(QQ(eqs_dict['const']))
     except Exception as e:
         raise ValueError(f"Could not convert 'const' to int: {e}")
 
-    tasks = []
-
     if debug:
+        print(f"[mumford] Curve coefficients (LOW->HIGH): {f_coeffs_ints[:3]}...{f_coeffs_ints[-3:]}")
+        print(f"[mumford] Intersection const: {const_val_int}")
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
+
+    tasks = []
+    total_x_residues_found = 0
 
     for p in prime_list:
         if p not in Ep_dict: continue
@@ -595,34 +952,29 @@ def mumford_precompute_residues_parallel(
         
         if not p_vecs: continue
 
-        # Define polynomial ring for root finding over GF(p)
         try:
             Fp = GF(p)
             R_m = Fp['m']
             m_var = R_m.gen()
-            # Linear intersection: x = -m + const (from the curve's X/Z relation)
             rhs_poly = -m_var + Fp(const_val_int)
         except Exception:
-            if debug: print(f"Skipping p={p}: Ring setup failed")
+            if debug: print(f"  Skipping p={p}: Ring setup failed")
             continue
             
         x_residues_map = {}
+        p_x_residues_count = 0
         
-        # Iterate over LLL vectors
         for v_idx, v_tuple in enumerate(vecs_list):
             if len(v_tuple) == 0 or all(c==0 for c in v_tuple): continue
             
-            # P_m is the vector evaluated at the parameter m
             v_lll = p_vecs[v_idx]
             Pm = Ep(0)
             valid = True
             
-            # Construct Pm = sum(k_i * P_i) where k_i are the vector components
             for i, c in enumerate(v_lll):
                 k = int(c)
                 if k == 0: continue
                 
-                # Robust List/Dict Access for Multiples
                 try:
                     mults_for_sec = p_mults[i]
                     if k in mults_for_sec:
@@ -636,14 +988,11 @@ def mumford_precompute_residues_parallel(
             
             if not valid or Pm.is_zero():
                 continue
-            if Pm[2] == 0: continue # Z-coordinate should not be zero
+            if Pm[2] == 0: continue
             
-            # Solve for intersection: X(m)/Z(m) = RHS(m)
-            # => X(m) - Z(m)*RHS(m) = 0
             try:
-                # Pm components are fractions in Fp(m)
                 diff = Pm[0] - Pm[2] * rhs_poly
-                diff_num = diff.numerator() # Get the polynomial in the numerator
+                diff_num = diff.numerator()
                 
                 if diff_num.is_zero():
                     continue
@@ -653,110 +1002,218 @@ def mumford_precompute_residues_parallel(
                 if roots:
                     valid_residues = []
                     for m_root in roots:
-                        # x = -m + const (x is the coordinate on the curve)
                         m_int = int(m_root)
                         x_val = (-m_int + const_val_int) % p
                         valid_residues.append(x_val)
                     
                     if valid_residues:
                         x_residues_map[v_tuple] = valid_residues
+                        p_x_residues_count += len(valid_residues)
                         
             except Exception:
                 continue
         
+        total_x_residues_found += p_x_residues_count
+        
         if x_residues_map:
             tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
+            if debug:
+                print(f"  p={p}: {p_x_residues_count} x-residues, {len(x_residues_map)} vectors")
+
+    if debug:
+        print(f"[mumford] Total x-residues: {total_x_residues_found}")
+        print(f"[mumford] Tasks: {len(tasks)}/{len(prime_list)} primes")
 
     if not tasks:
-        if debug: print("[mumford] No tasks generated.")
+        if debug: print("[mumford] No tasks generated - no x-residues found!")
         return {}
         
-    # Pool creation: Handle context properly
-    # Using ctx.Pool() directly avoids the "unexpected keyword argument" error
     try:
-        # Prefer "fork" context for better performance/memory management with SageMath/multiprocessing
         ctx = multiprocessing.get_context("fork")
         pool_obj = ctx.Pool(num_workers)
     except Exception:
-        # Fallback to standard Pool if context management fails (e.g., on some OS/environments)
         pool_obj = multiprocessing.Pool(num_workers)
 
     results_dict = {}
 
     with pool_obj as pool:
-        # Use imap_unordered for results as they complete
         for p, result_map in pool.imap_unordered(_solve_worker_wrapper, tasks):
             results_dict[p] = result_map
+    
+    if debug:
+        total_solutions = sum(len(sols) for p_map in results_dict.values() 
+                            for sols in p_map.values())
+        primes_with_solutions = sum(1 for p_map in results_dict.values() if p_map)
+        print(f"[mumford] Solutions: {total_solutions} across {primes_with_solutions} primes")
             
     return results_dict
 
-def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=False):
+
+# ============================================================================
+# MODIFIED: reconstruct_and_verify_mumford
+# ============================================================================
+
+def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
     """
-    CRT (Chinese Remainder Theorem) and rational reconstruction of Mumford coordinates.
+    CRT and rational reconstruction of Mumford coordinates WITH VERIFICATION.
     
-    This reconstructs the rational numbers s and p from their residues mod p.
+    Args:
+        f_coeffs: Curve coefficients in HIGH->LOW order (canonical format)
     """
     from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+    from itertools import product as cartesian_product
+    
+    f_coeffs_low_to_high = list(reversed(f_coeffs))
+    
+    if debug:
+        print(f"[reconstruct] f_coeffs received (HIGH->LOW): {f_coeffs[:3]}...{f_coeffs[-3:]}")
+        print(f"[reconstruct] f_coeffs for verify (LOW->HIGH): {f_coeffs_low_to_high[:3]}...{f_coeffs_low_to_high[-3:]}")
+    
+    print("\n" + "="*70)
+    print("MUMFORD RECONSTRUCTION PHASE")
+    print("="*70)
     
     found_xs = set()
+    mumford_divisors_raw = []
 
-    # Organize residues by the vector v_tuple
-    by_vector = defaultdict(lambda: defaultdict(list))
+    by_vector = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for p in prime_list:
-        if p not in residues: continue
-        for v_tuple, sols in residues[p].items():
-            by_vector[v_tuple][p] = sols
+        if p not in residues: 
+            continue
+        for v_tuple, sols_data in residues[p].items():
+            # Handle both old list format and new dict format
+            if isinstance(sols_data, dict):
+                # New format: {x_res: [sols]}
+                for x_res, sols in sols_data.items():
+                    by_vector[v_tuple][x_res][p] = sols
+            elif isinstance(sols_data, list):
+                # Old format: just a list of solutions (no x_res tracking)
+                # Group all under a dummy key
+                by_vector[v_tuple]['unknown'][p] = sols_data
+            else:
+                continue
+    
+    print(f"Grouped into {len(by_vector)} distinct vectors")
+    
+    total_attempted = 0
+    recon_failed = 0
+    recon_success = 0
+    
+    for vec_idx, (v_tuple, x_data) in enumerate(by_vector.items()):
+        if debug and vec_idx < 3:
+            print(f"\n[Vector {vec_idx}] {v_tuple}: {len(x_data)} distinct x-residue families")
+        
+        for x_res_key, prime_data in x_data.items():
+            primes_with_data = sorted(prime_data.keys())
+            if len(primes_with_data) < 3: 
+                continue
             
-    for v_tuple, prime_data in by_vector.items():
-        # Need at least a few primes for reliable reconstruction
-        primes_with_data = sorted(prime_data.keys())
-        if len(primes_with_data) < 3: continue
-        
-        # Simple Consensus: Just take the first solution path for now.
-        # A more robust search would branch on multiple solutions.
-        reconstructed = {}
-        M = 1
-        for p in primes_with_data: M *= p
-        
-        valid_vector = True
-        coord_names = ['s', 'p', 'v_0', 'v_1'] # The four Mumford coordinates (u=(x^2-sx+p), v=v1*x+v0)
-        
-        for coord_idx, coord_name in enumerate(coord_names):
-            res_vals = []
-            for p in primes_with_data:
-                # Use the first solution found for that prime/vector
-                res_vals.append(prime_data[p][0][coord_idx])
+            M = 1
+            for p in primes_with_data: 
+                M *= p
             
-            try:
-                # 1. Apply CRT to get an integer congruent to the rational coordinate
-                crt_val = crt_cached(tuple(res_vals), tuple(primes_with_data))
-                # 2. Apply rational reconstruction (e.g., using LLL or similar)
-                num, den = rational_reconstruct(crt_val, M)
-                reconstructed[coord_name] = QQ(num)/QQ(den)
-            except RationalReconstructionError:
-                valid_vector = False
-                break
+            solutions_per_prime = [prime_data[p] for p in primes_with_data]
+            num_combinations = 1
+            for sols in solutions_per_prime:
+                num_combinations *= len(sols)
+            
+            if debug and vec_idx < 3:
+                print(f"  x_res={x_res_key}: {len(primes_with_data)} primes, {num_combinations} combos")
+            
+            solution_combinations = cartesian_product(*solutions_per_prime)
+            
+            combos_tried = 0
+            for sol_combo in solution_combinations:
+                if combos_tried >= 10000:
+                    break
+                combos_tried += 1
+                total_attempted += 1
                 
-        if not valid_vector: continue
+                reconstructed = {}
+                valid_combo = True
+                coord_names = ['s', 'p', 'v_0', 'v_1']
+                
+                for coord_idx, coord_name in enumerate(coord_names):
+                    res_vals = [sol_combo[i][coord_idx] for i in range(len(primes_with_data))]
+                    
+                    try:
+                        crt_val = crt_cached(tuple(res_vals), tuple(primes_with_data))
+                        num, den = rational_reconstruct(crt_val, M)
+                        reconstructed[coord_name] = QQ(num)/QQ(den)
+                    except RationalReconstructionError:
+                        valid_combo = False
+                        recon_failed += 1
+                        break
+                
+                if not valid_combo: 
+                    continue
+                
+                recon_success += 1
+                
+                divisor_data = {
+                    'vector': v_tuple,
+                    's': reconstructed['s'],
+                    'p': reconstructed['p'],
+                    'v_0': reconstructed['v_0'],
+                    'v_1': reconstructed['v_1']
+                }
+                mumford_divisors_raw.append(divisor_data)
+    
+    print("\n" + "="*70)
+    print("VERIFICATION AND DEDUPLICATION")
+    print("="*70)
+    print(f"  Raw reconstructions: {len(mumford_divisors_raw)}")
+    
+    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs_low_to_high)
+    
+    print(f"  Verified & deduplicated: {len(mumford_divisors)}")
+    print("="*70)
+    
+    rational_roots = 0
+    for div in mumford_divisors:
+        s_rat = div['s']
+        p_rat = div['p']
         
-        # Verification: Check the roots of u(x)
-        s_rat = reconstructed['s']
-        p_rat = reconstructed['p']
-        
-        # Roots of u(x) = x^2 - s*x + p
         PR = PolynomialRing(QQ, 'x')
         x = PR.gen()
         u_poly = x**2 - s_rat*x + p_rat
         
-        # Roots are the x-coordinates of the points in the Mumford divisor D=(u,v)
-        roots = u_poly.roots(QQ, multiplicities=False)
-        for r in roots:
-            # The point coordinate on the curve is x_cand = x_MUMFORD + shift
-            x_cand = r + shift
-            # Check if this x-coordinate leads to a valid rational point
-            if rationality_test(x_cand) is not None:
-                found_xs.add(x_cand)
-                if debug:
-                    print(f"MUMFORD SUCCESS: Found point x={x_cand}")
-
-    return found_xs
+        try:
+            roots = u_poly.roots(QQ, multiplicities=False)
+            if roots:
+                rational_roots += 1
+                for r in roots:
+                    x_cand = r - shift
+                    y_test = rationality_test(x_cand)
+                    if y_test is not None:
+                        found_xs.add(x_cand)
+                        if debug:
+                            print(f"  RATIONAL POINT: x={x_cand}")
+        except Exception:
+            continue
+    
+    print("\n" + "="*70)
+    print("RECONSTRUCTION SUMMARY")
+    print("="*70)
+    print(f"  Combinations attempted: {total_attempted}")
+    print(f"  Reconstruction failures: {recon_failed}")
+    print(f"  Successful reconstructions: {recon_success}")
+    print(f"  After verification & dedup: {len(mumford_divisors)}")
+    print(f"  Divisors with rational roots: {rational_roots}")
+    print(f"  Rational points found: {len(found_xs)}")
+    print("="*70 + "\n")
+    
+    if mumford_divisors and debug:
+        print("\n" + "="*70)
+        print(f"VERIFIED MUMFORD DIVISORS ({len(mumford_divisors)} total)")
+        print("="*70)
+        for i, div in enumerate(mumford_divisors[:20]):
+            print(f"\n[{i}] Vector: {div['vector']}")
+            print(f"    u(x) = {div['u_poly']}")
+            print(f"    v(x) = {div['v_poly']}")
+        
+        if len(mumford_divisors) > 20:
+            print(f"\n... and {len(mumford_divisors) - 20} more divisors")
+        print("="*70)
+        
+    return found_xs, mumford_divisors

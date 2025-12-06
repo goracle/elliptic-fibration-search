@@ -645,7 +645,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 rationality_test_func=testfunc,
                 stats=cumulative_stats
             )
-            all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
+            all_newly_found_transformed_x.update(list(newly_found_x)) # <-- FIX: Accumulate
             iter_stats = SearchStats()
             cumulative_stats.merge(iter_stats)
         else:
@@ -813,7 +813,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     precomputed_residues=precomputed_residues,
                     coeffs_genus2=sextic_coeffs 
                 )
-                all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
+                all_newly_found_transformed_x.update(list(newly_found_x)) # <-- FIX: Accumulate
 
             else:
                 newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
@@ -831,7 +831,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     coeffs_genus2=sextic_coeffs
                 )
 
-                all_newly_found_transformed_x.update(newly_found_x) # <-- FIX: Accumulate
+                all_newly_found_transformed_x.update(list(newly_found_x)) # <-- FIX: Accumulate
 
             cumulative_stats.merge(iter_stats)
 

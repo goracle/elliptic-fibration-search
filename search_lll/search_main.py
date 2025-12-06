@@ -342,22 +342,29 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             rhs_modp_list, 
             vecs_list, 
             num_workers=num_workers, 
-            debug=debug
+            debug=True
         )
-        print("mumford residues:", mumford_residues)
         stats.end_phase('mumford_residues')
         
         # Reconstruct
         stats.start_phase('mumford_reconstruction')
         prime_list = sorted(Ep_dict.keys())
-        found_xs = reconstruct_and_verify_mumford(
+        found_xs, mumford_divisors = reconstruct_and_verify_mumford(
             mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
         )
         stats.end_phase('mumford_reconstruction')
+
+
+        # Print divisor summary (optional - can remove if too verbose)
+        print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
+        if mumford_divisors:
+            rational_roots_count = sum(1 for div in mumford_divisors 
+                                      if 'has_rational_roots' in div and div.get('has_rational_roots'))
+            print(f"  {rational_roots_count} divisors had rational roots in u(x)")
         
-        print(f"\nMumford search found {len(found_xs)} rational points")
+        print(f"Mumford search found {len(found_xs)} rational points")
         print(stats.summary_string())
-        
+
         return found_xs, [], mumford_residues, stats
 
     # === UNPACK: SCONF ===
