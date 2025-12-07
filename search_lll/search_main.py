@@ -169,6 +169,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                     # We cannot easily compute rhs numeric without r_m; but if lhs_q is defined,
                     # we can proceed to rationality test as before.
                     rhs_q = None
+                    raise
 
                 # If we have both sides as QQ check equality; otherwise trust the root machinery but still verify via r_m
                 if rhs_q is not None and lhs_q != rhs_q:
@@ -362,8 +363,16 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             rational_roots_count = sum(1 for div in mumford_divisors 
                                       if 'has_rational_roots' in div and div.get('has_rational_roots'))
             print(f"  {rational_roots_count} divisors had rational roots in u(x)")
+            print("printing first 5 and last 5 divisors found:")
+            for i in mumford_divisors[:5]:
+                print(i)
+            print("[...]")
+            for i in mumford_divisors[-5:]:
+                print(i)
         
         print(f"Mumford search found {len(found_xs)} rational points")
+        print("rational points found:")
+        print(found_xs)
         print(stats.summary_string())
 
         return found_xs, [], mumford_residues, stats
@@ -893,6 +902,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                     new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
                     new_sections_raw.append(new_sec)
         except (TypeError, ZeroDivisionError, ArithmeticError):
+            raise
             continue
 
 
@@ -921,3 +931,5 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(stats.summary_string())
 
     return new_xs, new_sections, precomputed_residues, stats
+
+

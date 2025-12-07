@@ -394,8 +394,8 @@ ANCHOR_SEED = SEED_INT           # Seed for reproducible anchor point generation
 
 DEBUG = False
 DEBUG = True
-TARGETED_X = None # only set to numeric value to debug; None by default
 TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
+TARGETED_X = None # only set to numeric value to debug; None by default
 
 USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
