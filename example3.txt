@@ -84,7 +84,7 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.14s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.15s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 22 primes -> avg_roots=1.182, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 1, 10)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1818181818181819}
@@ -92,8 +92,8 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈8.03e-09, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈8.03e-09
+[empirical_pool] start pool size=22, avg_survivors≈7.6e-09, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈7.6e-09
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -108,10 +108,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1070
+  NUM_PRIME_SUBSETS: 1069
   PRIME_POOL size: 22
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1070, PRIME_POOL size=22, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1069, PRIME_POOL size=22, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 22
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -197,7 +197,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -255,26 +255,34 @@ first 10 divisors:
 {'vector': (3,), 's': 1, 'p': -2, 'v_0': 1/3, 'v_1': 16/3, 'has_rational_roots': True}
 
 [basis] Starting with 5 total divisors
+[basis] Using 7 doublings for height pairing approximation
 [basis] Filtered 0 torsion divisors -> 5 candidates
-[basis] Added divisor 1 (self-pairing 10.2)
-[basis] Added divisor 2 (rank 2/2, det 25.9)
-[basis] Added divisor 3 (rank 3/3, det 50.6)
-[basis] Added divisor 4 (rank 4/4, det 12.8)
-[basis] Added divisor 5 (rank 5/5, det -4.29)
+[basis] Added divisor 1 (self-pairing 10.3)
+[basis] Added divisor 2 (rank 2/2, det 25.8)
+[basis] Added divisor 3 (rank 3/3, det 47.8)
+[basis] Added divisor 4 (rank 4/4, det 12.1)
+[basis] Added divisor 5 (rank 5/5, det -0.0111)
 
 [basis] Final rank: 5
 [basis] Checked 5 candidates total
-[basis] Determinant: -4.29
+[basis] Determinant (exact): -4841435161486220693607470113126265088421738005250321700416931358498862245769373691839297988741658683419983778282108762683558894621644571052535413778497100077103014445340370230630381603827016299977779/436881244124733916736306684080588289454663230921973650062325516012694802040573638674567208523150400339354088263970326268780226069078882616908503085012454679469007978828544198016170534014459838464000000
+[basis] Determinant (float): -0.0111
+[basis] Height pairing matrix (exact QQ):
+[              3131023421788609/305125741029376 -3445127351342542629823/1855389454801422090240  5540301162876992414897/4932084124749723279360 -7937442852016995959219/1676781847317325615104    -285824652371303292871/64885682062300774400]
+[-3445127351342542629823/1855389454801422090240               2821907991451601/988862661181440  7514727461888173180909/2414855789390316011520      1887680539320792743/162633370510629765120     252917836118845733843/51023649307172044800]
+[ 5540301162876992414897/4932084124749723279360  7514727461888173180909/2414855789390316011520             21400569303673283/3375890991390720   -128415656928144187031/398990826390566277120       52769551511441295997/9528551716589875200]
+[-7937442852016995959219/1676781847317325615104      1887680539320792743/162633370510629765120   -128415656928144187031/398990826390566277120             13434635847352129/3684080944656384    480735447827576770457/627546356466267955200]
+[   -285824652371303292871/64885682062300774400     252917836118845733843/51023649307172044800       52769551511441295997/9528551716589875200    480735447827576770457/627546356466267955200               5029823293752393/548135262822400]
 
 Basis Construction Results:
   Found 5 independent divisors
   Height pairing matrix:
-[  10.220273044451588  -1.8792820462716364   1.0685730450081072   -4.745801636393402  -4.5146552475485375]
-[ -1.8792820462716364    2.877628372234283   3.0982045911344667 0.004657942655776903    4.988666799994166]
-[  1.0685730450081072   3.0982045911344667     6.35440601447655  -0.3057731725254713    5.573470791798791]
-[  -4.745801636393402 0.004657942655776903  -0.3057731725254713   3.6457156950973806   0.7431743229133243]
-[ -4.5146552475485375    4.988666799994166    5.573470791798791   0.7431743229133243    9.194624827513419]
-  Determinant: -4.293800835774467
+[              3131023421788609/305125741029376 -3445127351342542629823/1855389454801422090240  5540301162876992414897/4932084124749723279360 -7937442852016995959219/1676781847317325615104    -285824652371303292871/64885682062300774400]
+[-3445127351342542629823/1855389454801422090240               2821907991451601/988862661181440  7514727461888173180909/2414855789390316011520      1887680539320792743/162633370510629765120     252917836118845733843/51023649307172044800]
+[ 5540301162876992414897/4932084124749723279360  7514727461888173180909/2414855789390316011520             21400569303673283/3375890991390720   -128415656928144187031/398990826390566277120       52769551511441295997/9528551716589875200]
+[-7937442852016995959219/1676781847317325615104      1887680539320792743/162633370510629765120   -128415656928144187031/398990826390566277120             13434635847352129/3684080944656384    480735447827576770457/627546356466267955200]
+[   -285824652371303292871/64885682062300774400     252917836118845733843/51023649307172044800       52769551511441295997/9528551716589875200    480735447827576770457/627546356466267955200               5029823293752393/548135262822400]
+  Determinant: -4841435161486220693607470113126265088421738005250321700416931358498862245769373691839297988741658683419983778282108762683558894621644571052535413778497100077103014445340370230630381603827016299977779/436881244124733916736306684080588289454663230921973650062325516012694802040573638674567208523150400339354088263970326268780226069078882616908503085012454679469007978828544198016170534014459838464000000
 
 Mumford search reconstructed 5 divisors
   5 divisors had rational roots in u(x)
@@ -293,13 +301,13 @@ printing first 5 and last 5 divisors found:
 Mumford search found 4 rational points
 rational points found:
 {2, 3, 1/2, -1}
-Total time: 4.96s
+Total time: 50.72s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 3.43s
-  mumford_residues         : 1.10s
-  prep_mod_data            : 0.43s
+  mumford_reconstruction   : 49.17s
+  mumford_residues         : 1.12s
+  prep_mod_data            : 0.44s
   mumford_setup            : 0.00s
 
 Counters:
@@ -380,7 +388,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 5
-Total time: 7.7s
+Total time: 53.6s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -496,7 +504,7 @@ found 5 / 12
 shifted G poly1: x^6 - 12*x^5 + 30*x^4 + 2*x^3 - 15*x^2 + 2*x + 1
 --- Building 2 Step Fibration Tower (deg 6 -> 4) ---
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=15.0)
+  [Step 1] Selected best geometry (Score=15.5)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
   [Step 2] Selected best geometry (Score=13.4)
 r_m -m - 1
@@ -575,8 +583,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 1, 1, 2, 3, 3), (1, 1, 1, 9), (1, 1, 2, 4, 4), (1, 1, 3, 3, 3), (1, 1, 3, 3, 4), (1, 1, 7), (1, 2, 3, 6), (1, 2, 9), (1, 3, 3, 4), (1, 3, 8), (1, 11), (2, 3, 3, 4), (2, 10), (3, 4, 5), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈6.41e-09, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈6.41e-09
+[empirical_pool] start pool size=22, avg_survivors≈3.09e-10, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈3.09e-10
 [adaptive_subsets] height_bound=498.0, base_height=100, height_ratio=4.98
 [adaptive_subsets] zero_ratio=0.36, avg_density=0.0262 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -591,10 +599,10 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 498
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1098
+  NUM_PRIME_SUBSETS: 1097
   PRIME_POOL size: 22
 
-[auto_cfg summary] height_bound=498, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1098, PRIME_POOL size=22, TMAX=500
+[auto_cfg summary] height_bound=498, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1097, PRIME_POOL size=22, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 22
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
