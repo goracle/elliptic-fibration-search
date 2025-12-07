@@ -13,6 +13,12 @@ import multiprocessing
 from collections import defaultdict
 from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR
 from search_common import *
+from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, HyperellipticCurve
+from sage.all import parallel
+from tqdm import tqdm
+import signal # For safe multiprocessing worker init
+
+
 
 NUM_DOUBLINGS = 4 # for mumford height pairing independence test
 
@@ -80,9 +86,6 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
 # =============================================================================
 
 
-from tqdm import tqdm
-import signal # For safe multiprocessing worker init
-
 # =============================================================================
 # CORE ARITHMETIC & SOLVERS
 # =============================================================================
@@ -117,26 +120,6 @@ def validate_mumford_solver():
     print("Use verify_mumford_pair directly for testing.")
     return True
 
-
-# Key fixes for Mumford reconstruction:
-# 1. Track x-residues through the pipeline (keep solutions separate by x-residue)
-# 2. Only combine solutions from the same (vector, x-residue) pair
-# 3. Remove mod-p verification after reconstruction (it was checking wrong equation)
-
-
-# =============================================================================
-# MUMFORD SEARCH: CRITICAL FIXES
-# =============================================================================
-# 
-# Key changes:
-# 1. Verify ALL mod-p solutions immediately after finding them
-# 2. Track x-residues through the pipeline (keep solutions separate)
-# 3. Add height bounds to rational reconstruction
-# 4. Verify reconstructed rationals are consistent with mod-p data
-#
-# =============================================================================
-
-
 # mumford_complete.py
 # 
 # UPDATED VERSION with independent basis construction for Mumford divisors
@@ -147,65 +130,6 @@ def validate_mumford_solver():
 # 3. build_mumford_basis_incremental() - builds basis incrementally
 # 4. Integration into reconstruct_and_verify_mumford() to return basis instead of all divisors
 
-from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, HyperellipticCurve
-from sage.all import parallel
-
-
-# =============================================================================
-# JACOBIAN BASIS CONSTRUCTION (NEW)
-# =============================================================================
-
-
-# =============================================================================
-# CORE ARITHMETIC & SOLVERS (EXISTING CODE)
-# =============================================================================
-
-
-# =============================================================================
-# WORKER FUNCTIONS
-# =============================================================================
-
-
-# =============================================================================
-# RECONSTRUCTION WITH BASIS BUILDING
-# =============================================================================
-
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
-
-# mumford_complete.py
-#
-# Complete working integration of Mumford search.
-# Drop this into your codebase and add to search_common.py:
-#   MUMFORD_SEARCH = True  # Enable Mumford mode
-
-
-# =============================================================================
-# JACOBIAN BASIS CONSTRUCTION
-# =============================================================================
-
-
-# =============================================================================
-# CORE ARITHMETIC & SOLVERS
-# =============================================================================
-
-
-# =============================================================================
-# WORKER FUNCTIONS
-# =============================================================================
-
-
-# =============================================================================
-# RECONSTRUCTION WITH BASIS BUILDING
-# =============================================================================
-
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
 
 
 def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=False):
@@ -285,8 +209,26 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                 M *= p
             
             sol_lists = [prime_data[p] for p in primes]
-            limit = 5000
-            
+            # In reconstruct_and_verify_mumford
+
+            disc_deg = len(f_coeffs) - 1  # degree of the curve
+            expected_rank_upper = disc_deg - 1  # genus bound for Jacobian rank
+
+            num_primes_used = len(primes)
+
+            # Heuristic: check enough combinations to have high probability of finding
+            # all independent divisors up to the expected rank
+            base_limit = 100000
+            per_rank_multiplier = 5000  # check more combos per expected rank unit
+            height_factor = max(1.0, log(M) / 50.0)  # larger modulus = check more
+
+            adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
+
+            if debug:
+                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
+
+            limit = adaptive_limit
+
             for sol_combo in product(*sol_lists):
                 if limit <= 0:
                     break
