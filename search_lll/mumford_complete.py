@@ -14,7 +14,7 @@ from collections import defaultdict
 from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR
 from search_common import *
 
-NUM_DOUBLINGS = 7 # for mumford height pairing independence test
+NUM_DOUBLINGS = 4 # for mumford height pairing independence test
 
 
 # mumford_complete.py
@@ -1199,7 +1199,7 @@ def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=False):
     return False, None
 
 
-def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
+def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
     """
     Build independent basis using EXACT height pairing checks.
     Filters out torsion divisors first.
@@ -1297,9 +1297,9 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             
             # Check if determinant is too small (indicates near-dependence)
             # or if rank dropped (definite dependence)
-            det_threshold = 1e-3  # Conservative threshold
+            det_threshold = 1  # Conservative threshold, should be pos def!
             
-            if rank_exact == n and abs(det_float) > det_threshold:
+            if rank_exact == n and det_float > det_threshold:
                 # Independent and determinant is large enough!
                 basis.append(div)
                 basis_jac.append(D)
@@ -1372,7 +1372,7 @@ def naive_height_exact(D):
     return QQ(math.log(max_abs))
 
 
-def compute_height_pairing_exact(D1, D2, num_doublings=4, debug=False):
+def compute_height_pairing_exact(D1, D2, num_doublings=NUM_DOUBLINGS, debug=False):
     """
     Exact height pairing <D1, D2> using naive heights in QQ.
     Fully exact arithmetic (no floats), returns a QQ number.

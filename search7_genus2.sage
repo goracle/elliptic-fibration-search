@@ -123,6 +123,9 @@ def main_genus2():
 
         excluded.add(frozenset(data_pts))
         known_pts = augment_known(known_pts, all_found_x, deg6=True)
+        if MUMFORD_SEARCH:
+            print("only trying one fibration for Mumford basis search, for now.")
+            break
 
     print("\n--- Cumulative Run Statistics ---")
     print(cumulative_stats.summary_string())
