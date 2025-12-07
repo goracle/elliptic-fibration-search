@@ -92,8 +92,8 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=22, avg_survivors≈1.21e-08, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈1.21e-08
+[empirical_pool] start pool size=22, avg_survivors≈2.81e-09, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 22, final_avg_survivors≈2.81e-09
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.32, avg_density=0.0250 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -108,10 +108,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
+  NUM_PRIME_SUBSETS: 1075
   PRIME_POOL size: 22
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=22, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1075, PRIME_POOL size=22, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 22
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -197,7 +197,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -297,12 +297,12 @@ printing first 5 and last 5 divisors found:
 Mumford search found 4 rational points
 rational points found:
 {2, 3, 1/2, -1}
-Total time: 4.99s
+Total time: 4.97s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 3.44s
-  mumford_residues         : 1.12s
+  mumford_reconstruction   : 3.43s
+  mumford_residues         : 1.11s
   prep_mod_data            : 0.43s
   mumford_setup            : 0.00s
 
@@ -493,12 +493,12 @@ new x: -1
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 8.43s
+Total time: 8.39s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 3.44s
-  mumford_residues         : 1.12s
+  mumford_reconstruction   : 3.43s
+  mumford_residues         : 1.11s
   prep_mod_data            : 0.43s
   mumford_setup            : 0.00s
 
