@@ -97,8 +97,8 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=24, avg_survivors≈1.61e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈1.61e-06
+[empirical_pool] start pool size=24, avg_survivors≈1.5e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈1.5e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -113,10 +113,10 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1080
+  NUM_PRIME_SUBSETS: 1078
   PRIME_POOL size: 24
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1080, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=24, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -252,13 +252,14 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [mumford] Generating tasks for 20 primes...
-[mumford] Residue computation took 1.03s
+[mumford] Residue computation took 1.02s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
 ======================================================================
 Grouped into 15 vectors, 137 (vector,x-residue) pairs
   Adaptive limit: 1025000 (disc_deg=6, expected_rank<=5, M~10^4)
+  Using parallel reconstruction (4 workers)
   Combinations tried: 272160
   Rejected by height: 0
   Rejected by consistency: 131886
@@ -269,95 +270,89 @@ Grouped into 15 vectors, 137 (vector,x-residue) pairs
 
 --- Building Independent Mumford Basis ---
 first 10 divisors:
-{'vector': (2,), 's': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'has_rational_roots': True}
-{'vector': (2,), 's': 0, 'p': -4, 'v_0': 9, 'v_1': 5, 'has_rational_roots': True}
-{'vector': (2,), 's': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'has_rational_roots': True}
-{'vector': (2,), 's': 1, 'p': -2, 'v_0': 17/3, 'v_1': 20/3, 'has_rational_roots': True}
-{'vector': (2,), 's': 2, 'p': 0, 'v_0': 1, 'v_1': 9, 'has_rational_roots': True}
-{'vector': (2,), 's': 2, 'p': 0, 'v_0': -1, 'v_1': 10, 'has_rational_roots': True}
-{'vector': (2,), 's': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'has_rational_roots': True}
-{'vector': (2,), 's': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'vector': (2,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 9, 'v_1': 5, 'vector': (2,), 'has_rational_roots': True}
+{'s': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'vector': (2,), 'has_rational_roots': True}
+{'s': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 17/3, 'v_1': 20/3, 'vector': (2,), 'has_rational_roots': True}
+{'s': 2, 'p': 0, 'v_0': 1, 'v_1': 9, 'vector': (2,), 'has_rational_roots': True}
+{'s': 2, 'p': 0, 'v_0': -1, 'v_1': 10, 'vector': (2,), 'has_rational_roots': True}
+{'s': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'vector': (2,), 'has_rational_roots': True}
+{'s': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'vector': (2,), 'has_rational_roots': True}
 [basis] Using Arakelov heights for basis construction
 
-[arakelov_parallel] Building basis from 11 divisors
-[arakelov_parallel] Using precision: 100 bits
-[arakelov_parallel] Period matrix computed
-[arakelov_parallel] Computing 11 canonical heights...
-[arakelov_parallel] Computed 10/11 heights
-[arakelov_parallel] Building basis incrementally...
-[arakelov_parallel] Added divisor 1 (self-pairing 11.9784)
-[arakelov_parallel] Added divisor 2 (rank 2, det 47.6918)
-[arakelov_parallel] Added divisor 3 (rank 3, det 72.0333)
-[arakelov_parallel] Skipping divisor 3: det non-positive. det: -2052.53
-[arakelov_parallel] Skipping divisor 4: det non-positive. det: -276.571
-[arakelov_parallel] Skipping divisor 5: det non-positive. det: -359.024
-[arakelov_parallel] Skipping divisor 6: det non-positive. det: -1035.99
-[arakelov_parallel] Skipping divisor 7: det non-positive. det: -93.9869
-[arakelov_parallel] Skipping divisor 8: det non-positive. det: -71.1578
-[arakelov_parallel] Skipping divisor 9: det non-positive. det: -122.594
-[arakelov_parallel] Added divisor 4 (rank 4, det 187.372)
+[arakelov] Building basis from 11 divisors
+[arakelov] Using precision: 100 bits
+[arakelov] Period matrix computed
+[arakelov] Computing 11 canonical heights...
+[arakelov] Computed 10/11 heights
+[arakelov] Building basis incrementally...
+[arakelov] Added divisor 1 (self-pairing 2.00478)
+[arakelov] Added divisor 2 (rank 2, det 4.28798)
+[arakelov] Skipping divisor 2: det non-positive. det: -0.0563327
+[arakelov] Skipping divisor 3: det non-positive. det: -5.88666
+[arakelov] Skipping divisor 4: det non-positive. det: -166.638
+[arakelov] Skipping divisor 5: det non-positive. det: -23.372
+[arakelov] Skipping divisor 6: det non-positive. det: -14.7469
+[arakelov] Skipping divisor 7: det non-positive. det: -38.9926
+[arakelov] Added divisor 3 (rank 3, det 8.16061)
+[arakelov] Skipping divisor 9: det non-positive. det: -48.9797
+[arakelov] Skipping divisor 10: det non-positive. det: -78.1486
 
-[arakelov_parallel] Final rank: 4
-[arakelov_parallel] Final determinant: 187.372
+[arakelov] Final rank: 3
+[arakelov] Final determinant: 8.16061
 
 [arakelov timers]
-  heights_precompute            :    0.051s
-  height_archimedean            :    0.050s
-  period_matrix_total           :    0.027s
-  basis_construction            :    0.015s
-  height_finite_places          :    0.007s
-  period_matrix_roots           :    0.007s
+  heights_precompute            :    0.055s
+  height_archimedean            :    0.053s
+  period_matrix_total           :    0.040s
+  basis_construction            :    0.013s
+  period_matrix_roots           :    0.012s
+  jacobian_conversion           :    0.011s
   period_matrix_integration     :    0.007s
-  jacobian_conversion           :    0.006s
+  height_finite_places          :    0.006s
   height_naive                  :    0.006s
   height_period_matrix          :    0.000s
   final_matrix                  :    0.000s
 
 Basis Construction Results:
-  Found 4 independent divisors
+  Found 3 independent divisors
   Height pairing matrix:
-[                  5699580816132222/475823128089415  459683167730701566861921/105418362018207363082256  810077549117733578203735/141909505059120467470906 1486121525885617462711581/238408340546337808383724]
-[ 459683167730701566861921/105418362018207363082256                   3264271230471101/586160645254082   -50773843144776586480725/55636429334582673170191    26826199507600753432375/62506603360575713599524]
-[ 810077549117733578203735/141909505059120467470906   -50773843144776586480725/55636429334582673170191                 14912657279002575/2302327884040652   135631043428061852953105/33092597905712454090982]
-[1486121525885617462711581/238408340546337808383724    26826199507600753432375/62506603360575713599524   135631043428061852953105/33092597905712454090982                     610207826901901/90558447902252]
-  Determinant: 260271575844980665130048222593634781207484277878319456961079694027125408256389782366387135719266649213863324210152276197299314225222325948894023997773563958616466993428024514787055/1389063214360259068338769557485057674536420075879085228828624729962499847720714842725228809092304932711381564009275907543108950881207475620181472898556787332135825030773754064896
-  Determinant (float): 187.37201673348625
+[                14007861892974853/6987236594188953  310403626658682154876131/126683919355401519369280 1332629459523409840526365/865914416679715927320184]
+[ 310403626658682154876131/126683919355401519369280                   1396263231647041/271989577659070 1265697063541070214680337/263545103575380067633160]
+[1332629459523409840526365/865914416679715927320184 1265697063541070214680337/263545103575380067633160                   3832037061489013/541596925921216]
+  Determinant: 32184654039964731992040281107444536786194859852026816285643536348600233648080960730692965520924503651662969922321/3943900620211072869765496182458100832141687212045921544894395694042142241229783008263859123401356171976304230400
+  Determinant (float): 8.160614868191645
 
 [mumford detailed timers]
-  crt_reconstruction_loop                 :   49.615s ( 50.1%)
-  rational_reconstruction                 :   40.539s ( 40.9%)
-  consistency_check                       :    5.642s (  5.7%)
-  algebraic_verification                  :    3.144s (  3.2%)
-  basis_construction                      :    0.086s (  0.1%)
-  canonicalization                        :    0.000s (  0.0%)
-  residue_grouping                        :    0.000s (  0.0%)
+  crt_reconstruction_loop                 :   12.549s ( 99.2%)
+  basis_construction                      :    0.100s (  0.8%)
+  canonicalization                        :    0.001s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   99.027s
+  residue_grouping                        :    0.000s (  0.0%)
+  TOTAL                                   :   12.651s
 
-Mumford search reconstructed 4 divisors
-  4 divisors had rational roots in u(x)
+Mumford search reconstructed 3 divisors
+  3 divisors had rational roots in u(x)
 printing first 5 and last 5 divisors found:
-{'vector': (2,), 's': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'has_rational_roots': True}
-{'vector': (2,), 's': 1/2, 'p': -3, 'v_0': 13/2, 'v_1': 25/4, 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'vector': (2,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 9, 'v_1': 5, 'vector': (2,), 'has_rational_roots': True}
+{'s': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'vector': (2,), 'has_rational_roots': True}
 [...]
-{'vector': (2,), 's': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'has_rational_roots': True}
-{'vector': (2,), 's': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'has_rational_roots': True}
-{'vector': (2,), 's': 1/2, 'p': -3, 'v_0': 13/2, 'v_1': 25/4, 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'vector': (2,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 9, 'v_1': 5, 'vector': (2,), 'has_rational_roots': True}
+{'s': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'vector': (2,), 'has_rational_roots': True}
 Mumford search found 8 rational points
 rational points found:
 {0, 1, 2, -3/2, 1/3, -1/4, -2, -1}
-Total time: 51.14s
+Total time: 14.10s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 49.70s
-  mumford_residues         : 1.03s
-  prep_mod_data            : 0.41s
+  mumford_reconstruction   : 12.66s
+  mumford_residues         : 1.02s
+  prep_mod_data            : 0.42s
   mumford_setup            : 0.00s
 
 Counters:
@@ -441,7 +436,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 8
-Total time: 54.3s
+Total time: 17.3s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -562,13 +557,13 @@ new x: -2
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 54.86s
+Total time: 17.87s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 49.70s
-  mumford_residues         : 1.03s
-  prep_mod_data            : 0.41s
+  mumford_reconstruction   : 12.66s
+  mumford_residues         : 1.02s
+  prep_mod_data            : 0.42s
   mumford_setup            : 0.00s
 
 Counters:

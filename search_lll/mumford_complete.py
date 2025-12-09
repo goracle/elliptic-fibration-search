@@ -1622,21 +1622,334 @@ import time
 # Add near top of file with other globals
 _MUMFORD_TIMERS = defaultdict(float)
 
-def mumford_timer_add(name, elapsed):
-    """Add time to named timer."""
-    _MUMFORD_TIMERS[name] += elapsed
 
 def mumford_timer_get(name):
     """Get timer value."""
     return _MUMFORD_TIMERS.get(name, 0.0)
 
+
+# Replace reconstruct_and_verify_mumford with this instrumented version:
+
+
+# Also add timing to the modular residue computation:
+
+
+# mumford_crt_optimizations.py
+#
+# Optimizations for the CRT reconstruction bottleneck
+# The real problem: 272K combinations × 4 rational reconstructions each = ~1M operations
+
+from sage.all import QQ, ZZ
+from itertools import product, islice
+
+# =============================================================================
+# OPTIMIZATION 1: Early Exit on Height Rejection
+# =============================================================================
+
+def rational_reconstruct_with_height_check(crt_val, M, max_height):
+    """
+    Rational reconstruction with immediate height rejection.
+    Returns (num, den) or raises RationalReconstructionError.
+    """
+    num, den = rational_reconstruct(crt_val, M)
+    
+    # Check height immediately
+    if abs(num) > max_height or abs(den) > max_height:
+        raise RationalReconstructionError("Height too large")
+    
+    return num, den
+
+
+# =============================================================================
+# OPTIMIZATION 2: Batch CRT Computation
+# =============================================================================
+
+def batch_crt_for_combo(sol_combo, primes):
+    """
+    Compute CRT for all 4 coordinates at once.
+    Returns list of 4 CRT values.
+    """
+    crt_vals = []
+    for idx in range(4):
+        vals = tuple(sol[idx] for sol in sol_combo)
+        crt_val = crt_cached(vals, tuple(primes))
+        crt_vals.append(crt_val)
+    return crt_vals
+
+
+# =============================================================================
+# OPTIMIZATION 3: Pre-filter Solutions by Discriminant
+# =============================================================================
+
+def prefilter_solutions_by_discriminant(sol_lists, primes):
+    """
+    Filter solution combinations that can't possibly satisfy s^2 - 4p >= 0 mod all primes.
+    This eliminates many impossible combinations early.
+    
+    Returns: filtered generator of solution combinations
+    """
+    for sol_combo in product(*sol_lists):
+        # Quick discriminant check mod each prime
+        all_good = True
+        for i, p in enumerate(primes):
+            s_mod = sol_combo[i][0] % p
+            p_mod = sol_combo[i][1] % p
+            disc_mod = (s_mod * s_mod - 4 * p_mod) % p
+            
+            # If discriminant is negative mod p and p > 2, skip
+            # (This is a quick heuristic, not perfect)
+            if p > 2 and disc_mod != 0:
+                # Check if disc_mod is a quadratic residue
+                if pow(disc_mod, (p - 1) // 2, p) == p - 1:
+                    all_good = False
+                    break
+        
+        if all_good:
+            yield sol_combo
+
+
+# =============================================================================
+# OPTIMIZATION 4: Parallel CRT Reconstruction
+# =============================================================================
+
+
+def reconstruct_worker_wrapper(args):
+    """
+    Worker for parallel CRT reconstruction.
+    args = (combo_batch, primes, M, f_coeffs, max_height)
+    Returns list of successful reconstructions.
+    """
+    combo_batch, primes, M, f_coeffs, max_height = args
+    
+    results = []
+    
+    for sol_combo in combo_batch:
+        try:
+            # Batch CRT
+            rec_vals = []
+            for idx in range(4):
+                vals = tuple(sol[idx] for sol in sol_combo)
+                crt_val = crt_cached(vals, tuple(primes))
+                num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
+                rec_vals.append(QQ(num)/QQ(den))
+            
+            s, p_val, v0, v1 = rec_vals
+            
+            # Consistency check
+            reconstruction_ok = True
+            for i, prime in enumerate(primes):
+                expected_sol = sol_combo[i]
+                try:
+                    s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                    p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                    v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                    v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+                except ZeroDivisionError:
+                    reconstruction_ok = False
+                    break
+                
+                if (s_mod != expected_sol[0] % prime or
+                    p_mod != expected_sol[1] % prime or
+                    v0_mod != expected_sol[2] % prime or
+                    v1_mod != expected_sol[3] % prime):
+                    reconstruction_ok = False
+                    break
+            
+            if not reconstruction_ok:
+                continue
+            
+            # Algebraic verification
+            if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                continue
+            
+            results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
+            
+        except RationalReconstructionError:
+            continue
+        except Exception:
+            continue
+    
+    return results
+
+
+def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=4, debug=False):
+    """
+    Parallel CRT reconstruction with batching.
+    
+    Returns: list of successfully reconstructed divisors
+    """
+    M = 1
+    for p in primes:
+        M *= p
+    
+    max_height = max(100000, int(M ** 0.35))
+    
+    # Generate all combinations (up to limit)
+    all_combos = list(islice(product(*sol_lists), adaptive_limit))
+    
+    if debug:
+        print(f"[parallel_crt] Processing {len(all_combos)} combinations with {num_workers} workers")
+    
+    # Batch combinations for workers
+    batch_size = max(100, len(all_combos) // (num_workers * 4))
+    batches = []
+    for i in range(0, len(all_combos), batch_size):
+        batch = all_combos[i:i+batch_size]
+        batches.append((batch, primes, M, f_coeffs, max_height))
+    
+    # Process in parallel
+    try:
+        ctx = multiprocessing.get_context("fork")
+        pool = ctx.Pool(num_workers)
+    except Exception:
+        pool = multiprocessing.Pool(num_workers)
+    
+    all_results = []
+    try:
+        for batch_results in pool.imap_unordered(reconstruct_worker_wrapper, batches):
+            all_results.extend(batch_results)
+        pool.close()
+        pool.join()
+    except KeyboardInterrupt:
+        pool.terminate()
+        pool.join()
+        raise
+    
+    return all_results
+
+
+# =============================================================================
+# OPTIMIZATION 5: Smart Limit Based on Success Rate
+# =============================================================================
+
+def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit, 
+                                       check_interval=10000, target_divisors=10, debug=False):
+    """
+    Process combinations with early stopping if we're finding enough divisors.
+    
+    Strategy: Check success rate every `check_interval` combinations.
+    If we've found `target_divisors` and success rate drops, stop early.
+    """
+    M = 1
+    for p in primes:
+        M *= p
+    
+    max_height = max(100000, int(M ** 0.35))
+    
+    results = []
+    checked = 0
+    last_check_count = 0
+    
+    for sol_combo in islice(product(*sol_lists), base_limit):
+        checked += 1
+        
+        try:
+            rec_vals = []
+            for idx in range(4):
+                vals = tuple(sol[idx] for sol in sol_combo)
+                crt_val = crt_cached(vals, tuple(primes))
+                num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
+                rec_vals.append(QQ(num)/QQ(den))
+            
+            s, p_val, v0, v1 = rec_vals
+            
+            # Quick consistency check (just first prime)
+            if len(primes) > 0:
+                p0 = primes[0]
+                expected = sol_combo[0]
+                try:
+                    s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, p0)) % p0
+                    if s_mod != expected[0] % p0:
+                        continue
+                except ZeroDivisionError:
+                    continue
+            
+            # Full verification
+            if verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
+        
+        except RationalReconstructionError:
+            continue
+        except Exception:
+            continue
+        
+        # Early stopping check
+        if checked % check_interval == 0:
+            new_found = len(results) - last_check_count
+            success_rate = new_found / check_interval
+            
+            if debug and checked % (check_interval * 5) == 0:
+                print(f"[adaptive] Checked {checked}/{base_limit}, found {len(results)} total, recent rate: {success_rate:.6f}")
+            
+            # Stop if we have enough and success rate is very low
+            if len(results) >= target_divisors and success_rate < 1e-5:
+                if debug:
+                    print(f"[adaptive] Early stop: found {len(results)} divisors, success rate dropped to {success_rate:.6f}")
+                break
+            
+            last_check_count = len(results)
+    
+    return results, checked
+
+
+# =============================================================================
+# OPTIMIZATION 6: Cache Expensive Operations
+# =============================================================================
+
+
+def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
+    """
+    Consistency check with cached modular inverses.
+    Returns True if all primes match.
+    """
+    for i, prime in enumerate(primes):
+        expected_sol = sol_combo[i]
+        
+        # Get modular inverses with caching
+        s_inv = inv_cache.inv(s.denominator(), prime)
+        p_inv = inv_cache.inv(p_val.denominator(), prime)
+        v0_inv = inv_cache.inv(v0.denominator(), prime)
+        v1_inv = inv_cache.inv(v1.denominator(), prime)
+        
+        if None in (s_inv, p_inv, v0_inv, v1_inv):
+            return False
+        
+        s_mod = (int(s.numerator()) * s_inv) % prime
+        p_mod = (int(p_val.numerator()) * p_inv) % prime
+        v0_mod = (int(v0.numerator()) * v0_inv) % prime
+        v1_mod = (int(v1.numerator()) * v1_inv) % prime
+        
+        if (s_mod != expected_sol[0] % prime or
+            p_mod != expected_sol[1] % prime or
+            v0_mod != expected_sol[2] % prime or
+            v1_mod != expected_sol[3] % prime):
+            return False
+    
+    return True
+
+
+# =============================================================================
+# OPTIMIZED RECONSTRUCTION FUNCTION (Drop-in Replacement)
+# =============================================================================
+
+
+# mumford_complete_optimized.py
+#
+# Optimized versions of key functions from mumford_complete.py
+# Use same function names so dedup.py will clean up old versions
+
+
+# Timers
+_MUMFORD_TIMERS = defaultdict(float)
+
+def mumford_timer_add(name, elapsed):
+    _MUMFORD_TIMERS[name] += elapsed
+
 def mumford_timers_reset():
-    """Clear all timers."""
     global _MUMFORD_TIMERS
     _MUMFORD_TIMERS.clear()
 
 def mumford_timers_print():
-    """Print all timers sorted by time."""
     if not _MUMFORD_TIMERS:
         return
     print("\n[mumford detailed timers]")
@@ -1648,14 +1961,96 @@ def mumford_timers_print():
     print(f"  {'TOTAL':40s}: {total:8.3f}s")
 
 
-# Replace reconstruct_and_verify_mumford with this instrumented version:
+class ModInverseCache:
+    """Cache for modular inverses."""
+    def __init__(self):
+        self.cache = {}
+    
+    def inv(self, a, p):
+        key = (a % p, p)
+        if key not in self.cache:
+            try:
+                self.cache[key] = pow(int(a), -1, p)
+            except (ValueError, ZeroDivisionError):
+                return None
+        return self.cache[key]
+
+
+def _reconstruct_worker_parallel(args):
+    """
+    Worker for parallel CRT reconstruction.
+    Processes a batch of solution combinations.
+    """
+    combo_batch, primes, M, f_coeffs, max_height = args
+    
+    results = []
+    stats = {
+        'attempted': 0,
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0
+    }
+    
+    for sol_combo in combo_batch:
+        stats['attempted'] += 1
+        
+        try:
+            rec_vals = []
+            for idx in range(4):
+                vals = tuple(sol[idx] for sol in sol_combo)
+                crt_val = crt_cached(vals, tuple(primes))
+                num, den = rational_reconstruct(crt_val, M)
+                
+                if abs(num) > max_height or abs(den) > max_height:
+                    raise RationalReconstructionError("Height too large")
+                
+                rec_vals.append(QQ(num)/QQ(den))
+            
+            s, p_val, v0, v1 = rec_vals
+            
+        except RationalReconstructionError:
+            stats['height_reject'] += 1
+            continue
+        
+        reconstruction_ok = True
+        for i, prime in enumerate(primes):
+            expected_sol = sol_combo[i]
+            try:
+                s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+            except ZeroDivisionError:
+                reconstruction_ok = False
+                break
+            
+            if (s_mod != expected_sol[0] % prime or
+                p_mod != expected_sol[1] % prime or
+                v0_mod != expected_sol[2] % prime or
+                v1_mod != expected_sol[3] % prime):
+                reconstruction_ok = False
+                break
+        
+        if not reconstruction_ok:
+            stats['consistency_reject'] += 1
+            continue
+        
+        if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+            stats['algebraic_reject'] += 1
+            continue
+        
+        results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
+        stats['success'] += 1
+    
+    return results, stats
+
 
 def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
     """
-    Reconstructs rational Mumford divisors and builds an independent basis.
-    Now with detailed timing instrumentation.
+    Optimized reconstruction with parallel CRT processing and detailed timing.
     """
-    t_start_recon = time.time()
+    t_start_total = time.time()
     
     print("\n" + "="*70)
     print("MUMFORD RECONSTRUCTION PHASE")
@@ -1666,7 +2061,6 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     found_xs = set()
     mumford_divisors_raw = []
 
-    # Group residues
     t0 = time.time()
     by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     
@@ -1684,13 +2078,18 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
 
     total_attempted = 0
-    recon_success = 0
-    rejected_by_height = 0
-    rejected_by_consistency = 0
-    rejected_by_algebraic = 0
+    total_stats = {
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0
+    }
 
-    # CRT and reconstruction loop
     t0 = time.time()
+    
+    num_workers = min(4, multiprocessing.cpu_count())
+    use_parallel_threshold = 50000
+    
     for v_tuple, xres_groups in by_vector_and_xres.items():
         for x_res_key, prime_data in xres_groups.items():
             primes = sorted(prime_data.keys())
@@ -1705,114 +2104,140 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             
             disc_deg = len(f_coeffs) - 1
             expected_rank_upper = disc_deg - 1
-
             num_primes_used = len(primes)
 
             base_limit = 1000000
             per_rank_multiplier = 5000
-            height_factor = max(1.0, log(M) / 50.0)
-
+            height_factor = max(1.0, math.log(M) / 50.0)
             adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
 
             if debug:
-                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
+                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(math.log(M)/math.log(10))})")
 
-            limit = adaptive_limit
-
-            for sol_combo in product(*sol_lists):
-                if limit <= 0:
-                    break
-                limit -= 1
-                total_attempted += 1
+            max_height = max(100000, int(M ** 0.35))
+            
+            total_combos = 1
+            for sl in sol_lists:
+                total_combos *= len(sl)
+            total_combos = min(total_combos, adaptive_limit)
+            
+            if total_combos > use_parallel_threshold:
+                if debug:
+                    print(f"  Using parallel reconstruction ({num_workers} workers)")
                 
-                # Rational reconstruction
-                t_rr = time.time()
+                all_combos = list(islice(product(*sol_lists), adaptive_limit))
+                batch_size = max(1000, len(all_combos) // (num_workers * 4))
+                
+                batches = []
+                for i in range(0, len(all_combos), batch_size):
+                    batch = all_combos[i:i+batch_size]
+                    batches.append((batch, primes, M, f_coeffs, max_height))
+                
                 try:
-                    rec_vals = []
-                    for idx in range(4):
-                        vals = [sol[idx] for sol in sol_combo]
-                        crt_val = crt_cached(tuple(vals), tuple(primes))
-                        num, den = rational_reconstruct(crt_val, M)
-                        
-                        max_height = max(100000, int(M ** 0.35))
-                        if abs(num) > max_height or abs(den) > max_height:
-                            raise RationalReconstructionError("Height too large")
-                        
-                        rec_vals.append(QQ(num)/QQ(den))
-                    
-                    s, p_val, v0, v1 = rec_vals
-                    mumford_timer_add("rational_reconstruction", time.time() - t_rr)
-                    
-                except RationalReconstructionError:
-                    mumford_timer_add("rational_reconstruction", time.time() - t_rr)
-                    rejected_by_height += 1
-                    if debug:
-                        print("[reconstruct] RationalReconstructionError during CRT/rational_reconstruct; skipping this CRT combo.")
-                    continue
+                    ctx = multiprocessing.get_context("fork")
+                    pool = ctx.Pool(num_workers)
+                except Exception:
+                    pool = multiprocessing.Pool(num_workers)
                 
-                # Consistency check
-                t_cons = time.time()
-                reconstruction_ok = True
-                for i, prime in enumerate(primes):
-                    expected_sol = sol_combo[i]
+                try:
+                    for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel, batches):
+                        for div in batch_results:
+                            div['vector'] = v_tuple
+                            mumford_divisors_raw.append(div)
+                        
+                        total_stats['height_reject'] += batch_stats['height_reject']
+                        total_stats['consistency_reject'] += batch_stats['consistency_reject']
+                        total_stats['algebraic_reject'] += batch_stats['algebraic_reject']
+                        total_stats['success'] += batch_stats['success']
+                        total_attempted += batch_stats['attempted']
+                    
+                    pool.close()
+                    pool.join()
+                except KeyboardInterrupt:
+                    pool.terminate()
+                    pool.join()
+                    raise
+            else:
+                if debug and total_combos > 10000:
+                    print(f"  Using serial reconstruction ({total_combos} combos)")
+                
+                limit = adaptive_limit
+                for sol_combo in product(*sol_lists):
+                    if limit <= 0:
+                        break
+                    limit -= 1
+                    total_attempted += 1
+                    
                     try:
-                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
-                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
-                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
-                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
-                    except ZeroDivisionError:
-                        reconstruction_ok = False
-                        break
+                        rec_vals = []
+                        for idx in range(4):
+                            vals = [sol[idx] for sol in sol_combo]
+                            crt_val = crt_cached(tuple(vals), tuple(primes))
+                            num, den = rational_reconstruct(crt_val, M)
+                            
+                            if abs(num) > max_height or abs(den) > max_height:
+                                raise RationalReconstructionError("Height too large")
+                            
+                            rec_vals.append(QQ(num)/QQ(den))
+                        
+                        s, p_val, v0, v1 = rec_vals
+                        
+                    except RationalReconstructionError:
+                        total_stats['height_reject'] += 1
+                        continue
                     
-                    if (s_mod != expected_sol[0] % prime or
-                        p_mod != expected_sol[1] % prime or
-                        v0_mod != expected_sol[2] % prime or
-                        v1_mod != expected_sol[3] % prime):
-                        reconstruction_ok = False
-                        break
-                
-                mumford_timer_add("consistency_check", time.time() - t_cons)
-                
-                if not reconstruction_ok:
-                    rejected_by_consistency += 1
-                    continue
-                
-                # Algebraic verification
-                t_alg = time.time()
-                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                    mumford_timer_add("algebraic_verification", time.time() - t_alg)
-                    rejected_by_algebraic += 1
-                    continue
-                mumford_timer_add("algebraic_verification", time.time() - t_alg)
-                
-                mumford_divisors_raw.append({
-                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
-                })
-                recon_success += 1
+                    reconstruction_ok = True
+                    for i, prime in enumerate(primes):
+                        expected_sol = sol_combo[i]
+                        try:
+                            s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                            p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                            v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                            v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+                        except ZeroDivisionError:
+                            reconstruction_ok = False
+                            break
+                        
+                        if (s_mod != expected_sol[0] % prime or
+                            p_mod != expected_sol[1] % prime or
+                            v0_mod != expected_sol[2] % prime or
+                            v1_mod != expected_sol[3] % prime):
+                            reconstruction_ok = False
+                            break
+                    
+                    if not reconstruction_ok:
+                        total_stats['consistency_reject'] += 1
+                        continue
+                    
+                    if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                        total_stats['algebraic_reject'] += 1
+                        continue
+                    
+                    mumford_divisors_raw.append({
+                        'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
+                    })
+                    total_stats['success'] += 1
 
     mumford_timer_add("crt_reconstruction_loop", time.time() - t0)
 
     print(f"  Combinations tried: {total_attempted}")
-    print(f"  Rejected by height: {rejected_by_height}")
-    print(f"  Rejected by consistency: {rejected_by_consistency}")
-    print(f"  Rejected by algebraic constraint: {rejected_by_algebraic}")
-    print(f"  Successful reconstructions: {recon_success}")
+    print(f"  Rejected by height: {total_stats['height_reject']}")
+    print(f"  Rejected by consistency: {total_stats['consistency_reject']}")
+    print(f"  Rejected by algebraic constraint: {total_stats['algebraic_reject']}")
+    print(f"  Successful reconstructions: {total_stats['success']}")
 
     if not mumford_divisors_raw:
         print("  WARNING: No valid Mumford divisors reconstructed!")
         mumford_timers_print()
         return found_xs, []
 
-    # Canonicalization
     t0 = time.time()
     mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
     mumford_timer_add("canonicalization", time.time() - t0)
 
-    # Check for rational roots
     t0 = time.time()
     for div in mumford_divisors:
         s, p_val = div['s'], div['p']
-        
         disc = s*s - 4*p_val
 
         if disc >= 0 and disc.is_square():
@@ -1855,7 +2280,6 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                 print(f"  Determinant: {basis_H.determinant()}")
                 print(f"  Determinant (float): {float(basis_H.determinant())}")
             
-            # Print detailed timing breakdown
             mumford_timers_print()
             
             return found_xs, basis_divisors
@@ -1869,11 +2293,12 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     return found_xs, mumford_divisors
 
 
-# Also add timing to the modular residue computation:
-
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=8, debug=DEBUG):
-    """Parallel residue computation with timing."""
+                                         rhs_modp_list, vecs_list, num_workers=8, debug=False):
+    """
+    Parallel residue computation with timing.
+    Same function signature as original.
+    """
     t_start = time.time()
     
     f_coeffs = eqs_dict['f_coeffs']
@@ -1883,7 +2308,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         const_val_int = int(QQ(eqs_dict['const']))
     except Exception:
         const_val_int = 0
-        raise
         
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
@@ -1905,7 +2329,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
             m_var = R_m.gen()
             rhs_poly = -m_var + Fp(const_val_int)
         except Exception:
-            raise
             continue
 
         x_residues_map = {}
@@ -1933,7 +2356,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                         break
                 except (IndexError, KeyError, TypeError):
                     valid_vec = False
-                    raise
                     break
             
             if not valid_vec or Pm.is_zero() or Pm[2] == 0:
@@ -1958,7 +2380,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                     if valid_residues:
                         x_residues_map[v_tuple] = valid_residues
             except Exception:
-                raise
                 continue
             
         if x_residues_map:
@@ -1971,14 +2392,12 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
             print("[mumford] No tasks generated!")
         return {}
     
-    # Parallel solving
     t0 = time.time()
     try:
         ctx = multiprocessing.get_context("fork")
         pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
     except Exception:
         pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
-        raise
 
     results_dict = {}
     with pool_obj as pool:
@@ -1987,7 +2406,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
             results_dict[p] = result_map
     
     mumford_timer_add("parallel_solving", time.time() - t0)
-    
     mumford_timer_add("residue_computation_total", time.time() - t_start)
     
     if debug:
