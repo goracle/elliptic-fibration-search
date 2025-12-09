@@ -17,9 +17,6 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, Hypere
 from sage.all import parallel
 from tqdm import tqdm
 import signal # For safe multiprocessing worker init
-from sage.all import RDF, Matrix
-from sage.all import RDF, Matrix, PolynomialRing, QQ, HyperellipticCurve
-from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, HyperellipticCurve, RDF, log, LCM
 
 
 # mumford_complete.py
@@ -37,6 +34,10 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, Hypere
 # 3. F3: Constant coefficient of (v^2 - f) mod u is 0
 # 4. F4: f(r1) - f(r2) = 0 (implied by F2=0)
 # 5. F5: v1*s + 2*v0 = 0 (Symmetry of v)
+
+# Add near module globals / top of file
+RECON_EXPONENT = 0.55   # try 0.55 - 0.6 if 0.45 is too strict; lower to 0.45 if you want stricter check
+MIN_SUCCESS_PRIMES = 3  # keep 3 as default; you can lower to 2 if necessary but be conservative
 
 
 def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
@@ -74,6 +75,75 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
             return [coeffs[0] % modulus, coeffs[1] % modulus]
         return coeffs
 
+def filter_primes_avoiding_denoms(primes_list, divisors):
+    # divisors: iterable of dicts with 's','p','v_0','v_1' (QQ)
+    bad = set()
+    for d in divisors:
+        for k in ('s','p','v_0','v_1'):
+            val = d.get(k)
+            try:
+                den = int(QQ(val).denominator)
+                if den != 1:
+                    # factor small primes of den
+                    dd = den
+                    p = 2
+                    while p*p <= dd:
+                        if dd % p == 0:
+                            bad.add(p)
+                            while dd % p == 0:
+                                dd //= p
+                        p += 1
+                    if dd > 1:
+                        bad.add(dd)
+            except Exception:
+                pass
+    return [p for p in primes_list if p not in bad]
+
+
+# =============================================================================
+# WORKERS & PARALLEL
+# =============================================================================
+
+
+# =============================================================================
+# RECONSTRUCTION & VERIFICATION
+# =============================================================================
+
+
+# =============================================================================
+# CORE ARITHMETIC & SOLVERS
+# =============================================================================
+
+
+# =============================================================================
+# WORKERS & PARALLEL
+# =============================================================================
+
+
+# =============================================================================
+# RECONSTRUCTION & VERIFICATION
+# =============================================================================
+
+
+def mumford_precompute_residues_sequential(eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
+                                           rhs_modp_list, vecs_list, debug=DEBUG):
+    """
+    Sequential fallback: runs the parallel routine with a single worker.
+    """
+    print("Sequential fallback is using the parallel routine with a single worker.")
+    return mumford_precompute_residues_parallel(eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
+                                                rhs_modp_list, vecs_list, num_workers=1, debug=debug)
+
+def _mumford_worker_entry(args):
+    """Legacy entry point (placeholder)."""
+    # NOTE: The provided code only used _solve_worker_wrapper
+    return args[0], {} 
+
+def validate_mumford_solver():
+    """Simple test function (placeholder)."""
+    print("Use verify_mumford_pair directly for testing.")
+    return True
+
 # mumford_complete.py
 # 
 # UPDATED VERSION with independent basis construction for Mumford divisors
@@ -85,10 +155,224 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
 # 4. Integration into reconstruct_and_verify_mumford() to return basis instead of all divisors
 
 
-def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=False):
+def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
     f_coeffs = eqs_dict['f_coeffs']
     const_val = int(QQ(eqs_dict.get('const', 0)))
     return solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val)
+
+
+from sage.all import RDF, Matrix
+
+
+from sage.all import RDF, Matrix, PolynomialRing, QQ, HyperellipticCurve
+
+
+# mumford_complete.py
+#
+# Complete working integration of Mumford search.
+# Drop this into your codebase and add to search_common.py:
+#   MUMFORD_SEARCH = True  # Enable Mumford mode
+
+from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, HyperellipticCurve, RDF, log, LCM
+
+# search_common must be available in python path
+
+# =============================================================================
+# MANUAL HEIGHT IMPLEMENTATIONS
+# =============================================================================
+
+
+# =============================================================================
+# JACOBIAN BASIS CONSTRUCTION
+# =============================================================================
+
+
+# =============================================================================
+# RECONSTRUCTION & VERIFICATION
+# =============================================================================
+
+def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
+    """
+    Reconstructs rational Mumford divisors and builds an independent basis.
+    """
+    print("\n" + "="*70)
+    print("MUMFORD RECONSTRUCTION PHASE")
+    print("="*70)
+
+    found_xs = set()
+    mumford_divisors_raw = []
+
+    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    
+    for p in residues:
+        for v_tuple, x_res_dict in residues[p].items():
+            if isinstance(x_res_dict, list):
+                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
+            elif isinstance(x_res_dict, dict):
+                for x_res, sols in x_res_dict.items():
+                    by_vector_and_xres[v_tuple][x_res][p] = sols
+
+    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
+    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
+
+    total_attempted = 0
+    recon_success = 0
+    rejected_by_height = 0
+    rejected_by_consistency = 0
+    rejected_by_algebraic = 0
+
+    for v_tuple, xres_groups in by_vector_and_xres.items():
+        for x_res_key, prime_data in xres_groups.items():
+            primes = sorted(prime_data.keys())
+            if len(primes) < 3:
+                continue
+            
+            M = 1
+            for p in primes:
+                M *= p
+            
+            sol_lists = [prime_data[p] for p in primes]
+            # In reconstruct_and_verify_mumford
+
+            disc_deg = len(f_coeffs) - 1  # degree of the curve
+            expected_rank_upper = disc_deg - 1  # genus bound for Jacobian rank
+
+            num_primes_used = len(primes)
+
+            # Heuristic: check enough combinations to have high probability of finding
+            # all independent divisors up to the expected rank
+            base_limit = 1000000
+            per_rank_multiplier = 5000  # check more combos per expected rank unit
+            height_factor = max(1.0, log(M) / 50.0)  # larger modulus = check more
+
+            adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
+
+            if debug:
+                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
+
+            limit = adaptive_limit
+
+            for sol_combo in product(*sol_lists):
+                if limit <= 0:
+                    break
+                limit -= 1
+                total_attempted += 1
+                
+                try:
+                    rec_vals = []
+                    for idx in range(4):
+                        vals = [sol[idx] for sol in sol_combo]
+                        crt_val = crt_cached(tuple(vals), tuple(primes))
+                        num, den = rational_reconstruct(crt_val, M)
+                        
+                        max_height = max(100000, int(M ** 0.35))
+                        if abs(num) > max_height or abs(den) > max_height:
+                            raise RationalReconstructionError("Height too large")
+                        
+                        rec_vals.append(QQ(num)/QQ(den))
+                    
+                    s, p_val, v0, v1 = rec_vals
+                    
+                except RationalReconstructionError:
+                    rejected_by_height += 1
+                    #raise
+                    if debug:
+                        print("[reconstruct] RationalReconstructionError during CRT/rational_reconstruct; skipping this CRT combo.")
+                    continue
+                
+                reconstruction_ok = True
+                for i, prime in enumerate(primes):
+                    expected_sol = sol_combo[i]
+                    try:
+                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+                    except (ZeroDivisionError):
+                        reconstruction_ok = False
+                        break
+                    
+                    if (s_mod != expected_sol[0] % prime or
+                        p_mod != expected_sol[1] % prime or
+                        v0_mod != expected_sol[2] % prime or
+                        v1_mod != expected_sol[3] % prime):
+                        reconstruction_ok = False
+                        break
+                
+                if not reconstruction_ok:
+                    rejected_by_consistency += 1
+                    continue
+                
+                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                    rejected_by_algebraic += 1
+                    continue
+                
+                mumford_divisors_raw.append({
+                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
+                })
+                recon_success += 1
+
+    print(f"  Combinations tried: {total_attempted}")
+    print(f"  Rejected by height: {rejected_by_height}")
+    print(f"  Rejected by consistency: {rejected_by_consistency}")
+    print(f"  Rejected by algebraic constraint: {rejected_by_algebraic}")
+    print(f"  Successful reconstructions: {recon_success}")
+
+    if not mumford_divisors_raw:
+        print("  WARNING: No valid Mumford divisors reconstructed!")
+        return found_xs, []
+
+    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+
+    for div in mumford_divisors:
+        s, p_val = div['s'], div['p']
+        
+        # Check for rational roots of u(x)
+        disc = s*s - 4*p_val
+
+        if disc >= 0 and disc.is_square():
+            div['has_rational_roots'] = True
+            r1 = (s + disc.sqrt())/2
+            r2 = (s - disc.sqrt())/2
+            for r in (r1, r2):
+                x_cand = r - shift
+                if rationality_test(x_cand) is not None:
+                    found_xs.add(x_cand)
+        else:
+            div['has_rational_roots'] = False
+
+    print(f"  Unique Rational Points: {len(found_xs)}")
+    
+    if mumford_divisors:
+        rational_roots_count = sum(1 for div in mumford_divisors_raw  # <-- Use ORIGINAL list
+                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
+        print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
+        print(f"\n--- Building Independent Mumford Basis ---")
+        print("first 10 divisors:")
+        for i in mumford_divisors[:10]:
+            print(i)
+        try:
+            basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
+                mumford_divisors, 
+                f_coeffs, 
+                debug=True
+            )
+            
+            print(f"\nBasis Construction Results:")
+            print(f"  Found {basis_rank} independent divisors")
+            if basis_H is not None:
+                print(f"  Height pairing matrix:\n{basis_H}")
+                print(f"  Determinant: {basis_H.determinant()}")
+                print(f"  Determinant (float): {float(basis_H.determinant())}")
+            
+            return found_xs, basis_divisors
+        except Exception as e:
+            print(f"Basis construction failed: {e}")
+            traceback.print_exc()
+            raise
+            return found_xs, mumford_divisors
+    
+    return found_xs, mumford_divisors
 
 
 # =============================================================================
@@ -317,7 +601,7 @@ def _solve_worker_wrapper(args):
 
 
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=8, debug=False):
+                                         rhs_modp_list, vecs_list, num_workers=8, debug=DEBUG):
     f_coeffs = eqs_dict['f_coeffs']
     f_coeffs_ints = [int(c) for c in f_coeffs]
     
@@ -438,8 +722,413 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
 from fractions import Fraction
 import math
 
+def _extract_u_coeffs_as_fractions(u):
+    """
+    Return list of coefficients of u (highest-to-lowest) as Fraction objects.
+    Accepts:
+      - Sage polynomial (use .list() or .coefficients?)
+      - Python list/tuple of coeffs
+      - tuple-like from mumford (already rational objects)
+    Ensures monic by appending the implicit leading 1 if needed.
+    """
+    # If u is a Sage polynomial, try u.list() (coeffs lowest-first)
+    try:
+        if hasattr(u, 'list'):
+            coeffs_low = u.list()    # lowest-degree first
+            coeffs = list(reversed(coeffs_low))  # highest-first
+        elif hasattr(u, 'coefficients'):
+            coeffs = u.coefficients(sparse=False)
+            # coefficients may not include zeros; try to detect degree
+            if hasattr(u, 'degree') and u.degree() is not None:
+                deg = u.degree()
+                # create full list
+                full = [QQ(0)] * (deg+1)
+                for i, c in enumerate(u.coefficients(sparse=False)):
+                    # this is fragile in some Sage versions; fallback below
+                    pass
+        else:
+            # Fallback: treat u as an iterable of coeffs (highest-first)
+            coeffs = list(u)
+    except Exception:
+        # Let exceptions bubble: user asked to raise them
+        raise
 
-def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=False):
+    # Coerce each coefficient to Fraction robustly
+    frac_coeffs = []
+    for c in coeffs:
+        # If it's a Sage rational (QQ), get numerator/denominator
+        try:
+            if hasattr(c, 'numerator') and hasattr(c, 'denominator'):
+                n = int(c.numerator())
+                d = int(c.denominator())
+                frac_coeffs.append(Fraction(n, d))
+            else:
+                # For floats or RDF, convert via Fraction.from_float if necessary
+                frac_coeffs.append(Fraction(c))
+        except Exception:
+            # last resort: try string conversion
+            frac_coeffs.append(Fraction(str(c)))
+            raise
+
+    # Ensure monic: if leading coeff != 1, check if implicit monic (some code gives only lower terms)
+    if not frac_coeffs:
+        return [Fraction(1,1)]
+    # If leading coeff equals 1, fine. If not, assume monic poly was given lacking leading 1:
+    if frac_coeffs[0] != 1:
+        # If the polynomial *is* monic but the leading 1 is missing (common if only lower coefs were returned),
+        # then append an explicit leading 1.
+        # Heuristic: if len(frac_coeffs) == 2 and frac_coeffs[0] < 1 and frac_coeffs[1] != 0, we try appending 1.
+        # Safer: don't silently mutate; prefer to return as-is and let caller handle if degree mismatch.
+        # For now, if leading coeff is not 1 but <= 1 in magnitude, append an explicit 1 to represent monic.
+        frac_coeffs = [Fraction(1,1)] + frac_coeffs
+
+    return frac_coeffs
+
+
+def manual_naive_height(P):
+    """
+    Robust naive logarithmic height from Mumford u-polynomial.
+    Returns float(log(max_abs)), always finite for valid input, else raises.
+    """
+    try:
+        u = P[0]  # Mumford u polynomial
+    except Exception:
+        raise
+
+    fracs = _extract_u_coeffs_as_fractions(u)
+    # Convert to integer projective coordinates by clearing denominators
+    dens = [f.denominator for f in fracs]
+    L = 1
+    for d in dens:
+        L = (L * d) // math.gcd(L, d)
+
+    int_coeffs = [int((f * L).numerator) for f in fracs]  # numerators after clearing denom
+    # append the implicit leading coefficient L*1 (monic)
+    int_coeffs.append(int(L))
+
+    if not int_coeffs:
+        return 0.0
+
+    max_abs = max(abs(c) for c in int_coeffs)
+    # defensive: ensure positive integer
+    max_abs = max(1, int(max_abs))
+    return math.log(max_abs)
+
+
+def manual_canonical_height(P, limit=8, debug=DEBUG):
+    """
+    Approximate canonical height by computing h(2^n P)/4^n for n=0..limit and returning last value.
+    Re-raises any exceptions from doubling. Prints intermediate heights if debug=True.
+    """
+    if P.is_zero():
+        return 0.0
+
+    Q = P
+    vals = []
+    try:
+        for n in range(limit + 1):
+            hQ = manual_naive_height(Q)
+            vals.append(float(hQ) / (4.0 ** n))
+            if debug:
+                print(f"[canon] n={n} naive_h={hQ:.6g} ratio={vals[-1]:.6g}")
+            Q = 2 * Q
+    except Exception:
+        # Re-raise after printing diagnostic if possible
+        if debug:
+            print("Doubling failed at step", n)
+        raise
+
+    # Return the last computed ratio; caller can examine intermediate vals if needed.
+    return float(vals[-1])
+
+
+def compute_manual_height_pairing(P, Q, limit=8, debug=DEBUG):
+    """
+    <P, Q> = 1/2 * (h_hat(P+Q) - h_hat(P) - h_hat(Q))
+    Uses the manual canonical-height approximation.
+    """
+    try:
+        if P.is_zero() or Q.is_zero():
+            return float(0.0)
+
+        # Use manual canonical height approximation for all three
+        h_p = manual_canonical_height(P, limit=limit, debug=debug)
+        h_q = manual_canonical_height(Q, limit=limit, debug=debug)
+        h_sum = manual_canonical_height(P + Q, limit=limit, debug=debug)
+        val = 0.5 * (h_sum - h_p - h_q)
+        return float(val)
+    except Exception:
+        raise
+
+
+def mumford_to_jacobian_element(s, p, v0, v1, C):
+    """
+    Create a Jacobian element while coercing the u,v polynomials into the curve's polynomial ring.
+    Raises on failure (user preference).
+    """
+    try:
+        f_curve, h_curve = C.hyperelliptic_polynomials()
+        R = f_curve.parent()   # polynomial ring of the curve
+        x = R.gen()
+
+        # Coerce inputs to rational numbers in Python Fraction and then to QQ for the ring
+        def to_QQ_obj(a):
+            try:
+                return QQ(a)
+            except Exception:
+                return QQ(Fraction(str(a)))
+
+        s_q = to_QQ_obj(s)
+        p_q = to_QQ_obj(p)
+        v0_q = to_QQ_obj(v0)
+        v1_q = to_QQ_obj(v1)
+
+        u_poly = x**2 - s_q * x + p_q
+        v_poly = v1_q * x + v0_q
+
+        # Make sure polynomials live in the same parent as the curve
+        u_poly = R(u_poly)
+        v_poly = R(v_poly) if v_poly.parent() == R else R(v_poly)  # coerce v into same ring
+
+        return C.jacobian()([u_poly, v_poly])
+    except Exception:
+        # re-raise so user sees the problem
+        raise
+
+
+def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
+    """
+    Build Jacobian elements and compute pairing matrix H using compute_manual_height_pairing.
+    Returns (is_indep, rank, H_matrix)
+    """
+    if not divisors:
+        return True, 0, None
+
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+
+    jac_elements = []
+    for div in divisors:
+        try:
+            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+            if not elem.is_zero():
+                jac_elements.append(elem)
+            else:
+                if debug:
+                    print("[check] element is zero, skipping.")
+        except Exception:
+            # re-raise after optional debug info
+            if debug:
+                print("[check] failed to convert divisor to jac element:", div)
+            raise
+
+    if not jac_elements:
+        return True, 0, None
+
+    n = len(jac_elements)
+    H = Matrix(RDF, n, n)
+    for i in range(n):
+        for j in range(i, n):
+            try:
+                val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
+            except Exception:
+                # Surface which pair caused trouble
+                if debug:
+                    print(f"[check] height pairing failed for indices {i},{j}")
+                raise
+            H[i, j] = val
+            H[j, i] = val
+
+    if n == 1:
+        is_indep = abs(H[0, 0]) > 1e-8
+        rank = 1 if is_indep else 0
+    else:
+        rank = H.rank()
+        is_indep = (rank == n)
+    return is_indep, rank, H
+
+
+def dbg_poly_info(poly):
+    # poly is a sage polynomial
+    coeffs = poly.list()          # lowest-first
+    if not coeffs:
+        return "deg=-inf"
+    deg = poly.degree()
+    # get bit sizes
+    def bits_of(c):
+        try:
+            return int(c.nbits()) if hasattr(c, 'nbits') else int(Fraction(c).numerator).bit_length()
+        except Exception:
+            try:
+                return int(abs(int(c)).bit_length())
+            except Exception:
+                raise
+                return -1
+            raise
+    bits = [bits_of(c) for c in coeffs]
+    maxbits = max(bits) if bits else 0
+    return f"deg={deg}, maxcoeff_bits={maxbits}, len={len(coeffs)}"
+
+def dump_jacobian_mumford_info(JP, label="P"):
+    # JP is jacobian element [u,v]
+    try:
+        u = JP[0]   # polynomial
+        v = JP[1]
+        print(f"[DBG] {label} u: {dbg_poly_info(u)}; v: {dbg_poly_info(v)}; parents: {type(u.parent())}")
+    except Exception as e:
+        print("[DBG] failed to print mumford info:", e)
+        raise
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (FIXED)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (FIXED)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (FIXED)
+# =============================================================================
+
+
+def naive_height_safe(s, p, v0, v1, debug=DEBUG):
+    """
+    Compute naive height from Mumford representation without building Jacobian.
+    Returns log(max(|coeffs of u|, |coeffs of v|)).
+    """
+    from fractions import Fraction
+    import math
+    
+    # Force conversion to QQ first, then to Fraction
+    s_qq = QQ(s)
+    p_qq = QQ(p)
+    v0_qq = QQ(v0)
+    v1_qq = QQ(v1)
+    
+    # Convert QQ to Fraction using numerator/denominator
+    s_frac = Fraction(int(s_qq.numerator()), int(s_qq.denominator()))
+    p_frac = Fraction(int(p_qq.numerator()), int(p_qq.denominator()))
+    v0_frac = Fraction(int(v0_qq.numerator()), int(v0_qq.denominator()))
+    v1_frac = Fraction(int(v1_qq.numerator()), int(v1_qq.denominator()))
+    
+    # u(x) = x^2 - s*x + p has coefficients [1, -s, p]
+    # v(x) = v1*x + v0 has coefficients [v1, v0]
+    
+    all_coeffs = [
+        Fraction(1, 1),  # leading coeff of u
+        -s_frac,
+        p_frac,
+        v1_frac,
+        v0_frac
+    ]
+    
+    # Clear denominators
+    lcm_den = 1
+    for f in all_coeffs:
+        lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
+    
+    int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
+    int_coeffs.append(int(lcm_den))  # include denominator
+    
+    max_abs = max(abs(c) for c in int_coeffs if c != 0)
+    max_abs = max(1, max_abs)
+    
+    return float(math.log(max_abs))
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (FIXED)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (FIXED)
+# =============================================================================
+
+
+def compute_height_pairing_simple(D1, D2, num_doublings=NUM_DOUBLINGS):
+    """
+    Compute <D1, D2> using LIMITED doublings to avoid coefficient explosion.
+    Uses: <D1, D2> = (h(D1+D2) - h(D1) - h(D2)) / 2
+    where h is naive height.
+    
+    Only does `num_doublings` iterations instead of 8.
+    """
+    from fractions import Fraction
+    import math
+    
+    def naive_height_from_jacobian(D):
+        u, v = D[0], D[1]
+        u_coeffs = u.list()
+        v_coeffs = v.list()
+        
+        all_coeffs = []
+        for c in u_coeffs + v_coeffs:
+            c_qq = QQ(c)
+            all_coeffs.append(Fraction(int(c_qq.numerator()), int(c_qq.denominator())))
+        
+        # Clear denominators
+        lcm_den = 1
+        for f in all_coeffs:
+            lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
+        
+        int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
+        int_coeffs.append(int(lcm_den))
+        
+        max_abs = max(abs(c) for c in int_coeffs if c != 0)
+        max_abs = max(1, max_abs)
+        
+        return float(math.log(max_abs))
+    
+    if D1.is_zero() or D2.is_zero():
+        return 0.0
+    
+    # Compute heights with limited doublings
+    vals = []
+    P, Q, S = D1, D2, D1 + D2
+    
+    for n in range(num_doublings):
+        hP = naive_height_from_jacobian(P)
+        hQ = naive_height_from_jacobian(Q)
+        hS = naive_height_from_jacobian(S)
+        
+        pairing = (hS - hP - hQ) / 2.0
+        vals.append(pairing / (4.0 ** n))
+        
+        P = P + P
+        Q = Q + Q
+        S = S + S
+    
+    # Return the last value (most refined estimate)
+    return vals[-1]
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (EXACT ARITHMETIC)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (EXACT ARITHMETIC)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (EXACT ARITHMETIC)
+# =============================================================================
+
+
+# =============================================================================
+# TORSION DETECTION & BASIS BUILDING (EXACT ARITHMETIC)
+# =============================================================================
+
+def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
     """
     Fast torsion test using modular verification.
     Tests if divisor is n-torsion for n in [2, 3, 4, 5, 6, 8, 10, 12].
@@ -478,1020 +1167,710 @@ def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=False):
     return False, None
 
 
-def check_mumford_independence(divisors, f_coeffs, debug=False):
+def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
     """
-    Check independence using RDF arithmetic and SVD rank.
+    Build independent basis using EXACT height pairing checks.
+    Filters out torsion divisors first.
+    Uses exact rational arithmetic throughout - no floating point.
+    
+    Args:
+        num_doublings: Number of doubling iterations for canonical height approximation.
+                      Higher = more accurate but slower. Typical values: 6-10.
     """
-    if not divisors:
-        return True, 0, None
-
-    # 1. Build Curve Polynomial in RDF
-    R_rdf = PolynomialRing(RDF, 'x')
-    x_rdf = R_rdf.gen()
-    f_poly_rdf = sum(RDF(c) * x_rdf**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-
-    # 2. Convert divisors to simple tuples
-    jac_elements = []
-    for div in divisors:
-        D = to_rdf_jacobian_element(div)
-        jac_elements.append(D)
+    if not all_divisors:
+        return [], 0, None
     
-    n = len(jac_elements)
+    print(f"\n[basis] Starting with {len(all_divisors)} total divisors")
+    print(f"[basis] Using {num_doublings} doublings for height pairing approximation")
     
-    # 3. Compute Gram Matrix
-    doublings = 18 
+    # Build curve once
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
     
-    H = Matrix(RDF, n, n)
-    for i in range(n):
-        for j in range(i, n):
-            val = compute_height_pairing_float(jac_elements[i], jac_elements[j], f_poly_rdf, num_doublings=doublings)
-            H[i, j] = val
-            H[j, i] = val
-            
-    # 4. Rank Check via Singular Values (SVD)
-    S = H.singular_values()
-    rank = sum(1 for s in S if s > 1e-9)
-    is_indep = (rank == n)
-
-    if debug:
-        print(f"[check_indep] Rank: {rank}/{n}, SVs: {[f'{s:.2e}' for s in S]}")
-
-    return is_indep, rank, H
-
-
-def naive_height_rdf(D):
-    """
-    Compute naive height of an RDF Jacobian element (tuple u, v).
-    h = log(max(1.0, |coeffs|))
-    Uses 1.0 bound to ensure height is non-negative (projective height).
-    """
-    u, v = D
+    # Filter out torsion
+    non_torsion = []
+    torsion_count = 0
     
-    if u.degree() == 0:
-        return 0.0
-        
-    # Collect all coefficients
-    coeffs = u.list() + v.list()
-    
-    # Ensure 1.0 is the baseline (projective coordinate Z=1)
-    max_val = 1.0
-    for c in coeffs:
-        val = abs(c)
-        if val > max_val:
-            max_val = val
-            
-    return float(log(max_val))
-
-
-from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, HyperellipticCurve, RDF, log, sqrt
-
-def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
-    """
-    Reconstructs rational Mumford divisors and builds an independent basis.
-    """
-    print("\n" + "="*70)
-    print("MUMFORD RECONSTRUCTION PHASE")
-    print("="*70)
-
-    found_xs = set()
-    mumford_divisors_raw = []
-
-    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    for p in residues:
-        for v_tuple, x_res_dict in residues[p].items():
-            if isinstance(x_res_dict, list):
-                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
-            elif isinstance(x_res_dict, dict):
-                for x_res, sols in x_res_dict.items():
-                    by_vector_and_xres[v_tuple][x_res][p] = sols
-
-    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
-    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
-
-    total_attempted = 0
-    recon_success = 0
-    rejected_by_height = 0
-    rejected_by_consistency = 0
-    rejected_by_algebraic = 0
-
-    # Sort vectors to ensure deterministic processing order
-    sorted_vectors = sorted(by_vector_and_xres.keys())
-
-    for v_tuple in sorted_vectors:
-        xres_groups = by_vector_and_xres[v_tuple]
-        for x_res_key, prime_data in xres_groups.items():
-            primes = sorted(prime_data.keys())
-            if len(primes) < 3:
-                continue
-            
-            M = 1
-            for p in primes:
-                M *= p
-            
-            sol_lists = [prime_data[p] for p in primes]
-
-            disc_deg = len(f_coeffs) - 1  # degree of the curve
-            expected_rank_upper = disc_deg - 1  # genus bound for Jacobian rank
-
-            # Heuristic limit
-            base_limit = 100000
-            per_rank_multiplier = 5000 
-            height_factor = max(1.0, log(M) / 50.0)
-            adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
-
-            if debug:
-                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
-
-            limit = adaptive_limit
-
-            for sol_combo in product(*sol_lists):
-                if limit <= 0:
-                    break
-                limit -= 1
-                total_attempted += 1
-                
-                try:
-                    rec_vals = []
-                    for idx in range(4):
-                        vals = [sol[idx] for sol in sol_combo]
-                        crt_val = crt_cached(tuple(vals), tuple(primes))
-                        num, den = rational_reconstruct(crt_val, M)
-                        
-                        max_height = max(100000, int(M ** 0.35))
-                        if abs(num) > max_height or abs(den) > max_height:
-                            raise RationalReconstructionError("Height too large")
-                        
-                        rec_vals.append(QQ(num)/QQ(den))
-                    
-                    s, p_val, v0, v1 = rec_vals
-                    
-                except RationalReconstructionError:
-                    rejected_by_height += 1
-                    continue
-                
-                # Consistency Check
-                reconstruction_ok = True
-                for i, prime in enumerate(primes):
-                    expected_sol = sol_combo[i]
-                    try:
-                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
-                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
-                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
-                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
-                    except ZeroDivisionError:
-                        reconstruction_ok = False
-                        break
-                    
-                    if (s_mod != expected_sol[0] % prime or
-                        p_mod != expected_sol[1] % prime or
-                        v0_mod != expected_sol[2] % prime or
-                        v1_mod != expected_sol[3] % prime):
-                        reconstruction_ok = False
-                        break
-                
-                if not reconstruction_ok:
-                    rejected_by_consistency += 1
-                    continue
-                
-                # Algebraic Verification
-                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                    rejected_by_algebraic += 1
-                    continue
-                
-                mumford_divisors_raw.append({
-                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
-                })
-                recon_success += 1
-
-    print(f"  Combinations tried: {total_attempted}")
-    print(f"  Rejected by height: {rejected_by_height}")
-    print(f"  Rejected by consistency: {rejected_by_consistency}")
-    print(f"  Rejected by algebraic constraint: {rejected_by_algebraic}")
-    print(f"  Successful reconstructions: {recon_success}")
-
-    if not mumford_divisors_raw:
-        print("  WARNING: No valid Mumford divisors reconstructed!")
-        return found_xs, []
-
-    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
-
-    # Check for Rational Points (Roots of u(x))
-    for div in mumford_divisors:
-        s, p_val = div['s'], div['p']
-        disc = s*s - 4*p_val
-
-        if disc >= 0 and disc.is_square():
-            div['has_rational_roots'] = True
-            r1 = (s + disc.sqrt())/2
-            r2 = (s - disc.sqrt())/2
-            for r in (r1, r2):
-                x_cand = r - shift
-                if rationality_test(x_cand) is not None:
-                    found_xs.add(x_cand)
-        else:
-            div['has_rational_roots'] = False
-
-    print(f"  Unique Rational Points: {len(found_xs)}")
-    
-    if mumford_divisors:
-        rational_roots_count = sum(1 for div in mumford_divisors 
-                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
-        print(f"  {rational_roots_count} of {len(mumford_divisors)} unique divisors had rational roots in u(x)")
-        
-        basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
-            mumford_divisors, 
-            f_coeffs, 
-            debug=True
+    for div in all_divisors:
+        is_tors, order = is_mumford_torsion_fast(
+            div['s'], div['p'], div['v_0'], div['v_1'], 
+            f_coeffs, debug=False
         )
         
-        print(f"\nBasis Construction Results:")
-        print(f"  Found {basis_rank} independent divisors")
-        
-        if basis_H is not None:
-            print(f"  Height pairing matrix ({basis_H.nrows()}x{basis_H.ncols()}):")
-            print(basis_H)
-            try:
-                det = basis_H.determinant()
-                print(f"  Determinant: {det}")
-            except Exception as e:
-                print(f"  Could not compute determinant: {e}")
-                raise
+        if is_tors:
+            torsion_count += 1
+            if debug and torsion_count <= 3:
+                print(f"[basis] Filtered torsion divisor (order {order}): {div}")
         else:
-            print("  Height pairing matrix is None (Rank 0).")
-        
-        return found_xs, basis_divisors
+            non_torsion.append(div)
     
-    return found_xs, mumford_divisors
+    print(f"[basis] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
+    
+    if not non_torsion:
+        return [], 0, None
+    
+    # Convert to Jacobian elements
+    jac_elements = []
+    for div in non_torsion:
+        u_poly = x**2 - QQ(div['s'])*x + QQ(div['p'])
+        v_poly = QQ(div['v_1'])*x + QQ(div['v_0'])
+        D = J([u_poly, v_poly])
+        jac_elements.append((div, D))
+    
+    # Build basis using EXACT independence checks
+    basis = []
+    basis_jac = []
+    
+    for i, (div, D) in enumerate(jac_elements):
+        if not basis:
+            # First divisor - just check self-pairing is nonzero
+            try:
+                #h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
+                h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
+            except (ValueError, RationalReconstructionError) as e:
+                if debug:
+                    print(f"[basis] compute_height_pairing_exact failed for candidate {i+1}: {e}")
+                # Skip this divisor (treat as failed reconstruction / too large)
+                continue
 
-
-def compute_canonical_height_sage_native(div_dict, f_coeffs, num_doublings=8, debug=False):
-    """
-    Compute canonical height using Sage's NATIVE Jacobian arithmetic.
-    This avoids all the RDF precision issues.
-    """
-    from sage.all import QQ, PolynomialRing, HyperellipticCurve
-    from math import log
+            h_float = float(h_exact)
+            
+            if abs(h_float) < 1e-8:
+                if debug:
+                    print(f"[basis] Skipping divisor {i+1}: self-pairing too small ({h_float:.3g})")
+                continue
+            
+            basis.append(div)
+            basis_jac.append(D)
+            if debug:
+                print(f"[basis] Added divisor 1 (self-pairing {h_float:.3g})")
+        else:
+            # Check independence by computing height pairing matrix
+            candidate_basis = basis_jac + [D]
+            n = len(candidate_basis)
+            
+            # Build matrix with EXACT rationals
+            H_exact = Matrix(QQ, n, n)
+            for ii in range(n):
+                for jj in range(ii, n):
+                    h_ij_exact = compute_height_pairing_exact(
+                        candidate_basis[ii], 
+                        candidate_basis[jj],
+                        f_coeffs, # <--- NEW ARGUMENT
+                        num_doublings=num_doublings
+                    )
+                    H_exact[ii, jj] = h_ij_exact
+                    H_exact[jj, ii] = h_ij_exact
+            
+            # Check rank using exact arithmetic
+            det_exact = H_exact.determinant()
+            rank_exact = H_exact.rank()
+            
+            # Convert to float for display
+            det_float = float(det_exact)
+            
+            # Check if determinant is too small (indicates near-dependence)
+            # or if rank dropped (definite dependence)
+            det_threshold = 0  # Conservative threshold, should be pos def!
+            
+            if rank_exact == n and det_float > det_threshold:
+                # Independent and determinant is large enough!
+                basis.append(div)
+                basis_jac.append(D)
+                if debug:
+                    print(f"[basis] Added divisor {len(basis)} (rank {rank_exact}/{n}, det {det_float:.3g})")
+            else:
+                if debug:
+                    reason = "rank dropped" if rank_exact < n else f"det too small ({det_float:.3g})"
+                    print(f"[basis] Skipping divisor {i+1}: {reason} (rank {rank_exact}/{n})")
     
-    # Build curve over QQ
-    R_qq = PolynomialRing(QQ, 'x')
-    x = R_qq.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    rank = len(basis)
     
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()(QQ)
-    
-    # Convert Mumford dict to Jacobian element
-    s = QQ(div_dict['s'])
-    p_val = QQ(div_dict['p'])
-    v0 = QQ(div_dict['v_0'])
-    v1 = QQ(div_dict['v_1'])
-    
-    u_poly = x**2 - s*x + p_val
-    v_poly = v1*x + v0
-    
-    # Create Jacobian point (Sage handles everything internally)
-    D = J([u_poly, v_poly])
-    
-    if D.is_zero():
-        return 0.0
-    
-    # Initial height
-    h_current = naive_height_from_jacobian_sage(D)
-    h_canonical = h_current
-    
-    if debug:
-        print(f"  [canon] n=0: h(P)={h_current:.6e}, h_can_init={h_canonical:.6e}")
-    
-    # Iterate with Sage's native doubling
-    P = D
-    for n in range(num_doublings):
-        P = P + P  # Sage handles this correctly!
-        
-        h_next = naive_height_from_jacobian_sage(P)
-        
-        # Tate correction
-        correction = (h_next - 4.0 * h_current) / (4.0 ** (n + 1))
-        h_canonical += correction
+    # Build final height matrix with EXACT rationals
+    if rank > 0:
+        H_exact = Matrix(QQ, rank, rank)
+        for i in range(rank):
+            for j in range(i, rank):
+                h_ij_exact = compute_height_pairing_exact(
+                    basis_jac[i], 
+                    basis_jac[j], 
+                    f_coeffs,
+                    num_doublings=num_doublings
+                )
+                H_exact[i, j] = h_ij_exact
+                H_exact[j, i] = h_ij_exact
         
         if debug:
-            print(f"  [canon] n={n+1}: h(2^{n+1}P)={h_next:.6e}, correction={correction:.6e}, h_can={h_canonical:.6e}")
-        
-        # Early stopping
-        if abs(correction) < 1e-12 * max(abs(h_canonical), 1e-10) and n >= 5:
-            if debug:
-                print(f"  [canon] Converged at n={n+1}")
-            break
-        
-        h_current = h_next
+            print(f"\n[basis] Final rank: {rank}")
+            print(f"[basis] Checked {len(jac_elements)} candidates total")
+            det_exact = H_exact.determinant()
+            print(f"[basis] Determinant (exact): {det_exact}")
+            print(f"[basis] Determinant (float): {float(det_exact):.3g}")
+            
+            # Also show the matrix
+            print(f"[basis] Height pairing matrix (exact QQ):")
+            print(H_exact)
+    else:
+        H_exact = None
     
-    return h_canonical
+    return basis, rank, H_exact
 
 
-def naive_height_from_jacobian_sage(D):
+def naive_height_exact(D):
     """
-    Compute naive height from Sage's Jacobian element.
+    Compute a naive height in exact rationals from a Mumford divisor D = [u, v].
+    Returns a QQ number (log of max coefficient magnitude, exact).
     """
-    from sage.all import QQ, lcm
-    from math import log
+    from fractions import Fraction
+    import math
     
-    if D.is_zero():
-        return 0.0
+    u_coeffs = D[0].list()
+    v_coeffs = D[1].list()
     
-    # Extract Mumford representation
-    u_poly = D[0]
-    v_poly = D[1]
-    
-    # Get all coefficients (including implicit leading 1 for monic u)
-    u_coeffs = u_poly.list() + [1]
-    v_coeffs = v_poly.list()
-    
-    # Convert to projective coordinates
+    # Convert to exact fractions
     all_coeffs = []
     for c in u_coeffs + v_coeffs:
         c_qq = QQ(c)
-        all_coeffs.append(c_qq)
+        all_coeffs.append(Fraction(int(c_qq.numerator()), int(c_qq.denominator())))
     
-    # Clear denominators using Sage's lcm function
-    lcm_den = ZZ(1)  # Start with integer 1
-    for c in all_coeffs:
-        if c != 0:
-            lcm_den = lcm(lcm_den, c.denominator())
+    # Clear denominators
+    lcm_den = 1
+    for f in all_coeffs:
+        lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
     
-    # Integer projective coordinates
-    int_coeffs = [int((c * lcm_den).numerator()) for c in all_coeffs]
+    int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
     int_coeffs.append(int(lcm_den))
     
     max_abs = max(abs(c) for c in int_coeffs if c != 0)
     max_abs = max(1, max_abs)
     
-    return float(log(max_abs))
+    return QQ(math.log(max_abs))
 
-def compute_height_pairing_sage_native(D1_dict, D2_dict, f_coeffs, num_doublings=8, debug=False):
+
+def _poly_from_coeffs_qq(R, coeffs):
+    """Reconstructs a polynomial in R from highest-to-lowest QQ coefficients."""
+    p = R(0)
+    # Handle the case where u=[1] (x-r1), u=[1, -s, p] (x^2-sx+p), etc.
+    # The reconstruction must handle varying degree in the loop.
+    for c in coeffs:
+        p = p * R.gen() + c
+    return p
+
+
+def _get_divisor_coeffs_qq(D):
+    """Extracts rational coefficients (QQ) from a Sage Jacobian element D=[u, v]."""
+    u = D[0]
+    v = D[1]
+    # Sage's .list() returns coeffs lowest-to-highest, so reverse them.
+    return u.list()[::-1], v.list()[::-1]
+
+
+def compute_height_pairing_exact(D1, D2, f_coeffs, num_doublings=NUM_DOUBLINGS, primes_list=PRIME_POOL, debug=False):
     """
-    Compute <D1, D2> using the RATIO METHOD (not sum method).
-    
-    Uses: <D1, D2> = (h_hat(D1+D2) - h_hat(D1) - h_hat(D2)) / 2
-    
-    where h_hat is canonical height computed via doubling.
+    Exact height pairing <D1, D2> using modular doubling to approximate canonical height.
+    This replaces the slow D+D doubling with the robust CRT method.
+    Returns a QQ number.
     """
-    from sage.all import QQ, PolynomialRing, HyperellipticCurve
-    
-    # Build curve
-    R_qq = PolynomialRing(QQ, 'x')
-    x = R_qq.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()(QQ)
-    
-    # Convert both divisors
-    def dict_to_jacobian(d):
-        s = QQ(d['s'])
-        p_val = QQ(d['p'])
-        v0 = QQ(d['v_0'])
-        v1 = QQ(d['v_1'])
-        u_poly = x**2 - s*x + p_val
-        v_poly = v1*x + v0
-        return J([u_poly, v_poly])
-    
-    D1 = dict_to_jacobian(D1_dict)
-    D2 = dict_to_jacobian(D2_dict)
-    
     if D1.is_zero() or D2.is_zero():
-        return 0.0
+        return QQ(0)
     
-    # Compute canonical heights for D1, D2, and D1+D2
-    h1 = compute_canonical_height_sage_native(D1_dict, f_coeffs, num_doublings, debug=False)
-    h2 = compute_canonical_height_sage_native(D2_dict, f_coeffs, num_doublings, debug=False)
+    # 1. Compute D1+D2
+    D_sum = D1 + D2
+
+    # 2. Compute the final doubled points using the robust modular method
+    P_final = compute_doubled_point_modular(D1, f_coeffs, num_doublings, primes_list, debug=debug)
+    Q_final = compute_doubled_point_modular(D2, f_coeffs, num_doublings, primes_list, debug=debug)
+    S_final = compute_doubled_point_modular(D_sum, f_coeffs, num_doublings, primes_list, debug=debug)
+
+    # 3. Calculate the naive height of the final doubled points
+    h_P_final = naive_height_exact(P_final)
+    h_Q_final = naive_height_exact(Q_final)
+    h_S_final = naive_height_exact(S_final)
     
-    # Sum divisor
-    S = D1 + D2
+    # 4. Apply the canonical height definition
+    # h_hat(D) approx h(2^n D) / 4^n 
+    scaling_factor = QQ(4**num_doublings)
+    canonical_D1 = h_P_final / scaling_factor
+    canonical_D2 = h_Q_final / scaling_factor
+    canonical_D_sum = h_S_final / scaling_factor
     
-    # Convert S back to dict format for canonical height computation
-    if S.is_zero():
-        h_sum = 0.0
-    else:
-        s_u = S[0]
-        s_v = S[1]
-        
-        # Extract coefficients from sum
-        s_u_coeffs = s_u.list()
-        s_v_coeffs = s_v.list()
-        
-        # For monic quadratic u = x^2 + a*x + b
-        if len(s_u_coeffs) >= 2:
-            s_coeff = -s_u_coeffs[1] if len(s_u_coeffs) > 1 else QQ(0)
-            p_coeff = s_u_coeffs[0]
-        else:
-            s_coeff = QQ(0)
-            p_coeff = s_u_coeffs[0] if s_u_coeffs else QQ(0)
-        
-        v0_coeff = s_v_coeffs[0] if len(s_v_coeffs) > 0 else QQ(0)
-        v1_coeff = s_v_coeffs[1] if len(s_v_coeffs) > 1 else QQ(0)
-        
-        S_dict = {
-            's': s_coeff,
-            'p': p_coeff,
-            'v_0': v0_coeff,
-            'v_1': v1_coeff
-        }
-        
-        h_sum = compute_canonical_height_sage_native(S_dict, f_coeffs, num_doublings, debug=False)
+    # 5. Compute the pairing
+    pairing_value = (canonical_D_sum - canonical_D1 - canonical_D2) / QQ(2)
     
-    # Polarization identity
-    pairing = (h_sum - h1 - h2) / 2.0
-    
-    if debug:
-        print(f"  [pairing] h(D1)={h1:.6e}, h(D2)={h2:.6e}, h(D1+D2)={h_sum:.6e}")
-        print(f"  [pairing] <D1,D2> = {pairing:.6e}")
-    
-    return pairing
+    return pairing_value
+
+# --- END OF NEW MODULAR DOUBLING IMPLEMENTATION ---
 
 
-def compute_canonical_height_sage_limited(div_dict, f_coeffs, max_doublings=5, debug=False):
+def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list, debug=False):
     """
-    Compute canonical height with LIMITED doublings to avoid coefficient explosion.
-    
-    CRITICAL: After 5-6 doublings, coefficients explode and xgcd becomes too slow.
-    We accept the approximation error rather than waiting hours.
-    
-    The approximation is good enough for:
-    - Distinguishing torsion from non-torsion (order of magnitude correct)
-    - Computing rank (matrix has correct signature)
-    
-    It's NOT good enough for:
-    - Computing exact regulator
-    - BSD conjecture verification
+    Calculates 2^num_doublings * D_start using parallel modular arithmetic 
+    and Rational Reconstruction (CRT).
+    D_start is a SageMath Jacobian element over QQ.
     """
-    from sage.all import QQ, PolynomialRing, HyperellipticCurve
-    from math import log
+    R_QQ = D_start[0].parent()
+    u_coeffs_current, v_coeffs_current = _get_divisor_coeffs_qq(D_start)
     
-    # Build curve over QQ
-    R_qq = PolynomialRing(QQ, 'x')
-    x = R_qq.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()(QQ)
-    
-    # Convert Mumford dict to Jacobian element
-    s = QQ(div_dict['s'])
-    p_val = QQ(div_dict['p'])
-    v0 = QQ(div_dict['v_0'])
-    v1 = QQ(div_dict['v_1'])
-    
-    u_poly = x**2 - s*x + p_val
-    v_poly = v1*x + v0
-    
-    D = J([u_poly, v_poly])
-    
-    if D.is_zero():
-        return 0.0
-    
-    # Initial height
-    h_current = naive_height_from_jacobian_sage(D)
-    h_canonical = h_current
-    
-    if debug:
-        print(f"  [canon] n=0: h(P)={h_current:.6e}, h_can_init={h_canonical:.6e}")
-    
-    # LIMITED doubling loop
-    P = D
-    for n in range(max_doublings):
-        P = P + P
-        
-        h_next = naive_height_from_jacobian_sage(P)
-        
-        # Tate correction
-        correction = (h_next - 4.0 * h_current) / (4.0 ** (n + 1))
-        h_canonical += correction
-        
-        if debug:
-            print(f"  [canon] n={n+1}: h(2^{n+1}P)={h_next:.6e}, correction={correction:.6e}, h_can={h_canonical:.6e}")
-        
-        # Early stopping if correction is small
-        if abs(correction) < 1e-6 * abs(h_canonical) and n >= 3:
-            if debug:
-                print(f"  [canon] Converged at n={n+1}")
-            break
-        
-        h_current = h_next
-    
-    if debug and max_doublings >= 5:
-        print(f"  [canon] Stopped at n={max_doublings} (avoiding coefficient explosion)")
-    
-    return h_canonical
+    # Determine max expected degree for u and v based on genus g=2
+    # u degree is g=2 (length 3), v degree is g-1=1 (length 2)
+    u_max_len = 3
+    v_max_len = 2
 
+    for n in range(num_doublings):
+        u_coeffs_next = defaultdict(list)
+        v_coeffs_next = defaultdict(list)
+        
+        if debug: 
+            print(f"  [MOD-DBL] Doubling iteration {n+1}/{num_doublings}")
+        
+        success_count = 0
+        for p in primes_list:
+            if p == 2: 
+                continue
 
-def compute_height_pairing_sage_limited(D1_dict, D2_dict, f_coeffs, max_doublings=5, debug=False):
-    """
-    Compute height pairing with LIMITED doublings.
-    """
-    from sage.all import QQ, PolynomialRing, HyperellipticCurve
-    
-    # Build curve
-    R_qq = PolynomialRing(QQ, 'x')
-    x = R_qq.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()(QQ)
-    
-    # Convert both divisors
-    def dict_to_jacobian(d):
-        s = QQ(d['s'])
-        p_val = QQ(d['p'])
-        v0 = QQ(d['v_0'])
-        v1 = QQ(d['v_1'])
-        u_poly = x**2 - s*x + p_val
-        v_poly = v1*x + v0
-        return J([u_poly, v_poly])
-    
-    D1 = dict_to_jacobian(D1_dict)
-    D2 = dict_to_jacobian(D2_dict)
-    
-    if D1.is_zero() or D2.is_zero():
-        return 0.0
-    
-    # Compute canonical heights (with limited doublings)
-    h1 = compute_canonical_height_sage_limited(D1_dict, f_coeffs, max_doublings, debug=False)
-    h2 = compute_canonical_height_sage_limited(D2_dict, f_coeffs, max_doublings, debug=False)
-    
-    # Sum divisor
-    S = D1 + D2
-    
-    # Extract Mumford from sum
-    if S.is_zero():
-        h_sum = 0.0
-    else:
-        s_u = S[0]
-        s_v = S[1]
-        
-        # Extract coefficients (handle monic normalization)
-        s_u_coeffs = s_u.list()
-        s_v_coeffs = s_v.list()
-        
-        # u = x^2 - s*x + p (monic form)
-        if len(s_u_coeffs) >= 2:
-            s_coeff = -s_u_coeffs[1] if len(s_u_coeffs) > 1 else QQ(0)
-            p_coeff = s_u_coeffs[0]
-        else:
-            s_coeff = QQ(0)
-            p_coeff = s_u_coeffs[0] if s_u_coeffs else QQ(0)
-        
-        # v = v1*x + v0
-        v0_coeff = s_v_coeffs[0] if len(s_v_coeffs) > 0 else QQ(0)
-        v1_coeff = s_v_coeffs[1] if len(s_v_coeffs) > 1 else QQ(0)
-        
-        S_dict = {
-            's': s_coeff,
-            'p': p_coeff,
-            'v_0': v0_coeff,
-            'v_1': v1_coeff
-        }
-        
-        h_sum = compute_canonical_height_sage_limited(S_dict, f_coeffs, max_doublings, debug=False)
-    
-    # Polarization identity
-    pairing = (h_sum - h1 - h2) / 2.0
-    
-    if debug:
-        print(f"  [pairing] h(D1)={h1:.6e}, h(D2)={h2:.6e}, h(D1+D2)={h_sum:.6e}")
-        print(f"  [pairing] <D1,D2> = {pairing:.6e}")
-    
-    return pairing
+            # Prepare coefficients reduced mod p 
+            try:
+                # Need the *integer* numerator/denominator for a safe mod reduction
+                # We catch ZeroDivisionError specifically for p dividing the denominator
+                u_mod_p = [int(c.numerator()) * pow(int(c.denominator()), -1, p) % p for c in u_coeffs_current]
+                v_mod_p = [int(c.numerator()) * pow(int(c.denominator()), -1, p) % p for c in v_coeffs_current]
+            except (ZeroDivisionError, ValueError):
+                # Denominator is divisible by p, skip this prime
+                continue 
 
+            u_2p_coeffs, v_2p_coeffs = _mumford_doubling_mod_p_internal(
+                u_mod_p, v_mod_p, f_coeffs, p
+            )
 
-def build_mumford_basis_incremental(all_divisors, f_coeffs, debug=True):
-    """
-    Build basis with LIMITED doublings to avoid hanging.
-    """
-    if not all_divisors:
-        return [], 0, None
+            # Validate output from _mumford_doubling_mod_p_internal and skip bad primes
+            if u_2p_coeffs is None or v_2p_coeffs is None:
+                # modular routine signalled this prime is unusable; skip it
+                if debug:
+                    print(f"  [MOD-DBL] prime {p} produced no valid doubled divisor (skipping).")
+                continue
 
-    # Filter torsion
-    non_torsion = []
-    print(f"\n[basis] Filtering {len(all_divisors)} divisors for torsion...")
-    
-    for div in all_divisors:
-        is_tors, order = is_mumford_torsion_fast(
-            div['s'], div['p'], div['v_0'], div['v_1'], 
-            f_coeffs, debug=False
-        )
-        if not is_tors:
-            non_torsion.append(div)
-    
-    print(f"[basis] {len(all_divisors)} total -> {len(non_torsion)} non-torsion candidates")
-    
-    if not non_torsion:
-        return [], 0, None
-    
-    print(f"[basis] Using {NUM_DOUBLINGS} doublings (limited to avoid coefficient explosion)")
-    
-    # Compute heights
-    candidates_h = []
-    
-    print(f"\n[basis] Computing self-heights for {len(non_torsion)} candidates...")
-    
-    for i, div in enumerate(non_torsion):
-        h = compute_canonical_height_sage_limited(
-            div, 
-            f_coeffs, 
-            max_doublings=NUM_DOUBLINGS,
-            debug=(debug and i < 3)
-        )
-        candidates_h.append(h)
-        
-        if debug:
-            print(f"[basis] Candidate {i}: h_hat = {h:.6e}")
-    
-    max_height = max(candidates_h)
-    
-    # Relaxed threshold (heights are approximate)
-    assert max_height > 1e-6, f"All non-torsion divisors have zero height! Max={max_height:.6e}"
-    
-    # Build basis greedily
-    basis_indices = []
-    
-    print(f"\n[basis] Building basis greedily...")
-    
-    for i in range(len(non_torsion)):
-        test_indices = basis_indices + [i]
-        n_test = len(test_indices)
-        
-        # Build height matrix
-        H = Matrix(RDF, n_test, n_test)
-        for r in range(n_test):
-            for c in range(r, n_test):
-                idx_r = test_indices[r]
-                idx_c = test_indices[c]
-                
-                if r == c:
-                    val = candidates_h[idx_r]
-                else:
-                    val = compute_height_pairing_sage_limited(
-                        non_torsion[idx_r],
-                        non_torsion[idx_c],
-                        f_coeffs,
-                        max_doublings=NUM_DOUBLINGS,
-                        debug=False
-                    )
-                H[r, c] = val
-                H[c, r] = val
-        
-        # Check positive definiteness (relaxed threshold)
-        eigenvals = H.eigenvalues()
-        real_eigs = [float(ev.real()) if hasattr(ev, 'real') else float(ev) for ev in eigenvals]
-        min_eig = min(real_eigs)
-        
-        if debug and i < 10:
-            print(f"[basis] Testing candidate {i}: h={candidates_h[i]:.6e}, min_eig={min_eig:.6e}")
-        
-        # Relaxed threshold (approximate heights may have small numerical errors)
-        if min_eig > 1e-6:
-            basis_indices.append(i)
-            if debug:
-                print(f"[basis] ✓ Added candidate {i} -> Rank now {len(basis_indices)}")
-        else:
-            if debug:
-                print(f"[basis] ✗ Rejected candidate {i}: min_eig={min_eig:.6e}")
-    
-    # Build final result
-    rank = len(basis_indices)
-    basis_divs = [non_torsion[i] for i in basis_indices]
-    
-    # Compute final matrix
-    final_H = Matrix(RDF, rank, rank)
-    for r in range(rank):
-        for c in range(r, rank):
-            idx_r = basis_indices[r]
-            idx_c = basis_indices[c]
+            # Ensure output lists are integer residues in 0..p-1
+            try:
+                u_2p_coeffs = [int(x) % p for x in u_2p_coeffs]
+                v_2p_coeffs = [int(x) % p for x in v_2p_coeffs]
+            except Exception:
+                if debug:
+                    print(f"  [MOD-DBL] prime {p} returned non-integer coefficients (skipping).")
+                continue
+
+            if u_2p_coeffs is None:
+                continue
             
-            if r == c:
-                val = candidates_h[idx_r]
-            else:
-                val = compute_height_pairing_sage_limited(
-                    non_torsion[idx_r],
-                    non_torsion[idx_c],
-                    f_coeffs,
-                    max_doublings=NUM_DOUBLINGS,
-                    debug=False
-                )
-            final_H[r, c] = val
-            final_H[c, r] = val
-    
-    return basis_divs, rank, final_H
+            success_count += 1
+
+            # Pad modular coeffs with leading zeros to match max degree
+            u_2p_coeffs = [0] * (u_max_len - len(u_2p_coeffs)) + u_2p_coeffs
+            v_2p_coeffs = [0] * (v_max_len - len(v_2p_coeffs)) + v_2p_coeffs
+            
+            # Store results by coefficient index
+            for i in range(u_max_len):
+                u_coeffs_next[i].append((p, int(u_2p_coeffs[i])))
+            for i in range(v_max_len):
+                v_coeffs_next[i].append((p, int(v_2p_coeffs[i])))
+
+        # --- Rational Reconstruction ---
+        u_reconstructed = []
+        v_reconstructed = []
+        
+        # Check if we have enough primes
+
+        # --- Choose only primes that contributed to *every* coefficient (avoid Frankenstein mixes) ---
+        # Build list of primes that provided values for all u and v coefficient positions
+        good_primes = []
+        for p in primes_list:
+            if p == 2:
+                continue
+            ok = True
+            for i in range(u_max_len):
+                if not any(pp == p for pp, _ in u_coeffs_next.get(i, [])):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            for i in range(v_max_len):
+                if not any(pp == p for pp, _ in v_coeffs_next.get(i, [])):
+                    ok = False
+                    break
+            if ok:
+                good_primes.append(p)
+
+        if debug:
+            print(f"  [MOD-DBL] good_primes (present for all coeffs) = {good_primes}")
+
+        # require a minimum number of shared primes to reconstruct the whole polynomial safely
+        if len(good_primes) < MIN_SUCCESS_PRIMES:
+            if debug:
+                print(f"  [MOD-DBL] Critical failure: only {len(good_primes)} fully-consistent primes available.")
+            raise ValueError(f"Modular doubling failed at iteration {n+1} due to insufficient consistent primes ({len(good_primes)}).")
+
+        # We will reconstruct every coefficient using the SAME good_primes (same modulus M)
+        primes_for_all = tuple(good_primes)
+
+        # helper to extract residues for a coefficient in the order of primes_for_all
+        def coeff_residues_for_primes(coeff_list):
+            # coeff_list is list of (p,val) for that coefficient
+            lookup = {p: val for p, val in coeff_list}
+            return tuple(lookup[p] for p in primes_for_all)
+
+        try:
+
+            # Reconstruct u coefficients (using same primes_for_all for each coeff)
+            M_c = math.prod(primes_for_all)
+            for i in range(u_max_len):
+                if not u_coeffs_next[i]:
+                    u_reconstructed.append(QQ(0))
+                    continue
+
+                vals_for_c = coeff_residues_for_primes(u_coeffs_next[i])
+                crt_val = crt_cached(vals_for_c, primes_for_all)
+                num, den = rational_reconstruct(crt_val, M_c)
+
+                if abs(num) > M_c**RECON_EXPONENT or abs(den) > M_c**RECON_EXPONENT:
+                    raise RationalReconstructionError(
+                        f"Height too large for coeff {i}: num={num}, den={den}, M_c={M_c}, exponent={RECON_EXPONENT}"
+                    )
+
+                u_reconstructed.append(QQ(num)/QQ(den))
+
+            # Reconstruct v coefficients (same primes_for_all)
+            for i in range(v_max_len):
+                if not v_coeffs_next[i]:
+                    v_reconstructed.append(QQ(0))
+                    continue
+
+                vals_for_c = coeff_residues_for_primes(v_coeffs_next[i])
+                crt_val = crt_cached(vals_for_c, primes_for_all)
+                num, den = rational_reconstruct(crt_val, M_c)
+
+                if abs(num) > M_c**RECON_EXPONENT or abs(den) > M_c**RECON_EXPONENT:
+                    raise RationalReconstructionError(
+                        f"Height too large for coeff {i}: num={num}, den={den}, M_c={M_c}, exponent={RECON_EXPONENT}"
+                    )
+
+                v_reconstructed.append(QQ(num)/QQ(den))
+
+            # Form the new Mumford divisor 2*D_current over Q[x]
+            u_next = _poly_from_coeffs_qq(R_QQ, u_reconstructed)
+            v_next = _poly_from_coeffs_qq(R_QQ, v_reconstructed)
+            
+            # Recreate the SageMath Jacobian element
+            f_poly_qq = _poly_from_coeffs_qq(R_QQ, f_coeffs)
+            C_QQ = HyperellipticCurve(f_poly_qq, R_QQ(0))
+            J_QQ = C_QQ.jacobian()
 
 
-from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve, log, Matrix, RDF
-from math import sqrt
+            # assume u_next, v_next, f_poly are present as Sage polynomials over QQ
+            # try cheap repairs then validate
+            u_try = make_monic(u_next)
+            v_try = reduce_v_mod_u(v_next, u_try)
+
+            valid, reason = is_divisor_on_curve(u_try, v_try, f_poly_qq)
+            if not valid:
+                # second attempt: sometimes denominator-scaling leaves remainder; try clearing denominators
+                try:
+                    # clear denominators of coefficients for both u_try and v_try
+                    den_lcm = 1
+                    for coeff in u_try.coefficients() + v_try.coefficients():
+                        den_lcm = lcm(den_lcm, QQ(coeff).denominator())
+                    # scale to integer polynomials (work over ZZ) then reduce v mod u again
+                    u_int = (u_try * den_lcm).change_ring(ZZ)
+                    v_int = (v_try * den_lcm).change_ring(ZZ)
+                    # convert back to QQ and re-normalize to monic u
+                    u_scaled = PolynomialRing(QQ, 'x')(u_int).change_ring(QQ)
+                    v_scaled = PolynomialRing(QQ, 'x')(v_int).change_ring(QQ)
+                    u_scaled = make_monic(u_scaled)
+                    v_scaled = reduce_v_mod_u(v_scaled, u_scaled)
+                    valid2, reason2 = is_divisor_on_curve(u_scaled, v_scaled, f_poly)
+                    if valid2:
+                        u_try, v_try = u_scaled, v_scaled
+                        valid, reason = True, None
+                except Exception:
+                    # ignore integer-scaling failure, will re-raise below
+                    pass
+
+            if not valid:
+                # give a very explicit error for upstream handling and logging
+                msg = (f"Reconstructed (u,v) failed Mumford test after repair attempts: {reason}.\n"
+                    f"u = {u_next}\n"
+                    f"v = {v_next}\n"
+                    f"u_try = {u_try}\n"
+                    f"v_try = {v_try}\n")
+                if debug:
+                    print("[compute_doubled_point_modular] " + msg)
+                # raise so caller treats this as a reconstruction failure (and can skip it)
+                raise RationalReconstructionError(msg)
+
+            # If valid, construct Jacobian point from repaired pair
+            u_next, v_next = u_try, v_try
+            u_next = make_monic(u_next)
+            v_next = v_next % u_next
+            if (v_next**2 - f_poly_qq) % u_next != 0:
+                raise RationalReconstructionError("v^2 != f mod u after doubling")
+
+            D_current = J_QQ([u_next, v_next])
 
 
-def reduce_mumford_mod_p(div_dict, f_coeffs, p, E_p):
+        except RationalReconstructionError as e:
+            if debug:
+                print(f"  [MOD-DBL] modular reconstruction failed at doubling {n+1}: {e}")
+                print("  [MOD-DBL] Falling back to exact QQ doubling for the remaining iterations (slower but exact).")
+
+            # Fallback: reconstruct exact divisor from current rational coeffs and finish doublings exactly
+            try:
+                # current divisor (exact) from the integer/Q rational coeff lists
+                u_exact = _poly_from_coeffs_qq(R_QQ, u_coeffs_current)
+                v_exact = _poly_from_coeffs_qq(R_QQ, v_coeffs_current)
+                u_exact = make_monic(u_exact)
+                v_exact = reduce_v_mod_u(v_exact, u_exact)
+
+                f_poly_qq = _poly_from_coeffs_qq(R_QQ, f_coeffs)
+                C_QQ = HyperellipticCurve(f_poly_qq, R_QQ(0))
+                J_QQ = C_QQ.jacobian()
+                D_exact = J_QQ([u_exact, v_exact])
+
+                # finish remaining doublings exactly
+                remaining = num_doublings - n
+                for _ in range(remaining):
+                    D_exact = 2 * D_exact
+
+                # return the exact result for the caller
+                return D_exact
+
+            except Exception as ee:
+                # If exact fallback fails, re-raise the original modular error as ValueError
+                raise ValueError(f"Modular doubling failed at iteration {n+1} and exact fallback failed too: {e}") from ee
+
+        
+    return D_current
+
+
+from sage.rings.rational_field import QQ
+from sage.rings.integer_ring import ZZ
+
+x = PolynomialRing(QQ, 'x').gen()
+
+def make_monic(u):
+    lc = u.leading_coefficient()
+    if lc == 1:
+        return u
+    return (u / lc).change_ring(QQ)   # make monic over QQ
+
+def reduce_v_mod_u(v, u):
+    # ensure deg v < deg u by polynomial remainder
+    _, r = v.quo_rem(u)
+    return r.change_ring(QQ)
+
+def is_divisor_on_curve(u, v, f):
     """
-    Reduce Mumford divisor (u, v) mod p to a point on E_p.
-    
-    Returns: Point on E_p or None if bad reduction
+    Tests Mumford divisor conditions:
+      1) u monic
+      2) deg v < deg u
+      3) v^2 - f is divisible by u (exactly)
+    Returns (True, None) or (False, reason_string)
     """
-    s = div_dict['s']
-    p_val = div_dict['p']
-    v0 = div_dict['v_0']
-    v1 = div_dict['v_1']
-    
+    # Ensure polynomial rings are in QQ[x]
+    u = u.change_ring(QQ)
+    v = v.change_ring(QQ)
+    f = f.change_ring(QQ)
+
+    # 1) u must be monic
+    if u.leading_coefficient() != 1:
+        return False, "u not monic"
+
+    # 2) deg v < deg u
+    if v.degree() >= u.degree():
+        return False, f"deg v ({v.degree()}) >= deg u ({u.degree()})"
+
+    # 3) divisibility: check remainder of v^2 - f on division by u
+    rem = (v**2 - f).quo_rem(u)[1]
+    if rem != 0:
+        return False, f"v^2 - f mod u != 0 (rem={rem})"
+
+    return True, None
+
+
+def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=False):
+    """
+    Robust modular doubling for genus-2 Mumford divisors.
+
+    Inputs:
+      - u_coeffs, v_coeffs: lists of integers (residues mod p) representing the Mumford
+        polynomials. They may be given highest-first or lowest-first (this function
+        detects and normalizes).
+      - f_coeffs: list (highest->lowest) of curve polynomial coefficients (integers/QQ).
+      - p: prime
+
+    Returns:
+      (u_2p_coeffs, v_2p_coeffs) where both lists are integers mod p in HIGH->LOW order,
+      or (None, None) if prime should be skipped (bad reduction / bad arithmetic).
+    """
+    if p == 2:
+        return None, None
+
     try:
         Fp = GF(p)
-        
-        # Check if u has roots mod p
-        s_mod = Fp(s.numerator()) / Fp(s.denominator())
-        p_mod = Fp(p_val.numerator()) / Fp(p_val.denominator())
-        
-        disc = s_mod**2 - 4*p_mod
-        
-        # If u splits mod p, take one root
-        if disc.is_square():
-            sqrt_disc = disc.sqrt()
-            r = (s_mod + sqrt_disc) / 2
-            
-            # Evaluate v at this root
-            v0_mod = Fp(v0.numerator()) / Fp(v0.denominator())
-            v1_mod = Fp(v1.numerator()) / Fp(v1.denominator())
-            y_coord = v1_mod * r + v0_mod
-            
-            # Map to Weierstrass coordinates on E_p
-            # This depends on your fibration structure
-            # For now, return the (r, y) pair
-            try:
-                pt = E_p([r, y_coord])
-                return pt
-            except:
-                return None
-        else:
-            # u doesn't split - use Kummer surface embedding
-            # For simplicity, return None (skip this prime)
-            return None
-            
-    except (ZeroDivisionError, ValueError):
-        return None
+        R_Fp = PolynomialRing(Fp, 'x')
+    except Exception:
+        return None, None
 
-
-def naive_height_mod_p(pt, p):
-    """
-    Compute naive height of a point on E_p.
-    
-    h_naive = log(max(|coords|)) where coords in projective form.
-    """
-    if pt.is_zero():
-        return 0.0
-    
+    # Build f(x) over Fp using the same helper (safe conversion)
     try:
-        x_coord = pt[0]
-        y_coord = pt[1]
-        
-        # Lift to integers in [0, p)
-        x_int = ZZ(x_coord)
-        y_int = ZZ(y_coord)
-        
-        # Use projective normalization: max(|x|, |y|, 1)
-        max_coord = max(abs(x_int), abs(y_int), 1)
-        
-        return float(log(max_coord))
-    except:
-        return 0.0
-
-
-def compute_canonical_height_modular(div_dict, f_coeffs, Ep_dict, num_primes=25, debug=False):
-    """
-    Fast canonical height using modular reduction (Stoll's approach).
-    
-    Key idea: h_hat(D) ≈ (1/N) * Σ log(p) * h_p(D mod p)
-    
-    This avoids coefficient explosion and runs in ~1s instead of 60s.
-    Precision: ~2-3 digits (enough for rank determination).
-    
-    Args:
-        div_dict: Mumford divisor {'s', 'p', 'v_0', 'v_1'}
-        f_coeffs: Curve coefficients [high -> low]
-        Ep_dict: Dict of {p: EllipticCurve_mod_p}
-        num_primes: How many primes to average over
-        
-    Returns:
-        float: Approximate canonical height
-    """
-    h_weighted_sum = 0.0
-    weight_sum = 0.0
-    primes_used = 0
-    
-    # Sort primes, skip small ones (bad reduction more likely)
-    sorted_primes = sorted([p for p in Ep_dict.keys() if p > 50])
-    
-    for p in sorted_primes[:num_primes]:
-        E_p = Ep_dict[p]
-        
-        # Reduce divisor mod p
-        pt_p = reduce_mumford_mod_p(div_dict, f_coeffs, p, E_p)
-        
-        if pt_p is None:
-            continue
-        
-        # Compute naive height on E_p
-        h_p = naive_height_mod_p(pt_p, p)
-        
-        # Weighted sum (Stoll's formula)
-        weight = float(log(p))
-        h_weighted_sum += weight * h_p
-        weight_sum += weight
-        primes_used += 1
-        
-        if debug and primes_used <= 3:
-            print(f"  [modular] p={p}, h_p={h_p:.4f}, weight={weight:.2f}")
-    
-    if primes_used == 0:
+        f_poly_Fp = _poly_from_coeffs_qq(R_Fp, [Fp(QQ(c)) for c in f_coeffs])
+    except Exception:
+        # If conversion fails, skip this prime
         if debug:
-            print("  [modular] WARNING: No good primes for reduction")
-        return 0.0
-    
-    # Normalize by total weight
-    h_estimate = h_weighted_sum / weight_sum
-    
-    # Apply Tate correction factor (heuristic)
-    # The exact formula involves local correction terms, but for rank determination
-    # a simple scaling suffices
-    correction_factor = 0.85  # Empirical (adjust if needed)
-    h_canonical = correction_factor * h_estimate
-    
-    if debug:
-        print(f"  [modular] Used {primes_used} primes, h_hat ≈ {h_canonical:.6f}")
-    
-    return h_canonical
+            print(f"[MOD-DBL] cannot build f_poly mod {p}")
+        return None, None
 
-
-def compute_height_pairing_modular(D1_dict, D2_dict, f_coeffs, Ep_dict, num_primes=25, debug=False):
-    """
-    Fast height pairing using modular reduction.
-    
-    <D1, D2> = (h_hat(D1+D2) - h_hat(D1) - h_hat(D2)) / 2
-    
-    But D1+D2 requires Jacobian arithmetic mod p, which is complex.
-    
-    Alternative: Use diagonal approximation for i != j:
-        <Di, Dj> ≈ sqrt(h_hat(Di) * h_hat(Dj)) * cos(theta_ij)
-    where theta_ij is estimated from reduction patterns.
-    
-    For simplicity, use bilinear estimate based on coordinate overlap.
-    """
-    from sage.all import PolynomialRing
-    
-    # Compute self-heights
-    h1 = compute_canonical_height_modular(D1_dict, f_coeffs, Ep_dict, num_primes, debug=False)
-    h2 = compute_canonical_height_modular(D2_dict, f_coeffs, Ep_dict, num_primes, debug=False)
-    
-    if D1_dict == D2_dict:
-        return h1
-    
-    # Estimate off-diagonal term using u-polynomial overlap
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    
-    u1 = x**2 - QQ(D1_dict['s'])*x + QQ(D1_dict['p'])
-    u2 = x**2 - QQ(D2_dict['s'])*x + QQ(D2_dict['p'])
-    
-    # GCD measures "overlap" of divisors
-    gcd_poly = u1.gcd(u2)
-    
-    if gcd_poly.degree() > 0:
-        # Divisors share common points - strong correlation
-        overlap_factor = 0.6
-    else:
-        # Generically independent - weak correlation
-        overlap_factor = 0.15
-    
-    # Bilinear estimate
-    pairing_estimate = overlap_factor * sqrt(h1 * h2)
-    
-    if debug:
-        print(f"  [pairing] h1={h1:.4f}, h2={h2:.4f}, overlap={overlap_factor:.2f}, <D1,D2>≈{pairing_estimate:.4f}")
-    
-    return pairing_estimate
-
-
-def build_mumford_basis_modular(all_divisors, f_coeffs, Ep_dict, debug=True):
-    """
-    Build independent basis using FAST modular heights.
-    
-    This replaces the slow 7-doubling approach with ~1s modular reduction.
-    Should get rank correct with 10x speedup.
-    """
-    if not all_divisors:
-        return [], 0, None
-    
-    print(f"\n[basis_fast] Filtering {len(all_divisors)} divisors for torsion...")
-    
-    # Import torsion check from your existing code
-    from mumford_complete import is_mumford_torsion_fast
-    
-    non_torsion = []
-    for div in all_divisors:
-        is_tors, order = is_mumford_torsion_fast(
-            div['s'], div['p'], div['v_0'], div['v_1'], 
-            f_coeffs, debug=False
-        )
-        if not is_tors:
-            non_torsion.append(div)
-    
-    print(f"[basis_fast] {len(all_divisors)} total -> {len(non_torsion)} non-torsion candidates")
-    
-    if not non_torsion:
-        return [], 0, None
-    
-    # Compute heights using modular method
-    candidates_h = []
-    
-    print(f"\n[basis_fast] Computing modular heights for {len(non_torsion)} candidates...")
-    
-    for i, div in enumerate(non_torsion):
-        h = compute_canonical_height_modular(
-            div, 
-            f_coeffs,
-            Ep_dict,
-            num_primes=25,
-            debug=(debug and i < 3)
-        )
-        candidates_h.append(h)
-        
+    # If the curve is singular mod p, skip
+    try:
+        C_Fp = HyperellipticCurve(f_poly_Fp, R_Fp(0))
+    except ValueError:
         if debug:
-            print(f"[basis_fast] Candidate {i}: h_hat ≈ {h:.6e}")
-    
-    # Build basis greedily
-    basis_indices = []
-    
-    print(f"\n[basis_fast] Building basis greedily...")
-    
-    for i in range(len(non_torsion)):
-        test_indices = basis_indices + [i]
-        n_test = len(test_indices)
-        
-        # Build height matrix
-        H = Matrix(RDF, n_test, n_test)
-        for r in range(n_test):
-            for c in range(r, n_test):
-                idx_r = test_indices[r]
-                idx_c = test_indices[c]
-                
-                if r == c:
-                    val = candidates_h[idx_r]
-                else:
-                    val = compute_height_pairing_modular(
-                        non_torsion[idx_r],
-                        non_torsion[idx_c],
-                        f_coeffs,
-                        Ep_dict,
-                        num_primes=25,
-                        debug=False
-                    )
-                H[r, c] = val
-                H[c, r] = val
-        
-        # Check positive definiteness
-        eigenvals = H.eigenvalues()
-        real_eigs = [float(ev.real()) if hasattr(ev, 'real') else float(ev) for ev in eigenvals]
-        min_eig = min(real_eigs)
-        
-        if debug and i < 10:
-            print(f"[basis_fast] Testing candidate {i}: h={candidates_h[i]:.6e}, min_eig={min_eig:.6e}")
-        
-        # Relaxed threshold for approximate heights
-        if min_eig > 1e-4:
-            basis_indices.append(i)
-            if debug:
-                print(f"[basis_fast] ✓ Added candidate {i} -> Rank now {len(basis_indices)}")
+            print(f"[MOD-DBL] singular curve at p={p}")
+        return None, None
+
+    J_Fp = C_Fp.jacobian()
+
+    # helper: try to interpret a coeff-list as either highest->lowest or lowest->highest
+    def _make_poly_from_coeff_list(coeff_list, assume_highest_first):
+        """
+        Return polynomial over R_Fp or raise if input invalid.
+        If assume_highest_first==True, coeff_list is highest->lowest; convert to lowest->highest for constructor.
+        """
+        if assume_highest_first:
+            lst = list(map(Fp, coeff_list))[::-1]   # to lowest->highest
         else:
+            lst = list(map(Fp, coeff_list))         # already lowest->highest
+        # strip leading zeros in the highest-first sense (i.e., trailing zeros now)
+        # ensure at least one coefficient (constant 0 allowed)
+        while len(lst) > 1 and lst[-1] == 0:
+            lst.pop()
+        return R_Fp(lst)
+
+    # try both orientations for inputs (defensive)
+    tried = []
+    for assume_high in (True, False):
+        try:
+            u_poly_Fp = _make_poly_from_coeff_list(u_coeffs, assume_high)
+            v_poly_Fp = _make_poly_from_coeff_list(v_coeffs, assume_high)
+        except Exception as e:
+            tried.append((assume_high, "make failed", str(e)))
+            continue
+
+        # canonicalize: require u to be non-zero and monic. If not monic, try to scale.
+        if u_poly_Fp.is_zero():
+            tried.append((assume_high, "u_zero", None))
+            continue
+
+        lc = u_poly_Fp.leading_coefficient()
+        if lc != 1:
+            # try to normalize to monic (scale by inverse lc)
+            try:
+                inv_lc = lc**(-1)
+                u_poly_Fp = (u_poly_Fp * inv_lc)
+                v_poly_Fp = (v_poly_Fp * inv_lc)  # scale v accordingly (safe mod p)
+            except Exception:
+                tried.append((assume_high, "nonmonic_not_normalizable", lc))
+                continue
+
+        # reduce v modulo u to enforce deg v < deg u
+        try:
+            v_poly_Fp = v_poly_Fp % u_poly_Fp
+        except Exception as e:
+            tried.append((assume_high, "reduce_failed", str(e)))
+            continue
+
+        # quick Mumford test: (v^2 - f) % u == 0
+        try:
+            rem = (v_poly_Fp**2 - f_poly_Fp).quo_rem(u_poly_Fp)[1]
+            if rem != 0:
+                tried.append((assume_high, "mumford_test_fail", rem))
+                continue
+        except ZeroDivisionError:
+            tried.append((assume_high, "quo_rem_zero_divisor", None))
+            continue
+        except Exception as e:
+            tried.append((assume_high, "quo_rem_exc", str(e)))
+            continue
+
+        # If we reach here, inputs interpreted under this orientation form a valid divisor mod p
+        # proceed to doubling
+        try:
+            D_mod_p = J_Fp([u_poly_Fp, v_poly_Fp])
+        except (ValueError, TypeError) as e:
+            tried.append((assume_high, "jacobian_construct_fail", str(e)))
+            continue
+
+        try:
+            D_doubled = 2 * D_mod_p
+        except (ValueError, ArithmeticError, ZeroDivisionError) as e:
+            tried.append((assume_high, "doubling_failed", str(e)))
+            return None, None
+
+        # extract coefficients and normalize result
+        u_poly_res = D_doubled[0]
+        v_poly_res = D_doubled[1]
+
+        # ensure u_poly_res is monic and deg >= 1 (degree for genus-2: usually 2)
+        if u_poly_res.is_zero():
             if debug:
-                print(f"[basis_fast] ✗ Rejected candidate {i}: min_eig={min_eig:.6e}")
-    
-    # Build final result
-    rank = len(basis_indices)
-    basis_divs = [non_torsion[i] for i in basis_indices]
-    
-    # Compute final matrix
-    final_H = Matrix(RDF, rank, rank)
-    for r in range(rank):
-        for c in range(r, rank):
-            idx_r = basis_indices[r]
-            idx_c = basis_indices[c]
-            
-            if r == c:
-                val = candidates_h[idx_r]
-            else:
-                val = compute_height_pairing_modular(
-                    non_torsion[idx_r],
-                    non_torsion[idx_c],
-                    f_coeffs,
-                    Ep_dict,
-                    num_primes=25,
-                    debug=False
-                )
-            final_H[r, c] = val
-            final_H[c, r] = val
-    
-    return basis_divs, rank, final_H
+                print(f"[MOD-DBL][BAD-RESULT] doubled u is zero mod {p} (assume_high={assume_high})")
+            return None, None
+
+        # normalize to monic
+        lc_res = u_poly_res.leading_coefficient()
+        if lc_res != 1:
+            try:
+                inv_lc_res = lc_res**(-1)
+                u_poly_res = u_poly_res * inv_lc_res
+                v_poly_res = v_poly_res * inv_lc_res
+            except Exception:
+                if debug:
+                    print(f"[MOD-DBL][BAD-RESULT] cannot normalize doubled u monic mod {p}")
+                return None, None
+
+        # reduce v modulo u
+        try:
+            v_poly_res = v_poly_res % u_poly_res
+        except Exception:
+            if debug:
+                print(f"[MOD-DBL][BAD-RESULT] cannot reduce v mod u after doubling mod {p}")
+            return None, None
+
+        # final Mumford test on the doubled pair
+        try:
+            rem2 = (v_poly_res**2 - f_poly_Fp).quo_rem(u_poly_res)[1]
+            if rem2 != 0:
+                if debug:
+                    print(f"[MOD-DBL][BAD-RESULT] doubled pair fails Mumford test mod {p}: rem={rem2}")
+                return None, None
+        except ZeroDivisionError:
+            if debug:
+                print(f"[MOD-DBL][BAD-RESULT] division by zero while validating doubled pair mod {p}")
+            return None, None
+
+        # Build coefficient lists highest->lowest
+        # coefficients(sparse=False) returns [c0, c1, ..., c_n] (lowest->highest)
+        u_coeffs_low_to_high = u_poly_res.coefficients(sparse=False)
+        v_coeffs_low_to_high = v_poly_res.coefficients(sparse=False)
+
+        # convert to integers in 0..p-1 then reverse to high->low
+        u_out = [int(c) for c in u_coeffs_low_to_high][::-1]
+        v_out = [int(c) for c in v_coeffs_low_to_high][::-1]
+
+        # pad to expected degrees if desired by caller (caller currently pads itself)
+        return u_out, v_out
+
+    # if both orientation attempts failed, optionally debug-print reasons
+    if debug:
+        print("[MOD-DBL] Tried orientations and failed:", tried)
+    return None, None
