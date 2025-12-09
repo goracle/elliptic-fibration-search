@@ -17,7 +17,19 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, Hypere
 from sage.all import parallel
 from tqdm import tqdm
 import signal # For safe multiprocessing worker init
-
+# Near the top with other imports
+try:
+    from .arakelov import (
+        arakelov_height_pairing,
+        arakelov_build_basis,
+        arakelov_canonical_height,
+        clear_period_cache
+    )
+    ARAKELOV_AVAILABLE = True
+except ImportError:
+    ARAKELOV_AVAILABLE = False
+    print("[mumford] Warning: arakelov.py not available, using fallback methods")
+assert ARAKELOV_AVAILABLE
 
 # mumford_complete.py
 #
@@ -190,189 +202,6 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, var, SR, vector, Matrix, Hypere
 # =============================================================================
 # RECONSTRUCTION & VERIFICATION
 # =============================================================================
-
-def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
-    """
-    Reconstructs rational Mumford divisors and builds an independent basis.
-    """
-    print("\n" + "="*70)
-    print("MUMFORD RECONSTRUCTION PHASE")
-    print("="*70)
-
-    found_xs = set()
-    mumford_divisors_raw = []
-
-    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    for p in residues:
-        for v_tuple, x_res_dict in residues[p].items():
-            if isinstance(x_res_dict, list):
-                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
-            elif isinstance(x_res_dict, dict):
-                for x_res, sols in x_res_dict.items():
-                    by_vector_and_xres[v_tuple][x_res][p] = sols
-
-    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
-    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
-
-    total_attempted = 0
-    recon_success = 0
-    rejected_by_height = 0
-    rejected_by_consistency = 0
-    rejected_by_algebraic = 0
-
-    for v_tuple, xres_groups in by_vector_and_xres.items():
-        for x_res_key, prime_data in xres_groups.items():
-            primes = sorted(prime_data.keys())
-            if len(primes) < 3:
-                continue
-            
-            M = 1
-            for p in primes:
-                M *= p
-            
-            sol_lists = [prime_data[p] for p in primes]
-            # In reconstruct_and_verify_mumford
-
-            disc_deg = len(f_coeffs) - 1  # degree of the curve
-            expected_rank_upper = disc_deg - 1  # genus bound for Jacobian rank
-
-            num_primes_used = len(primes)
-
-            # Heuristic: check enough combinations to have high probability of finding
-            # all independent divisors up to the expected rank
-            base_limit = 1000000
-            per_rank_multiplier = 5000  # check more combos per expected rank unit
-            height_factor = max(1.0, log(M) / 50.0)  # larger modulus = check more
-
-            adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
-
-            if debug:
-                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
-
-            limit = adaptive_limit
-
-            for sol_combo in product(*sol_lists):
-                if limit <= 0:
-                    break
-                limit -= 1
-                total_attempted += 1
-                
-                try:
-                    rec_vals = []
-                    for idx in range(4):
-                        vals = [sol[idx] for sol in sol_combo]
-                        crt_val = crt_cached(tuple(vals), tuple(primes))
-                        num, den = rational_reconstruct(crt_val, M)
-                        
-                        max_height = max(100000, int(M ** 0.35))
-                        if abs(num) > max_height or abs(den) > max_height:
-                            raise RationalReconstructionError("Height too large")
-                        
-                        rec_vals.append(QQ(num)/QQ(den))
-                    
-                    s, p_val, v0, v1 = rec_vals
-                    
-                except RationalReconstructionError:
-                    rejected_by_height += 1
-                    #raise
-                    if debug:
-                        print("[reconstruct] RationalReconstructionError during CRT/rational_reconstruct; skipping this CRT combo.")
-                    continue
-                
-                reconstruction_ok = True
-                for i, prime in enumerate(primes):
-                    expected_sol = sol_combo[i]
-                    try:
-                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
-                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
-                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
-                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
-                    except (ZeroDivisionError):
-                        reconstruction_ok = False
-                        break
-                    
-                    if (s_mod != expected_sol[0] % prime or
-                        p_mod != expected_sol[1] % prime or
-                        v0_mod != expected_sol[2] % prime or
-                        v1_mod != expected_sol[3] % prime):
-                        reconstruction_ok = False
-                        break
-                
-                if not reconstruction_ok:
-                    rejected_by_consistency += 1
-                    continue
-                
-                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                    rejected_by_algebraic += 1
-                    continue
-                
-                mumford_divisors_raw.append({
-                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
-                })
-                recon_success += 1
-
-    print(f"  Combinations tried: {total_attempted}")
-    print(f"  Rejected by height: {rejected_by_height}")
-    print(f"  Rejected by consistency: {rejected_by_consistency}")
-    print(f"  Rejected by algebraic constraint: {rejected_by_algebraic}")
-    print(f"  Successful reconstructions: {recon_success}")
-
-    if not mumford_divisors_raw:
-        print("  WARNING: No valid Mumford divisors reconstructed!")
-        return found_xs, []
-
-    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
-
-    for div in mumford_divisors:
-        s, p_val = div['s'], div['p']
-        
-        # Check for rational roots of u(x)
-        disc = s*s - 4*p_val
-
-        if disc >= 0 and disc.is_square():
-            div['has_rational_roots'] = True
-            r1 = (s + disc.sqrt())/2
-            r2 = (s - disc.sqrt())/2
-            for r in (r1, r2):
-                x_cand = r - shift
-                if rationality_test(x_cand) is not None:
-                    found_xs.add(x_cand)
-        else:
-            div['has_rational_roots'] = False
-
-    print(f"  Unique Rational Points: {len(found_xs)}")
-    
-    if mumford_divisors:
-        rational_roots_count = sum(1 for div in mumford_divisors_raw  # <-- Use ORIGINAL list
-                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
-        print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
-        print(f"\n--- Building Independent Mumford Basis ---")
-        print("first 10 divisors:")
-        for i in mumford_divisors[:10]:
-            print(i)
-        try:
-            basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
-                mumford_divisors, 
-                f_coeffs, 
-                debug=True
-            )
-            
-            print(f"\nBasis Construction Results:")
-            print(f"  Found {basis_rank} independent divisors")
-            if basis_H is not None:
-                print(f"  Height pairing matrix:\n{basis_H}")
-                print(f"  Determinant: {basis_H.determinant()}")
-                print(f"  Determinant (float): {float(basis_H.determinant())}")
-            
-            return found_xs, basis_divisors
-        except Exception as e:
-            print(f"Basis construction failed: {e}")
-            traceback.print_exc()
-            raise
-            return found_xs, mumford_divisors
-    
-    return found_xs, mumford_divisors
 
 
 # =============================================================================
@@ -600,116 +429,6 @@ def _solve_worker_wrapper(args):
         return p, {}
 
 
-def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=8, debug=DEBUG):
-    f_coeffs = eqs_dict['f_coeffs']
-    f_coeffs_ints = [int(c) for c in f_coeffs]
-    
-    try:
-        const_val_int = int(QQ(eqs_dict['const']))
-    except:
-        const_val_int = 0
-        raise
-        
-    if debug:
-        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
-
-    tasks = []
-    
-    for p in prime_list:
-        if p not in Ep_dict:
-            continue
-        Ep = Ep_dict[p]
-        p_vecs = vecs_lll.get(p)
-        if not p_vecs:
-            continue
-        
-        try:
-            Fp = GF(p)
-            R_m = Fp['m']
-            m_var = R_m.gen()
-            rhs_poly = -m_var + Fp(const_val_int)
-        except Exception:
-            raise
-            continue
-
-        x_residues_map = {}
-        p_mults = mult_lll.get(p, {})
-        
-        for v_idx, v_tuple in enumerate(vecs_list):
-            if not v_tuple:
-                continue
-            
-            Pm = Ep(0)
-            valid_vec = True
-            v_coeffs = p_vecs[v_idx]
-
-            for i, c in enumerate(v_coeffs):
-                k = int(c)
-                if k == 0:
-                    continue
-                
-                try:
-                    mults_for_sec = p_mults[i]
-                    if k in mults_for_sec:
-                        Pm += mults_for_sec[k]
-                    else:
-                        valid_vec = False
-                        break
-                except (IndexError, KeyError, TypeError):
-                    valid_vec = False
-                    raise
-                    break
-            
-            if not valid_vec or Pm.is_zero() or Pm[2] == 0:
-                continue
-            
-            try:
-                diff = Pm[0] - Pm[2] * rhs_poly
-                diff_num = diff.numerator()
-                
-                if diff_num.is_zero():
-                    continue
-                    
-                roots = diff_num.roots(multiplicities=False)
-                
-                if roots:
-                    valid_residues = []
-                    for m_root in roots:
-                        m_val = int(m_root)
-                        x_val = (-m_val + const_val_int) % p
-                        valid_residues.append(x_val)
-                    
-                    if valid_residues:
-                        x_residues_map[v_tuple] = valid_residues
-            except Exception:
-                raise
-                continue
-            
-        if x_residues_map:
-            tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
-
-    if not tasks:
-        if debug:
-            print("[mumford] No tasks generated!")
-        return {}
-        
-    try:
-        ctx = multiprocessing.get_context("fork")
-        pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
-    except:
-        pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
-        raise
-
-    results_dict = {}
-    with pool_obj as pool:
-        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
-                                  total=len(tasks), desc="Solving Mumford Mod P"):
-            results_dict[p] = result_map
-            
-    return results_dict
-
-
 # =============================================================================
 # MANUAL HEIGHT & INDEPENDENCE CHECK (FIXED)
 # =============================================================================
@@ -894,60 +613,6 @@ def mumford_to_jacobian_element(s, p, v0, v1, C):
     except Exception:
         # re-raise so user sees the problem
         raise
-
-
-def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
-    """
-    Build Jacobian elements and compute pairing matrix H using compute_manual_height_pairing.
-    Returns (is_indep, rank, H_matrix)
-    """
-    if not divisors:
-        return True, 0, None
-
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-
-    jac_elements = []
-    for div in divisors:
-        try:
-            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
-            if not elem.is_zero():
-                jac_elements.append(elem)
-            else:
-                if debug:
-                    print("[check] element is zero, skipping.")
-        except Exception:
-            # re-raise after optional debug info
-            if debug:
-                print("[check] failed to convert divisor to jac element:", div)
-            raise
-
-    if not jac_elements:
-        return True, 0, None
-
-    n = len(jac_elements)
-    H = Matrix(RDF, n, n)
-    for i in range(n):
-        for j in range(i, n):
-            try:
-                val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
-            except Exception:
-                # Surface which pair caused trouble
-                if debug:
-                    print(f"[check] height pairing failed for indices {i},{j}")
-                raise
-            H[i, j] = val
-            H[j, i] = val
-
-    if n == 1:
-        is_indep = abs(H[0, 0]) > 1e-8
-        rank = 1 if is_indep else 0
-    else:
-        rank = H.rank()
-        is_indep = (rank == n)
-    return is_indep, rank, H
 
 
 def dbg_poly_info(poly):
@@ -1165,158 +830,6 @@ def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
             return True, n
     
     return False, None
-
-
-def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
-    """
-    Build independent basis using EXACT height pairing checks.
-    Filters out torsion divisors first.
-    Uses exact rational arithmetic throughout - no floating point.
-    
-    Args:
-        num_doublings: Number of doubling iterations for canonical height approximation.
-                      Higher = more accurate but slower. Typical values: 6-10.
-    """
-    if not all_divisors:
-        return [], 0, None
-    
-    print(f"\n[basis] Starting with {len(all_divisors)} total divisors")
-    print(f"[basis] Using {num_doublings} doublings for height pairing approximation")
-    
-    # Build curve once
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()
-    
-    # Filter out torsion
-    non_torsion = []
-    torsion_count = 0
-    
-    for div in all_divisors:
-        is_tors, order = is_mumford_torsion_fast(
-            div['s'], div['p'], div['v_0'], div['v_1'], 
-            f_coeffs, debug=False
-        )
-        
-        if is_tors:
-            torsion_count += 1
-            if debug and torsion_count <= 3:
-                print(f"[basis] Filtered torsion divisor (order {order}): {div}")
-        else:
-            non_torsion.append(div)
-    
-    print(f"[basis] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
-    
-    if not non_torsion:
-        return [], 0, None
-    
-    # Convert to Jacobian elements
-    jac_elements = []
-    for div in non_torsion:
-        u_poly = x**2 - QQ(div['s'])*x + QQ(div['p'])
-        v_poly = QQ(div['v_1'])*x + QQ(div['v_0'])
-        D = J([u_poly, v_poly])
-        jac_elements.append((div, D))
-    
-    # Build basis using EXACT independence checks
-    basis = []
-    basis_jac = []
-    
-    for i, (div, D) in enumerate(jac_elements):
-        if not basis:
-            # First divisor - just check self-pairing is nonzero
-            try:
-                #h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
-                h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
-            except (ValueError, RationalReconstructionError) as e:
-                if debug:
-                    print(f"[basis] compute_height_pairing_exact failed for candidate {i+1}: {e}")
-                # Skip this divisor (treat as failed reconstruction / too large)
-                continue
-
-            h_float = float(h_exact)
-            
-            if abs(h_float) < 1e-8:
-                if debug:
-                    print(f"[basis] Skipping divisor {i+1}: self-pairing too small ({h_float:.3g})")
-                continue
-            
-            basis.append(div)
-            basis_jac.append(D)
-            if debug:
-                print(f"[basis] Added divisor 1 (self-pairing {h_float:.3g})")
-        else:
-            # Check independence by computing height pairing matrix
-            candidate_basis = basis_jac + [D]
-            n = len(candidate_basis)
-            
-            # Build matrix with EXACT rationals
-            H_exact = Matrix(QQ, n, n)
-            for ii in range(n):
-                for jj in range(ii, n):
-                    h_ij_exact = compute_height_pairing_exact(
-                        candidate_basis[ii], 
-                        candidate_basis[jj],
-                        f_coeffs, # <--- NEW ARGUMENT
-                        num_doublings=num_doublings
-                    )
-                    H_exact[ii, jj] = h_ij_exact
-                    H_exact[jj, ii] = h_ij_exact
-            
-            # Check rank using exact arithmetic
-            det_exact = H_exact.determinant()
-            rank_exact = H_exact.rank()
-            
-            # Convert to float for display
-            det_float = float(det_exact)
-            
-            # Check if determinant is too small (indicates near-dependence)
-            # or if rank dropped (definite dependence)
-            det_threshold = 0  # Conservative threshold, should be pos def!
-            
-            if rank_exact == n and det_float > det_threshold:
-                # Independent and determinant is large enough!
-                basis.append(div)
-                basis_jac.append(D)
-                if debug:
-                    print(f"[basis] Added divisor {len(basis)} (rank {rank_exact}/{n}, det {det_float:.3g})")
-            else:
-                if debug:
-                    reason = "rank dropped" if rank_exact < n else f"det too small ({det_float:.3g})"
-                    print(f"[basis] Skipping divisor {i+1}: {reason} (rank {rank_exact}/{n})")
-    
-    rank = len(basis)
-    
-    # Build final height matrix with EXACT rationals
-    if rank > 0:
-        H_exact = Matrix(QQ, rank, rank)
-        for i in range(rank):
-            for j in range(i, rank):
-                h_ij_exact = compute_height_pairing_exact(
-                    basis_jac[i], 
-                    basis_jac[j], 
-                    f_coeffs,
-                    num_doublings=num_doublings
-                )
-                H_exact[i, j] = h_ij_exact
-                H_exact[j, i] = h_ij_exact
-        
-        if debug:
-            print(f"\n[basis] Final rank: {rank}")
-            print(f"[basis] Checked {len(jac_elements)} candidates total")
-            det_exact = H_exact.determinant()
-            print(f"[basis] Determinant (exact): {det_exact}")
-            print(f"[basis] Determinant (float): {float(det_exact):.3g}")
-            
-            # Also show the matrix
-            print(f"[basis] Height pairing matrix (exact QQ):")
-            print(H_exact)
-    else:
-        H_exact = None
-    
-    return basis, rank, H_exact
 
 
 def naive_height_exact(D):
@@ -1874,3 +1387,610 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
     if debug:
         print("[MOD-DBL] Tried orientations and failed:", tried)
     return None, None
+
+
+def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
+    """
+    Build independent basis using height pairing checks.
+    
+    Will use Arakelov heights if available, otherwise falls back to exact doubling method.
+    
+    Args:
+        num_doublings: Number of doubling iterations (only used for fallback method)
+    """
+    if ARAKELOV_AVAILABLE:
+        if debug:
+            print("[basis] Using Arakelov heights for basis construction")
+        return arakelov_build_basis(all_divisors, f_coeffs, prec=100, debug=debug)
+    else:
+        if debug:
+            print("[basis] Using exact doubling method for basis construction")
+        return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings, debug)
+
+
+def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
+    """
+    OLD METHOD: Build independent basis using EXACT height pairing checks via doubling.
+    This is the fallback when Arakelov module is not available.
+    """
+    # [Keep the entire existing implementation here - just rename the function]
+    # Copy the current build_mumford_basis_incremental body here exactly as-is
+    
+    if not all_divisors:
+        return [], 0, None
+    
+    print(f"\n[basis] Starting with {len(all_divisors)} total divisors")
+    print(f"[basis] Using {num_doublings} doublings for height pairing approximation")
+    
+    # Build curve once
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    
+    # Filter out torsion
+    non_torsion = []
+    torsion_count = 0
+    
+    for div in all_divisors:
+        is_tors, order = is_mumford_torsion_fast(
+            div['s'], div['p'], div['v_0'], div['v_1'], 
+            f_coeffs, debug=False
+        )
+        
+        if is_tors:
+            torsion_count += 1
+            if debug and torsion_count <= 3:
+                print(f"[basis] Filtered torsion divisor (order {order}): {div}")
+        else:
+            non_torsion.append(div)
+    
+    print(f"[basis] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
+    
+    if not non_torsion:
+        return [], 0, None
+    
+    # Convert to Jacobian elements
+    jac_elements = []
+    for div in non_torsion:
+        u_poly = x**2 - QQ(div['s'])*x + QQ(div['p'])
+        v_poly = QQ(div['v_1'])*x + QQ(div['v_0'])
+        D = J([u_poly, v_poly])
+        jac_elements.append((div, D))
+    
+    # Build basis using EXACT independence checks
+    basis = []
+    basis_jac = []
+    
+    for i, (div, D) in enumerate(jac_elements):
+        if not basis:
+            # First divisor - just check self-pairing is nonzero
+            try:
+                h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
+            except (ValueError, RationalReconstructionError) as e:
+                if debug:
+                    print(f"[basis] compute_height_pairing_exact failed for candidate {i+1}: {e}")
+                continue
+
+            h_float = float(h_exact)
+            
+            if abs(h_float) < 1e-8:
+                if debug:
+                    print(f"[basis] Skipping divisor {i+1}: self-pairing too small ({h_float:.3g})")
+                continue
+            
+            basis.append(div)
+            basis_jac.append(D)
+            if debug:
+                print(f"[basis] Added divisor 1 (self-pairing {h_float:.3g})")
+        else:
+            # Check independence by computing height pairing matrix
+            candidate_basis = basis_jac + [D]
+            n = len(candidate_basis)
+            
+            # Build matrix with EXACT rationals
+            H_exact = Matrix(QQ, n, n)
+            for ii in range(n):
+                for jj in range(ii, n):
+                    h_ij_exact = compute_height_pairing_exact(
+                        candidate_basis[ii], 
+                        candidate_basis[jj],
+                        f_coeffs,
+                        num_doublings=num_doublings
+                    )
+                    H_exact[ii, jj] = h_ij_exact
+                    H_exact[jj, ii] = h_ij_exact
+            
+            # Check rank using exact arithmetic
+            det_exact = H_exact.determinant()
+            rank_exact = H_exact.rank()
+            
+            # Convert to float for display
+            det_float = float(det_exact)
+            
+            det_threshold = 0
+            
+            if rank_exact == n and det_float > det_threshold:
+                basis.append(div)
+                basis_jac.append(D)
+                if debug:
+                    print(f"[basis] Added divisor {len(basis)} (rank {rank_exact}/{n}, det {det_float:.3g})")
+            else:
+                if debug:
+                    reason = "rank dropped" if rank_exact < n else f"det too small ({det_float:.3g})"
+                    print(f"[basis] Skipping divisor {i+1}: {reason} (rank {rank_exact}/{n})")
+    
+    rank = len(basis)
+    
+    # Build final height matrix with EXACT rationals
+    if rank > 0:
+        H_exact = Matrix(QQ, rank, rank)
+        for i in range(rank):
+            for j in range(i, rank):
+                h_ij_exact = compute_height_pairing_exact(
+                    basis_jac[i], 
+                    basis_jac[j], 
+                    f_coeffs,
+                    num_doublings=num_doublings
+                )
+                H_exact[i, j] = h_ij_exact
+                H_exact[j, i] = h_ij_exact
+        
+        if debug:
+            print(f"\n[basis] Final rank: {rank}")
+            print(f"[basis] Checked {len(jac_elements)} candidates total")
+            det_exact = H_exact.determinant()
+            print(f"[basis] Determinant (exact): {det_exact}")
+            print(f"[basis] Determinant (float): {float(det_exact):.3g}")
+            print(f"[basis] Height pairing matrix (exact QQ):")
+            print(H_exact)
+    else:
+        H_exact = None
+    
+    return basis, rank, H_exact
+
+def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
+    """
+    Build Jacobian elements and compute pairing matrix.
+    Uses Arakelov if available, otherwise falls back to manual method.
+    
+    Returns (is_indep, rank, H_matrix)
+    """
+    if not divisors:
+        return True, 0, None
+
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+
+    jac_elements = []
+    for div in divisors:
+        try:
+            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+            if not elem.is_zero():
+                jac_elements.append(elem)
+            else:
+                if debug:
+                    print("[check] element is zero, skipping.")
+        except Exception:
+            if debug:
+                print("[check] failed to convert divisor to jac element:", div)
+            raise
+
+    if not jac_elements:
+        return True, 0, None
+
+    n = len(jac_elements)
+    
+    if ARAKELOV_AVAILABLE:
+        if debug:
+            print("[check] Using Arakelov heights")
+        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=100, debug=debug)
+        return is_indep, rank, H
+    else:
+        if debug:
+            print("[check] Using manual height computation")
+        H = Matrix(RDF, n, n)
+        for i in range(n):
+            for j in range(i, n):
+                try:
+                    val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
+                except Exception:
+                    if debug:
+                        print(f"[check] height pairing failed for indices {i},{j}")
+                    raise
+                H[i, j] = val
+                H[j, i] = val
+
+        if n == 1:
+            is_indep = abs(H[0, 0]) > 1e-8
+            rank = 1 if is_indep else 0
+        else:
+            rank = H.rank()
+            is_indep = (rank == n)
+        return is_indep, rank, H
+
+
+# mumford_timing_additions.py
+#
+# Add these sections to mumford_complete.py to improve timing granularity
+
+import time
+
+# Add near top of file with other globals
+_MUMFORD_TIMERS = defaultdict(float)
+
+def mumford_timer_add(name, elapsed):
+    """Add time to named timer."""
+    _MUMFORD_TIMERS[name] += elapsed
+
+def mumford_timer_get(name):
+    """Get timer value."""
+    return _MUMFORD_TIMERS.get(name, 0.0)
+
+def mumford_timers_reset():
+    """Clear all timers."""
+    global _MUMFORD_TIMERS
+    _MUMFORD_TIMERS.clear()
+
+def mumford_timers_print():
+    """Print all timers sorted by time."""
+    if not _MUMFORD_TIMERS:
+        return
+    print("\n[mumford detailed timers]")
+    items = sorted(_MUMFORD_TIMERS.items(), key=lambda x: x[1], reverse=True)
+    total = sum(t for _, t in items)
+    for name, t in items:
+        pct = 100.0 * t / total if total > 0 else 0.0
+        print(f"  {name:40s}: {t:8.3f}s ({pct:5.1f}%)")
+    print(f"  {'TOTAL':40s}: {total:8.3f}s")
+
+
+# Replace reconstruct_and_verify_mumford with this instrumented version:
+
+def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
+    """
+    Reconstructs rational Mumford divisors and builds an independent basis.
+    Now with detailed timing instrumentation.
+    """
+    t_start_recon = time.time()
+    
+    print("\n" + "="*70)
+    print("MUMFORD RECONSTRUCTION PHASE")
+    print("="*70)
+
+    mumford_timers_reset()
+    
+    found_xs = set()
+    mumford_divisors_raw = []
+
+    # Group residues
+    t0 = time.time()
+    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    
+    for p in residues:
+        for v_tuple, x_res_dict in residues[p].items():
+            if isinstance(x_res_dict, list):
+                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
+            elif isinstance(x_res_dict, dict):
+                for x_res, sols in x_res_dict.items():
+                    by_vector_and_xres[v_tuple][x_res][p] = sols
+    
+    mumford_timer_add("residue_grouping", time.time() - t0)
+
+    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
+    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
+
+    total_attempted = 0
+    recon_success = 0
+    rejected_by_height = 0
+    rejected_by_consistency = 0
+    rejected_by_algebraic = 0
+
+    # CRT and reconstruction loop
+    t0 = time.time()
+    for v_tuple, xres_groups in by_vector_and_xres.items():
+        for x_res_key, prime_data in xres_groups.items():
+            primes = sorted(prime_data.keys())
+            if len(primes) < 3:
+                continue
+            
+            M = 1
+            for p in primes:
+                M *= p
+            
+            sol_lists = [prime_data[p] for p in primes]
+            
+            disc_deg = len(f_coeffs) - 1
+            expected_rank_upper = disc_deg - 1
+
+            num_primes_used = len(primes)
+
+            base_limit = 1000000
+            per_rank_multiplier = 5000
+            height_factor = max(1.0, log(M) / 50.0)
+
+            adaptive_limit = int(base_limit + expected_rank_upper * per_rank_multiplier * height_factor)
+
+            if debug:
+                print(f"  Adaptive limit: {adaptive_limit} (disc_deg={disc_deg}, expected_rank<={expected_rank_upper}, M~10^{int(log(M)/log(10))})")
+
+            limit = adaptive_limit
+
+            for sol_combo in product(*sol_lists):
+                if limit <= 0:
+                    break
+                limit -= 1
+                total_attempted += 1
+                
+                # Rational reconstruction
+                t_rr = time.time()
+                try:
+                    rec_vals = []
+                    for idx in range(4):
+                        vals = [sol[idx] for sol in sol_combo]
+                        crt_val = crt_cached(tuple(vals), tuple(primes))
+                        num, den = rational_reconstruct(crt_val, M)
+                        
+                        max_height = max(100000, int(M ** 0.35))
+                        if abs(num) > max_height or abs(den) > max_height:
+                            raise RationalReconstructionError("Height too large")
+                        
+                        rec_vals.append(QQ(num)/QQ(den))
+                    
+                    s, p_val, v0, v1 = rec_vals
+                    mumford_timer_add("rational_reconstruction", time.time() - t_rr)
+                    
+                except RationalReconstructionError:
+                    mumford_timer_add("rational_reconstruction", time.time() - t_rr)
+                    rejected_by_height += 1
+                    if debug:
+                        print("[reconstruct] RationalReconstructionError during CRT/rational_reconstruct; skipping this CRT combo.")
+                    continue
+                
+                # Consistency check
+                t_cons = time.time()
+                reconstruction_ok = True
+                for i, prime in enumerate(primes):
+                    expected_sol = sol_combo[i]
+                    try:
+                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+                    except ZeroDivisionError:
+                        reconstruction_ok = False
+                        break
+                    
+                    if (s_mod != expected_sol[0] % prime or
+                        p_mod != expected_sol[1] % prime or
+                        v0_mod != expected_sol[2] % prime or
+                        v1_mod != expected_sol[3] % prime):
+                        reconstruction_ok = False
+                        break
+                
+                mumford_timer_add("consistency_check", time.time() - t_cons)
+                
+                if not reconstruction_ok:
+                    rejected_by_consistency += 1
+                    continue
+                
+                # Algebraic verification
+                t_alg = time.time()
+                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                    mumford_timer_add("algebraic_verification", time.time() - t_alg)
+                    rejected_by_algebraic += 1
+                    continue
+                mumford_timer_add("algebraic_verification", time.time() - t_alg)
+                
+                mumford_divisors_raw.append({
+                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
+                })
+                recon_success += 1
+
+    mumford_timer_add("crt_reconstruction_loop", time.time() - t0)
+
+    print(f"  Combinations tried: {total_attempted}")
+    print(f"  Rejected by height: {rejected_by_height}")
+    print(f"  Rejected by consistency: {rejected_by_consistency}")
+    print(f"  Rejected by algebraic constraint: {rejected_by_algebraic}")
+    print(f"  Successful reconstructions: {recon_success}")
+
+    if not mumford_divisors_raw:
+        print("  WARNING: No valid Mumford divisors reconstructed!")
+        mumford_timers_print()
+        return found_xs, []
+
+    # Canonicalization
+    t0 = time.time()
+    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+    mumford_timer_add("canonicalization", time.time() - t0)
+
+    # Check for rational roots
+    t0 = time.time()
+    for div in mumford_divisors:
+        s, p_val = div['s'], div['p']
+        
+        disc = s*s - 4*p_val
+
+        if disc >= 0 and disc.is_square():
+            div['has_rational_roots'] = True
+            r1 = (s + disc.sqrt())/2
+            r2 = (s - disc.sqrt())/2
+            for r in (r1, r2):
+                x_cand = r - shift
+                if rationality_test(x_cand) is not None:
+                    found_xs.add(x_cand)
+        else:
+            div['has_rational_roots'] = False
+    
+    mumford_timer_add("rational_root_check", time.time() - t0)
+
+    print(f"  Unique Rational Points: {len(found_xs)}")
+    
+    if mumford_divisors:
+        rational_roots_count = sum(1 for div in mumford_divisors_raw
+                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
+        print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
+        print(f"\n--- Building Independent Mumford Basis ---")
+        print("first 10 divisors:")
+        for i in mumford_divisors[:10]:
+            print(i)
+        
+        try:
+            t0 = time.time()
+            basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
+                mumford_divisors, 
+                f_coeffs, 
+                debug=True
+            )
+            mumford_timer_add("basis_construction", time.time() - t0)
+            
+            print(f"\nBasis Construction Results:")
+            print(f"  Found {basis_rank} independent divisors")
+            if basis_H is not None:
+                print(f"  Height pairing matrix:\n{basis_H}")
+                print(f"  Determinant: {basis_H.determinant()}")
+                print(f"  Determinant (float): {float(basis_H.determinant())}")
+            
+            # Print detailed timing breakdown
+            mumford_timers_print()
+            
+            return found_xs, basis_divisors
+        except Exception as e:
+            print(f"Basis construction failed: {e}")
+            traceback.print_exc()
+            mumford_timers_print()
+            raise
+    
+    mumford_timers_print()
+    return found_xs, mumford_divisors
+
+
+# Also add timing to the modular residue computation:
+
+def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                                         rhs_modp_list, vecs_list, num_workers=8, debug=DEBUG):
+    """Parallel residue computation with timing."""
+    t_start = time.time()
+    
+    f_coeffs = eqs_dict['f_coeffs']
+    f_coeffs_ints = [int(c) for c in f_coeffs]
+    
+    try:
+        const_val_int = int(QQ(eqs_dict['const']))
+    except Exception:
+        const_val_int = 0
+        raise
+        
+    if debug:
+        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
+
+    t0 = time.time()
+    tasks = []
+    
+    for p in prime_list:
+        if p not in Ep_dict:
+            continue
+        Ep = Ep_dict[p]
+        p_vecs = vecs_lll.get(p)
+        if not p_vecs:
+            continue
+        
+        try:
+            Fp = GF(p)
+            R_m = Fp['m']
+            m_var = R_m.gen()
+            rhs_poly = -m_var + Fp(const_val_int)
+        except Exception:
+            raise
+            continue
+
+        x_residues_map = {}
+        p_mults = mult_lll.get(p, {})
+        
+        for v_idx, v_tuple in enumerate(vecs_list):
+            if not v_tuple:
+                continue
+            
+            Pm = Ep(0)
+            valid_vec = True
+            v_coeffs = p_vecs[v_idx]
+
+            for i, c in enumerate(v_coeffs):
+                k = int(c)
+                if k == 0:
+                    continue
+                
+                try:
+                    mults_for_sec = p_mults[i]
+                    if k in mults_for_sec:
+                        Pm += mults_for_sec[k]
+                    else:
+                        valid_vec = False
+                        break
+                except (IndexError, KeyError, TypeError):
+                    valid_vec = False
+                    raise
+                    break
+            
+            if not valid_vec or Pm.is_zero() or Pm[2] == 0:
+                continue
+            
+            try:
+                diff = Pm[0] - Pm[2] * rhs_poly
+                diff_num = diff.numerator()
+                
+                if diff_num.is_zero():
+                    continue
+                    
+                roots = diff_num.roots(multiplicities=False)
+                
+                if roots:
+                    valid_residues = []
+                    for m_root in roots:
+                        m_val = int(m_root)
+                        x_val = (-m_val + const_val_int) % p
+                        valid_residues.append(x_val)
+                    
+                    if valid_residues:
+                        x_residues_map[v_tuple] = valid_residues
+            except Exception:
+                raise
+                continue
+            
+        if x_residues_map:
+            tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
+
+    mumford_timer_add("task_generation", time.time() - t0)
+
+    if not tasks:
+        if debug:
+            print("[mumford] No tasks generated!")
+        return {}
+    
+    # Parallel solving
+    t0 = time.time()
+    try:
+        ctx = multiprocessing.get_context("fork")
+        pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
+    except Exception:
+        pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
+        raise
+
+    results_dict = {}
+    with pool_obj as pool:
+        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
+                                  total=len(tasks), desc="Solving Mumford Mod P"):
+            results_dict[p] = result_map
+    
+    mumford_timer_add("parallel_solving", time.time() - t0)
+    
+    mumford_timer_add("residue_computation_total", time.time() - t_start)
+    
+    if debug:
+        print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
+            
+    return results_dict

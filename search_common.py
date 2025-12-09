@@ -410,10 +410,10 @@ USE_MINIMAL_MODEL = False # uses the generic fiber
 USE_MINIMAL_MODEL = True # more correct, and more slow
 SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
 SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
-MOBIUS_TRANS = True # search after applying a mobius transformation to x to attempt to improve the prime content.
+MOBIUS_TRANS = True # search after applying a mobius transformation to x to attempt to improve the prime content.  generally worse.
 MOBIUS_TRANS = False
-MUMFORD_SEARCH = False
-MUMFORD_SEARCH = True # look for elements of J(C)
+MUMFORD_SEARCH = False # look for elements of J(C); only supports genus 2 right now.
+MUMFORD_SEARCH = True # look for elements of J(C); only supports genus 2 right now.
 
 AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like, for MOBIUS_TRANS mode, avoid primes
 PREFER =  {31,37,41,43,47,53}   # or {23,29} if you want to force primes upward, for MOBIUS_TRANS

@@ -13,7 +13,7 @@ found 1 / 11
 shifted G poly1: x^6 + 8*x^5 + 10*x^4 - 10*x^3 - 11*x^2 + 2*x + 1
 --- Building 2 Step Fibration Tower (deg 6 -> 4) ---
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=15.5)
+  [Step 1] Selected best geometry (Score=16.0)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
   [Step 2] Selected best geometry (Score=14.8)
 r_m -m - 1
@@ -97,8 +97,8 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=24, avg_survivors≈5.42e-07, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈5.42e-07
+[empirical_pool] start pool size=24, avg_survivors≈1.61e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 24, final_avg_survivors≈1.61e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.25, avg_density=0.0798 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -113,10 +113,10 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1078
+  NUM_PRIME_SUBSETS: 1080
   PRIME_POOL size: 24
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1078, PRIME_POOL size=24, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1080, PRIME_POOL size=24, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 24
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -252,6 +252,7 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [mumford] Generating tasks for 20 primes...
+[mumford] Residue computation took 1.03s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -278,41 +279,62 @@ first 10 divisors:
 {'vector': (2,), 's': 2, 'p': 0, 'v_0': -1, 'v_1': 10, 'has_rational_roots': True}
 {'vector': (2,), 's': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'has_rational_roots': True}
 {'vector': (2,), 's': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'has_rational_roots': True}
+[basis] Using Arakelov heights for basis construction
 
-[basis] Starting with 11 total divisors
-[basis] Using 4 doublings for height pairing approximation
-[basis] Filtered 0 torsion divisors -> 11 candidates
-[basis] Added divisor 1 (self-pairing 19.2)
-[basis] Added divisor 2 (rank 2/2, det 135)
-[basis] Added divisor 3 (rank 3/3, det 524)
-[basis] Skipping divisor 4: det too small (-4.32e+03) (rank 4/4)
-[basis] Skipping divisor 5: det too small (-2.16e+03) (rank 4/4)
-[basis] Skipping divisor 6: det too small (-1.51e+03) (rank 4/4)
-[basis] Skipping divisor 7: det too small (-360) (rank 4/4)
-[basis] Skipping divisor 8: det too small (-1.42e+03) (rank 4/4)
-[basis] Skipping divisor 9: det too small (-2.33e+03) (rank 4/4)
-[basis] Added divisor 4 (rank 4/4, det 820)
-[basis] Skipping divisor 11: det too small (-2.25e+03) (rank 5/5)
+[arakelov_parallel] Building basis from 11 divisors
+[arakelov_parallel] Using precision: 100 bits
+[arakelov_parallel] Period matrix computed
+[arakelov_parallel] Computing 11 canonical heights...
+[arakelov_parallel] Computed 10/11 heights
+[arakelov_parallel] Building basis incrementally...
+[arakelov_parallel] Added divisor 1 (self-pairing 11.9784)
+[arakelov_parallel] Added divisor 2 (rank 2, det 47.6918)
+[arakelov_parallel] Added divisor 3 (rank 3, det 72.0333)
+[arakelov_parallel] Skipping divisor 3: det non-positive. det: -2052.53
+[arakelov_parallel] Skipping divisor 4: det non-positive. det: -276.571
+[arakelov_parallel] Skipping divisor 5: det non-positive. det: -359.024
+[arakelov_parallel] Skipping divisor 6: det non-positive. det: -1035.99
+[arakelov_parallel] Skipping divisor 7: det non-positive. det: -93.9869
+[arakelov_parallel] Skipping divisor 8: det non-positive. det: -71.1578
+[arakelov_parallel] Skipping divisor 9: det non-positive. det: -122.594
+[arakelov_parallel] Added divisor 4 (rank 4, det 187.372)
 
-[basis] Final rank: 4
-[basis] Checked 11 candidates total
-[basis] Determinant (exact): 18814849148520214499956117960136385339534838364337726952276397050855473904005228435727340013511960294646158703341669027869445099779021880325857681573202024431772481/22937001998072858710653182172549785915748162421989378797811938006573000454355135015840045958090030105800297689846784149851671758847377686067892310634775183360000
-[basis] Determinant (float): 820
-[basis] Height pairing matrix (exact QQ):
-[                62286139094333347/3247506019412480   631341833891331295922097/69327428973715688028160   874994605743311562082739/86655491316887524510720    134429762870852865594251/8703474898819427594240]
-[  631341833891331295922097/69327428973715688028160                 18549178999698937/1635111401858944 -77808066885459013069285/4218266393853207994194944         386719758950292555127/53510529468372470272]
-[  874994605743311562082739/86655491316887524510720 -77808066885459013069285/4218266393853207994194944               145561250997922645/11640313353171968 1014195452309480734427777/111590023587167502709760]
-[   134429762870852865594251/8703474898819427594240         386719758950292555127/53510529468372470272 1014195452309480734427777/111590023587167502709760                 42644163689027473/3001607911857920]
+[arakelov_parallel] Final rank: 4
+[arakelov_parallel] Final determinant: 187.372
+
+[arakelov timers]
+  heights_precompute            :    0.051s
+  height_archimedean            :    0.050s
+  period_matrix_total           :    0.027s
+  basis_construction            :    0.015s
+  height_finite_places          :    0.007s
+  period_matrix_roots           :    0.007s
+  period_matrix_integration     :    0.007s
+  jacobian_conversion           :    0.006s
+  height_naive                  :    0.006s
+  height_period_matrix          :    0.000s
+  final_matrix                  :    0.000s
 
 Basis Construction Results:
   Found 4 independent divisors
   Height pairing matrix:
-[                62286139094333347/3247506019412480   631341833891331295922097/69327428973715688028160   874994605743311562082739/86655491316887524510720    134429762870852865594251/8703474898819427594240]
-[  631341833891331295922097/69327428973715688028160                 18549178999698937/1635111401858944 -77808066885459013069285/4218266393853207994194944         386719758950292555127/53510529468372470272]
-[  874994605743311562082739/86655491316887524510720 -77808066885459013069285/4218266393853207994194944               145561250997922645/11640313353171968 1014195452309480734427777/111590023587167502709760]
-[   134429762870852865594251/8703474898819427594240         386719758950292555127/53510529468372470272 1014195452309480734427777/111590023587167502709760                 42644163689027473/3001607911857920]
-  Determinant: 18814849148520214499956117960136385339534838364337726952276397050855473904005228435727340013511960294646158703341669027869445099779021880325857681573202024431772481/22937001998072858710653182172549785915748162421989378797811938006573000454355135015840045958090030105800297689846784149851671758847377686067892310634775183360000
-  Determinant (float): 820.2837123221691
+[                  5699580816132222/475823128089415  459683167730701566861921/105418362018207363082256  810077549117733578203735/141909505059120467470906 1486121525885617462711581/238408340546337808383724]
+[ 459683167730701566861921/105418362018207363082256                   3264271230471101/586160645254082   -50773843144776586480725/55636429334582673170191    26826199507600753432375/62506603360575713599524]
+[ 810077549117733578203735/141909505059120467470906   -50773843144776586480725/55636429334582673170191                 14912657279002575/2302327884040652   135631043428061852953105/33092597905712454090982]
+[1486121525885617462711581/238408340546337808383724    26826199507600753432375/62506603360575713599524   135631043428061852953105/33092597905712454090982                     610207826901901/90558447902252]
+  Determinant: 260271575844980665130048222593634781207484277878319456961079694027125408256389782366387135719266649213863324210152276197299314225222325948894023997773563958616466993428024514787055/1389063214360259068338769557485057674536420075879085228828624729962499847720714842725228809092304932711381564009275907543108950881207475620181472898556787332135825030773754064896
+  Determinant (float): 187.37201673348625
+
+[mumford detailed timers]
+  crt_reconstruction_loop                 :   49.615s ( 50.1%)
+  rational_reconstruction                 :   40.539s ( 40.9%)
+  consistency_check                       :    5.642s (  5.7%)
+  algebraic_verification                  :    3.144s (  3.2%)
+  basis_construction                      :    0.086s (  0.1%)
+  canonicalization                        :    0.000s (  0.0%)
+  residue_grouping                        :    0.000s (  0.0%)
+  rational_root_check                     :    0.000s (  0.0%)
+  TOTAL                                   :   99.027s
 
 Mumford search reconstructed 4 divisors
   4 divisors had rational roots in u(x)
@@ -320,22 +342,22 @@ printing first 5 and last 5 divisors found:
 {'vector': (2,), 's': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'has_rational_roots': True}
 {'vector': (2,), 's': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'has_rational_roots': True}
 {'vector': (2,), 's': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'has_rational_roots': True}
-{'vector': (2,), 's': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'has_rational_roots': True}
+{'vector': (2,), 's': 1/2, 'p': -3, 'v_0': 13/2, 'v_1': 25/4, 'has_rational_roots': True}
 [...]
 {'vector': (2,), 's': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'has_rational_roots': True}
 {'vector': (2,), 's': 7/4, 'p': -1/2, 'v_0': 17/8, 'v_1': 135/16, 'has_rational_roots': True}
 {'vector': (2,), 's': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'has_rational_roots': True}
-{'vector': (2,), 's': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'has_rational_roots': True}
+{'vector': (2,), 's': 1/2, 'p': -3, 'v_0': 13/2, 'v_1': 25/4, 'has_rational_roots': True}
 Mumford search found 8 rational points
 rational points found:
 {0, 1, 2, -3/2, 1/3, -1/4, -2, -1}
-Total time: 60.73s
+Total time: 51.14s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 59.28s
+  mumford_reconstruction   : 49.70s
   mumford_residues         : 1.03s
-  prep_mod_data            : 0.42s
+  prep_mod_data            : 0.41s
   mumford_setup            : 0.00s
 
 Counters:
@@ -419,7 +441,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 8
-Total time: 63.6s
+Total time: 54.3s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -540,13 +562,13 @@ new x: -2
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 64.22s
+Total time: 54.86s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 59.28s
+  mumford_reconstruction   : 49.70s
   mumford_residues         : 1.03s
-  prep_mod_data            : 0.42s
+  prep_mod_data            : 0.41s
   mumford_setup            : 0.00s
 
 Counters:
