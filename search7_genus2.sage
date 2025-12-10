@@ -52,7 +52,7 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
     G = sum(a * R_x.gen()**(len(sextic_coeffs)-1-i) for i, a in enumerate(sextic_coeffs))
 
     if verbose:
-        print(f"hyper elliptic curve: y^2(x) = {G}")
+        print(f"hyper elliptic curve: y^2 = {G}")
 
     # Find all rational roots
     rational_roots = G.roots(QQ, multiplicities=False)
