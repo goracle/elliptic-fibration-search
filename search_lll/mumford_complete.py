@@ -2256,13 +2256,13 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
             print("[basis] Using Arakelov heights for basis construction")
         
         # INCREASED DEFAULT PRECISION to prevent false rank increases
-        prec = 800
+        prec = 2048
         max_attempts = 2
         
         for attempt in range(max_attempts):
             try:
                 # Use the parallel version which has the new checks
-                result = arakelov_build_basis_parallel(all_divisors, f_coeffs, prec=prec, debug=debug)
+                result = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=2048, debug=True)
                 return result
             except Exception as e:
                 if attempt < max_attempts - 1:

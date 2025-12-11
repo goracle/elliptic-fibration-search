@@ -491,8 +491,8 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
         B[0, j], B[1, j] = integrate_chain(B_final[j], f_coeffs, nodes, CC, tiny, max_depth)
     
     if verbose:
-        print("A matrix:", A)
-        print("B matrix:", B)
+        #print("A matrix:", A)
+        #print("B matrix:", B)
         try:
             print(f"det(A) magnitude: {float(abs(A.det())):.6e}")
         except Exception:
