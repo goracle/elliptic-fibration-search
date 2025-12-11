@@ -113,8 +113,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=42, avg_survivors≈1.16e-05, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈1.16e-05
+[empirical_pool] start pool size=42, avg_survivors≈8.26e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈8.26e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.29, avg_density=0.0960 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -303,7 +303,7 @@ Skipping prime 3: fiber collision detected (gcd degree=9)
   p=2: singular_discriminant
   p=3: fiber_collision_deg_9
 [mumford] Generating tasks for 40 primes...
-[mumford] Residue computation took 2.25s
+[mumford] Residue computation took 2.28s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -320,7 +320,7 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
     Found 8 candidates from first 2 primes (tried 416)
     Prime 41: 84 → 8 sols (9.5%)
     Prime 107: 216 → 8 sols (3.7%)
-  Pre-filtering took 0.07s
+  Pre-filtering took 0.09s
   Filtered combinations: 26,624 (283.5x reduction)
   Adaptive limit: 26,624
     (rank≤4, avg_sols=14.5, n_primes=4, density=1.45)
@@ -336,7 +336,7 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
     Found 8 candidates from first 2 primes (tried 416)
     Prime 41: 84 → 8 sols (9.5%)
     Prime 131: 258 → 8 sols (3.1%)
-  Pre-filtering took 0.08s
+  Pre-filtering took 0.11s
   Filtered combinations: 26,624 (338.6x reduction)
   Adaptive limit: 26,624
     (rank≤4, avg_sols=14.5, n_primes=4, density=1.45)
@@ -367,16 +367,21 @@ first 10 divisors:
 [arakelov_parallel] Building basis from 11 divisors
 [arakelov_parallel] Using precision: 800 bits (Tanh-Sinh)
 f_coeffs [1, -12, 30, 2, -15, 2, 1]
-Found 4 real roots (of 6 total)
-Im(τ) eigenvalues: [2.3352926266740357, -0.36380986791820574]
-[arakelov_parallel] Period matrix failed: Failed all 1 cut strategies. Last error: None
+Polynomial degree: 6, expected genus: 2
+Obtained homology cycles (A and B).
+Intersection matrix A·B:
+[0 0]
+[0 0]
+[arakelov_parallel] Period matrix failed: [0 0]
+[0 0]
 [basis] Attempt 1 failed with prec=800, retrying with prec=1600
-Basis construction failed: Failed all 1 cut strategies. Last error: None
+Basis construction failed: [0 0]
+[0 0]
 
 [mumford detailed timers]
-  crt_reconstruction_loop                 :   16.425s ( 99.1%)
-  prefiltering                            :    0.153s (  0.9%)
+  crt_reconstruction_loop                 :   17.032s ( 98.8%)
+  prefiltering                            :    0.203s (  1.2%)
   canonicalization                        :    0.001s (  0.0%)
   residue_grouping                        :    0.000s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   16.579s
+  TOTAL                                   :   17.237s
