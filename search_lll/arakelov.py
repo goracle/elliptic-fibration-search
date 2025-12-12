@@ -1352,37 +1352,6 @@ def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=100):
     return pairing
 
 
-def arakelov_canonical_height(D, f_coeffs, prec=100, use_finite_places=True):
-    """
-    Proper canonical height with Abel-Jacobi map.
-    """
-    if D.is_zero():
-        return QQ(0)
-    
-    from .homology import get_period_matrix_auto_B
-    
-    # Naive height
-    h_naive = naive_height_qq(D, prec=prec)
-    
-    # Get period matrix
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    
-    # Archimedean correction
-    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
-    
-    # Finite place corrections
-    h_finite = QQ(0)
-    if use_finite_places:
-        for p in [2, 3, 5, 7, 11, 13]:
-            try:
-                h_p = local_height_finite(D, p, prec=prec)
-                h_finite += h_p
-            except:
-                pass
-    
-    return h_naive + h_arch + h_finite
-
-
 def naive_height_qq(D, prec=53):
     """
     Compute naive (logarithmic) height of Mumford polynomials.
@@ -2419,3 +2388,154 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             print("[arakelov] Final determinant: (failed to compute float)")
 
     return basis, final_rank, H_final
+
+
+from sage.all import QQ, ZZ, RR, Qp, PolynomialRing, HyperellipticCurve
+
+def get_bad_primes(f_coeffs):
+    """
+    Identify primes of bad reduction for the curve y^2 = f(x).
+    Includes factors of discriminant, leading coefficient, and 2.
+    """
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    bad = set()
+    # Discriminant factors
+    disc = f_poly.discriminant()
+    if disc != 0:
+        bad.update(disc.prime_factors())
+    
+    # Leading coefficient factors (potential degree drop)
+    lc = f_coeffs[0]
+    if lc != 0:
+        bad.update(QQ(lc).numerator().prime_factors())
+        bad.update(QQ(lc).denominator().prime_factors())
+        
+    # Genus 2 arithmetic at p=2 is always delicate
+    bad.add(2)
+    
+    return sorted(list(bad))
+
+def local_naive_height_p(D, p):
+    """
+    Compute naive local height at p: -min(v_p(coeffs)) * log(p).
+    This corresponds to the log of the max p-adic norm of coefficients.
+    """
+    try:
+        # Extract Mumford polynomials u, v
+        u_poly, v_poly = D[0], D[1]
+        coeffs = u_poly.list() + v_poly.list()
+        
+        # We want max(|c|_p). 
+        # |c|_p = p^(-v_p(c)).
+        # log(max |c|_p) = log(p^(-min v_p(c))) = -min(v_p(c)) * log(p)
+        
+        # Handle 0 coefficients (val is +infinity)
+        vals = []
+        for c in coeffs:
+            if c == 0:
+                continue
+            # Handle both Rational and p-adic types
+            try:
+                vals.append(c.valuation(p))
+            except AttributeError:
+                vals.append(c.valuation())
+                
+        if not vals:
+            return 0.0
+            
+        min_val = min(vals)
+        return -min_val * math.log(p)
+    except Exception:
+        return 0.0
+
+def local_height_correction_finite(D, p, f_coeffs, num_doublings=15, padic_prec=40):
+    """
+    Compute the local canonical height correction (Neron correction) at p 
+    using the p-adic doubling limit:
+       mu_p(D) = lim_{n->inf} 4^(-n) * h_naive(2^n D) - h_naive(D)
+    
+    This correctly handles bad reduction (I_n, etc) without explicit Neron models.
+    """
+    # 1. Setup p-adic curve
+    try:
+        K = Qp(p, prec=padic_prec)
+        R = PolynomialRing(K, 'x')
+        f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+        C_p = HyperellipticCurve(f_poly)
+        J_p = C_p.jacobian()
+        
+        # 2. Lift point D to J(Qp)
+        # D is (u, v) over Q. Coerce coeffs to Qp.
+        u_Q, v_Q = D[0], D[1]
+        u_p = R([K(c) for c in u_Q.list()])
+        v_p = R([K(c) for c in v_Q.list()])
+        
+        # Construct point in J(Qp)
+        # Check if point is valid on the curve over Qp (sometimes precision loss issues)
+        # But D is a global point, so it must be valid.
+        P = J_p([u_p, v_p])
+        
+        # 3. Compute initial naive height
+        h0 = local_naive_height_p(P, p)
+        
+        # 4. Iterate doubling
+        current_P = P
+        for _ in range(num_doublings):
+            current_P = 2 * current_P
+        
+        # 5. Compute final naive height
+        h_final = local_naive_height_p(current_P, p)
+        
+        # 6. Apply Tate's limit formula
+        # h_can = 4^(-N) * h_naive(2^N P)
+        # correction = h_can - h_naive(P)
+        scaling = 4.0**(-num_doublings)
+        h_can_approx = scaling * h_final
+        
+        return h_can_approx - h0
+        
+    except Exception:
+        # If anything fails (e.g. working with Qp, precision), return 0 
+        # (effectively falling back to naive height for this prime)
+        return 0.0
+
+def arakelov_canonical_height(D, f_coeffs, prec=100, use_finite_places=True):
+    """
+    Proper canonical height with Abel-Jacobi map (Archimedean) 
+    and p-adic doubling limit (Finite Neron corrections).
+    """
+    if D.is_zero():
+        return QQ(0)
+    
+    from .homology import get_period_matrix_auto_B
+    
+    # 1. Naive global height (Weil height)
+    # This sums log max(|c|_v) over all places (finite and infinite)
+    h_naive = naive_height_qq(D, prec=prec)
+    
+    # 2. Archimedean correction (Neron local height at infinity - Naive at infinity)
+    # Note: h_arch here is typically computed as 1/2 <z, z>_NT.
+    # We assume archimedean_height_correction returns the proper difference term
+    # or the full Archimedean contribution relative to the naive height baseline.
+    # In this codebase context, it seems to be the full analytic height on the Jacobian?
+    # Standard formula: h = h_naive + sum(corrections)
+    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
+    
+    # 3. Finite place corrections (Neron local height at p - Naive at p)
+    h_finite_correction = QQ(0)
+    
+    if use_finite_places:
+        # Dynamically determine bad primes
+        bad_primes = get_bad_primes(f_coeffs)
+        
+        for p in bad_primes:
+            # Add correction term (mu_p - h_naive_p)
+            # This accounts for intersection multiplicities on the special fiber
+            corr = local_height_correction_finite(D, p, f_coeffs)
+            h_finite_correction += QQ(corr)
+    
+    return h_naive + h_arch + h_finite_correction

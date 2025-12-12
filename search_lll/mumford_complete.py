@@ -44,7 +44,7 @@ assert ARAKELOV_AVAILABLE
 
 # Add near module globals / top of file
 RECON_EXPONENT = 0.55   # try 0.55 - 0.6 if 0.45 is too strict; lower to 0.45 if you want stricter check
-MIN_SUCCESS_PRIMES = 5  # keep 3 as default; you can lower to 2 if necessary but be conservative
+MIN_SUCCESS_PRIMES = 3  # keep 3 as default; you can lower to 2 if necessary but be conservative
 
 
 def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
@@ -2026,8 +2026,21 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
         return found_xs, []
 
     t0 = time.time()
-    mumford_divisors = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+    mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
     mumford_timer_add("canonicalization", time.time() - t0)
+
+    mumford_divisors = []
+    for i, divi in enumerate(mumford_divisors_raw):
+        is_dep = False
+        for j, divj in enumerate(mumford_divisors_raw):
+            if i <= j:
+                continue
+            if quick_dependence_check(divi, divj):
+                is_dep = True
+        if not is_dep:
+            mumford_divisors.append(divi)
+
+    # Remove divisors whose negatives are already present (same u, opposite v)
 
     t0 = time.time()
     for div in mumford_divisors:
@@ -2607,20 +2620,14 @@ def _rational_is_square(q):
         return True, QQ(s_num) / QQ(s_den)
     return False, None
 
+
 def canonicalize_and_dedup(divisors, f_coeffs):
     """
     Replace existing dedup: handle split-u correctly by using sign-pairs at rational roots.
-
-    Input:
-        divisors: iterable of dicts {'s','p','v_0','v_1'}
-        f_coeffs: list highest->lowest (same format as module)
-
-    Returns:
-        deduplicated list of divisor dicts (canonicalized in-place).
+    Also handles double-root case (disc=0).
     """
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
-    # Build f polynomial in same ring for evaluations
     f_poly = R(0)
     for c in f_coeffs:
         f_poly = f_poly * x + QQ(c)
@@ -2631,9 +2638,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
     for tup in divisors:
         s_raw, p_raw, v0_raw, v1_raw = tup['s'], tup['p'], tup['v_0'], tup['v_1']
 
-        # Algebraic verification: keep existing safeguard
         if not verify_mumford_pair(f_coeffs, s_raw, p_raw, v0_raw, v1_raw, modulus=None):
-            # skip invalid reconstructed pair
             continue
 
         s_q = QQ(s_raw)
@@ -2641,20 +2646,55 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         v0_q = QQ(v0_raw)
         v1_q = QQ(v1_raw)
 
-        # discriminant
         disc = s_q * s_q - 4 * p_q
 
-        if disc >= 0 and disc.is_square():
-            # split u -> get exact rational roots
+        if disc == 0:
+            # DOUBLE ROOT CASE: u(x) = (x - r)^2 where r = s/2
+            r_double = s_q / QQ(2)
+            
+            # v(r) = v1*r + v0
+            vr = v1_q * r_double + v0_q
+            
+            # f(r) must be a rational square
+            fr = f_poly(r_double)
+            ok, sqrt_fr = _rational_is_square(fr)
+            
+            if not ok:
+                raise ValueError(f"Expected f(root) to be rational square for double root but got: f({r_double})={fr}")
+            
+            # Determine sign
+            if vr == sqrt_fr:
+                sig = +1
+            elif vr == -sqrt_fr:
+                sig = -1
+            else:
+                raise ValueError(f"v(r_double) not equal to ±sqrt(f(r_double)): v({r_double})={vr}, sqrt={sqrt_fr}")
+            
+            # Normalize: prefer v1>=0 or (v1==0 and v0>=0)
+            if v1_q < 0 or (v1_q == 0 and v0_q < 0):
+                v0_q = -v0_q
+                v1_q = -v1_q
+                sig = -sig
+            
+            key = ('double', QQ(s_q), QQ(p_q), int(sig))
+            
+            if key not in seen:
+                seen[key] = True
+                tup['s'] = QQ(s_q)
+                tup['p'] = QQ(p_q)
+                tup['v_0'] = QQ(v0_q)
+                tup['v_1'] = QQ(v1_q)
+                tup['has_rational_roots'] = True
+                out.append(tup)
+
+        elif disc > 0 and disc.is_square():
+            # SPLIT CASE: two distinct rational roots
             r_plus = (s_q + disc.sqrt()) / QQ(2)
             r_minus = (s_q - disc.sqrt()) / QQ(2)
 
-            # evaluate v at the two roots
-            # v(r) = v1 * r + v0
             vr_plus = v1_q * r_plus + v0_q
             vr_minus = v1_q * r_minus + v0_q
 
-            # evaluate f at roots (should be rational squares if verify passed)
             fa_plus = f_poly(r_plus)
             fa_minus = f_poly(r_minus)
 
@@ -2662,16 +2702,13 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             ok_minus, sqrt_minus = _rational_is_square(fa_minus)
 
             if not ok_plus or not ok_minus:
-                # If the curve evaluation is not a rational square something is inconsistent
                 raise ValueError(f"Expected f(root) to be rational square for split-u but got non-square: f({r_plus})={fa_plus}, f({r_minus})={fa_minus}")
 
-            # Determine sign at each root: compare vr to ±sqrt
             if vr_plus == sqrt_plus:
                 sig_plus = +1
             elif vr_plus == -sqrt_plus:
                 sig_plus = -1
             else:
-                # If neither ±sqrt, the pair is invalid (shouldn't happen after verify_mumford_pair)
                 raise ValueError(f"v(r_plus) not equal to ±sqrt(f(r_plus)): v({r_plus})={vr_plus}, sqrt={sqrt_plus}")
 
             if vr_minus == sqrt_minus:
@@ -2683,18 +2720,10 @@ def canonicalize_and_dedup(divisors, f_coeffs):
 
             key = ('split', QQ(s_q), QQ(p_q), int(sig_plus), int(sig_minus))
 
-            # Canonical representative: reconstruct the unique linear v with those sign choices
-            # Solve for linear v(x) = alpha*x + beta with values at r_plus, r_minus:
-            #   alpha*r_plus + beta = sig_plus * sqrt_plus
-            #   alpha*r_minus + beta = sig_minus * sqrt_minus
-            # Solve 2x2 exactly:
             denom = r_plus - r_minus
-            if denom == 0:
-                raise ValueError("Unexpected double root while handling split-u canonicalization.")
             alpha = ( (sig_plus * sqrt_plus) - (sig_minus * sqrt_minus) ) / denom
             beta = (sig_plus * sqrt_plus) - alpha * r_plus
 
-            # Normalize sign convention for storage: prefer v1>=0 or (v1==0 and v0>=0)
             if alpha < 0 or (alpha == 0 and beta < 0):
                 alpha = -alpha
                 beta = -beta
@@ -2712,7 +2741,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 out.append(tup)
 
         else:
-            # irreducible u: fallback to original ± normalization of v
+            # IRREDUCIBLE CASE
             s1, p1, v01, v11 = _normalize_sign(s_q, p_q, v0_q, v1_q)
             key = ('irr', QQ(s1), QQ(p1), QQ(v01), QQ(v11))
             if key not in seen:
@@ -2722,3 +2751,23 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 out.append(tup)
 
     return out
+
+
+def quick_dependence_check(div1, div2):
+    """Check if two divisors with same u are dependent"""
+    if (div1['s'], div1['p']) != (div2['s'], div2['p']):
+        return False  # different u
+    
+    # Same u - check if v1 ≡ ±v2 (mod u)
+    # For Mumford rep: v(x) = v_1*x + v_0
+    # Check: (v1_1*x + v1_0) ≡ ±(v2_1*x + v2_0) (mod u(x))
+    
+    # Simplest: just check if coefficients are ± each other
+    if (div1['v_0'] == div2['v_0'] and div1['v_1'] == div2['v_1']):
+        return True  # identical
+    if (div1['v_0'] == -div2['v_0'] and div1['v_1'] == -div2['v_1']):
+        return True  # negatives
+    
+    return False  # might still be dependent, but not obviously
+
+

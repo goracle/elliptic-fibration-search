@@ -144,7 +144,6 @@ TERMINATE_WHEN = 4
 # --- Configuration, deg x = 6---
 # y^2 = a0*x^6 + a1*x^5 + ... + a6
 # old curves
-COEFFS_GENUS2 = [QQ(4), QQ(-8), QQ(-20), QQ(0), QQ(16), QQ(8), QQ(1)]
 COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(5), QQ(6), QQ(5), QQ(2), QQ(1)]
 COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(7), QQ(6), QQ(-3), QQ(-8), QQ(-4)]
 
@@ -155,10 +154,6 @@ DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
 # # doesn't find y=0 point... added a special function to find these...maybe ok...
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-4), QQ(10), QQ(-24), QQ(24), QQ(-7)]
-DATA_PTS_GENUS2 = [QQ(2)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(12), QQ(16), QQ(-12), QQ(-20), QQ(12)]
 DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
 TERMINATE_WHEN_6 = 2
@@ -185,10 +180,6 @@ DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
 
 COEFFS_GENUS2 = [QQ(1), QQ(6), QQ(10), QQ(7), QQ(1), QQ(0)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
 
@@ -315,15 +306,6 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 2
 
-db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-
-COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
 
 db_entry = '9997263:3332421:[x^7+x^6-4*x^5-2*x^4+x^3-x,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
@@ -341,15 +323,16 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 3
 
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
 db_entry = '9995456:2498864:[2*x^7-4*x^6-5*x^5+10*x^4+5*x^3-8*x^2-3*x+1,x^2+x]'
 db_entry = '9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 5
+
+db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
+COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values
+TERMINATE_WHEN_6 = 3
 
 
 COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
@@ -366,6 +349,31 @@ COEFFS_GENUS2 = [QQ(4), QQ(-12), QQ(16), QQ(-8), QQ(-3), QQ(4), QQ(0)] # rank 2
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
 
+# $y^2 = 4x^6 + 9x^4 - 4x^3 + 2x^2 - 4x + 1$ # rank 2
+COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(9), QQ(-4), QQ(2), QQ(-4), QQ(1)] # rank 2
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
+COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 4
+
+COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-4), QQ(10), QQ(-24), QQ(24), QQ(-7)]
+DATA_PTS_GENUS2 = [QQ(2)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
+COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 4
+
+COEFFS_GENUS2 = [QQ(4), QQ(-8), QQ(-20), QQ(0), QQ(16), QQ(8), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
+
+COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
+
 
 ##### END TEST CURVES ######
 
@@ -373,12 +381,12 @@ TERMINATE_WHEN_6 = 3
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
 NUM_DOUBLINGS = 30 # for mumford height pairing independence test
-HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
+HEIGHT_BOUND = 4*370 # not that important, mostly, it seems
 # prime config
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(190))   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(190))[3:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
