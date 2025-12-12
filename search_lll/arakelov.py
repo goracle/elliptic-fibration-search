@@ -15,8 +15,8 @@ from sage.all import parallel
 import time
 from collections import defaultdict
 from .homology import *
+from search_common import *
 
-DEBUG = True
 # Global cache for period matrices
 _PERIOD_MATRIX_CACHE = {}
 
@@ -54,18 +54,6 @@ def compute_height_worker(div_data):
     except Exception:
         raise
         return idx, None
-
-
-# arakelov_optimized.py
-#
-# Optimized Arakelov height computations
-# Same function names as original for dedup.py compatibility
-
-
-# arakelov.py
-#
-# Arakelov height computations for genus-2 hyperelliptic Jacobian elements.
-# Faster and more reliable than repeated doubling for height pairings.
 
 
 def arakelov_build_basis(all_divisors, f_coeffs, prec=300, debug=False):
@@ -216,11 +204,6 @@ def arakelov_build_basis(all_divisors, f_coeffs, prec=300, debug=False):
     
     return basis, final_rank, H_final
 
-
-# arakelov.py
-#
-# Arakelov height computations for genus-2 hyperelliptic Jacobian elements.
-# Faster and more reliable than repeated doubling for height pairings.
 
 from sage.all import QQ, ZZ, RR, CC, RDF, CDF, ComplexField, log, sqrt, exp, pi, I, sinh, cosh, tanh
 
@@ -1819,10 +1802,15 @@ def abel_jacobi_mumford(
         # At this point y_pt is the target y at x_pt we will pass to integrator.
         # Integrate two differentials: 1/(2y) and x/(2y)
         try:
-            int0 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
+            #int0 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
+            #                      use_x_weight=False, prec=prec, debug=debug)
+            #int1 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
+            #                      use_x_weight=True, prec=prec, debug=debug)
+            int0 = integrate_func(base_x, x_pt_cc, base_y, y_pt, f_coeffs,
                                   use_x_weight=False, prec=prec, debug=debug)
-            int1 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
+            int1 = integrate_func(base_x, x_pt_cc, base_y, y_pt, f_coeffs,
                                   use_x_weight=True, prec=prec, debug=debug)
+
         except TypeError:
             # If integrate_func doesn't accept debug/prec/use_x_weight keywords in that order,
             # fall back to positional call (older integrator signature)
@@ -2254,7 +2242,7 @@ def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
     
     return pairing
 
-def local_height_correction_finite(D, p, f_coeffs, num_doublings=30, padic_prec=600):
+def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=1024):
     """
     Compute the local canonical height correction (Neron correction) at p 
     using the p-adic doubling limit:
@@ -2312,3 +2300,297 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=30, padic_prec=
         # (effectively falling back to naive height for this prime)
         raise # ffs, do not return 0.0 lol
         return 0.0
+
+
+def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
+    """
+    Compute the local canonical height correction (Neron correction) at p 
+    using the p-adic doubling limit:
+       mu_p(D) = lim_{n->inf} 4^(-n) * h_naive(2^n D) - h_naive(D)
+    
+    This correctly handles bad reduction (I_n, etc) without explicit Neron models.
+    """
+    # Rule of thumb: need ~num_doublings extra precision per doubling
+    # Start with much higher precision than you think you need
+    if padic_prec is None:
+        padic_prec = max(2048, 100 * num_doublings)
+    
+    # 1. Setup p-adic curve
+    try:
+        K = Qp(p, prec=padic_prec)
+        R = PolynomialRing(K, 'x')
+        f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+        C_p = HyperellipticCurve(f_poly)
+        J_p = C_p.jacobian()
+        
+        # 2. Lift point D to J(Qp)
+        u_Q, v_Q = D[0], D[1]
+        u_p = R([K(c) for c in u_Q.list()])
+        v_p = R([K(c) for c in v_Q.list()])
+        
+        P = J_p([u_p, v_p])
+        
+        # 3. Compute initial naive height
+        h0 = local_naive_height_p(P, p)
+        
+        # 4. Iterate doubling with precision monitoring
+        current_P = P
+        for i in range(num_doublings):
+            if current_P.is_zero():
+                return -h0
+            
+            # Check if we still have meaningful precision before doubling
+            # Get the leading coefficient precision
+            u_poly = current_P[0]
+            if u_poly != 0:
+                # Check precision of leading coefficient
+                leading_coeff = u_poly.leading_coefficient()
+                if hasattr(leading_coeff, 'precision_absolute'):
+                    prec_remaining = leading_coeff.precision_absolute()
+                    if prec_remaining < 10:  # Too little precision left
+                        # Bail out early and use what we have
+                        h_final = local_naive_height_p(current_P, p)
+                        scaling = 4.0**(-i)  # Use current iteration count
+                        h_can_approx = scaling * h_final
+                        return h_can_approx - h0
+            
+            current_P = 2 * current_P
+        
+        # 5. Compute final naive height
+        h_final = local_naive_height_p(current_P, p)
+        
+        # 6. Apply Tate's limit formula
+        scaling = 4.0**(-num_doublings)
+        h_can_approx = scaling * h_final
+        
+        return h_can_approx - h0
+        
+    except ZeroDivisionError:
+        # Precision loss - try with higher precision or fewer doublings
+        if padic_prec < 8192 and num_doublings > 5:
+            # Retry with either more precision or fewer doublings
+            return local_height_correction_finite(D, p, f_coeffs, 
+                                                 num_doublings=num_doublings-2, 
+                                                 padic_prec=padic_prec*2)
+        raise
+    except Exception:
+        raise
+
+
+def choose_numerical_base_point(f_coeffs, prec=200):
+    """
+    Choose a base point AWAY from branch points for numerical stability.
+    """
+    from sage.all import ComplexField, PolynomialRing
+    
+    CC = ComplexField(prec)
+    Rq = PolynomialRing(CC, 'x')
+    x = Rq.gen()
+    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    roots = f_poly_cc.roots(multiplicities=False)
+    
+    # Strategy: pick a point on the real axis between the first two roots
+    # (or at x=0, x=1, x=100, etc. - just avoid the roots!)
+    
+    if len(roots) >= 2:
+        sorted_roots = sorted(roots, key=lambda z: float(z.real()))
+        # Midpoint between first two roots
+        x_base = (sorted_roots[0] + sorted_roots[1]) / CC(2)
+    else:
+        # Arbitrary point
+        x_base = CC(0)
+    
+    # Compute y = sqrt(f(x))
+    f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    if abs(f_val) < CC(2)**(-prec//2):
+        # Too close to a branch point, shift x
+        x_base = CC(1) + CC(0, 1)  # i + 1
+        f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    y_base = f_val.sqrt()
+    
+    # Prefer positive imaginary part
+    if y_base.imag() < 0:
+        y_base = -y_base
+    
+    return (x_base, y_base)
+
+
+def choose_numerical_base_point(f_coeffs, prec=300):
+    """
+    Selects a numerically safe base point for Abel-Jacobi maps.
+    Returns (x, y) where y^2 = f(x).
+    """
+    from sage.all import ComplexField, PolynomialRing
+    
+    CC = ComplexField(prec)
+    Rq = PolynomialRing(CC, 'x')
+    x = Rq.gen()
+    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    roots = f_poly_cc.roots(multiplicities=False)
+    if not roots:
+        # Fallback: use a point away from branch locus
+        x_base = CC(1)
+        f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+        y_base = f_val.sqrt()
+        return (x_base, y_base)
+        
+    sorted_roots = sorted(roots, key=lambda z: (float(z.real()), float(z.imag())))
+    
+    # OPTION 1: Use a root with tiny offset (Weierstrass point shifted slightly)
+    root = sorted_roots[0]
+    eps = CC(2) ** (-(prec // 4))  # Not too tiny
+    x_base = root + CC(0, 1) * eps
+    f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    y_base = f_val.sqrt()
+    
+    # Choose branch with positive imaginary part for consistency
+    if y_base.imag() < 0:
+        y_base = -y_base
+    
+    return (x_base, y_base)
+
+
+def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_coeffs,
+                                            use_x_weight=False, prec=200, debug=False):
+    """
+    Integrate from (x_start, y_start) to (x_end, y_end).
+    BOTH y coordinates specify which sheet we're on.
+    """
+    import math
+    from sage.all import ComplexField
+
+    CC = ComplexField(prec)
+
+    if debug:
+        print(f"[integrate] from ({x_start}, {y_start}) to ({x_end}, {y_end})")
+
+    def tanh_sinh_nodes(N):
+        nodes = []
+        h = 1.0 / float(N)
+        pi = math.pi
+        for k in range(-N, N + 1):
+            t = k * h
+            sx = math.sinh(t)
+            x_mapped = math.tanh((pi / 2.0) * sx)
+            dx_dt = (pi / 2.0) * math.cosh(t) / (math.cosh((pi / 2.0) * sx) ** 2)
+            w = dx_dt * h
+            nodes.append((t, x_mapped, w))
+        return nodes
+
+    Nnodes = max(200, min(2000, prec // 2))
+    nodes = tanh_sinh_nodes(Nnodes)
+
+    p0 = CC(x_start)
+    p1 = CC(x_end)
+    y0 = CC(y_start)
+    y1 = CC(y_end)
+    
+    vec = p1 - p0
+    
+    # NO PERPENDICULAR OFFSET - integrate on the straight line!
+    # The branch tracking handles sheet selection
+    
+    dx_factor = vec / CC(2)
+
+    def f_at(z):
+        return sum(CC(c) * (z ** (len(f_coeffs) - 1 - i)) for i, c in enumerate(f_coeffs))
+
+    # Build x-values along the straight line
+    xvals = []
+    ws = []
+    for (t, x_mapped, w) in nodes:
+        s = (CC(x_mapped) + CC(1)) / CC(2)  # maps (-1,1) -> (0,1)
+        xval = p0 + s * vec  # STRAIGHT LINE, no offset
+        xvals.append(xval)
+        ws.append(CC(w))
+
+    n = len(xvals)
+    fvals = [f_at(xv) for xv in xvals]
+
+    tiny = CC(2) ** (-prec // 2)
+
+    # CRITICAL: Establish branches at BOTH ends
+    # At s=0 (start): we should get y_start
+    # At s=1 (end): we should get y_end
+    
+    # Find good seed indices at both ends
+    start_idx = None
+    end_idx = None
+    
+    for i in range(n // 4):  # first quarter
+        if abs(fvals[i]) >= tiny:
+            start_idx = i
+            break
+    
+    for i in range(n - 1, 3 * n // 4, -1):  # last quarter
+        if abs(fvals[i]) >= tiny:
+            end_idx = i
+            break
+    
+    if start_idx is None or end_idx is None:
+        raise ValueError("Path too close to branch locus")
+
+    # Assign branches at seed points
+    yvals = [None] * n
+    
+    # Start: choose sqrt that matches y_start
+    sqrt_start = fvals[start_idx].sqrt()
+    if abs(sqrt_start - y0) <= abs(-sqrt_start - y0):
+        yvals[start_idx] = sqrt_start
+    else:
+        yvals[start_idx] = -sqrt_start
+    
+    # End: choose sqrt that matches y_end  
+    sqrt_end = fvals[end_idx].sqrt()
+    if abs(sqrt_end - y1) <= abs(-sqrt_end - y1):
+        yvals[end_idx] = sqrt_end
+    else:
+        yvals[end_idx] = -sqrt_end
+
+    # Propagate from start_idx backward to 0
+    for i in range(start_idx - 1, -1, -1):
+        y_p = fvals[i].sqrt()
+        y_m = -y_p
+        if abs(y_p - yvals[i + 1]) <= abs(y_m - yvals[i + 1]):
+            yvals[i] = y_p
+        else:
+            yvals[i] = y_m
+
+    # Propagate from start_idx forward to end_idx
+    for i in range(start_idx + 1, end_idx + 1):
+        y_p = fvals[i].sqrt()
+        y_m = -y_p
+        if abs(y_p - yvals[i - 1]) <= abs(y_m - yvals[i - 1]):
+            yvals[i] = y_p
+        else:
+            yvals[i] = y_m
+
+    # Propagate from end_idx forward to n-1
+    for i in range(end_idx + 1, n):
+        y_p = fvals[i].sqrt()
+        y_m = -y_p
+        if abs(y_p - yvals[i - 1]) <= abs(y_m - yvals[i - 1]):
+            yvals[i] = y_p
+        else:
+            yvals[i] = y_m
+
+    # Integrate
+    integral = CC(0)
+    for i in range(n):
+        y_cur = yvals[i]
+        if abs(y_cur) == 0:
+            continue
+        
+        if use_x_weight:
+            integrand = xvals[i] / (CC(2) * y_cur)
+        else:
+            integrand = CC(1) / (CC(2) * y_cur)
+        
+        dxd = dx_factor * ws[i]
+        integral += integrand * dxd
+
+    return integral

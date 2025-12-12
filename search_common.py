@@ -360,19 +360,19 @@ TERMINATE_WHEN_6 = 4
 COEFFS_GENUS2 = [QQ(4), QQ(-8), QQ(-20), QQ(0), QQ(16), QQ(8), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
 
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
+
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
 
 # prestige curve lol, rank 4
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
-
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
+COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 3
 
 
 ##### END TEST CURVES ######
@@ -380,7 +380,7 @@ TERMINATE_WHEN_6 = 12
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_DOUBLINGS = 140 # for mumford height pairing independence test
+NUM_DOUBLINGS = 20 # for mumford height pairing independence test
 HEIGHT_BOUND = 4*370 # not that important, mostly, it seems
 # prime config
 # magic prime settings, chosen empirically.
