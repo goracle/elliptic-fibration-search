@@ -299,7 +299,6 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
 
 
-
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
                           lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
@@ -460,8 +459,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     return new_basis, Uinv
 
 
-
-
 def _get_coeff_data(poly):
     """Helper to safely extract coefficient list and degree from a polynomial-like object."""
     if hasattr(poly, 'list') and hasattr(poly, 'degree'):
@@ -477,7 +474,6 @@ def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
         return coeff_list
     # Keep low-degree coefficients (assumed stored as [c0, c1, ..., cN])
     return coeff_list[: max_deg + 1]
-
 
 
 def compute_all_mults_for_section(Pi, required_ks, stats,
@@ -590,7 +586,6 @@ def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3
     if DEBUG:
         print(f"[auto-tune] selected extra primes {chosen} with expected density {prod:.2e}")
     return chosen
-
 
 
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
@@ -845,8 +840,6 @@ def print_subset_productivity_stats(productive, all_subsets):
         print(f"  {p['primes']}: {p['candidates']} candidates")
 
 
-
-
 # Add near other helpers in search_lll.py (no leading underscores)
 from collections import defaultdict, Counter
 from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
@@ -1070,7 +1063,6 @@ def print_residue_analysis(analysis):
     print("="*70)
 
 
-
 def analyze_unused_residue_orders(precomputed_residues,
                                   rhs_list,
                                   found_m_set=None,
@@ -1170,7 +1162,6 @@ def analyze_unused_residue_orders(precomputed_residues,
             lh = local_height_contribution(r, p, rhs_fn)
 
 
-
             # --- FIX START ---
             from sage.rings.infinity import infinity
             
@@ -1237,7 +1228,6 @@ def analyze_unused_residue_orders(precomputed_residues,
         'per_prime': per_prime_report,
         'global': global_summary
     }
-
 
 
 """
@@ -1352,8 +1342,6 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
     return scores
 
 
-
-
 # Drop-in replacement wrapper
 def generate_biased_prime_subsets_by_coverage_v2(prime_pool, precomputed_residues, 
                                                   vecs, num_subsets, min_size, 
@@ -1429,7 +1417,6 @@ def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
     adjusted = max(100, min(2000, adjusted))
     
     return int(adjusted)
-
 
 
 def detect_residue_patterns(per_prime):
@@ -1573,11 +1560,6 @@ def detect_residue_patterns(per_prime):
         }
     
     return patterns
-
-
-
-
-
 
 
 def _robust_coerce_to_modp(val, Fp_m, p):

@@ -74,7 +74,6 @@ def polynomial_valuation_at_factor(poly, factor):
     return e
 
 
-
 def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=None, a6=None):
     """
     Robust singular fiber finder that works over QQ and finite fields GF(p).
@@ -395,8 +394,6 @@ def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=N
         'sigma_sum': int(sigma_sum),
         'sum_reduction_exponents': int(sum_t)
     }
-
-
 
 
 def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):

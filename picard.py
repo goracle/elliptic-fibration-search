@@ -24,7 +24,6 @@ from search_common import compute_canonical_height_matrix
 from search_common import DEBUG
 
 
-
 def reduce_section_mod_ell(sec, cd_ell, debug=False):
     """
     Reduce a single section sec = (X(m), Y(m), Z(m)) to GF(ell)(m).
@@ -55,9 +54,6 @@ def reduce_section_mod_ell(sec, cd_ell, debug=False):
         return None
 
     return R_frac(Xn_mod) / R_frac(Xd_mod), R_frac(Yn_mod) / R_frac(Yd_mod), R_frac(Zn_mod) / R_frac(Zd_mod)
-
-
-
 
 
 def rank_upper_bound_over_fq_t(cd_ell, current_sections, prime_pool, verbose=True):
@@ -226,7 +222,6 @@ def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, 
     }
 
 #### patch below
-
 
 
 def _choose_safe_m0s_for_ell(cd_ell, max_m0s=8):

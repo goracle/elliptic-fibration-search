@@ -312,55 +312,6 @@ def choose_transform(
 
 def apply_to_poly(fx, T):
     """
-    Given fx in QQ[x] and MobiusTransform T, return fx(T(x)) as a QQ[x] polynomial.
-    Clear denominators by multiplying by denominator^deg.
-    Strictly raise RuntimeError if any coefficient is not rational.
-    """
-    from sage.rings.rational import Rational
-    from sage.rings.integer import Integer
-    
-    R = fx.parent()
-    x = R.gen()
-    a, b, c, d = T.a, T.b, T.c, T.d
-    deg = fx.degree()
-    
-    # Build the transformation in a fraction field
-    R2 = PolynomialRing(QQ, 'x')
-    x2 = R2.gen()
-    F2 = R2.fraction_field()
-    
-    fx2 = R2([QQ(coeff) for coeff in fx.list()])
-    
-    Tx_num = a * x2 + b
-    Tx_den = c * x2 + d
-    
-    # Substitute: fx(T(x)) where T(x) = Tx_num/Tx_den
-    try:
-        result_frac = fx2(x2 = Tx_num / Tx_den)
-    except Exception as e:
-        raise RuntimeError(f"apply_to_poly: substitution failed: {e}") from e
-    
-    # Multiply by denominator^deg to clear
-    # This ensures we get a polynomial with degree at most deg * deg
-    cleared = result_frac * (Tx_den ** deg)
-    
-    # Try to convert to polynomial
-    try:
-        result_poly = R2(cleared)
-    except (TypeError, ValueError) as e:
-        raise RuntimeError(f"apply_to_poly: result not a polynomial after clearing: {e}") from e
-    
-    # Verify all coefficients are rational
-    for coeff in result_poly.list():
-        if not isinstance(coeff, (Rational, Integer, int)):
-            raise RuntimeError(f"apply_to_poly: non-rational coefficient: {type(coeff)}")
-    
-    return result_poly
-
-
-
-def apply_to_poly(fx, T):
-    """
     Given fx in QQ[x] and MobiusTransform T, return fx(T(x)) * (Tx_den)^deg.
     Uses homogeneous substitution to avoid fraction field artifacts.
     This guarantees the result is a polynomial of degree <= deg.

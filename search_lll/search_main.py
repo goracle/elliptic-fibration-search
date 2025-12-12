@@ -917,7 +917,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print_residue_analysis(analysis)
 
 
-
     new_xs = {pt[0] for pt in sample_pts}
     new_sections = list({s: None for s in new_sections_raw}.keys())
     stats.incr('rational_points_unique', n=len(new_xs))

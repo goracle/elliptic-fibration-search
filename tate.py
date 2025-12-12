@@ -254,7 +254,6 @@ def valuations_at_place(a4, a6, g=None, m0=None, at_infinity=False, minimal=True
     return v_c4, v_c6, v_D, n, (v_c4 - 4*n, v_c6 - 6*n, v_D - 12*n)
 
 
-
 # --- Robust local valuations via Laurent series ------------------------------
 
 def _laurent_series(expr, var, center, prec=80):
@@ -347,7 +346,6 @@ def valuations_at_point(a4, a6, var, center, minimal=True, prec=80):
     return v_c4, v_c6, v_D, n, (v_c4_min, v_c6_min, v_D_min)
 
 
-
 def _coerce_to_laurent(expr, var_sym, center, max_prec=80):
     """
     Try multiple coercions (Laurent series with increasing precision).
@@ -392,39 +390,6 @@ def kodaira_symbol(v_c4, v_c6, v_D):
         return f'I{n}*'
     # fallback
     return 'Unknown'
-
-def kodaira_components_count(sym):
-    s = str(sym).strip()
-    if s.startswith('I') and not s.endswith('*'):
-        try:
-            n = int(s[1:])
-            return max(1, n)
-        except Exception:
-            return 1
-    if s.startswith('I') and s.endswith('*'):
-        # I_n* has (n + 5) irreducible components (I0* has 5)
-        try:
-            n = int(s[1:-1]) if s[1:-1] else 0
-            return n + 5
-        except Exception:
-            return 5
-    mapping = {'II':1, 'III':2, 'IV':3, 'II*':9, 'III*':8, 'IV*':7}
-    return mapping.get(s, 1)
-
-def kodaira_euler_number(s):
-    if s is None:
-        return 0
-    s = s.strip()
-    m = re.match(r'^I(\d+)(\*)?$', s)
-    if m:
-        n = int(m.group(1))
-        if m.group(2):  # I_n*
-            return n + 6
-        return n
-    roman_map = {'II':2, 'III':3, 'IV':4, 'II*':10, 'III*':9, 'IV*':8}
-    if s in roman_map:
-        return roman_map[s]
-    raise ValueError(f"Unknown Kodaira symbol: {s}")
 
 
 @PROFILE
@@ -473,44 +438,6 @@ def is_split_multiplicative_fiber(a4p, a6p, n):
     return False
 
 
-
-def kodaira_components_count(sym):
-    """
-    Return the number of irreducible components of the Kodaira fiber 'sym'.
-    """
-    if sym is None:
-        return 1
-
-    s = str(sym).strip()
-    # Multiplicative I_n
-    if s.startswith('I') and '*' not in s:
-        try:
-            n = int(s[1:])
-            # I0 and I1 are smooth/irreducible, I_n for n>1 has n components.
-            return max(1, n)
-        except (ValueError, IndexError):
-            return 1 # Fallback for malformed symbol like 'I'
-
-    # Starred types (I_n*)
-    if s.startswith('I') and s.endswith('*'):
-        try:
-            n_str = s[1:-1]
-            n = int(n_str) if n_str else 0
-            if n == 0:
-                return 4  # I0* has 4 components
-            else:
-                return n + 5  # In* for n>0 has n+5 components
-        except (ValueError, IndexError):
-            # Fallback for malformed symbol like 'I*'
-            return 4
-
-    # Other additive types
-    mapping = {
-        'II': 1, 'III': 2, 'IV': 3,
-        'II*': 9, 'III*': 8, 'IV*': 7
-    }
-    return mapping.get(s, 1)
-
 def safe_substitution(expr, var_sym, center, t):
     """
     Safely substitute variable with error handling.
@@ -530,7 +457,6 @@ def safe_substitution(expr, var_sym, center, t):
         return expr.subs({var_sym: center + t})
     except (AttributeError, TypeError):
         return expr
-
 
 
 def _coerce_laurent_with_precision(expr, var_sym, center, prec_list=(30, 60, 120)):
@@ -555,7 +481,6 @@ def _coerce_laurent_with_precision(expr, var_sym, center, prec_list=(30, 60, 120
     # If we get here, coercion failed at all precisions
     raise ValueError(f"Could not coerce expression to Laurent series at centers {center}. "
                      f"Last exception: {last_exc}\nExpression was: {expr}")
-
 
 
 def get_section_specialization_additive(curve_data, section, center, symbol, var_sym):
@@ -663,7 +588,6 @@ def local_correction_value(symbol):
     # last resort: warn and pick a conservative default (1/3)
     warnings.warn(f"local_correction_value: unknown Kodaira symbol '{sym}' -- using fallback correction 1/3")
     return QQ(1) / QQ(3)
-
 
 
 @PROFILE
@@ -1060,8 +984,6 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
     return fiber
 
 
-
-
 # ---------- PATCH for tate.py ----------
 
 
@@ -1116,7 +1038,6 @@ def kodaira_components_count(sym):
             return 7
     mapping = {'II': 1, 'III': 2, 'IV': 3, 'II*': 9, 'III*': 8, 'IV*': 7}
     return mapping.get(s, 1)
-
 
 
 def kodaira_euler_number(s):
@@ -1231,8 +1152,6 @@ def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagn
         return rank, {'sum_contributions': total_contrib, 'euler_characteristic': euler_sum, 'fibers': fiber_info}, diagnostics
 
     return rank, {'sum_contributions': total_contrib, 'euler_characteristic': euler_sum, 'fibers': fiber_info}
-
-
 
 
 def classify_from_minimal_vals(v4, v6, vD):

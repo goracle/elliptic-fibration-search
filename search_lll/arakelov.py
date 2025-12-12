@@ -68,7 +68,7 @@ def compute_height_worker(div_data):
 # Faster and more reliable than repeated doubling for height pairings.
 
 
-def arakelov_build_basis(all_divisors, f_coeffs, prec=100, debug=False):
+def arakelov_build_basis(all_divisors, f_coeffs, prec=300, debug=False):
     if not all_divisors:
         return [], 0, None
     
@@ -259,7 +259,7 @@ def clear_period_cache():
     _PERIOD_MATRIX_CACHE.clear()
 
 
-def arakelov_check_independence(divisors, f_coeffs, prec=100, debug=False):
+def arakelov_check_independence(divisors, f_coeffs, prec=300, debug=False):
     if not divisors:
         return True, 0, None, 0
     
@@ -288,7 +288,7 @@ def arakelov_check_independence(divisors, f_coeffs, prec=100, debug=False):
     return is_indep, n if is_indep else 0, H, det
 
 
-def arakelov_build_basis_parallel(all_divisors, f_coeffs, prec=100, debug=False):
+def arakelov_build_basis_parallel(all_divisors, f_coeffs, prec=300, debug=False):
     """
     Build basis using parallel height computation.
     """
@@ -596,7 +596,7 @@ def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
     
     return False, None
 
-def is_positive_definite(H, prec=200, tol=1e-12):
+def is_positive_definite(H, prec=300, tol=1e-12):
     """
     Robust numeric positive-definite check for a symmetric rational matrix H.
     Uses Sylvester's criterion (leading principal minors) evaluated in RealField(prec).
@@ -612,6 +612,7 @@ def is_positive_definite(H, prec=200, tol=1e-12):
             det_k = M.determinant()
         except Exception:
             # If determinant fails (overflow/numerics), be pessimistic
+            raise
             return False
         # det_k should be a high-precision real; check > tol
         if not (det_k > RR_prec(tol)):
@@ -619,7 +620,7 @@ def is_positive_definite(H, prec=200, tol=1e-12):
     return True
 
 
-def arakelov_height_pairing_cached(D1, D2, f_coeffs, height_cache=None, prec=100):
+def arakelov_height_pairing_cached(D1, D2, f_coeffs, height_cache=None, prec=300):
     """
     Height pairing using cached individual heights.
     height_cache: optional dict with keys equal to D objects or indices and values equal to canonical heights.
@@ -646,7 +647,7 @@ def arakelov_height_pairing_cached(D1, D2, f_coeffs, height_cache=None, prec=100
     return pairing
 
 
-def get_period_matrix_old(f_coeffs, prec=100):
+def get_period_matrix_old(f_coeffs, prec=300):
     cache_key = tuple(QQ(c) for c in f_coeffs)
 
     if cache_key in _PERIOD_MATRIX_CACHE:
@@ -702,6 +703,7 @@ def get_period_matrix_old(f_coeffs, prec=100):
                     # fallback: cast to RR_prec and call methods
                     sinh_t = RR_prec(curr).sinh()
                     cosh_t = RR_prec(curr).cosh()
+                    raise
 
                 # num = (pi/2) * sinh(curr)
                 num = pi_half * sinh_t
@@ -721,6 +723,7 @@ def get_period_matrix_old(f_coeffs, prec=100):
                 except Exception:
                     # if tanh somehow fails, skip
                     curr += h
+                    raise
                     continue
 
                 # weight = (pi/2) * cosh(t) / cosh(num)^2
@@ -772,6 +775,7 @@ def get_period_matrix_old(f_coeffs, prec=100):
                     except Exception:
                         # try numeric sqrt via CC_prec
                         y_val = CC_prec(f_val).sqrt()
+                        raise
 
                     # choose integrand
                     if use_x_weight:
@@ -799,7 +803,7 @@ def get_period_matrix_old(f_coeffs, prec=100):
     return Omega
 
 
-def get_period_matrix_bad_cycle_choices(f_coeffs, prec=100):
+def get_period_matrix_bad_cycle_choices(f_coeffs, prec=300):
     cache_key = tuple(QQ(c) for c in f_coeffs)
     
     if cache_key in _PERIOD_MATRIX_CACHE:
@@ -1091,6 +1095,7 @@ def try_fix_orientation(f_coeffs, prec=300, nodes=None):
         try:
             Ainv = Amod.inverse()
         except Exception:
+            raise
             continue
         for perm in permutations([0,1]):
             Bperm = Matrix(CC, 2, 2, [[B[i,perm[j]] for j in range(2)] for i in range(2)])
@@ -1099,6 +1104,7 @@ def try_fix_orientation(f_coeffs, prec=300, nodes=None):
                 try:
                     tau_cand = Ainv * Bmod
                 except Exception:
+                    raise
                     continue
                 # sym error and Im(tau) diagnostics
                 sym_err = abs(tau_cand[0,1] - tau_cand[1,0])
@@ -1107,6 +1113,7 @@ def try_fix_orientation(f_coeffs, prec=300, nodes=None):
                 try:
                     evals = Im_tau.eigenvalues()
                 except Exception:
+                    raise
                     continue
                 is_pd = all(ev > RRp(0) for ev in evals)
                 det_Im = Im_tau.determinant()
@@ -1124,7 +1131,7 @@ def try_fix_orientation(f_coeffs, prec=300, nodes=None):
     return results[0] if results else (False, abs(tau[0,1]-tau[1,0]), None, None, None, None, tau, A, B)
 
 
-def abel_jacobi_map(D, f_coeffs, period_matrix, prec=100):
+def abel_jacobi_map(D, f_coeffs, period_matrix, prec=300):
     """
     Compute the Abel-Jacobi map of divisor D to C^2.
     
@@ -1216,7 +1223,7 @@ def abel_jacobi_map(D, f_coeffs, period_matrix, prec=100):
     return integral_sum
 
 
-def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, prec=100, max_depth=8):
+def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, prec=300, max_depth=8):
     """
     Integrate dx/(2y) or x*dx/(2y) along a straight line from x_start to x_end.
     Uses the same tanh-sinh quadrature as the period matrix computation.
@@ -1295,63 +1302,6 @@ def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, pr
     return integral
 
 
-def archimedean_height_correction(D, f_coeffs, period_matrix, prec=100):
-    """
-    Proper Archimedean height correction using Abel-Jacobi map.
-    
-    h_∞(D) = (1/2) * <AJ(D), AJ(D)>
-    where <·,·> is the Néron-Tate height pairing.
-    """
-    if D.is_zero():
-        return QQ(0)
-    
-    RR = RealField(prec)
-    
-    # Compute Abel-Jacobi map
-    z = abel_jacobi_mumford(D, f_coeffs, prec=prec)
-    
-    # Extract Im(τ)
-    Im_tau = Matrix(RR, 2, 2)
-    for i in range(2):
-        for j in range(2):
-            Im_tau[i,j] = RR(period_matrix[i,j].imag())
-    
-    # Compute self-pairing
-    pairing = neron_tate_height_pairing(z, z, Im_tau, prec=prec)
-    
-    return pairing / QQ(4)
-
-
-def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=100):
-    """
-    Proper Arakelov height pairing using Abel-Jacobi map.
-    
-    <D1, D2> = (1/2) * (h(D1+D2) - h(D1) - h(D2))
-    
-    But using the direct formula:
-    <D1, D2> = <AJ(D1), AJ(D2)>_NT
-    """
-    if D1.is_zero() or D2.is_zero():
-        return QQ(0)
-    
-    RR = RealField(prec)
-    
-    # Compute Abel-Jacobi maps
-    z1 = abel_jacobi_mumford(D1, f_coeffs, prec=prec)
-    z2 = abel_jacobi_mumford(D2, f_coeffs, prec=prec)
-    
-    # Extract Im(τ)
-    Im_tau = Matrix(RR, 2, 2)
-    for i in range(2):
-        for j in range(2):
-            Im_tau[i,j] = RR(period_matrix[i,j].imag())
-    
-    # Compute pairing
-    pairing = neron_tate_height_pairing(z1, z2, Im_tau, prec=prec)
-    
-    return pairing
-
-
 def naive_height_qq(D, prec=53):
     """
     Compute naive (logarithmic) height of Mumford polynomials.
@@ -1418,44 +1368,6 @@ def local_height_finite(D, p, prec=53):
 # Fixed Arakelov height computation functions
 # These replace the broken versions in arakelov.py
 
-from sage.all import QQ, ComplexField, RealField, Matrix, vector, PolynomialRing
-from sage.all import HyperellipticCurve
-
-DEBUG = False
-
-
-# Fixed Arakelov height computation functions
-# These replace the broken versions in arakelov.py
-
-
-DEBUG = False
-
-
-# Fixed Arakelov height computation functions
-# These replace the broken versions in arakelov.py
-
-
-DEBUG = False
-
-
-# Fixed Arakelov height computation functions
-# These replace the broken versions in arakelov.py
-
-
-DEBUG = False
-
-
-def enable_debug():
-    """Enable detailed debugging output"""
-    global DEBUG
-    DEBUG = True
-
-
-def disable_debug():
-    """Disable detailed debugging output"""
-    global DEBUG
-    DEBUG = False
-
 
 def get_hyperelliptic_polynomials(C):
     """
@@ -1470,7 +1382,7 @@ def get_hyperelliptic_polynomials(C):
     return f_coeffs, h_coeffs
 
 
-def neron_tate_height_pairing(z1, z2, Im_tau, prec=100, normalization_factor=1.0):
+def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0):
     """
     Compute Néron-Tate height pairing between two Abel-Jacobi images.
     
@@ -1774,7 +1686,7 @@ def integrate_differential_path_with_branch(x_start, x_end, y_end, f_coeffs,
 def abel_jacobi_mumford(
     D, f_coeffs, base_point, *,
     integrate_func=None,    # function(base_x, x_end, y_end, f_coeffs, use_x_weight, prec, debug)
-    prec=100,
+    prec=300,
     period_matrix=None,     # optional 2x2 matrix whose columns span the period lattice
     debug=False
 ):
@@ -1827,6 +1739,7 @@ def abel_jacobi_mumford(
     except Exception as e:
         if debug:
             print("[abel_jacobi] root finding failed:", e)
+        raise
         return vector(CC, [0, 0])
 
     if len(roots_mult) == 0:
@@ -1915,10 +1828,11 @@ def abel_jacobi_mumford(
             # fall back to positional call (older integrator signature)
             int0 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs, False, prec, debug)
             int1 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs, True, prec, debug)
+            raise
         except Exception as e:
             if debug:
                 print(f"[abel_jacobi] Integration failed for root {idx} at x={x_pt_cc}: {e}")
-            # skip this root (don't abort entire AJ computation)
+            raise
             continue
 
         aj_vec += vector(CC, [int0, int1])
@@ -1944,6 +1858,7 @@ def abel_jacobi_mumford(
         except Exception as e:
             if debug:
                 print("[abel_jacobi] Warning: period reduction failed:", e)
+            raise
             # continue without reduction
 
     return aj_vec
@@ -1961,462 +1876,8 @@ def fmt(z, digits=6):
         return f"{z:.{digits}g}"
 
 
-def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, test_normalization=None):
-    """
-    Robust replacement of arakelov_build_basis_with_heights with definitive diagnostics.
-
-    - Single GENERIC non-Weierstrass base point for all AJ maps.
-    - Height matrix built in RealField(prec).
-    - High-precision re-checks for suspect candidates.
-    - After basis build: compute smallest eigenvector, test linear combo of AJ,
-      reduce modulo period lattice, run PSLQ, and test any integer relation in the Jacobian.
-    """
-    # Local helper formatter (compact)
-    # ---- imports ----
-    from sage.all import (ComplexField, RealField, PolynomialRing, Matrix,
-                          HyperellipticCurve, vector, QQ, ComplexField as CF,
-                          RR as SageRR, Integer)
-    import numpy as np
-
-    if not all_divisors:
-        return [], 0, None
-
-    if debug:
-        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
-        print(f"[arakelov] Using precision: {prec} bits")
-
-    CC = ComplexField(prec)
-    RR = RealField(prec)
-
-    # Compute period matrix once (complex)
-    from .homology import get_period_matrix_auto_B
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    if debug:
-        print("[arakelov] Period matrix computed (tau):")
-        for i in range(2):
-            for j in range(2):
-                print(f"  tau[{i},{j}] = {fmt(period_matrix[i,j])}")
-
-    # polynomial for root finding in CC
-    Rq = PolynomialRing(CC, 'x')
-    x = Rq.gen()
-    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-
-    # Choose generic non-Weierstrass base point (deterministic)
-    f_roots = []
-    try:
-        f_roots = sorted(f_poly_cc.roots(multiplicities=False),
-                         key=lambda z: (float(z.real()), float(z.imag())))
-    except Exception:
-        f_roots = []
-
-    if f_roots:
-        candidate_x = CC(f_roots[0] + CC(0.12345))
-    else:
-        candidate_x = CC(0.12345)
-
-    f_at_candidate = sum(CC(c) * (candidate_x ** (len(f_coeffs)-1-i)) for i, c in enumerate(f_coeffs))
-    if abs(f_at_candidate) < CC(2) ** (-prec // 2):
-        candidate_x += CC(0.33333)
-        f_at_candidate = sum(CC(c) * (candidate_x ** (len(f_coeffs)-1-i)) for i, c in enumerate(f_coeffs))
-
-    candidate_y = f_at_candidate.sqrt()
-    base_point = (candidate_x, candidate_y)
-
-    if debug:
-        print(f"[arakelov] Using GENERIC base point: P0 = ({fmt(base_point[0])}, {fmt(base_point[1])})")
-
-    # Build curve & jacobian (over QQ for constructor)
-    Rq_QQ = PolynomialRing(QQ, 'x')
-    x_QQ = Rq_QQ.gen()
-    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i,c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly_QQ)
-    J = C.jacobian()
-
-    # Convert divisors to Jacobian elements (keep mapping to original)
-    jac_elements = []
-    for div in all_divisors:
-        try:
-            u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
-            v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
-            D = J([u_poly, v_poly])
-            if not D.is_zero():
-                jac_elements.append((div, D))
-        except Exception:
-            continue
-
-    if not jac_elements:
-        return [], 0, None
-
-    n = len(jac_elements)
-    if debug:
-        print(f"[arakelov] Computing Abel-Jacobi for {n} divisors (same base point) ...")
-
-    # Compute AJ once per Jacobian element (cache)
-    aj_cache = {}
-    for idx, (div, D) in enumerate(jac_elements):
-        try:
-            aj_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
-            aj_cache[idx] = aj_vec
-            if debug and idx < 6:
-                print(f"[arakelov] Divisor {idx}: AJ z = ({fmt(aj_vec[0])}, {fmt(aj_vec[1])}); |z| = {fmt(abs(aj_vec[0]) + abs(aj_vec[1]))}")
-        except Exception as e:
-            aj_cache[idx] = None
-            if debug:
-                print(f"[arakelov] AJ failed for divisor {idx}: {e}")
-
-    # Im(tau) matrix over RR for pairings
-    Im_tau = Matrix(RR, 2, 2)
-    for i in range(2):
-        for j in range(2):
-            Im_tau[i,j] = RR(period_matrix[i,j].imag())
-
-    # pairing wrapper -> RR
-    def compute_pairing_num(i, j, prec_local=prec):
-        zi = aj_cache.get(i)
-        zj = aj_cache.get(j)
-        if zi is None or zj is None:
-            return RR(0)
-        val = neron_tate_height_pairing(zi, zj, Im_tau, prec=prec_local, normalization_factor=(test_normalization or 1.0))
-        return RR(val)
-
-    # incremental basis construction
-    basis = []
-    basis_indices = []
-    if debug:
-        print("[arakelov] Building basis incrementally ...")
-
-    for i, (div, D) in enumerate(jac_elements):
-        if aj_cache.get(i) is None:
-            continue
-
-        h_self = compute_pairing_num(i, i)
-        if debug:
-            print(f"[arakelov] Self-pairing of divisor {i}: ({float(h_self):.6g})")
-
-        if float(h_self) < 1e-12:
-            if debug:
-                print(f"[arakelov] Skipping divisor {i}: self-pairing too small")
-            continue
-
-        if not basis:
-            basis.append(div)
-            basis_indices.append(i)
-            if debug:
-                print(f"[arakelov] Added divisor {i} (self-pairing {float(h_self):.6g})")
-            continue
-
-        # candidate = basis + i
-        cand_idx = basis_indices + [i]
-        m = len(cand_idx)
-        Hnum = Matrix(RR, m, m)
-        for a in range(m):
-            for b in range(a, m):
-                val = compute_pairing_num(cand_idx[a], cand_idx[b])
-                Hnum[a,b] = val
-                Hnum[b,a] = val
-
-        # numeric PD test
-        is_pd = False
-        try:
-            evals = Hnum.eigenvalues()
-            is_pd = all(float(ev) > 1e-12 for ev in evals)
-        except Exception:
-            is_pd = False
-
-        if is_pd:
-            basis.append(div)
-            basis_indices.append(i)
-            if debug:
-                try:
-                    detf = float(Hnum.determinant())
-                except Exception:
-                    detf = float(abs(Hnum.det()))
-                print(f"[arakelov] Added divisor {i} (rank {m}, det {detf:.6g})")
-            continue
-
-        # --- High-precision diagnostic block ---
-        if debug:
-            print(f"[arakelov] Candidate {i} not PD. Running high-precision diagnostics...")
-
-            high_prec = max(prec * 2, 1024)
-            CC_hp = CF(high_prec)
-            base_x_hp = CC_hp(base_point[0])
-            base_y_hp = CC_hp(base_point[1])
-
-            # recompute AJ at higher precision for cand set
-            indices_to_check = cand_idx
-            aj_hp = {}
-            for ii in indices_to_check:
-                try:
-                    aj_hp[ii] = abel_jacobi_mumford(jac_elements[ii][1], f_coeffs,
-                                                    base_point=(base_x_hp, base_y_hp), prec=high_prec)
-                    print(f"  [hp] idx {ii} AJ (hp): ({fmt(aj_hp[ii][0])}, {fmt(aj_hp[ii][1])})")
-                except Exception as ee:
-                    print(f"  [hp] idx {ii} AJ failed at high precision: {ee}")
-                    aj_hp[ii] = None
-
-            # build high-precision numeric height matrix Hhp
-            Hhp = Matrix(RealField(high_prec), m, m)
-            for a in range(m):
-                for b in range(a, m):
-                    za = aj_hp.get(cand_idx[a])
-                    zb = aj_hp.get(cand_idx[b])
-                    if za is None or zb is None:
-                        Hhp[a,b] = RR(0)
-                    else:
-                        Hhp[a,b] = RealField(high_prec)(neron_tate_height_pairing(za, zb, Im_tau, prec=high_prec, normalization_factor=(test_normalization or 1.0)))
-                    Hhp[b,a] = Hhp[a,b]
-
-            # print eigenvalues and determinant (compact)
-            try:
-                evals_hp = Hhp.eigenvalues()
-                evs_print = [fmt(ev) for ev in evals_hp]
-                print(f"  [hp] eigenvalues (hp): {evs_print}")
-                # determinant may be astronomically small; print exponent if needed
-                try:
-                    det_hp = Hhp.determinant()
-                    print(f"  [hp] det (hp): {fmt(det_hp)}")
-                except Exception:
-                    print("  [hp] det (hp): (failed to compute)")
-            except Exception as ee:
-                print(f"  [hp] eigen/det failed: {ee}")
-
-            # If the high-precision matrix has an effectively zero eigenvalue, run deeper diagnostics:
-            # Convert Hhp to numpy floats for stable SVD/eig
-            try:
-                Hhp_np = np.array(Hhp, dtype=float)
-            except Exception:
-                Hhp_np = None
-
-            if Hhp_np is not None:
-                # compute smallest eig (robust)
-                try:
-                    w, V = np.linalg.eigh(Hhp_np)
-                    idx_min = int(np.argmin(w))
-                    eigvec = V[:, idx_min]
-                    eigval = float(w[idx_min])
-                except Exception:
-                    # fallback to SVD
-                    U, s, Vt = np.linalg.svd(Hhp_np)
-                    eigval = float(s[-1]**2)
-                    eigvec = Vt[-1]
-
-                print(f"  [hp] smallest eigenvalue (float): {eigval:g}")
-                # normalize eigenvector for readability
-                if np.linalg.norm(eigvec) > 0:
-                    eigvec = eigvec / np.linalg.norm(eigvec)
-                order = np.argsort(-np.abs(eigvec))
-                print("  [hp] top contributors (pos in cand set -> coeff):")
-                for t in order[:min(8, len(eigvec))]:
-                    print(f"    pos {t} (orig idx {cand_idx[t]}): coeff {eigvec[t]:.6g}")
-
-                # form complex linear combo of AJ_hp using eigvec coefficients
-                AJ_complex = []
-                for pos in range(m):
-                    orig_idx = cand_idx[pos]
-                    z = aj_hp.get(orig_idx)
-                    if z is None:
-                        AJ_complex.append(np.array([0+0j, 0+0j], dtype=complex))
-                    else:
-                        AJ_complex.append(np.array([complex(z[0]), complex(z[1])], dtype=complex))
-                AJ_complex = np.array(AJ_complex).T  # 2 x m
-                combo = AJ_complex.dot(eigvec)
-                print(f"  [hp] linear combo (2-vector) norm: {np.linalg.norm(combo):.6g}")
-                print(f"    combo: ({fmt(combo[0])}, {fmt(combo[1])})")
-
-                # reduce combo modulo period lattice (numpy helper)
-                def reduce_mod_lattice_np(z_complex, tau):
-                    e1 = np.array([1+0j, 0+0j], dtype=complex)
-                    e2 = np.array([0+0j, 1+0j], dtype=complex)
-                    tau_np = np.array([[complex(tau[0,0]), complex(tau[0,1])],
-                                       [complex(tau[1,0]), complex(tau[1,1])]], dtype=complex)
-                    cols = [e1, e2, tau_np[:,0], tau_np[:,1]]
-                    L = np.zeros((4,4), dtype=float)
-                    zreal = np.zeros(4, dtype=float)
-                    for j,c in enumerate(cols):
-                        L[0,j] = c[0].real; L[1,j] = c[0].imag
-                        L[2,j] = c[1].real; L[3,j] = c[1].imag
-                    zreal[0] = z_complex[0].real; zreal[1] = z_complex[0].imag
-                    zreal[2] = z_complex[1].real; zreal[3] = z_complex[1].imag
-                    kval, *_ = np.linalg.lstsq(L, zreal, rcond=None)
-                    k_int = np.rint(kval).astype(int)
-                    Lk = sum(k_int[j] * cols[j] for j in range(4))
-                    zred = z_complex - Lk
-                    return zred, k_int
-
-                combo_red, combo_k = reduce_mod_lattice_np(combo, period_matrix)
-                print(f"  [hp] combo reduced norm: {np.linalg.norm(combo_red):.6g}, k={combo_k}")
-                # reductions for top contributors
-                print("  [hp] reductions for top contributors:")
-                for t in order[:min(8, m)]:
-                    orig_idx = cand_idx[t]
-                    z = aj_hp.get(orig_idx)
-                    if z is None:
-                        continue
-                    zc = np.array([complex(z[0]), complex(z[1])], dtype=complex)
-                    zred, kint = reduce_mod_lattice_np(zc, period_matrix)
-                    print(f"    orig_idx {orig_idx}: reduced norm {np.linalg.norm(zred):.6g}, k={kint}")
-
-                # Try PSLQ on the eigvec coefficients (convert to SageRR)
-                try:
-                    sage_coeffs = [SageRR(float(c)) for c in eigvec]
-                    rel = None
-                    #rel = pslq(sage_coeffs, maxcoeff=10**8)
-                    print("  [hp] PSLQ relation on eigvec (if any):", rel)
-                    if rel:
-                        # rel is a list of integers (maybe)
-                        klist = [Integer(int(rr)) for rr in rel]
-                        # test relation in Jacobian: sum k_i * element = 0 ?
-                        combJ = J(0)
-                        for pos, kk in enumerate(klist):
-                            orig_idx = cand_idx[pos]
-                            D = jac_elements[orig_idx][1]
-                            if kk >= 0:
-                                combJ = combJ + (kk * D)
-                            else:
-                                combJ = combJ - ((-kk) * D)
-                        try:
-                            is_zero = combJ.is_zero()
-                        except Exception:
-                            is_zero = False
-                        print(f"  [hp] PSLQ combination tested in Jacobian, is_zero = {is_zero}")
-                except Exception as ee:
-                    print("  [hp] PSLQ attempt failed:", ee)
-            # end Hhp_np diagnostics
-
-        # End high-precision diagnostics block. Skip adding this candidate.
-        if debug:
-            print(f"[arakelov] Skipping divisor {i}: not positive-definite (numeric).")
-        continue
-
-    # finalize H_final (RR)
-    final_rank = len(basis)
-    H_final = None
-    if final_rank > 0:
-        H_final = Matrix(RR, final_rank, final_rank)
-        for a in range(final_rank):
-            for b in range(a, final_rank):
-                val = compute_pairing_num(basis_indices[a], basis_indices[b])
-                H_final[a,b] = val
-                H_final[b,a] = val
-
-    # Final diagnostics on assembled H_final
-    if debug:
-        print(f"[arakelov] Final rank: {final_rank}")
-        if H_final is None:
-            print("[arakelov] No height matrix constructed.")
-            return basis, final_rank, H_final
-
-        # numpy eigen for final matrix
-        try:
-            Hf = np.array(H_final, dtype=float)
-            w, V = np.linalg.eigh(Hf)
-            print("eigenvalues (small->big):", w.tolist())
-            idx_min = int(np.argmin(w))
-            eigval = float(w[idx_min])
-            eigvec = V[:, idx_min]
-            print("smallest eigenvalue:", eigval)
-            # normalize and report top contributors
-            if np.linalg.norm(eigvec) > 0:
-                eigvec = eigvec / np.linalg.norm(eigvec)
-            order = np.argsort(-np.abs(eigvec))
-            print("Top contributors to final null direction (basis pos -> coeff):")
-            for t in order[:min(8, len(eigvec))]:
-                orig_idx = basis_indices[t]
-                print(f"  pos {t} (orig idx {orig_idx}): coeff {eigvec[t]:.6g}  AJ = ({fmt(aj_cache[orig_idx][0])}, {fmt(aj_cache[orig_idx][1])})")
-            # build AJ_complex for basis and compute combo
-            AJ = np.array([[complex(aj_cache[idx][0]), complex(aj_cache[idx][1])] for idx in basis_indices], dtype=complex).T
-            combo = AJ.dot(eigvec)
-            print("Linear combo (2-vector) of AJ by smallest-eig coeffs:", (fmt(combo[0]), fmt(combo[1])))
-            print("Norm of combo:", np.linalg.norm(combo))
-
-            # reduce combo modulo lattice
-            def reduce_mod_lattice_np_local(z_complex, tau):
-                e1 = np.array([1+0j, 0+0j], dtype=complex)
-                e2 = np.array([0+0j, 1+0j], dtype=complex)
-                tau_np = np.array([[complex(tau[0,0]), complex(tau[0,1])],
-                                   [complex(tau[1,0]), complex(tau[1,1])]], dtype=complex)
-                cols = [e1, e2, tau_np[:,0], tau_np[:,1]]
-                L = np.zeros((4,4), dtype=float)
-                zreal = np.zeros(4, dtype=float)
-                for j,c in enumerate(cols):
-                    L[0,j] = c[0].real; L[1,j] = c[0].imag
-                    L[2,j] = c[1].real; L[3,j] = c[1].imag
-                zreal[0] = z_complex[0].real; zreal[1] = z_complex[0].imag
-                zreal[2] = z_complex[1].real; zreal[3] = z_complex[1].imag
-                kval, *_ = np.linalg.lstsq(L, zreal, rcond=None)
-                k_int = np.rint(kval).astype(int)
-                Lk = sum(k_int[j] * cols[j] for j in range(4))
-                zred = z_complex - Lk
-                return zred, k_int
-
-            combo_red, combo_k = reduce_mod_lattice_np_local(combo, period_matrix)
-            print("Combo reduced norm:", np.linalg.norm(combo_red), "k:", combo_k.tolist())
-
-            # PSLQ on eigvec coefficients
-            try:
-                sage_coeffs = [SageRR(float(c)) for c in eigvec]
-                rel = None
-                #rel = pslq(sage_coeffs, maxcoeff=10**8)
-                print("PSLQ relation on eigvec (if any):", rel)
-                if rel:
-                    klist = [Integer(int(r)) for r in rel]
-                    # test in Jacobian
-                    combJ = J(0)
-                    for pos, kk in enumerate(klist):
-                        orig_idx = basis_indices[pos]
-                        D = jac_elements[orig_idx][1]
-                        if kk >= 0:
-                            combJ = combJ + (kk * D)
-                        else:
-                            combJ = combJ - ((-kk) * D)
-                    try:
-                        is_zero = combJ.is_zero()
-                    except Exception:
-                        is_zero = False
-                    print("PSLQ combination tested in Jacobian, is_zero =", is_zero)
-            except Exception as e:
-                print("PSLQ attempt failed:", e)
-
-        except Exception as e:
-            print("[arakelov] Final diagnostic eigen/SVD failed:", e)
-
-        try:
-            print(f"[arakelov] Final determinant (float): {float(H_final.determinant())}")
-        except Exception:
-            print("[arakelov] Final determinant: (failed to compute float)")
-
-    return basis, final_rank, H_final
-
-
 from sage.all import QQ, ZZ, RR, Qp, PolynomialRing, HyperellipticCurve
 
-def get_bad_primes(f_coeffs):
-    """
-    Identify primes of bad reduction for the curve y^2 = f(x).
-    Includes factors of discriminant, leading coefficient, and 2.
-    """
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    bad = set()
-    # Discriminant factors
-    disc = f_poly.discriminant()
-    if disc != 0:
-        bad.update(disc.prime_factors())
-    
-    # Leading coefficient factors (potential degree drop)
-    lc = f_coeffs[0]
-    if lc != 0:
-        bad.update(QQ(lc).numerator().prime_factors())
-        bad.update(QQ(lc).denominator().prime_factors())
-        
-    # Genus 2 arithmetic at p=2 is always delicate
-    bad.add(2)
-    
-    return sorted(list(bad))
 
 def local_naive_height_p(D, p):
     """
@@ -2449,9 +1910,351 @@ def local_naive_height_p(D, p):
         min_val = min(vals)
         return -min_val * math.log(p)
     except Exception:
+        raise
         return 0.0
 
-def local_height_correction_finite(D, p, f_coeffs, num_doublings=15, padic_prec=40):
+
+def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
+    """
+    Proper canonical height with Abel-Jacobi map (Archimedean) 
+    and p-adic doubling limit (Finite Neron corrections).
+    """
+    if D.is_zero():
+        return QQ(0)
+    
+    from .homology import get_period_matrix_auto_B
+
+    # 1. Naive global height (Weil height)
+    # This sums log max(|c|_v) over all places (finite and infinite)
+    h_naive = naive_height_qq(D, prec=prec)
+    
+    # 2. Archimedean correction (Neron local height at infinity - Naive at infinity)
+    # Note: h_arch here is typically computed as 1/2 <z, z>_NT.
+    # We assume archimedean_height_correction returns the proper difference term
+    # or the full Archimedean contribution relative to the naive height baseline.
+    # In this codebase context, it seems to be the full analytic height on the Jacobian?
+    # Standard formula: h = h_naive + sum(corrections)
+    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
+    
+    # 3. Finite place corrections (Neron local height at p - Naive at p)
+    h_finite_correction = QQ(0)
+    
+    if use_finite_places:
+        # Dynamically determine bad primes
+        bad_primes = get_bad_primes(f_coeffs)
+        #print("bad primes for finite place correction:", bad_primes)
+        
+        for p in bad_primes:
+            # Add correction term (mu_p - h_naive_p)
+            # This accounts for intersection multiplicities on the special fiber
+            corr = local_height_correction_finite(D, p, f_coeffs)
+            h_finite_correction += QQ(corr)
+    
+    return h_naive + h_arch + h_finite_correction
+
+
+def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, test_normalization=None):
+    """
+    Robust replacement of arakelov_build_basis_with_heights.
+    
+    Explicitly uses arakelov_canonical_height() for all height computations,
+    ensuring that naive and finite corrections are included (and that your asserts run).
+    """
+    from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, 
+                          QQ, RR as SageRR)
+
+    if not all_divisors:
+        return [], 0, None
+
+    if debug:
+        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
+        print(f"[arakelov] Using precision: {prec} bits")
+        print("[arakelov] Strategy: Full canonical heights (Naive + Arch + Finite)")
+
+    # Build curve & jacobian (over QQ for constructor)
+    Rq_QQ = PolynomialRing(QQ, 'x')
+    x_QQ = Rq_QQ.gen()
+    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly_QQ)
+    J = C.jacobian()
+
+    # Convert divisors to Jacobian elements
+    jac_elements = []
+    for div in all_divisors:
+        try:
+            u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+            v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
+            D = J([u_poly, v_poly])
+            if not D.is_zero():
+                jac_elements.append((div, D))
+        except Exception:
+            raise
+            continue
+
+    if not jac_elements:
+        return [], 0, None
+
+    # Pre-calculate individual heights using the full function
+    height_cache = {}
+    
+    if debug:
+        print(f"[arakelov] Pre-computing heights for {len(jac_elements)} candidates...")
+        
+    for i, (div, D) in enumerate(jac_elements):
+        try:
+            # THIS CALL ensures arakelov_canonical_height runs
+            h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+            height_cache[i] = h
+            if debug:
+                print(f"  Divisor {i}: h = {float(h):.6g}")
+        except Exception as e:
+            if debug:
+                print(f"[arakelov] Height computation failed for divisor {i}: {e}")
+            raise
+
+    # Pairing function using polarization identity
+    pairing_cache = {}
+
+    def get_pairing(i, j):
+        if i > j:
+            i, j = j, i
+        
+        if (i, j) in pairing_cache:
+            return pairing_cache[(i, j)]
+        
+        if i == j:
+            # <D, D> = h(D)
+            val = height_cache[i]
+            pairing_cache[(i, j)] = val
+            return val
+        
+        # <D1, D2> = (h(D1+D2) - h(D1) - h(D2)) / 2
+        h1 = height_cache[i]
+        h2 = height_cache[j]
+        
+        D1 = jac_elements[i][1]
+        D2 = jac_elements[j][1]
+        D_sum = D1 + D2
+        
+        if D_sum.is_zero():
+            h_sum = 0
+        else:
+            h_sum = arakelov_canonical_height(D_sum, f_coeffs, prec=prec)
+            
+        val = (h_sum - h1 - h2) / 2
+        pairing_cache[(i, j)] = val
+        return val
+
+    # Build Basis
+    basis = []
+    basis_indices = []
+    
+    if debug:
+        print("[arakelov] Building basis incrementally...")
+
+    for i, (div, D) in enumerate(jac_elements):
+        h_self = get_pairing(i, i)
+        
+        # Threshold: if height is effectively zero, it's torsion (or empty)
+        if float(h_self) < 1e-5:
+            if debug:
+                print(f"[arakelov] Skipping divisor {i}: self-pairing too small ({float(h_self):.6g})")
+            continue
+
+        if not basis:
+            basis.append(div)
+            basis_indices.append(i)
+            if debug:
+                print(f"[arakelov] Added divisor {i} (first)")
+            continue
+
+        # Check independence against existing basis
+        cand_indices = basis_indices + [i]
+        m = len(cand_indices)
+        
+        # Build Gram matrix
+        H = Matrix(RealField(prec), m, m)
+        for r in range(m):
+            for c in range(r, m):
+                val = get_pairing(cand_indices[r], cand_indices[c])
+                H[r, c] = val
+                H[c, r] = val
+        
+        # Check Positive Definiteness
+        is_pd = False
+        det_val = 0.0
+        try:
+            # Quick check via eigenvalues
+            evals = H.eigenvalues()
+            if all(float(e) > 1e-8 for e in evals):
+                is_pd = True
+            det_val = float(H.determinant())
+        except Exception:
+            is_pd = False
+            raise
+        
+        if is_pd:
+            basis.append(div)
+            basis_indices.append(i)
+            if debug:
+                print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
+        else:
+            if debug:
+                print(f"[arakelov] Skipping divisor {i}: not independent/PD")
+
+    # Final Matrix Construction
+    final_rank = len(basis)
+    H_final = None
+    if final_rank > 0:
+        H_final = Matrix(RealField(prec), final_rank, final_rank)
+        for r in range(final_rank):
+            for c in range(r, final_rank):
+                val = get_pairing(basis_indices[r], basis_indices[c])
+                H_final[r, c] = val
+                H_final[c, r] = val
+        
+        if debug:
+            print(f"[arakelov] Final rank: {final_rank}")
+            try:
+                print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
+            except Exception:
+                raise
+
+    return basis, final_rank, H_final
+
+
+# [arakelov.py]
+
+def get_bad_primes(f_coeffs):
+    """
+    Identify primes of bad reduction for the curve y^2 = f(x).
+    Includes factors of discriminant, leading coefficient, and 2.
+    """
+    from sage.all import QQ, PolynomialRing
+    key = tuple(f_coeffs)
+    if key in get_bad_primes.cache:
+        return get_bad_primes.cache[key]
+    
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    bad = set()
+    
+    # 1. Discriminant factors
+    disc = f_poly.discriminant()
+    if disc != 0:
+        # Handle Rational discriminant: separate numerator and denominator
+        bad.update(QQ(disc).numerator().prime_factors())
+        bad.update(QQ(disc).denominator().prime_factors())
+    
+    # 2. Leading coefficient factors (potential degree drop)
+    lc = f_coeffs[0]
+    if lc != 0:
+        bad.update(QQ(lc).numerator().prime_factors())
+        bad.update(QQ(lc).denominator().prime_factors())
+        
+    # Genus 2 arithmetic at p=2 is always delicate
+    bad.add(2)
+    
+    ret = sorted(list(bad))
+    get_bad_primes.cache[key] = ret
+    return ret
+get_bad_primes.cache = {}
+
+
+def choose_numerical_base_point(f_coeffs, prec=200):
+    """
+    Selects a numerically safe base point for Abel-Jacobi maps.
+    Uses a root of f(x) shifted by a tiny complex offset to avoid 
+    exact singularities while maintaining mathematical invariance.
+    """
+    from sage.all import ComplexField, PolynomialRing
+    
+    CC = ComplexField(prec)
+    Rq = PolynomialRing(CC, 'x')
+    x = Rq.gen()
+    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    # Sort roots deterministically
+    roots = f_poly_cc.roots(multiplicities=False)
+    if not roots:
+        # Fallback for degenerate cases
+        return (CC(0), CC(1))
+        
+    sorted_roots = sorted(roots, key=lambda z: (float(z.real()), float(z.imag())))
+    root = sorted_roots[0]
+    
+    # Tiny offset tuned to precision (preserve Weierstrass-like nature but avoid 0.0)
+    eps = CC(2) ** (-(prec // 2))
+    
+    # Base point = (root + i*eps, eps)
+    # This sits just off the branch point
+    return (root + CC(0, 1)*eps, eps)
+
+
+def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
+    """
+    Proper Archimedean height correction using Abel-Jacobi map.
+    h_∞(D) = (1/2) * <AJ(D), AJ(D)>
+    """
+    from sage.all import RealField, Matrix, QQ
+    
+    if D.is_zero():
+        return QQ(0)
+    
+    RR = RealField(prec)
+    
+    # Generate consistent base point
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    
+    # Pass base_point explicitly
+    z = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
+    
+    # Extract Im(τ)
+    Im_tau = Matrix(RR, 2, 2)
+    for i in range(2):
+        for j in range(2):
+            Im_tau[i,j] = RR(period_matrix[i,j].imag())
+    
+    # Compute self-pairing
+    pairing = neron_tate_height_pairing(z, z, Im_tau, prec=prec)
+    
+    return pairing / QQ(4)
+
+
+def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
+    """
+    Proper Arakelov height pairing using Abel-Jacobi map.
+    <D1, D2> = <AJ(D1), AJ(D2)>_NT
+    """
+    from sage.all import RealField, Matrix, QQ
+    
+    if D1.is_zero() or D2.is_zero():
+        return QQ(0)
+    
+    RR = RealField(prec)
+    
+    # Generate consistent base point
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    
+    # Pass base_point explicitly
+    z1 = abel_jacobi_mumford(D1, f_coeffs, base_point=base_point, prec=prec)
+    z2 = abel_jacobi_mumford(D2, f_coeffs, base_point=base_point, prec=prec)
+    
+    # Extract Im(τ)
+    Im_tau = Matrix(RR, 2, 2)
+    for i in range(2):
+        for j in range(2):
+            Im_tau[i,j] = RR(period_matrix[i,j].imag())
+    
+    # Compute pairing
+    pairing = neron_tate_height_pairing(z1, z2, Im_tau, prec=prec)
+    
+    return pairing
+
+def local_height_correction_finite(D, p, f_coeffs, num_doublings=30, padic_prec=600):
     """
     Compute the local canonical height correction (Neron correction) at p 
     using the p-adic doubling limit:
@@ -2461,6 +2264,8 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=15, padic_prec=
     """
     # 1. Setup p-adic curve
     try:
+        # High precision is critical for the doubling loop to avoid ZeroDivisionError
+        # in Cantor reduction when coefficients become small p-adically.
         K = Qp(p, prec=padic_prec)
         R = PolynomialRing(K, 'x')
         f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
@@ -2484,6 +2289,11 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=15, padic_prec=
         # 4. Iterate doubling
         current_P = P
         for _ in range(num_doublings):
+            if current_P.is_zero():
+                # If we hit the identity, the canonical height of 0 is 0.
+                # The formula gives 4^-n * 0 - h0 = -h0.
+                # We can return immediately.
+                return -h0
             current_P = 2 * current_P
         
         # 5. Compute final naive height
@@ -2500,42 +2310,5 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=15, padic_prec=
     except Exception:
         # If anything fails (e.g. working with Qp, precision), return 0 
         # (effectively falling back to naive height for this prime)
+        raise # ffs, do not return 0.0 lol
         return 0.0
-
-def arakelov_canonical_height(D, f_coeffs, prec=100, use_finite_places=True):
-    """
-    Proper canonical height with Abel-Jacobi map (Archimedean) 
-    and p-adic doubling limit (Finite Neron corrections).
-    """
-    if D.is_zero():
-        return QQ(0)
-    
-    from .homology import get_period_matrix_auto_B
-    
-    # 1. Naive global height (Weil height)
-    # This sums log max(|c|_v) over all places (finite and infinite)
-    h_naive = naive_height_qq(D, prec=prec)
-    
-    # 2. Archimedean correction (Neron local height at infinity - Naive at infinity)
-    # Note: h_arch here is typically computed as 1/2 <z, z>_NT.
-    # We assume archimedean_height_correction returns the proper difference term
-    # or the full Archimedean contribution relative to the naive height baseline.
-    # In this codebase context, it seems to be the full analytic height on the Jacobian?
-    # Standard formula: h = h_naive + sum(corrections)
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
-    
-    # 3. Finite place corrections (Neron local height at p - Naive at p)
-    h_finite_correction = QQ(0)
-    
-    if use_finite_places:
-        # Dynamically determine bad primes
-        bad_primes = get_bad_primes(f_coeffs)
-        
-        for p in bad_primes:
-            # Add correction term (mu_p - h_naive_p)
-            # This accounts for intersection multiplicities on the special fiber
-            corr = local_height_correction_finite(D, p, f_coeffs)
-            h_finite_correction += QQ(corr)
-    
-    return h_naive + h_arch + h_finite_correction

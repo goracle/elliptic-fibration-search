@@ -103,7 +103,7 @@ def filter_primes_avoiding_denoms(primes_list, divisors):
                     if dd > 1:
                         bad.add(dd)
             except Exception:
-                pass
+                raise
     return [p for p in primes_list if p not in bad]
 
 
@@ -479,6 +479,7 @@ def mumford_to_jacobian_element(s, p, v0, v1, C):
             try:
                 return QQ(a)
             except Exception:
+                raise
                 return QQ(Fraction(str(a)))
 
         s_q = to_QQ_obj(s)
@@ -798,6 +799,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
                 v_mod_p = [int(c.numerator()) * pow(int(c.denominator()), -1, p) % p for c in v_coeffs_current]
             except (ZeroDivisionError, ValueError):
                 # Denominator is divisible by p, skip this prime
+                raise
                 continue 
 
             u_2p_coeffs, v_2p_coeffs = _mumford_doubling_mod_p_internal(
@@ -818,6 +820,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
             except Exception:
                 if debug:
                     print(f"  [MOD-DBL] prime {p} returned non-integer coefficients (skipping).")
+                raise
                 continue
 
             if u_2p_coeffs is None:
@@ -953,7 +956,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
                         valid, reason = True, None
                 except Exception:
                     # ignore integer-scaling failure, will re-raise below
-                    pass
+                    raise
 
             if not valid:
                 # give a very explicit error for upstream handling and logging
@@ -1006,6 +1009,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
             except Exception as ee:
                 # If exact fallback fails, re-raise the original modular error as ValueError
                 raise ValueError(f"Modular doubling failed at iteration {n+1} and exact fallback failed too: {e}") from ee
+            raise
 
         
     return D_current
@@ -1078,6 +1082,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         Fp = GF(p)
         R_Fp = PolynomialRing(Fp, 'x')
     except Exception:
+        raise
         return None, None
 
     # Build f(x) over Fp using the same helper (safe conversion)
@@ -1087,6 +1092,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         # If conversion fails, skip this prime
         if debug:
             print(f"[MOD-DBL] cannot build f_poly mod {p}")
+        raise
         return None, None
 
     # If the curve is singular mod p, skip
@@ -1095,6 +1101,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
     except ValueError:
         if debug:
             print(f"[MOD-DBL] singular curve at p={p}")
+        raise
         return None, None
 
     J_Fp = C_Fp.jacobian()
@@ -1123,6 +1130,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
             v_poly_Fp = _make_poly_from_coeff_list(v_coeffs, assume_high)
         except Exception as e:
             tried.append((assume_high, "make failed", str(e)))
+            raise
             continue
 
         # canonicalize: require u to be non-zero and monic. If not monic, try to scale.
@@ -1139,6 +1147,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
                 v_poly_Fp = (v_poly_Fp * inv_lc)  # scale v accordingly (safe mod p)
             except Exception:
                 tried.append((assume_high, "nonmonic_not_normalizable", lc))
+                raise
                 continue
 
         # reduce v modulo u to enforce deg v < deg u
@@ -1146,6 +1155,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
             v_poly_Fp = v_poly_Fp % u_poly_Fp
         except Exception as e:
             tried.append((assume_high, "reduce_failed", str(e)))
+            raise
             continue
 
         # quick Mumford test: (v^2 - f) % u == 0
@@ -1156,9 +1166,11 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
                 continue
         except ZeroDivisionError:
             tried.append((assume_high, "quo_rem_zero_divisor", None))
+            raise
             continue
         except Exception as e:
             tried.append((assume_high, "quo_rem_exc", str(e)))
+            raise
             continue
 
         # If we reach here, inputs interpreted under this orientation form a valid divisor mod p
@@ -1167,12 +1179,14 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
             D_mod_p = J_Fp([u_poly_Fp, v_poly_Fp])
         except (ValueError, TypeError) as e:
             tried.append((assume_high, "jacobian_construct_fail", str(e)))
+            raise
             continue
 
         try:
             D_doubled = 2 * D_mod_p
         except (ValueError, ArithmeticError, ZeroDivisionError) as e:
             tried.append((assume_high, "doubling_failed", str(e)))
+            raise
             return None, None
 
         # extract coefficients and normalize result
@@ -1195,6 +1209,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
             except Exception:
                 if debug:
                     print(f"[MOD-DBL][BAD-RESULT] cannot normalize doubled u monic mod {p}")
+                raise
                 return None, None
 
         # reduce v modulo u
@@ -1203,6 +1218,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         except Exception:
             if debug:
                 print(f"[MOD-DBL][BAD-RESULT] cannot reduce v mod u after doubling mod {p}")
+            raise
             return None, None
 
         # final Mumford test on the doubled pair
@@ -1215,6 +1231,7 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         except ZeroDivisionError:
             if debug:
                 print(f"[MOD-DBL][BAD-RESULT] division by zero while validating doubled pair mod {p}")
+            raise
             return None, None
 
         # Build coefficient lists highest->lowest
@@ -1272,7 +1289,7 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
     if ARAKELOV_AVAILABLE:
         if debug:
             print("[check] Using Arakelov heights")
-        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=100, debug=debug)
+        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=300, debug=debug)
         return is_indep, rank, H
     else:
         if debug:
@@ -1450,8 +1467,10 @@ def reconstruct_worker_wrapper(args):
             results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
             
         except RationalReconstructionError:
+            raise
             continue
         except Exception:
+            raise
             continue
     
     return results
@@ -1488,6 +1507,7 @@ def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_worker
         pool = ctx.Pool(num_workers)
     except Exception:
         pool = multiprocessing.Pool(num_workers)
+        raise
     
     all_results = []
     try:
@@ -1547,6 +1567,7 @@ def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
                     if s_mod != expected[0] % p0:
                         continue
                 except ZeroDivisionError:
+                    raise
                     continue
             
             # Full verification
@@ -1554,8 +1575,10 @@ def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
                 results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
         
         except RationalReconstructionError:
+            raise
             continue
         except Exception:
+            raise
             continue
         
         # Early stopping check
@@ -1639,6 +1662,7 @@ class ModInverseCache:
             try:
                 self.cache[key] = pow(int(a), -1, p)
             except (ValueError, ZeroDivisionError):
+                raise
                 return None
         return self.cache[key]
 
@@ -1931,6 +1955,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                     pool = ctx.Pool(num_workers)
                 except Exception:
                     pool = multiprocessing.Pool(num_workers)
+                    raise
                 
                 try:
                     for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel, batches):
@@ -1968,8 +1993,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                             crt_val = crt_cached(tuple(vals), tuple(primes))
                             num, den = rational_reconstruct(crt_val, M)
                             
-                            if abs(num) > max_height or abs(den) > max_height:
-                                raise RationalReconstructionError("Height too large")
+                            #if abs(num) > max_height or abs(den) > max_height:
+                            #    raise RationalReconstructionError("Height too large")
                             
                             rec_vals.append(QQ(num)/QQ(den))
                         
@@ -2271,13 +2296,13 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
             print("[basis] Using Arakelov heights for basis construction")
         
         # INCREASED DEFAULT PRECISION to prevent false rank increases
-        prec = 1024
+        prec = 2048
         max_attempts = 2
         
         for attempt in range(max_attempts):
             try:
                 # Use the parallel version which has the new checks
-                result = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=1024, debug=True)
+                result = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=prec, debug=True)
                 return result
             except Exception as e:
                 if attempt < max_attempts - 1:
@@ -2542,7 +2567,7 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val):
                     if sq_root != 0:
                         Z_roots.append(((-b_q - sq_root) * inv_2a) % p)
             except Exception:
-                pass 
+                raise
         
         valid_v1s = []
         for Z in Z_roots:

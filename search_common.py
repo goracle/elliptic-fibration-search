@@ -335,15 +335,6 @@ DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 3
 
 
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
-# prestige curve lol, rank 4
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
-
 # $y^2 = 4x^6 - 12x^5 + 16x^4 - 8x^3 - 3x^2 + 4x$ # rank 2
 COEFFS_GENUS2 = [QQ(4), QQ(-12), QQ(16), QQ(-8), QQ(-3), QQ(4), QQ(0)] # rank 2
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
@@ -373,6 +364,15 @@ COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
 
+# prestige curve lol, rank 4
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
+TERMINATE_WHEN_6 = 11
+
+
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
 
 
 ##### END TEST CURVES ######
@@ -380,13 +380,13 @@ TERMINATE_WHEN_6 = 3
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_DOUBLINGS = 30 # for mumford height pairing independence test
+NUM_DOUBLINGS = 140 # for mumford height pairing independence test
 HEIGHT_BOUND = 4*370 # not that important, mostly, it seems
 # prime config
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(190))[3:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(390))[2:]   # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
@@ -425,7 +425,6 @@ MUMFORD_SEARCH = True # look for elements of J(C); only supports genus 2 right n
 
 AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like, for MOBIUS_TRANS mode, avoid primes
 PREFER =  {31,37,41,43,47,53}   # or {23,29} if you want to force primes upward, for MOBIUS_TRANS
-
 
 
 # Add to search_common.py or search_config.py

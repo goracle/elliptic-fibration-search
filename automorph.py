@@ -60,16 +60,12 @@ def _coerce_m_symbol(cd):
     return var('m')
 
 
-
-
-
 def _apply_mobius_on_m(m_sym, mobius_tuple):
     """
     Applies a Möbius transformation to the symbolic variable m.
     """
     a, b, c, d = mobius_tuple
     return (a * m_sym + b) / (c * m_sym + d)
-
 
 
 def translation_map_section(section, m_sym):
@@ -543,8 +539,6 @@ def mobius_from_3points(p1, p2, p3, q1, q2, q3):
 
     # if all zero (shouldn't happen), raise
     raise ValueError("mobius_from_3points: solution was zero vector")
-
-
 
 
 # --- safer test_constant_scaling ---

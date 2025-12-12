@@ -133,7 +133,6 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
     print("="*70)
 
 
-
 from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
 
 # ---------------------------
@@ -546,7 +545,6 @@ def compute_ramification_locus(cd, verbose=False):
                             print(f"[ram_locus] Added collision prime from gcd roots mod p: {p}")
             except Exception:
                 pass
-
 
 
     # ------------------------------------------------------------

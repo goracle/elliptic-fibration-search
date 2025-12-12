@@ -27,7 +27,6 @@ except ImportError:
 # ==============================================================================
 
 
-
 def decode_vector(vec, labels):
     """
     Converts a coefficient vector into a human-readable string representation.
@@ -248,10 +247,7 @@ def compute_NS_and_GW(cd, current_sections, rho, mw_rank, chi, max_search_degree
     return out
 
 
-
-
 # --- Replace these functions in your module ---
-
 
 
 # Run after you have the 'reps' (return_reps=True) from staged_rational_curve_search
@@ -321,7 +317,6 @@ def process_stage_worker(args):
         if quad_val == -2:
             found.append(tuple(full_vec))
     return found
-
 
 
 def staged_rational_curve_search(cd, mw_sections, rho, mw_rank, chi,
@@ -428,7 +423,6 @@ def staged_rational_curve_search(cd, mw_sections, rho, mw_rank, chi,
     return (counts, reps) if return_reps else counts
 
 
-
 def run_convergence_test(cd, sections, rho, mw_rank, chi, max_coords_seq, require_S_coeff='positive'):
     runs = []
     for mc in max_coords_seq:
@@ -517,7 +511,6 @@ def _canonicalize_vector_list(vec, require_S_coeff='positive'):
     return None
 
 
-
 from sage.all import QQ, Integer, Matrix
 from math import isclose
 
@@ -540,7 +533,6 @@ def _estimate_local_correction_I_n(symbol, m_v, comp_index):
         k = int(comp_index) % n
         return QQ(k * (n - k)) / QQ(n)
     return QQ(0)
-
 
 
 # --- Replacement: q-series builder that does not force divisibility by rho ---

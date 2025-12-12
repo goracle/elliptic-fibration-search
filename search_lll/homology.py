@@ -46,6 +46,8 @@ def to_complex(z, CC):
                 return CC(float(z.real()), float(z.imag()) if hasattr(z, 'imag') else 0.0)
             except Exception:
                 return CC(complex(z))
+            raise
+        raise
 
 
 def get_vertex_source(RS):
@@ -59,6 +61,7 @@ def get_vertex_source(RS):
                 try:
                     val = val()
                 except Exception:
+                    raise
                     continue
             if isinstance(val, (list, tuple)) and len(val) > 0:
                 return val
@@ -71,6 +74,7 @@ def get_vertex_source(RS):
         try:
             val = getattr(RS, attr)
         except Exception:
+            raise
             continue
         if isinstance(val, (list, tuple)) and len(val) > 0:
             first = val[0]
@@ -211,7 +215,7 @@ def compute_intersection_matrix_combinatorial(a_list, b_list, RS):
         elif hasattr(RS, 'homology_intersection_matrix'):  
             I_full = RS.homology_intersection_matrix()
     except Exception:
-        pass
+        raise
     
     if I_full is not None:
         # I_full should be a 4x4 skew-symmetric matrix for genus 2
@@ -221,7 +225,7 @@ def compute_intersection_matrix_combinatorial(a_list, b_list, RS):
             I_ab = [[int(I_full[i, 2+j]) for j in range(2)] for i in range(2)]
             return I_ab
         except Exception:
-            pass
+            raise
     
     # Method 2: Compute intersection using Sage's path intersection algorithm
     # We need to compute the intersection number between each a_i and b_j
@@ -262,6 +266,7 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
         except Exception as e:
             if verbose:
                 print(f"Could not use Sage intersection pairing: {e}")
+            raise
     
     # Fallback to geometric intersection (likely to fail for graph-based cycles)
     I = compute_intersection_matrix(A_cycles, B_cycles)
@@ -497,6 +502,7 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
             print(f"det(A) magnitude: {float(abs(A.det())):.6e}")
         except Exception:
             print(f"det(A): {A.det()}")
+            raise
     
     # Compute tau = A^(-1) * B
     try:

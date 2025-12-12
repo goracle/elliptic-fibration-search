@@ -199,9 +199,6 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
     return rational_candidates
 
 
-
-
-
 def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_tuple=None):
     """
     Compare a target rational m = a/b (in QQ) against the precomputed residue fingerprints.

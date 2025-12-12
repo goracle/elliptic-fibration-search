@@ -1054,8 +1054,6 @@ Integrates: descent homomorphism, Heegner points, Faltings-Serre bounds, torsion
 """
 
 
-
-
 # ============================================================================
 # UNIFIED SELMER PIPELINE
 # ============================================================================
@@ -1616,7 +1614,6 @@ def run_selmer_analysis(cd, current_sections, picard_number, mw_rank, verbose=Tr
 # [DELETED] Removed the entire second, duplicate definition of run_selmer_analysis
 
 
-
 # selmer_minimal.py
 """
 Practical 2-Selmer bounds for elliptic surfaces.
@@ -1683,6 +1680,5 @@ def _tamagawa_from_symbol(symbol):
         return 2
     
     return {'II': 1, 'III': 2, 'IV': 3, 'II*': 1, 'III*': 2, 'IV*': 2}.get(s, 1)
-
 
 

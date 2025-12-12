@@ -228,4 +228,3 @@ def compute_consensus_residues_with_height_matching(all_precomputed_residues,
     return consensus_residues, stats
 
 
-
