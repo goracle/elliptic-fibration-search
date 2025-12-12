@@ -1781,7 +1781,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             # === CRITICAL FIX: ACTUALLY FILTER ===
             # The problem: we need to filter ACROSS primes, not within each prime
             
-            if total_combos_raw > 100_000:
+            if total_combos_raw > 1000000:
                 if debug:
                     print(f"  High density detected - applying aggressive pre-filtering")
                 
@@ -1891,7 +1891,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             disc_deg = len(f_coeffs) - 1
             expected_rank = min(disc_deg - 1, 4)
             
-            base_limit = 10000 * expected_rank
+            base_limit = 1000000 * expected_rank
             prime_discount = 1.0 / max(1.0, len(primes) / 4.0)
             density_factor = min(2.0, avg_sols_per_prime / 10.0)
             
@@ -2050,6 +2050,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     print(f"  Unique Rational Points: {len(found_xs)}")
     
     if mumford_divisors:
+        unique = {frozenset(d.items()): d for d in mumford_divisors}
+        mumford_divisors = list(unique.values())
         rational_roots_count = sum(1 for div in mumford_divisors_raw
                                    if 'has_rational_roots' in div and div.get('has_rational_roots'))
         print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
@@ -2256,13 +2258,13 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
             print("[basis] Using Arakelov heights for basis construction")
         
         # INCREASED DEFAULT PRECISION to prevent false rank increases
-        prec = 2048
+        prec = 1024
         max_attempts = 2
         
         for attempt in range(max_attempts):
             try:
                 # Use the parallel version which has the new checks
-                result = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=2048, debug=True)
+                result = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=1024, debug=True)
                 return result
             except Exception as e:
                 if attempt < max_attempts - 1:
