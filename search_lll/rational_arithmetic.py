@@ -11,6 +11,7 @@ def crt_cached(residues, moduli):
     """Cached Chinese Remainder Theorem computation."""
     return crt(list(residues), list(moduli))
 
+@lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
 def rational_reconstruct(c, N, max_den=None):
     """
     Rational reconstruction using the Extended Euclidean Algorithm.

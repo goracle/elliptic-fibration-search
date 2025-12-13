@@ -560,6 +560,232 @@ def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
     return True
 
 
+#old slow
+#-----------------------
+#new
+
+# [Insert at top level to satisfy "no imports inside functions" rule]
+try:
+    from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
+except ImportError:
+    pass
+
+def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes, CC, tiny, max_depth=8, depth=0):
+    """
+    Integrate ω_0 and ω_1 along a segment with adaptive subdivision.
+    Optimized with Horner's method, pre-converted nodes, and fast branch checking.
+    """
+    p0 = CC(p_start)
+    p1 = CC(p_end)
+    vec = p1 - p0
+    
+    # Offset slightly perpendicular to avoid branch points
+    # Use explicit complex arithmetic to avoid intermediate object creation overhead where possible
+    perp = CC(0, 1) * vec
+    abs_perp = abs(perp)
+    if abs_perp == 0:
+        off = CC(0)
+    else:
+        off_mag = max(CC(1e-14), abs(vec) * CC(1e-8))
+        off = perp / abs_perp * off_mag
+        
+    dx_factor = vec / CC(2)
+    
+    # Pre-convert coefficients to CC once for Horner's method
+    # f_coeffs are typically small integers/rationals, converting once saves time
+    f_coeffs_cc = [CC(c) for c in f_coeffs]
+    
+    def f_eval(z):
+        # Horner's method
+        res = f_coeffs_cc[0]
+        for c in f_coeffs_cc[1:]:
+            res = res * z + c
+        return res
+    
+    # Determine starting y value using the first node (nodes are expected to be pre-converted to CC)
+    # nodes[0] is (t, x_mapped, w)
+    # s = (x_mapped + 1) / 2
+    s_start = (nodes[0][1] + CC(1)) / CC(2)
+    sample_x = p0 + s_start * vec + off
+    f0 = f_eval(sample_x)
+    y0_raw = f0.sqrt()
+    
+    if y_prev_hint is not None:
+        # Continuity check: pick branch closest to y_prev_hint
+        # Equivalent to: abs(y0_raw - y_prev_hint) <= abs(-y0_raw - y_prev_hint)
+        # Optimized: Re(y0_raw * conj(y_prev_hint)) >= 0
+        if (y0_raw.real() * y_prev_hint.real() + y0_raw.imag() * y_prev_hint.imag()) >= 0:
+            y0 = y0_raw
+        else:
+            y0 = -y0_raw
+    elif sheet_start is not None:
+        y0 = -y0_raw if sheet_start % 2 != 0 else y0_raw
+    else:
+        y0 = -y0_raw if y0_raw.imag() < 0 else y0_raw
+    
+    y_prev = y0
+    near_count = 0
+    
+    I0 = CC(0)
+    I1 = CC(0)
+    two = CC(2)
+    
+    # Tight integration loop
+    for (_, x_mapped, w) in nodes:
+        # x_mapped and w are already CC elements
+        s = (x_mapped + CC(1)) / two
+        xval = p0 + s * vec + off
+        fval = f_eval(xval)
+        
+        # Check singularity proximity
+        if abs(fval) < tiny:
+            near_count += 1
+            continue
+        
+        y_plus = fval.sqrt()
+        
+        # Fast continuity check: Re(y_plus * conj(y_prev)) >= 0
+        if (y_plus.real() * y_prev.real() + y_plus.imag() * y_prev.imag()) >= 0:
+            y_cur = y_plus
+        else:
+            y_cur = -y_plus
+        
+        y_prev = y_cur
+        
+        # Integrands: 1/(2y) and x/(2y)
+        # Factor out common terms: term = (dx * w) / (2 * y)
+        term = (dx_factor * w) / (two * y_cur)
+        
+        I0 += term
+        I1 += term * xval
+    
+    # Adaptive subdivision
+    if near_count > len(nodes) // 10 and depth < max_depth:
+        mid = p0 + vec / two
+        lI0, lI1, y_left = integrate_segment(p0, mid, sheet_start, y_prev_hint, f_coeffs, nodes, CC, tiny, max_depth, depth+1)
+        rI0, rI1, y_right = integrate_segment(mid, p1, None, y_left, f_coeffs, nodes, CC, tiny, max_depth, depth+1)
+        return lI0 + rI0, lI1 + rI1, y_right
+    
+    return I0, I1, y_prev
+
+def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_tol=None):
+    """
+    Compute the period matrix for a genus-2 hyperelliptic curve y^2 = f(x).
+    Optimized to pre-convert nodes and avoid generic eigenvalue algorithms.
+    """
+    key = (tuple(f_coeffs), prec, max_depth, pd_tol)
+    if key in get_period_matrix_auto_B.cache:
+        return get_period_matrix_auto_B.cache[key]
+    
+    CC = ComplexField(prec)
+    RR = RealField(prec)
+    
+    # Build polynomial
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    deg = f_poly.degree()
+    
+    if verbose:
+        print(f"Polynomial degree: {deg}, expected genus: {(deg - 1) // 2}")
+    
+    # Construct Riemann surface
+    R2 = PolynomialRing(QQ, ['x', 'y'])
+    X, Y = R2.gens()
+    curve_eq = Y**2 - f_poly(X)
+    
+    try:
+        RS = RiemannSurface(curve_eq)
+    except Exception as e:
+        raise RuntimeError(f"Failed to create RiemannSurface: {e}")
+    
+    if RS.genus != 2:
+        raise ValueError(f"Genus is {RS.genus}, expected 2")
+    
+    # Get homology basis
+    H = RS.homology_basis()
+    if len(H) != 4:
+        raise HomologyExtractionError(f"Expected 4 cycles for genus 2, got {len(H)}")
+    
+    a_list = H[:2]
+    b_list = H[2:]
+    
+    # Extract vertex coordinates
+    vertex_source = get_vertex_source(RS)
+    
+    # Extract coordinate-based paths
+    A_cycles = [extract_cycle_paths(cycle, vertex_source, CC) for cycle in a_list]
+    B_cycles = [extract_cycle_paths(cycle, vertex_source, CC) for cycle in b_list]
+    
+    # Canonicalize
+    success, A_final, B_final, I_matrix = canonicalize_cycles(A_cycles, B_cycles, RS=RS, verbose=verbose)
+    if not success and verbose:
+        print("Warning: Using non-canonical basis (intersection matrix not identity)")
+    
+    # Setup quadrature
+    Nnodes = max(200, min(2000, prec // 2))
+    raw_nodes = tanh_sinh_nodes(Nnodes)
+    
+    # Pre-convert nodes to CC to avoid overhead in the tight loop
+    nodes_cc = [(CC(t), CC(x), CC(w)) for t, x, w in raw_nodes]
+    
+    tiny = CC(2) ** (-prec // 2)
+    
+    # Integrate
+    A = Matrix(CC, 2, 2)
+    B = Matrix(CC, 2, 2)
+    
+    for j in range(2):
+        A[0, j], A[1, j] = integrate_chain(A_final[j], f_coeffs, nodes_cc, CC, tiny, max_depth)
+        B[0, j], B[1, j] = integrate_chain(B_final[j], f_coeffs, nodes_cc, CC, tiny, max_depth)
+    
+    if verbose:
+        try:
+            print(f"det(A) magnitude: {float(abs(A.det())):.6e}")
+        except Exception:
+            pass
+    
+    # Compute tau = A^(-1) * B
+    try:
+        tau = A.inverse() * B
+    except Exception as e:
+        raise ArithmeticError(f"Singular A matrix: {e}")
+    
+    # Symmetrize
+    tau = (tau + tau.transpose()) / CC(2)
+    
+    # Check positive definiteness (Explicit calculation for 2x2 to avoid Generic warnings)
+    # Eigenvalues of [a b; b d] are roots of x^2 - (a+d)x + (ad-b^2) = 0
+    Im_tau = [[RR(tau[i, j].imag()) for j in range(2)] for i in range(2)]
+    tr = Im_tau[0][0] + Im_tau[1][1]
+    det = Im_tau[0][0] * Im_tau[1][1] - Im_tau[0][1] * Im_tau[1][0]
+    
+    # Quadratic formula: (tr +/- sqrt(tr^2 - 4*det)) / 2
+    delta = tr*tr - 4*det
+    if delta < 0:
+        # Should be real symmetric, so this implies numerical noise or asymmetry
+        delta = 0 
+    sqrt_delta = delta.sqrt()
+    ev1 = (tr - sqrt_delta) / 2
+    ev2 = (tr + sqrt_delta) / 2
+    evals = [float(ev1), float(ev2)]
+    
+    if verbose:
+        print(f"Im(tau) eigenvalues: {evals}")
+    
+    if pd_tol is None:
+        pd_tol = -1e-10
+    
+    if min(evals) < pd_tol:
+        raise ArithmeticError(
+            f"Tau not positive definite (min eigenvalue={min(evals):.2e}). "
+            "Basis may be non-symplectic or have wrong orientation."
+        )
+    
+    get_period_matrix_auto_B.cache[key] = tau
+    return tau
+get_period_matrix_auto_B.cache = {}
+
 # Example usage
 if __name__ == "__main__":
     f_coeffs = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]  # rank 4
