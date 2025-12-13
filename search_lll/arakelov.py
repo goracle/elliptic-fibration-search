@@ -263,283 +263,14 @@ def arakelov_check_independence(divisors, f_coeffs, prec=300, debug=False):
         det = float(H.determinant())
         
         # STRICT POSITIVE DEFINITE CHECK
-        is_indep = (det > 1e-4)
+        is_independent = (det > 1e-4)
 
         if debug:
             print(f"[arakelov] Height matrix determinant: {det:.6g}")
-            print(f"[arakelov] Positive definite? {is_indep}")
+            print(f"[arakelov] Positive definite? {is_independent}")
     
-    return is_indep, n if is_indep else 0, H, det
+    return is_independent, n if is_independent else 0, H, det
 
-
-def arakelov_build_basis_parallel(all_divisors, f_coeffs, prec=300, debug=False):
-    """
-    Build basis using parallel height computation.
-    """
-    assert None, "deprecated"
-    if not all_divisors:
-        return [], 0, None
-    
-    clear_period_cache()
-    reset_timers()
-    
-    if debug:
-        print(f"\n[arakelov_parallel] Building basis from {len(all_divisors)} divisors")
-        print(f"[arakelov_parallel] Using precision: {prec} bits (Tanh-Sinh)")
-    
-    print("f_coeffs", f_coeffs)
-    with Timer("period_matrix_total"):
-        try:
-            #period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-            tau_im = Matrix(RR, 2, 2, [[period_matrix[i,j].imag() for j in range(2)] for i in range(2)])
-            print("Im(tau) eigenvalues:", tau_im.eigenvalues())
-            print("det(Im(tau)):", tau_im.determinant())
-            if debug:
-                print(f"[arakelov_parallel] Period matrix computed")
-        except Exception as e:
-            if debug:
-                print(f"[arakelov_parallel] Period matrix failed: {e}")
-            raise
-
-    # period_matrix is the 2x2 complex tau from your run
-    import numpy as np
-
-    def reduce_mod_lattice(z, tau):
-        # z: complex vector length 2 (numpy complex128)
-        # tau: 2x2 complex matrix (Sage object or numpy complex)
-        # Build real lattice matrix L_real with 4 columns = Re/Im of e1,e2,tau.col1,tau.col2
-        # We'll solve L_real * k = z_real for integer k (k in Z^4), then do z - L * k
-        # Convert to numpy arrays
-        z = np.array([complex(z[0]), complex(z[1])], dtype=complex)
-        tau_np = np.array([[complex(tau[0,0]), complex(tau[0,1])],[complex(tau[1,0]), complex(tau[1,1])]], dtype=complex)
-        # L columns: e1=(1,0), e2=(0,1), tau_col1, tau_col2
-        cols = []
-        e1 = np.array([1+0j, 0+0j], dtype=complex)
-        e2 = np.array([0+0j, 1+0j], dtype=complex)
-        cols.append(e1)
-        cols.append(e2)
-        cols.append(tau_np[:,0])
-        cols.append(tau_np[:,1])
-        # Build real representation
-        L_real = np.zeros((4,4), dtype=float)
-        z_real = np.zeros(4, dtype=float)
-        for j in range(4):
-            L_real[0,j] = cols[j][0].real
-            L_real[1,j] = cols[j][0].imag
-            L_real[2,j] = cols[j][1].real
-            L_real[3,j] = cols[j][1].imag
-        z_real[0] = z[0].real
-        z_real[1] = z[0].imag
-        z_real[2] = z[1].real
-        z_real[3] = z[1].imag
-        # solve least squares to get real coeffs, then round to nearest integers
-        k_real, *_ = np.linalg.lstsq(L_real, z_real, rcond=None)
-        k_int = np.rint(k_real).astype(int)
-        # compute lattice vector back in complex 2-vector
-        Lk = sum(k_int[j] * cols[j] for j in range(4))
-        z_red = z - Lk
-        return z_red, k_int
-
-    # Apply to all AJ in basis order
-    tau = period_matrix  # use your tau
-    AJ_red = []
-    klist = []
-    for idx in basis_indices:
-        z = np.array([complex(aj_cache[idx][0]), complex(aj_cache[idx][1])], dtype=complex)
-        z_r, k = reduce_mod_lattice(z, tau)
-        AJ_red.append(z_r)
-        klist.append(k)
-        print("orig:", z, "reduced:", z_r, "k:", k)
-
-    # Rebuild H from AJ_red (use your neron_tate_height_pairing but with AJ replaced by reduced ones)
-    # You may need to convert back into the CC objects your pairing function expects.
-
-    
-    # FILTER TORSION FIRST
-    if debug:
-        print(f"[arakelov_parallel] Filtering torsion divisors...")
-    
-    non_torsion = []
-    torsion_count = 0
-    max_torsion_order = 100
-    
-    for div in all_divisors:
-        is_tors, order = is_mumford_torsion_fast(
-            div['s'], div['p'], div['v_0'], div['v_1'], 
-            f_coeffs, max_order=max_torsion_order, debug=False
-        )
-        
-        if is_tors:
-            torsion_count += 1
-            if debug and torsion_count <= 5:
-                print(f"[arakelov_parallel] Filtered torsion divisor (order {order}): s={div['s']}, p={div['p']}")
-        else:
-            non_torsion.append(div)
-    
-    if debug:
-        print(f"[arakelov_parallel] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
-    
-    if not non_torsion:
-        return [], 0, None
-    
-    with Timer("jacobian_conversion"):
-        R = PolynomialRing(QQ, 'x')
-        x = R.gen()
-        f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-        C = HyperellipticCurve(f_poly)
-        J = C.jacobian()
-        
-        jac_elements = []
-        for div in non_torsion:
-            try:
-                u_poly = x**2 - QQ(div['s'])*x + QQ(div['p'])
-                v_poly = QQ(div['v_1'])*x + QQ(div['v_0'])
-                D = J([u_poly, v_poly])
-                if not D.is_zero():
-                    jac_elements.append((div, D))
-            except Exception:
-                raise
-                continue
-    
-    if not jac_elements:
-        return [], 0, None
-    
-    n = len(jac_elements)
-    
-    canonical_heights = {}
-    
-    if debug:
-        print(f"[arakelov_parallel] Computing {n} canonical heights...")
-    
-    with Timer("heights_precompute"):
-        for i, (div, D) in enumerate(jac_elements):
-            canonical_heights[i] = arakelov_canonical_height(D, f_coeffs, prec=prec)
-            if debug and (i+1) % 10 == 0:
-                print(f"[arakelov_parallel] Computed {i+1}/{n} heights")
-    
-    sum_cache = {}
-    
-    def get_sum_height(i, j):
-        if i > j:
-            i, j = j, i
-        key = (i, j)
-        if key not in sum_cache:
-            D_i = jac_elements[i][1]
-            D_j = jac_elements[j][1]
-            D_sum = D_i + D_j
-            sum_cache[key] = arakelov_canonical_height(D_sum, f_coeffs, prec=prec)
-        return sum_cache[key]
-    
-    def compute_pairing(i, j):
-        h_i = canonical_heights[i]
-        h_j = canonical_heights[j]
-        h_sum = get_sum_height(i, j)
-        return (h_sum - h_i - h_j) / QQ(2)
-    
-    basis = []
-    basis_indices = []
-    
-    if debug:
-        print(f"[arakelov_parallel] Building basis incrementally...")
-    
-    with Timer("basis_construction"):
-        for i, (div, D) in enumerate(jac_elements):
-            h_self = compute_pairing(i, i)
-            if float(h_self) < 1e-4:
-                if debug:
-                    print(f"[arakelov_parallel] Skipping divisor {i}: self-pairing too small")
-                continue
-            if not basis:
-                basis.append(div)
-                basis_indices.append(i)
-                if debug:
-                    print(f"[arakelov_parallel] Added divisor 0 (self-pairing {float(h_self):.6g})")
-            else:
-                candidate_indices = basis_indices + [i]
-                m = len(candidate_indices)
-                H = Matrix(QQ, m, m)
-                for ii in range(m):
-                    for jj in range(ii, m):
-                        h_ij = compute_pairing(candidate_indices[ii], candidate_indices[jj])
-                        H[ii, jj] = h_ij
-                        H[jj, ii] = h_ij
-                
-                det_val = float(H.determinant())
-
-
-                if is_positive_definite(H, prec=prec, tol=10**(-12)):
-                    basis.append(div)
-                    basis_indices.append(i)
-                    if debug:
-                        det_float = float(H.determinant())
-                        print(f"[arakelov_parallel] Added divisor {i} (rank {m}, det {det_float:.6g})")
-                else:
-                    if debug:
-                        print(f"[arakelov_parallel] Skipping divisor {i}: not positive-definite (rejected)")
-
-    final_rank = len(basis)
-    H_final = None
-    if final_rank > 0:
-        H_final = Matrix(QQ, final_rank, final_rank)
-        for i in range(final_rank):
-            for j in range(i, final_rank):
-                h_ij = compute_pairing(basis_indices[i], basis_indices[j])
-                H_final[i, j] = h_ij
-                H_final[j, i] = h_ij
-
-    
-    # in Sage kernel (preferred) because it has PSLQ
-    from sage.all import vector, QQ
-    V = []
-    for idx in basis_indices:
-        z = aj_cache[idx]
-        v4 = [float(z[0].real()), float(z[0].imag()), float(z[1].real()), float(z[1].imag())]
-        V.append(v4)
-
-    # form matrix with columns for each basis vector's real4 coords
-    M = Matrix(RR, 4, len(V), [coord for col in V for coord in col])  # careful ordering
-    # Try integer relation among columns: find integers k1..kr not all 0 with M * k = 0
-    # Use PSLQ on flattened or combine differently. Simpler: try PSLQ on list of r reals repeatedly.
-    # Flatten to list of length 4*r and try to find relation? Better: try pslq on complex linear combination entries.
-    # Here we try PSLQ on the r coefficients of the null vector vec scaled to rational approx:
-    coeffs = list(vec)  # from numpy eigenvector
-
-
-    # Run inside Sage; ensure sympy/mpmath available.
-    import numpy as np
-
-    # Build final numpy H and eigen-decomposition (if not already done)
-    Hf = np.array(H_final, dtype=float)
-    w, V = np.linalg.eigh(Hf)
-    idx_min = int(np.argmin(w))
-    eigvec = V[:, idx_min]
-
-    # Convert to mpf via string to preserve precision
-    vec_mpf = [mpf(str(float(c))) for c in eigvec]
-    rel = None
-    #rel = pslq(vec_mpf, maxsteps=5000)
-    print("PSLQ relation on eigenvector (if small-int relation exists):", rel)
-    # If rel is not None and not empty, it's a small-integer relation on coefficients.
-
-
-    # Using jac_elements list from your build (original D objects)
-    # Suppose pslq returns klist = [k0,k1,k2,k3]
-    comb = J(0)   # identity in Jacobian
-    for pos, k in enumerate(klist):
-        orig_idx = basis_indices[pos]
-        D = jac_elements[orig_idx][1]   # the Jacobian element
-        if k >= 0:
-            comb = comb + (k * D)
-        else:
-            comb = comb - ((-k) * D)
-    print("Is combination zero in Jacobian?", comb.is_zero())
-    # If comb is torsion, comb.torsion_order() may tell you the order.
-
-
-    if debug:
-        print_timers()
-    
-    return basis, final_rank, H_final
 
 
 def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
@@ -2135,6 +1866,58 @@ def _compute_pairing_worker(args):
         return ((i, j), None, str(e))
 
 
+
+
+def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
+    """Precompute all pairings for given indices in parallel"""
+    # Collect unique pairs to compute
+    pairs_to_compute = []
+    for r in range(len(indices)):
+        for c in range(r, len(indices)):
+            i, j = indices[r], indices[c]
+            if i > j:
+                i, j = j, i
+            if (i, j) not in pairing_cache:
+                div_i = jac_elements[i][0]
+                div_j = jac_elements[j][0]
+                pairs_to_compute.append((
+                    i, j, div_i, div_j, f_coeffs, prec,
+                    height_cache[i], height_cache[j]
+                ))
+
+    if not pairs_to_compute:
+        return
+
+    # Compute in parallel if worthwhile
+    if len(pairs_to_compute) > 2 and n_jobs > 1:
+        with Pool(processes=n_jobs) as pool:
+            results = pool.map(_compute_pairing_worker, pairs_to_compute)
+
+        for (i, j), val, error in results:
+            if error:
+                raise RuntimeError(f"Pairing computation failed: {error}")
+            pairing_cache[(i, j)] = val
+    else:
+        # Sequential for small batches
+        for args in pairs_to_compute:
+            (i, j), val, error = _compute_pairing_worker(args)
+            if error:
+                raise RuntimeError(f"Pairing computation failed: {error}")
+            pairing_cache[(i, j)] = val
+    return pairing_cache
+
+def get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
+    if i > j:
+        i, j = j, i
+
+    if (i, j) not in pairing_cache:
+        # Compute on-demand if not in cache
+        pairing_cache = precompute_pairings_parallel([i, j], jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs)
+
+    return pairing_cache[(i, j)]
+
+
+
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, 
                                       test_normalization=None, n_jobs=-1):
     """
@@ -2224,56 +2007,25 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     # Pairing function using polarization identity with parallel computation
     pairing_cache = {}
 
-    def precompute_pairings_parallel(indices):
-        """Precompute all pairings for given indices in parallel"""
-        # Collect unique pairs to compute
-        pairs_to_compute = []
-        for r in range(len(indices)):
-            for c in range(r, len(indices)):
-                i, j = indices[r], indices[c]
-                if i > j:
-                    i, j = j, i
-                if (i, j) not in pairing_cache:
-                    div_i = jac_elements[i][0]
-                    div_j = jac_elements[j][0]
-                    pairs_to_compute.append((
-                        i, j, div_i, div_j, f_coeffs, prec,
-                        height_cache[i], height_cache[j]
-                    ))
-        
-        if not pairs_to_compute:
-            return
-        
-        # Compute in parallel if worthwhile
-        if len(pairs_to_compute) > 2 and n_jobs > 1:
-            with Pool(processes=n_jobs) as pool:
-                results = pool.map(_compute_pairing_worker, pairs_to_compute)
-            
-            for (i, j), val, error in results:
-                if error:
-                    raise RuntimeError(f"Pairing computation failed: {error}")
-                pairing_cache[(i, j)] = val
-        else:
-            # Sequential for small batches
-            for args in pairs_to_compute:
-                (i, j), val, error = _compute_pairing_worker(args)
-                if error:
-                    raise RuntimeError(f"Pairing computation failed: {error}")
-                pairing_cache[(i, j)] = val
-
-    def get_pairing(i, j):
-        if i > j:
-            i, j = j, i
-        
-        if (i, j) not in pairing_cache:
-            # Compute on-demand if not in cache
-            precompute_pairings_parallel([i, j])
-        
-        return pairing_cache[(i, j)]
-
     # Build Basis
     basis = []
     basis_indices = []
+
+    # get_pairing(i,j) should return a float pairing for indices i,j (use high-prec but convert to float)
+    import numpy as np
+    n = len(all_divisors)
+    G = np.zeros((n,n), dtype=float)
+    for i in range(n):
+        for j in range(i, n):
+            v = float(get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs))
+            G[i,j] = v
+            G[j,i] = v
+    G = 0.5*(G + G.T)
+    selected_indices, info = select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10, debug=True)
+    print("Selected indices:", selected_indices)
+    print("Selector info:", info)
+
+    sys.exit()
     
     if debug:
         print("[arakelov] Building basis incrementally...")
@@ -2301,40 +2053,51 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         # Precompute all needed pairings in parallel
         precompute_pairings_parallel(cand_indices)
         
+        # === Begin replacement: stable projection-residual test ===
+        # cand index is `i`; current candidate indices are cand_indices (basis_indices + [i]).
         m = len(cand_indices)
-        
-        # Build Gram matrix
-        H = Matrix(RealField(prec), m, m)
-        for r in range(m):
-            for c in range(r, m):
-                val = get_pairing(cand_indices[r], cand_indices[c])
-                H[r, c] = val
-                H[c, r] = val
-        
-        # Check Positive Definiteness
-        is_pd = False
-        det_val = 0.0
-        try:
-            # Quick check via eigenvalues
-            evals = H.eigenvalues()
-            if all(float(e) > 1e-8 for e in evals):
-                is_pd = True
-            det_val = float(H.determinant())
-        except Exception:
-            is_pd = False
-            raise
-        
-        if is_pd:
+        det_val = None
+        if m == 1:
+            # First element — accept by height threshold (we already checked small torsion)
+            is_independent = True
+        else:
+            is_independent, info = is_independent_by_projection_log(
+                basis_indices=basis_indices,
+                candidate_index=i,
+                get_pairing=get_pairing,
+                prec=prec,
+                debug=debug,
+            )
+
+        if is_independent:
             basis.append(div)
             basis_indices.append(i)
+            pairing_cache[(i,i)] = h_self
             if debug:
-                print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
+                det_val = None
+                try:
+                    # compute determinant of full candidate Gram (for logging only)
+                    Htmp = Matrix(RealField(prec), m, m)
+                    for r in range(m):
+                        for c in range(r, m):
+                            Htmp[r,c] = get_pairing(cand_indices[r], cand_indices[c])
+                            Htmp[c,r] = Htmp[r,c]
+                    det_val = float(Htmp.determinant())
+                except Exception:
+                    det_val = None
+                if det_val is None:
+                    print(f"[arakelov] Added divisor {i} (rank {m})")
+                else:
+                    print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
         else:
             if debug:
-                print(f"[arakelov] Skipping divisor {i}: not independent/PD")
-
+                print(f"[arakelov] Skipping divisor {i}: projection residual {info['log10_res']:.3g} <= tol {info['log10_tol']:.3g}")
+        # === End replacement ===
+        
     # Final Matrix Construction
     final_rank = len(basis)
+    basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
+    assert len(basis) == final_rank, ("duplicate divisor found in independence test", basis, basis_indices)
     H_final = None
     if final_rank > 0:
         H_final = Matrix(RealField(prec), final_rank, final_rank)
@@ -2347,8 +2110,552 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         if debug:
             print(f"[arakelov] Final rank: {final_rank}")
             try:
+                gd = gram_logdet_and_cond(basis_indices, get_pairing)
+                print(f"[arakelov] Final numeric rank (svd): {gd['numeric_rank']}/{gd['n']}, log10|det|={gd['log10_abs_det']:.3g}, log10(cond)={gd['log10_cond']:.3g}")
                 print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
             except Exception:
                 raise
+
+    return basis, final_rank, H_final
+
+
+def is_independent_by_projection_log(
+    basis_indices,
+    candidate_index,
+    get_pairing,
+    prec,
+    debug=False,
+):
+    """
+    Decide whether candidate_index is independent of basis_indices
+    using a numerically stable projection-residual test.
+
+    Returns:
+        (is_independent: bool, info: dict)
+
+    info contains:
+        res_sq, tol, min_sv
+    """
+
+    import math
+
+    try:
+        import numpy as np
+    except Exception:
+        raise RuntimeError("NumPy is required for stable basis selection")
+
+    k = len(basis_indices)
+
+    # First element is always independent
+    if k == 0:
+        return True, {"res_sq": None, "tol": None, "min_sv": None}
+
+    # Build Gram matrix G and cross vector c in float
+    G = np.zeros((k, k), dtype=float)
+    c = np.zeros(k, dtype=float)
+
+    for r in range(k):
+        for s in range(r, k):
+            val = float(get_pairing(basis_indices[r], basis_indices[s]))
+            G[r, s] = val
+            G[s, r] = val
+        c[r] = float(get_pairing(basis_indices[r], candidate_index))
+
+    vv = float(get_pairing(candidate_index, candidate_index))
+
+    # Enforce symmetry (kills tiny antisymmetric noise)
+    G = 0.5 * (G + G.T)
+
+    # Compute projection squared: cᵀ G⁻¹ c
+    proj_sq = 0.0
+    min_sv = 0.0
+
+    try:
+        # Fast path: Cholesky
+        L = np.linalg.cholesky(G)
+        y = np.linalg.solve(L, c)
+        proj_sq = float(np.dot(y, y))
+    except Exception:
+        # Robust fallback: SVD pseudoinverse
+        U, S, Vt = np.linalg.svd(G, full_matrices=False)
+        min_sv = float(S[-1]) if len(S) else 0.0
+        eps = max(S[0] * 1e-16, 1e-300)
+        Sinv = np.array([1/s if s > eps else 0.0 for s in S])
+        Ginv = (Vt.T * Sinv) @ U.T
+        proj_sq = float(c @ (Ginv @ c))
+
+    # Residual squared
+    res_sq = vv - proj_sq
+
+    # Numerical floor
+    if res_sq < 0 and abs(res_sq) < 10 ** (-(prec // 3)):
+        res_sq = 0.0
+
+    # Adaptive tolerance
+    diag_max = max(float(np.max(np.diag(G))), vv, 1.0)
+    dec_digits = int(prec * 0.30103)
+    tol = diag_max * (10.0 ** (-(dec_digits - 12)))
+
+    if min_sv > 0:
+        tol = max(tol, min_sv * 1e-6)
+
+    is_independent = (res_sq > tol)
+
+    info = {
+        "res_sq": res_sq,
+        "tol": tol,
+        "min_sv": min_sv,
+    }
+
+    if debug:
+        print(
+            f"[proj-test] cand={candidate_index} "
+            f"res_sq={res_sq:.3g} tol={tol:.3g} min_sv={min_sv:.3g}"
+        )
+
+    return is_independent, info
+
+
+def is_independent_by_projection_log(
+    basis_indices,
+    candidate_index,
+    get_pairing,
+    prec,
+    debug=False,
+):
+    """
+    Stable projection-residual independence test using log-scale comparison
+    to avoid underflow when prec is large.
+
+    Returns (is_independent: bool, info: dict) with info = {res_sq, log10_res, log10_tol, min_sv}.
+    Requires get_pairing(i,j) -> float (pairing_cache floats).
+    """
+    import math
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+
+    k = len(basis_indices)
+    if k == 0:
+        return True, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
+
+    # Build Gram G (k x k) and cross vector c as float64
+    G = [[0.0]*k for _ in range(k)]
+    c = [0.0]*k
+    for r in range(k):
+        for s in range(r, k):
+            v = float(get_pairing(basis_indices[r], basis_indices[s]))
+            G[r][s] = v; G[s][r] = v
+        c[r] = float(get_pairing(basis_indices[r], candidate_index))
+    vv = float(get_pairing(candidate_index, candidate_index))
+
+    # convert to numpy for robust numeric ops if available
+    if np is not None:
+        Gnp = 0.5*(np.array(G, dtype=float) + np.array(G, dtype=float).T)  # enforce symmetry
+        cnp = np.array(c, dtype=float)
+    else:
+        # fallback to naive python arrays (less robust)
+        Gnp = None
+        cnp = c
+
+    proj_sq = None
+    min_sv = 0.0
+    try:
+        if np is not None:
+            # prefer cholesky; fallback to SVD pseudoinv
+            try:
+                L = np.linalg.cholesky(Gnp)
+                y = np.linalg.solve(L, cnp)
+                proj_sq = float(np.dot(y, y))
+            except Exception:
+                U, S, Vt = np.linalg.svd(Gnp, full_matrices=False)
+                min_sv = float(S[-1]) if len(S)>0 else 0.0
+                eps = max(1e-16 * S[0], 1e-300) if len(S)>0 else 1e-300
+                S_inv = np.array([1.0/s if s>eps else 0.0 for s in S], dtype=float)
+                Ginv = (Vt.T * S_inv) @ U.T
+                proj_sq = float(cnp @ (Ginv @ cnp))
+        else:
+            # No numpy: try fallback with small RR precision (less robust)
+            from sage.all import RealField, matrix, vector
+            RR = RealField(min(max(80, int(prec//8)), 512))
+            Gs = matrix(RR, G)
+            cs = vector(RR, c)
+            L = Gs.cholesky()
+            y = L.solve_left(cs)
+            proj_sq = float(y.dot_product(y))
+    except Exception:
+        # if numerics fail, be conservative and treat as not independent
+        if debug:
+            print("[proj-log] numeric failure in projection computation")
+        return False, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
+
+    res_sq = vv - proj_sq
+
+    # If residual is non-positive: numerical issue -> treat as non-independent unless tiny negative
+    if res_sq <= 0.0:
+        # tiny negative tolerance: compare magnitude to diag_max
+        diag_max = max([G[r][r] for r in range(k)] + [vv, 1.0])
+        # if |res_sq| is tiny relative to diag_max, treat as zero
+        if abs(res_sq) <= 1e-12 * diag_max:
+            res_sq = 0.0
+        else:
+            # significant negative residual -> reject candidate (not independent)
+            if debug:
+                print(f"[proj-log] negative residual (proj > self): res_sq={res_sq}")
+            return False, {"res_sq": res_sq, "log10_res": float("-inf"), "log10_tol": float("-inf"), "min_sv": min_sv}
+
+    # Now compute log10 comparisons to avoid underflow:
+    # log10_tol = log10(diag_max) - (dec_digits - safety)
+    diag_max = max(max(abs(G[r][r]) for r in range(k)), abs(vv), 1.0)
+    dec_digits = int(prec * 0.30103)
+    safety_digits = 12  # tuneable
+    log10_tol = math.log10(diag_max) - max(0, (dec_digits - safety_digits))
+
+    # log10_res
+    log10_res = math.log10(res_sq) if res_sq > 0 else float("-inf")
+
+    # Optional use of min singular value to boost tol (in log scale)
+    if min_sv and min_sv > 0:
+        log10_min_sv = math.log10(min_sv)
+        # choose the larger of the two log10 thresholds
+        log10_tol = max(log10_tol, log10_min_sv - 6)
+
+    is_independent = (log10_res > log10_tol)
+
+    info = {"res_sq": res_sq, "log10_res": log10_res, "log10_tol": log10_tol, "min_sv": min_sv}
+    if debug:
+        print(f"[proj-log] cand={candidate_index} res={res_sq:.3g} log10_res={log10_res:.3g} log10_tol={log10_tol:.3g} min_sv={min_sv:.3g}")
+
+    return is_independent, info
+
+
+def dedupe_basis(basis, basis_indices, debug=False):
+    """
+    Remove duplicated divisors (preserve order). Returns (basis_u, basis_indices_u).
+    """
+    seen = set()
+    basis_u = []
+    basis_indices_u = []
+    for div, idx in zip(basis, basis_indices):
+        if idx in seen:
+            if debug:
+                print(f"[dedupe] removing duplicate basis index {idx}")
+            continue
+        seen.add(idx)
+        basis_u.append(div)
+        basis_indices_u.append(idx)
+    return basis_u, basis_indices_u
+
+
+def gram_logdet_and_cond(basis_indices, get_pairing):
+    """
+    Build float Gram matrix for basis_indices (using get_pairing -> float),
+    return dict with:
+        n, svals (list), log10_abs_det, log10_cond, numeric_rank_est
+    """
+    import numpy as np, math
+    n = len(basis_indices)
+    if n == 0:
+        return {"n":0, "svals": [], "log10_abs_det": None, "log10_cond": None, "numeric_rank": 0}
+    G = np.zeros((n,n), dtype=float)
+    for i in range(n):
+        for j in range(i, n):
+            v = float(get_pairing(basis_indices[i], basis_indices[j]))
+            G[i,j] = v; G[j,i] = v
+    # enforce symmetry
+    G = 0.5*(G + G.T)
+    U, S, Vt = np.linalg.svd(G, full_matrices=False)
+    svals = [float(x) for x in S]
+    # log10_abs_det = sum(log10(svals)) (sign positive for Gram of PD matrix)
+    log10_abs_det = sum(math.log10(max(s, 1e-300)) for s in svals)
+    cond = svals[0] / (svals[-1] if svals[-1] > 0 else 1e-300)
+    log10_cond = math.log10(cond)
+    # numeric rank: count s > smax * tol_rel
+    tol_rel = 1e-12
+    smax = svals[0]
+    numeric_rank = sum(1 for s in svals if s > smax * tol_rel)
+    return {"n": n, "svals": svals, "log10_abs_det": log10_abs_det, "log10_cond": log10_cond, "numeric_rank": numeric_rank}
+
+
+# requires numpy
+import numpy as np, math
+
+def select_independent_indices_from_gram(
+    G,
+    prec_bits=2048,
+    safety_digits=10,
+    rel_sv_tol=1e-12,
+    pivot_tol_factor=1e-9,
+    debug=False,
+):
+    """
+    Given a symmetric float Gram matrix G (n x n), return a deterministic list
+    of indices that form a numerically independent set.
+
+    Parameters
+    ----------
+    G : np.ndarray, shape (n,n), symmetric floats
+    prec_bits : int, bit-precision used upstream (only for diagnostic scaling)
+    safety_digits : int, digits of safety when building eigenvalue threshold
+    rel_sv_tol : float, fallback relative threshold for eigenvalues (smax * rel_sv_tol)
+    pivot_tol_factor : float, factor to multiply sqrt(min_positive_eig) to set pivot stop
+    debug : bool
+
+    Returns
+    -------
+    selected_indices : list of ints (length <= numeric_rank)
+    info : dict with keys:
+        'eigvals' (descending), 'numeric_rank', 'log10_abs_det', 'log10_cond'
+    """
+    # symmetrize (be safe)
+    G = 0.5 * (G + G.T)
+    n = G.shape[0]
+    # Eigen-decomposition (symmetric)
+    eigvals, eigvecs = np.linalg.eigh(G)  # ascending eigenvalues
+    eigvals = np.array(eigvals, dtype=float)
+    # flip to descending
+    eigvals = eigvals[::-1]
+    eigvecs = eigvecs[:, ::-1]
+
+    smax = eigvals[0] if eigvals.size else 0.0
+    # build eigenvalue threshold robustly:
+    # convert bits -> decimal digits estimate, but cap to avoid under/overflow
+    dec_digits = int(prec_bits * 0.30103) if prec_bits > 0 else 50
+    dec_digits_cap = min(max(dec_digits, 0), 50)  # cap to [0,50] to avoid absurd exponents
+    # threshold by safety_digits (but cap using rel_sv_tol)
+    ev_thresh = max(smax * (10.0 ** (-(max(safety_digits, dec_digits_cap)))), smax * rel_sv_tol, 1e-300)
+
+    # positive eigenvalues indices
+    pos_mask = eigvals > ev_thresh
+    pos_indices = np.nonzero(pos_mask)[0]
+    r = len(pos_indices)
+    if debug:
+        print(f"[select_from_gram] smax={smax:.3g}, ev_thresh={ev_thresh:.3g}, num_pos={r}")
+
+    if r == 0:
+        return [], {
+            "eigvals": eigvals.tolist(),
+            "numeric_rank": 0,
+            "log10_abs_det": None,
+            "log10_cond": None,
+        }
+
+    # Build embedding E (n x r) such that G ≈ E E^T
+    Spos = eigvals[pos_indices]                     # length r (descending)
+    Upos = eigvecs[:, pos_indices]                  # n x r
+    sqrtS = np.sqrt(np.maximum(Spos, 0.0))
+    # E[i,:] is embedding vector for candidate i
+    E = Upos * sqrtS[np.newaxis, :]                 # shape (n, r)
+
+    # Determine pivot stop tolerance from smallest retained eigenvalue
+    min_pos_eig = Spos[-1]
+    pivot_tol = math.sqrt(max(min_pos_eig, 0.0)) * pivot_tol_factor
+    # also ensure pivot_tol not ridiculously tiny:
+    pivot_tol = max(pivot_tol, smax * 1e-16)
+
+    # Deterministic pivoting: iteratively pick row with largest residual norm,
+    # orthogonalize rows against chosen normalized vector, stop when residuals small
+    rows = E.copy()  # will be modified (deflation)
+    norms = np.linalg.norm(rows, axis=1)
+    selected = []
+    selected_mask = np.zeros(n, dtype=bool)
+
+    while True:
+        # choose argmax among not selected
+        cand = int(np.argmax(norms + (selected_mask * -1e300)))  # ensures selected masked
+        maxnorm = norms[cand]
+        if debug:
+            print(f"[pivot] pick candidate {cand} maxnorm={maxnorm:.6g} selected={len(selected)}")
+        if maxnorm <= pivot_tol:
+            break
+        # add candidate
+        selected.append(cand)
+        selected_mask[cand] = True
+        # normalize
+        v = rows[cand].copy()
+        vnorm = np.linalg.norm(v)
+        if vnorm == 0.0:
+            # can't orthonormalize further
+            break
+        v = v / vnorm
+        # deflate all rows by projection onto v
+        proj = rows @ v   # projection coefficients (n,)
+        rows = rows - np.outer(proj, v)
+        # recompute norms only for not yet selected
+        norms = np.linalg.norm(rows, axis=1)
+        # keep selecting until we've chosen r rows
+        if len(selected) >= r:
+            break
+
+    # if we picked fewer than r (rare), we can accept them as basis; numeric_rank = len(selected)
+    numeric_rank = len(selected)
+
+    # diagdet/log det from singular values (embedding singulars are sqrt of eigvals)
+    # For Gram matrix, singular values = eigvals (nonnegative). So log10|det| = sum log10(eigvals_pos)
+    log10_abs_det = sum(math.log10(max(x, 1e-300)) for x in Spos)
+    cond = Spos[0] / (Spos[-1] if Spos[-1] > 0 else 1e-300)
+    log10_cond = math.log10(cond)
+
+    info = {
+        "eigvals": eigvals.tolist(),
+        "numeric_rank": numeric_rank,
+        "log10_abs_det": log10_abs_det,
+        "log10_cond": log10_cond,
+    }
+    return selected, info
+
+
+def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
+                                      test_normalization=None, n_jobs=-1):
+    """
+    Robust, deterministic basis builder:
+      - precomputes all pairings once (parallel)
+      - builds single float Gram matrix G
+      - selects a deterministic independent set via select_independent_indices_from_gram
+      - returns basis (list of divisor dicts), numeric rank, and H_final (Sage matrix)
+    """
+    from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ)
+    from multiprocessing import cpu_count
+    import numpy as np
+    import math
+    import sys
+
+    # ensure period matrix cached/available (same as before)
+    get_period_matrix_auto_B(f_coeffs, prec=prec)
+
+    if not all_divisors:
+        return [], 0, None
+
+    # choose n_jobs
+    if n_jobs == -1:
+        try:
+            n_jobs = cpu_count()
+        except Exception:
+            n_jobs = 1
+
+    if debug:
+        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
+        print(f"[arakelov] Using precision: {prec} bits")
+        print(f"[arakelov] Parallelization: {n_jobs} workers")
+
+    # Build curve & jacobian constructors
+    Rq_QQ = PolynomialRing(QQ, 'x')
+    x_QQ = Rq_QQ.gen()
+    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly_QQ)
+    J = C.jacobian()
+
+    # Convert divisors to Jacobian elements (keep same indexing)
+    jac_elements = []
+    for div in all_divisors:
+        u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+        v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
+        D = J([u_poly, v_poly])
+        jac_elements.append((div, D))
+
+    n = len(jac_elements)
+    if n == 0:
+        return [], 0, None
+
+    # Precompute individual heights (parallel) — reuse your existing worker wrapper
+    if debug:
+        print(f"[arakelov] Pre-computing heights for {n} candidates...")
+
+    height_args = [(i, jac_elements[i][0], f_coeffs, prec) for i in range(n)]
+    height_cache = {}
+
+    if n > 1 and n_jobs > 1:
+        from multiprocessing import Pool
+        with Pool(processes=n_jobs) as pool:
+            results = pool.map(_compute_height_worker, height_args)
+        for i, h, error in results:
+            if error:
+                raise RuntimeError(f"Height computation failed for divisor {i}: {error}")
+            height_cache[i] = float(h)
+            if debug:
+                print(f"  Divisor {i}: h = {float(h):.6g}")
+    else:
+        # sequential fallback
+        for i in range(n):
+            _, D = jac_elements[i]
+            h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+            height_cache[i] = float(h)
+            if debug:
+                print(f"  Divisor {i}: h = {float(h):.6g}")
+
+    # Pairing cache (will be filled by precompute_pairings_parallel)
+    pairing_cache = {}
+
+    # Precompute all pairings once (this populates pairing_cache)
+    if debug:
+        print("[arakelov] Precomputing full pairing matrix (parallel)...")
+    # indices passed to precompute should be full-range
+    all_indices = list(range(n))
+    precompute_pairings_parallel(all_indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs)
+
+    # Build float Gram matrix G from pairing_cache (consistent single source)
+    G = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        for j in range(i, n):
+            key = (i, j) if i <= j else (j, i)
+            if key not in pairing_cache:
+                # fallback: compute on-demand (shouldn't happen)
+                pairing_cache = precompute_pairings_parallel([i, j], jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs)
+            val = float(pairing_cache[key])
+            G[i, j] = val
+            G[j, i] = val
+    # symmetrize defensively
+    G = 0.5 * (G + G.T)
+
+    if debug:
+        print("[arakelov] Full Gram built. Running deterministic selector...")
+
+    # Deterministically select independent indices from the full Gram
+    selected_indices, info = select_independent_indices_from_gram(
+        G, prec_bits=prec, safety_digits=10, rel_sv_tol=1e-12, pivot_tol_factor=1e-9, debug=debug
+    )
+    if debug:
+        print("Selected indices (deterministic):", selected_indices)
+        print("Selector info:", {k: info[k] for k in ("numeric_rank", "log10_abs_det", "log10_cond") if k in info})
+
+    # Build basis lists from selected indices (preserve divisor dicts)
+    basis = [jac_elements[i][0] for i in selected_indices]
+    basis_indices = list(selected_indices)
+
+    # Deduplicate just in case
+    basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
+
+    final_rank = len(basis)
+    H_final = None
+    if final_rank > 0:
+        # Build Sage RealField Gram for the selected basis (for downstream code expecting Sage Matrix)
+        RR = RealField(max(128, int(prec//4)))  # reasonable working real precision for the final matrix
+        H_final = Matrix(RR, final_rank, final_rank)
+        for r in range(final_rank):
+            for c in range(r, final_rank):
+                # get_pairing uses pairing_cache we prefilled; pass jac_elements and pairing_cache so it reads cache
+                pv = float(get_pairing(basis_indices[r], basis_indices[c], jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs))
+                H_final[r, c] = RR(pv)
+                H_final[c, r] = H_final[r, c]
+
+    # Diagnostics: print numeric SVD / logdet info in a stable way
+    if debug:
+        try:
+            gd = gram_logdet_and_cond(basis_indices, lambda a,b: float(get_pairing(a,b,jac_elements,pairing_cache,f_coeffs,prec,height_cache,n_jobs)))
+            print(f"[arakelov] Final numeric rank (svd): {gd['numeric_rank']}/{gd['n']}, log10|det|={gd['log10_abs_det']:.3g}, log10(cond)={gd['log10_cond']:.3g}")
+            if H_final is not None:
+                try:
+                    # print high-precision determinant if feasible
+                    print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
+                except Exception:
+                    pass
+        except Exception as E:
+            if debug:
+                print(f"[arakelov] Diagnostic SVD failed: {E}")
+
+    # Optional: spot-check ambiguous candidates (if you want to run exact pairing verification,
+    # do it here by calling your exact-doubling routine for candidates near the spectral cutoff).
+    # (Left as a hook for you; I did not call an exact routine to avoid assuming its name.)
 
     return basis, final_rank, H_final

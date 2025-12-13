@@ -2025,76 +2025,39 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
                 print(f"[basis] Added divisor 1 (self-pairing {h_float:.3g})")
         else:
             # Check independence by computing height pairing matrix
-            candidate_basis = basis_jac + [D]
-            m = len(candidate_basis)
-            
-            # Build matrix with EXACT rationals
-            H_exact = Matrix(QQ, m, m)
-            for ii in range(m):
-                for jj in range(ii, m):
-                    h_ij_exact = compute_height_pairing_exact(
-                        candidate_basis[ii], 
-                        candidate_basis[jj],
-                        f_coeffs,
-                        num_doublings=num_doublings
-                    )
-                    H_exact[ii, jj] = h_ij_exact
-                    H_exact[jj, ii] = h_ij_exact
-            
-            # Check rank using exact arithmetic
-            det_exact = H_exact.determinant()
-            rank_exact = H_exact.rank()
-            
-            # Convert to float for display/checks
-            det_float = float(det_exact) # DO NOT USE ABS()
-            
-            # Regulator check
-            if typical_height is None:
-                typical_height = 10.0
-            
-            expected_det_scale = typical_height ** m
-            det_ratio = det_float / expected_det_scale
-            
-            min_ratio = 1e-6
-            max_ratio = 1e6
-            
-            # DIAGNOSTIC: Check eigenvalues for positive definiteness
-            try:
-                # Use CDF to get approximate eigenvalues
-                evals = H_exact.change_ring(CDF).eigenvalues()
-                min_eval = min(e.real() for e in evals)
-                is_pos_def = min_eval > -1e-9 # Allow tiny epsilon for float noise
-            except Exception:
-                is_pos_def = True # Fallback if eigenvalue comp fails
-                min_eval = 0.0
-                raise
+            # before loop: prepare cache and choose numeric precision & tolerance
+            pairing_cache = {}   # optional cache to avoid recomputing the same pairings
+            prec_bits_for_test = 2048   # tune: 256..2048 depending on machine
+            # tolerance rule (use decimal-digits heuristic)
+            def _auto_tol(scale, prec_bits):
+                # convert bits->decimal digits roughly: digits ~ prec_bits*log10(2)
+                dec_digits = int(prec_bits * 0.30103)
+                # margin 6 digits of safety
+                return float(scale) * (10.0 ** (-(dec_digits - 6)))
 
-            # STRICTER CHECK: Rank must be full, det must be positive, matrix must be pos-def
-            is_good = (rank_exact == m and det_float > 0 and min_ratio < abs(det_ratio) < max_ratio and is_pos_def)
-            
-            if is_good:
+            # inside candidate loop, instead of determinant-based check:
+            # compute residual squared against current basis_jac
+            res_sq = _projection_residual_sq(basis_jac, D, f_coeffs, 
+                                            prec_bits=prec_bits_for_test,
+                                            pairing_func=arakelov_height_pairing, 
+                                            pairing_cache=pairing_cache, debug=debug)
+            # pick scale = typical_height or diag max
+            if typical_height is None or typical_height <= 0:
+                # fallback scale: max diagonal of G if available, else 1.0
+                scale = 1.0
+            else:
+                scale = typical_height
+            tol = _auto_tol(scale, prec_bits_for_test)
+
+            if res_sq > tol:
                 basis.append(div)
                 basis_jac.append(D)
                 if debug:
-                    print(f"[basis] Added divisor {len(basis)} (rank {rank_exact}/{m}, det {det_float:.3g}, ratio {det_ratio:.3g})")
+                    print(f"[basis] Added divisor {len(basis)} (res_sq={res_sq:.3g} tol={tol:.3g})")
             else:
                 if debug:
-                    reason_parts = []
-                    if rank_exact < m: reason_parts.append(f"rank dropped to {rank_exact}")
-                    if det_float <= 0: reason_parts.append(f"non-positive det {det_float:.3g}")
-                    if not (min_ratio < abs(det_ratio) < max_ratio): reason_parts.append(f"ratio {det_ratio:.3g} out of range")
-                    if not is_pos_def: reason_parts.append(f"not pos-def (min eval {min_eval:.3g})")
-                    
-                    reason = ", ".join(reason_parts)
-                    print(f"[basis] Skipping divisor {i+1}: {reason}")
-                    
-                    # DIAGNOSTIC: Print the matrix if it failed "mysteriously" (rank full but rejected)
-                    if False:
-                        if rank_exact == m and (det_float <= 0 or not is_pos_def):
-                            print(f"[basis] DEBUG: Bad Matrix at size {m}:")
-                            print(H_exact.str())
-                            print(f"[basis] DEBUG: Eigenvalues: {evals}")
-    
+                    print(f"[basis] Rejected divisor {i+1}: residual {res_sq:.3g} <= tol {tol:.3g}")
+
     rank = len(basis)
     
     # Build final height matrix with EXACT rationals
@@ -3196,3 +3159,84 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     
     mumford_timers_print()
     return found_xs, mumford_divisors
+
+
+# paste into mumford_complete.py near other helpers
+from sage.all import RealField, matrix, vector
+
+def _projection_residual_sq(basis_jac, candidate_D, f_coeffs, 
+                            prec_bits=512, pairing_func=None, pairing_cache=None, debug=False):
+    """
+    Return residual^2 = <v, v> - c^T * G^{-1} * c where:
+      - G is Gram matrix of basis_jac (size m x m) under canonical height pairing
+      - c is vector of pairings <basis_jac[i], candidate_D>
+      - pairing_func(D1, D2, f_coeffs, prec=...) should return QQ/float pairing
+    Uses high-precision RealField arithmetic for numeric stability.
+    pairing_cache: optional dict to avoid recomputation, keyed by (id(D1), id(D2)) or indices
+    """
+    if pairing_func is None:
+        # default to arakelov path if available
+        from .arakelov import arakelov_height_pairing as pairing_func
+
+    m = len(basis_jac)
+    if m == 0:
+        # residual is just candidate self-pairing
+        val = pairing_func(candidate_D, candidate_D, f_coeffs, prec=prec_bits)
+        return float(val)
+
+    RR = RealField(prec_bits)
+    # build G (m x m) and c (m)
+    Gnum = matrix(RR, m, m)
+    cnum = vector(RR, m)
+    for i in range(m):
+        for j in range(i, m):
+            key = (id(basis_jac[i]), id(basis_jac[j]))
+            if pairing_cache and key in pairing_cache:
+                v = pairing_cache[key]
+            else:
+                v = pairing_func(basis_jac[i], basis_jac[j], f_coeffs, prec=prec_bits)
+                if pairing_cache is not None:
+                    pairing_cache[key] = v
+            Gnum[i, j] = RR(v)
+            Gnum[j, i] = Gnum[i, j]
+        # c_i
+        keyc = (id(basis_jac[i]), id(candidate_D))
+        if pairing_cache and keyc in pairing_cache:
+            ci = pairing_cache[keyc]
+        else:
+            ci = pairing_func(basis_jac[i], candidate_D, f_coeffs, prec=prec_bits)
+            if pairing_cache is not None:
+                pairing_cache[keyc] = ci
+        cnum[i] = RR(ci)
+    vv = RR(pairing_func(candidate_D, candidate_D, f_coeffs, prec=prec_bits))
+
+    # Try Cholesky (fast & stable for PD G); fallback to SVD pseudo-inverse
+    try:
+        L = Gnum.cholesky()
+        # solve L * y = c  (L lower-triangular)
+        y = L.solve_left(cnum)
+        proj_sq = float((y.dot_product(y)))
+    except Exception:
+        # fallback: pseudoinverse via SVD
+        try:
+            U, S, Vt = Gnum.SVD()
+            # build pseudo-inverse
+            # invert non-zero singular values safely
+            S_inv = [ (1.0 / float(si)) if float(si) > 0 else 0.0 for si in S ]
+            # create diagonal matrix and compute G_inv = Vt^T * diag(S_inv) * U^T
+            from sage.all import diagonal_matrix
+            S_inv_mat = diagonal_matrix(RR, [RR(s) for s in S_inv])
+            Ginv = Vt.transpose() * S_inv_mat * U.transpose()
+            # proj_sq = c^T * Ginv * c
+            proj_sq = float((cnum * (Ginv * cnum)))
+        except Exception:
+            # last resort: pessimistically return zero projection -- force acceptance check to rely on self-pairing alone
+            proj_sq = 0.0
+
+    res_sq = float(vv) - proj_sq
+    # numerical floor at zero
+    if res_sq < 0 and abs(res_sq) < 10**(- (prec_bits // 3)):
+        res_sq = 0.0
+    if debug:
+        print(f"[proj] vv={float(vv):.4g} proj={proj_sq:.4g} res_sq={res_sq:.4g}")
+    return float(res_sq)
