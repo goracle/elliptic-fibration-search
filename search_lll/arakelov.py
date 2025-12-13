@@ -2417,3 +2417,118 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
     
     # Try this normalization (standard for J):
     return quad_part - 2 * log_theta
+
+
+def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
+    """
+    Computes the Archimedean component of the height pairing (E(z)).
+    Returns 1/2 * z^T * Im(tau)^-1 * z, which corresponds to the quadratic part 
+    of the height without the theta correction.
+    """
+    from sage.all import RealField, Matrix, QQ
+    
+    if D.is_zero():
+        return QQ(0)
+    
+    RR = RealField(prec)
+    
+    # 1. Compute Abel-Jacobi z
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    z = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
+    
+    # 2. Extract Im(tau)
+    Im_tau = Matrix(RR, 2, 2)
+    for i in range(2):
+        for j in range(2):
+            Im_tau[i,j] = RR(period_matrix[i,j].imag())
+            
+    # 3. Compute Quadratic Part E(z)
+    # neron_tate_height_pairing with factor 1.0 gives 2*E(z) (z^T ImTau^-1 z)
+    # The naive height is on Kummer surface (~2*h_can), so we keep this scale.
+    quad_part = neron_tate_height_pairing(z, z, Im_tau, prec=prec, normalization_factor=1.0)
+    
+    return quad_part
+
+
+def arakelov_quasi_height(D, f_coeffs, period_matrix=None, prec=300, use_finite_places=True):
+    """
+    Computes a 'quasi-canonical' height: Naive + Finite + Archimedean(Quadratic).
+    This height h(D) satisfies h(nD) = n^2 * h_can(D) + L(nD) + O(1).
+    It is not quadratic itself, but the quadratic coefficient is the canonical height.
+    """
+    from .homology import get_period_matrix_auto_B
+    from sage.all import QQ
+
+    if D.is_zero():
+        return QQ(0)
+
+    # 1. Naive global height
+    h_naive = naive_height_qq(D, prec=prec)
+    
+    # 2. Archimedean quadratic part
+    if period_matrix is None:
+        period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
+    
+    # 3. Finite place corrections
+    h_finite_correction = QQ(0)
+    if use_finite_places:
+        bad_primes = get_bad_primes(f_coeffs)
+        for p in bad_primes:
+            h_finite_correction += local_height_correction_finite(D, p, f_coeffs)
+            
+    return h_naive + h_arch + h_finite_correction
+
+
+def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
+    """
+    Proper canonical height using the Second Difference Method.
+    
+    Calculates h_can(D) by isolating the quadratic term of the quasi-height:
+       2 * h_can(D) = (h_quasi(3D) + h_quasi(D) - 2*h_quasi(2D)) / 2
+       
+    This eliminates linear terms L(D) and constant terms C, recovering the 
+    pure quadratic canonical height robustly without computing theta functions.
+    """
+    from .homology import get_period_matrix_auto_B
+    from sage.all import QQ
+    key = D.reduced_representation()
+    if key in arakelov_canonical_height.cache:
+        return arakelov_canonical_height.cache[key]
+
+    if D.is_zero():
+        return QQ(0)
+
+    # Pre-fetch period matrix once to share across calls
+    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+
+    # We use n=2 second difference: (h(3D) + h(D) - 2h(2D)) / 2
+    # If h_quasi(kD) ~ k^2*Q + k*L + C:
+    # Num = (9Q + 3L + C) + (Q + L + C) - 2(4Q + 2L + C)
+    #     = 10Q + 4L + 2C - 8Q - 4L - 2C
+    #     = 2Q
+    # Result = Q
+    
+    # Compute multiples
+    D2 = D + D
+    D3 = D2 + D
+    
+    h1 = arakelov_quasi_height(D, f_coeffs, period_matrix, prec, use_finite_places)
+    
+    if D2.is_zero():
+        h2 = QQ(0)
+    else:
+        h2 = arakelov_quasi_height(D2, f_coeffs, period_matrix, prec, use_finite_places)
+        
+    if D3.is_zero():
+        h3 = QQ(0)
+    else:
+        h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix, prec, use_finite_places)
+        
+    # Apply second difference formula
+    h_can = (h3 + h1 - 2*h2) / QQ(2)
+
+    arakelov_canonical_height.cache[key] = h_can
+    
+    return h_can
+arakelov_canonical_height.cache = {}
