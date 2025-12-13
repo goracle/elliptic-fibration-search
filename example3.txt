@@ -255,3 +255,94 @@ Height Pairing Matrix H:
 [bounds] mod 23 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
 [bounds] mod 29 factorization: [1, 2, 9] -> pattern (1, 2, 9)
 [bounds] mod 31 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 37 factorization: [3, 9] -> pattern (3, 9)
+[bounds] mod 41 factorization: [1, 1, 2, 2, 6] -> pattern (1, 1, 2, 2, 6)
+[bounds] mod 43 factorization: [6, 6] -> pattern (6, 6)
+[bounds] mod 47 factorization: [3, 4, 5] -> pattern (3, 4, 5)
+[bounds] mod 53 factorization: [1, 4, 7] -> pattern (1, 4, 7)
+[bounds] mod 59 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
+[bounds] Unique patterns from 15 primes: [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)]
+[bounds] Estimated splitting field degree: 2520
+
+DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 15}
+
+height bound: 473
+Searching 15 vectors up to height 473...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
+[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
+⚠️  Fiber collision detected at p=13: gcd degree 3
+Skipping prime 13: fiber collision detected (gcd degree=3)
+⚠️  Fiber collision detected at p=17: gcd degree 2
+Skipping prime 17: fiber collision detected (gcd degree=2)
+
+[prepare_modular_data_lll] Rejected 4 primes:
+  p=2: singular_discriminant
+  p=3: a4_denom_divisible
+  p=13: fiber_collision_deg_3
+  p=17: fiber_collision_deg_2
+[mumford] Generating tasks for 38 primes...
+[mumford] Residue computation took 3.69s
+
+======================================================================
+MUMFORD RECONSTRUCTION PHASE
+======================================================================
+
+=== EARLY ALGEBRAIC FILTERING (per prime) ===
+
+Algebraic pre-filter: 44,247 → 44,247 (1.0x reduction)
+Grouped into 15 vectors, 239 (vector,x-residue) pairs
+  Vector group: 3 primes, avg 100.0 sols/prime
+  Raw combinations: 272,160
+  Adaptive limit: 272,160 (total combos: 272,160)
+  Vector group: 2 primes, avg 125.0 sols/prime
+  Raw combinations: 12,600
+  Adaptive limit: 12,600 (total combos: 12,600)
+  Vector group: 2 primes, avg 230.0 sols/prime
+  Raw combinations: 27,300
+  Adaptive limit: 27,300 (total combos: 27,300)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 14,700
+  Adaptive limit: 14,700 (total combos: 14,700)
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 20,172
+  Adaptive limit: 20,172 (total combos: 20,172)
+  Vector group: 2 primes, avg 165.0 sols/prime
+  Raw combinations: 22,464
+  Adaptive limit: 22,464 (total combos: 22,464)
+  Vector group: 2 primes, avg 122.0 sols/prime
+  Raw combinations: 14,208
+  Adaptive limit: 14,208 (total combos: 14,208)
+  Vector group: 2 primes, avg 236.0 sols/prime
+  Raw combinations: 44,460
+  Adaptive limit: 44,460 (total combos: 44,460)
+  Vector group: 2 primes, avg 199.0 sols/prime
+  Raw combinations: 33,672
+  Adaptive limit: 33,672 (total combos: 33,672)
+  Accepting 2-prime group: 89,976 combos (rare divisor)
+  Vector group: 2 primes, avg 301.0 sols/prime
+  Raw combinations: 89,976
+  Adaptive limit: 89,976 (total combos: 89,976)
+  Vector group: 2 primes, avg 208.0 sols/prime
+  Raw combinations: 43,260
+  Adaptive limit: 43,260 (total combos: 43,260)
+  Vector group: 2 primes, avg 111.0 sols/prime
+  Raw combinations: 12,200
+  Adaptive limit: 12,200 (total combos: 12,200)
+  Vector group: 2 primes, avg 161.0 sols/prime
+  Raw combinations: 25,560
+  Adaptive limit: 25,560 (total combos: 25,560)
+  Accepting 2-prime group: 51,660 combos (rare divisor)
+  Vector group: 2 primes, avg 228.0 sols/prime
+  Raw combinations: 51,660
+  Adaptive limit: 51,660 (total combos: 51,660)
+
+  Batched parallel processing: 28 groups, 719,510 total combos
+  Using 20 workers
+  Created 144 batches for parallel processing
