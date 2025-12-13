@@ -57,6 +57,7 @@ def compute_height_worker(div_data):
 
 
 def arakelov_build_basis(all_divisors, f_coeffs, prec=300, debug=False):
+    assert None, "deprecated"
     if not all_divisors:
         return [], 0, None
     
@@ -289,7 +290,7 @@ def arakelov_build_basis_parallel(all_divisors, f_coeffs, prec=300, debug=False)
     print("f_coeffs", f_coeffs)
     with Timer("period_matrix_total"):
         try:
-            period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+            #period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
             tau_im = Matrix(RR, 2, 2, [[period_matrix[i,j].imag() for j in range(2)] for i in range(2)])
             print("Im(tau) eigenvalues:", tau_im.eigenvalues())
             print("det(Im(tau)):", tau_im.determinant())
@@ -1440,232 +1441,6 @@ def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0
 # CRITICAL FIX: Robust branch selection in integration
 
 
-def integrate_differential_path_with_branch(x_start, x_end, y_end, f_coeffs,
-                                            use_x_weight=False, prec=200, debug=False):
-    """
-    Improved version:
-    - Propagate branch (sign of sqrt(f)) continuously across all tanh-sinh nodes,
-      seeded reliably near the endpoint.
-    - Special-case Weierstrass endpoints (f ~ 0).
-    - Do NOT drop nodes with small f; assign sign by continuity instead.
-    """
-    import math
-    from sage.all import ComplexField
-
-    CC = ComplexField(prec)
-
-    def tanh_sinh_nodes(N):
-        nodes = []
-        h = 1.0 / float(N)
-        pi = math.pi
-        for k in range(-N, N + 1):
-            t = k * h
-            sx = math.sinh(t)
-            x_mapped = math.tanh((pi / 2.0) * sx)        # in (-1,1)
-            # derivative dx/dt for the mapping from t->x_mapped
-            dx_dt = (pi / 2.0) * math.cosh(t) / (math.cosh((pi / 2.0) * sx) ** 2)
-            w = dx_dt * h
-            nodes.append((t, x_mapped, w))
-        return nodes
-
-    Nnodes = max(200, min(2000, prec // 2))
-    nodes = tanh_sinh_nodes(Nnodes)
-
-    p0 = CC(x_start)
-    p1 = CC(x_end)
-    vec = p1 - p0
-
-    # small perpendicular offset to avoid branch cuts exactly on the real segment
-    perp = CC(0, 1) * vec
-    off_mag = max(CC(1e-14), abs(vec) * CC(1e-8))
-    off = perp / (abs(perp) + CC(1e-30)) * off_mag
-
-    dx_factor = vec / CC(2)
-
-    def f_at(z):
-        # polynomial specified by f_coeffs in descending powers of x
-        return sum(CC(c) * (z ** (len(f_coeffs) - 1 - i)) for i, c in enumerate(f_coeffs))
-
-    # build x-values for all nodes (s in [0,1])
-    xvals = []
-    ws = []
-    for (t, x_mapped, w) in nodes:
-        s = (CC(x_mapped) + CC(1)) / CC(2)  # maps (-1,1) -> (0,1)
-        xval = p0 + s * vec + off
-        xvals.append(xval)
-        ws.append(CC(w))
-
-    n = len(xvals)
-    # Evaluate f at all node x-values
-    fvals = [f_at(xv) for xv in xvals]
-
-    tiny = CC(2) ** (-prec // 2)        # threshold for 'very small' f
-    tol = CC(10) ** (-8)                # numerical tolerance for sign matching
-
-    # Find a reliable seed index near the endpoint (prefer last index)
-    # Prefer a node close to the endpoint with |f| >= tiny
-    seed_idx = None
-    # search backwards from last node for non-tiny f
-    for i in range(n - 1, -1, -1):
-        if abs(fvals[i]) >= tiny:
-            seed_idx = i
-            break
-    if seed_idx is None:
-        # if every node has tiny f, that means the path sits on branch locus -> fail
-        raise ValueError("All nodes evaluate to extremely small f(x). Path likely lies on branch locus.")
-
-    # seed y at seed_idx
-    # If user provided a nonzero y_end, try to choose seed sign consistent with it.
-    y_target = CC(y_end)
-    # compute sqrt at seed
-    y_seed_p = fvals[seed_idx].sqrt()
-    y_seed_m = -y_seed_p
-
-    # If the endpoint given y_end is nonzero, choose the sign that matches it (via closeness)
-    if abs(y_target) > tiny:
-        # but the seed_idx x is not exactly x_end; choose sign by closeness to y_target
-        if abs(y_seed_p - y_target) <= abs(y_seed_m - y_target):
-            y_seed = y_seed_p
-        else:
-            y_seed = y_seed_m
-    else:
-        # y_end is zero (Weierstrass). No sign to match; use principal sqrt at seed.
-        y_seed = y_seed_p
-
-    # allocate array for y on every node
-    yvals = [None] * n
-    yvals[seed_idx] = y_seed
-
-    # propagate backwards from seed_idx down to 0
-    for i in range(seed_idx - 1, -1, -1):
-        f_i = fvals[i]
-        # handle exact tiny f: still compute sqrt (principal) and then choose sign by continuity
-        y_p = f_i.sqrt()
-        y_m = -y_p
-        # choose sign that is closest to next point
-        if abs(y_p - yvals[i + 1]) <= abs(y_m - yvals[i + 1]):
-            yvals[i] = y_p
-        else:
-            yvals[i] = y_m
-
-    # propagate forwards from seed_idx up to n-1
-    for i in range(seed_idx + 1, n):
-        f_i = fvals[i]
-        y_p = f_i.sqrt()
-        y_m = -y_p
-        if abs(y_p - yvals[i - 1]) <= abs(y_m - yvals[i - 1]):
-            yvals[i] = y_p
-        else:
-            yvals[i] = y_m
-
-    # Now we have a continuous assignment of y to every node. Integrate.
-    integral = CC(0)
-    for i in range(n):
-        y_cur = yvals[i]
-        # If somehow y_cur is exactly zero (should only happen at true Weierstrass),
-        # avoid dividing by zero; but y should be assigned via continuity so if it's zero,
-        # use series expansion or skip a single point (tanh-sinh handles endpoint integrable singularity).
-        if abs(y_cur) == 0:
-            # find nearest non-zero y (should exist) and use that value to compute integrand magnitude
-            # this is rarely executed; for robust behaviour fallback to neighboring value
-            if i + 1 < n and abs(yvals[i + 1]) != 0:
-                y_for_use = yvals[i + 1]
-            elif i - 1 >= 0 and abs(yvals[i - 1]) != 0:
-                y_for_use = yvals[i - 1]
-            else:
-                raise ValueError("All neighboring y are zero; cannot evaluate integrand.")
-        else:
-            y_for_use = y_cur
-
-        if use_x_weight:
-            integrand = xvals[i] / (CC(2) * y_for_use)
-        else:
-            integrand = CC(1) / (CC(2) * y_for_use)
-
-        dxd = dx_factor * ws[i]
-        integral += integrand * dxd
-
-    # Final branch check: if the provided y_end is nonzero, verify sign at the node closest to endpoint
-    if abs(y_target) > tiny:
-        # choose last node index (n-1) as representative near endpoint
-        y_near_end = yvals[-1]
-        # check actual f at exact x_end (p1) and pick square root near y_near_end
-        f_exact_end = f_at(p1)
-        if abs(f_exact_end) < tiny:
-            # endpoint numerically a Weierstrass point despite nonzero y_target? suspicious
-            if debug:
-                print("[BRANCH_CHECK] f(x_end) nearly zero despite nonzero y_end provided.")
-        else:
-            y_exact_p = f_exact_end.sqrt()
-            y_exact_m = -y_exact_p
-            # choose the branch of exact endpoint that is closer to y_near_end
-            if abs(y_exact_p - y_near_end) <= abs(y_exact_m - y_near_end):
-                y_at_end = y_exact_p
-            else:
-                y_at_end = y_exact_m
-
-            # compare to user-provided y_end; if they disagree beyond tolerance, raise or debug
-            y_err = abs(y_at_end - y_target)
-            if debug or y_err > tol:
-                print(f"[BRANCH_CHECK] Provided y_end: {y_target}")
-                print(f"[BRANCH_CHECK] Computed y_at_end (from continuity): {y_at_end}")
-                print(f"[BRANCH_CHECK] y_err = {y_err}")
-            if y_err > tol:
-                # there's a mismatch; this is unlikely after continuity propagation.
-                # We'll attempt one recovery: flip global sign and re-run propagation once.
-                if debug:
-                    print("[BRANCH_CHECK] Mismatch detected; retrying with global sign-flip seed.")
-                # flip seed and redo propagation once:
-                yvals[seed_idx] = -yvals[seed_idx]
-                for i in range(seed_idx - 1, -1, -1):
-                    f_i = fvals[i]
-                    y_p = f_i.sqrt()
-                    y_m = -y_p
-                    if abs(y_p - yvals[i + 1]) <= abs(y_m - yvals[i + 1]):
-                        yvals[i] = y_p
-                    else:
-                        yvals[i] = y_m
-                for i in range(seed_idx + 1, n):
-                    f_i = fvals[i]
-                    y_p = f_i.sqrt()
-                    y_m = -y_p
-                    if abs(y_p - yvals[i - 1]) <= abs(y_m - yvals[i - 1]):
-                        yvals[i] = y_p
-                    else:
-                        yvals[i] = y_m
-                # recompute integral
-                integral = CC(0)
-                for i in range(n):
-                    y_cur = yvals[i]
-                    if abs(y_cur) == 0:
-                        if i + 1 < n and abs(yvals[i + 1]) != 0:
-                            y_for_use = yvals[i + 1]
-                        elif i - 1 >= 0 and abs(yvals[i - 1]) != 0:
-                            y_for_use = yvals[i - 1]
-                        else:
-                            raise ValueError("All neighboring y are zero; cannot evaluate integrand.")
-                    else:
-                        y_for_use = y_cur
-                    if use_x_weight:
-                        integrand = xvals[i] / (CC(2) * y_for_use)
-                    else:
-                        integrand = CC(1) / (CC(2) * y_for_use)
-                    dxd = dx_factor * ws[i]
-                    integral += integrand * dxd
-
-                # final check again
-                f_exact_end = f_at(p1)
-                if abs(f_exact_end) >= tiny:
-                    y_exact_p = f_exact_end.sqrt()
-                    y_exact_m = -y_exact_p
-                    y_near_end = yvals[-1]
-                    y_at_end = y_exact_p if abs(y_exact_p - y_near_end) <= abs(y_exact_m - y_near_end) else y_exact_m
-                    if abs(y_at_end - y_target) > tol:
-                        raise ValueError(f"Branch selection failed after retry. target={y_target}, got={y_at_end}")
-
-    return integral
-
-
 def abel_jacobi_mumford(
     D, f_coeffs, base_point, *,
     integrate_func=None,    # function(base_x, x_end, y_end, f_coeffs, use_x_weight, prec, debug)
@@ -1942,176 +1717,6 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
     return h_naive + h_arch + h_finite_correction
 
 
-def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, test_normalization=None):
-    """
-    Robust replacement of arakelov_build_basis_with_heights.
-    
-    Explicitly uses arakelov_canonical_height() for all height computations,
-    ensuring that naive and finite corrections are included (and that your asserts run).
-    """
-    from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, 
-                          QQ, RR as SageRR)
-
-    if not all_divisors:
-        return [], 0, None
-
-    if debug:
-        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
-        print(f"[arakelov] Using precision: {prec} bits")
-        print("[arakelov] Strategy: Full canonical heights (Naive + Arch + Finite)")
-
-    # Build curve & jacobian (over QQ for constructor)
-    Rq_QQ = PolynomialRing(QQ, 'x')
-    x_QQ = Rq_QQ.gen()
-    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly_QQ)
-    J = C.jacobian()
-
-    # Convert divisors to Jacobian elements
-    jac_elements = []
-    for div in all_divisors:
-        try:
-            u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
-            v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
-            D = J([u_poly, v_poly])
-            if not D.is_zero():
-                jac_elements.append((div, D))
-        except Exception:
-            raise
-            continue
-
-    if not jac_elements:
-        return [], 0, None
-
-    # Pre-calculate individual heights using the full function
-    height_cache = {}
-    
-    if debug:
-        print(f"[arakelov] Pre-computing heights for {len(jac_elements)} candidates...")
-        
-    for i, (div, D) in enumerate(jac_elements):
-        try:
-            # THIS CALL ensures arakelov_canonical_height runs
-            h = arakelov_canonical_height(D, f_coeffs, prec=prec)
-            height_cache[i] = h
-            if debug:
-                print(f"  Divisor {i}: h = {float(h):.6g}")
-        except Exception as e:
-            if debug:
-                print(f"[arakelov] Height computation failed for divisor {i}: {e}")
-            raise
-
-    # Pairing function using polarization identity
-    pairing_cache = {}
-
-    def get_pairing(i, j):
-        if i > j:
-            i, j = j, i
-        
-        if (i, j) in pairing_cache:
-            return pairing_cache[(i, j)]
-        
-        if i == j:
-            # <D, D> = h(D)
-            val = height_cache[i]
-            pairing_cache[(i, j)] = val
-            return val
-        
-        # <D1, D2> = (h(D1+D2) - h(D1) - h(D2)) / 2
-        h1 = height_cache[i]
-        h2 = height_cache[j]
-        
-        D1 = jac_elements[i][1]
-        D2 = jac_elements[j][1]
-        D_sum = D1 + D2
-        
-        if D_sum.is_zero():
-            h_sum = 0
-        else:
-            h_sum = arakelov_canonical_height(D_sum, f_coeffs, prec=prec)
-            
-        val = (h_sum - h1 - h2) / 2
-        pairing_cache[(i, j)] = val
-        return val
-
-    # Build Basis
-    basis = []
-    basis_indices = []
-    
-    if debug:
-        print("[arakelov] Building basis incrementally...")
-
-    for i, (div, D) in enumerate(jac_elements):
-        h_self = get_pairing(i, i)
-        
-        # Threshold: if height is effectively zero, it's torsion (or empty)
-        if float(h_self) < 1e-5:
-            if debug:
-                print(f"[arakelov] Skipping divisor {i}: self-pairing too small ({float(h_self):.6g})")
-            continue
-
-        if not basis:
-            basis.append(div)
-            basis_indices.append(i)
-            if debug:
-                print(f"[arakelov] Added divisor {i} (first)")
-            continue
-
-        # Check independence against existing basis
-        cand_indices = basis_indices + [i]
-        m = len(cand_indices)
-        
-        # Build Gram matrix
-        H = Matrix(RealField(prec), m, m)
-        for r in range(m):
-            for c in range(r, m):
-                val = get_pairing(cand_indices[r], cand_indices[c])
-                H[r, c] = val
-                H[c, r] = val
-        
-        # Check Positive Definiteness
-        is_pd = False
-        det_val = 0.0
-        try:
-            # Quick check via eigenvalues
-            evals = H.eigenvalues()
-            if all(float(e) > 1e-8 for e in evals):
-                is_pd = True
-            det_val = float(H.determinant())
-        except Exception:
-            is_pd = False
-            raise
-        
-        if is_pd:
-            basis.append(div)
-            basis_indices.append(i)
-            if debug:
-                print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
-        else:
-            if debug:
-                print(f"[arakelov] Skipping divisor {i}: not independent/PD")
-
-    # Final Matrix Construction
-    final_rank = len(basis)
-    H_final = None
-    if final_rank > 0:
-        H_final = Matrix(RealField(prec), final_rank, final_rank)
-        for r in range(final_rank):
-            for c in range(r, final_rank):
-                val = get_pairing(basis_indices[r], basis_indices[c])
-                H_final[r, c] = val
-                H_final[c, r] = val
-        
-        if debug:
-            print(f"[arakelov] Final rank: {final_rank}")
-            try:
-                print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
-            except Exception:
-                raise
-
-    return basis, final_rank, H_final
-
-
 # [arakelov.py]
 
 def get_bad_primes(f_coeffs):
@@ -2150,36 +1755,6 @@ def get_bad_primes(f_coeffs):
     get_bad_primes.cache[key] = ret
     return ret
 get_bad_primes.cache = {}
-
-
-def choose_numerical_base_point(f_coeffs, prec=200):
-    """
-    Selects a numerically safe base point for Abel-Jacobi maps.
-    Uses a root of f(x) shifted by a tiny complex offset to avoid 
-    exact singularities while maintaining mathematical invariance.
-    """
-    from sage.all import ComplexField, PolynomialRing
-    
-    CC = ComplexField(prec)
-    Rq = PolynomialRing(CC, 'x')
-    x = Rq.gen()
-    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    # Sort roots deterministically
-    roots = f_poly_cc.roots(multiplicities=False)
-    if not roots:
-        # Fallback for degenerate cases
-        return (CC(0), CC(1))
-        
-    sorted_roots = sorted(roots, key=lambda z: (float(z.real()), float(z.imag())))
-    root = sorted_roots[0]
-    
-    # Tiny offset tuned to precision (preserve Weierstrass-like nature but avoid 0.0)
-    eps = CC(2) ** (-(prec // 2))
-    
-    # Base point = (root + i*eps, eps)
-    # This sits just off the branch point
-    return (root + CC(0, 1)*eps, eps)
 
 
 def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
@@ -2241,65 +1816,6 @@ def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
     pairing = neron_tate_height_pairing(z1, z2, Im_tau, prec=prec)
     
     return pairing
-
-def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=1024):
-    """
-    Compute the local canonical height correction (Neron correction) at p 
-    using the p-adic doubling limit:
-       mu_p(D) = lim_{n->inf} 4^(-n) * h_naive(2^n D) - h_naive(D)
-    
-    This correctly handles bad reduction (I_n, etc) without explicit Neron models.
-    """
-    # 1. Setup p-adic curve
-    try:
-        # High precision is critical for the doubling loop to avoid ZeroDivisionError
-        # in Cantor reduction when coefficients become small p-adically.
-        K = Qp(p, prec=padic_prec)
-        R = PolynomialRing(K, 'x')
-        f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-        C_p = HyperellipticCurve(f_poly)
-        J_p = C_p.jacobian()
-        
-        # 2. Lift point D to J(Qp)
-        # D is (u, v) over Q. Coerce coeffs to Qp.
-        u_Q, v_Q = D[0], D[1]
-        u_p = R([K(c) for c in u_Q.list()])
-        v_p = R([K(c) for c in v_Q.list()])
-        
-        # Construct point in J(Qp)
-        # Check if point is valid on the curve over Qp (sometimes precision loss issues)
-        # But D is a global point, so it must be valid.
-        P = J_p([u_p, v_p])
-        
-        # 3. Compute initial naive height
-        h0 = local_naive_height_p(P, p)
-        
-        # 4. Iterate doubling
-        current_P = P
-        for _ in range(num_doublings):
-            if current_P.is_zero():
-                # If we hit the identity, the canonical height of 0 is 0.
-                # The formula gives 4^-n * 0 - h0 = -h0.
-                # We can return immediately.
-                return -h0
-            current_P = 2 * current_P
-        
-        # 5. Compute final naive height
-        h_final = local_naive_height_p(current_P, p)
-        
-        # 6. Apply Tate's limit formula
-        # h_can = 4^(-N) * h_naive(2^N P)
-        # correction = h_can - h_naive(P)
-        scaling = 4.0**(-num_doublings)
-        h_can_approx = scaling * h_final
-        
-        return h_can_approx - h0
-        
-    except Exception:
-        # If anything fails (e.g. working with Qp, precision), return 0 
-        # (effectively falling back to naive height for this prime)
-        raise # ffs, do not return 0.0 lol
-        return 0.0
 
 
 def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
@@ -2375,47 +1891,6 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, 
         raise
     except Exception:
         raise
-
-
-def choose_numerical_base_point(f_coeffs, prec=200):
-    """
-    Choose a base point AWAY from branch points for numerical stability.
-    """
-    from sage.all import ComplexField, PolynomialRing
-    
-    CC = ComplexField(prec)
-    Rq = PolynomialRing(CC, 'x')
-    x = Rq.gen()
-    f_poly_cc = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    roots = f_poly_cc.roots(multiplicities=False)
-    
-    # Strategy: pick a point on the real axis between the first two roots
-    # (or at x=0, x=1, x=100, etc. - just avoid the roots!)
-    
-    if len(roots) >= 2:
-        sorted_roots = sorted(roots, key=lambda z: float(z.real()))
-        # Midpoint between first two roots
-        x_base = (sorted_roots[0] + sorted_roots[1]) / CC(2)
-    else:
-        # Arbitrary point
-        x_base = CC(0)
-    
-    # Compute y = sqrt(f(x))
-    f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    if abs(f_val) < CC(2)**(-prec//2):
-        # Too close to a branch point, shift x
-        x_base = CC(1) + CC(0, 1)  # i + 1
-        f_val = sum(CC(c) * x_base**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    y_base = f_val.sqrt()
-    
-    # Prefer positive imaginary part
-    if y_base.imag() < 0:
-        y_base = -y_base
-    
-    return (x_base, y_base)
 
 
 def choose_numerical_base_point(f_coeffs, prec=300):
@@ -2594,3 +2069,286 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
         integral += integrand * dxd
 
     return integral
+
+
+# Module-level worker functions (must be at top level for pickling)
+
+def _compute_height_worker(args):
+    """Worker function to compute a single height - must be at module level for pickling"""
+    from sage.all import PolynomialRing, HyperellipticCurve, QQ
+    
+    i, div, f_coeffs, prec = args
+    try:
+        # Reconstruct the Jacobian element in this process
+        Rq_QQ = PolynomialRing(QQ, 'x')
+        x_QQ = Rq_QQ.gen()
+        f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-k) 
+                       for k, c in enumerate(f_coeffs))
+        C = HyperellipticCurve(f_poly_QQ)
+        J = C.jacobian()
+        
+        u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+        v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
+        D = J([u_poly, v_poly])
+        
+        h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+        return (i, float(h), None)
+    except Exception as e:
+        return (i, None, str(e))
+
+
+def _compute_pairing_worker(args):
+    """Worker function to compute a single pairing - must be at module level for pickling"""
+    from sage.all import PolynomialRing, HyperellipticCurve, QQ
+    
+    i, j, div_i, div_j, f_coeffs, prec, h_i, h_j = args
+    try:
+        if i == j:
+            return ((i, j), h_i, None)
+        
+        # Reconstruct Jacobian elements
+        Rq_QQ = PolynomialRing(QQ, 'x')
+        x_QQ = Rq_QQ.gen()
+        f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-k) 
+                       for k, c in enumerate(f_coeffs))
+        C = HyperellipticCurve(f_poly_QQ)
+        J = C.jacobian()
+        
+        u_poly_i = x_QQ**2 - QQ(div_i['s'])*x_QQ + QQ(div_i['p'])
+        v_poly_i = QQ(div_i['v_1'])*x_QQ + QQ(div_i['v_0'])
+        D1 = J([u_poly_i, v_poly_i])
+        
+        u_poly_j = x_QQ**2 - QQ(div_j['s'])*x_QQ + QQ(div_j['p'])
+        v_poly_j = QQ(div_j['v_1'])*x_QQ + QQ(div_j['v_0'])
+        D2 = J([u_poly_j, v_poly_j])
+        
+        D_sum = D1 + D2
+        
+        if D_sum.is_zero():
+            h_sum = 0
+        else:
+            h_sum = arakelov_canonical_height(D_sum, f_coeffs, prec=prec)
+        
+        val = (float(h_sum) - h_i - h_j) / 2
+        return ((i, j), val, None)
+    except Exception as e:
+        return ((i, j), None, str(e))
+
+
+def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, 
+                                      test_normalization=None, n_jobs=-1):
+    """
+    Parallelized version of arakelov_build_basis_with_heights.
+    
+    Uses multiprocessing to compute heights in parallel, which is the main bottleneck.
+    Set n_jobs=-1 to use all available cores, or specify a number.
+    """
+    from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, 
+                          QQ, RR as SageRR)
+    from multiprocessing import Pool, cpu_count
+
+    # Ensure period matrix is fresh/cached
+    get_period_matrix_auto_B(f_coeffs, prec=prec)
+    
+    if not all_divisors:
+        return [], 0, None
+
+    # Determine number of workers
+    if n_jobs == -1:
+        n_jobs = cpu_count()
+    
+    if debug:
+        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
+        print(f"[arakelov] Using precision: {prec} bits")
+        print(f"[arakelov] Parallelization: {n_jobs} workers")
+
+    # Build curve & jacobian (over QQ for constructor)
+    Rq_QQ = PolynomialRing(QQ, 'x')
+    x_QQ = Rq_QQ.gen()
+    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly_QQ)
+    J = C.jacobian()
+
+    # Convert divisors to Jacobian elements
+    jac_elements = []
+    for div in all_divisors:
+        try:
+            u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+            v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
+            D = J([u_poly, v_poly])
+            if not D.is_zero():
+                jac_elements.append((div, D))
+        except Exception:
+            raise
+
+    if not jac_elements:
+        return [], 0, None
+
+    # Pre-calculate individual heights in parallel
+    if debug:
+        print(f"[arakelov] Pre-computing heights for {len(jac_elements)} candidates...")
+    
+    # Prepare arguments for parallel computation
+    height_args = [
+        (i, div, f_coeffs, prec) 
+        for i, (div, D) in enumerate(jac_elements)
+    ]
+    
+    # Compute heights in parallel
+    height_cache = {}
+    if len(jac_elements) > 1 and n_jobs > 1:
+        with Pool(processes=n_jobs) as pool:
+            results = pool.map(_compute_height_worker, height_args)
+        
+        for i, h, error in results:
+            if error:
+                if debug:
+                    print(f"[arakelov] Height computation failed for divisor {i}: {error}")
+                raise RuntimeError(f"Height computation failed: {error}")
+            height_cache[i] = h
+            if debug:
+                print(f"  Divisor {i}: h = {h:.6g}")
+    else:
+        # Sequential fallback for small inputs or single worker
+        for i, (div, D) in enumerate(jac_elements):
+            try:
+                h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+                height_cache[i] = float(h)
+                if debug:
+                    print(f"  Divisor {i}: h = {float(h):.6g}")
+            except Exception as e:
+                if debug:
+                    print(f"[arakelov] Height computation failed for divisor {i}: {e}")
+                raise
+
+    # Pairing function using polarization identity with parallel computation
+    pairing_cache = {}
+
+    def precompute_pairings_parallel(indices):
+        """Precompute all pairings for given indices in parallel"""
+        # Collect unique pairs to compute
+        pairs_to_compute = []
+        for r in range(len(indices)):
+            for c in range(r, len(indices)):
+                i, j = indices[r], indices[c]
+                if i > j:
+                    i, j = j, i
+                if (i, j) not in pairing_cache:
+                    div_i = jac_elements[i][0]
+                    div_j = jac_elements[j][0]
+                    pairs_to_compute.append((
+                        i, j, div_i, div_j, f_coeffs, prec,
+                        height_cache[i], height_cache[j]
+                    ))
+        
+        if not pairs_to_compute:
+            return
+        
+        # Compute in parallel if worthwhile
+        if len(pairs_to_compute) > 2 and n_jobs > 1:
+            with Pool(processes=n_jobs) as pool:
+                results = pool.map(_compute_pairing_worker, pairs_to_compute)
+            
+            for (i, j), val, error in results:
+                if error:
+                    raise RuntimeError(f"Pairing computation failed: {error}")
+                pairing_cache[(i, j)] = val
+        else:
+            # Sequential for small batches
+            for args in pairs_to_compute:
+                (i, j), val, error = _compute_pairing_worker(args)
+                if error:
+                    raise RuntimeError(f"Pairing computation failed: {error}")
+                pairing_cache[(i, j)] = val
+
+    def get_pairing(i, j):
+        if i > j:
+            i, j = j, i
+        
+        if (i, j) not in pairing_cache:
+            # Compute on-demand if not in cache
+            precompute_pairings_parallel([i, j])
+        
+        return pairing_cache[(i, j)]
+
+    # Build Basis
+    basis = []
+    basis_indices = []
+    
+    if debug:
+        print("[arakelov] Building basis incrementally...")
+
+    for i, (div, D) in enumerate(jac_elements):
+        h_self = height_cache[i]
+        
+        # Threshold: if height is effectively zero, it's torsion (or empty)
+        if h_self < 1e-5:
+            if debug:
+                print(f"[arakelov] Skipping divisor {i}: self-pairing too small ({h_self:.6g})")
+            continue
+
+        if not basis:
+            basis.append(div)
+            basis_indices.append(i)
+            pairing_cache[(i, i)] = h_self  # Cache diagonal
+            if debug:
+                print(f"[arakelov] Added divisor {i} (first)")
+            continue
+
+        # Check independence against existing basis
+        cand_indices = basis_indices + [i]
+        
+        # Precompute all needed pairings in parallel
+        precompute_pairings_parallel(cand_indices)
+        
+        m = len(cand_indices)
+        
+        # Build Gram matrix
+        H = Matrix(RealField(prec), m, m)
+        for r in range(m):
+            for c in range(r, m):
+                val = get_pairing(cand_indices[r], cand_indices[c])
+                H[r, c] = val
+                H[c, r] = val
+        
+        # Check Positive Definiteness
+        is_pd = False
+        det_val = 0.0
+        try:
+            # Quick check via eigenvalues
+            evals = H.eigenvalues()
+            if all(float(e) > 1e-8 for e in evals):
+                is_pd = True
+            det_val = float(H.determinant())
+        except Exception:
+            is_pd = False
+            raise
+        
+        if is_pd:
+            basis.append(div)
+            basis_indices.append(i)
+            if debug:
+                print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
+        else:
+            if debug:
+                print(f"[arakelov] Skipping divisor {i}: not independent/PD")
+
+    # Final Matrix Construction
+    final_rank = len(basis)
+    H_final = None
+    if final_rank > 0:
+        H_final = Matrix(RealField(prec), final_rank, final_rank)
+        for r in range(final_rank):
+            for c in range(r, final_rank):
+                val = get_pairing(basis_indices[r], basis_indices[c])
+                H_final[r, c] = val
+                H_final[c, r] = val
+        
+        if debug:
+            print(f"[arakelov] Final rank: {final_rank}")
+            try:
+                print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
+            except Exception:
+                raise
+
+    return basis, final_rank, H_final

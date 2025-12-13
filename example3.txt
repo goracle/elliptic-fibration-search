@@ -1,21 +1,19 @@
 
 --- Searching for y=0 points ---
-hyper elliptic curve: y^2 = x^6 + 4*x^5 + 4*x^4 + 4*x^3 + 8*x^2 - 8*x - 12
+hyper elliptic curve: y^2 = 4*x^5 - 4*x^4 - 36*x^3 + 5*x^2 + 96*x + 64
 No rational points found where y=0
 known_pts start: {(-1, 1)}
 
 ========================================================
 Constructing new fibration using: ((-1, 1),)
 known pts so far: [(-1, 1)]
-found 1 / 3
+found 1 / 4
 ========================================================
 
-shifted G poly1: x^6 + 4*x^5 + 4*x^4 + 4*x^3 + 8*x^2 - 8*x - 12
---- Building 2 Step Fibration Tower (deg 6 -> 4) ---
---- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=14.8)
---- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
-  [Step 2] Selected best geometry (Score=14.3)
+shifted G poly1: 4*x^5 - 4*x^4 - 36*x^3 + 5*x^2 + 96*x + 64
+--- Building 1 Step Fibration Tower (deg 5 -> 4) ---
+--- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
+  [Step 1] Selected best geometry (Score=12.9)
 r_m -m - 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -23,132 +21,134 @@ r_m -m - 1
 
 --- Identifying Globally Bad Primes ---
 Identified 0 globally bad prime(s) from the pool: []
->>> Diagnostic: [m^12 + 4*m^11 + 6*m^10 - 5578/27*m^9 - 5203/9*m^8 - 5114/9*m^7 - 84640/27*m^6 - 82762/9*m^5 + 363289/27*m^4 + 1353266/27*m^3 + 48406/27*m^2 - 125200/3*m - 197075/27] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^8 - 197/27*m^6 + 980/9*m^5 + 1679/9*m^4 - 11402/27*m^3 + 9119/27*m^2 - 57730/27*m - 261362/27] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [∞] IV: v=(-2,-4,-8) -> (2,2,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^12 + 4*m^11 + 6*m^10 - 5578/27*m^9 -       1      0      0      1      1        0        0        1      12 x I1
-Infinity: v_c4 = -3, v_c6 = -6, v_D = -12 -> I0
+m^8 - 197/27*m^6 + 980/9*m^5 + 1679/9*m      1      0      0      1      1        0        0        1       8 x I1
+Infinity: v_c4 = -2, v_c6 = -4, v_D = -8 -> IV
 
 Summary of fibers (per-center):
-  I1 at m^12 + 4*m^11 + 6*m^10 - 5578/27*m^9 - 5 (deg 12) contrib=0
-  I0 at inf (deg 1) contrib=0
+  I1 at m^8 - 197/27*m^6 + 980/9*m^5 + 1679/9*m^ (deg 8) contrib=0
+  IV at inf (deg 1) contrib=2
 
 Total Euler characteristic: 12
-Sum of fiber contributions (Σ(m_v - 1)): 0
+Sum of fiber contributions (Σ(m_v - 1)): 2
 
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: -6912*m^12 - 27648*m^11 - 41472*m^10 + 1427968*m^9 + 3995904*m^8 + 3927552*m^7 + 21667840*m^6 + 63561216*m^5 - 93001984*m^4 - 346436096*m^3 - 12391936*m^2 + 288460800*m + 50451200
-  Effective Discriminant Degree: 12
+Delta: -110592*m^8 + 806912*m^6 - 12042240*m^5 - 20631552*m^4 + 46702592*m^3 - 37351424*m^2 + 236462080*m + 1070538752
+  Effective Discriminant Degree: 8
   Weierstrass scaling exponent (n) used: 0
-  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
 --------------------------
 
 === Auto-configuring search parameters for this fibration ===
 [auto_cfg] Building height estimation from 1 known x-coords.
 [auto_cfg] starting prime pool size: 75 (Heavy analysis: True)
 [bounds] Starting with prime pool size: 75
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
-[bounds] mod 5 factorization: [1, 10] -> pattern (1, 10)
-[bounds] mod 7 factorization: [1, 1, 2, 7] -> pattern (1, 1, 2, 7)
-[bounds] mod 11 factorization: [1, 2, 3, 6] -> pattern (1, 2, 3, 6)
-[bounds] mod 13 factorization: [2, 2, 3, 5] -> pattern (2, 2, 3, 5)
-[bounds] mod 17 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 19 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 23 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 29 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 31 factorization: [1, 3, 7] -> pattern (1, 3, 7)
-[bounds] mod 37 factorization: [1, 1, 2, 7] -> pattern (1, 1, 2, 7)
-[bounds] mod 41 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 43 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
-[bounds] mod 47 factorization: [2, 5, 5] -> pattern (2, 5, 5)
-[bounds] mod 53 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 59 factorization: [2, 4, 6] -> pattern (2, 4, 6)
-[bounds] mod 61 factorization: [4, 8] -> pattern (4, 8)
-[bounds] mod 67 factorization: [12] -> pattern (12,)
-[bounds] mod 71 factorization: [1, 10] -> pattern (1, 10)
-[bounds] mod 73 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 79 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 83 factorization: [12] -> pattern (12,)
-[bounds] mod 89 factorization: [1, 3, 4, 4] -> pattern (1, 3, 4, 4)
-[bounds] mod 97 factorization: [2, 2, 2, 6] -> pattern (2, 2, 2, 6)
-[bounds] mod 101 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 103 factorization: [1, 4, 6] -> pattern (1, 4, 6)
-[bounds] mod 107 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 109 factorization: [2, 4, 6] -> pattern (2, 4, 6)
-[bounds] mod 113 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 127 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 131 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 137 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 139 factorization: [1, 1, 1, 2, 2, 5] -> pattern (1, 1, 1, 2, 2, 5)
-[bounds] mod 149 factorization: [2, 2, 3, 5] -> pattern (2, 2, 3, 5)
-[bounds] mod 151 factorization: [2, 3, 3, 4] -> pattern (2, 3, 3, 4)
-[bounds] mod 157 factorization: [1, 1, 2, 3, 5] -> pattern (1, 1, 2, 3, 5)
-[bounds] mod 163 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 167 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 173 factorization: [2, 3, 7] -> pattern (2, 3, 7)
-[bounds] mod 179 factorization: [1, 1, 9] -> pattern (1, 1, 9)
-[bounds] mod 181 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 191 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 193 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 197 factorization: [1, 1, 1, 1, 1, 2, 5] -> pattern (1, 1, 1, 1, 1, 2, 5)
-[bounds] mod 199 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
-[bounds] mod 211 factorization: [1, 1, 1, 2, 3, 4] -> pattern (1, 1, 1, 2, 3, 4)
-[bounds] mod 223 factorization: [6, 6] -> pattern (6, 6)
-[bounds] mod 227 factorization: [2, 2, 2, 6] -> pattern (2, 2, 2, 6)
-[bounds] mod 229 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 233 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 239 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 241 factorization: [2, 2, 8] -> pattern (2, 2, 8)
-[bounds] mod 251 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 257 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 263 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 269 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 271 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 277 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 281 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 283 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 293 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 307 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 311 factorization: [2, 3, 3, 4] -> pattern (2, 3, 3, 4)
-[bounds] mod 313 factorization: [1, 1, 1, 4, 5] -> pattern (1, 1, 1, 4, 5)
-[bounds] mod 317 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 331 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 337 factorization: [1, 3, 3, 5] -> pattern (1, 3, 3, 5)
-[bounds] mod 347 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 349 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 353 factorization: [1, 1, 1, 2, 7] -> pattern (1, 1, 1, 2, 7)
-[bounds] mod 359 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 367 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 373 factorization: [12] -> pattern (12,)
-[bounds] mod 379 factorization: [2, 2, 2, 3, 3] -> pattern (2, 2, 2, 3, 3)
-[bounds] mod 383 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 389 factorization: [12] -> pattern (12,)
-[bounds] Unique patterns from 75 primes: [(1, 1, 1, 1, 1, 2, 5), (1, 1, 1, 2, 2, 5), (1, 1, 1, 2, 3, 4), (1, 1, 1, 2, 7), (1, 1, 1, 4, 5), (1, 1, 2, 3, 5), (1, 1, 2, 7), (1, 1, 2, 8), (1, 1, 3, 7), (1, 1, 5, 5), (1, 1, 9), (1, 1, 10), (1, 2, 3, 5), (1, 2, 3, 6), (1, 2, 4, 5), (1, 2, 9), (1, 3, 3, 5), (1, 3, 4, 4), (1, 3, 7), (1, 3, 8), (1, 4, 6), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 2, 2, 3, 3), (2, 2, 2, 6), (2, 2, 3, 5), (2, 2, 8), (2, 3, 3, 4), (2, 3, 7), (2, 4, 6), (2, 5, 5), (2, 10), (3, 9), (4, 8), (5, 7), (6, 6), (12,)]
-[bounds] Estimated splitting field degree: 27720
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[bounds] mod 5 factorization: [8] -> pattern (8,)
+[bounds] mod 7 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 11 factorization: [1, 1, 5] -> pattern (1, 1, 5)
+[bounds] mod 13 factorization: [8] -> pattern (8,)
+[bounds] mod 17 factorization: [4, 4] -> pattern (4, 4)
+[bounds] mod 19 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 23 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 29 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 31 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 37 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 41 factorization: [1, 1, 1, 1, 1, 3] -> pattern (1, 1, 1, 1, 1, 3)
+[bounds] mod 43 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 47 factorization: [8] -> pattern (8,)
+[bounds] mod 53 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 59 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 61 factorization: [1, 2, 4] -> pattern (1, 2, 4)
+[bounds] mod 67 factorization: [8] -> pattern (8,)
+[bounds] mod 71 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 73 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 79 factorization: [8] -> pattern (8,)
+[bounds] mod 83 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 89 factorization: [1, 3, 3] -> pattern (1, 3, 3)
+[bounds] mod 97 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 101 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 103 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 107 factorization: [8] -> pattern (8,)
+[bounds] mod 109 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 113 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 127 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 131 factorization: [8] -> pattern (8,)
+[bounds] mod 137 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 139 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 149 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 151 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 157 factorization: [8] -> pattern (8,)
+[bounds] mod 163 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 167 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 173 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 179 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 181 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 191 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 193 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 197 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 199 factorization: [1, 1, 1, 5] -> pattern (1, 1, 1, 5)
+[bounds] mod 211 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 223 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 227 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 229 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 233 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 239 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 241 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 251 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 257 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 263 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 269 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 271 factorization: [8] -> pattern (8,)
+[bounds] mod 277 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 281 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 283 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 293 factorization: [1, 1, 1, 1, 2, 2] -> pattern (1, 1, 1, 1, 2, 2)
+[bounds] mod 307 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 311 factorization: [8] -> pattern (8,)
+[bounds] mod 313 factorization: [8] -> pattern (8,)
+[bounds] mod 317 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 331 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 337 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 347 factorization: [8] -> pattern (8,)
+[bounds] mod 349 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 353 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 359 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 367 factorization: [8] -> pattern (8,)
+[bounds] mod 373 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 379 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 383 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 389 factorization: [1, 1, 2, 3] -> pattern (1, 1, 2, 3)
+[bounds] Unique patterns from 75 primes: [(1, 1, 1, 1, 1, 3), (1, 1, 1, 1, 2, 2), (1, 1, 1, 5), (1, 1, 2, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (8,)]
+[bounds] Estimated splitting field degree: 840
 
-DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 1, 1, 2, 5), (1, 1, 1, 2, 2, 5), (1, 1, 1, 2, 3, 4), (1, 1, 1, 2, 7), (1, 1, 1, 4, 5), (1, 1, 2, 3, 5), (1, 1, 2, 7), (1, 1, 2, 8), (1, 1, 3, 7), (1, 1, 5, 5), (1, 1, 9), (1, 1, 10), (1, 2, 3, 5), (1, 2, 3, 6), (1, 2, 4, 5), (1, 2, 9), (1, 3, 3, 5), (1, 3, 4, 4), (1, 3, 7), (1, 3, 8), (1, 4, 6), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 2, 2, 3, 3), (2, 2, 2, 6), (2, 2, 3, 5), (2, 2, 8), (2, 3, 3, 4), (2, 3, 7), (2, 4, 6), (2, 5, 5), (2, 10), (3, 9), (4, 8), (5, 7), (6, 6), (12,)], 'num_primes_tested': 75}
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 1, 1, 2, 2), (1, 1, 1, 5), (1, 1, 2, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (8,)], 'num_primes_tested': 75}
 
-[bounds] Diagnostics: {'discriminant': -192200955087008981826044120832399996395178895103458082699806741040865644923916814224167181625174843150562715684869358824923525749762050027245879838367705097830400, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] Diagnostics: {'discriminant': 560907017974976351952335975752229601559397744267853169097359975601422414953615191133700403146129919705088, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [auto_cfg] HEIGHT_BOUND set to 473
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
-[residue_counts] Using split_poly degree=12
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.19s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 30 primes -> avg_roots=0.8, patterns_sample=[(1, 1, 2, 7), (1, 1, 2, 8), (1, 1, 10), (1, 2, 3, 5), (1, 2, 3, 6), (1, 2, 4, 5)]
-[residue_counts] sample: [(5, 0), (7, 0), (11, 2), (13, 2), (17, 0), (19, 0), (23, 0), (29, 0), (31, 1), (37, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 0.8}
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
+[galois] poly.galois_group() took 0.18s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 30 primes -> avg_roots=0.7333, patterns_sample=[(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3)]
+[residue_counts] sample: [(5, 1), (7, 2), (11, 1), (13, 1), (17, 1), (19, 1), (23, 1), (29, 1), (31, 0), (37, 2)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 0.7333333333333333}
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
 
-DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 2, 7), (1, 1, 2, 8), (1, 2, 3, 5), (1, 2, 3, 6), (1, 3, 7), (1, 7), (1, 10), (1, 11), (2, 2, 3, 5), (2, 4, 6), (2, 5, 5), (3, 9), (4, 8), (5, 7), (12,)], 'num_primes_tested': 19}
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (3, 5), (4, 4), (6,), (8,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=75, avg_survivors≈5.68e-05, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 75, final_avg_survivors≈5.68e-05
+[empirical_pool] start pool size=75, avg_survivors≈4.6e-05, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 75, final_avg_survivors≈4.6e-05
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.17, avg_density=0.1581 -> size_bias='mixed (moderate density)'
+[adaptive_subsets] zero_ratio=0.07, avg_density=0.1657 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
 [adaptive_subsets] Height scale factor (sqrt): 2.17
 [adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
@@ -167,79 +167,289 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 2, 
 [auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1087, PRIME_POOL size=75, TMAX=434
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 75
-[bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
-[bounds] mod 5 factorization: [1, 10] -> pattern (1, 10)
-[bounds] mod 7 factorization: [1, 1, 2, 7] -> pattern (1, 1, 2, 7)
-[bounds] mod 11 factorization: [1, 2, 3, 6] -> pattern (1, 2, 3, 6)
-[bounds] mod 13 factorization: [2, 2, 3, 5] -> pattern (2, 2, 3, 5)
-[bounds] mod 17 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 19 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 23 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 29 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 31 factorization: [1, 3, 7] -> pattern (1, 3, 7)
-[bounds] mod 37 factorization: [1, 1, 2, 7] -> pattern (1, 1, 2, 7)
-[bounds] mod 41 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 43 factorization: [1, 1, 2, 8] -> pattern (1, 1, 2, 8)
-[bounds] mod 47 factorization: [2, 5, 5] -> pattern (2, 5, 5)
-[bounds] mod 53 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 59 factorization: [2, 4, 6] -> pattern (2, 4, 6)
-[bounds] mod 61 factorization: [4, 8] -> pattern (4, 8)
-[bounds] mod 67 factorization: [12] -> pattern (12,)
-[bounds] mod 71 factorization: [1, 10] -> pattern (1, 10)
-[bounds] mod 73 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 79 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 83 factorization: [12] -> pattern (12,)
-[bounds] mod 89 factorization: [1, 3, 4, 4] -> pattern (1, 3, 4, 4)
-[bounds] mod 97 factorization: [2, 2, 2, 6] -> pattern (2, 2, 2, 6)
-[bounds] mod 101 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 103 factorization: [1, 4, 6] -> pattern (1, 4, 6)
-[bounds] mod 107 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 109 factorization: [2, 4, 6] -> pattern (2, 4, 6)
-[bounds] mod 113 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 127 factorization: [1, 2, 3, 5] -> pattern (1, 2, 3, 5)
-[bounds] mod 131 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 137 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 139 factorization: [1, 1, 1, 2, 2, 5] -> pattern (1, 1, 1, 2, 2, 5)
-[bounds] mod 149 factorization: [2, 2, 3, 5] -> pattern (2, 2, 3, 5)
-[bounds] mod 151 factorization: [2, 3, 3, 4] -> pattern (2, 3, 3, 4)
-[bounds] mod 157 factorization: [1, 1, 2, 3, 5] -> pattern (1, 1, 2, 3, 5)
-[bounds] mod 163 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 167 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 173 factorization: [2, 3, 7] -> pattern (2, 3, 7)
-[bounds] mod 179 factorization: [1, 1, 9] -> pattern (1, 1, 9)
-[bounds] mod 181 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 191 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 193 factorization: [5, 7] -> pattern (5, 7)
-[bounds] mod 197 factorization: [1, 1, 1, 1, 1, 2, 5] -> pattern (1, 1, 1, 1, 1, 2, 5)
-[bounds] mod 199 factorization: [1, 1, 5, 5] -> pattern (1, 1, 5, 5)
-[bounds] mod 211 factorization: [1, 1, 1, 2, 3, 4] -> pattern (1, 1, 1, 2, 3, 4)
-[bounds] mod 223 factorization: [6, 6] -> pattern (6, 6)
-[bounds] mod 227 factorization: [2, 2, 2, 6] -> pattern (2, 2, 2, 6)
-[bounds] mod 229 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 233 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 239 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 241 factorization: [2, 2, 8] -> pattern (2, 2, 8)
-[bounds] mod 251 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 257 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 263 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 269 factorization: [1, 1, 3, 7] -> pattern (1, 1, 3, 7)
-[bounds] mod 271 factorization: [1, 2, 9] -> pattern (1, 2, 9)
-[bounds] mod 277 factorization: [1, 2, 4, 5] -> pattern (1, 2, 4, 5)
-[bounds] mod 281 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] mod 283 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 293 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 307 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] mod 311 factorization: [2, 3, 3, 4] -> pattern (2, 3, 3, 4)
-[bounds] mod 313 factorization: [1, 1, 1, 4, 5] -> pattern (1, 1, 1, 4, 5)
-[bounds] mod 317 factorization: [3, 9] -> pattern (3, 9)
-[bounds] mod 331 factorization: [1, 11] -> pattern (1, 11)
-[bounds] mod 337 factorization: [1, 3, 3, 5] -> pattern (1, 3, 3, 5)
-[bounds] mod 347 factorization: [1, 3, 8] -> pattern (1, 3, 8)
-[bounds] mod 349 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 353 factorization: [1, 1, 1, 2, 7] -> pattern (1, 1, 1, 2, 7)
-[bounds] mod 359 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 367 factorization: [1, 5, 6] -> pattern (1, 5, 6)
-[bounds] mod 373 factorization: [12] -> pattern (12,)
-[bounds] mod 379 factorization: [2, 2, 2, 3, 3] -> pattern (2, 2, 2, 3, 3)
-[bounds] mod 383 factorization: [2, 10] -> pattern (2, 10)
-[bounds] mod 389 factorization: [12] -> pattern (12,)
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[bounds] mod 5 factorization: [8] -> pattern (8,)
+[bounds] mod 7 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 11 factorization: [1, 1, 5] -> pattern (1, 1, 5)
+[bounds] mod 13 factorization: [8] -> pattern (8,)
+[bounds] mod 17 factorization: [4, 4] -> pattern (4, 4)
+[bounds] mod 19 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 23 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 29 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 31 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 37 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 41 factorization: [1, 1, 1, 1, 1, 3] -> pattern (1, 1, 1, 1, 1, 3)
+[bounds] mod 43 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 47 factorization: [8] -> pattern (8,)
+[bounds] mod 53 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 59 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 61 factorization: [1, 2, 4] -> pattern (1, 2, 4)
+[bounds] mod 67 factorization: [8] -> pattern (8,)
+[bounds] mod 71 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 73 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 79 factorization: [8] -> pattern (8,)
+[bounds] mod 83 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 89 factorization: [1, 3, 3] -> pattern (1, 3, 3)
+[bounds] mod 97 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 101 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 103 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 107 factorization: [8] -> pattern (8,)
+[bounds] mod 109 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 113 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 127 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 131 factorization: [8] -> pattern (8,)
+[bounds] mod 137 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 139 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 149 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 151 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 157 factorization: [8] -> pattern (8,)
+[bounds] mod 163 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 167 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 173 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 179 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 181 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 191 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 193 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 197 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 199 factorization: [1, 1, 1, 5] -> pattern (1, 1, 1, 5)
+[bounds] mod 211 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 223 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 227 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 229 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 233 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 239 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 241 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 251 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 257 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 263 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 269 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 271 factorization: [8] -> pattern (8,)
+[bounds] mod 277 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 281 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 283 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 293 factorization: [1, 1, 1, 1, 2, 2] -> pattern (1, 1, 1, 1, 2, 2)
+[bounds] mod 307 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 311 factorization: [8] -> pattern (8,)
+[bounds] mod 313 factorization: [8] -> pattern (8,)
+[bounds] mod 317 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 331 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 337 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 347 factorization: [8] -> pattern (8,)
+[bounds] mod 349 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 353 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 359 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 367 factorization: [8] -> pattern (8,)
+[bounds] mod 373 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 379 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 383 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 389 factorization: [1, 1, 2, 3] -> pattern (1, 1, 2, 3)
+[bounds] Unique patterns from 75 primes: [(1, 1, 1, 1, 1, 3), (1, 1, 1, 1, 2, 2), (1, 1, 1, 5), (1, 1, 2, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (8,)]
+[bounds] Estimated splitting field degree: 840
+
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 1, 1, 2, 2), (1, 1, 1, 5), (1, 1, 2, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (8,)], 'num_primes_tested': 75}
+
+[bounds] Diagnostics: {'discriminant': 560907017974976351952335975752229601559397744267853169097359975601422414953615191133700403146129919705088, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[prime_pool] Final pool has 75 primes up to 389
+=== Fibration Summary ===
+Data points: ((-1, 1),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (8*m + 24)*x^4 + (4*m^2 + 32*m + 76)*x^3 + (12*m^2 + 48*m + 35)*x^2 + y^2 + (12*m^2 + 32*m - 76)*x + (4*m^2 + 8*m - 60)
+Defining polynomial f: (8*m + 24)*x^4 + (4*m^2 + 32*m + 76)*x^3 + (12*m^2 + 48*m + 35)*x^2 + y^2 + (12*m^2 + 32*m - 76)*x + (4*m^2 + 8*m - 60)
+Discriminant of f: (-32*m - 96)*x^4 + (-16*m^2 - 128*m - 304)*x^3 + (-48*m^2 - 192*m - 140)*x^2 + (-48*m^2 - 128*m + 304)*x + (-16*m^2 - 32*m + 240)
+Weierstrass discriminant: -110592*m^8 + 806912*m^6 - 12042240*m^5 - 20631552*m^4 + 46702592*m^3 - 37351424*m^2 + 236462080*m + 1070538752
+Weierstrass model coefficients:
+  a4(m): -56*m^2 + 32*m - 1273/3
+  a6(m): 16*m^4 + 2264/3*m^2 - 1568/3*m + 80282/27
+P1: (-1, 1)
+
+--- Geometric Validation ---
+Delta: -110592*m^8 + 806912*m^6 - 12042240*m^5 - 20631552*m^4 + 46702592*m^3 - 37351424*m^2 + 236462080*m + 1070538752
+  Effective Discriminant Degree: 8
+  Weierstrass scaling exponent (n) used: 0
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
+--------------------------
+=========================
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: set()
+
+--- DEBUGGING POINT CONSTRUCTION ---
+Attempting to create point for (x,y) = (-1, 1)
+Curve: Elliptic Curve defined by y^2 = x^3 + (-56*m^2+32*m-1273/3)*x + (16*m^4+2264/3*m^2-1568/3*m+80282/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+
+Point Coordinates (X_aff, Y_aff, Z_aff):
+X_aff: 49/3
+Y_aff: (-4*m^2 + 20)
+Z_aff: 1
+
+Equation Check:
+LHS (Y^2*Z): (16*m^4 - 160*m^2 + 400)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (16*m^4 - 160*m^2 + 400)
+
+Difference (LHS - RHS): 0
+✅ Algebraic identity holds.
+--- END DEBUGGING ---
+section weierstrass coordinates: (49/3 : -4*m^2 + 20 : 1)
+Canonical height pairing matrix determinant = 3/2
+Sections are independent.
+
+--- Search Iteration 0 with 1 sections ---
+Canonical height pairing matrix determinant = 3/2
+Sections are independent.
+Height Pairing Matrix H:
+ [3/2]
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.00s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 20 primes -> avg_roots=0.95, patterns_sample=[(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3)]
+[residue_counts] sample: [(5, 1), (7, 2), (11, 1), (13, 1), (17, 1), (19, 1), (23, 1), (29, 1), (31, 0), (37, 2)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 0.95}
+[bounds] mod 5 factorization: [8] -> pattern (8,)
+[bounds] mod 7 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 11 factorization: [1, 1, 5] -> pattern (1, 1, 5)
+[bounds] mod 13 factorization: [8] -> pattern (8,)
+[bounds] mod 17 factorization: [4, 4] -> pattern (4, 4)
+[bounds] mod 19 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 23 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 29 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 31 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 37 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 41 factorization: [1, 1, 1, 1, 1, 3] -> pattern (1, 1, 1, 1, 1, 3)
+[bounds] mod 43 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 47 factorization: [8] -> pattern (8,)
+[bounds] mod 53 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 59 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] Unique patterns from 15 primes: [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 3, 4), (1, 7), (2, 2, 4), (3, 5), (4, 4), (8,)]
+[bounds] Estimated splitting field degree: 840
+
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 3, 4), (1, 7), (2, 2, 4), (3, 5), (4, 4), (8,)], 'num_primes_tested': 15}
+
+height bound: 473
+Searching 17 vectors up to height 473...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+
+[prepare_modular_data_lll] Rejected 0 primes:
+[mumford] Generating tasks for 75 primes...
+[mumford] Residue computation took 7.60s
+
+======================================================================
+MUMFORD RECONSTRUCTION PHASE
+======================================================================
+
+=== EARLY ALGEBRAIC FILTERING (per prime) ===
+
+Algebraic pre-filter: 210,878 → 210,878 (1.0x reduction)
+Grouped into 17 vectors, 534 (vector,x-residue) pairs
+  Skipping 2-prime group: 161,920 combos, not rare
+  Skipping 2-prime group: 309,748 combos, not rare
+  Skipping 2-prime group: 251,784 combos, not rare
+  Vector group: 3 primes, avg 35.3 sols/prime
+  Raw combinations: 36,960
+  Adaptive limit: 36,960 (total combos: 36,960)
+  Accepting 2-prime group: 52,480 combos (rare divisor)
+  Vector group: 2 primes, avg 361.0 sols/prime
+  Raw combinations: 52,480
+  Adaptive limit: 52,480 (total combos: 52,480)
+  Skipping 2-prime group: 168,360 combos, not rare
+  Skipping 2-prime group: 335,984 combos, not rare
+  Vector group: 2 primes, avg 255.0 sols/prime
+  Raw combinations: 41,000
+  Adaptive limit: 41,000 (total combos: 41,000)
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 22,800
+  Adaptive limit: 22,800 (total combos: 22,800)
+  Vector group: 2 primes, avg 345.0 sols/prime
+  Raw combinations: 36,656
+  Adaptive limit: 36,656 (total combos: 36,656)
+  Vector group: 2 primes, avg 217.0 sols/prime
+  Raw combinations: 16,464
+  Adaptive limit: 16,464 (total combos: 16,464)
+  Vector group: 2 primes, avg 139.0 sols/prime
+  Raw combinations: 16,072
+  Adaptive limit: 16,072 (total combos: 16,072)
+  Vector group: 2 primes, avg 204.0 sols/prime
+  Raw combinations: 26,732
+  Adaptive limit: 26,732 (total combos: 26,732)
+  Accepting 2-prime group: 65,780 combos (rare divisor)
+  Vector group: 2 primes, avg 318.0 sols/prime
+  Raw combinations: 65,780
+  Adaptive limit: 65,780 (total combos: 65,780)
+  Vector group: 2 primes, avg 209.0 sols/prime
+  Raw combinations: 23,800
+  Adaptive limit: 23,800 (total combos: 23,800)
+  Accepting 2-prime group: 59,924 combos (rare divisor)
+  Vector group: 2 primes, avg 282.0 sols/prime
+  Raw combinations: 59,924
+  Adaptive limit: 59,924 (total combos: 59,924)
+  Vector group: 2 primes, avg 216.0 sols/prime
+  Raw combinations: 46,400
+  Adaptive limit: 46,400 (total combos: 46,400)
+  Skipping 2-prime group: 208,560 combos, not rare
+  Skipping 2-prime group: 108,460 combos, not rare
+  Skipping 2-prime group: 203,280 combos, not rare
+  Skipping 2-prime group: 192,768 combos, not rare
+  Skipping 2-prime group: 130,560 combos, not rare
+  Vector group: 2 primes, avg 210.0 sols/prime
+  Raw combinations: 43,904
+  Adaptive limit: 43,904 (total combos: 43,904)
+  Vector group: 2 primes, avg 187.0 sols/prime
+  Raw combinations: 20,808
+  Adaptive limit: 20,808 (total combos: 20,808)
+  Vector group: 2 primes, avg 119.0 sols/prime
+  Raw combinations: 12,792
+  Adaptive limit: 12,792 (total combos: 12,792)
+  Accepting 2-prime group: 61,544 combos (rare divisor)
+  Vector group: 2 primes, avg 255.0 sols/prime
+  Raw combinations: 61,544
+  Adaptive limit: 61,544 (total combos: 61,544)
+  Accepting 2-prime group: 90,432 combos (rare divisor)
+  Vector group: 2 primes, avg 301.0 sols/prime
+  Raw combinations: 90,432
+  Adaptive limit: 90,432 (total combos: 90,432)
+  Skipping 2-prime group: 247,660 combos, not rare
+  Skipping 2-prime group: 528,408 combos, not rare
+  Vector group: 3 primes, avg 323.3 sols/prime
+  Raw combinations: 11,561,088
+  High density detected - applying aggressive pre-filtering
+    Found 12 candidates from first 2 primes (tried 22,848)
+    Prime 229: 506 → 10 sols (2.0%)
+  Pre-filtering took 6.23s
+  Filtered combinations: 228,480 (50.6x reduction)
+  Adaptive limit: 228,480 (total combos: 228,480)
+  Vector group: 2 primes, avg 237.0 sols/prime
+  Raw combinations: 32,144
+  Adaptive limit: 32,144 (total combos: 32,144)
+  Skipping 2-prime group: 203,520 combos, not rare
+  Skipping 2-prime group: 167,280 combos, not rare
+  Skipping 2-prime group: 433,896 combos, not rare
+  Vector group: 2 primes, avg 138.0 sols/prime
+  Raw combinations: 15,680
+  Adaptive limit: 15,680 (total combos: 15,680)
+  Skipping 2-prime group: 224,604 combos, not rare
+  Skipping 2-prime group: 169,344 combos, not rare
+  Accepting 2-prime group: 72,512 combos (rare divisor)
+  Vector group: 2 primes, avg 456.0 sols/prime
+  Raw combinations: 72,512
+  Adaptive limit: 72,512 (total combos: 72,512)
+  Vector group: 2 primes, avg 186.0 sols/prime
+  Raw combinations: 23,780
+  Adaptive limit: 23,780 (total combos: 23,780)
+  Accepting 2-prime group: 97,980 combos (rare divisor)
+  Vector group: 2 primes, avg 416.0 sols/prime
+  Raw combinations: 97,980
+  Adaptive limit: 97,980 (total combos: 97,980)
+  Skipping 2-prime group: 163,020 combos, not rare
+
+  Batched parallel processing: 41 groups, 1,191,446 total combos
+  Using 20 workers
+  Created 257 batches for parallel processing

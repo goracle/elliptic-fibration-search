@@ -1348,20 +1348,21 @@ from itertools import product, islice
 # OPTIMIZATION 1: Early Exit on Height Rejection
 # =============================================================================
 
+
 def rational_reconstruct_with_height_check(crt_val, M, max_height):
     """
     Rational reconstruction with immediate height rejection.
     Returns (num, den) or raises RationalReconstructionError.
     """
-    num, den = rational_reconstruct(crt_val, M)
+    # Use standard denominator bound for reconstruction
+    max_den = floor(sqrt(M / QQ(2)))
+    num, den = rational_reconstruct(crt_val, M, max_den=max_den)
     
-    # Check height immediately
+    # Then check BOTH against the actual height limit
     if abs(num) > max_height or abs(den) > max_height:
         raise RationalReconstructionError("Height too large")
     
     return num, den
-
-
 # =============================================================================
 # OPTIMIZATION 2: Batch CRT Computation
 # =============================================================================
@@ -1737,396 +1738,6 @@ def _reconstruct_worker_parallel(args):
     return results, stats
 
 
-def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
-    """
-    Optimized reconstruction with WORKING pre-filtering.
-    """
-    t_start_total = time.time()
-    
-    print("\n" + "="*70)
-    print("MUMFORD RECONSTRUCTION PHASE")
-    print("="*70)
-
-    mumford_timers_reset()
-    
-    found_xs = set()
-    mumford_divisors_raw = []
-
-    t0 = time.time()
-    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    for p in residues:
-        for v_tuple, x_res_dict in residues[p].items():
-            if isinstance(x_res_dict, list):
-                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
-            elif isinstance(x_res_dict, dict):
-                for x_res, sols in x_res_dict.items():
-                    by_vector_and_xres[v_tuple][x_res][p] = sols
-    
-    mumford_timer_add("residue_grouping", time.time() - t0)
-
-    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
-    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
-
-    total_attempted = 0
-    total_stats = {
-        'height_reject': 0,
-        'consistency_reject': 0,
-        'algebraic_reject': 0,
-        'success': 0,
-        'prefilter_reject': 0
-    }
-
-    t0 = time.time()
-    
-    num_workers = max(8, multiprocessing.cpu_count())
-    
-    for v_tuple, xres_groups in by_vector_and_xres.items():
-        for x_res_key, prime_data in xres_groups.items():
-            primes = sorted(prime_data.keys())
-            if len(primes) < 3:
-                continue
-            
-            M = 1
-            for p in primes:
-                M *= p
-            
-            sol_lists = [prime_data[p] for p in primes]
-            
-            avg_sols_per_prime = sum(len(sl) for sl in sol_lists) / len(sol_lists)
-            total_combos_raw = 1
-            for sl in sol_lists:
-                total_combos_raw *= len(sl)
-            
-            if debug:
-                print(f"  Vector group: {len(primes)} primes, avg {avg_sols_per_prime:.1f} sols/prime")
-                print(f"  Raw combinations: {total_combos_raw:,}")
-            
-            # === CRITICAL FIX: ACTUALLY FILTER ===
-            # The problem: we need to filter ACROSS primes, not within each prime
-            
-            if total_combos_raw > 1000000:
-                if debug:
-                    print(f"  High density detected - applying aggressive pre-filtering")
-                
-                t_prefilter = time.time()
-                
-                # Strategy: Use the FIRST TWO PRIMES to find candidates, then verify with others
-                # This is like a "sieve" approach
-                
-                if len(primes) >= 4:
-                    # Use first 2 primes to generate candidate divisors
-                    p0, p1 = primes[0], primes[1]
-                    M_small = p0 * p1
-                    
-                    candidate_divisors = []
-                    
-                    # Try all combinations of first 2 primes (should be manageable)
-                    max_candidates = 50000
-                    tried = 0
-                    
-                    for sol0 in sol_lists[0]:
-                        for sol1 in sol_lists[1]:
-                            tried += 1
-                            if tried > max_candidates:
-                                break
-                            
-                            # Quick CRT reconstruction for first 2 primes
-                            rec_vals = []
-                            for idx in range(4):
-                                vals = (sol0[idx], sol1[idx])
-                                crt_val = crt_cached(vals, (p0, p1))
-                                try:
-                                    num, den = rational_reconstruct(crt_val, M_small)
-                                    # Very loose height check for candidates
-                                    if abs(num) > 10 * M_small or abs(den) > 10 * M_small:
-                                        raise RationalReconstructionError("Height too large")
-                                    rec_vals.append(QQ(num)/QQ(den))
-                                except RationalReconstructionError:
-                                    break
-                            
-                            if len(rec_vals) == 4:
-                                s, p_val, v0, v1 = rec_vals
-                                # Quick algebraic check
-                                if verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                                    candidate_divisors.append((s, p_val, v0, v1))
-                        
-                        if tried > max_candidates:
-                            break
-                    
-                    if debug:
-                        print(f"    Found {len(candidate_divisors)} candidates from first 2 primes (tried {tried:,})")
-                    
-                    # Now filter remaining primes' solutions to only those consistent with candidates
-                    if candidate_divisors:
-                        filtered_sol_lists = [sol_lists[0], sol_lists[1]]  # Keep first 2 unchanged
-                        
-                        for p_idx in range(2, len(primes)):
-                            p = primes[p_idx]
-                            filtered = []
-                            
-                            for sol in sol_lists[p_idx]:
-                                # Check if this solution is consistent with ANY candidate
-                                for cand_s, cand_p, cand_v0, cand_v1 in candidate_divisors:
-                                    try:
-                                        s_mod = (int(cand_s.numerator()) * pow(int(cand_s.denominator()), -1, p)) % p
-                                        p_mod = (int(cand_p.numerator()) * pow(int(cand_p.denominator()), -1, p)) % p
-                                        v0_mod = (int(cand_v0.numerator()) * pow(int(cand_v0.denominator()), -1, p)) % p
-                                        v1_mod = (int(cand_v1.numerator()) * pow(int(cand_v1.denominator()), -1, p)) % p
-                                        
-                                        if (sol[0] == s_mod and sol[1] == p_mod and 
-                                            sol[2] == v0_mod and sol[3] == v1_mod):
-                                            filtered.append(sol)
-                                            break
-                                    except ZeroDivisionError:
-                                        continue
-                            
-                            if not filtered:
-                                filtered = sol_lists[p_idx]  # Keep all if filtering too aggressive
-                            
-                            filtered_sol_lists.append(filtered)
-                            
-                            if debug and len(filtered) != len(sol_lists[p_idx]):
-                                pct = 100.0 * len(filtered) / len(sol_lists[p_idx])
-                                print(f"    Prime {p}: {len(sol_lists[p_idx])} → {len(filtered)} sols ({pct:.1f}%)")
-                        
-                        sol_lists = filtered_sol_lists
-                
-                total_combos_filtered = 1
-                for sl in sol_lists:
-                    total_combos_filtered *= len(sl)
-                
-                prefilter_reduction = total_combos_raw / max(1, total_combos_filtered)
-                total_stats['prefilter_reject'] += (total_combos_raw - total_combos_filtered)
-                
-                if debug:
-                    print(f"  Pre-filtering took {time.time() - t_prefilter:.2f}s")
-                    print(f"  Filtered combinations: {total_combos_filtered:,} ({prefilter_reduction:.1f}x reduction)")
-                
-                mumford_timer_add("prefiltering", time.time() - t_prefilter)
-            
-            # === RECOMPUTE STATS AFTER FILTERING ===
-            avg_sols_per_prime = sum(len(sl) for sl in sol_lists) / len(sol_lists)
-            total_combos = 1
-            for sl in sol_lists:
-                total_combos *= len(sl)
-            
-            # === ADAPTIVE LIMIT ===
-            disc_deg = len(f_coeffs) - 1
-            expected_rank = min(disc_deg - 1, 4)
-            
-            base_limit = 1000000 * expected_rank
-            prime_discount = 1.0 / max(1.0, len(primes) / 4.0)
-            density_factor = min(2.0, avg_sols_per_prime / 10.0)
-            
-            adaptive_limit = int(base_limit * density_factor * prime_discount)
-            adaptive_limit = min(adaptive_limit, 500_000, total_combos)
-            
-            if debug:
-                print(f"  Adaptive limit: {adaptive_limit:,}")
-                print(f"    (rank≤{expected_rank}, avg_sols={avg_sols_per_prime:.1f}, "
-                      f"n_primes={len(primes)}, density={density_factor:.2f})")
-            
-            # === SKIP IF STILL TOO MANY ===
-            if total_combos > 5_000_000:
-                if debug:
-                    print(f"  WARNING: Skipping group - still too many combinations after filtering ({total_combos:,})")
-                continue
-            
-            # === PROCEED WITH RECONSTRUCTION ===
-            max_height = max(100000, int(M ** 0.35))
-            
-            use_parallel_threshold = 50000
-            
-            if total_combos > use_parallel_threshold:
-                if debug:
-                    print(f"  Using parallel reconstruction ({num_workers} workers)")
-                
-                all_combos = list(islice(product(*sol_lists), adaptive_limit))
-                batch_size = max(1000, len(all_combos) // (num_workers * 4))
-                
-                batches = []
-                for i in range(0, len(all_combos), batch_size):
-                    batch = all_combos[i:i+batch_size]
-                    batches.append((batch, primes, M, f_coeffs, max_height))
-                
-                try:
-                    ctx = multiprocessing.get_context("fork")
-                    pool = ctx.Pool(num_workers)
-                except Exception:
-                    pool = multiprocessing.Pool(num_workers)
-                    raise
-                
-                try:
-                    for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel, batches):
-                        for div in batch_results:
-                            div['vector'] = v_tuple
-                            mumford_divisors_raw.append(div)
-                        
-                        total_stats['height_reject'] += batch_stats['height_reject']
-                        total_stats['consistency_reject'] += batch_stats['consistency_reject']
-                        total_stats['algebraic_reject'] += batch_stats['algebraic_reject']
-                        total_stats['success'] += batch_stats['success']
-                        total_attempted += batch_stats['attempted']
-                    
-                    pool.close()
-                    pool.join()
-                except KeyboardInterrupt:
-                    pool.terminate()
-                    pool.join()
-                    raise
-            else:
-                if debug and total_combos > 10000:
-                    print(f"  Using serial reconstruction ({total_combos} combos)")
-                
-                limit = adaptive_limit
-                for sol_combo in product(*sol_lists):
-                    if limit <= 0:
-                        break
-                    limit -= 1
-                    total_attempted += 1
-                    
-                    try:
-                        rec_vals = []
-                        for idx in range(4):
-                            vals = [sol[idx] for sol in sol_combo]
-                            crt_val = crt_cached(tuple(vals), tuple(primes))
-                            num, den = rational_reconstruct(crt_val, M)
-                            
-                            #if abs(num) > max_height or abs(den) > max_height:
-                            #    raise RationalReconstructionError("Height too large")
-                            
-                            rec_vals.append(QQ(num)/QQ(den))
-                        
-                        s, p_val, v0, v1 = rec_vals
-                        
-                    except RationalReconstructionError:
-                        total_stats['height_reject'] += 1
-                        continue
-                    
-                    reconstruction_ok = True
-                    for i, prime in enumerate(primes):
-                        expected_sol = sol_combo[i]
-                        try:
-                            s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
-                            p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
-                            v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
-                            v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
-                        except ZeroDivisionError:
-                            reconstruction_ok = False
-                            break
-                        
-                        if (s_mod != expected_sol[0] % prime or
-                            p_mod != expected_sol[1] % prime or
-                            v0_mod != expected_sol[2] % prime or
-                            v1_mod != expected_sol[3] % prime):
-                            reconstruction_ok = False
-                            break
-                    
-                    if not reconstruction_ok:
-                        total_stats['consistency_reject'] += 1
-                        continue
-                    
-                    if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                        total_stats['algebraic_reject'] += 1
-                        continue
-                    
-                    mumford_divisors_raw.append({
-                        'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
-                    })
-                    total_stats['success'] += 1
-
-    mumford_timer_add("crt_reconstruction_loop", time.time() - t0)
-
-    print(f"  Combinations tried: {total_attempted}")
-    print(f"  Pre-filtered out: {total_stats['prefilter_reject']}")
-    print(f"  Rejected by height: {total_stats['height_reject']}")
-    print(f"  Rejected by consistency: {total_stats['consistency_reject']}")
-    print(f"  Rejected by algebraic constraint: {total_stats['algebraic_reject']}")
-    print(f"  Successful reconstructions: {total_stats['success']}")
-
-    if not mumford_divisors_raw:
-        print("  WARNING: No valid Mumford divisors reconstructed!")
-        mumford_timers_print()
-        return found_xs, []
-
-    t0 = time.time()
-    mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
-    mumford_timer_add("canonicalization", time.time() - t0)
-
-    mumford_divisors = []
-    for i, divi in enumerate(mumford_divisors_raw):
-        is_dep = False
-        for j, divj in enumerate(mumford_divisors_raw):
-            if i <= j:
-                continue
-            if quick_dependence_check(divi, divj):
-                is_dep = True
-        if not is_dep:
-            mumford_divisors.append(divi)
-
-    # Remove divisors whose negatives are already present (same u, opposite v)
-
-    t0 = time.time()
-    for div in mumford_divisors:
-        s, p_val = div['s'], div['p']
-        disc = s*s - 4*p_val
-
-        if disc >= 0 and disc.is_square():
-            div['has_rational_roots'] = True
-            r1 = (s + disc.sqrt())/2
-            r2 = (s - disc.sqrt())/2
-            for r in (r1, r2):
-                x_cand = r - shift
-                if rationality_test(x_cand) is not None:
-                    found_xs.add(x_cand)
-        else:
-            div['has_rational_roots'] = False
-    
-    mumford_timer_add("rational_root_check", time.time() - t0)
-
-    print(f"  Unique Rational Points: {len(found_xs)}")
-    
-    if mumford_divisors:
-        unique = {frozenset(d.items()): d for d in mumford_divisors}
-        mumford_divisors = list(unique.values())
-        rational_roots_count = sum(1 for div in mumford_divisors_raw
-                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
-        print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
-        print(f"\n--- Building Independent Mumford Basis ---")
-        print("first 10 divisors:")
-        for i in mumford_divisors[:10]:
-            print(i)
-        
-        try:
-            t0 = time.time()
-            basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
-                mumford_divisors, 
-                f_coeffs, 
-                debug=True
-            )
-            mumford_timer_add("basis_construction", time.time() - t0)
-            
-            print(f"\nBasis Construction Results:")
-            print(f"  Found {basis_rank} independent divisors")
-            if basis_H is not None:
-                #print(f"  Height pairing matrix:\n{basis_H}")
-                #print(f"  Determinant: {basis_H.determinant()}")
-                print(f"  Determinant (float): {float(basis_H.determinant())}")
-            
-            mumford_timers_print()
-            
-            return found_xs, basis_divisors
-        except Exception as e:
-            print(f"Basis construction failed: {e}")
-            traceback.print_exc()
-            mumford_timers_print()
-            raise
-    
-    mumford_timers_print()
-    return found_xs, mumford_divisors
-
-
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                                          rhs_modp_list, vecs_list, num_workers=8, debug=False):
     """
@@ -2320,6 +1931,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
                     raise
                     return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings, debug)
     else:
+        assert None, "deprecated"
         if debug:
             print("[basis] Using exact doubling method for basis construction")
         return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings, debug)
@@ -2796,3 +2408,667 @@ def quick_dependence_check(div1, div2):
     return False  # might still be dependent, but not obviously
 
 
+def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
+    """
+    Optimized reconstruction with batched parallel processing.
+    """
+    t_start_total = time.time()
+    
+    print("\n" + "="*70)
+    print("MUMFORD RECONSTRUCTION PHASE")
+    print("="*70)
+
+    mumford_timers_reset()
+    
+    found_xs = set()
+    mumford_divisors_raw = []
+
+    t0 = time.time()
+    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    
+    for p in residues:
+        for v_tuple, x_res_dict in residues[p].items():
+            if isinstance(x_res_dict, list):
+                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
+            elif isinstance(x_res_dict, dict):
+                for x_res, sols in x_res_dict.items():
+                    by_vector_and_xres[v_tuple][x_res][p] = sols
+    
+    mumford_timer_add("residue_grouping", time.time() - t0)
+
+
+    # NEW: Apply algebraic filtering to each prime's solutions
+    t0 = time.time()
+    total_before_filter = 0
+    total_after_filter = 0
+    
+    if debug:
+        print("\n=== EARLY ALGEBRAIC FILTERING (per prime) ===")
+    
+    for v_tuple, xres_groups in by_vector_and_xres.items():
+        for x_res_key, prime_data in xres_groups.items():
+            for prime in list(prime_data.keys()):
+                sol_list = prime_data[prime]
+                total_before_filter += len(sol_list)
+                
+                # FILTER: Check algebraic constraint mod p
+                filtered = prefilter_solutions_algebraic(sol_list, prime, f_coeffs)
+                
+                total_after_filter += len(filtered)
+                prime_data[prime] = filtered
+                
+                if debug and len(filtered) < len(sol_list):
+                    pct = 100.0 * len(filtered) / len(sol_list)
+                    print(f"  Prime {prime}: {len(sol_list)} → {len(filtered)} sols ({pct:.1f}%)")
+    
+    filter_reduction = total_before_filter / max(1, total_after_filter)
+    if debug:
+        print(f"\nAlgebraic pre-filter: {total_before_filter:,} → {total_after_filter:,} "
+              f"({filter_reduction:.1f}x reduction)")
+    
+    mumford_timer_add("algebraic_prefiltering", time.time() - t0)
+
+
+    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
+    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
+
+    total_attempted = 0
+    total_stats = {
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0,
+        'prefilter_reject': 0,
+        'skipped_2prime': 0,
+        'skipped_high_density': 0
+    }
+
+    t0 = time.time()
+    
+    num_workers = max(8, multiprocessing.cpu_count())
+    
+    all_work_items = []
+    
+    for v_tuple, xres_groups in by_vector_and_xres.items():
+        for x_res_key, prime_data in xres_groups.items():
+            primes = sorted(prime_data.keys())
+            sol_lists = [prime_data[p] for p in primes]
+
+            # Skip if algebraic filtering eliminated everything
+            if any(len(sl) == 0 for sl in sol_lists):
+                if debug:
+                    print(f"  Skipping group: algebraic filter eliminated all solutions")
+                continue
+
+            total_combos_raw = 1
+            for sl in sol_lists:
+                total_combos_raw *= len(sl)
+            
+            if len(primes) == 2:
+                is_rare = (len(xres_groups) <= 5)
+                
+                if total_combos_raw > 100000 and not is_rare:
+                    if debug:
+                        print(f"  Skipping 2-prime group: {total_combos_raw:,} combos, not rare")
+                    total_stats['skipped_2prime'] += 1
+                    continue
+                elif debug and total_combos_raw > 50000:
+                    print(f"  Accepting 2-prime group: {total_combos_raw:,} combos (rare divisor)")
+            
+            if len(primes) < 2:
+                continue
+            
+            M = 1
+            for p in primes:
+                M *= p
+            
+            avg_sols_per_prime = sum(len(sl) for sl in sol_lists) / len(sol_lists)
+            
+            if debug and total_combos_raw > 10000:
+                print(f"  Vector group: {len(primes)} primes, avg {avg_sols_per_prime:.1f} sols/prime")
+                print(f"  Raw combinations: {total_combos_raw:,}")
+            
+            if total_combos_raw > 500000 and len(primes) >= 3:
+                if debug:
+                    print(f"  High density detected - applying aggressive pre-filtering")
+                
+                t_prefilter = time.time()
+                
+                p0, p1 = primes[0], primes[1]
+                M_small = p0 * p1
+                
+                candidate_divisors = []
+                max_candidates = 50000
+                tried = 0
+                
+                for sol0 in sol_lists[0]:
+                    for sol1 in sol_lists[1]:
+                        tried += 1
+                        if tried > max_candidates:
+                            break
+                        
+                        rec_vals = []
+                        for idx in range(4):
+                            vals = (sol0[idx], sol1[idx])
+                            crt_val = crt_cached(vals, (p0, p1))
+                            try:
+                                num, den = rational_reconstruct(crt_val, M_small)
+                                if abs(num) > 10 * M_small or abs(den) > 10 * M_small:
+                                    raise RationalReconstructionError("Height too large")
+                                rec_vals.append(QQ(num)/QQ(den))
+                            except RationalReconstructionError:
+                                break
+                        
+                        if len(rec_vals) == 4:
+                            s, p_val, v0, v1 = rec_vals
+                            if verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                                candidate_divisors.append((s, p_val, v0, v1))
+                    
+                    if tried > max_candidates:
+                        break
+                
+                if debug:
+                    print(f"    Found {len(candidate_divisors)} candidates from first 2 primes (tried {tried:,})")
+                
+                if candidate_divisors:
+                    filtered_sol_lists = [sol_lists[0], sol_lists[1]]
+                    
+                    for p_idx in range(2, len(primes)):
+                        p = primes[p_idx]
+                        filtered = []
+                        
+                        for sol in sol_lists[p_idx]:
+                            for cand_s, cand_p, cand_v0, cand_v1 in candidate_divisors:
+                                try:
+                                    s_mod = (int(cand_s.numerator()) * pow(int(cand_s.denominator()), -1, p)) % p
+                                    p_mod = (int(cand_p.numerator()) * pow(int(cand_p.denominator()), -1, p)) % p
+                                    v0_mod = (int(cand_v0.numerator()) * pow(int(cand_v0.denominator()), -1, p)) % p
+                                    v1_mod = (int(cand_v1.numerator()) * pow(int(cand_v1.denominator()), -1, p)) % p
+                                    
+                                    if (sol[0] == s_mod and sol[1] == p_mod and 
+                                        sol[2] == v0_mod and sol[3] == v1_mod):
+                                        filtered.append(sol)
+                                        break
+                                except ZeroDivisionError:
+                                    continue
+                        
+                        if not filtered:
+                            filtered = sol_lists[p_idx]
+                        
+                        filtered_sol_lists.append(filtered)
+                        
+                        if debug and len(filtered) != len(sol_lists[p_idx]):
+                            pct = 100.0 * len(filtered) / len(sol_lists[p_idx])
+                            print(f"    Prime {p}: {len(sol_lists[p_idx])} → {len(filtered)} sols ({pct:.1f}%)")
+                    
+                    sol_lists = filtered_sol_lists
+                
+                total_combos_filtered = 1
+                for sl in sol_lists:
+                    total_combos_filtered *= len(sl)
+                
+                prefilter_reduction = total_combos_raw / max(1, total_combos_filtered)
+                total_stats['prefilter_reject'] += (total_combos_raw - total_combos_filtered)
+                
+                if debug:
+                    print(f"  Pre-filtering took {time.time() - t_prefilter:.2f}s")
+                    print(f"  Filtered combinations: {total_combos_filtered:,} ({prefilter_reduction:.1f}x reduction)")
+                
+                mumford_timer_add("prefiltering", time.time() - t_prefilter)
+            
+            total_combos = 1
+            for sl in sol_lists:
+                total_combos *= len(sl)
+            
+            if total_combos > 5_000_000:
+                if debug:
+                    print(f"  Skipping group - too many combinations after filtering ({total_combos:,})")
+                total_stats['skipped_high_density'] += 1
+                continue
+            
+            disc_deg = len(f_coeffs) - 1
+            expected_rank = min(disc_deg - 1, 4)
+            
+            base_limit = 1000000 * expected_rank
+            adaptive_limit = min(base_limit, 500_000, total_combos)
+            
+            if debug and total_combos > 10000:
+                print(f"  Adaptive limit: {adaptive_limit:,} (total combos: {total_combos:,})")
+            
+            if len(primes) == 2:
+                max_height = int(M ** 0.6)
+            else:
+                max_height = int(M ** 0.5)
+            
+            all_work_items.append({
+                'v_tuple': v_tuple,
+                'primes': primes,
+                'M': M,
+                'sol_lists': sol_lists,
+                'max_height': max_height,
+                'adaptive_limit': adaptive_limit,
+                'total_combos': total_combos
+            })
+    
+    if not all_work_items:
+        print("  No work items to process")
+        mumford_timer_add("crt_reconstruction_loop", time.time() - t0)
+        mumford_timers_print()
+        return found_xs, []
+    
+    total_work = sum(item['total_combos'] for item in all_work_items)
+    use_parallel = total_work > 100000
+    
+    if use_parallel:
+        if debug:
+            print(f"\n  Batched parallel processing: {len(all_work_items)} groups, {total_work:,} total combos")
+            print(f"  Using {num_workers} workers")
+        
+        all_batches = []
+        for item in all_work_items:
+            limit = min(item['adaptive_limit'], item['total_combos'])
+            all_combos = list(islice(product(*item['sol_lists']), limit))
+            
+            batch_size = max(5000, len(all_combos) // (num_workers * 2))
+            
+            for i in range(0, len(all_combos), batch_size):
+                batch = all_combos[i:i+batch_size]
+                all_batches.append((
+                    batch,
+                    item['primes'],
+                    item['M'],
+                    f_coeffs,
+                    item['max_height']
+                ))
+        
+        if debug:
+            print(f"  Created {len(all_batches)} batches for parallel processing")
+        
+        try:
+            ctx = multiprocessing.get_context("fork")
+            pool = ctx.Pool(num_workers)
+        except Exception:
+            pool = multiprocessing.Pool(num_workers)
+        
+        try:
+            for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel_v2, all_batches):
+                for div in batch_results:
+                    v_tuple = all_work_items[0]['v_tuple']
+                    div['vector'] = v_tuple
+                    mumford_divisors_raw.append(div)
+                
+                total_stats['height_reject'] += batch_stats['height_reject']
+                total_stats['consistency_reject'] += batch_stats['consistency_reject']
+                total_stats['algebraic_reject'] += batch_stats['algebraic_reject']
+                total_stats['success'] += batch_stats['success']
+                total_attempted += batch_stats['attempted']
+            
+            pool.close()
+            pool.join()
+        except KeyboardInterrupt:
+            pool.terminate()
+            pool.join()
+            raise
+    else:
+        if debug:
+            print(f"\n  Serial processing: {len(all_work_items)} groups, {total_work:,} total combos")
+        
+        first_diagnostic_done = False
+        
+        for item in all_work_items:
+            primes = item['primes']
+            M = item['M']
+            sol_lists = item['sol_lists']
+            max_height = item['max_height']
+            v_tuple = item['v_tuple']
+            
+            limit = min(item['adaptive_limit'], item['total_combos'])
+            
+            for sol_combo in islice(product(*sol_lists), limit):
+                total_attempted += 1
+                
+                try:
+                    rec_vals = []
+                    for idx in range(4):
+                        vals = [sol[idx] for sol in sol_combo]
+                        crt_val = crt_cached(tuple(vals), tuple(primes))
+                        num, den = rational_reconstruct(crt_val, M)
+                        
+                        if abs(num) > max_height or abs(den) > max_height:
+                            raise RationalReconstructionError("Height too large")
+                        
+                        rec_vals.append(QQ(num)/QQ(den))
+                    
+                    s, p_val, v0, v1 = rec_vals
+                    
+                    if not first_diagnostic_done and debug:
+                        print(f"\n=== FIRST RECONSTRUCTION DIAGNOSTIC ===")
+                        print(f"Reconstructed: s={s}, p={p_val}, v0={v0}, v1={v1}")
+                        print(f"Heights: |num(s)|={abs(s.numerator())}, |den(s)|={abs(s.denominator())}")
+                        print(f"         |num(p)|={abs(p_val.numerator())}, |den(p)|={abs(p_val.denominator())}")
+                        print(f"Max height allowed: {max_height}")
+                        print(f"M = {M} ({len(primes)} primes)")
+                        first_diagnostic_done = True
+                    
+                except RationalReconstructionError:
+                    total_stats['height_reject'] += 1
+                    continue
+                
+                reconstruction_ok = True
+                for i, prime in enumerate(primes):
+                    expected_sol = sol_combo[i]
+                    try:
+                        s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                        p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                        v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                        v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+                    except ZeroDivisionError:
+                        reconstruction_ok = False
+                        break
+                    
+                    if (s_mod != expected_sol[0] % prime or
+                        p_mod != expected_sol[1] % prime or
+                        v0_mod != expected_sol[2] % prime or
+                        v1_mod != expected_sol[3] % prime):
+                        reconstruction_ok = False
+                        break
+                
+                if not reconstruction_ok:
+                    total_stats['consistency_reject'] += 1
+                    continue
+                
+                if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                    if total_stats['algebraic_reject'] == 0 and debug:
+                        print(f"\n=== FIRST ALGEBRAIC REJECTION ===")
+                        print(f"s={s}, p={p_val}, v0={v0}, v1={v1}")
+                        print(f"Re-running with debug...")
+                        verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=True)
+                    total_stats['algebraic_reject'] += 1
+                    continue
+                
+                mumford_divisors_raw.append({
+                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
+                })
+                total_stats['success'] += 1
+
+    mumford_timer_add("crt_reconstruction_loop", time.time() - t0)
+
+    print(f"\n=== RECONSTRUCTION SUMMARY ===")
+    print(f"  Combinations tried: {total_attempted:,}")
+    print(f"  Groups skipped (2-prime): {total_stats['skipped_2prime']}")
+    print(f"  Groups skipped (high density): {total_stats['skipped_high_density']}")
+    print(f"  Pre-filtered out: {total_stats['prefilter_reject']:,}")
+    print(f"  Rejected by height: {total_stats['height_reject']:,}")
+    print(f"  Rejected by consistency: {total_stats['consistency_reject']:,}")
+    print(f"  Rejected by algebraic constraint: {total_stats['algebraic_reject']:,}")
+    print(f"  Successful reconstructions: {total_stats['success']:,}")
+
+    if not mumford_divisors_raw:
+        print("  WARNING: No valid Mumford divisors reconstructed!")
+        mumford_timers_print()
+        return found_xs, []
+
+    t0 = time.time()
+    mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+    mumford_timer_add("canonicalization", time.time() - t0)
+
+    mumford_divisors = []
+    for i, divi in enumerate(mumford_divisors_raw):
+        is_dep = False
+        for j, divj in enumerate(mumford_divisors_raw):
+            if i <= j:
+                continue
+            if quick_dependence_check(divi, divj):
+                is_dep = True
+        if not is_dep:
+            mumford_divisors.append(divi)
+
+    t0 = time.time()
+    for div in mumford_divisors:
+        s, p_val = div['s'], div['p']
+        disc = s*s - 4*p_val
+
+        if disc >= 0 and disc.is_square():
+            div['has_rational_roots'] = True
+            r1 = (s + disc.sqrt())/2
+            r2 = (s - disc.sqrt())/2
+            for r in (r1, r2):
+                x_cand = r - shift
+                if rationality_test(x_cand) is not None:
+                    found_xs.add(x_cand)
+        else:
+            div['has_rational_roots'] = False
+    
+    mumford_timer_add("rational_root_check", time.time() - t0)
+
+    print(f"  Unique Rational Points: {len(found_xs)}")
+    
+    if mumford_divisors:
+        unique = {frozenset(d.items()): d for d in mumford_divisors}
+        mumford_divisors = list(unique.values())
+        rational_roots_count = sum(1 for div in mumford_divisors_raw
+                                   if 'has_rational_roots' in div and div.get('has_rational_roots'))
+        print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
+        print(f"\n--- Building Independent Mumford Basis ---")
+        print("first 10 divisors:")
+        for i in mumford_divisors[:10]:
+            print(i)
+        
+        try:
+            t0 = time.time()
+            basis_divisors, basis_rank, basis_H = build_mumford_basis_incremental(
+                mumford_divisors, 
+                f_coeffs, 
+                debug=True
+            )
+            mumford_timer_add("basis_construction", time.time() - t0)
+            
+            print(f"\nBasis Construction Results:")
+            print(f"  Found {basis_rank} independent divisors")
+            if basis_H is not None:
+                print(f"  Determinant (float): {float(basis_H.determinant())}")
+            
+            mumford_timers_print()
+            
+            return found_xs, basis_divisors
+        except Exception as e:
+            print(f"Basis construction failed: {e}")
+            traceback.print_exc()
+            mumford_timers_print()
+            raise
+    
+    mumford_timers_print()
+    return found_xs, mumford_divisors
+
+
+def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
+    """
+    Filter solutions by algebraic constraint mod p BEFORE CRT.
+    This eliminates ~83% of invalid combinations early.
+    
+    Returns: list of solutions that pass verify_mumford_pair mod p
+    """
+    from sage.all import GF, PolynomialRing
+    
+    R = PolynomialRing(GF(prime), 'x')
+    x = R.gen()
+    
+    # Build f(x) mod p
+    f_poly_coeffs = [int(c) % prime for c in f_coeffs]
+    f_poly = R(0)
+    for coeff in f_poly_coeffs:
+        f_poly = f_poly * x + coeff
+    
+    filtered = []
+    for sol in sol_list:
+        s_val, p_val, v0_val, v1_val = [int(v) % prime for v in sol]
+        
+        # Build u(x) = x² - s*x + p
+        u_poly = x**2 - s_val*x + p_val
+        
+        # Build v(x) = v1*x + v0
+        v_poly = v1_val*x + v0_val
+        
+        # Check: v(x)² ≡ f(x) (mod u(x))
+        diff = v_poly**2 - f_poly
+        remainder = diff % u_poly
+        
+        if remainder.is_zero():
+            filtered.append(sol)
+    
+    return filtered
+
+
+def rational_reconstruct_fast(c, N, max_den=None, max_num=None):
+    """
+    Fast rational reconstruction with early height rejection.
+    
+    Fails fast if height bounds will be violated, avoiding unnecessary computation.
+    Returns (num, den) or raises RationalReconstructionError.
+    
+    Args:
+        c: integer to reconstruct
+        N: modulus
+        max_den: maximum allowed denominator (default: floor(sqrt(N/2)))
+        max_num: maximum allowed numerator (if None, no numerator check)
+    """
+    if max_den is None:
+        max_den = floor(sqrt(N / QQ(2)))
+    
+    c = c % N
+    if c == 0:
+        return 0, 1
+    if c == 1 and max_den >= 1:
+        return 1, 1
+    
+    # Early rejection: if c is too large, it's likely to produce large numerators
+    # This is a heuristic but catches many cases
+    if max_num is not None and c > max_num and (N - c) > max_num:
+        raise RationalReconstructionError(f"CRT value too large: c={c}")
+    
+    # Extended Euclidean Algorithm with early termination
+    r0, r1 = N, c
+    t0, t1 = 0, 1
+    
+    while r1 != 0:
+        # Check denominator bound BEFORE next iteration
+        if abs(t1) > max_den:
+            a, b = r0, t0
+            break
+        
+        # Early numerator check during iteration
+        if max_num is not None and abs(r1) > max_num:
+            raise RationalReconstructionError(f"Numerator exceeds bound: {abs(r1)} > {max_num}")
+        
+        q = r0 // r1
+        r0, r1 = r1, r0 - q * r1
+        t0, t1 = t1, t0 - q * t1
+    else:
+        # Loop finished because r1 == 0
+        a, b = r0, t0
+    
+    # Final validation
+    if abs(b) > max_den or b == 0:
+        raise RationalReconstructionError(f"No reconstruction for c={c}, N={N}, max_den={max_den}")
+    
+    if b < 0:
+        a, b = -a, -b
+    
+    # Final numerator check
+    if max_num is not None and abs(a) > max_num:
+        raise RationalReconstructionError(f"Numerator exceeds bound: {abs(a)} > {max_num}")
+    
+    if (a - c * b) % N != 0:
+        raise RationalReconstructionError(f"Validation failed for c={c}, N={N}: got a={a}, b={b}")
+    
+    g = gcd(abs(a), abs(b))
+    return int(a // g), int(b // g)
+
+
+def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height):
+    """
+    Fast reconstruction of a single combination with early rejection.
+    
+    Returns (s, p, v0, v1) or raises RationalReconstructionError early.
+    """
+    rec_vals = []
+    
+    for idx in range(4):
+        vals = tuple(sol[idx] for sol in sol_combo)
+        crt_val = crt_cached(vals, tuple(primes))
+        
+        # Reconstruct with BOTH numerator and denominator bounds
+        #num, den = rational_reconstruct(crt_val, M, max_den=max_height)
+        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
+        
+        rec_vals.append(QQ(num) / QQ(den))
+    
+    return rec_vals
+
+
+# Modified worker for parallel processing
+def _reconstruct_worker_parallel_v2(args):
+    """
+    Worker with fast reconstruction and early rejection.
+    Returns (results, stats)
+    """
+    combo_batch, primes, M, f_coeffs, max_height = args
+    
+    results = []
+    stats = {
+        'attempted': len(combo_batch),
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0
+    }
+    
+    for sol_combo in combo_batch:
+        try:
+            # Fast reconstruction with early height rejection
+            rec_vals = reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height)
+            s, p_val, v0, v1 = rec_vals
+            
+        except RationalReconstructionError:
+            stats['height_reject'] += 1
+            continue
+        
+        # Consistency check
+        reconstruction_ok = True
+        for i, prime in enumerate(primes):
+            expected_sol = sol_combo[i]
+            try:
+                s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, prime)) % prime
+                p_mod = (int(p_val.numerator()) * pow(int(p_val.denominator()), -1, prime)) % prime
+                v0_mod = (int(v0.numerator()) * pow(int(v0.denominator()), -1, prime)) % prime
+                v1_mod = (int(v1.numerator()) * pow(int(v1.denominator()), -1, prime)) % prime
+            except ZeroDivisionError:
+                reconstruction_ok = False
+                break
+            
+            if (s_mod != expected_sol[0] % prime or
+                p_mod != expected_sol[1] % prime or
+                v0_mod != expected_sol[2] % prime or
+                v1_mod != expected_sol[3] % prime):
+                reconstruction_ok = False
+                break
+        
+        if not reconstruction_ok:
+            stats['consistency_reject'] += 1
+            continue
+        
+        # Algebraic verification (this is expected to fail ~83% of the time)
+        if not verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+            stats['algebraic_reject'] += 1
+            continue
+        
+        results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
+        stats['success'] += 1
+    
+    return results, stats
+
+
+# Usage note:
+# Replace your rational_reconstruct calls with rational_reconstruct_fast
+# Pass max_num=max_height to enable numerator checking
+# This should give ~10-20% speedup by failing earlier on doomed combinations
