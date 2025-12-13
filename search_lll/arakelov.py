@@ -1407,46 +1407,6 @@ def local_naive_height_p(D, p):
         return 0.0
 
 
-def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
-    """
-    Proper canonical height with Abel-Jacobi map (Archimedean) 
-    and p-adic doubling limit (Finite Neron corrections).
-    """
-    if D.is_zero():
-        return QQ(0)
-    
-    from .homology import get_period_matrix_auto_B
-
-    # 1. Naive global height (Weil height)
-    # This sums log max(|c|_v) over all places (finite and infinite)
-    h_naive = naive_height_qq(D, prec=prec)
-    
-    # 2. Archimedean correction (Neron local height at infinity - Naive at infinity)
-    # Note: h_arch here is typically computed as 1/2 <z, z>_NT.
-    # We assume archimedean_height_correction returns the proper difference term
-    # or the full Archimedean contribution relative to the naive height baseline.
-    # In this codebase context, it seems to be the full analytic height on the Jacobian?
-    # Standard formula: h = h_naive + sum(corrections)
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
-    
-    # 3. Finite place corrections (Neron local height at p - Naive at p)
-    h_finite_correction = QQ(0)
-    
-    if use_finite_places:
-        # Dynamically determine bad primes
-        bad_primes = get_bad_primes(f_coeffs)
-        #print("bad primes for finite place correction:", bad_primes)
-        
-        for p in bad_primes:
-            # Add correction term (mu_p - h_naive_p)
-            # This accounts for intersection multiplicities on the special fiber
-            corr = local_height_correction_finite(D, p, f_coeffs)
-            h_finite_correction += QQ(corr)
-    
-    return h_naive + h_arch + h_finite_correction
-
-
 # [arakelov.py]
 
 def get_bad_primes(f_coeffs):
@@ -2375,48 +2335,6 @@ def compute_theta_high_prec(z_vec, tau, prec=300):
             total += exp(term_exponent)
             
     return total
-
-def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
-    """
-    Proper Archimedean height correction: E(z) - log|theta(z)|
-    """
-    from sage.all import RealField, Matrix, QQ, log
-    
-    if D.is_zero():
-        return QQ(0)
-    
-    RR = RealField(prec)
-    
-    # 1. Compute Abel-Jacobi z
-    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    z = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
-    
-    # 2. Compute Quadratic Part E(z)
-    Im_tau = Matrix(RR, 2, 2)
-    for i in range(2):
-        for j in range(2):
-            Im_tau[i,j] = RR(period_matrix[i,j].imag())
-            
-    # Neron-Tate quadratic form 1/2 * y^T * Im(tau)^-1 * y
-    # Note: neron_tate_height_pairing in your code might return 2*E(z) or 4*E(z).
-    # Standard normalization for canonical height is often E(z).
-    quad_part = neron_tate_height_pairing(z, z, Im_tau, prec=prec)
-    
-    # 3. Compute Log-Theta Correction ("The Principal Part")
-    # We use theta[00] (standard theta). 
-    # For generic D in J, theta(z) is non-zero.
-    theta_val = compute_theta_high_prec(z, period_matrix, prec=prec)
-    log_theta = log(abs(theta_val))
-    
-    # 4. Combine
-    # The naive height on Kummer (2*Theta) is approx 2 * log|theta| + ...
-    # The quadratic height on Jacobian is approx E(z).
-    # The correction is E(z) - log|theta^2| roughly.
-    # We heuristically check scaling. If h_naive corresponds to 2*Theta:
-    # We want result to be E(z) - 2*log|theta|.
-    
-    # Try this normalization (standard for J):
-    return quad_part - 2 * log_theta
 
 
 def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
