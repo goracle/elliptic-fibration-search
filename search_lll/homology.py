@@ -342,9 +342,6 @@ def integrate_chain(weighted_paths, f_coeffs, nodes, CC, tiny, max_depth=8):
     return total_I0, total_I1
 
 
-get_period_matrix_auto_B.cache = {}
-
-
 def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
     """Test that the period matrix is positive definite."""
     print(f"\n--- Period Matrix Test (prec={prec}) ---")
