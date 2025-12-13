@@ -371,7 +371,7 @@ TERMINATE_WHEN_6 = 4
 
 # prestige curve lol, rank 4
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(2)] # just the x values lol
+DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
 

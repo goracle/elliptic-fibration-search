@@ -3153,8 +3153,17 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     if mumford_divisors:
         unique = {frozenset(d.items()): d for d in mumford_divisors}
         mumford_divisors = list(unique.values())
+
+        # [Fix] Sort divisors by naive height (sum of absolute coeffs) to prioritize 
+        # small, simple divisors. This improves basis stability significantly.
+        def naive_sort_key(d):
+            return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
+        
+        mumford_divisors.sort(key=naive_sort_key)
+
         rational_roots_count = sum(1 for div in mumford_divisors_raw
                                    if 'has_rational_roots' in div and div.get('has_rational_roots'))
+
         print(f"  {rational_roots_count} of {len(mumford_divisors_raw)} original divisors had rational roots in u(x)")
         print(f"\n--- Building Independent Mumford Basis ---")
         print("first 10 divisors:")
