@@ -2409,6 +2409,312 @@ def quick_dependence_check(div1, div2):
     return False  # might still be dependent, but not obviously
 
 
+def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
+    """
+    Filter solutions by algebraic constraint mod p BEFORE CRT.
+    This eliminates ~83% of invalid combinations early.
+    
+    Returns: list of solutions that pass verify_mumford_pair mod p
+    """
+    from sage.all import GF, PolynomialRing
+    
+    R = PolynomialRing(GF(prime), 'x')
+    x = R.gen()
+    
+    # Build f(x) mod p
+    f_poly_coeffs = [int(c) % prime for c in f_coeffs]
+    f_poly = R(0)
+    for coeff in f_poly_coeffs:
+        f_poly = f_poly * x + coeff
+    
+    filtered = []
+    for sol in sol_list:
+        s_val, p_val, v0_val, v1_val = [int(v) % prime for v in sol]
+        
+        # Build u(x) = x² - s*x + p
+        u_poly = x**2 - s_val*x + p_val
+        
+        # Build v(x) = v1*x + v0
+        v_poly = v1_val*x + v0_val
+        
+        # Check: v(x)² ≡ f(x) (mod u(x))
+        diff = v_poly**2 - f_poly
+        remainder = diff % u_poly
+        
+        if remainder.is_zero():
+            filtered.append(sol)
+    
+    return filtered
+
+
+def rational_reconstruct_fast(c, N, max_den=None, max_num=None):
+    """
+    Fast rational reconstruction with early height rejection.
+    
+    Fails fast if height bounds will be violated, avoiding unnecessary computation.
+    Returns (num, den) or raises RationalReconstructionError.
+    
+    Args:
+        c: integer to reconstruct
+        N: modulus
+        max_den: maximum allowed denominator (default: floor(sqrt(N/2)))
+        max_num: maximum allowed numerator (if None, no numerator check)
+    """
+    if max_den is None:
+        max_den = floor(sqrt(N / QQ(2)))
+    
+    c = c % N
+    if c == 0:
+        return 0, 1
+    if c == 1 and max_den >= 1:
+        return 1, 1
+    
+    # Early rejection: if c is too large, it's likely to produce large numerators
+    # This is a heuristic but catches many cases
+    if max_num is not None and c > max_num and (N - c) > max_num:
+        raise RationalReconstructionError(f"CRT value too large: c={c}")
+    
+    # Extended Euclidean Algorithm with early termination
+    r0, r1 = N, c
+    t0, t1 = 0, 1
+    
+    while r1 != 0:
+        # Check denominator bound BEFORE next iteration
+        if abs(t1) > max_den:
+            a, b = r0, t0
+            break
+        
+        # Early numerator check during iteration
+        if max_num is not None and abs(r1) > max_num:
+            raise RationalReconstructionError(f"Numerator exceeds bound: {abs(r1)} > {max_num}")
+        
+        q = r0 // r1
+        r0, r1 = r1, r0 - q * r1
+        t0, t1 = t1, t0 - q * t1
+    else:
+        # Loop finished because r1 == 0
+        a, b = r0, t0
+    
+    # Final validation
+    if abs(b) > max_den or b == 0:
+        raise RationalReconstructionError(f"No reconstruction for c={c}, N={N}, max_den={max_den}")
+    
+    if b < 0:
+        a, b = -a, -b
+    
+    # Final numerator check
+    if max_num is not None and abs(a) > max_num:
+        raise RationalReconstructionError(f"Numerator exceeds bound: {abs(a)} > {max_num}")
+    
+    if (a - c * b) % N != 0:
+        raise RationalReconstructionError(f"Validation failed for c={c}, N={N}: got a={a}, b={b}")
+    
+    g = gcd(abs(a), abs(b))
+    return int(a // g), int(b // g)
+
+
+def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height):
+    """
+    Fast reconstruction of a single combination with early rejection.
+    
+    Returns (s, p, v0, v1) or raises RationalReconstructionError early.
+    """
+    rec_vals = []
+    
+    for idx in range(4):
+        vals = tuple(sol[idx] for sol in sol_combo)
+        crt_val = crt_cached(vals, tuple(primes))
+        
+        # Reconstruct with BOTH numerator and denominator bounds
+        #num, den = rational_reconstruct(crt_val, M, max_den=max_height)
+        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
+        
+        rec_vals.append(QQ(num) / QQ(den))
+    
+    return rec_vals
+
+
+# Modified worker for parallel processing
+
+
+# Usage note:
+# Replace your rational_reconstruct calls with rational_reconstruct_fast
+# Pass max_num=max_height to enable numerator checking
+# This should give ~10-20% speedup by failing earlier on doomed combinations
+
+
+def setup_crt_constants(primes):
+    """
+    Precompute weights for fast CRT: result = sum(val_i * w_i) % M.
+    Returns (M, weights).
+    """
+    M = 1
+    for p in primes:
+        M *= p
+    
+    weights = []
+    for p in primes:
+        m_i = M // p
+        # inverse of m_i mod p
+        # use python int pow to ensure ValueError on failure, though m_i is coprime to p by definition
+        inv = pow(int(m_i), -1, int(p))
+        w_i = (m_i * inv)
+        weights.append(w_i)
+        
+    return M, weights
+
+def fast_rational_reconstruct_check(val, M, max_height):
+    """
+    Pure integer rational reconstruction check. 
+    Returns (True, num, den) or (False, 0, 0).
+    Optimized for tight loops: avoids object creation and returns early.
+    """
+    r0, r1 = M, val
+    t0, t1 = 0, 1
+    
+    # Unrolled Euclidean Algorithm
+    while r1 > max_height:
+        if t1 > max_height or t1 < -max_height:
+            return False, 0, 0
+            
+        q = r0 // r1
+        r0, r1 = r1, r0 - q * r1
+        t0, t1 = t1, t0 - q * t1
+        
+    if abs(t1) > max_height:
+        return False, 0, 0
+        
+    if t1 < 0:
+        t1 = -t1
+        r1 = -r1
+        
+    if abs(r1) > max_height:
+        return False, 0, 0
+        
+    return True, r1, t1
+
+
+def _reconstruct_worker_parallel_v2(args):
+    """
+    Optimized worker with robust error handling for modular inverses.
+    """
+    # Unpack the new v_tuple argument at the end
+    combo_batch, primes, M_in, f_coeffs, max_height, v_tuple = args
+    
+    # Setup fast CRT constants once per batch
+    M, weights = setup_crt_constants(primes)
+    
+    results = []
+    stats = {
+        'attempted': len(combo_batch),
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0
+    }
+    
+    # Pre-calculate prime integers to avoid sage overhead in loop
+    primes_int = [int(p) for p in primes]
+    range_primes = range(len(primes))
+    
+    for sol_combo in combo_batch:
+        # 1. Reconstruct 's' (index 0)
+        crt_s = 0
+        for i in range_primes:
+            crt_s += sol_combo[i][0] * weights[i]
+        crt_s %= M
+        
+        success_s, num_s, den_s = fast_rational_reconstruct_check(crt_s, M, max_height)
+        if not success_s:
+            stats['height_reject'] += 1
+            continue
+            
+        # 2. Reconstruct 'p' (index 1)
+        crt_p = 0
+        for i in range_primes:
+            crt_p += sol_combo[i][1] * weights[i]
+        crt_p %= M
+        
+        success_p, num_p, den_p = fast_rational_reconstruct_check(crt_p, M, max_height)
+        if not success_p:
+            stats['height_reject'] += 1
+            continue
+
+        # 3. Reconstruct v0 (index 2)
+        crt_v0 = 0
+        for i in range_primes:
+            crt_v0 += sol_combo[i][2] * weights[i]
+        crt_v0 %= M
+        
+        success_v0, num_v0, den_v0 = fast_rational_reconstruct_check(crt_v0, M, max_height)
+        if not success_v0:
+            stats['height_reject'] += 1
+            continue
+            
+        # 4. Reconstruct v1 (index 3)
+        crt_v1 = 0
+        for i in range_primes:
+            crt_v1 += sol_combo[i][3] * weights[i]
+        crt_v1 %= M
+        
+        success_v1, num_v1, den_v1 = fast_rational_reconstruct_check(crt_v1, M, max_height)
+        if not success_v1:
+            stats['height_reject'] += 1
+            continue
+
+        # 5. Consistency Check (Mod P)
+        reconstruction_ok = True
+        
+        # We work with python ints to avoid Sage ZeroDivisionErrors on mod invert
+        for i in range_primes:
+            p_int = primes_int[i]
+            expected = sol_combo[i]
+            
+            try:
+                # Use pow(val, -1, mod) which raises ValueError on failure
+                
+                # Check s
+                if (num_s * pow(den_s, -1, p_int)) % p_int != expected[0]:
+                    reconstruction_ok = False; break
+                
+                # Check p
+                if (num_p * pow(den_p, -1, p_int)) % p_int != expected[1]:
+                    reconstruction_ok = False; break
+                    
+                # Check v0
+                if (num_v0 * pow(den_v0, -1, p_int)) % p_int != expected[2]:
+                    reconstruction_ok = False; break
+                    
+                # Check v1
+                if (num_v1 * pow(den_v1, -1, p_int)) % p_int != expected[3]:
+                    reconstruction_ok = False; break
+
+            except (ValueError, ZeroDivisionError):
+                # Denominator divisible by prime -> reconstruction failed
+                reconstruction_ok = False
+                break
+        
+        if not reconstruction_ok:
+            stats['consistency_reject'] += 1
+            continue
+
+        # 6. Convert to Sage types for algebraic verification
+        s_qq = QQ(num_s) / QQ(den_s)
+        p_qq = QQ(num_p) / QQ(den_p)
+        v0_qq = QQ(num_v0) / QQ(den_v0)
+        v1_qq = QQ(num_v1) / QQ(den_v1)
+
+        # 7. Algebraic Verification
+        if not verify_mumford_pair(f_coeffs, s_qq, p_qq, v0_qq, v1_qq, modulus=None, debug_first_failure=False):
+            stats['algebraic_reject'] += 1
+            continue
+        
+        # Attach the vector here so it survives the return trip
+        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq, 'vector': v_tuple})
+        stats['success'] += 1
+    
+    return results, stats
+
 def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
     """
     Optimized reconstruction with batched parallel processing.
@@ -2679,7 +2985,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                     item['primes'],
                     item['M'],
                     f_coeffs,
-                    item['max_height']
+                    item['max_height'],
+                    item['v_tuple']  # PASS THE VECTOR TUPLE HERE
                 ))
         
         if debug:
@@ -2694,8 +3001,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
         try:
             for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel_v2, all_batches):
                 for div in batch_results:
-                    v_tuple = all_work_items[0]['v_tuple']
-                    div['vector'] = v_tuple
+                    # Do not override div['vector'] here; use the one from the worker
                     mumford_divisors_raw.append(div)
                 
                 total_stats['height_reject'] += batch_stats['height_reject']
@@ -2880,307 +3186,3 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     
     mumford_timers_print()
     return found_xs, mumford_divisors
-
-
-def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
-    """
-    Filter solutions by algebraic constraint mod p BEFORE CRT.
-    This eliminates ~83% of invalid combinations early.
-    
-    Returns: list of solutions that pass verify_mumford_pair mod p
-    """
-    from sage.all import GF, PolynomialRing
-    
-    R = PolynomialRing(GF(prime), 'x')
-    x = R.gen()
-    
-    # Build f(x) mod p
-    f_poly_coeffs = [int(c) % prime for c in f_coeffs]
-    f_poly = R(0)
-    for coeff in f_poly_coeffs:
-        f_poly = f_poly * x + coeff
-    
-    filtered = []
-    for sol in sol_list:
-        s_val, p_val, v0_val, v1_val = [int(v) % prime for v in sol]
-        
-        # Build u(x) = x² - s*x + p
-        u_poly = x**2 - s_val*x + p_val
-        
-        # Build v(x) = v1*x + v0
-        v_poly = v1_val*x + v0_val
-        
-        # Check: v(x)² ≡ f(x) (mod u(x))
-        diff = v_poly**2 - f_poly
-        remainder = diff % u_poly
-        
-        if remainder.is_zero():
-            filtered.append(sol)
-    
-    return filtered
-
-
-def rational_reconstruct_fast(c, N, max_den=None, max_num=None):
-    """
-    Fast rational reconstruction with early height rejection.
-    
-    Fails fast if height bounds will be violated, avoiding unnecessary computation.
-    Returns (num, den) or raises RationalReconstructionError.
-    
-    Args:
-        c: integer to reconstruct
-        N: modulus
-        max_den: maximum allowed denominator (default: floor(sqrt(N/2)))
-        max_num: maximum allowed numerator (if None, no numerator check)
-    """
-    if max_den is None:
-        max_den = floor(sqrt(N / QQ(2)))
-    
-    c = c % N
-    if c == 0:
-        return 0, 1
-    if c == 1 and max_den >= 1:
-        return 1, 1
-    
-    # Early rejection: if c is too large, it's likely to produce large numerators
-    # This is a heuristic but catches many cases
-    if max_num is not None and c > max_num and (N - c) > max_num:
-        raise RationalReconstructionError(f"CRT value too large: c={c}")
-    
-    # Extended Euclidean Algorithm with early termination
-    r0, r1 = N, c
-    t0, t1 = 0, 1
-    
-    while r1 != 0:
-        # Check denominator bound BEFORE next iteration
-        if abs(t1) > max_den:
-            a, b = r0, t0
-            break
-        
-        # Early numerator check during iteration
-        if max_num is not None and abs(r1) > max_num:
-            raise RationalReconstructionError(f"Numerator exceeds bound: {abs(r1)} > {max_num}")
-        
-        q = r0 // r1
-        r0, r1 = r1, r0 - q * r1
-        t0, t1 = t1, t0 - q * t1
-    else:
-        # Loop finished because r1 == 0
-        a, b = r0, t0
-    
-    # Final validation
-    if abs(b) > max_den or b == 0:
-        raise RationalReconstructionError(f"No reconstruction for c={c}, N={N}, max_den={max_den}")
-    
-    if b < 0:
-        a, b = -a, -b
-    
-    # Final numerator check
-    if max_num is not None and abs(a) > max_num:
-        raise RationalReconstructionError(f"Numerator exceeds bound: {abs(a)} > {max_num}")
-    
-    if (a - c * b) % N != 0:
-        raise RationalReconstructionError(f"Validation failed for c={c}, N={N}: got a={a}, b={b}")
-    
-    g = gcd(abs(a), abs(b))
-    return int(a // g), int(b // g)
-
-
-def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height):
-    """
-    Fast reconstruction of a single combination with early rejection.
-    
-    Returns (s, p, v0, v1) or raises RationalReconstructionError early.
-    """
-    rec_vals = []
-    
-    for idx in range(4):
-        vals = tuple(sol[idx] for sol in sol_combo)
-        crt_val = crt_cached(vals, tuple(primes))
-        
-        # Reconstruct with BOTH numerator and denominator bounds
-        #num, den = rational_reconstruct(crt_val, M, max_den=max_height)
-        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
-        
-        rec_vals.append(QQ(num) / QQ(den))
-    
-    return rec_vals
-
-
-# Modified worker for parallel processing
-
-
-# Usage note:
-# Replace your rational_reconstruct calls with rational_reconstruct_fast
-# Pass max_num=max_height to enable numerator checking
-# This should give ~10-20% speedup by failing earlier on doomed combinations
-
-
-def setup_crt_constants(primes):
-    """
-    Precompute weights for fast CRT: result = sum(val_i * w_i) % M.
-    Returns (M, weights).
-    """
-    M = 1
-    for p in primes:
-        M *= p
-    
-    weights = []
-    for p in primes:
-        m_i = M // p
-        # inverse of m_i mod p
-        # use python int pow to ensure ValueError on failure, though m_i is coprime to p by definition
-        inv = pow(int(m_i), -1, int(p))
-        w_i = (m_i * inv)
-        weights.append(w_i)
-        
-    return M, weights
-
-def fast_rational_reconstruct_check(val, M, max_height):
-    """
-    Pure integer rational reconstruction check. 
-    Returns (True, num, den) or (False, 0, 0).
-    Optimized for tight loops: avoids object creation and returns early.
-    """
-    r0, r1 = M, val
-    t0, t1 = 0, 1
-    
-    # Unrolled Euclidean Algorithm
-    while r1 > max_height:
-        if t1 > max_height or t1 < -max_height:
-            return False, 0, 0
-            
-        q = r0 // r1
-        r0, r1 = r1, r0 - q * r1
-        t0, t1 = t1, t0 - q * t1
-        
-    if abs(t1) > max_height:
-        return False, 0, 0
-        
-    if t1 < 0:
-        t1 = -t1
-        r1 = -r1
-        
-    if abs(r1) > max_height:
-        return False, 0, 0
-        
-    return True, r1, t1
-
-def _reconstruct_worker_parallel_v2(args):
-    """
-    Optimized worker with robust error handling for modular inverses.
-    """
-    combo_batch, primes, M_in, f_coeffs, max_height = args
-    
-    # Setup fast CRT constants once per batch
-    M, weights = setup_crt_constants(primes)
-    
-    results = []
-    stats = {
-        'attempted': len(combo_batch),
-        'height_reject': 0,
-        'consistency_reject': 0,
-        'algebraic_reject': 0,
-        'success': 0
-    }
-    
-    # Pre-calculate prime integers to avoid sage overhead in loop
-    primes_int = [int(p) for p in primes]
-    range_primes = range(len(primes))
-    
-    for sol_combo in combo_batch:
-        # 1. Reconstruct 's' (index 0)
-        crt_s = 0
-        for i in range_primes:
-            crt_s += sol_combo[i][0] * weights[i]
-        crt_s %= M
-        
-        success_s, num_s, den_s = fast_rational_reconstruct_check(crt_s, M, max_height)
-        if not success_s:
-            stats['height_reject'] += 1
-            continue
-            
-        # 2. Reconstruct 'p' (index 1)
-        crt_p = 0
-        for i in range_primes:
-            crt_p += sol_combo[i][1] * weights[i]
-        crt_p %= M
-        
-        success_p, num_p, den_p = fast_rational_reconstruct_check(crt_p, M, max_height)
-        if not success_p:
-            stats['height_reject'] += 1
-            continue
-
-        # 3. Reconstruct v0 (index 2)
-        crt_v0 = 0
-        for i in range_primes:
-            crt_v0 += sol_combo[i][2] * weights[i]
-        crt_v0 %= M
-        
-        success_v0, num_v0, den_v0 = fast_rational_reconstruct_check(crt_v0, M, max_height)
-        if not success_v0:
-            stats['height_reject'] += 1
-            continue
-            
-        # 4. Reconstruct v1 (index 3)
-        crt_v1 = 0
-        for i in range_primes:
-            crt_v1 += sol_combo[i][3] * weights[i]
-        crt_v1 %= M
-        
-        success_v1, num_v1, den_v1 = fast_rational_reconstruct_check(crt_v1, M, max_height)
-        if not success_v1:
-            stats['height_reject'] += 1
-            continue
-
-        # 5. Consistency Check (Mod P)
-        reconstruction_ok = True
-        
-        # We work with python ints to avoid Sage ZeroDivisionErrors on mod invert
-        for i in range_primes:
-            p_int = primes_int[i]
-            expected = sol_combo[i]
-            
-            try:
-                # Use pow(val, -1, mod) which raises ValueError on failure
-                
-                # Check s
-                if (num_s * pow(den_s, -1, p_int)) % p_int != expected[0]:
-                    reconstruction_ok = False; break
-                
-                # Check p
-                if (num_p * pow(den_p, -1, p_int)) % p_int != expected[1]:
-                    reconstruction_ok = False; break
-                    
-                # Check v0
-                if (num_v0 * pow(den_v0, -1, p_int)) % p_int != expected[2]:
-                    reconstruction_ok = False; break
-                    
-                # Check v1
-                if (num_v1 * pow(den_v1, -1, p_int)) % p_int != expected[3]:
-                    reconstruction_ok = False; break
-
-            except (ValueError, ZeroDivisionError):
-                # Denominator divisible by prime -> reconstruction failed
-                reconstruction_ok = False
-                break
-        
-        if not reconstruction_ok:
-            stats['consistency_reject'] += 1
-            continue
-
-        # 6. Convert to Sage types for algebraic verification
-        s_qq = QQ(num_s) / QQ(den_s)
-        p_qq = QQ(num_p) / QQ(den_p)
-        v0_qq = QQ(num_v0) / QQ(den_v0)
-        v1_qq = QQ(num_v1) / QQ(den_v1)
-
-        # 7. Algebraic Verification
-        if not verify_mumford_pair(f_coeffs, s_qq, p_qq, v0_qq, v1_qq, modulus=None, debug_first_failure=False):
-            stats['algebraic_reject'] += 1
-            continue
-        
-        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq})
-        stats['success'] += 1
-    
-    return results, stats
