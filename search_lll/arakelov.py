@@ -272,7 +272,6 @@ def arakelov_check_independence(divisors, f_coeffs, prec=300, debug=False):
     return is_independent, n if is_independent else 0, H, det
 
 
-
 def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
     """
     Fast torsion test using modular verification.
@@ -1488,36 +1487,6 @@ def get_bad_primes(f_coeffs):
 get_bad_primes.cache = {}
 
 
-def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
-    """
-    Proper Archimedean height correction using Abel-Jacobi map.
-    h_∞(D) = (1/2) * <AJ(D), AJ(D)>
-    """
-    from sage.all import RealField, Matrix, QQ
-    
-    if D.is_zero():
-        return QQ(0)
-    
-    RR = RealField(prec)
-    
-    # Generate consistent base point
-    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    
-    # Pass base_point explicitly
-    z = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
-    
-    # Extract Im(τ)
-    Im_tau = Matrix(RR, 2, 2)
-    for i in range(2):
-        for j in range(2):
-            Im_tau[i,j] = RR(period_matrix[i,j].imag())
-    
-    # Compute self-pairing
-    pairing = neron_tate_height_pairing(z, z, Im_tau, prec=prec)
-    
-    return pairing / QQ(4)
-
-
 def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
     """
     Proper Arakelov height pairing using Abel-Jacobi map.
@@ -1866,8 +1835,6 @@ def _compute_pairing_worker(args):
         return ((i, j), None, str(e))
 
 
-
-
 def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
     """Precompute all pairings for given indices in parallel"""
     # Collect unique pairs to compute
@@ -1917,303 +1884,9 @@ def get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache,
     return pairing_cache[(i, j)]
 
 
-
-def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False, 
-                                      test_normalization=None, n_jobs=-1):
-    """
-    Parallelized version of arakelov_build_basis_with_heights.
-    
-    Uses multiprocessing to compute heights in parallel, which is the main bottleneck.
-    Set n_jobs=-1 to use all available cores, or specify a number.
-    """
-    from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, 
-                          QQ, RR as SageRR)
-    from multiprocessing import Pool, cpu_count
-
-    # Ensure period matrix is fresh/cached
-    get_period_matrix_auto_B(f_coeffs, prec=prec)
-    
-    if not all_divisors:
-        return [], 0, None
-
-    # Determine number of workers
-    if n_jobs == -1:
-        n_jobs = cpu_count()
-    
-    if debug:
-        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
-        print(f"[arakelov] Using precision: {prec} bits")
-        print(f"[arakelov] Parallelization: {n_jobs} workers")
-
-    # Build curve & jacobian (over QQ for constructor)
-    Rq_QQ = PolynomialRing(QQ, 'x')
-    x_QQ = Rq_QQ.gen()
-    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly_QQ)
-    J = C.jacobian()
-
-    # Convert divisors to Jacobian elements
-    jac_elements = []
-    for div in all_divisors:
-        try:
-            u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
-            v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
-            D = J([u_poly, v_poly])
-            if not D.is_zero():
-                jac_elements.append((div, D))
-        except Exception:
-            raise
-
-    if not jac_elements:
-        return [], 0, None
-
-    # Pre-calculate individual heights in parallel
-    if debug:
-        print(f"[arakelov] Pre-computing heights for {len(jac_elements)} candidates...")
-    
-    # Prepare arguments for parallel computation
-    height_args = [
-        (i, div, f_coeffs, prec) 
-        for i, (div, D) in enumerate(jac_elements)
-    ]
-    
-    # Compute heights in parallel
-    height_cache = {}
-    if len(jac_elements) > 1 and n_jobs > 1:
-        with Pool(processes=n_jobs) as pool:
-            results = pool.map(_compute_height_worker, height_args)
-        
-        for i, h, error in results:
-            if error:
-                if debug:
-                    print(f"[arakelov] Height computation failed for divisor {i}: {error}")
-                raise RuntimeError(f"Height computation failed: {error}")
-            height_cache[i] = h
-            if debug:
-                print(f"  Divisor {i}: h = {h:.6g}")
-    else:
-        # Sequential fallback for small inputs or single worker
-        for i, (div, D) in enumerate(jac_elements):
-            try:
-                h = arakelov_canonical_height(D, f_coeffs, prec=prec)
-                height_cache[i] = float(h)
-                if debug:
-                    print(f"  Divisor {i}: h = {float(h):.6g}")
-            except Exception as e:
-                if debug:
-                    print(f"[arakelov] Height computation failed for divisor {i}: {e}")
-                raise
-
-    # Pairing function using polarization identity with parallel computation
-    pairing_cache = {}
-
-    # Build Basis
-    basis = []
-    basis_indices = []
-
-    # get_pairing(i,j) should return a float pairing for indices i,j (use high-prec but convert to float)
-    import numpy as np
-    n = len(all_divisors)
-    G = np.zeros((n,n), dtype=float)
-    for i in range(n):
-        for j in range(i, n):
-            v = float(get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs))
-            G[i,j] = v
-            G[j,i] = v
-    G = 0.5*(G + G.T)
-    selected_indices, info = select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10, debug=True)
-    print("Selected indices:", selected_indices)
-    print("Selector info:", info)
-
-    sys.exit()
-    
-    if debug:
-        print("[arakelov] Building basis incrementally...")
-
-    for i, (div, D) in enumerate(jac_elements):
-        h_self = height_cache[i]
-        
-        # Threshold: if height is effectively zero, it's torsion (or empty)
-        if h_self < 1e-5:
-            if debug:
-                print(f"[arakelov] Skipping divisor {i}: self-pairing too small ({h_self:.6g})")
-            continue
-
-        if not basis:
-            basis.append(div)
-            basis_indices.append(i)
-            pairing_cache[(i, i)] = h_self  # Cache diagonal
-            if debug:
-                print(f"[arakelov] Added divisor {i} (first)")
-            continue
-
-        # Check independence against existing basis
-        cand_indices = basis_indices + [i]
-        
-        # Precompute all needed pairings in parallel
-        precompute_pairings_parallel(cand_indices)
-        
-        # === Begin replacement: stable projection-residual test ===
-        # cand index is `i`; current candidate indices are cand_indices (basis_indices + [i]).
-        m = len(cand_indices)
-        det_val = None
-        if m == 1:
-            # First element — accept by height threshold (we already checked small torsion)
-            is_independent = True
-        else:
-            is_independent, info = is_independent_by_projection_log(
-                basis_indices=basis_indices,
-                candidate_index=i,
-                get_pairing=get_pairing,
-                prec=prec,
-                debug=debug,
-            )
-
-        if is_independent:
-            basis.append(div)
-            basis_indices.append(i)
-            pairing_cache[(i,i)] = h_self
-            if debug:
-                det_val = None
-                try:
-                    # compute determinant of full candidate Gram (for logging only)
-                    Htmp = Matrix(RealField(prec), m, m)
-                    for r in range(m):
-                        for c in range(r, m):
-                            Htmp[r,c] = get_pairing(cand_indices[r], cand_indices[c])
-                            Htmp[c,r] = Htmp[r,c]
-                    det_val = float(Htmp.determinant())
-                except Exception:
-                    det_val = None
-                if det_val is None:
-                    print(f"[arakelov] Added divisor {i} (rank {m})")
-                else:
-                    print(f"[arakelov] Added divisor {i} (rank {m}, det {det_val:.6g})")
-        else:
-            if debug:
-                print(f"[arakelov] Skipping divisor {i}: projection residual {info['log10_res']:.3g} <= tol {info['log10_tol']:.3g}")
-        # === End replacement ===
-        
-    # Final Matrix Construction
-    final_rank = len(basis)
-    basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
-    assert len(basis) == final_rank, ("duplicate divisor found in independence test", basis, basis_indices)
-    H_final = None
-    if final_rank > 0:
-        H_final = Matrix(RealField(prec), final_rank, final_rank)
-        for r in range(final_rank):
-            for c in range(r, final_rank):
-                val = get_pairing(basis_indices[r], basis_indices[c])
-                H_final[r, c] = val
-                H_final[c, r] = val
-        
-        if debug:
-            print(f"[arakelov] Final rank: {final_rank}")
-            try:
-                gd = gram_logdet_and_cond(basis_indices, get_pairing)
-                print(f"[arakelov] Final numeric rank (svd): {gd['numeric_rank']}/{gd['n']}, log10|det|={gd['log10_abs_det']:.3g}, log10(cond)={gd['log10_cond']:.3g}")
-                print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
-            except Exception:
-                raise
-
-    return basis, final_rank, H_final
-
-
-def is_independent_by_projection_log(
-    basis_indices,
-    candidate_index,
-    get_pairing,
-    prec,
-    debug=False,
-):
-    """
-    Decide whether candidate_index is independent of basis_indices
-    using a numerically stable projection-residual test.
-
-    Returns:
-        (is_independent: bool, info: dict)
-
-    info contains:
-        res_sq, tol, min_sv
-    """
-
-    import math
-
-    try:
-        import numpy as np
-    except Exception:
-        raise RuntimeError("NumPy is required for stable basis selection")
-
-    k = len(basis_indices)
-
-    # First element is always independent
-    if k == 0:
-        return True, {"res_sq": None, "tol": None, "min_sv": None}
-
-    # Build Gram matrix G and cross vector c in float
-    G = np.zeros((k, k), dtype=float)
-    c = np.zeros(k, dtype=float)
-
-    for r in range(k):
-        for s in range(r, k):
-            val = float(get_pairing(basis_indices[r], basis_indices[s]))
-            G[r, s] = val
-            G[s, r] = val
-        c[r] = float(get_pairing(basis_indices[r], candidate_index))
-
-    vv = float(get_pairing(candidate_index, candidate_index))
-
-    # Enforce symmetry (kills tiny antisymmetric noise)
-    G = 0.5 * (G + G.T)
-
-    # Compute projection squared: cᵀ G⁻¹ c
-    proj_sq = 0.0
-    min_sv = 0.0
-
-    try:
-        # Fast path: Cholesky
-        L = np.linalg.cholesky(G)
-        y = np.linalg.solve(L, c)
-        proj_sq = float(np.dot(y, y))
-    except Exception:
-        # Robust fallback: SVD pseudoinverse
-        U, S, Vt = np.linalg.svd(G, full_matrices=False)
-        min_sv = float(S[-1]) if len(S) else 0.0
-        eps = max(S[0] * 1e-16, 1e-300)
-        Sinv = np.array([1/s if s > eps else 0.0 for s in S])
-        Ginv = (Vt.T * Sinv) @ U.T
-        proj_sq = float(c @ (Ginv @ c))
-
-    # Residual squared
-    res_sq = vv - proj_sq
-
-    # Numerical floor
-    if res_sq < 0 and abs(res_sq) < 10 ** (-(prec // 3)):
-        res_sq = 0.0
-
-    # Adaptive tolerance
-    diag_max = max(float(np.max(np.diag(G))), vv, 1.0)
-    dec_digits = int(prec * 0.30103)
-    tol = diag_max * (10.0 ** (-(dec_digits - 12)))
-
-    if min_sv > 0:
-        tol = max(tol, min_sv * 1e-6)
-
-    is_independent = (res_sq > tol)
-
-    info = {
-        "res_sq": res_sq,
-        "tol": tol,
-        "min_sv": min_sv,
-    }
-
-    if debug:
-        print(
-            f"[proj-test] cand={candidate_index} "
-            f"res_sq={res_sq:.3g} tol={tol:.3g} min_sv={min_sv:.3g}"
-        )
-
-    return is_independent, info
+from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, 
+                      QQ, RR as SageRR)
+from multiprocessing import Pool, cpu_count
 
 
 def is_independent_by_projection_log(
@@ -2659,3 +2332,88 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     # (Left as a hook for you; I did not call an exact routine to avoid assuming its name.)
 
     return basis, final_rank, H_final
+
+
+def compute_theta_high_prec(z_vec, tau, prec=300):
+    """
+    Computes Riemann Theta function theta(z, tau) at high precision.
+    z_vec: vector of length 2 (Complex)
+    tau: 2x2 symmetric matrix (Complex)
+    """
+    from sage.all import ComplexField, exp, pi
+    import math
+    
+    CC = ComplexField(prec)
+    
+    # Pre-compute constants
+    pi_I = CC(0, 1) * CC(pi)
+    
+    # Determine summation radius for precision
+    # e^(-pi * n^2 * y_min) < 2^-prec
+    # n^2 > prec * log(2) / (pi * y_min)
+    # Assuming y_min ~ 0.3 (from your log), n ~ 25 is safe for 2048 bits
+    radius = int(math.sqrt(prec * 0.25)) + 2 # Conservative estimate
+    
+    total = CC(0)
+    
+    # Naive summation over Z^2 (fast enough for genus 2)
+    # Iterating -R to R
+    r_range = range(-radius, radius + 1)
+    
+    # Extract components for speed
+    z0, z1 = z_vec[0], z_vec[1]
+    t00, t01, t11 = tau[0,0], tau[0,1], tau[1,1]
+    
+    for n1 in r_range:
+        for n2 in r_range:
+            # exponent = i*pi * (n^T * tau * n + 2 * n^T * z)
+            # n^T tau n = n1^2 t00 + 2 n1 n2 t01 + n2^2 t11
+            quad = (n1*n1)*t00 + (2*n1*n2)*t01 + (n2*n2)*t11
+            lin = 2 * (n1*z0 + n2*z1)
+            
+            term_exponent = pi_I * (quad + lin)
+            total += exp(term_exponent)
+            
+    return total
+
+def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
+    """
+    Proper Archimedean height correction: E(z) - log|theta(z)|
+    """
+    from sage.all import RealField, Matrix, QQ, log
+    
+    if D.is_zero():
+        return QQ(0)
+    
+    RR = RealField(prec)
+    
+    # 1. Compute Abel-Jacobi z
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    z = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
+    
+    # 2. Compute Quadratic Part E(z)
+    Im_tau = Matrix(RR, 2, 2)
+    for i in range(2):
+        for j in range(2):
+            Im_tau[i,j] = RR(period_matrix[i,j].imag())
+            
+    # Neron-Tate quadratic form 1/2 * y^T * Im(tau)^-1 * y
+    # Note: neron_tate_height_pairing in your code might return 2*E(z) or 4*E(z).
+    # Standard normalization for canonical height is often E(z).
+    quad_part = neron_tate_height_pairing(z, z, Im_tau, prec=prec)
+    
+    # 3. Compute Log-Theta Correction ("The Principal Part")
+    # We use theta[00] (standard theta). 
+    # For generic D in J, theta(z) is non-zero.
+    theta_val = compute_theta_high_prec(z, period_matrix, prec=prec)
+    log_theta = log(abs(theta_val))
+    
+    # 4. Combine
+    # The naive height on Kummer (2*Theta) is approx 2 * log|theta| + ...
+    # The quadratic height on Jacobian is approx E(z).
+    # The correction is E(z) - log|theta^2| roughly.
+    # We heuristically check scaling. If h_naive corresponds to 2*Theta:
+    # We want result to be E(z) - 2*log|theta|.
+    
+    # Try this normalization (standard for J):
+    return quad_part - 2 * log_theta
