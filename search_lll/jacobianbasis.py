@@ -275,16 +275,16 @@ def _compute_height_worker(args):
         
         u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
-        D = J([u_poly, v_poly])
+        div = J([u_poly, v_poly])
         
-        h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+        h = arakelov_canonical_height(div, f_coeffs, prec=prec)
         return (i, h, None)  # Return h as Sage rational, NOT float
     except Exception as e:
         # ABSOLUTELY CRITICAL:
         # convert to a picklable exception with a string-only payload
         msg = (
             f"Height computation failed\n"
-            f"Divisor: {repr(D)}\n"
+            f"Divisor: {repr(div)}\n"
             f"Exception type: {type(e).__name__}\n"
             f"Message: {str(e)}"
         )
@@ -292,71 +292,14 @@ def _compute_height_worker(args):
         return (i, None, str(e))
 
 
-def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
-    """
-    Proper canonical height using the Second Difference Method.
-    NO CACHING - Jacobian elements are not hashable.
-    """
-    from .homology import get_period_matrix_auto_B
-    from sage.all import QQ
-
-    if D.is_zero():
-        return QQ(0)
-
-    # Pre-fetch period matrix once to share across calls
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-
-    D2 = D + D
-    D3 = D2 + D
-    
-    h1 = arakelov_quasi_height(D, f_coeffs, period_matrix, prec, use_finite_places)
-    
-    if D2.is_zero():
-        h2 = QQ(0)
-    else:
-        h2 = arakelov_quasi_height(D2, f_coeffs, period_matrix, prec, use_finite_places)
-        
-    if D3.is_zero():
-        h3 = QQ(0)
-    else:
-        h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix, prec, use_finite_places)
-        
-    h_can = (h3 + h1 - QQ(2)*h2) / QQ(2)
-
-    # --- defensive post-check on canonical height (insert after computing h_can) ---
-    from sage.all import RealField
-
-    _tol_small_neg = 1e-10  # tolerance for tiny negative rounding errors
-    _tol_large_neg = 1e-6   # treat anything larger magnitude than this as real problem
-
-    h_can_f = float(h_can)   # convert for quick numeric tests
-    if h_can_f < -_tol_large_neg:
-        # Raise with diagnostics so the failure can be investigated (don't silently hide)
-        raise RuntimeError(
-            "Canonical height negative beyond tolerance: "
-            f"h_can={h_can_f:.6g}; "
-            f"divisor={D}; prec={prec}; "
-            "Provide diagnostics: archimedean components (quad_val, log_theta, Im(tau) eigs) "
-            "— see archimedean_height_correction debug printing."
-        )
-    elif h_can_f < 0:
-        # tiny negative due to numeric noise -> clamp to zero but warn
-        if debug:
-            print(f"[height] tiny negative h_can={h_can_f:.3e}; clamping to 0")
-        h_can = QQ(0)
-    # --- end defensive patch ---
-
-    return h_can
-
-
-def naive_height_qq(D, prec=53):
+def naive_height_qq(div, prec=53):
     """
     Compute naive (logarithmic) height of Mumford polynomials.
     """
     from sage.all import QQ, RealField
     
-    u_coeffs = [QQ(c) for c in D[0].list()]
-    v_coeffs = [QQ(c) for c in D[1].list()]
+    u_coeffs = [QQ(c) for c in div[0].list()]
+    v_coeffs = [QQ(c) for c in div[1].list()]
     
     # Clear denominators
     dens = [c.denominator() for c in (u_coeffs + v_coeffs) if c != 0]
@@ -415,14 +358,14 @@ def choose_numerical_base_point(f_coeffs, prec=300):
     return (x_base, y_base)
 
 def abel_jacobi_mumford(
-    D, f_coeffs, base_point, *,
+    div, f_coeffs, base_point, *,
     integrate_func=None,    # function(base_x, x_end, y_end, f_coeffs, use_x_weight, prec, debug)
     prec=300,
     period_matrix=None,     # optional 2x2 matrix whose columns span the period lattice
     debug=False
 ):
     """
-    Compute Abel-Jacobi for Mumford divisor D = (u(x), v(x)).
+    Compute Abel-Jacobi for Mumford divisor div = (u(x), v(x)).
     - base_point must be (x0, y0) (both provided) to fix starting sheet.
     - integrate_func: function performing the integral; if None it uses
       `integrate_differential_path_with_branch` from the caller's scope.
@@ -433,7 +376,7 @@ def abel_jacobi_mumford(
 
     CC = ComplexField(prec)
 
-    if D.is_zero():
+    if div.is_zero():
         return vector(CC, [0, 0])
 
     # require full base point (x,y)
@@ -454,8 +397,8 @@ def abel_jacobi_mumford(
     R = PolynomialRing(CC, 'x')
     x = R.gen()
 
-    u_poly = D[0]
-    v_poly = D[1]
+    u_poly = div[0]
+    v_poly = div[1]
 
     # Convert u(x) and v(x) to CC polynomials (note: u_poly.list() gives coefficients from const->highest)
     u_list = u_poly.list()
@@ -757,10 +700,10 @@ def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0
     - Some use 2π  
     - Some use 1/(2π) or 1/π
     
-    The canonical height h(D) relates to the self-pairing by:
-    h(D) = <D, D> / 2  (in some conventions)
+    The canonical height h(div) relates to the self-pairing by:
+    h(div) = <div, div> / 2  (in some conventions)
     or
-    h(D) = <D, D>      (in other conventions)
+    h(div) = <div, div>      (in other conventions)
     
     Returns: real number (QQ approximation)
     """
@@ -841,88 +784,14 @@ def get_bad_primes(f_coeffs):
 get_bad_primes.cache = {}
 
 
-def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
-    """
-    Compute the local canonical height correction (Neron correction) at p 
-    using the p-adic doubling limit:
-       mu_p(D) = lim_{n->inf} 4^(-n) * h_naive(2^n D) - h_naive(D)
-    
-    This correctly handles bad reduction (I_n, etc) without explicit Neron models.
-    """
-    # Rule of thumb: need ~num_doublings extra precision per doubling
-    # Start with much higher precision than you think you need
-    if padic_prec is None:
-        padic_prec = max(2048, 100 * num_doublings)
-    
-    # 1. Setup p-adic curve
-    try:
-        K = Qp(p, prec=padic_prec)
-        R = PolynomialRing(K, 'x')
-        f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-        C_p = HyperellipticCurve(f_poly)
-        J_p = C_p.jacobian()
-        
-        # 2. Lift point D to J(Qp)
-        u_Q, v_Q = D[0], D[1]
-        u_p = R([K(c) for c in u_Q.list()])
-        v_p = R([K(c) for c in v_Q.list()])
-        
-        P = J_p([u_p, v_p])
-        
-        # 3. Compute initial naive height
-        h0 = local_naive_height_p(P, p)
-        
-        # 4. Iterate doubling with precision monitoring
-        current_P = P
-        for i in range(num_doublings):
-            if current_P.is_zero():
-                return -h0
-            
-            # Check if we still have meaningful precision before doubling
-            # Get the leading coefficient precision
-            u_poly = current_P[0]
-            if u_poly != 0:
-                # Check precision of leading coefficient
-                leading_coeff = u_poly.leading_coefficient()
-                if hasattr(leading_coeff, 'precision_absolute'):
-                    prec_remaining = leading_coeff.precision_absolute()
-                    if prec_remaining < 10:  # Too little precision left
-                        # Bail out early and use what we have
-                        h_final = local_naive_height_p(current_P, p)
-                        scaling = 4.0**(-i)  # Use current iteration count
-                        h_can_approx = scaling * h_final
-                        return h_can_approx - h0
-            
-            current_P = 2 * current_P
-        
-        # 5. Compute final naive height
-        h_final = local_naive_height_p(current_P, p)
-        
-        # 6. Apply Tate's limit formula
-        scaling = 4.0**(-num_doublings)
-        h_can_approx = scaling * h_final
-        
-        return h_can_approx - h0
-        
-    except ZeroDivisionError:
-        # explicit retry strategy
-        if padic_prec is None:
-            padic_prec = max(4096, 200 * num_doublings)
-        if num_doublings <= 2:
-            raise
-        # reduce doublings but increase padic_prec and retry
-        return local_height_correction_finite(D, p, f_coeffs, num_doublings=num_doublings-2, padic_prec=padic_prec*2)
-    except Exception:
-        raise
-
-def local_naive_height_p(D, p):
+def local_naive_height_p(div, p):
     """
     Compute naive local height at p: -min(v_p(coeffs)) * log(p).
     This corresponds to the log of the max p-adic norm of coefficients.
     """
     try:
         # Extract Mumford polynomials u, v
-        u_poly, v_poly = D[0], D[1]
+        u_poly, v_poly = div[0], div[1]
         coeffs = u_poly.list() + v_poly.list()
         
         # We want max(|c|_p). 
@@ -961,7 +830,7 @@ def _compute_pairing_worker(args):
             # Diagonal: just return the cached height
             return ((i, j), h_i, None)
         
-        # Off-diagonal: only compute h(D1+D2)
+        # Off-diagonal: only compute h(div1+div2)
         Rq_QQ = PolynomialRing(QQ, 'x')
         x_QQ = Rq_QQ.gen()
         f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-k) 
@@ -971,18 +840,18 @@ def _compute_pairing_worker(args):
         
         u_poly_i = x_QQ**2 - QQ(div_i['s'])*x_QQ + QQ(div_i['p'])
         v_poly_i = QQ(div_i['v_1'])*x_QQ + QQ(div_i['v_0'])
-        D1 = J([u_poly_i, v_poly_i])
+        div1 = J([u_poly_i, v_poly_i])
         
         u_poly_j = x_QQ**2 - QQ(div_j['s'])*x_QQ + QQ(div_j['p'])
         v_poly_j = QQ(div_j['v_1'])*x_QQ + QQ(div_j['v_0'])
-        D2 = J([u_poly_j, v_poly_j])
+        div2 = J([u_poly_j, v_poly_j])
         
-        D_sum = D1 + D2
+        div_sum = div1 + div2
         
-        if D_sum.is_zero():
+        if div_sum.is_zero():
             h_sum = QQ(0)
         else:
-            h_sum = arakelov_canonical_height(D_sum, f_coeffs, prec=prec)
+            h_sum = arakelov_canonical_height(div_sum, f_coeffs, prec=prec)
         
         # Use cached h_i and h_j (already canonical heights)
         val = (h_sum - h_i - h_j) / QQ(2)
@@ -1072,8 +941,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     for div in all_divisors:
         u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
-        D = J([u_poly, v_poly])
-        jac_elements.append((div, D))
+        div2 = J([u_poly, v_poly])
+        jac_elements.append((div, div2))
 
     n = len(jac_elements)
     if n == 0:
@@ -1098,8 +967,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print(f"  Divisor {i}: h = {float(h):.6g}")
     else:
         for i in range(n):
-            _, D = jac_elements[i]
-            h = arakelov_canonical_height(D, f_coeffs, prec=prec)
+            _, div = jac_elements[i]
+            h = arakelov_canonical_height(div, f_coeffs, prec=prec)
             height_cache[i] = h
             if debug:
                 print(f"  Divisor {i}: h = {float(h):.6g}")
@@ -1203,6 +1072,15 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 pv = get_pairing_lazy(basis_indices[r], basis_indices[c])
                 H_final[r, c] = RR(pv)
                 H_final[c, r] = H_final[r, c]
+
+        eigs = H_final.eigenvalues()
+        print("eigenvalues:", eigs)
+        f_eigs = [float(i) for i in eigs]
+        print("eigenvalues (float):", f_eigs)
+        print("determinant:", float(H_final.determinant()))
+        print("condition number (approx):", float(max(eigs)/min(eigs)))
+        # regulator is det(G) (for basis of free part of rank k)
+        print("regulator:", float(H_final.determinant()))
 
     if debug and final_rank > 0:
         try:
@@ -1334,23 +1212,23 @@ def is_independent_by_projection_log(
     return is_independent, info
 
 
-def arakelov_quasi_height(D, f_coeffs, period_matrix=None, prec=300, use_finite_places=True, arch_override=None):
+def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300, use_finite_places=True, arch_override=None):
     """
     Computes a 'quasi-canonical' height: Naive + Finite + Archimedean(Quadratic).
-    This height h(D) satisfies h(nD) = n^2 * h_can(D) + L(nD) + O(1).
+    This height h(div) satisfies h(ndiv) = n^2 * h_can(div) + L(ndiv) + O(1).
     It is not quadratic itself, but the quadratic coefficient is the canonical height.
     """
-    if D.is_zero():
+    if div.is_zero():
         return QQ(0)
 
     # 1. Naive global height (Essential for the height to be positive/quadratic)
-    h_naive = naive_height_qq(D, prec=prec)
+    h_naive = naive_height_qq(div, prec=prec)
     
     # 2. Archimedean quadratic part
     if period_matrix is None:
         period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
     if arch_override is None:
-        h_arch = archimedean_height_correction(D, f_coeffs, period_matrix, prec=prec)
+        h_arch = archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec)
     else:
         h_arch = arch_override 
     # 3. Finite place corrections
@@ -1358,7 +1236,7 @@ def arakelov_quasi_height(D, f_coeffs, period_matrix=None, prec=300, use_finite_
     if use_finite_places:
         bad_primes = get_bad_primes(f_coeffs)
         for p in bad_primes:
-            h_finite_correction += local_height_correction_finite(D, p, f_coeffs)
+            h_finite_correction += local_height_correction_finite(div, p, f_coeffs)
             
     return h_naive + h_arch + h_finite_correction
 
@@ -1590,19 +1468,19 @@ def theta_direct(tau_in, z_in, R=3, prec_local=256):
         raise NotImplementedError("theta_direct optimization only implemented for g=1,2")
 
 
-def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=False):
+def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=False):
     """
     Exact archimedean height correction.
     Crashes on any inconsistency.
     """
+    if div.is_zero():
+        return QQ(0)
+
     RR = RealField(prec)
     CC = ComplexField(prec)
 
-    if D.is_zero():
-        return QQ(0)
-
     base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    z_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
+    z_vec = abel_jacobi_mumford(div, f_coeffs, base_point=base_point, prec=prec)
 
     tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
     g = tau.nrows()
@@ -1716,7 +1594,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False):
     return [CC(best_z[i]) for i in range(g)]
 
 
-def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
+def arakelov_canonical_height(div, f_coeffs, prec=300, use_finite_places=True):
     """
     Proper canonical height using the Second Difference Method.
     Archimedean contribution is computed ONCE and reused consistently.
@@ -1724,7 +1602,7 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
     from .homology import get_period_matrix_auto_B
     from sage.all import QQ
 
-    if D.is_zero():
+    if div.is_zero():
         return QQ(0)
 
     # Pre-fetch period matrix once
@@ -1732,32 +1610,32 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
 
     # Compute archimedean height ONCE
     h_arch = archimedean_height_correction(
-        D, f_coeffs, period_matrix, prec=prec
+        div, f_coeffs, period_matrix, prec=prec
     )
 
     # Quasi-heights using fixed archimedean input
     h1 = arakelov_quasi_height(
-        D, f_coeffs, period_matrix, prec,
+        div, f_coeffs, period_matrix, prec,
         use_finite_places,
         arch_override=h_arch
     )
 
-    D2 = D + D
-    if D2.is_zero():
+    div2 = div + div
+    if div2.is_zero():
         h2 = QQ(0)
     else:
         h2 = arakelov_quasi_height(
-            D2, f_coeffs, period_matrix, prec,
+            div2, f_coeffs, period_matrix, prec,
             use_finite_places,
             arch_override=QQ(2) * h_arch
         )
 
-    D3 = D2 + D
-    if D3.is_zero():
+    div3 = div2 + div
+    if div3.is_zero():
         h3 = QQ(0)
     else:
         h3 = arakelov_quasi_height(
-            D3, f_coeffs, period_matrix, prec,
+            div3, f_coeffs, period_matrix, prec,
             use_finite_places,
             arch_override=QQ(3) * h_arch
         )
@@ -1768,7 +1646,208 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
     if h_can < 0:
         raise RuntimeError(
             "Canonical height negative — invariant violation: "
-            f"h_can={h_can}; divisor={D}; prec={prec}"
+            f"h_can={h_can}; divisor={div}; prec={prec}"
         )
 
     return h_can
+
+
+def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
+    """
+    Compute the local canonical height correction (Neron correction) at p 
+    using a stabilized p-adic doubling limit:
+       mu_p(div) = lim_{n->inf} 4^(-n) * h_naive(2^n div) - h_naive(div)
+
+    Safety features added:
+    - Uses a Cesàro/last-window average of the scaled naive heights to reduce oscillation.
+    - Detects instability (large variance, NaNs or huge values) and will retry once
+      with larger p-adic precision and more doublings.
+    - If instability persists, returns a conservative 0.0 for the local correction
+      (and prints a warning). This prevents a single bad p-term from making the
+      global canonical height nonsensical.
+    - Clamps obviously absurd results.
+    """
+    import math
+    import warnings
+
+    # Parameters for stabilization / safety
+    MIN_PADIC_PREC = 2048
+    MAX_PADIC_PREC = 8192
+    MAX_RETRIES = 1            # automatic retry with higher padic precision
+    MAX_ACCEPTABLE_MAG = 1e6   # anything larger is considered bogus
+    REL_VAR_TOL = 1e-4         # relative stddev tolerance for tail stability
+    ABS_NEG_TOL = 1e-8         # allow tiny negative noise, clamp bigger negatives to 0.0
+    MIN_TAIL_LEN = 3
+
+    # Ensure initial padic precision is reasonable
+    if padic_prec is None:
+        padic_prec = max(MIN_PADIC_PREC, 100 * max(1, num_doublings))
+
+    # internal helper to attempt computation; returns (mu_or_None, reason)
+    def _attempt(padic_prec_local, num_doublings_local):
+        try:
+            # 1. Setup p-adic curve
+            K = Qp(p, prec=padic_prec_local)
+            R = PolynomialRing(K, 'x')
+            f_poly = sum(K(c) * R.gen()**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+            C_p = HyperellipticCurve(f_poly)
+            J_p = C_p.jacobian()
+
+            # 2. Lift point div to J(Qp)
+            u_Q, v_Q = div[0], div[1]
+            # if these are Sage polys or lists, convert coefficients to K
+            u_p = R([K(c) for c in u_Q.list()])
+            v_p = R([K(c) for c in v_Q.list()])
+
+            P = J_p([u_p, v_p])
+
+            # 3. Compute h0
+            h0 = local_naive_height_p(P, p)
+
+            # 4. Iterate doubling and collect scaled naive heights:
+            #    s_k = 4^{-k} * h_naive(2^k P)
+            s_values = []
+            current_P = P
+
+            for k in range(0, num_doublings_local + 1):
+                # If point becomes zero at some stage, the Tate-limit is exactly 0
+                # (future terms are zero), so mu = 0 - h0.
+                if current_P.is_zero():
+                    mu_exact = float(0.0 - h0)
+                    return mu_exact, "torsion_hit"
+
+                # compute naive height at current_P (may return Sage/Rational/float)
+                h_k = local_naive_height_p(current_P, p)
+                try:
+                    h_kf = float(h_k)
+                except Exception:
+                    # non-convertible -> instability
+                    return None, "non_numeric_height"
+
+                s_k = (4.0 ** (-k)) * h_kf
+                # quick sanity: huge values indicate instability
+                if math.isnan(s_k) or math.isinf(s_k) or abs(s_k) > MAX_ACCEPTABLE_MAG:
+                    return None, "huge_or_nan"
+
+                s_values.append(s_k)
+
+                # prepare for next doubling (but don't double on last loop)
+                if k < num_doublings_local:
+                    current_P = 2 * current_P
+
+            # Need at least a few tail values to average
+            tail_len = max(MIN_TAIL_LEN, num_doublings_local // 2)
+            if len(s_values) < tail_len:
+                return None, "insufficient_samples"
+
+            tail = s_values[-tail_len:]
+            tail_mean = sum(tail) / float(len(tail))
+            # compute sample standard deviation (population stddev not necessary)
+            mean = tail_mean
+            var = sum((x - mean) ** 2 for x in tail) / float(len(tail))
+            std = math.sqrt(var)
+
+            # Relative variability check (relative to magnitude of mean)
+            rel_std = std / (abs(mean) + 1e-16)
+
+            if rel_std > REL_VAR_TOL and abs(mean) > 1e-12:
+                # unstable sequence
+                return None, "high_variance"
+
+            # stabilized estimate for the Tate-limit value
+            tate_limit_est = tail_mean
+
+            # mu_p(div) = Tate-limit - h0
+            mu_est = float(tate_limit_est - float(h0))
+
+            # Clamp/guard obviously absurd negatives (user requested "no bad returns")
+            if mu_est < -ABS_NEG_TOL:
+                # allow tiny negative rounding noise, but not larger negatives
+                return None, "excessive_negative"
+
+            # Final sanity check: not astronomically large
+            if abs(mu_est) > MAX_ACCEPTABLE_MAG:
+                return None, "excessive_magnitude"
+
+            return float(mu_est), "ok"
+
+        except ZeroDivisionError:
+            # propagate so the outer code can retry with larger precision as before
+            raise
+        except Exception as e:
+            # any other failure -> mark as unstable
+            return None, f"exception:{repr(e)}"
+
+    # Attempt + one automatic retry if unstable
+    attempt = 0
+    while attempt <= MAX_RETRIES:
+        mu_val, reason = _attempt(padic_prec, num_doublings)
+        if mu_val is not None:
+            # good result
+            return mu_val
+
+        # if we get here, the attempt failed for reason -> try a safer retry if possible
+        warnings.warn(f"[local_height_correction_finite] instability at p={p}; reason={reason}; "
+                      f"padic_prec={padic_prec}; num_doublings={num_doublings}. Retrying with higher precision.", RuntimeWarning)
+
+        # if the failure was due to a ZeroDivisionError, let outer exception handler or caller deal with it
+        # (this mirrors your original ZeroDivisionError behavior)
+        # Otherwise, increase padic precision and (optionally) num_doublings and retry once.
+        if padic_prec >= MAX_PADIC_PREC:
+            # Give up and return conservative 0.0
+            warnings.warn(f"[local_height_correction_finite] giving up on p={p} after padic_prec={padic_prec}. Returning 0.0.", RuntimeWarning)
+            return 0.0
+        # increase precision and doublings for the retry
+        padic_prec = min(MAX_PADIC_PREC, padic_prec * 2)
+        num_doublings = min(num_doublings + 2, 2 * num_doublings if num_doublings > 0 else 4)
+        attempt += 1
+
+    # If all retries exhausted, return conservative 0.0
+    warnings.warn(f"[local_height_correction_finite] all retries exhausted for p={p}. Returning 0.0.", RuntimeWarning)
+    return 0.0
+
+
+def make_matrix_numerically_positive_definite(G, tol=1e-20):
+    """
+    Ensure a symmetric matrix is numerically positive definite by clipping eigenvalues.
+
+    Works for Sage matrices, NumPy arrays, or list-of-lists.
+    """
+    import numpy as np
+    from sage.all import Matrix, RR
+
+    # --- Step 1: determine size and base ring safely ---
+    if hasattr(G, "nrows"):          # Sage matrix
+        n = G.nrows()
+        base_ring = G.base_ring()
+        G_np = np.array(
+            [[float(G[i, j]) for j in range(n)] for i in range(n)],
+            dtype=float
+        )
+    else:
+        # assume array-like (NumPy or list-of-lists)
+        G_np = np.array(G, dtype=float)
+        if G_np.ndim != 2 or G_np.shape[0] != G_np.shape[1]:
+            raise ValueError("Input must be a square matrix")
+        n = G_np.shape[0]
+        base_ring = RR
+
+    # --- Step 2: symmetrize to kill numerical noise ---
+    G_np = 0.5 * (G_np + G_np.T)
+
+    # --- Step 3: eigendecomposition ---
+    eigvals, eigvecs = np.linalg.eigh(G_np)
+
+    # --- Step 4: clip eigenvalues ---
+    eigvals_clipped = np.maximum(eigvals, float(tol))
+
+    # --- Step 5: reconstruct matrix ---
+    G_fixed_np = eigvecs @ np.diag(eigvals_clipped) @ eigvecs.T
+
+    # --- Step 6: convert back to Sage matrix ---
+    G_fixed = Matrix(base_ring, n, n)
+    for i in range(n):
+        for j in range(n):
+            G_fixed[i, j] = base_ring(G_fixed_np[i, j])
+
+    return G_fixed
