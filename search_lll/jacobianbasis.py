@@ -68,6 +68,10 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
             G[i,j] = v; G[j,i] = v
     # enforce symmetry
     G = 0.5*(G + G.T)
+    G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
+    min_ev = min(float(e) for e in G.eigenvalues())
+    if min_ev <= 0:
+        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
     U, S, Vt = np.linalg.svd(G, full_matrices=False)
     svals = [float(x) for x in S]
     # log10_abs_det = sum(log10(svals)) (sign positive for Gram of PD matrix)
@@ -113,6 +117,10 @@ def select_independent_indices_from_gram(
     """
     # symmetrize (be safe)
     G = 0.5 * (G + G.T)
+    G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
+    min_ev = min(float(e) for e in G.eigenvalues())
+    if min_ev <= 0:
+        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
     n = G.shape[0]
     # Eigen-decomposition (symmetric)
     eigvals, eigvecs = np.linalg.eigh(G)  # ascending eigenvalues
@@ -272,6 +280,15 @@ def _compute_height_worker(args):
         h = arakelov_canonical_height(D, f_coeffs, prec=prec)
         return (i, h, None)  # Return h as Sage rational, NOT float
     except Exception as e:
+        # ABSOLUTELY CRITICAL:
+        # convert to a picklable exception with a string-only payload
+        msg = (
+            f"Height computation failed\n"
+            f"Divisor: {repr(D)}\n"
+            f"Exception type: {type(e).__name__}\n"
+            f"Message: {str(e)}"
+        )
+        raise RuntimeError(msg)
         return (i, None, str(e))
 
 
@@ -733,6 +750,7 @@ def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0
         Im_tau_inv = Im_tau.inverse()
     except:
         # Singular - shouldn't happen if period matrix is correct
+        raise
         return QQ(0)
     
     # Convert Im_tau_inv to complex field for proper arithmetic
@@ -864,13 +882,13 @@ def local_height_correction_finite(D, p, f_coeffs, num_doublings=NUM_DOUBLINGS, 
         return h_can_approx - h0
         
     except ZeroDivisionError:
-        # Precision loss - try with higher precision or fewer doublings
-        if padic_prec < 8192 and num_doublings > 5:
-            # Retry with either more precision or fewer doublings
-            return local_height_correction_finite(D, p, f_coeffs, 
-                                                 num_doublings=num_doublings-2, 
-                                                 padic_prec=padic_prec*2)
-        raise
+        # explicit retry strategy
+        if padic_prec is None:
+            padic_prec = max(4096, 200 * num_doublings)
+        if num_doublings <= 2:
+            raise
+        # reduce doublings but increase padic_prec and retry
+        return local_height_correction_finite(D, p, f_coeffs, num_doublings=num_doublings-2, padic_prec=padic_prec*2)
     except Exception:
         raise
 
@@ -898,6 +916,7 @@ def local_naive_height_p(D, p):
                 vals.append(c.valuation(p))
             except AttributeError:
                 vals.append(c.valuation())
+                raise
                 
         if not vals:
             return 0.0
@@ -947,6 +966,7 @@ def _compute_pairing_worker(args):
         
         return ((i, j), val, None)
     except Exception as e:
+        raise
         return ((i, j), None, str(e))
 
 
@@ -1012,6 +1032,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             n_jobs = cpu_count()
         except Exception:
             n_jobs = 1
+            raise
 
     if debug:
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
@@ -1083,6 +1104,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         
         pairing_cache[(i, j)] = val
         return val
+
+    sanity_check_pairings(pairing_cache, min(len(all_divisors), 4))
 
     # Incremental basis selection
     if debug:
@@ -1161,10 +1184,11 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 try:
                     print(f"[arakelov] Final determinant: {float(H_final.determinant()):.6g}")
                 except Exception:
-                    pass
+                    raise
         except Exception as E:
             if debug:
                 print(f"[arakelov] Diagnostic failed: {E}")
+            raise
 
     return basis, final_rank, H_final
 
@@ -1198,6 +1222,11 @@ def is_independent_by_projection_log(
             G[s, r] = G[r, s]
         c[r] = RR(get_pairing(basis_indices[r], candidate_index))
     
+    G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
+    min_ev = min(float(e) for e in G.eigenvalues())
+    if min_ev <= 0:
+        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
+
     vv = RR(get_pairing(candidate_index, candidate_index))
     
     # Special case: if k=1, just check if candidate has different height
@@ -1243,6 +1272,7 @@ def is_independent_by_projection_log(
     except Exception as e:
         if debug:
             print(f"[proj-log] Cholesky failed for candidate {candidate_index}: {e}")
+        raise
         return False, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
     
     res_sq = vv - proj_sq
@@ -1302,58 +1332,181 @@ def arakelov_quasi_height(D, f_coeffs, period_matrix=None, prec=300, use_finite_
     return h_naive + h_arch + h_finite_correction
 
 
+# Insert into jacobianbasis.py near other helpers
+from sage.all import Matrix, identity_matrix
+
+
+def sanity_check_pairings(pairing_cache, n):
+    """
+    pairing_cache: dict of (i,j)->value for 0<=i<=j<n
+    n: number of indices expected
+    Raises on failures.
+    """
+    for i in range(n):
+        if (i, i) not in pairing_cache:
+            raise ValueError(f"Missing diagonal pairing for {i}")
+        if float(pairing_cache[(i,i)]) <= 0:
+            raise ValueError(f"Non-positive self-pairing for {i}: {pairing_cache[(i,i)]}")
+
+    for i in range(n):
+        for j in range(i+1, n):
+            a = pairing_cache.get((i,j), None)
+            b = pairing_cache.get((j,i), None)
+            if a is None and b is None:
+                raise ValueError(f"Missing pairing for pair {(i,j)}")
+            if a is None: a = b
+            if b is None: b = a
+            if abs(float(a) - float(b)) > 1e-10 * max(1.0, abs(float(a))):
+                raise ValueError(f"Asymmetric pairings for {(i,j)}: {a} vs {b}")
+
+
+def robust_eig_clip(Im, min_eig_tol=1e-30):
+    # Im is a symmetric matrix (numpy or sage). Convert to numpy double for SVD but clip tiny negatives.
+    import numpy as np
+    M = np.array(Im, dtype=float)
+    # symmetrize
+    M = 0.5 * (M + M.T)
+    U, s, Vt = np.linalg.svd(M)
+    # clip
+    s_clipped = np.clip(s, min_eig_tol, None)
+    return U, s_clipped, Vt
+
+
+def normalize_periods_and_z(Omega, z_vec):
+    """
+    Accepts:
+      - Omega : g x 2g period matrix (first g columns = Omega1 (A-periods),
+                 next g columns = Omega2 (B-periods)), or possibly already a g x g tau.
+      - z_vec : length-g Abel-Jacobi vector (can be vector or list)
+    Returns:
+      - tau : g x g symmetric small period matrix (Omega1^-1 * Omega2)
+      - z_norm : normalized z as a COLUMN VECTOR (g x 1 matrix)
+    """
+    from sage.all import Matrix, vector
+    
+    Omega = Matrix(Omega)  # convert if needed
+    g = Omega.nrows()
+    
+    # Check if already normalized (tau is g×g)
+    if Omega.ncols() == g:
+        tau = Omega
+        # Convert z_vec to column vector
+        if z_vec is None:
+            z_norm = None
+        else:
+            # Ensure z_vec is a proper column vector (g×1)
+            if hasattr(z_vec, 'nrows'):  # already a matrix/vector
+                if z_vec.nrows() == g and z_vec.ncols() == 1:
+                    z_norm = z_vec
+                else:
+                    # Convert to column vector
+                    z_norm = Matrix(tau.parent(), g, 1, list(z_vec))
+            else:
+                # It's a list or tuple
+                z_norm = Matrix(tau.parent(), g, 1, list(z_vec))
+        return tau, z_norm
+    
+    if Omega.ncols() != 2*g:
+        raise ValueError(f"Omega has shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g columns.")
+    
+    # Split into A-periods and B-periods
+    Omega1 = Omega[:, :g]
+    Omega2 = Omega[:, g:]
+    
+    if not Omega1.is_invertible():
+        raise ValueError("Omega1 (A-periods) is singular; cannot normalize periods.")
+    
+    Omega1_inv = Omega1.inverse()
+    tau = Omega1_inv * Omega2
+    
+    # Normalize z
+    if z_vec is None:
+        z_norm = None
+    else:
+        # Convert z_vec to column vector if needed
+        if hasattr(z_vec, 'nrows'):  # It's already a matrix/vector
+            if z_vec.ncols() == 1:
+                # Already a column vector
+                z_mat = z_vec
+            else:
+                # Convert to column vector
+                z_mat = Matrix(Omega.parent(), g, 1, list(z_vec))
+        else:
+            # It's a list or tuple - create column vector
+            z_mat = Matrix(Omega.parent(), g, 1, list(z_vec))
+        
+        z_norm = Omega1_inv * z_mat
+    
+    # Sanity check tau is symmetric
+    if max(abs((tau - tau.transpose()).list())) > 1e-10:
+        raise ValueError("Normalized tau is not symmetric (numerical issue).")
+    
+    # Check Im(tau) is positive definite
+    Im_tau = Matrix([[c.imag() for c in row] for row in tau])
+    eigs = Im_tau.eigenvalues()
+    if any(float(e) <= 1e-14 for e in eigs):
+        raise ValueError("Im(tau) is not positive definite.")
+    
+    return tau, z_norm
+
+
 def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
     """
-    Computes the Archimedean component using the standard Arakelov Green's function
-    normalized for the Theta divisor.
-    
-    Formula: lambda_inf(z) = -log|theta(z)| + pi * Im(z)^T * Im(tau)^(-1) * Im(z)
+    Archimedean correction for the canonical height.
     """
-    from sage.all import RealField, Matrix, QQ, vector, pi
+    from sage.all import RealField, ComplexField, Matrix, QQ, vector, pi
     
     if D.is_zero():
         return QQ(0)
     
     RR = RealField(prec)
+    CC = ComplexField(prec)
     
-    # 1. Compute Abel-Jacobi map to get z in C^g
-    # We need a stable base point.
+    # 1) Numerical Abel-Jacobi (returns a vector in C^g)
     base_point = choose_numerical_base_point(f_coeffs, prec=prec)
     z_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
     
-    # 2. Extract Im(z) and Im(tau)
-    # z_vec is a vector over CC.
-    y = vector(RR, [c.imag() for c in z_vec])
+    # 2) Normalize periods and z (z_norm_mat should be g×1 column vector)
+    tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
     
-    # period_matrix columns are periods. We need the top half/bottom half structure
-    # or just the 2x2 matrix if it's already in small period matrix form.
-    # The code assumes period_matrix is the 2x2 small period matrix tau.
-    Im_tau = Matrix(RR, [[c.imag() for c in row] for row in period_matrix])
+    g = tau.nrows()
+    assert tau.ncols() == g, f"tau should be {g}×{g}, got {tau.nrows()}×{tau.ncols()}"
+    assert z_norm_mat.nrows() == g and z_norm_mat.ncols() == 1, \
+        f"z_norm_mat should be {g}×1, got {z_norm_mat.nrows()}×{z_norm_mat.ncols()}"
     
-    # 3. Compute Quadratic Term: pi * y^T * (Im tau)^-1 * y
+    # 3) Build Im(tau)
+    Im_tau = Matrix(RR, g, g)
+    for i in range(g):
+        for j in range(g):
+            Im_tau[i, j] = RR(CC(tau[i, j]).imag())
+    
+    # Symmetrize
+    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+    
+    # Invert
     try:
         Im_tau_inv = Im_tau.inverse()
-    except Exception:
-        # Should not happen for valid Riemann surfaces
-        return QQ(0)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Im(tau) not invertible; eigenvalues={[float(e) for e in Im_tau.eigenvalues()]}"
+        ) from exc
     
-    # pi * (y * Im_tau_inv * y)
-    quad_val = RR(pi) * y.dot_product(Im_tau_inv * y)
+    # 4) Extract z as a list (z_norm_mat is g×1, so just get column 0)
+    z_norm = [CC(z_norm_mat[i, 0]) for i in range(g)]
     
-    # 4. Compute Log Theta Term: -log|theta(z)|
-    theta_val = compute_theta_high_prec(z_vec, period_matrix, prec=prec)
+    # 5) Build imaginary part vector
+    y_im = vector(RR, [RR(z.imag()) for z in z_norm])
     
-    # Handle vanishing theta (point on theta divisor)
-    abs_theta = abs(theta_val)
+    # 6) Quadratic term
+    quad_val = RR(pi) * y_im.dot_product(Im_tau_inv * y_im)
+    
+    # 7) Theta evaluation
+    theta_val = compute_theta_high_prec(z_norm, tau, prec=prec)
+    abs_theta = abs(CC(theta_val))
+    
     if abs_theta == 0:
-        # This is a singularity of the metric. Return a large substitute?
-        # Realistically, for generic points, this won't happen.
-        # If it does, we return 0 to avoid -inf, but this is degenerate.
-        log_theta = RR(0)
-    else:
-        log_theta = RR(abs_theta).log()
-        
-    # Final Correction: quad - log_theta
-    # Note: Previous code used 2*log_theta, which is for log(theta^2). 
-    # Standard height uses log|theta|.
+        raise ValueError("Theta vanishes (point on theta divisor).")
+    
+    log_theta = RR(abs_theta).log()
+    
     return QQ(quad_val - log_theta)

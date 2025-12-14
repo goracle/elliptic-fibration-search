@@ -557,15 +557,42 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
     except Exception as e:
         raise ArithmeticError(f"Singular A matrix: {e}")
     
-    # Symmetrize
+    # Symmetrize tau
     tau = (tau + tau.transpose()) / CC(2)
-    
-    # Check positive definiteness (Explicit calculation for 2x2 to avoid Generic warnings)
-    # Eigenvalues of [a b; b d] are roots of x^2 - (a+d)x + (ad-b^2) = 0
-    Im_tau = [[RR(tau[i, j].imag()) for j in range(2)] for i in range(2)]
-    tr = Im_tau[0][0] + Im_tau[1][1]
-    det = Im_tau[0][0] * Im_tau[1][1] - Im_tau[0][1] * Im_tau[1][0]
-    
+
+    # Robustly build Im(tau) using conversion helper (avoids method-object bug)
+    Im_tau = build_Im_tau_from_tau(tau, RR, CC)
+
+    # Make numerically PD (clip / shift tiny negative eigenvalues)
+    Im_tau = make_matrix_numerically_positive_definite(Im_tau, tol=RR(10)**(-20))
+
+    # Now compute trace/determinant/eigenvalues from the cleaned Im_tau
+    a = Im_tau[0,0]; b = Im_tau[0,1]; d = Im_tau[1,1]
+    tr = a + d
+    det = a*d - b*b
+
+    # Compute discriminant safely in RR
+    delta = tr*tr - 4*det
+    if delta < 0:
+        # numeric noise; clamp to 0
+        delta = RR(0)
+    sqrt_delta = delta.sqrt()
+    ev1 = (tr - sqrt_delta) / 2
+    ev2 = (tr + sqrt_delta) / 2
+    evals = [float(ev1), float(ev2)]
+
+    if verbose:
+        print(f"Im(tau) eigenvalues: {evals}")
+
+    if pd_tol is None:
+        pd_tol = -1e-10
+
+    if min(evals) < pd_tol:
+        raise ArithmeticError(
+            f"Tau not positive definite (min eigenvalue={min(evals):.2e}). "
+            "Basis may be non-symplectic or have wrong orientation."
+        )
+
     # Quadratic formula: (tr +/- sqrt(tr^2 - 4*det)) / 2
     delta = tr*tr - 4*det
     if delta < 0:
@@ -591,6 +618,62 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
     get_period_matrix_auto_B.cache[key] = tau
     return tau
 get_period_matrix_auto_B.cache = {}
+
+
+from sage.all import ComplexField, RealField, Matrix, identity_matrix
+
+def complex_of_sage(z, CC):
+    """
+    Robustly coerce a Sage complex-like object to a Python complex (via CC if needed).
+    CC should be the ComplexField used elsewhere (ComplexField(prec)).
+    """
+    try:
+        return complex(z)            # works for many Sage types
+    except Exception:
+        try:
+            return complex(CC(z))   # try converting via ComplexField
+        except Exception:
+            try:
+                # fallback to string conversion
+                return complex(str(z))
+            except Exception:
+                raise
+
+def build_Im_tau_from_tau(tau, RR, CC):
+    """
+    Build a RealField matrix Im(tau) robustly from tau (a CC matrix).
+    RR is RealField(prec), CC is ComplexField(prec).
+    """
+    g = tau.nrows()
+    Im = Matrix(RR, g, g)
+    for i in range(g):
+        for j in range(g):
+            c = complex_of_sage(tau[i, j], CC)
+            Im[i, j] = RR(c.imag)
+    return Im
+
+def make_matrix_numerically_positive_definite(M, tol=None):
+    """
+    Symmetrize M and, if necessary, shift it slightly to make it PD.
+    M is a square Matrix over a RealField.
+    tol may be a small positive RealField number; if None we pick 1e-30 in M's base ring.
+    """
+    # symmetrize
+    M = 0.5 * (M + M.transpose())
+    RR = M.base_ring()
+    if tol is None:
+        try:
+            tol = RR(10) ** (-30)
+        except Exception:
+            tol = RR(1e-30)
+    eigs = [float(e) for e in M.eigenvalues()]
+    min_eig = min(eigs)
+    if min_eig <= float(tol):
+        # shift so min eigenvalue becomes slightly positive
+        shift = RR(abs(min_eig)) + RR(tol)
+        M = M + shift * identity_matrix(RR, M.nrows())
+    return M
+
 
 # Example usage
 if __name__ == "__main__":
