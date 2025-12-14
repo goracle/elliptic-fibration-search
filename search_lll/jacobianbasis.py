@@ -322,7 +322,31 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
         h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix, prec, use_finite_places)
         
     h_can = (h3 + h1 - QQ(2)*h2) / QQ(2)
-    
+
+    # --- defensive post-check on canonical height (insert after computing h_can) ---
+    from sage.all import RealField
+
+    _tol_small_neg = 1e-10  # tolerance for tiny negative rounding errors
+    _tol_large_neg = 1e-6   # treat anything larger magnitude than this as real problem
+
+    h_can_f = float(h_can)   # convert for quick numeric tests
+    if h_can_f < -_tol_large_neg:
+        # Raise with diagnostics so the failure can be investigated (don't silently hide)
+        print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=True)
+        raise RuntimeError(
+            "Canonical height negative beyond tolerance: "
+            f"h_can={h_can_f:.6g}; "
+            f"divisor={D}; prec={prec}; "
+            "Provide diagnostics: archimedean components (quad_val, log_theta, Im(tau) eigs) "
+            "— see archimedean_height_correction debug printing."
+        )
+    elif h_can_f < 0:
+        # tiny negative due to numeric noise -> clamp to zero but warn
+        if debug:
+            print(f"[height] tiny negative h_can={h_can_f:.3e}; clamping to 0")
+        h_can = QQ(0)
+    # --- end defensive patch ---
+
     return h_can
 
 
@@ -1102,10 +1126,9 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             if error:
                 raise RuntimeError(f"Pairing computation failed: {error}")
         
+        #sanity_check_pairings(pairing_cache, min(len(all_divisors), 1))
         pairing_cache[(i, j)] = val
         return val
-
-    sanity_check_pairings(pairing_cache, min(len(all_divisors), 4))
 
     # Incremental basis selection
     if debug:
@@ -1155,6 +1178,13 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print(f"  Rejected divisor {cand_idx}: dependent")
         elif debug:
             print(f"  Rejected divisor {cand_idx}: dependent")
+
+    # ADD THE SANITY CHECK HERE (after the loop, before building final Gram matrix):
+    if len(basis_indices) > 0:
+        # Only check pairings that were actually computed during basis selection
+        # The cache will have diagonal entries for selected basis elements
+        sanity_check_pairings(pairing_cache, min(len(basis_indices), 4))
+
 
     basis = [jac_elements[i][0] for i in basis_indices]
     basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
@@ -1374,47 +1404,36 @@ def robust_eig_clip(Im, min_eig_tol=1e-30):
 
 def normalize_periods_and_z(Omega, z_vec):
     """
-    Accepts:
-      - Omega : g x 2g period matrix (first g columns = Omega1 (A-periods),
-                 next g columns = Omega2 (B-periods)), or possibly already a g x g tau.
-      - z_vec : length-g Abel-Jacobi vector (can be vector or list)
-    Returns:
-      - tau : g x g symmetric small period matrix (Omega1^-1 * Omega2)
-      - z_norm : normalized z as a COLUMN VECTOR (g x 1 matrix)
+    Normalize periods and Abel-Jacobi vector.
+    Returns tau (g×g) and z_norm (g×1 with SCALAR entries).
     """
-    from sage.all import Matrix, vector
+    from sage.all import Matrix
     
-    Omega = Matrix(Omega)  # convert if needed
+    Omega = Matrix(Omega)
     g = Omega.nrows()
     
-    # Check if already normalized (tau is g×g)
+    # Check if already normalized
     if Omega.ncols() == g:
         tau = Omega
-        # Convert z_vec to column vector
         if z_vec is None:
             z_norm = None
         else:
-            # Ensure z_vec is a proper column vector (g×1)
-            if hasattr(z_vec, 'nrows'):  # already a matrix/vector
-                if z_vec.nrows() == g and z_vec.ncols() == 1:
-                    z_norm = z_vec
-                else:
-                    # Convert to column vector
-                    z_norm = Matrix(tau.parent(), g, 1, list(z_vec))
-            else:
-                # It's a list or tuple
-                z_norm = Matrix(tau.parent(), g, 1, list(z_vec))
+            # Create g×1 matrix element by element
+            from sage.all import matrix
+            z_norm = matrix(tau.base_ring(), g, 1)
+            for i in range(g):
+                z_norm[i, 0] = z_vec[i]  # Direct indexing extracts scalars
         return tau, z_norm
     
     if Omega.ncols() != 2*g:
-        raise ValueError(f"Omega has shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g columns.")
+        raise ValueError(f"Omega shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g cols")
     
-    # Split into A-periods and B-periods
+    # Split and normalize
     Omega1 = Omega[:, :g]
     Omega2 = Omega[:, g:]
     
     if not Omega1.is_invertible():
-        raise ValueError("Omega1 (A-periods) is singular; cannot normalize periods.")
+        raise ValueError("Omega1 singular")
     
     Omega1_inv = Omega1.inverse()
     tau = Omega1_inv * Omega2
@@ -1423,37 +1442,27 @@ def normalize_periods_and_z(Omega, z_vec):
     if z_vec is None:
         z_norm = None
     else:
-        # Convert z_vec to column vector if needed
-        if hasattr(z_vec, 'nrows'):  # It's already a matrix/vector
-            if z_vec.ncols() == 1:
-                # Already a column vector
-                z_mat = z_vec
-            else:
-                # Convert to column vector
-                z_mat = Matrix(Omega.parent(), g, 1, list(z_vec))
-        else:
-            # It's a list or tuple - create column vector
-            z_mat = Matrix(Omega.parent(), g, 1, list(z_vec))
-        
-        z_norm = Omega1_inv * z_mat
+        # Build column vector element-by-element
+        from sage.all import matrix
+        z_temp = matrix(Omega.base_ring(), g, 1)
+        for i in range(g):
+            z_temp[i, 0] = z_vec[i]
+        z_norm = Omega1_inv * z_temp
     
-    # Sanity check tau is symmetric
+    # Sanity checks
     if max(abs((tau - tau.transpose()).list())) > 1e-10:
-        raise ValueError("Normalized tau is not symmetric (numerical issue).")
+        raise ValueError("tau not symmetric")
     
-    # Check Im(tau) is positive definite
     Im_tau = Matrix([[c.imag() for c in row] for row in tau])
     eigs = Im_tau.eigenvalues()
     if any(float(e) <= 1e-14 for e in eigs):
-        raise ValueError("Im(tau) is not positive definite.")
+        raise ValueError("Im(tau) not positive definite")
     
     return tau, z_norm
 
 
 def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
-    """
-    Archimedean correction for the canonical height.
-    """
+    """Archimedean correction for canonical height."""
     from sage.all import RealField, ComplexField, Matrix, QQ, vector, pi
     
     if D.is_zero():
@@ -1462,51 +1471,132 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
     RR = RealField(prec)
     CC = ComplexField(prec)
     
-    # 1) Numerical Abel-Jacobi (returns a vector in C^g)
+    # Abel-Jacobi
     base_point = choose_numerical_base_point(f_coeffs, prec=prec)
     z_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
     
-    # 2) Normalize periods and z (z_norm_mat should be g×1 column vector)
+    # Normalize
     tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
     
     g = tau.nrows()
-    assert tau.ncols() == g, f"tau should be {g}×{g}, got {tau.nrows()}×{tau.ncols()}"
-    assert z_norm_mat.nrows() == g and z_norm_mat.ncols() == 1, \
-        f"z_norm_mat should be {g}×1, got {z_norm_mat.nrows()}×{z_norm_mat.ncols()}"
     
-    # 3) Build Im(tau)
+    # Build Im(tau)
     Im_tau = Matrix(RR, g, g)
     for i in range(g):
         for j in range(g):
             Im_tau[i, j] = RR(CC(tau[i, j]).imag())
     
-    # Symmetrize
     Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+    Im_tau_inv = Im_tau.inverse()
     
-    # Invert
-    try:
-        Im_tau_inv = Im_tau.inverse()
-    except Exception as exc:
-        raise RuntimeError(
-            f"Im(tau) not invertible; eigenvalues={[float(e) for e in Im_tau.eigenvalues()]}"
-        ) from exc
+    # Extract z - the elements should NOW be scalars
+    z_norm = []
+    for i in range(g):
+        elem = z_norm_mat[i, 0]
+        z_norm.append(CC(elem))
     
-    # 4) Extract z as a list (z_norm_mat is g×1, so just get column 0)
-    z_norm = [CC(z_norm_mat[i, 0]) for i in range(g)]
-    
-    # 5) Build imaginary part vector
+    # Imaginary part vector
     y_im = vector(RR, [RR(z.imag()) for z in z_norm])
     
-    # 6) Quadratic term
+    # Quadratic term
     quad_val = RR(pi) * y_im.dot_product(Im_tau_inv * y_im)
     
-    # 7) Theta evaluation
+    # Theta
     theta_val = compute_theta_high_prec(z_norm, tau, prec=prec)
     abs_theta = abs(CC(theta_val))
     
     if abs_theta == 0:
-        raise ValueError("Theta vanishes (point on theta divisor).")
+        raise ValueError("Theta vanishes")
     
     log_theta = RR(abs_theta).log()
     
     return QQ(quad_val - log_theta)
+
+
+def make_matrix_numerically_positive_definite(G, tol=1e-20):
+    """
+    Ensure a symmetric matrix is numerically positive definite by clipping eigenvalues.
+    
+    Parameters
+    ----------
+    G : Sage Matrix (RealField or similar)
+        Symmetric matrix that should be positive definite
+    tol : float or Sage real
+        Minimum eigenvalue threshold
+    
+    Returns
+    -------
+    G_fixed : Sage Matrix
+        Positive definite version of G
+    """
+    from sage.all import Matrix, diagonal_matrix
+    import numpy as np
+    
+    # Convert to numpy for eigendecomposition
+    n = G.nrows()
+    G_np = np.array([[float(G[i,j]) for j in range(n)] for i in range(n)], dtype=float)
+    
+    # Symmetrize to avoid numerical asymmetry
+    G_np = 0.5 * (G_np + G_np.T)
+    
+    # Eigendecomposition
+    eigvals, eigvecs = np.linalg.eigh(G_np)
+    
+    # Clip eigenvalues to minimum threshold
+    eigvals_clipped = np.maximum(eigvals, float(tol))
+    
+    # Reconstruct: G = V * Lambda * V^T
+    G_fixed_np = eigvecs @ np.diag(eigvals_clipped) @ eigvecs.T
+    
+    # Convert back to Sage matrix
+    base_ring = G.base_ring()
+    G_fixed = Matrix(base_ring, n, n)
+    for i in range(n):
+        for j in range(n):
+            G_fixed[i,j] = base_ring(G_fixed_np[i,j])
+    
+    return G_fixed
+
+
+from sage.all import ComplexField, RealField, Matrix, vector, sqrt, pi, QQ
+
+def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
+    """
+    tau : g x g complex matrix or nested list
+    z   : length-g complex vector or list
+    quad_val, log_theta : the scalar values used in archimedean height
+    prec : bits of precision used (int)
+    Prints diagnostics and returns a dict with values.
+    """
+    # create high-precision fields for robust numeric conversion
+    CC = ComplexField(prec)
+    RR = RealField(prec)
+    # convert tau / z into CC objects and build Im(tau)
+    g = len(z)
+    # make tau a Matrix(CC)
+    try:
+        Tau = Matrix(CC, g, g, [[CC(tau[i][j]) for j in range(g)] for i in range(g)])
+    except Exception:
+        # maybe tau is a Sage Matrix already with complex entries
+        Tau = Matrix(CC, g, g, [[CC(tau[i,j]) for j in range(g)] for i in range(g)])
+    Z = vector(CC, [CC(z[i]) for i in range(g)])
+    # Imaginary part matrix
+    ImTau = Matrix(RR, g, g, [[RR((Tau[i,j]).imag) for j in range(g)] for i in range(g)])
+    eigs = [float(e) for e in ImTau.eigenvalues()]
+    # Norms
+    z_norm = float(sum(abs(Z[i])**2 for i in range(g)))
+
+    print("\n[ARCH DIAG] precision:", prec, "bits")
+    print("[ARCH DIAG] tau (approx):")
+    for i in range(g):
+        print("  ",[complex(Tau[i,j]) for j in range(g)])
+    print("[ARCH DIAG] Im(tau) eigenvalues:", eigs)
+    print("[ARCH DIAG] z (approx):", [complex(Z[i]) for i in range(g)])
+    print("[ARCH DIAG] ||z||^2:", z_norm)
+    print("[ARCH DIAG] quad_val:", float(quad_val))
+    print("[ARCH DIAG] log|theta| (value used):", float(log_theta))
+    print("[ARCH DIAG] quad - logtheta:", float(quad_val - log_theta))
+    # return a dict if caller wants to inspect
+    return dict(prec=prec, tau=Tau, ImTau=ImTau, ImTau_eigs=eigs, z=Z, z_norm=z_norm,
+                quad_val=CC(quad_val), log_theta=CC(log_theta),
+                arch = CC(quad_val - log_theta))
