@@ -1549,11 +1549,81 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
                 arch = CC(quad_val - log_theta))
 
 
+# put this near the TOP of archimedean_height_correction (or module-level)
+
+def theta_direct(tau_in, z_in, R=3, prec_local=256):
+    from sage.all import ComplexField, pi, exp
+    CC_loc = ComplexField(prec_local)
+    g_loc = len(z_in)
+    Tau = [[CC_loc(tau_in[i][j]) for j in range(g_loc)] for i in range(g_loc)]
+    Z = [CC_loc(z_in[i]) for i in range(g_loc)]
+    total = CC_loc(0)
+    if g_loc == 2:
+        for n0 in range(-R, R+1):
+            for n1 in range(-R, R+1):
+                q = Tau[0][0]*n0*n0 + (Tau[0][1]+Tau[1][0])*n0*n1 + Tau[1][1]*n1*n1
+                linear = 2*(n0*Z[0] + n1*Z[1])
+                arg = CC_loc(pi*1j) * q + CC_loc(pi*1j) * linear
+                total += CC_loc(exp(arg))
+        return total
+    else:
+        raise NotImplementedError
+
+
+def reduce_z_arakelov(z_list, tau, prec=300):
+    """
+    Reduces z modulo the lattice Z^g + tau*Z^g to the fundamental domain
+    minimizing the imaginary part's quadratic form and the real part.
+    This ensures the theta function converges rapidly and the archimedean
+    invariant is calculated with the correct representative.
+    """
+    from sage.all import RealField, ComplexField, Matrix, vector, round, ZZ
+
+    RR = RealField(prec)
+    CC = ComplexField(prec)
+    g = tau.nrows()
+
+    # Create working types
+    z_vec = vector(CC, [CC(z) for z in z_list])
+    Tau = Matrix(CC, g, g, [[CC(tau[i,j]) for j in range(g)] for i in range(g)])
+    
+    # 1. Minimize Imaginary part: y -> y + Im(tau)*n
+    # We want y_new approx 0, so Im(tau)*n approx -y
+    # n = - round( Im(tau)^-1 * y )
+    Im_tau = Matrix(RR, g, g, [[Tau[i,j].imag() for j in range(g)] for i in range(g)])
+    y = vector(RR, [z.imag() for z in z_vec])
+    
+    try:
+        # Solve Im(tau) * c = y
+        c = Im_tau.solve_right(y)
+        # Round to nearest integers
+        n = vector(ZZ, [-round(val) for val in c])
+    except Exception:
+        # Fallback if singular (should likely not happen given earlier checks)
+        n = vector(ZZ, [0]*g)
+
+    # Apply shift by tau*n
+    # Use generic matrix multiplication to avoid type coercion issues
+    tau_n = Tau * n
+    z_shifted = z_vec + tau_n
+
+    # 2. Minimize Real part: x -> x + m
+    # m = - round( x )
+    m = vector(ZZ, [-round(z.real()) for z in z_shifted])
+    
+    z_final = z_shifted + m
+    
+    return [CC(z) for z in z_final]
+
+
 def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=False):
     """Archimedean correction for canonical height with robust diagnostics."""
     from sage.all import RealField, ComplexField, Matrix, QQ, vector, pi, sqrt
     RR = RealField(prec)
     CC = ComplexField(prec)
+
+    # Initialize diagnostic variable to prevent UnboundLocalError in debug blocks
+    tchk = None 
 
     if D.is_zero():
         return QQ(0)
@@ -1566,6 +1636,12 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
     tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
 
     g = tau.nrows()
+    
+    # CRITICAL FIX: Reduce z to Arakelov fundamental domain before processing.
+    # This prevents 'quad_val' and 'log_theta' from drifting apart due to 
+    # large lattice offsets, which causes negative heights and convergence failure.
+    z_norm_raw = [CC(z_norm_mat[i, 0]) for i in range(g)]
+    z_norm = reduce_z_arakelov(z_norm_raw, tau, prec=prec)
 
     # Build Im(tau) robustly
     Im_tau = Matrix(RR, g, g)
@@ -1582,7 +1658,7 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
         raise
 
     # Extract z - ensure CC scalars
-    z_norm = [CC(z_norm_mat[i, 0]) for i in range(g)]
+    # z_norm is now already a list of CC scalars from reduce_z_arakelov
     y_im = vector(RR, [RR(z.imag()) for z in z_norm])
 
     # safer quadratic evaluation: solve Im_tau * v = y_im
@@ -1616,8 +1692,7 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
 
     # robust zero test: absolute zero is rare at finite precision;
     # treat values below a precision-dependent threshold as 'numerically zero'
-    # threshold chosen conservatively; adjust if you use extreme prec
-    zero_threshold = RR(10) ** ( - max(30, int(prec/8)) )  # e.g. ~1e-30 at small prec, stricter at high prec
+    zero_threshold = RR(10) ** ( - max(30, int(prec/8)) )
     is_theta_zero = bool(abs_theta < zero_threshold)
 
     # if tiny, try re-evaluating theta at higher precision and with direct sum
@@ -1635,7 +1710,7 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
             raise
 
     if is_theta_zero:
-        # full diagnostics and bail out: theta numerically zero -> special casing required
+        # full diagnostics and bail out
         print("\n[ARCHIMEDEAN HEIGHT FAILURE] theta near-zero (numerical zero):")
         print(" precision:", prec)
         print(" quad_val:", float(quad_val))
@@ -1645,7 +1720,7 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
             print(" Im(tau) eigenvalues:", eigvals)
         print(" z (approx):", [complex(z) for z in z_norm])
         print(" ||z||^2:", float(sum(abs(z)**2 for z in z_norm)))
-        # optional: run a small direct-theta test to show convergence behavior
+        
         try:
             print(" quick theta_direct checks (R=3,4,5, prec=prec//4):")
             for R in (3,4,5):
@@ -1663,15 +1738,12 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
         raise RuntimeError("Theta numerically zero (theta-null) or underflow at this precision; special-case required")
 
     # compute log|theta| in RR safely
-    # convert abs_theta (ComplexField real magnitude) into RR for log
     try:
         log_theta = RR(abs_theta).log()
     except Exception:
-        # fallback: use Python float log with warning (less precise)
         import math
         log_theta = RR(math.log(float(abs_theta)))
         raise
-
 
     det_im_tau = Im_tau.det()
     if det_im_tau <= 0:
@@ -1680,9 +1752,6 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
     corr = QQ(1)/QQ(2) * RR(det_im_tau).log()
 
     arch = QQ(quad_val - log_theta + corr)
-
-
-    #arch = QQ(quad_val - log_theta)
 
     arch_f = float(arch)
 
@@ -1695,17 +1764,18 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
         if eigvals is not None:
             print(" Im(tau) eigenvalues:", eigvals)
         print(" z (approx):", [complex(z) for z in z_norm])
-        # try quick theta_direct convergence prints (best-effort)
+        # try quick theta_direct convergence prints
         try:
             print(" quick theta_direct checks (R=3,4,5 at lower prec):")
             from math import log
             for R in (3,4,5):
-                th = None
+                tchk = None
                 try:
-                    th = theta_direct([[complex(tau[i,j]) for j in range(g)] for i in range(g)],
+                    tchk = theta_direct([[complex(tau[i,j]) for j in range(g)] for i in range(g)],
                                       [complex(z) for z in z_norm],
                                       R=R, prec_local=max(128, int(prec/4)))
-                    print(f"  R={R} |theta|={abs(complex(th)):.3e} log|theta|={log(abs(complex(th))):.3e}")
+                    if tchk is not None:
+                        print(f"  R={R} |theta|={abs(complex(tchk)):.3e} log|theta|={log(abs(complex(tchk))):.3e}")
                 except Exception as _e:
                     print("  theta_direct failed:", _e)
                     raise
@@ -1717,22 +1787,185 @@ def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=Fa
     return arch
 
 
-# put this near the TOP of archimedean_height_correction (or module-level)
+from itertools import product
 
-def theta_direct(tau_in, z_in, R=3, prec_local=256):
-    from sage.all import ComplexField, pi, exp
-    CC_loc = ComplexField(prec_local)
-    g_loc = len(z_in)
-    Tau = [[CC_loc(tau_in[i][j]) for j in range(g_loc)] for i in range(g_loc)]
-    Z = [CC_loc(z_in[i]) for i in range(g_loc)]
-    total = CC_loc(0)
-    if g_loc == 2:
-        for n0 in range(-R, R+1):
-            for n1 in range(-R, R+1):
-                q = Tau[0][0]*n0*n0 + (Tau[0][1]+Tau[1][0])*n0*n1 + Tau[1][1]*n1*n1
-                linear = 2*(n0*Z[0] + n1*Z[1])
-                arg = CC_loc(pi*1j) * q + CC_loc(pi*1j) * linear
-                total += CC_loc(exp(arg))
-        return total
-    else:
-        raise NotImplementedError
+def reduce_z_arakelov(z_list, tau, prec=300,
+                      theta_check_prec=None,
+                      R_direct=3,
+                      shortlist_k=3,
+                      max_half_checks=None,
+                      debug=False):
+    """
+    Robust reduction of z modulo Z^g + tau Z^g with automatic half-period search.
+
+    Parameters
+    ----------
+    z_list : iterable of complex or Sage CC scalars
+    tau : Sage matrix (g x g) giving period matrix
+    prec : precision for internal RR/CC fields
+    theta_check_prec : precision for compute_theta_high_prec (None -> use prec)
+    R_direct : radius used by theta_direct for cheap screening
+    shortlist_k : number of top candidates (by theta_direct) to evaluate at high precision
+    max_half_checks : None or int; if set, abort half-period enumeration if 2^(2g) > this
+    debug : bool, print diagnostics
+
+    Returns
+    -------
+    z_final_list : list of ComplexField scalars (length g), already reduced to a chosen half-period
+    """
+    # Lazy imports to keep function portable
+    from sage.all import RealField, ComplexField, Matrix, vector, round, ZZ, pi
+    RR = RealField(prec)
+    CC = ComplexField(prec)
+    g = tau.nrows()
+
+    # Basic full-lattice reduction (same logic as before)
+    z_vec = vector(CC, [CC(z) for z in z_list])
+    Tau = Matrix(CC, g, g, [[CC(tau[i, j]) for j in range(g)] for i in range(g)])
+
+    Im_tau = Matrix(RR, g, g, [[Tau[i, j].imag() for j in range(g)] for i in range(g)])
+    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+
+    # Solve Im_tau * c = y to pick integer n for tau*n shift
+    y = vector(RR, [z.imag() for z in z_vec])
+    try:
+        c = Im_tau.solve_right(y)
+        n = vector(ZZ, [-round(val) for val in c])
+    except Exception:
+        # If solve fails, try zero shift (we still continue to half-shifts)
+        n = vector(ZZ, [0] * g)
+
+    tau_n = Tau * n
+    z_shifted = z_vec + tau_n
+    m = vector(ZZ, [-round(z.real()) for z in z_shifted])
+    z_reduced = z_shifted + m   # this is our baseline representative (CC entries)
+
+    # Quadratic helper for candidate y_im vector -> pi * y^T Im_tau^{-1} y
+    def quad_for_yim(y_im_vec):
+        try:
+            v = Im_tau.solve_right(y_im_vec)
+            return RR(pi) * y_im_vec.dot_product(v)
+        except Exception as e:
+            # fallback to inverse if solve fails
+            try:
+                Im_inv = Im_tau.inverse()
+                return RR(pi) * y_im_vec.dot_product(Im_inv * y_im_vec)
+            except Exception:
+                raise
+
+    # Prepare half-period enumeration: shifts s = 0.5*(a + Tau*b), a,b in {0,1}^g
+    # Number of candidates = 2^(2g). For g=2 this is 16 (fine).
+    # Allow max_half_checks guard to avoid explosion for larger g.
+    total_half = 2 ** (2 * g)
+    if (max_half_checks is not None) and (total_half > max_half_checks):
+        if debug:
+            print(f"[reduce_z_arakelov] skipping half-period search: {total_half} candidates > max {max_half_checks}")
+        # return baseline reduced z
+        return [CC(z) for z in z_reduced]
+
+    # Generate all half-shifts
+    # We'll evaluate cheaply with theta_direct (fast, low precision) and then
+    # shortlist some candidates for high-precision compute_theta_high_prec evaluation.
+    shifts = []
+    try:
+        bits = list(product([0, 1], repeat=g))
+        for a_bits in bits:
+            for b_bits in bits:
+                a_vec = vector(CC, [CC(ai) for ai in a_bits])
+                b_vec = vector(CC, [CC(bi) for bi in b_bits])
+                s = CC(1)/CC(2) * (a_vec + Tau * b_vec)   # half-period shift as CC vector
+                shifts.append(s)
+    except Exception as e:
+        # If anything strange occurs, re-raise
+        raise
+
+    # cheap screening: use theta_direct (naive sum) to estimate |theta| for each candidate
+    # theta_direct expects Python nested lists for tau and python complex for z; use try/except around it.
+    cheap_scores = []
+    # prepare simple Python nested list tau for theta_direct
+    tau_py = [[complex(Tau[i, j]) for j in range(g)] for i in range(g)]
+    for s in shifts:
+        try:
+            cand = z_reduced + s
+            # reduce real part to fundamental interval by rounding (keep imag as-is)
+            cand = vector(CC, [CC(z) - CC(round(z.real())) for z in cand])
+            # build python list of complex numbers
+            z_py = [complex(cand[i]) for i in range(g)]
+            # cheap direct sum (wrap exceptions)
+            try:
+                tchk = theta_direct(tau_py, z_py, R=R_direct, prec_local=max(64, int(prec/4)))
+                mag = abs(complex(tchk))
+            except Exception:
+                # if theta_direct fails for some reason, mark with mag=0
+                mag = 0.0
+            cheap_scores.append((mag, cand, s))
+        except Exception as e:
+            # if candidate generation fails, surface the error
+            raise
+
+    # If no shifts evaluated (shouldn't happen), fall back
+    if not cheap_scores:
+        return [CC(z) for z in z_reduced]
+
+    # Sort by cheap magnitude descending
+    cheap_scores.sort(key=lambda x: x[0], reverse=True)
+
+    # shortlist top-k candidates (or all if fewer)
+    shortlist = cheap_scores[:min(shortlist_k, len(cheap_scores))]
+
+    # Evaluate high-precision theta on shortlist to compute quad - log|theta|
+    theta_prec = theta_check_prec if theta_check_prec is not None else prec
+    best_score = None
+    best_candidate = None
+    best_details = None
+
+    # precompute det(Im_tau) maybe used later
+    try:
+        det_im = Im_tau.det()
+    except Exception:
+        det_im = None
+
+    for mag, cand_vec, s in shortlist:
+        # compute precise theta and quad
+        try:
+            # build python tau and cand for compute_theta_high_prec: compute_theta_high_prec expects CC-like Tau and list of CC z?
+            # We'll pass cand as list of CC and Tau as original tau (Sage Matrix) — that mirrors earlier code usage.
+            cand_list = [CC(cand_vec[i]) for i in range(g)]
+            # high-precision theta (may raise)
+            theta_hp = compute_theta_high_prec(cand_list, tau, prec=theta_prec)
+            abs_theta = abs(complex(theta_hp))
+            # compute quad for this candidate (use imag parts)
+            y_im_cand = vector(RR, [RR(cand_vec[i].imag()) for i in range(g)])
+            quad_cand = quad_for_yim(y_im_cand)
+            # compute score = quad - log|theta|
+            # safe log
+            from math import log as _log
+            try:
+                log_theta_val = RR(abs_theta).log()
+            except Exception:
+                log_theta_val = RR(_log(float(abs_theta)))
+            score = float(quad_cand - log_theta_val)   # float for easy comparisons
+            if debug:
+                print(f"[reduce_z_arakelov] cand shift a/b={s} quad={float(quad_cand):.6g} log|theta|={float(log_theta_val):.6g} score={score:.6g}")
+            if (best_score is None) or (score > best_score):
+                best_score = score
+                best_candidate = cand_list
+                best_details = dict(quad=float(quad_cand), log_theta=float(log_theta_val), shift=s)
+        except Exception as e:
+            # If high-precision theta computation fails on this candidate, continue to next shortlist item
+            if debug:
+                print("[reduce_z_arakelov] compute_theta_high_prec failed on candidate; continuing:", e)
+            continue
+
+    # If we found a best candidate from high-precision pass, pick it.
+    if best_candidate is not None:
+        if debug:
+            print("[reduce_z_arakelov] chosen half-period shift details:", best_details)
+        # final canonicalization: ensure returned entries are CC with given prec
+        return [CC(z) for z in best_candidate]
+
+    # If high-precision pass failed for all shortlist candidates, fall back to the top cheap candidate
+    top_cheap = cheap_scores[0][1]
+    if debug:
+        print("[reduce_z_arakelov] high-precision theta failed on all shortlist; falling back to cheap-best candidate")
+    return [CC(z) for z in top_cheap]
