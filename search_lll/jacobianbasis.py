@@ -332,7 +332,6 @@ def arakelov_canonical_height(D, f_coeffs, prec=300, use_finite_places=True):
     h_can_f = float(h_can)   # convert for quick numeric tests
     if h_can_f < -_tol_large_neg:
         # Raise with diagnostics so the failure can be investigated (don't silently hide)
-        print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=True)
         raise RuntimeError(
             "Canonical height negative beyond tolerance: "
             f"h_can={h_can_f:.6g}; "
@@ -1461,58 +1460,6 @@ def normalize_periods_and_z(Omega, z_vec):
     return tau, z_norm
 
 
-def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300):
-    """Archimedean correction for canonical height."""
-    from sage.all import RealField, ComplexField, Matrix, QQ, vector, pi
-    
-    if D.is_zero():
-        return QQ(0)
-    
-    RR = RealField(prec)
-    CC = ComplexField(prec)
-    
-    # Abel-Jacobi
-    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    z_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
-    
-    # Normalize
-    tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
-    
-    g = tau.nrows()
-    
-    # Build Im(tau)
-    Im_tau = Matrix(RR, g, g)
-    for i in range(g):
-        for j in range(g):
-            Im_tau[i, j] = RR(CC(tau[i, j]).imag())
-    
-    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
-    Im_tau_inv = Im_tau.inverse()
-    
-    # Extract z - the elements should NOW be scalars
-    z_norm = []
-    for i in range(g):
-        elem = z_norm_mat[i, 0]
-        z_norm.append(CC(elem))
-    
-    # Imaginary part vector
-    y_im = vector(RR, [RR(z.imag()) for z in z_norm])
-    
-    # Quadratic term
-    quad_val = RR(pi) * y_im.dot_product(Im_tau_inv * y_im)
-    
-    # Theta
-    theta_val = compute_theta_high_prec(z_norm, tau, prec=prec)
-    abs_theta = abs(CC(theta_val))
-    
-    if abs_theta == 0:
-        raise ValueError("Theta vanishes")
-    
-    log_theta = RR(abs_theta).log()
-    
-    return QQ(quad_val - log_theta)
-
-
 def make_matrix_numerically_positive_definite(G, tol=1e-20):
     """
     Ensure a symmetric matrix is numerically positive definite by clipping eigenvalues.
@@ -1600,3 +1547,192 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
     return dict(prec=prec, tau=Tau, ImTau=ImTau, ImTau_eigs=eigs, z=Z, z_norm=z_norm,
                 quad_val=CC(quad_val), log_theta=CC(log_theta),
                 arch = CC(quad_val - log_theta))
+
+
+def archimedean_height_correction(D, f_coeffs, period_matrix, prec=300, debug=False):
+    """Archimedean correction for canonical height with robust diagnostics."""
+    from sage.all import RealField, ComplexField, Matrix, QQ, vector, pi, sqrt
+    RR = RealField(prec)
+    CC = ComplexField(prec)
+
+    if D.is_zero():
+        return QQ(0)
+
+    # Abel-Jacobi
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    z_vec = abel_jacobi_mumford(D, f_coeffs, base_point=base_point, prec=prec)
+
+    # Normalize
+    tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
+
+    g = tau.nrows()
+
+    # Build Im(tau) robustly
+    Im_tau = Matrix(RR, g, g)
+    for i in range(g):
+        for j in range(g):
+            Im_tau[i, j] = RR(CC(tau[i, j]).imag())
+    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+
+    # check PD / conditioning
+    try:
+        eigvals = [float(e) for e in Im_tau.eigenvalues()]
+    except Exception:
+        eigvals = None
+        raise
+
+    # Extract z - ensure CC scalars
+    z_norm = [CC(z_norm_mat[i, 0]) for i in range(g)]
+    y_im = vector(RR, [RR(z.imag()) for z in z_norm])
+
+    # safer quadratic evaluation: solve Im_tau * v = y_im
+    try:
+        v = Im_tau.solve_right(y_im)
+        quad_val = RR(pi) * y_im.dot_product(v)
+    except Exception as e:
+        # fallback: try inverse (but warn)
+        try:
+            Im_tau_inv = Im_tau.inverse()
+            quad_val = RR(pi) * y_im.dot_product(Im_tau_inv * y_im)
+        except Exception as e2:
+            print("[ARCH DIAG] Im(tau) linear solve failed:", e, e2)
+            raise RuntimeError("Im(tau) not invertible / ill-conditioned")
+        raise
+
+    # theta computation: attempt primary routine, but be defensive
+    try:
+        theta_val = compute_theta_high_prec(z_norm, tau, prec=prec)
+    except Exception as e:
+        # try again at higher precision, but print diagnostics first
+        print("[ARCH DIAG] compute_theta_high_prec failed at prec", prec, ":", e)
+        # quick diagnostic print
+        print("[ARCH DIAG] tau (approx):")
+        for i in range(g):
+            print("  ", [complex(CC(tau[i, j])) for j in range(g)])
+        print("[ARCH DIAG] z_norm (approx):", [complex(z) for z in z_norm])
+        raise
+
+    abs_theta = abs(CC(theta_val))
+
+    # robust zero test: absolute zero is rare at finite precision;
+    # treat values below a precision-dependent threshold as 'numerically zero'
+    # threshold chosen conservatively; adjust if you use extreme prec
+    zero_threshold = RR(10) ** ( - max(30, int(prec/8)) )  # e.g. ~1e-30 at small prec, stricter at high prec
+    is_theta_zero = bool(abs_theta < zero_threshold)
+
+    # if tiny, try re-evaluating theta at higher precision and with direct sum
+    if is_theta_zero and debug:
+        print("[ARCH DIAG] theta magnitude below threshold; trying reconfirmation.")
+        print("  prec:", prec, "abs(theta) ~", abs_theta, "threshold:", zero_threshold)
+        # Try compute_theta_high_prec at doubled precision (best-effort)
+        try:
+            theta_hi = compute_theta_high_prec(z_norm, tau, prec=max(prec*2, 1024))
+            print("  re-eval at higher prec succeeded; |theta| ~", float(abs(CC(theta_hi))))
+            abs_theta = abs(CC(theta_hi))
+            is_theta_zero = bool(abs_theta < zero_threshold)
+        except Exception as _ex:
+            print("  re-eval at higher precision failed:", _ex)
+            raise
+
+    if is_theta_zero:
+        # full diagnostics and bail out: theta numerically zero -> special casing required
+        print("\n[ARCHIMEDEAN HEIGHT FAILURE] theta near-zero (numerical zero):")
+        print(" precision:", prec)
+        print(" quad_val:", float(quad_val))
+        print(" |theta| (approx):", float(abs_theta))
+        print(" zero_threshold:", float(zero_threshold))
+        if eigvals is not None:
+            print(" Im(tau) eigenvalues:", eigvals)
+        print(" z (approx):", [complex(z) for z in z_norm])
+        print(" ||z||^2:", float(sum(abs(z)**2 for z in z_norm)))
+        # optional: run a small direct-theta test to show convergence behavior
+        try:
+            print(" quick theta_direct checks (R=3,4,5, prec=prec//4):")
+            for R in (3,4,5):
+                try:
+                    tchk = theta_direct([[complex(tau[i,j]) for j in range(g)] for i in range(g)],
+                                        [complex(z) for z in z_norm],
+                                        R=R, prec_local=max(128, int(prec/4)))
+                    print("  R=",R," |theta|~", abs(complex(tchk)))
+                except Exception as _e:
+                    print("  theta_direct failed:", _e)
+                    raise
+        except Exception:
+            raise
+
+        raise RuntimeError("Theta numerically zero (theta-null) or underflow at this precision; special-case required")
+
+    # compute log|theta| in RR safely
+    # convert abs_theta (ComplexField real magnitude) into RR for log
+    try:
+        log_theta = RR(abs_theta).log()
+    except Exception:
+        # fallback: use Python float log with warning (less precise)
+        import math
+        log_theta = RR(math.log(float(abs_theta)))
+        raise
+
+
+    det_im_tau = Im_tau.det()
+    if det_im_tau <= 0:
+        raise RuntimeError("Im(tau) determinant non-positive")
+
+    corr = QQ(1)/QQ(2) * RR(det_im_tau).log()
+
+    arch = QQ(quad_val - log_theta + corr)
+
+
+    #arch = QQ(quad_val - log_theta)
+
+    arch_f = float(arch)
+
+    # final negative check (defensive)
+    if arch_f < -1e-6:
+        print("\n[ARCHIMEDEAN HEIGHT FAILURE] negative archimedean contribution")
+        print(" precision:", prec)
+        print(" quad_val:", float(quad_val))
+        print(" log|theta|:", float(log_theta))
+        if eigvals is not None:
+            print(" Im(tau) eigenvalues:", eigvals)
+        print(" z (approx):", [complex(z) for z in z_norm])
+        # try quick theta_direct convergence prints (best-effort)
+        try:
+            print(" quick theta_direct checks (R=3,4,5 at lower prec):")
+            from math import log
+            for R in (3,4,5):
+                th = None
+                try:
+                    th = theta_direct([[complex(tau[i,j]) for j in range(g)] for i in range(g)],
+                                      [complex(z) for z in z_norm],
+                                      R=R, prec_local=max(128, int(prec/4)))
+                    print(f"  R={R} |theta|={abs(complex(th)):.3e} log|theta|={log(abs(complex(th))):.3e}")
+                except Exception as _e:
+                    print("  theta_direct failed:", _e)
+                    raise
+        except Exception:
+            raise
+
+        raise RuntimeError("Archimedean height negative beyond tolerance — see diagnostics above")
+
+    return arch
+
+
+# put this near the TOP of archimedean_height_correction (or module-level)
+
+def theta_direct(tau_in, z_in, R=3, prec_local=256):
+    from sage.all import ComplexField, pi, exp
+    CC_loc = ComplexField(prec_local)
+    g_loc = len(z_in)
+    Tau = [[CC_loc(tau_in[i][j]) for j in range(g_loc)] for i in range(g_loc)]
+    Z = [CC_loc(z_in[i]) for i in range(g_loc)]
+    total = CC_loc(0)
+    if g_loc == 2:
+        for n0 in range(-R, R+1):
+            for n1 in range(-R, R+1):
+                q = Tau[0][0]*n0*n0 + (Tau[0][1]+Tau[1][0])*n0*n1 + Tau[1][1]*n1*n1
+                linear = 2*(n0*Z[0] + n1*Z[1])
+                arg = CC_loc(pi*1j) * q + CC_loc(pi*1j) * linear
+                total += CC_loc(exp(arg))
+        return total
+    else:
+        raise NotImplementedError

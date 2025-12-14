@@ -13,7 +13,7 @@ found 1 / 4
 shifted G poly1: 4*x^5 - 4*x^4 - 36*x^3 + 5*x^2 + 96*x + 64
 --- Building 1 Step Fibration Tower (deg 5 -> 4) ---
 --- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=13.4)
+  [Step 1] Selected best geometry (Score=12.9)
 r_m -m - 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -106,7 +106,7 @@ DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1,
 [bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.17s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.19s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 30 primes -> avg_roots=0.7333, patterns_sample=[(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 2), (11, 1), (13, 1), (17, 1), (19, 1), (23, 1), (29, 1)]
@@ -115,8 +115,8 @@ DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1,
 
 DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (3, 5), (4, 4), (6,), (8,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=42, avg_survivors≈6.12e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈6.12e-06
+[empirical_pool] start pool size=42, avg_survivors≈1.6e-05, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈1.6e-05
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.12, avg_density=0.1193 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -131,12 +131,267 @@ DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1,
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1087
+  NUM_PRIME_SUBSETS: 1085
   PRIME_POOL size: 42
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1087, PRIME_POOL size=42, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1085, PRIME_POOL size=42, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 42
 [bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
 [bounds] mod 3 factorization: [6] -> pattern (6,)
+[bounds] mod 5 factorization: [8] -> pattern (8,)
+[bounds] mod 7 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 11 factorization: [1, 1, 5] -> pattern (1, 1, 5)
+[bounds] mod 13 factorization: [8] -> pattern (8,)
+[bounds] mod 17 factorization: [4, 4] -> pattern (4, 4)
+[bounds] mod 19 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 23 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 29 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 31 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 37 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 41 factorization: [1, 1, 1, 1, 1, 3] -> pattern (1, 1, 1, 1, 1, 3)
+[bounds] mod 43 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 47 factorization: [8] -> pattern (8,)
+[bounds] mod 53 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 59 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 61 factorization: [1, 2, 4] -> pattern (1, 2, 4)
+[bounds] mod 67 factorization: [8] -> pattern (8,)
+[bounds] mod 71 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 73 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 79 factorization: [8] -> pattern (8,)
+[bounds] mod 83 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 89 factorization: [1, 3, 3] -> pattern (1, 3, 3)
+[bounds] mod 97 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 101 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 103 factorization: [2, 3, 3] -> pattern (2, 3, 3)
+[bounds] mod 107 factorization: [8] -> pattern (8,)
+[bounds] mod 109 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 113 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 127 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 131 factorization: [8] -> pattern (8,)
+[bounds] mod 137 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 139 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 149 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 151 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 157 factorization: [8] -> pattern (8,)
+[bounds] mod 163 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 167 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 173 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] mod 179 factorization: [2, 6] -> pattern (2, 6)
+[bounds] mod 181 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] Unique patterns from 41 primes: [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (6,), (8,)]
+[bounds] Estimated splitting field degree: 840
+
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 2, 5), (1, 3, 3), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (2, 6), (3, 5), (4, 4), (6,), (8,)], 'num_primes_tested': 41}
+
+[bounds] Diagnostics: {'discriminant': 560907017974976351952335975752229601559397744267853169097359975601422414953615191133700403146129919705088, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[bounds] is_good_prime_for_surface rejected 2
+[bounds] is_good_prime_for_surface rejected 3
+[prime_pool] Final pool has 40 primes up to 181
+=== Fibration Summary ===
+Data points: ((-1, 1),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (8*m + 24)*x^4 + (4*m^2 + 32*m + 76)*x^3 + (12*m^2 + 48*m + 35)*x^2 + y^2 + (12*m^2 + 32*m - 76)*x + (4*m^2 + 8*m - 60)
+Defining polynomial f: (8*m + 24)*x^4 + (4*m^2 + 32*m + 76)*x^3 + (12*m^2 + 48*m + 35)*x^2 + y^2 + (12*m^2 + 32*m - 76)*x + (4*m^2 + 8*m - 60)
+Discriminant of f: (-32*m - 96)*x^4 + (-16*m^2 - 128*m - 304)*x^3 + (-48*m^2 - 192*m - 140)*x^2 + (-48*m^2 - 128*m + 304)*x + (-16*m^2 - 32*m + 240)
+Weierstrass discriminant: -110592*m^8 + 806912*m^6 - 12042240*m^5 - 20631552*m^4 + 46702592*m^3 - 37351424*m^2 + 236462080*m + 1070538752
+Weierstrass model coefficients:
+  a4(m): -56*m^2 + 32*m - 1273/3
+  a6(m): 16*m^4 + 2264/3*m^2 - 1568/3*m + 80282/27
+P1: (-1, 1)
+
+--- Geometric Validation ---
+Delta: -110592*m^8 + 806912*m^6 - 12042240*m^5 - 20631552*m^4 + 46702592*m^3 - 37351424*m^2 + 236462080*m + 1070538752
+  Effective Discriminant Degree: 8
+  Weierstrass scaling exponent (n) used: 0
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
+--------------------------
+=========================
+
+--- Searching for CM Fibers ---
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: set()
+
+--- DEBUGGING POINT CONSTRUCTION ---
+Attempting to create point for (x,y) = (-1, 1)
+Curve: Elliptic Curve defined by y^2 = x^3 + (-56*m^2+32*m-1273/3)*x + (16*m^4+2264/3*m^2-1568/3*m+80282/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+
+Point Coordinates (X_aff, Y_aff, Z_aff):
+X_aff: 49/3
+Y_aff: (-4*m^2 + 20)
+Z_aff: 1
+
+Equation Check:
+LHS (Y^2*Z): (16*m^4 - 160*m^2 + 400)
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (16*m^4 - 160*m^2 + 400)
+
+Difference (LHS - RHS): 0
+✅ Algebraic identity holds.
+--- END DEBUGGING ---
+section weierstrass coordinates: (49/3 : -4*m^2 + 20 : 1)
+Canonical height pairing matrix determinant = 3/2
+Sections are independent.
+
+--- Search Iteration 0 with 1 sections ---
+Canonical height pairing matrix determinant = 3/2
+Sections are independent.
+Height Pairing Matrix H:
+ [3/2]
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.00s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 20 primes -> avg_roots=0.95, patterns_sample=[(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3)]
+[residue_counts] sample: [(5, 1), (7, 2), (11, 1), (13, 1), (17, 1), (19, 1), (23, 1), (29, 1), (31, 0), (37, 2)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 0.95}
+[bounds] mod 5 factorization: [8] -> pattern (8,)
+[bounds] mod 7 factorization: [1, 7] -> pattern (1, 7)
+[bounds] mod 11 factorization: [1, 1, 5] -> pattern (1, 1, 5)
+[bounds] mod 13 factorization: [8] -> pattern (8,)
+[bounds] mod 17 factorization: [4, 4] -> pattern (4, 4)
+[bounds] mod 19 factorization: [1, 2, 2, 3] -> pattern (1, 2, 2, 3)
+[bounds] mod 23 factorization: [1, 1, 2, 4] -> pattern (1, 1, 2, 4)
+[bounds] mod 29 factorization: [1, 1, 3, 3] -> pattern (1, 1, 3, 3)
+[bounds] mod 31 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] mod 37 factorization: [1, 1, 6] -> pattern (1, 1, 6)
+[bounds] mod 41 factorization: [1, 1, 1, 1, 1, 3] -> pattern (1, 1, 1, 1, 1, 3)
+[bounds] mod 43 factorization: [2, 2, 4] -> pattern (2, 2, 4)
+[bounds] mod 47 factorization: [8] -> pattern (8,)
+[bounds] mod 53 factorization: [3, 5] -> pattern (3, 5)
+[bounds] mod 59 factorization: [1, 3, 4] -> pattern (1, 3, 4)
+[bounds] Unique patterns from 15 primes: [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 3, 4), (1, 7), (2, 2, 4), (3, 5), (4, 4), (8,)]
+[bounds] Estimated splitting field degree: 840
+
+DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 3, 4), (1, 7), (2, 2, 4), (3, 5), (4, 4), (8,)], 'num_primes_tested': 15}
+
+height bound: 473
+Searching 17 vectors up to height 473...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
+[prepare_modular_data_lll] skip p=3: a4 numerator has coeff with denom divisible by p
+
+[prepare_modular_data_lll] Rejected 2 primes:
+  p=2: singular_discriminant
+  p=3: a4_denom_divisible
+[mumford] Generating tasks for 40 primes...
+[mumford] Residue computation took 3.35s
+
+======================================================================
+MUMFORD RECONSTRUCTION PHASE
+======================================================================
+
+=== EARLY ALGEBRAIC FILTERING (per prime) ===
+
+Algebraic pre-filter: 50,732 → 50,732 (1.0x reduction)
+Grouped into 17 vectors, 286 (vector,x-residue) pairs
+  Vector group: 3 primes, avg 35.3 sols/prime
+  Raw combinations: 36,960
+  Adaptive limit: 36,960 (total combos: 36,960)
+  Vector group: 2 primes, avg 255.0 sols/prime
+  Raw combinations: 41,000
+  Adaptive limit: 41,000 (total combos: 41,000)
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 22,800
+  Adaptive limit: 22,800 (total combos: 22,800)
+  Vector group: 2 primes, avg 139.0 sols/prime
+  Raw combinations: 16,072
+  Adaptive limit: 16,072 (total combos: 16,072)
+  Vector group: 2 primes, avg 204.0 sols/prime
+  Raw combinations: 26,732
+  Adaptive limit: 26,732 (total combos: 26,732)
+  Vector group: 2 primes, avg 216.0 sols/prime
+  Raw combinations: 46,400
+  Adaptive limit: 46,400 (total combos: 46,400)
+  Vector group: 2 primes, avg 210.0 sols/prime
+  Raw combinations: 43,904
+  Adaptive limit: 43,904 (total combos: 43,904)
+  Vector group: 2 primes, avg 187.0 sols/prime
+  Raw combinations: 20,808
+  Adaptive limit: 20,808 (total combos: 20,808)
+  Vector group: 2 primes, avg 119.0 sols/prime
+  Raw combinations: 12,792
+  Adaptive limit: 12,792 (total combos: 12,792)
+  Accepting 2-prime group: 90,432 combos (rare divisor)
+  Vector group: 2 primes, avg 301.0 sols/prime
+  Raw combinations: 90,432
+  Adaptive limit: 90,432 (total combos: 90,432)
+  Accepting 2-prime group: 61,544 combos (rare divisor)
+  Vector group: 2 primes, avg 255.0 sols/prime
+  Raw combinations: 61,544
+  Adaptive limit: 61,544 (total combos: 61,544)
+  Vector group: 2 primes, avg 186.0 sols/prime
+  Raw combinations: 23,780
+  Adaptive limit: 23,780 (total combos: 23,780)
+  Vector group: 2 primes, avg 138.0 sols/prime
+  Raw combinations: 15,680
+  Adaptive limit: 15,680 (total combos: 15,680)
+
+  Batched parallel processing: 31 groups, 505,226 total combos
+  Using 20 workers
+  Created 121 batches for parallel processing
+
+=== RECONSTRUCTION SUMMARY ===
+  Combinations tried: 505,226
+  Groups skipped (2-prime): 0
+  Groups skipped (high density): 0
+  Pre-filtered out: 0
+  Rejected by height: 0
+  Rejected by consistency: 27,742
+  Rejected by algebraic constraint: 477,434
+  Successful reconstructions: 50
+  Unique Rational Points: 3
+  5 of 5 original divisors had rational roots in u(x)
+
+--- Building Independent Mumford Basis ---
+first 10 divisors:
+{'s': 4, 'p': 0, 'v_0': -8, 'v_1': 11, 'vector': (3,), 'has_rational_roots': True}
+{'s': 4, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'has_rational_roots': True}
+{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 9, 'vector': (3,), 'has_rational_roots': True}
+{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'has_rational_roots': True}
+{'s': 0, 'p': 0, 'v_0': 8, 'v_1': 6, 'vector': (3,), 'has_rational_roots': True}
+[basis] Using Arakelov heights for basis construction
+Polynomial degree: 5, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.718814e-01
+Im(tau) eigenvalues: [0.5308371826314501, 1.4570232226040525]
+Im(tau) eigenvalues: [0.5308371826314501, 1.4570232226040525]
+
+[arakelov] Building basis from 5 divisors
+[arakelov] Using precision: 2048 bits
+[arakelov] Parallelization: 20 workers
+[arakelov] Pre-computing heights for 5 candidates...
+
+[ARCHIMEDEAN HEIGHT FAILURE] negative archimedean contribution
+ precision: 2048
+ quad_val: 0.6938303796440122
+ log|theta|: 0.7094502385563843
+ Im(tau) eigenvalues: [1.4570232226040525, 0.5308371826314499]
+ z (approx): [(0.019648707386544197+0.25598251493536595j), (-0.17728385228590535-0.29885072552363284j)]
+ quick theta_direct checks (R=3,4,5 at lower prec):
+  R=3 |theta|=2.033e+00 log|theta|=7.095e-01
+  R=4 |theta|=2.033e+00 log|theta|=7.095e-01
+  R=5 |theta|=2.033e+00 log|theta|=7.095e-01
+[basis] Attempt 1 failed with prec=2048, retrying with prec=4096
+Basis construction failed: Height computation failed
+Divisor: (x^2, y - 6*x - 8)
+Exception type: RuntimeError
+Message: Archimedean height negative beyond tolerance — see diagnostics above
+
+[mumford detailed timers]
+  crt_reconstruction_loop                 :    4.124s ( 89.7%)
+  algebraic_prefiltering                  :    0.471s ( 10.2%)
+  canonicalization                        :    0.002s (  0.0%)
+  residue_grouping                        :    0.001s (  0.0%)
+  rational_root_check                     :    0.000s (  0.0%)
+  TOTAL                                   :    4.598s
