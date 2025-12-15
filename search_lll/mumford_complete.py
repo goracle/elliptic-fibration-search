@@ -25,6 +25,7 @@ except ImportError:
     ARAKELOV_AVAILABLE = False
     print("[mumford] Warning: arakelov.py not available, using fallback methods")
 assert ARAKELOV_AVAILABLE
+from .smoothness import *
 
 # mumford_complete.py
 #
@@ -1906,6 +1907,15 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
     Args:
         num_doublings: Number of doubling iterations (only used for fallback method)
     """
+    # run the smoothness tests
+    p_test = 2_000_003  # large random-ish prime
+
+    diagnostic_x_root_distribution(all_divisors, p_test)
+    diagnostic_section_collapse(all_divisors)
+    diagnostic_smoothness_proxy(all_divisors, p_test)
+    diagnostic_factor_base_saturation(all_divisors, p_test)
+    diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+
     if len(all_divisors) > MAX_BASIS_CANDIDATES:
         all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
         print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
