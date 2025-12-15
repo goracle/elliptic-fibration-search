@@ -9,7 +9,7 @@ from .ll_utilities import *
 from .search_analysis import *
 from .search_main import *
 from .diagnostics_univariate import *
-from .mumford_complete import *
+from . import mumford
 from .homology import *
 
 # Expose main execution functions

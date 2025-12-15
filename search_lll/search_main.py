@@ -10,7 +10,7 @@ from .modularthread import _batch_check_rationality
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
-from .mumford_complete import *
+from .mumford import *
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):

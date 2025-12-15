@@ -1,6 +1,6 @@
 from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField
 from .mumford_height import compute_height_pairing_exact, naive_height_exact
-from .arakelov import arakelov_build_basis_with_heights, arakelov_height_pairing, clear_period_cache
+from ..arakelov import arakelov_build_basis_with_heights, arakelov_height_pairing, clear_period_cache
 from .mumford_core import _poly_from_coeffs_qq
 
 

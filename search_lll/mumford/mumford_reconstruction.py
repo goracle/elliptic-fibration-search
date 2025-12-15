@@ -1,5 +1,6 @@
 from sage.all import QQ, ZZ
-from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+#from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from .mumford_verification import verify_mumford_pair, canonicalize_and_dedup, discriminant_has_nonqr_s_p
 from itertools import product, islice
 import time
