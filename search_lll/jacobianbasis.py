@@ -1340,51 +1340,6 @@ def normalize_periods_and_z(Omega, z_vec):
     return tau, z_norm
 
 
-def make_matrix_numerically_positive_definite(G, tol=1e-20):
-    """
-    Ensure a symmetric matrix is numerically positive definite by clipping eigenvalues.
-    
-    Parameters
-    ----------
-    G : Sage Matrix (RealField or similar)
-        Symmetric matrix that should be positive definite
-    tol : float or Sage real
-        Minimum eigenvalue threshold
-    
-    Returns
-    -------
-    G_fixed : Sage Matrix
-        Positive definite version of G
-    """
-    from sage.all import Matrix, diagonal_matrix
-    import numpy as np
-    
-    # Convert to numpy for eigendecomposition
-    n = G.nrows()
-    G_np = np.array([[float(G[i,j]) for j in range(n)] for i in range(n)], dtype=float)
-    
-    # Symmetrize to avoid numerical asymmetry
-    G_np = 0.5 * (G_np + G_np.T)
-    
-    # Eigendecomposition
-    eigvals, eigvecs = np.linalg.eigh(G_np)
-    
-    # Clip eigenvalues to minimum threshold
-    eigvals_clipped = np.maximum(eigvals, float(tol))
-    
-    # Reconstruct: G = V * Lambda * V^T
-    G_fixed_np = eigvecs @ np.diag(eigvals_clipped) @ eigvecs.T
-    
-    # Convert back to Sage matrix
-    base_ring = G.base_ring()
-    G_fixed = Matrix(base_ring, n, n)
-    for i in range(n):
-        for j in range(n):
-            G_fixed[i,j] = base_ring(G_fixed_np[i,j])
-    
-    return G_fixed
-
-
 from sage.all import ComplexField, RealField, Matrix, vector, sqrt, pi, QQ
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
@@ -1592,64 +1547,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False):
 
     assert best_z is not None
     return [CC(best_z[i]) for i in range(g)]
-
-
-def arakelov_canonical_height(div, f_coeffs, prec=300, use_finite_places=True):
-    """
-    Proper canonical height using the Second Difference Method.
-    Archimedean contribution is computed ONCE and reused consistently.
-    """
-    from .homology import get_period_matrix_auto_B
-    from sage.all import QQ
-
-    if div.is_zero():
-        return QQ(0)
-
-    # Pre-fetch period matrix once
-    period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-
-    # Compute archimedean height ONCE
-    h_arch = archimedean_height_correction(
-        div, f_coeffs, period_matrix, prec=prec
-    )
-
-    # Quasi-heights using fixed archimedean input
-    h1 = arakelov_quasi_height(
-        div, f_coeffs, period_matrix, prec,
-        use_finite_places,
-        arch_override=h_arch
-    )
-
-    div2 = div + div
-    if div2.is_zero():
-        h2 = QQ(0)
-    else:
-        h2 = arakelov_quasi_height(
-            div2, f_coeffs, period_matrix, prec,
-            use_finite_places,
-            arch_override=QQ(2) * h_arch
-        )
-
-    div3 = div2 + div
-    if div3.is_zero():
-        h3 = QQ(0)
-    else:
-        h3 = arakelov_quasi_height(
-            div3, f_coeffs, period_matrix, prec,
-            use_finite_places,
-            arch_override=QQ(3) * h_arch
-        )
-
-    h_can = (h3 + h1 - QQ(2) * h2) / QQ(2)
-
-    # Canonical height MUST be non-negative
-    if h_can < 0:
-        raise RuntimeError(
-            "Canonical height negative — invariant violation: "
-            f"h_can={h_can}; divisor={div}; prec={prec}"
-        )
-
-    return h_can
 
 
 def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
