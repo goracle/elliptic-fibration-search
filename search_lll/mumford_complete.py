@@ -47,6 +47,9 @@ RECON_EXPONENT = 0.55   # try 0.55 - 0.6 if 0.45 is too strict; lower to 0.45 if
 MIN_SUCCESS_PRIMES = 3  # keep 3 as default; you can lower to 2 if necessary but be conservative
 
 
+MAX_BASIS_CANDIDATES = 6  # 2g + a little slack
+
+
 def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
     """
     Reduce polynomial modulo u(x) = x^2 - s*x + p.
@@ -1903,6 +1906,11 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DO
     Args:
         num_doublings: Number of doubling iterations (only used for fallback method)
     """
+    if len(all_divisors) > MAX_BASIS_CANDIDATES:
+        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
+        print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
+
+
     if ARAKELOV_AVAILABLE:
         if debug:
             print("[basis] Using Arakelov heights for basis construction")
@@ -1945,7 +1953,10 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
     """
     if not all_divisors:
         return [], 0, None
-    
+    if len(all_divisors) > MAX_BASIS_CANDIDATES:
+        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
+        print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
+
     print(f"\n[basis] Starting with {len(all_divisors)} total divisors")
     print(f"[basis] Using {num_doublings} doublings for height pairing approximation")
     

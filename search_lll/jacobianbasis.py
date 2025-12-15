@@ -1780,6 +1780,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
     # Attempt + one automatic retry if unstable
     attempt = 0
+
     while attempt <= MAX_RETRIES:
         mu_val, reason = _attempt(padic_prec, num_doublings)
         if mu_val is not None:
@@ -1787,15 +1788,19 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             return mu_val
 
         # if we get here, the attempt failed for reason -> try a safer retry if possible
-        warnings.warn(f"[local_height_correction_finite] instability at p={p}; reason={reason}; "
-                      f"padic_prec={padic_prec}; num_doublings={num_doublings}. Retrying with higher precision.", RuntimeWarning)
+
+        if p not in local_height_correction_finite.warned_primes:
+            warnings.warn(f"[local_height_correction_finite] instability at p={p}; reason={reason}; "
+                          f"padic_prec={padic_prec}; num_doublings={num_doublings}. Retrying with higher precision.", RuntimeWarning)
+            local_height_correction_finite.warned_primes.add(p)
 
         # if the failure was due to a ZeroDivisionError, let outer exception handler or caller deal with it
         # (this mirrors your original ZeroDivisionError behavior)
         # Otherwise, increase padic precision and (optionally) num_doublings and retry once.
-        if padic_prec >= MAX_PADIC_PREC:
+        if padic_prec >= MAX_PADIC_PREC and p not in local_height_correction_finite.warned_primes:
             # Give up and return conservative 0.0
             warnings.warn(f"[local_height_correction_finite] giving up on p={p} after padic_prec={padic_prec}. Returning 0.0.", RuntimeWarning)
+            local_height_correction_finite.warned_primes.add(p)
             return 0.0
         # increase precision and doublings for the retry
         padic_prec = min(MAX_PADIC_PREC, padic_prec * 2)
@@ -1803,8 +1808,11 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         attempt += 1
 
     # If all retries exhausted, return conservative 0.0
-    warnings.warn(f"[local_height_correction_finite] all retries exhausted for p={p}. Returning 0.0.", RuntimeWarning)
+    if p not in local_height_correction_finite.warned_primes:
+        warnings.warn(f"[local_height_correction_finite] all retries exhausted for p={p}. Returning 0.0.", RuntimeWarning)
+        local_height_correction_finite.warned_primes.add(p)
     return 0.0
+local_height_correction_finite.warned_primes = set()
 
 
 def make_matrix_numerically_positive_definite(G, tol=1e-20):

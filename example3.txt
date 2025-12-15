@@ -106,7 +106,7 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.13s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.14s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 30 primes -> avg_roots=1.033, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
@@ -115,8 +115,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=42, avg_survivors≈6.17e-06, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈6.17e-06
+[empirical_pool] start pool size=42, avg_survivors≈9.07e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈9.07e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.17, avg_density=0.1184 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -131,10 +131,10 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1086
+  NUM_PRIME_SUBSETS: 1085
   PRIME_POOL size: 42
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1086, PRIME_POOL size=42, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1085, PRIME_POOL size=42, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 42
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -288,7 +288,7 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [mumford] Generating tasks for 38 primes...
-[mumford] Residue computation took 2.10s
+[mumford] Residue computation took 2.13s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -298,27 +298,24 @@ MUMFORD RECONSTRUCTION PHASE
 
 Algebraic pre-filter: 44,247 → 44,247 (1.0x reduction)
 Grouped into 15 vectors, 239 (vector,x-residue) pairs
-  Vector group: 3 primes, avg 100.0 sols/prime
-  Raw combinations: 272,160
-  Adaptive limit: 272,160 (total combos: 272,160)
-  Vector group: 2 primes, avg 122.0 sols/prime
-  Raw combinations: 14,208
-  Adaptive limit: 14,208 (total combos: 14,208)
-  Vector group: 2 primes, avg 236.0 sols/prime
-  Raw combinations: 44,460
-  Adaptive limit: 44,460 (total combos: 44,460)
-  Vector group: 2 primes, avg 230.0 sols/prime
-  Raw combinations: 27,300
-  Adaptive limit: 27,300 (total combos: 27,300)
-  Vector group: 2 primes, avg 140.0 sols/prime
-  Raw combinations: 14,700
-  Adaptive limit: 14,700 (total combos: 14,700)
   Vector group: 2 primes, avg 164.0 sols/prime
   Raw combinations: 20,172
   Adaptive limit: 20,172 (total combos: 20,172)
   Vector group: 2 primes, avg 165.0 sols/prime
   Raw combinations: 22,464
   Adaptive limit: 22,464 (total combos: 22,464)
+  Vector group: 3 primes, avg 100.0 sols/prime
+  Raw combinations: 272,160
+  Adaptive limit: 272,160 (total combos: 272,160)
+  Vector group: 2 primes, avg 125.0 sols/prime
+  Raw combinations: 12,600
+  Adaptive limit: 12,600 (total combos: 12,600)
+  Vector group: 2 primes, avg 230.0 sols/prime
+  Raw combinations: 27,300
+  Adaptive limit: 27,300 (total combos: 27,300)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 14,700
+  Adaptive limit: 14,700 (total combos: 14,700)
   Vector group: 2 primes, avg 111.0 sols/prime
   Raw combinations: 12,200
   Adaptive limit: 12,200 (total combos: 12,200)
@@ -329,9 +326,6 @@ Grouped into 15 vectors, 239 (vector,x-residue) pairs
   Vector group: 2 primes, avg 228.0 sols/prime
   Raw combinations: 51,660
   Adaptive limit: 51,660 (total combos: 51,660)
-  Vector group: 2 primes, avg 125.0 sols/prime
-  Raw combinations: 12,600
-  Adaptive limit: 12,600 (total combos: 12,600)
   Vector group: 2 primes, avg 199.0 sols/prime
   Raw combinations: 33,672
   Adaptive limit: 33,672 (total combos: 33,672)
@@ -342,6 +336,12 @@ Grouped into 15 vectors, 239 (vector,x-residue) pairs
   Vector group: 2 primes, avg 208.0 sols/prime
   Raw combinations: 43,260
   Adaptive limit: 43,260 (total combos: 43,260)
+  Vector group: 2 primes, avg 122.0 sols/prime
+  Raw combinations: 14,208
+  Adaptive limit: 14,208 (total combos: 14,208)
+  Vector group: 2 primes, avg 236.0 sols/prime
+  Raw combinations: 44,460
+  Adaptive limit: 44,460 (total combos: 44,460)
 
   Batched parallel processing: 28 groups, 719,510 total combos
   Using 20 workers
@@ -371,6 +371,7 @@ first 10 divisors:
 {'s': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'vector': (2,), 'has_rational_roots': True}
 {'s': 1, 'p': -2, 'v_0': 17/3, 'v_1': 20/3, 'vector': (2,), 'has_rational_roots': True}
 {'s': 2, 'p': 0, 'v_0': -1, 'v_1': 10, 'vector': (2,), 'has_rational_roots': True}
+[basis] Truncating candidate divisors to 6
 [basis] Using Arakelov heights for basis construction
 Polynomial degree: 6, expected genus: 2
 Using Sage's intersection pairing:
@@ -380,7 +381,7 @@ det(A) magnitude: 8.960912e-01
 Im(tau) eigenvalues: [0.4819303943825598, 1.6103147041453068]
 Im(tau) eigenvalues: [0.4819303943825598, 1.6103147041453068]
 
-[arakelov] Building basis from 28 divisors
+[arakelov] Building basis from 6 divisors
 [arakelov] Using precision: 2048 bits
 [arakelov] Parallelization: 20 workers
-[arakelov] Pre-computing heights for 28 candidates...
+[arakelov] Pre-computing heights for 6 candidates...
