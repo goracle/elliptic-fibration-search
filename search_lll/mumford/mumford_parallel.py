@@ -4,6 +4,19 @@ from tqdm import tqdm
 from .mumford_solver import solve_mumford_mod_p_optimized
 from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_p
 from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
+import time
+import multiprocessing
+import signal
+import sys
+import traceback
+from tqdm import tqdm
+from sage.all import QQ
+from .mumford_solver import solve_mumford_mod_p_optimized
+from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_p
+from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
+from .mumford_timing import mumford_timer_add
+
 
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                                          rhs_modp_list, vecs_list, num_workers=8, debug=False):

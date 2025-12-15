@@ -1,6 +1,7 @@
 from sage.all import QQ, Matrix, RDF
 from fractions import Fraction
 import math
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 
 def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     """

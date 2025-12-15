@@ -1,8 +1,11 @@
+from functools import lru_cache
 from sage.all import QQ, ZZ
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from .mumford_verification import verify_mumford_pair, canonicalize_and_dedup, discriminant_has_nonqr_s_p
 from itertools import product, islice
+from .mumford_timing import mumford_timer_add
+
 import time
 
 def reconstruct_and_verify_mumford(mumford_residues, prime_list, f_coeffs, shift, rationality_test, debug=True):

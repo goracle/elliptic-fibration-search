@@ -1,5 +1,6 @@
 # Needs imports:
 from sage.all import QQ, ZZ, GF, PolynomialRing
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 from .mumford_core import _poly_mod_quad_fast
 
 def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
