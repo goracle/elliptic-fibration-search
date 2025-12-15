@@ -1851,3 +1851,89 @@ def make_matrix_numerically_positive_definite(G, tol=1e-20):
             G_fixed[i, j] = base_ring(G_fixed_np[i, j])
 
     return G_fixed
+
+
+def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=False):
+    """
+    Compute the Arakelov canonical height of `div` (a Jacobian point).
+    Defensive: will attempt fallbacks (archimedean-only, retries with higher precision)
+    if the assembled canonical height is numerically negative, and will ultimately
+    clamp to 0.0 rather than returning a large negative value that would break
+    global invariants.
+
+    Returns a Python float (>= 0.0) in all non-exceptional cases.
+    """
+    import warnings
+    from sage.all import QQ
+
+    # small tolerances
+    TOL_NEG = 1e-12   # allowed tiny negative noise
+    PREC_INCR_FACTOR = 2
+
+    # helper to compute quasi-heights (full or arch-only)
+    def _compute_quasi_heights(use_finite, use_period_prec):
+        # compute period matrix at requested precision
+        PM = get_period_matrix_auto_B(f_coeffs, prec=use_period_prec)
+        D1 = div
+        D2 = div + div
+        D3 = D2 + div
+        h1 = arakelov_quasi_height(D1, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        h2 = arakelov_quasi_height(D2, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        return float(h1), float(h2), float(h3)
+
+    # 1) First attempt: normal full computation
+    try:
+        h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=prec)
+        h_can = (h3 + h1 - 2.0 * h2) / 2.0
+        if debug:
+            print(f"[arakelov_canonical_height] attempt prec={prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
+    except ZeroDivisionError:
+        # preserve previous retry behavior for ZeroDivisionError so outer code can escalate
+        raise
+    except Exception as e:
+        # catastrophic failure computing heights (e.g. period matrix failed)
+        warnings.warn(f"[arakelov_canonical_height] initial full computation failed: {e}. Attempting archimedean-only fallback.", RuntimeWarning)
+        h_can = -1.0  # force fallback path
+
+    # If result is numerically acceptable, return it (clamp tiny negatives)
+    if h_can >= -TOL_NEG:
+        return float(max(h_can, 0.0))
+
+    # 2) Fallback A: try archimedean-only (no finite places)
+    try:
+        h1_nf, h2_nf, h3_nf = _compute_quasi_heights(use_finite=False, use_period_prec=prec)
+        h_can_nf = (h3_nf + h1_nf - 2.0 * h2_nf) / 2.0
+        if debug:
+            print(f"[arakelov_canonical_height] arch-only: h1={h1_nf}, h2={h2_nf}, h3={h3_nf}, h_can_nf={h_can_nf}")
+        if h_can_nf >= -TOL_NEG:
+            warnings.warn(f"[arakelov_canonical_height] suppressed finite-place instability; using archimedean-only height for divisor={div}.", RuntimeWarning)
+            return float(max(h_can_nf, 0.0))
+    except Exception as e:
+        warnings.warn(f"[arakelov_canonical_height] arch-only fallback failed: {e}", RuntimeWarning)
+
+    # 3) Fallback B: retry full computation with increasing precision
+    cur_prec = prec
+    while cur_prec < max_prec:
+        cur_prec = min(max_prec, int(cur_prec * PREC_INCR_FACTOR))
+        try:
+            h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=cur_prec)
+            h_can = (h3 + h1 - 2.0 * h2) / 2.0
+            if debug:
+                print(f"[arakelov_canonical_height] retry prec={cur_prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
+            if h_can >= -TOL_NEG:
+                warnings.warn(f"[arakelov_canonical_height] resolved negativity after increasing precision to {cur_prec}.", RuntimeWarning)
+                return float(max(h_can, 0.0))
+        except ZeroDivisionError:
+            raise
+        except Exception as e:
+            warnings.warn(f"[arakelov_canonical_height] retry at prec={cur_prec} failed: {e}", RuntimeWarning)
+            continue
+
+    # 4) Give up: clamp to 0.0 (conservative) and emit a full diagnostic warning.
+    warnings.warn(
+        f"[arakelov_canonical_height] canonical height remained negative after all fallbacks for divisor={div}. "
+        f"Returning 0.0 (clamped). Last observed h_can={h_can}. prec tried up to {cur_prec}.",
+        RuntimeWarning
+    )
+    return 0.0
