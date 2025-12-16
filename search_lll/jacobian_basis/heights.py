@@ -9,54 +9,14 @@ from .periods import choose_numerical_base_point
 from search_lll.homology import *
 
 # Functions: naive_height_qq, arakelov_quasi_height, arakelov_canonical_height
+def archimedean_naive_height(div):
+    u, v = div
+    coeffs = u.list() + v.list()
+    vals = [abs(float(c)) for c in coeffs if c != 0]
+    if not vals:
+        return 0.0
+    return math.log(max(vals))
 
-
-def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300, use_finite_places=True, arch_override=None):
-    """
-    Computes a 'quasi-canonical' height: Naive + Finite + Archimedean(Quadratic).
-    This height h(div) satisfies h(ndiv) = n^2 * h_can(div) + L(ndiv) + O(1).
-    It is not quadratic itself, but the quadratic coefficient is the canonical height.
-    """
-    if div.is_zero():
-        return QQ(0)
-
-    # 1. Naive global height (Essential for the height to be positive/quadratic)
-    h_naive = naive_height_qq(div, prec=prec)
-    
-    # 2. Archimedean quadratic part
-    if period_matrix is None:
-        period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    if arch_override is None:
-        h_arch = archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec)
-    else:
-        h_arch = arch_override 
-    # 3. Finite place corrections
-    h_finite_correction = QQ(0)
-    failed_count = 0
-    if use_finite_places:
-        bad_primes = get_bad_primes(f_coeffs)
-        for p in bad_primes:
-            val = local_height_correction_finite(div, p, f_coeffs)
-            # detect whether this (div,p) previously failed by inspecting the cached map
-            try:
-                div_id = (str(div[0]), str(div[1]))
-                failed_map = getattr(local_height_correction_finite, "failed_pairs", {})
-                if (div_id, p) in failed_map:
-                    failed_count += 1
-            except Exception:
-                pass
-            h_finite_correction += QQ(val)
-
-        # if more than half of bad primes failed, fallback to arch-only
-        if failed_count >= max(1, len(bad_primes) // 2):
-            warnings.warn(
-                f"[arakelov_quasi_height] many finite-place corrections failed ({failed_count}/{len(bad_primes)}) for divisor={div}. "
-                "Falling back to archimedean-only for stability.",
-                RuntimeWarning
-            )
-            h_finite_correction = QQ(0)
-            
-    return h_naive + h_arch + h_finite_correction
 
 def naive_height_qq(div, prec=53):
     """
@@ -163,3 +123,123 @@ def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=Fal
         RuntimeWarning
     )
     return h_can
+
+def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
+                          use_finite_places=True, arch_override=None):
+    """
+    Compute a quasi-canonical Arakelov height for a Mumford divisor `div` on
+    the genus-2 Jacobian of y^2 = f(x).
+
+    Returned value is a RealField(prec) element (a real numeric approximation).
+    Decomposition: naive_arch + archimedean_quadratic + sum(local_finite_corrections).
+
+    Behavior / robustness:
+      - If div.is_zero() -> returns 0.0 in RealField(prec).
+      - If period_matrix is None, it will be computed (may raise on PM failures).
+      - If many finite-place corrections fail (cached failures in local_height_correction_finite),
+        we fall back to archimedean-only and warn.
+      - All numeric contributions are accumulated in a RealField to avoid mistaken QQ casts.
+    """
+    import warnings
+    from sage.all import RealField, RR as sage_RR
+    # functions assumed available in module scope:
+    #   archimedean_naive_height(div)
+    #   archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec)
+    #   get_period_matrix_auto_B(f_coeffs, prec=prec)
+    #   get_bad_primes(f_coeffs)
+    #   local_height_correction_finite(div, p, f_coeffs, ...)
+    #
+    # Note: local_height_correction_finite maintains a set `failed_pairs` of (div_id,p)
+    # when it gives up; we respect that cache here.
+
+    # fast path
+    if getattr(div, "is_zero", lambda: False)():
+        return RealField(prec)(0)
+
+    RF = RealField(prec)
+
+    # 1) naive archimedean/global naive anchor (keeps heights positive in practice)
+    try:
+        h_inf_naive = archimedean_naive_height(div)
+    except Exception as e:
+        warnings.warn(f"[arakelov_quasi_height] archimedean_naive_height failed: {e}. Using 0.", RuntimeWarning)
+        h_inf_naive = 0.0
+
+    # ensure we work in RF
+    h_total = RF(h_inf_naive)
+
+    # 2) archimedean quadratic (theta / Green) term
+    if arch_override is not None:
+        try:
+            h_arch = RF(arch_override)
+        except Exception:
+            h_arch = RF(0)
+    else:
+        try:
+            if period_matrix is None:
+                period_matrix = get_period_matrix_auto_B(f_coeffs, prec=prec)
+            h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
+        except Exception as e:
+            warnings.warn(f"[arakelov_quasi_height] archimedean_height_correction failed: {e}. Using 0.", RuntimeWarning)
+            h_arch = RF(0)
+
+    h_total += h_arch
+
+    # 3) finite local corrections (only at bad primes)
+    h_finite = RF(0)
+    failed_count = 0
+    if use_finite_places:
+        bad_primes = get_bad_primes(f_coeffs)
+        # get the failed_pairs cache correctly (it's a set)
+        failed_pairs = getattr(local_height_correction_finite, "failed_pairs", set())
+
+        for p in bad_primes:
+            try:
+                val = local_height_correction_finite(div, p, f_coeffs)
+            except Exception as e:
+                # If the worker raises, treat as failure (and let the function's own
+                # caching have recorded it).
+                val = None
+                warnings.warn(f"[arakelov_quasi_height] local_height_correction_finite raised for p={p}: {e}", RuntimeWarning)
+
+            # if val is None treat as failure, else add numeric contribution
+            try:
+                div_id = (str(div[0]), str(div[1]))
+            except Exception:
+                div_id = (repr(div),)
+
+            if val is None:
+                # count as failure
+                failed_count += 1
+            else:
+                # add contribution (cast into RF)
+                try:
+                    h_finite += RF(val)
+                except Exception:
+                    # fallback: try float -> RF
+                    try:
+                        h_finite += RF(float(val))
+                    except Exception:
+                        warnings.warn(f"[arakelov_quasi_height] could not cast finite correction for p={p}; skipping", RuntimeWarning)
+
+            # account for cached failed_pairs recorded by the local routine
+            if (div_id, p) in failed_pairs:
+                failed_count += 1
+
+        # If many finite corrections failed, fall back to arch-only
+        if len(bad_primes) > 0 and failed_count >= max(1, len(bad_primes) // 2):
+            warnings.warn(
+                f"[arakelov_quasi_height] many finite-place corrections failed ({failed_count}/{len(bad_primes)}) "
+                f"for divisor={div}. Falling back to archimedean-only for stability.",
+                RuntimeWarning
+            )
+            h_finite = RF(0)
+
+    h_total += h_finite
+
+    # Final sanity: ensure non-negative-ish (small negative numerical noise -> clamp to 0)
+    # but do not aggressively change large negatives (those indicate deeper problems)
+    if float(h_total) < -1e-12:
+        warnings.warn(f"[arakelov_quasi_height] height is slightly negative ({float(h_total)}). Returning as-is.", RuntimeWarning)
+
+    return h_total

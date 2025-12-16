@@ -14,6 +14,8 @@ THETA_RADIUS_CAP = 18        # default cap (conservative)
 THETA_MAX_TERMS = 20000      # default max terms
 THETA_EPS_FACTOR = 10        # default epsilon factor
 
+MAX_RADIUS = 60
+
 
 def theta_direct(tau_in, z_in, R=3, prec_local=2048):
     """
@@ -94,6 +96,10 @@ def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_fact
     )
 
     radius = min(radius_needed, radius_cap)
+
+    if radius_needed > MAX_RADIUS:
+        raise RuntimeError(f"radius needed exceeded the max radius of {MAX_RADIUS}.")
+
 
     if radius < radius_needed:
         raise RuntimeError(

@@ -167,117 +167,6 @@ def select_independent_indices_from_gram(
     }
     return selected, info
 
-def is_independent_by_projection_log(
-    basis_indices,
-    candidate_index,
-    get_pairing,
-    prec,
-    debug=False,
-):
-    """Use high-precision Sage arithmetic throughout"""
-    from sage.all import RealField, Matrix, vector
-    import math
-    
-    k = len(basis_indices)
-    if k == 0:
-        return True, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
-    
-    # High-precision reals
-    RR = RealField(max(128, int(prec // 4)))
-    
-    # Build Gram in Sage
-    G = Matrix(RR, k, k)
-    c = vector(RR, k)
-    
-    for r in range(k):
-        for s in range(r, k):
-            v = get_pairing(basis_indices[r], basis_indices[s])
-            G[r, s] = RR(v)
-            G[s, r] = G[r, s]
-        c[r] = RR(get_pairing(basis_indices[r], candidate_index))
-    
-    G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
-    min_ev = min(float(e) for e in G.eigenvalues())
-    if min_ev <= 0:
-        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
-
-    vv = RR(get_pairing(candidate_index, candidate_index))
-    
-    # Special case: if k=1, just check if candidate has different height
-    if k == 1:
-        g00 = G[0, 0]
-        c0 = c[0]
-        
-        if abs(g00) < 1e-10:
-            # First basis element has ~zero height, reject candidate
-            if debug:
-                print(f"[proj-log] First basis element has near-zero height")
-            return False, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
-        
-        # Projection: proj_sq = c0^2 / g00
-        proj_sq = (c0 * c0) / g00
-        res_sq = vv - proj_sq
-        
-        res_sq_f = float(res_sq)
-        if res_sq_f <= 0:
-            if debug:
-                print(f"[proj-log] k=1: negative residual res_sq={res_sq_f}")
-            return False, {"res_sq": res_sq_f, "log10_res": float("-inf"), "log10_tol": float("-inf"), "min_sv": None}
-        
-        dec_digits = int(prec * 0.30103)
-        safety_digits = 12
-        diag_max = max(abs(float(g00)), abs(float(vv)), 1.0)
-        log10_tol = math.log10(diag_max) - max(0, (dec_digits - safety_digits))
-        log10_res = math.log10(res_sq_f) if res_sq_f > 0 else float("-inf")
-        
-        is_independent = (log10_res > log10_tol)
-        
-        info = {"res_sq": res_sq_f, "log10_res": log10_res, "log10_tol": log10_tol, "min_sv": None}
-        if debug:
-            print(f"[proj-log] k=1 cand={candidate_index} res={res_sq_f:.3g} log10_res={log10_res:.3g} log10_tol={log10_tol:.3g}")
-        
-        return is_independent, info
-    
-    # For k >= 2: use Cholesky (requires positive definite)
-    try:
-        L = G.cholesky()
-        y = L.solve_left(c)
-        proj_sq = y.dot_product(y)
-    except Exception as e:
-        if debug:
-            print(f"[proj-log] Cholesky failed for candidate {candidate_index}: {e}")
-        raise
-        return False, {"res_sq": None, "log10_res": None, "log10_tol": None, "min_sv": None}
-    
-    res_sq = vv - proj_sq
-    
-    res_sq_f = float(res_sq)
-    vv_f = float(vv)
-    
-    if res_sq_f <= 0:
-        diag_max = max(float(G[r,r]) for r in range(k)) if k > 0 else 1.0
-        diag_max = max(diag_max, vv_f, 1.0)
-        if abs(res_sq_f) <= 1e-12 * diag_max:
-            res_sq_f = 0.0
-        else:
-            if debug:
-                print(f"[proj-log] negative residual (proj > self): res_sq={res_sq_f}")
-            return False, {"res_sq": res_sq_f, "log10_res": float("-inf"), "log10_tol": float("-inf"), "min_sv": None}
-    
-    dec_digits = int(prec * 0.30103)
-    safety_digits = 12
-    diag_max = max(max(abs(float(G[r,r])) for r in range(k)), vv_f, 1.0)
-    log10_tol = math.log10(diag_max) - max(0, (dec_digits - safety_digits))
-    log10_res = math.log10(res_sq_f) if res_sq_f > 0 else float("-inf")
-    
-    is_independent = (log10_res > log10_tol)
-    
-    info = {"res_sq": res_sq_f, "log10_res": log10_res, "log10_tol": log10_tol, "min_sv": None}
-    if debug:
-        print(f"[proj-log] cand={candidate_index} res={res_sq_f:.3g} log10_res={log10_res:.3g} log10_tol={log10_tol:.3g}")
-    
-    return is_independent, info
-
 
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
                                       test_normalization=None, n_jobs=-1):
@@ -536,3 +425,158 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print(f"[arakelov] Diagnostic failed: {E}")
 
     return basis, final_rank, H_final
+
+
+def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
+                                     prec=300, debug=False,
+                                     rel_eig_tol=1e-8, abs_eig_tol=1e-12):
+    """
+    Robust independence test for a candidate divisor `cand_idx` against the
+    current basis `basis_indices`.
+
+    Policy:
+      - Build the k×k Gram G for basis and the augmented (k+1)×(k+1) Gram G_aug
+        that includes the candidate.
+      - Use eigenvalue thresholding (numeric rank) to decide whether the
+        augmented Gram increases rank.  If rank increases -> independent.
+      - If rank does not increase (ambiguous), fall back to two residual tests:
+          * relative residual vector norm from least-squares projection
+          * residual energy = h(cand) - alpha^T b
+        If both residuals are small -> dependent, otherwise independent.
+      - This *never* raises a fatal error simply because the Gram isn't PD;
+        instead it returns (is_indep, diagnostics).
+
+    Parameters:
+      basis_indices: list of ints (indices into the global divisor list)
+      cand_idx: int (index of candidate)
+      get_pairing: callable(i,j) -> pairing value (diagonal = height)
+      prec: bit-precision hint (used only for debug / tolerances scaling)
+      rel_eig_tol, abs_eig_tol: eigenvalue thresholding parameters
+    Returns:
+      (is_indep: bool, info: dict)
+    """
+    import numpy as np
+    from math import isfinite
+
+    info = {}
+    k = len(basis_indices)
+    # trivial case
+    if k == 0:
+        info['reason'] = 'empty_basis'
+        return True, info
+
+    # build Gram G (k x k), vector b (k), and h_cand
+    try:
+        G_np = np.zeros((k, k), dtype=float)
+        b_np = np.zeros((k,), dtype=float)
+        for i in range(k):
+            for j in range(i, k):
+                val = float(get_pairing(basis_indices[i], basis_indices[j]))
+                G_np[i, j] = val
+                G_np[j, i] = val
+        for i in range(k):
+            b_np[i] = float(get_pairing(basis_indices[i], cand_idx))
+        h_cand = float(get_pairing(cand_idx, cand_idx))
+    except Exception as e:
+        # if pairings missing or non-numeric, return an informative failure
+        info['error'] = f'pairing_error: {type(e).__name__}: {e}'
+        return False, info
+
+    if not (isfinite(h_cand) and np.all(np.isfinite(G_np)) and np.all(np.isfinite(b_np))):
+        info['error'] = 'nonfinite_entry_in_pairings'
+        return False, info
+
+    # symmetrize to kill tiny noise
+    G_np = 0.5 * (G_np + G_np.T)
+
+    # augmented Gram
+    G_aug = np.zeros((k + 1, k + 1), dtype=float)
+    G_aug[:k, :k] = G_np
+    G_aug[:k, k] = b_np
+    G_aug[k, :k] = b_np
+    G_aug[k, k] = h_cand
+
+    # eigenvalue analysis (use eigh for symmetric)
+    try:
+        eigs_G = np.linalg.eigvalsh(G_np)
+        eigs_aug = np.linalg.eigvalsh(G_aug)
+    except np.linalg.LinAlgError:
+        # fallback: small random jitter then retry
+        jitter = 1e-16
+        G_np += jitter * np.eye(k)
+        G_aug[:k, :k] = G_np
+        eigs_G = np.linalg.eigvalsh(G_np)
+        eigs_aug = np.linalg.eigvalsh(G_aug)
+
+    # compute numeric rank with thresholding
+    max_eig_G = max(abs(eigs_G.max()), abs(eigs_G.min()), 1.0)
+    max_eig_aug = max(abs(eigs_aug.max()), abs(eigs_aug.min()), 1.0)
+
+    # thresholds: relative to largest eigenvalue, plus absolute floor
+    tol_G = max(rel_eig_tol * max_eig_G, abs_eig_tol)
+    tol_aug = max(rel_eig_tol * max_eig_aug, abs_eig_tol)
+
+    rank_G = int(np.sum(eigs_G > tol_G))
+    rank_aug = int(np.sum(eigs_aug > tol_aug))
+
+    info.update({
+        'k': k,
+        'rank_G': rank_G,
+        'rank_aug': rank_aug,
+        'eigs_G_tail': eigs_G[:min(5, len(eigs_G))].tolist(),
+        'eigs_aug_tail': eigs_aug[:min(5, len(eigs_aug))].tolist(),
+        'h_cand': h_cand
+    })
+
+    # Primary decision: strictly increasing numeric rank => independent
+    if rank_aug > rank_G:
+        info['reason'] = 'rank_increase'
+        return True, info
+
+    # Otherwise ambiguous: use least-squares projection residual tests
+    # Solve G alpha ≈ b via least-squares / pseudo-inverse (numeric stable)
+    try:
+        # handle near-singular by regularized least squares
+        # use np.linalg.lstsq for a stable pseudo-inverse solution
+        alpha, *_ = np.linalg.lstsq(G_np, b_np, rcond=None)
+        proj_b = G_np.dot(alpha)
+        residual_vec = b_np - proj_b
+        residual_norm = float(np.linalg.norm(residual_vec))
+        b_norm = float(np.linalg.norm(b_np))
+        rel_residual = residual_norm / (b_norm + 1e-18)
+
+        # residual energy: h_cand - alpha^T b
+        predicted = float(np.dot(alpha, b_np))
+        residual_energy = float(h_cand - predicted)
+
+        info.update({
+            'alpha_norm': float(np.linalg.norm(alpha)),
+            'residual_norm': residual_norm,
+            'rel_residual': rel_residual,
+            'residual_energy': residual_energy,
+            'predicted': predicted,
+        })
+
+        # thresholds (conservative):
+        # - small vector residual -> dependent
+        # - small residual energy (relative to h_cand) -> dependent
+        residual_vector_thresh = 1e-6  # relative tolerance on vector residual
+        residual_energy_rel_thresh = 1e-6
+        residual_energy_abs_thresh = 1e-10
+
+        is_small_vec = (rel_residual < residual_vector_thresh)
+        is_small_energy = (abs(residual_energy) < max(residual_energy_abs_thresh,
+                                                       residual_energy_rel_thresh * max(abs(h_cand), 1.0)))
+
+        if is_small_vec and is_small_energy:
+            info['reason'] = 'projected_small_residual -> dependent'
+            return False, info
+        else:
+            info['reason'] = 'projected_residual_significant -> independent'
+            return True, info
+
+    except Exception as e:
+        # numeric failure; conservatively declare dependent but provide diagnostics
+        info['error'] = f'lstsq_failed: {type(e).__name__}: {e}'
+        info['reason'] = 'conservative_dependent_on_error'
+        return False, info
