@@ -13,7 +13,7 @@ except ImportError:
     print("[mumford] Warning: arakelov.py not available, using fallback methods")
 
 
-MAX_BASIS_CANDIDATES = 8
+MAX_BASIS_CANDIDATES = 6
 
 
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):
@@ -166,7 +166,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
             # Check independence by computing height pairing matrix
             # before loop: prepare cache and choose numeric precision & tolerance
             pairing_cache = {}   # optional cache to avoid recomputing the same pairings
-            prec_bits_for_test = 1024   # tune: 256..2048 depending on machine
+            prec_bits_for_test = 2048   # tune: 256..2048 depending on machine
             # tolerance rule (use decimal-digits heuristic)
             def _auto_tol(scale, prec_bits):
                 # convert bits->decimal digits roughly: digits ~ prec_bits*log10(2)

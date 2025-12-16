@@ -9,132 +9,13 @@ from itertools import product
 
 from sage.all import ComplexField, RealField, exp, pi
 
-
-def compute_theta_high_prec(z_vec, tau, prec=300, max_terms=50000, epsilon_factor=10):
-    """
-    Computes Riemann Theta function theta(z, tau) at high precision with convergence checks.
-    z_vec: vector of length 2 (Complex)
-    tau: 2x2 symmetric matrix (Complex)
-    max_terms: maximum number of terms to sum before raising error
-    epsilon_factor: terms smaller than 2^(-prec + epsilon_factor) are negligible
-    """
-    CC = ComplexField(prec)
-    RR = RealField(prec)
-    
-    # Pre-compute constants
-    pi_I = CC(0, 1) * CC(pi)
-    
-    # Determine summation radius for precision
-    # Start conservative but not excessive
-    radius = min(int(math.sqrt(prec * 0.25)) + 2, 30)  # Cap at 30
-    
-    # Convergence threshold
-    epsilon = RR(2) ** (-prec + epsilon_factor)
-    
-    total = CC(0)
-    n_terms = 0
-    
-    # Extract components for speed
-    z0, z1 = z_vec[0], z_vec[1]
-    t00, t01, t11 = tau[0,0], tau[0,1], tau[1,1]
-    
-    # Check Im(tau) for convergence estimate
-    im_t00 = RR(t00.imag())
-    im_t11 = RR(t11.imag())
-    
-    if im_t00 <= 0 or im_t11 <= 0:
-        raise ValueError(f"Im(tau) not positive definite: diag = [{im_t00}, {im_t11}]")
-    
-    # Minimum eigenvalue estimate (lower bound)
-    y_min = min(im_t00, im_t11)
-    
-    if y_min < 0.01:
-        raise ValueError(f"Im(tau) eigenvalue too small: y_min ~ {float(y_min)} - theta won't converge")
-    
-    # Adaptive radius: if y_min is large, we can use smaller radius
-    # e^(-pi * n^2 * y_min) < epsilon requires n^2 > -log(epsilon) / (pi * y_min)
-    from sage.all import log
-    radius_needed = int(math.sqrt(float(-log(epsilon) / (RR(pi) * y_min)))) + 2
-    radius = min(radius, radius_needed)
-    
-    r_range = range(-radius, radius + 1)
-    max_possible_terms = len(r_range) ** 2
-    
-    if max_possible_terms > max_terms:
-        raise RuntimeError(
-            f"Theta summation would require {max_possible_terms} terms "
-            f"(radius={radius}) which exceeds max_terms={max_terms}. "
-            f"Im(tau) eigenvalue may be too small (y_min ~ {float(y_min)})"
-        )
-    
-    # Track last ring contribution for convergence
-    last_ring_contribution = None
-    
-    # Sum in expanding rings for better convergence detection
-    for ring in range(radius + 1):
-        ring_sum = CC(0)
-        ring_count = 0
-        
-        if ring == 0:
-            # Center term
-            n1, n2 = 0, 0
-            quad = 0
-            lin = 0
-            term_exponent = pi_I * (quad + lin)
-            term = exp(term_exponent)
-            total += term
-            ring_sum = term
-            ring_count = 1
-            n_terms += 1
-        else:
-            # Terms at Chebyshev distance exactly 'ring' from origin
-            for n1 in range(-ring, ring + 1):
-                for n2 in range(-ring, ring + 1):
-                    # Only include boundary of ring
-                    if max(abs(n1), abs(n2)) != ring:
-                        continue
-                    
-                    n_terms += 1
-                    if n_terms > max_terms:
-                        raise RuntimeError(
-                            f"Theta summation exceeded {max_terms} terms without converging. "
-                            f"Last ring {ring} contribution: {float(abs(ring_sum))}"
-                        )
-                    
-                    quad = (n1*n1)*t00 + (2*n1*n2)*t01 + (n2*n2)*t11
-                    lin = 2 * (n1*z0 + n2*z1)
-                    
-                    term_exponent = pi_I * (quad + lin)
-                    term = exp(term_exponent)
-                    ring_sum += term
-                    ring_count += 1
-            
-            total += ring_sum
-        
-        # Check convergence
-        ring_contribution = abs(ring_sum)
-        
-        if ring > 3 and ring_contribution < epsilon:
-            # Converged! Can stop early
-            break
-        
-        # Check if we're diverging (shouldn't happen with positive definite Im(tau))
-        if last_ring_contribution is not None and ring > 5:
-            if ring_contribution > last_ring_contribution * 1.5:
-                raise RuntimeError(
-                    f"Theta summation diverging at ring {ring}: "
-                    f"contribution {float(ring_contribution)} > previous {float(last_ring_contribution)}"
-                )
-        
-        last_ring_contribution = ring_contribution
-    
-    if abs(total) < epsilon:
-        raise ValueError(f"Theta function computed to be essentially zero: |theta| = {float(abs(total))}")
-    
-    return total
+# tuning knobs (module-level; change at runtime if needed)
+THETA_RADIUS_CAP = 18        # default cap (conservative)
+THETA_MAX_TERMS = 20000      # default max terms
+THETA_EPS_FACTOR = 10        # default epsilon factor
 
 
-def theta_direct(tau_in, z_in, R=3, prec_local=256):
+def theta_direct(tau_in, z_in, R=3, prec_local=2048):
     """
     Direct summation of theta function for genus 2, used for cheap screening.
     """
@@ -168,77 +49,101 @@ def theta_direct(tau_in, z_in, R=3, prec_local=256):
 
 
 # inside theta.py -- replace compute_theta_high_prec with this
-def compute_theta_high_prec(z_vec, tau, prec=300, max_terms=20000, epsilon_factor=8):
+
+
+def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_factor=8):
     """
-    Compute Riemann Theta with conservative term caps and early checks.
-    Raises RuntimeError/ValueError quickly when convergence would be too expensive.
+    Compute Riemann theta function for genus 2 with controlled truncation.
+
+    Raises when convergence is unsafe instead of returning junk.
     """
+
+    from sage.all import ComplexField, RealField, log, pi
+    import math
+
     CC = ComplexField(prec)
     RR = RealField(prec)
 
     pi_I = CC(0, 1) * CC(pi)
 
-    # quick checks
-    t00 = tau[0,0]; t11 = tau[1,1]
-    im_t00 = RR(t00.imag()); im_t11 = RR(t11.imag())
+    # --- basic positivity check ---
+    t00, t11 = tau[0,0], tau[1,1]
+    im_t00 = RR(t00.imag())
+    im_t11 = RR(t11.imag())
+
     if im_t00 <= 0 or im_t11 <= 0:
-        raise ValueError(f"Im(tau) not positive definite: diag = [{im_t00}, {im_t11}]")
+        raise ValueError("Im(tau) not positive definite")
 
     y_min = min(im_t00, im_t11)
 
-    # small eigenvalue -> tell caller it's hopeless
-    if y_min < 0.01:
-        raise ValueError(f"Im(tau) eigenvalue too small: y_min ~ {float(y_min)} - theta won't converge")
+    if y_min < RR(1e-2):
+        raise ValueError(f"Im(tau) too close to boundary: y_min={float(y_min)}")
 
-    # compute epsilon and estimated radius_needed
-    from sage.all import log as sage_log, RR as sage_RR
-    epsilon = sage_RR(2) ** (-prec + epsilon_factor)
-    radius_needed = int(math.sqrt(float(-sage_log(epsilon) / (RR(pi) * y_min)))) + 2
+    # --- precision target ---
+    epsilon = RR(2) ** (-prec + epsilon_factor)
 
-    # Safety caps
-    RADIUS_CAP = 18
-    if radius_needed > RADIUS_CAP:
-        raise RuntimeError(f"Theta would need radius {radius_needed} > cap {RADIUS_CAP}; refuse to compute at this precision")
+    radius_needed = int(
+        math.sqrt(float(-log(epsilon) / (RR(pi) * y_min)))
+    ) + 2
 
-    radius = min(radius_needed, RADIUS_CAP)
+    # --- HARD safety caps ---
+    genus = 2
+    radius_cap = min(
+        max(12, int(2 * genus * math.sqrt(prec))),
+        60
+    )
 
+    radius = min(radius_needed, radius_cap)
+
+    if radius < radius_needed:
+        raise RuntimeError(
+            f"Theta radius capped: needed {radius_needed}, using {radius}. "
+            "Increase Im(tau) or lower precision."
+        )
+
+    # --- summation ---
     total = CC(0)
-    n_terms = 0
-    z0, z1 = z_vec[0], z_vec[1]
-    t00, t01, t11 = tau[0,0], tau[0,1], tau[1,1]
+    z0, z1 = z_vec
+    t01 = tau[0,1]
 
-    # Sum in rings, but limit overall terms
-    last_ring_contribution = None
+    n_terms = 0
+    last_ring = None
+
     for ring in range(radius + 1):
         ring_sum = CC(0)
+
         if ring == 0:
-            term = CC(1)  # exp(0)
-            total += term
-            ring_sum = term
+            ring_sum = CC(1)
+            total += ring_sum
             n_terms += 1
         else:
             for n1 in range(-ring, ring + 1):
                 for n2 in range(-ring, ring + 1):
                     if max(abs(n1), abs(n2)) != ring:
                         continue
+
                     n_terms += 1
                     if n_terms > max_terms:
-                        raise RuntimeError(f"Theta summation exceeded max_terms={max_terms} without converging; ring={ring}")
-                    quad = (n1*n1)*t00 + (2*n1*n2)*t01 + (n2*n2)*t11
-                    lin = 2 * (n1*z0 + n2*z1)
-                    term = exp(pi_I * (quad + lin))
-                    ring_sum += term
+                        raise RuntimeError("Theta exceeded max_terms")
+
+                    quad = (n1*n1)*t00 + 2*n1*n2*t01 + (n2*n2)*t11
+                    lin = 2*(n1*z0 + n2*z1)
+                    ring_sum += exp(pi_I * (quad + lin))
+
             total += ring_sum
 
-        ring_contribution = abs(ring_sum)
-        if ring > 3 and ring_contribution < (RR(2) ** (-prec + epsilon_factor)):
-            break
-        if last_ring_contribution is not None and ring > 6:
-            if ring_contribution > last_ring_contribution * 2.0:
-                raise RuntimeError(f"Theta summation diverging at ring {ring}: contribution increased")
-        last_ring_contribution = ring_contribution
+        ring_abs = abs(ring_sum)
 
-    if abs(total) < (RR(2) ** (-prec + epsilon_factor)):
-        raise ValueError(f"Theta computed effectively zero: |theta|={float(abs(total))}")
+        if ring > 4 and ring_abs < epsilon:
+            break
+
+        if last_ring is not None and ring > 6:
+            if ring_abs > last_ring * 2:
+                raise RuntimeError("Theta diverging")
+
+        last_ring = ring_abs
+
+    if abs(total) < epsilon:
+        raise ValueError("Theta numerically zero")
 
     return total
