@@ -216,3 +216,127 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=16):
         print(f"[reduce_z_arakelov] Final: {successful_evals} successful, {failed_evals} failed")
     
     return [CC(best_z[i]) for i in range(g)]
+
+
+# inside archimedean.py -- replace reduce_z_arakelov with this
+def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_threshold=0.25):
+    """
+    Reduce z modulo lattice selecting representative maximizing quad - log|theta|.
+    If Im(tau) eigenvalue(s) are small (slow convergence) we *fallback* to a conservative
+    reduction (return z_base) to avoid repeated heavy theta computations.
+    """
+    RR = RealField(prec)
+    CC = ComplexField(prec)
+
+    g = tau.nrows()
+    assert len(z_list) == g
+
+    # ensure CC matrix for tau
+    Tau = Matrix(CC, tau)
+    z0 = vector(CC, [CC(z) for z in z_list])
+
+    Im_tau = Matrix(RR, g, g, [[RR(Tau[i, j].imag()) for j in range(g)] for i in range(g)])
+    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+    det_im = Im_tau.det()
+    if det_im <= 0:
+        raise ValueError(f"Im(tau) not positive definite: det = {float(det_im)}")
+
+    # quick eigenvalue / y_min estimate
+    try:
+        eigs = [float(e) for e in Im_tau.eigenvalues()]
+        y_min = min(eigs)
+    except Exception:
+        # if eigen computation fails, be conservative
+        y_min = float(min([Im_tau[i,i] for i in range(g)]))
+
+    # Full lattice reduction to base representative
+    y = vector(RR, [RR(z.imag()) for z in z0])
+    c = Im_tau.solve_right(y)
+    n = vector(ZZ, [ZZ(int(round(float(ci)))) * (-1) for ci in c])
+    z1 = z0 + Tau * n
+    m = vector(ZZ, [ZZ(int(round(float(z1[i].real())))) * (-1) for i in range(g)])
+    z_base = z1 + m
+
+    # If the imaginary part is too small (theta converges slowly), avoid the theta search:
+    if y_min < y_min_threshold:
+        if debug:
+            print(f"[reduce_z_arakelov] Im(tau) y_min={y_min:.4g} < threshold={y_min_threshold}; skipping theta search.")
+        # Return lattice-reduced representative (converted to CC)
+        return [CC(z_base[i]) for i in range(g)]
+
+    # helper: quadratic form
+    def quad_val(zvec):
+        y_im = vector(RR, [RR(zvec[i].imag()) for i in range(g)])
+        v = Im_tau.solve_right(y_im)
+        return RR(pi) * y_im.dot_product(v)
+
+    best_score = None
+    best_z = None
+    successful_evals = 0
+    failed_evals = 0
+
+    # enumerate half-period shifts (limited)
+    limit = 1 << g
+    for a_mask in range(limit):
+        if failed_evals > max_attempts:
+            if debug:
+                print(f"[reduce_z_arakelov] Too many theta failures ({failed_evals}), stopping search")
+            break
+
+        a = vector(CC, [CC((a_mask >> i) & 1) for i in range(g)])
+        for b_mask in range(limit):
+            b = vector(CC, [CC((b_mask >> i) & 1) for i in range(g)])
+            shift = CC(1)/CC(2) * (a + Tau * b)
+            z_candidate = z_base + shift
+
+            # Reduce real parts to fundamental interval [0,1)
+            z_candidate = vector(CC, [z_candidate[i] - CC(int(round(float(z_candidate[i].real())))) for i in range(g)])
+
+            # Estimate whether heavy theta will be required. If so use theta_direct as a cheap fallback.
+            # light estimate of y_min -> radius_needed
+            try:
+                from sage.all import log as sage_log, RR as sage_RR
+                epsilon = sage_RR(2) ** (-(prec) + 8)
+                radius_needed = int(math.sqrt(float(-sage_log(epsilon) / (RR(pi) * RR(y_min))))) + 2
+            except Exception:
+                radius_needed = 10
+
+            # If radius_needed would be large, use theta_direct with small R instead of full high-prec summation.
+            try:
+                if radius_needed > 18:
+                    # cheap direct theta
+                    theta = theta_direct(tau, list(z_candidate), R=4, prec_local=max(128, prec//2))
+                else:
+                    theta = compute_theta_high_prec(list(z_candidate), tau, prec=prec, max_terms=20000)
+                abs_theta = abs(CC(theta))
+                if abs_theta <= 0:
+                    failed_evals += 1
+                    if debug:
+                        print(f"[reduce_z_arakelov] Zero theta at shift a={a_mask}, b={b_mask}")
+                    continue
+
+                score = quad_val(z_candidate) - RR(abs_theta).log()
+                successful_evals += 1
+                if debug:
+                    print(f"[reduce_z_arakelov] shift ({a_mask},{b_mask}): score = {float(score):.6f}")
+
+                if (best_score is None) or (score > best_score):
+                    best_score = score
+                    best_z = z_candidate
+
+            except (ValueError, RuntimeError) as e:
+                failed_evals += 1
+                if debug:
+                    print(f"[reduce_z_arakelov] Theta failed at shift a={a_mask}, b={b_mask}: {e}")
+                continue
+
+    if best_z is None:
+        # If all shifts failed, *return* the lattice-reduced base (conservative)
+        if debug:
+            print(f"[reduce_z_arakelov] All shifts failed ({successful_evals} success / {failed_evals} failed); returning lattice base.")
+        return [CC(z_base[i]) for i in range(g)]
+
+    if debug:
+        print(f"[reduce_z_arakelov] Final: {successful_evals} successful, {failed_evals} failed")
+
+    return [CC(best_z[i]) for i in range(g)]

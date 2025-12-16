@@ -85,3 +85,15 @@ def make_matrix_numerically_positive_definite(G, tol=1e-20):
 
     return G_fixed
 
+# utilities.py -- modify sanity_check_pairings
+def sanity_check_pairings(pairing_cache, k):
+    for i in range(k):
+        for j in range(k):
+            if (i,j) not in pairing_cache:
+                # try symmetric entry first
+                if (j,i) in pairing_cache:
+                    pairing_cache[(i,j)] = pairing_cache[(j,i)]
+                else:
+                    # missing: don't hard crash; raise an informative error or return False
+                    raise ValueError(f"Missing pairing for pair {(i,j)} — ensure precomputation of h(D_i + D_j) with a common period matrix")
+    return True

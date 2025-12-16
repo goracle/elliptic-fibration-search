@@ -165,3 +165,80 @@ def theta_direct(tau_in, z_in, R=3, prec_local=256):
          return total
     else:
         raise NotImplementedError("theta_direct optimization only implemented for g=1,2")
+
+
+# inside theta.py -- replace compute_theta_high_prec with this
+def compute_theta_high_prec(z_vec, tau, prec=300, max_terms=20000, epsilon_factor=8):
+    """
+    Compute Riemann Theta with conservative term caps and early checks.
+    Raises RuntimeError/ValueError quickly when convergence would be too expensive.
+    """
+    CC = ComplexField(prec)
+    RR = RealField(prec)
+
+    pi_I = CC(0, 1) * CC(pi)
+
+    # quick checks
+    t00 = tau[0,0]; t11 = tau[1,1]
+    im_t00 = RR(t00.imag()); im_t11 = RR(t11.imag())
+    if im_t00 <= 0 or im_t11 <= 0:
+        raise ValueError(f"Im(tau) not positive definite: diag = [{im_t00}, {im_t11}]")
+
+    y_min = min(im_t00, im_t11)
+
+    # small eigenvalue -> tell caller it's hopeless
+    if y_min < 0.01:
+        raise ValueError(f"Im(tau) eigenvalue too small: y_min ~ {float(y_min)} - theta won't converge")
+
+    # compute epsilon and estimated radius_needed
+    from sage.all import log as sage_log, RR as sage_RR
+    epsilon = sage_RR(2) ** (-prec + epsilon_factor)
+    radius_needed = int(math.sqrt(float(-sage_log(epsilon) / (RR(pi) * y_min)))) + 2
+
+    # Safety caps
+    RADIUS_CAP = 18
+    if radius_needed > RADIUS_CAP:
+        raise RuntimeError(f"Theta would need radius {radius_needed} > cap {RADIUS_CAP}; refuse to compute at this precision")
+
+    radius = min(radius_needed, RADIUS_CAP)
+
+    total = CC(0)
+    n_terms = 0
+    z0, z1 = z_vec[0], z_vec[1]
+    t00, t01, t11 = tau[0,0], tau[0,1], tau[1,1]
+
+    # Sum in rings, but limit overall terms
+    last_ring_contribution = None
+    for ring in range(radius + 1):
+        ring_sum = CC(0)
+        if ring == 0:
+            term = CC(1)  # exp(0)
+            total += term
+            ring_sum = term
+            n_terms += 1
+        else:
+            for n1 in range(-ring, ring + 1):
+                for n2 in range(-ring, ring + 1):
+                    if max(abs(n1), abs(n2)) != ring:
+                        continue
+                    n_terms += 1
+                    if n_terms > max_terms:
+                        raise RuntimeError(f"Theta summation exceeded max_terms={max_terms} without converging; ring={ring}")
+                    quad = (n1*n1)*t00 + (2*n1*n2)*t01 + (n2*n2)*t11
+                    lin = 2 * (n1*z0 + n2*z1)
+                    term = exp(pi_I * (quad + lin))
+                    ring_sum += term
+            total += ring_sum
+
+        ring_contribution = abs(ring_sum)
+        if ring > 3 and ring_contribution < (RR(2) ** (-prec + epsilon_factor)):
+            break
+        if last_ring_contribution is not None and ring > 6:
+            if ring_contribution > last_ring_contribution * 2.0:
+                raise RuntimeError(f"Theta summation diverging at ring {ring}: contribution increased")
+        last_ring_contribution = ring_contribution
+
+    if abs(total) < (RR(2) ** (-prec + epsilon_factor)):
+        raise ValueError(f"Theta computed effectively zero: |theta|={float(abs(total))}")
+
+    return total

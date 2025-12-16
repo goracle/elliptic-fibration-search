@@ -242,3 +242,154 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
     return 0.0
 local_height_correction_finite.warned_primes = set()
 
+
+# inside local.py -- replace the existing function with this
+def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
+    """
+    Compute the local canonical height correction at p with robust safety:
+     - conservative defaults (lower padic prec)
+     - per-(div,p) failure cache to avoid repeated expensive retries
+     - strict retry cap and final conservative 0.0 return
+    """
+    import math
+    import warnings
+    from sage.all import QQ
+
+    # --- Tunables (safe conservative defaults) ---
+    MIN_PADIC_PREC = 256
+    MAX_PADIC_PREC = 4096
+    MAX_RETRIES = 2                # total attempts including first (small)
+    MAX_ACCEPTABLE_MAG = 1e5       # anything larger is considered bogus
+    REL_VAR_TOL = 1e-4
+    ABS_NEG_TOL = 1e-8
+    MIN_TAIL_LEN = 3
+
+    # Per-(div,p) failure cache to avoid re-doing heavy work repeatedly
+    # Use a deterministic identifier for the divisor (stringified Mumford polys)
+    try:
+        div_id = (str(div[0]), str(div[1]))
+    except Exception:
+        div_id = (repr(div),)
+
+    if not hasattr(local_height_correction_finite, "failed_pairs"):
+        local_height_correction_finite.failed_pairs = set()
+
+    # If we've previously given up on this (div,p), return conservative 0.0 quickly
+    if (div_id, p) in local_height_correction_finite.failed_pairs:
+        return 0.0
+
+    if padic_prec is None:
+        padic_prec = max(MIN_PADIC_PREC, 50 * max(1, num_doublings))
+
+    def _attempt(padic_prec_local, num_doublings_local):
+        try:
+            # build Qp and curve
+            K = Qp(p, prec=padic_prec_local)
+            R = PolynomialRing(K, 'x')
+            x = R.gen()
+            f_poly = sum(K(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+            C_p = HyperellipticCurve(f_poly)
+            J_p = C_p.jacobian()
+
+            # lift the Mumford polys into Qp-polys (best-effort)
+            uQ, vQ = div[0], div[1]
+            u_p = R([K(c) for c in uQ.list()])
+            v_p = R([K(c) for c in vQ.list()])
+
+            P = J_p([u_p, v_p])
+
+            h0 = local_naive_height_p(P, p)
+
+            s_values = []
+            current_P = P
+            # iterate doubling (bounded)
+            for k in range(0, num_doublings_local + 1):
+                if current_P.is_zero():
+                    mu_exact = float(0.0 - h0)
+                    return mu_exact, "torsion_hit"
+
+                h_k = local_naive_height_p(current_P, p)
+                try:
+                    h_kf = float(h_k)
+                except Exception:
+                    return None, "non_numeric_height"
+
+                s_k = (4.0 ** (-k)) * h_kf
+
+                if math.isnan(s_k) or math.isinf(s_k) or abs(s_k) > MAX_ACCEPTABLE_MAG:
+                    return None, "huge_or_nan"
+
+                s_values.append(s_k)
+
+                if k < num_doublings_local:
+                    # perform doubling but avoid astronomical doubling counts
+                    try:
+                        current_P = 2 * current_P
+                    except Exception:
+                        return None, "doubling_failed"
+
+            tail_len = max(MIN_TAIL_LEN, num_doublings_local // 2)
+            if len(s_values) < tail_len:
+                return None, "insufficient_samples"
+
+            tail = s_values[-tail_len:]
+            tail_mean = sum(tail) / float(len(tail))
+            mean = tail_mean
+            var = sum((x - mean) ** 2 for x in tail) / float(len(tail))
+            std = math.sqrt(var)
+            rel_std = std / (abs(mean) + 1e-16)
+
+            if rel_std > REL_VAR_TOL and abs(mean) > 1e-12:
+                return None, "high_variance"
+
+            tate_limit_est = tail_mean
+            mu_est = float(tate_limit_est - float(h0))
+
+            if mu_est < -ABS_NEG_TOL:
+                return None, "excessive_negative"
+            if abs(mu_est) > MAX_ACCEPTABLE_MAG:
+                return None, "excessive_magnitude"
+
+            return float(mu_est), "ok"
+
+        except ZeroDivisionError:
+            # preserve previous behavior: let caller decide
+            raise
+        except Exception as e:
+            return None, f"exception:{type(e).__name__}:{str(e)}"
+
+    attempt = 0
+    last_reason = None
+
+    while attempt <= MAX_RETRIES:
+        mu_val, reason = _attempt(padic_prec, num_doublings)
+        last_reason = reason
+        if mu_val is not None:
+            return mu_val
+
+        # warn once per prime (but not noisily for repeated divisors)
+        if p not in getattr(local_height_correction_finite, "warned_primes", set()):
+            warnings.warn(f"[local_height_correction_finite] instability at p={p}; reason={reason}; "
+                          f"padic_prec={padic_prec}; num_doublings={num_doublings}. Retrying.", RuntimeWarning)
+            local_height_correction_finite.warned_primes.add(p)
+
+        # If we've reached the max padic precision or repeated poor reasons, give up for this (div,p)
+        if padic_prec >= MAX_PADIC_PREC or attempt == MAX_RETRIES:
+            # remember that this (div,p) failed so workers don't repeat expensive attempts
+            local_height_correction_finite.failed_pairs.add((div_id, p))
+            warnings.warn(f"[local_height_correction_finite] giving up on (div,p)=({div_id},{p}) after {attempt+1} attempts; reason={reason}. Returning 0.0.", RuntimeWarning)
+            return 0.0
+
+        # escalate conservatively
+        padic_prec = min(MAX_PADIC_PREC, padic_prec * 2)
+        num_doublings = min(num_doublings + 2, max(4, 2 * num_doublings))
+        attempt += 1
+
+    # fallback (shouldn't reach here)
+    local_height_correction_finite.failed_pairs.add((div_id, p))
+    warnings.warn(f"[local_height_correction_finite] exhausted attempts for (div,p)=({div_id},{p}). Returning 0.0.", RuntimeWarning)
+    return 0.0
+
+# module-level sets (ensure they exist)
+local_height_correction_finite.warned_primes = getattr(local_height_correction_finite, "warned_primes", set())
+local_height_correction_finite.failed_pairs = getattr(local_height_correction_finite, "failed_pairs", set())
