@@ -82,9 +82,14 @@ def local_naive_height_p(div, p):
 
 # inside local.py -- replace the existing function with this
 
-# module-level sets (ensure they exist)
-local_height_correction_finite.warned_primes = getattr(local_height_correction_finite, "warned_primes", set())
-local_height_correction_finite.failed_pairs = getattr(local_height_correction_finite, "failed_pairs", set())
+def enters_formal_group(P, p, threshold=1):
+    u, v = P[0], P[1]
+    # heuristic: valuation of constant term of u
+    try:
+        v0 = u.list()[0].valuation(p)
+        return v0 >= threshold
+    except Exception:
+        return False
 
 
 # --- paste this whole function body in place of your existing local_height_correction_finite ---
@@ -151,6 +156,9 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             v_p = R([K(c) for c in vQ.list()])
 
             P = J_p([u_p, v_p])
+            if not enters_formal_group(P, p):
+                return 0.0, "no_formal_group"
+
 
             h0 = local_naive_height_p(P, p)
 
@@ -191,8 +199,8 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             std = math.sqrt(var)
             rel_std = std / (abs(mean) + 1e-16)
 
-            if rel_std > REL_VAR_TOL and abs(mean) > 1e-12:
-                return None, "high_variance"
+            if rel_std > REL_VAR_TOL:
+                return 0.0, "no_formal_group"
 
             tate_limit_est = tail_mean
             mu_est = float(tate_limit_est - float(h0))
@@ -246,3 +254,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
     warnings.warn(f"[local_height_correction_finite] exhausted attempts for (div,p)=({div_id},{p}). Returning SMALL_POSITIVE.", RuntimeWarning)
     return float(SMALL_POSITIVE)
 # --- end function replacement ---
+# module-level sets (ensure they exist)
+local_height_correction_finite.warned_primes = getattr(local_height_correction_finite, "warned_primes", set())
+local_height_correction_finite.failed_pairs = getattr(local_height_correction_finite, "failed_pairs", set())
+
