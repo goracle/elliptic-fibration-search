@@ -39,134 +39,6 @@ def dedupe_basis(basis, basis_indices, debug=False):
         basis_indices_u.append(idx)
     return basis_u, basis_indices_u
 
-def select_independent_indices_from_gram(
-    G,
-    prec_bits=2048,
-    safety_digits=10,
-    rel_sv_tol=1e-12,
-    pivot_tol_factor=1e-9,
-    debug=False,
-):
-    """
-    Given a symmetric float Gram matrix G (n x n), return a deterministic list
-    of indices that form a numerically independent set.
-
-    Parameters
-    ----------
-    G : np.ndarray, shape (n,n), symmetric floats
-    prec_bits : int, bit-precision used upstream (only for diagnostic scaling)
-    safety_digits : int, digits of safety when building eigenvalue threshold
-    rel_sv_tol : float, fallback relative threshold for eigenvalues (smax * rel_sv_tol)
-    pivot_tol_factor : float, factor to multiply sqrt(min_positive_eig) to set pivot stop
-    debug : bool
-
-    Returns
-    -------
-    selected_indices : list of ints (length <= numeric_rank)
-    info : dict with keys:
-        'eigvals' (descending), 'numeric_rank', 'log10_abs_det', 'log10_cond'
-    """
-    # symmetrize (be safe)
-    G = 0.5 * (G + G.T)
-    G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
-    min_ev = min(float(e) for e in G.eigenvalues())
-    if min_ev <= 0:
-        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
-    n = G.shape[0]
-    # Eigen-decomposition (symmetric)
-    eigvals, eigvecs = np.linalg.eigh(G)  # ascending eigenvalues
-    eigvals = np.array(eigvals, dtype=float)
-    # flip to descending
-    eigvals = eigvals[::-1]
-    eigvecs = eigvecs[:, ::-1]
-
-    smax = eigvals[0] if eigvals.size else 0.0
-    # build eigenvalue threshold robustly:
-    # convert bits -> decimal digits estimate, but cap to avoid under/overflow
-    dec_digits = int(prec_bits * 0.30103) if prec_bits > 0 else 50
-    dec_digits_cap = min(max(dec_digits, 0), 50)  # cap to [0,50] to avoid absurd exponents
-    # threshold by safety_digits (but cap using rel_sv_tol)
-    ev_thresh = max(smax * (10.0 ** (-(max(safety_digits, dec_digits_cap)))), smax * rel_sv_tol, 1e-300)
-
-    # positive eigenvalues indices
-    pos_mask = eigvals > ev_thresh
-    pos_indices = np.nonzero(pos_mask)[0]
-    r = len(pos_indices)
-    if debug:
-        print(f"[select_from_gram] smax={smax:.3g}, ev_thresh={ev_thresh:.3g}, num_pos={r}")
-
-    if r == 0:
-        return [], {
-            "eigvals": eigvals.tolist(),
-            "numeric_rank": 0,
-            "log10_abs_det": None,
-            "log10_cond": None,
-        }
-
-    # Build embedding E (n x r) such that G ≈ E E^T
-    Spos = eigvals[pos_indices]                     # length r (descending)
-    Upos = eigvecs[:, pos_indices]                  # n x r
-    sqrtS = np.sqrt(np.maximum(Spos, 0.0))
-    # E[i,:] is embedding vector for candidate i
-    E = Upos * sqrtS[np.newaxis, :]                 # shape (n, r)
-
-    # Determine pivot stop tolerance from smallest retained eigenvalue
-    min_pos_eig = Spos[-1]
-    pivot_tol = math.sqrt(max(min_pos_eig, 0.0)) * pivot_tol_factor
-    # also ensure pivot_tol not ridiculously tiny:
-    pivot_tol = max(pivot_tol, smax * 1e-16)
-
-    # Deterministic pivoting: iteratively pick row with largest residual norm,
-    # orthogonalize rows against chosen normalized vector, stop when residuals small
-    rows = E.copy()  # will be modified (deflation)
-    norms = np.linalg.norm(rows, axis=1)
-    selected = []
-    selected_mask = np.zeros(n, dtype=bool)
-
-    while True:
-        # choose argmax among not selected
-        cand = int(np.argmax(norms + (selected_mask * -1e300)))  # ensures selected masked
-        maxnorm = norms[cand]
-        if debug:
-            print(f"[pivot] pick candidate {cand} maxnorm={maxnorm:.6g} selected={len(selected)}")
-        if maxnorm <= pivot_tol:
-            break
-        # add candidate
-        selected.append(cand)
-        selected_mask[cand] = True
-        # normalize
-        v = rows[cand].copy()
-        vnorm = np.linalg.norm(v)
-        if vnorm == 0.0:
-            # can't orthonormalize further
-            break
-        v = v / vnorm
-        # deflate all rows by projection onto v
-        proj = rows @ v   # projection coefficients (n,)
-        rows = rows - np.outer(proj, v)
-        # recompute norms only for not yet selected
-        norms = np.linalg.norm(rows, axis=1)
-        # keep selecting until we've chosen r rows
-        if len(selected) >= r:
-            break
-
-    # if we picked fewer than r (rare), we can accept them as basis; numeric_rank = len(selected)
-    numeric_rank = len(selected)
-
-    # diagdet/log det from singular values (embedding singulars are sqrt of eigvals)
-    # For Gram matrix, singular values = eigvals (nonnegative). So log10|det| = sum log10(eigvals_pos)
-    log10_abs_det = sum(math.log10(max(x, 1e-300)) for x in Spos)
-    cond = Spos[0] / (Spos[-1] if Spos[-1] > 0 else 1e-300)
-    log10_cond = math.log10(cond)
-
-    info = {
-        "eigvals": eigvals.tolist(),
-        "numeric_rank": numeric_rank,
-        "log10_abs_det": log10_abs_det,
-        "log10_cond": log10_cond,
-    }
-    return selected, info
-
 
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
                                       test_normalization=None, n_jobs=-1):
@@ -580,3 +452,238 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         info['error'] = f'lstsq_failed: {type(e).__name__}: {e}'
         info['reason'] = 'conservative_dependent_on_error'
         return False, info
+
+
+def select_independent_indices_from_gram(
+    G,
+    prec_bits=2048,
+    safety_digits=10,
+    rel_sv_tol=1e-12,
+    pivot_tol_factor=1e-9,
+    debug=False,
+):
+    """
+    Robust selection of numerically independent indices from a symmetric Gram matrix G.
+
+    - Accepts a Sage Matrix or an ndarray / list-of-lists.
+    - Symmetrizes, uses eigendecomposition to determine a numeric rank, but NEVER
+      throws if tiny negative eigenvalues appear: it regularizes them conservatively.
+    - Deterministic pivoting selects rows with largest residual norm (embedding deflation).
+    - Returns (selected_indices, info_dict).
+
+    Info dict fields:
+      'eigvals' (descending), 'numeric_rank', 'log10_abs_det', 'log10_cond', 'method'
+    """
+    import numpy as np
+    import math
+
+    # --- convert to numpy float array (symmetrize) ---
+    if hasattr(G, "nrows"):
+        # Sage matrix
+        n = int(G.nrows())
+        G_np = np.array([[float(G[i, j]) for j in range(n)] for i in range(n)], dtype=float)
+    else:
+        G_np = np.array(G, dtype=float)
+        if G_np.ndim != 2 or G_np.shape[0] != G_np.shape[1]:
+            raise ValueError("Input must be a square matrix")
+        n = G_np.shape[0]
+
+    # symmetrize to reduce noise
+    G_np = 0.5 * (G_np + G_np.T)
+
+    # tiny helper floors
+    ABS_FLOOR = 1e-300
+
+    # --- eigendecomposition (symmetric) with robust fallback ---
+    try:
+        eigvals = np.linalg.eigvalsh(G_np)  # ascending
+        eigvecs = None
+        method = "eig"
+    except Exception:
+        # fallback to SVD (more robust for badly conditioned inexact matrices)
+        if debug:
+            print("[select_from_gram] eigvalsh failed, falling back to SVD")
+        U, svals, Vt = np.linalg.svd(G_np)
+        eigvals = svals.copy()
+        eigvecs = U.copy()
+        method = "svd"
+
+    # ensure an array and sort descending
+    eigvals = np.array(eigvals, dtype=float)
+    if eigvecs is None and method == "eig":
+        # get eigenvectors in a safe way (we only need them when positive eigs exist)
+        try:
+            w, V = np.linalg.eigh(G_np)
+            eigvals = np.array(w, dtype=float)
+            eigvecs = V
+            method = "eig"
+        except Exception:
+            # leave eigvecs None; we'll fallback to SVD embedding if needed
+            eigvecs = None
+
+    # ascending -> descending for compatibility with old info
+    eigvals_desc = eigvals[::-1]
+
+    # smax and candidate thresholding
+    smax = float(max(eigvals_desc[0], 0.0)) if eigvals_desc.size else 0.0
+
+    # convert prec_bits -> decimal digits estimate (rough)
+    dec_digits = int(prec_bits * 0.30103) if prec_bits > 0 else 50
+    dec_digits_cap = min(max(dec_digits, 0), 50)
+
+    # build eigenvalue threshold (conservative)
+    safety_power = max(safety_digits, dec_digits_cap)
+    # avoid 10**(-huge) underflow by scaling with smax
+    ev_thresh = max(smax * (10.0 ** (-safety_power)), smax * rel_sv_tol, 1e-300)
+
+    # If smax is zero (nearly zero matrix), use SVD singulars to get scale
+    if smax <= 0:
+        try:
+            _, svals_svd, _ = np.linalg.svd(G_np)
+            smax = float(svals_svd[0]) if svals_svd.size else 0.0
+            ev_thresh = max(smax * rel_sv_tol, 1e-300)
+            if debug:
+                print(f"[select_from_gram] smax was <=0; using SVD smax={smax:.3g}")
+            method = "svd"
+            eigvecs = np.linalg.svd(G_np)[0]
+            eigvals_desc = np.array(svals_svd, dtype=float)  # treat as descending
+        except Exception:
+            # matrix essentially zero; nothing to select
+            return [], {
+                "eigvals": eigvals_desc.tolist(),
+                "numeric_rank": 0,
+                "log10_abs_det": None,
+                "log10_cond": None,
+                "method": method,
+            }
+
+    # compute mask of 'positive' eigenvalues we keep
+    # here eigvals_desc is descending; find indices > ev_thresh
+    pos_mask_desc = eigvals_desc > ev_thresh
+    pos_indices_desc = np.nonzero(pos_mask_desc)[0]
+    r = int(len(pos_indices_desc))
+
+    # If none are above threshold, try a more permissive fallback using rel_sv_tol
+    if r == 0:
+        alt_thresh = max(smax * rel_sv_tol, 1e-300)
+        pos_mask_desc = eigvals_desc > alt_thresh
+        pos_indices_desc = np.nonzero(pos_mask_desc)[0]
+        r = int(len(pos_indices_desc))
+
+    if debug:
+        print(f"[select_from_gram] method={method} smax={smax:.3g} ev_thresh={ev_thresh:.3g} kept={r}")
+
+    if r == 0:
+        # numeric rank 0
+        return [], {
+            "eigvals": eigvals_desc.tolist(),
+            "numeric_rank": 0,
+            "log10_abs_det": None,
+            "log10_cond": None,
+            "method": method,
+        }
+
+    # If we don't yet have eigenvectors aligned with eigvals_desc, attempt to compute them.
+    if eigvecs is None:
+        try:
+            _, V = np.linalg.eigh(G_np)
+            eigvecs_full = V
+        except Exception:
+            # final fallback: use SVD U as eigenvectors proxy
+            U, svals_svd, Vt = np.linalg.svd(G_np)
+            eigvecs_full = U
+    else:
+        eigvecs_full = eigvecs
+
+    # We need the vectors corresponding to the kept (largest) eigenvalues.
+    # For safety map indices correctly (eigs returned were ascending earlier).
+    # If eigvals came from eigvalsh (ascending), eigvals_desc = eigvals[::-1] so index mapping is n-1-idx
+    if eigvecs_full.shape[1] == n:
+        # assume eigvecs_full columns correspond to ascending eigenvalues if method == 'eig'
+        # create Upos as columns for the top-r eigenvectors
+        try:
+            # try using eigenvectors in descending order
+            U_desc = eigvecs_full[:, ::-1]
+            Upos = U_desc[:, pos_indices_desc]
+        except Exception:
+            Upos = eigvecs_full[:, :r]
+    else:
+        # non-square/unknown shape (SVD fallback), take first r columns
+        Upos = eigvecs_full[:, :r]
+
+    # take eigenvalues for kept ones (descending)
+    if eigvals_desc.size >= r:
+        Spos = eigvals_desc[pos_indices_desc]  # length r
+    else:
+        # fallback: use top r singulars from SVD
+        Spos = np.maximum(np.array(eigvals_desc[:r], dtype=float), ABS_FLOOR)
+
+    # ensure nonnegative and floor tiny negatives to small positive
+    Spos = np.maximum(Spos, ABS_FLOOR)
+
+    # Embedding E (n x r) with rows as embedding vectors
+    sqrtS = np.sqrt(Spos)
+    E = Upos * sqrtS[np.newaxis, :]
+
+    # pivot tolerance derived from smallest retained eigenvalue + global scale
+    min_pos_eig = float(Spos[-1]) if Spos.size else ABS_FLOOR
+    pivot_tol = max(math.sqrt(max(min_pos_eig, ABS_FLOOR)) * pivot_tol_factor,
+                    smax * 1e-16)
+
+    # deterministic pivot selection by largest residual norm (embedding deflation)
+    rows = E.copy()
+    norms = np.linalg.norm(rows, axis=1)
+    selected = []
+    selected_mask = np.zeros(n, dtype=bool)
+
+    # iterate selecting until max norm below pivot_tol or we've chosen r indices
+    while True:
+        # mask out already selected by setting extremely small values
+        masked_norms = norms.copy()
+        masked_norms[selected_mask] = -1.0
+        cand = int(np.argmax(masked_norms))
+        maxnorm = float(masked_norms[cand])
+        if debug:
+            print(f"[pivot] pick={cand} maxnorm={maxnorm:.6g} selected={len(selected)} pivot_tol={pivot_tol:.6g}")
+        if maxnorm <= pivot_tol or len(selected) >= r:
+            break
+        # add candidate
+        selected.append(cand)
+        selected_mask[cand] = True
+        v = rows[cand].copy()
+        vnorm = np.linalg.norm(v)
+        if vnorm == 0.0:
+            break
+        v = v / vnorm
+        # deflate rows by projection
+        proj = rows @ v
+        rows = rows - np.outer(proj, v)
+        norms = np.linalg.norm(rows, axis=1)
+
+    numeric_rank = len(selected)
+
+    # compute log10 det and condition number info from Spos
+    # log10_abs_det = sum log10(Spos)
+    log10_abs_det = None
+    log10_cond = None
+    try:
+        log10_abs_det = sum(math.log10(max(float(s), ABS_FLOOR)) for s in Spos)
+        if Spos.size and Spos[-1] > 0:
+            cond = float(Spos[0]) / float(Spos[-1])
+            log10_cond = math.log10(max(cond, 1e-300))
+        else:
+            log10_cond = float('inf')
+    except Exception:
+        log10_abs_det = None
+        log10_cond = None
+
+    info = {
+        "eigvals": eigvals_desc.tolist(),
+        "numeric_rank": numeric_rank,
+        "log10_abs_det": log10_abs_det,
+        "log10_cond": log10_cond,
+        "method": method,
+        "kept_eigs_count": int(r),
+    }
+
+    return selected, info
