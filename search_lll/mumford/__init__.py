@@ -103,7 +103,6 @@ except ImportError:
 RECON_EXPONENT = 0.55
 MIN_SUCCESS_PRIMES = 3
 PRIMES_NR = (3, 5, 7, 11, 13, 17, 19, 23)
-MAX_BASIS_CANDIDATES = 6
 
 # Public API
 __all__ = [
@@ -138,5 +137,4 @@ __all__ = [
     'RECON_EXPONENT',
     'MIN_SUCCESS_PRIMES',
     'PRIMES_NR',
-    'MAX_BASIS_CANDIDATES',
 ]

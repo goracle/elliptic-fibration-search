@@ -6,225 +6,11 @@ from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_
 from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 import time
-import multiprocessing
-import signal
 import sys
 import traceback
-from tqdm import tqdm
-from sage.all import QQ
-from .mumford_solver import solve_mumford_mod_p_optimized
-from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_p
-from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
+from sage.all import GF, QQ
 from .mumford_timing import mumford_timer_add
 
-
-def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=8, debug=False):
-    """
-    Parallel residue computation (BRANCH-mode).
-
-    Outputs branch-level residues so downstream CRT can build globally-irreducible u(x).
-    Returned structure:
-        results_dict[p] = {
-            v_tuple1: { x_res1: [ (r_mod_p, v_at_r_mod_p, s_mod_p, p_mod_p), ... ], ... },
-            v_tuple2: { ... }, ...
-        }
-
-    NOTE: This replaces the old behavior which emitted paired (s,p,v0,v1) per-prime.
-    We still use the same task-generation and parallel machinery, but post-process
-    the solver's paired solutions into branch records (one per root).
-    """
-    t_start = time.time()
-
-    f_coeffs = eqs_dict['f_coeffs']
-    try:
-        const_val_int = int(QQ(eqs_dict.get('const', 0)))
-    except Exception:
-        const_val_int = 0
-        raise
-
-    # Build list of tasks (same preconditions as before)
-    tasks = []
-    for p in prime_list:
-        if p not in Ep_dict:
-            continue
-        Ep = Ep_dict[p]
-        p_vecs = vecs_lll.get(p)
-        if not p_vecs:
-            continue
-
-        # build a map of candidate x_residues per v_tuple for this prime
-        x_residues_map = {}
-        p_mults = mult_lll.get(p, {})
-
-        for v_idx, v_tuple in enumerate(vecs_list):
-            # skip zero vector key if present but empty mapping
-            if v_tuple is None:
-                continue
-
-            # build the modular section combination Pm = sum k_i * section_i (mod p)
-            # p_vecs contains the local multipliers per section index (as before)
-            try:
-                v_coeffs = p_vecs[v_idx]
-            except Exception:
-                # no local multiplier vector for this vec index -> skip
-                continue
-
-            Pm = Ep(0)
-            valid_vec = True
-            for i, c in enumerate(v_coeffs):
-                k = int(c)
-                if k == 0:
-                    continue
-                try:
-                    mults_for_sec = p_mults[i]
-                    if k in mults_for_sec:
-                        Pm += mults_for_sec[k]
-                    else:
-                        valid_vec = False
-                        break
-                except (IndexError, KeyError):
-                    valid_vec = False
-                    break
-
-            if not valid_vec:
-                continue
-
-            # Now compute numeric residues for this Pm and the RHS functions.
-            # This mirrors original code: ask Ep for x-coordinates or integer sentinel values.
-            valid_residues = []
-            try:
-                for rhs_idx, rhs_modp in enumerate(rhs_modp_list):
-                    # rhs_modp is function of Pm in modular ring; call to obtain integer residue(s)
-                    # The old code allowed ints or lists; preserve that contract.
-                    try:
-                        res = rhs_modp(Pm)  # may be int or list-like
-                    except TypeError:
-                        # fallback: some RHS call semantics vary; treat as empty
-                        res = []
-                    if isinstance(res, int):
-                        valid_residues.append(int(res))
-                    else:
-                        # iterate items that are ints
-                        for r in res:
-                            if isinstance(r, int):
-                                valid_residues.append(int(r))
-            except Exception:
-                # propagate — better to fail loudly than silently accept bad primes
-                raise
-
-            if valid_residues:
-                # Deduplicate and keep small list
-                uniq = sorted(set(valid_residues))
-                x_residues_map[tuple(v_tuple)] = uniq
-
-        if x_residues_map:
-            tasks.append((p, f_coeffs, x_residues_map, const_val_int))
-
-    if not tasks:
-        if debug:
-            print("[mumford] No tasks generated for mumford_precompute_residues_parallel (branch-mode).")
-        return {}
-
-    # parallel solve: call worker which returns for each prime a map v_tuple -> x_res_map -> list of paired sols
-    try:
-        ctx = multiprocessing.get_context("fork")
-        pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
-    except Exception:
-        pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
-
-    results_dict = {}
-    with pool_obj as pool:
-        # _solve_worker_wrapper returns (p, p_result_map) where p_result_map currently contains
-        # paired solutions; we'll transform them into branch records here.
-        for p, paired_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks),
-                                  total=len(tasks), desc="Solving Mumford Mod P (branch-mode)"):
-            # paired_map: v_tuple -> x_res -> list of paired tuples (s,p,v0,v1)  (this mirrors existing worker)
-            branch_map = {}
-            for v_tuple, xres_data in paired_map.items():
-                # xres_data can be int (single residue) or a dict mapping x_res -> list of paired sols
-                local_map = {}
-                if isinstance(xres_data, int):
-                    xres_data = [xres_data]
-                # If xres_data is list of integers (simple case), we have no paired sols — keep empty list
-                if isinstance(xres_data, list) and all(isinstance(x, int) for x in xres_data):
-                    # nothing solved algebraically at this prime in paired form; we still include the roots themselves
-                    for r in xres_data:
-                        local_map.setdefault(int(r), []).append( (int(r), None, None, None) )
-                else:
-                    # more structured: assume xres_data is mapping x_res -> list of (s,p,v0,v1)
-                    for x_res, sols in xres_data.items():
-                        # sols is expected to be list of 4-tuples (s_mod, p_mod, v0_mod, v1_mod)
-                        entries = []
-                        for tup in sols:
-                            try:
-                                s_mod, p_mod, v0_mod, v1_mod = (int(tup[0]) % p, int(tup[1]) % p,
-                                                                int(tup[2]) % p, int(tup[3]) % p)
-                            except Exception:
-                                # if format unexpected, propagate error
-                                raise ValueError(f"Unexpected paired solution format for p={p}, v={v_tuple}: {tup}")
-
-                            # compute discriminant and roots in GF(p) if possible
-                            disc = (s_mod * s_mod - 4 * p_mod) % p
-                            if disc == 0:
-                                # double root
-                                r = ((s_mod * pow(2, -1, p)) % p)
-                                # v_at_r = v1*r + v0 mod p
-                                v_at_r = (v1_mod * r + v0_mod) % p
-                                entries.append((int(r), int(v_at_r), int(s_mod), int(p_mod)))
-                            else:
-                                # attempt sqrt in GF(p)
-                                try:
-                                    # Euler test for square
-                                    if pow(disc, (p - 1)//2, p) == 1:
-                                        # square; compute sqrt via Tonelli-Shanks using pow in Python may not yield sqrt
-                                        # Use simple Tonelli-Shanks-ish fallback via GF(p) if available
-                                        # We will try pow(disc, (p+1)//4, p) when p%4==3 as fast path
-                                        if p % 4 == 3:
-                                            r_s = pow(disc, (p + 1)//4, p)
-                                            roots = [ (s_mod + r_s) * pow(2, -1, p) % p,
-                                                      (s_mod - r_s) * pow(2, -1, p) % p ]
-                                        else:
-                                            # fallback: brute-force sqrt (p is small in practice here)
-                                            r_s = None
-                                            for a in range(1, p):
-                                                if (a * a) % p == disc:
-                                                    r_s = a
-                                                    break
-                                            if r_s is None:
-                                                # shouldn't happen (we tested quadratic residuosity), but be safe
-                                                roots = []
-                                            else:
-                                                roots = [ (s_mod + r_s) * pow(2, -1, p) % p,
-                                                          (s_mod - r_s) * pow(2, -1, p) % p ]
-                                        for r in roots:
-                                            v_at_r = (v1_mod * r + v0_mod) % p
-                                            entries.append((int(r), int(v_at_r), int(s_mod), int(p_mod)))
-                                    else:
-                                        # discriminant non-residue: no roots in Fp — but we still keep the paired tuple
-                                        # as a marker that the local u(x) is irreducible at this prime.
-                                        # Represent this with special r = None sentinel; downstream can use s_mod/p_mod if needed
-                                        entries.append((None, None, int(s_mod), int(p_mod)))
-                                except Exception:
-                                    # if something goes wrong computing roots, bubble up
-                                    raise
-
-                        if entries:
-                            local_map.setdefault(int(x_res), []).extend(entries)
-
-                if local_map:
-                    branch_map[v_tuple] = local_map
-
-            results_dict[p] = branch_map
-
-    # timing book-keeping
-    mumford_timer_add("parallel_solving", time.time() - t_start)
-    mumford_timer_add("residue_computation_total", time.time() - t_start)
-
-    if debug:
-        print(f"[mumford] Branch-mode residue computation finished: primes={len(results_dict)}")
-
-    return results_dict
 
 def mumford_precompute_residues_sequential(eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
                                            rhs_modp_list, vecs_list, debug=DEBUG):
@@ -632,3 +418,127 @@ class ModInverseCache:
                 return None
         return self.cache[key]
 
+def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                                         rhs_modp_list, vecs_list, num_workers=8, debug=False):
+    """
+    Parallel residue computation with timing.
+    Same function signature as original.
+    """
+    t_start = time.time()
+    
+    f_coeffs = eqs_dict['f_coeffs']
+    f_coeffs_ints = [int(c) for c in f_coeffs]
+    
+    try:
+        const_val_int = int(QQ(eqs_dict['const']))
+    except Exception:
+        const_val_int = 0
+        raise
+        
+    if debug:
+        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
+
+    t0 = time.time()
+    tasks = []
+    
+    for p in prime_list:
+        if p not in Ep_dict:
+            continue
+        Ep = Ep_dict[p]
+        p_vecs = vecs_lll.get(p)
+        if not p_vecs:
+            continue
+        
+        try:
+            Fp = GF(p)
+            R_m = Fp['m']
+            m_var = R_m.gen()
+            rhs_poly = -m_var + Fp(const_val_int)
+        except Exception:
+            raise
+            continue
+
+        x_residues_map = {}
+        p_mults = mult_lll.get(p, {})
+        
+        for v_idx, v_tuple in enumerate(vecs_list):
+            if not v_tuple:
+                continue
+            
+            Pm = Ep(0)
+            valid_vec = True
+            v_coeffs = p_vecs[v_idx]
+
+            for i, c in enumerate(v_coeffs):
+                k = int(c)
+                if k == 0:
+                    continue
+                
+                try:
+                    mults_for_sec = p_mults[i]
+                    if k in mults_for_sec:
+                        Pm += mults_for_sec[k]
+                    else:
+                        valid_vec = False
+                        break
+                except (IndexError, KeyError, TypeError):
+                    valid_vec = False
+                    raise
+                    break
+            
+            if not valid_vec or Pm.is_zero() or Pm[2] == 0:
+                continue
+            
+            try:
+                diff = Pm[0] - Pm[2] * rhs_poly
+                diff_num = diff.numerator()
+                
+                if diff_num.is_zero():
+                    continue
+                    
+                roots = diff_num.roots(multiplicities=False)
+                
+                if roots:
+                    valid_residues = []
+                    for m_root in roots:
+                        m_val = int(m_root)
+                        x_val = (-m_val + const_val_int) % p
+                        valid_residues.append(x_val)
+                    
+                    if valid_residues:
+                        x_residues_map[v_tuple] = valid_residues
+            except Exception:
+                raise
+                continue
+            
+        if x_residues_map:
+            tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
+
+    mumford_timer_add("task_generation", time.time() - t0)
+
+    if not tasks:
+        if debug:
+            print("[mumford] No tasks generated!")
+        return {}
+    
+    t0 = time.time()
+    try:
+        ctx = multiprocessing.get_context("fork")
+        pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
+    except Exception:
+        pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
+        raise
+
+    results_dict = {}
+    with pool_obj as pool:
+        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
+                                  total=len(tasks), desc="Solving Mumford Mod P"):
+            results_dict[p] = result_map
+    
+    mumford_timer_add("parallel_solving", time.time() - t0)
+    mumford_timer_add("residue_computation_total", time.time() - t_start)
+    
+    if debug:
+        print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
+            
+    return results_dict

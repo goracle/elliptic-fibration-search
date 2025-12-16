@@ -115,8 +115,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=42, avg_survivors≈1.25e-05, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈1.25e-05
+[empirical_pool] start pool size=42, avg_survivors≈5.53e-06, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈5.53e-06
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.17, avg_density=0.1184 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -131,10 +131,10 @@ DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1086
+  NUM_PRIME_SUBSETS: 1084
   PRIME_POOL size: 42
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1086, PRIME_POOL size=42, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1084, PRIME_POOL size=42, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 42
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -287,242 +287,139 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=3: a4_denom_divisible
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
-[mumford] No tasks generated for mumford_precompute_residues_parallel (branch-mode).
+[mumford] Generating tasks for 38 primes...
+[mumford] Residue computation took 2.10s
 
 ======================================================================
-MUMFORD RECONSTRUCTION PHASE (branch-mode)
-======================================================================
-No mumford_residues provided (empty).
-
-Mumford search reconstructed 0 divisors
-Mumford search found 0 rational points
-rational points found:
-set()
-Total time: 0.79s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  prep_mod_data            : 0.78s
-  mumford_residues         : 0.01s
-  mumford_setup            : 0.00s
-  mumford_reconstruction   : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 532
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-Found 0 new point(s) and 0 new section(s).
-
-======================================================================
-COMPLETENESS ANALYSIS (Exact CRT Check)
+MUMFORD RECONSTRUCTION PHASE
 ======================================================================
 
-Found Points Reconstructibility:
-x          | Findable?  | Primes   | Log10 Cap
----------------------------------------------
--1         | NO         | 0        | 0.00
+=== EARLY ALGEBRAIC FILTERING (per prime) ===
 
-⚠️  Some found points are NOT reconstructible from current residues.
-    (They were likely found via specialized subsets or lucky hits.)
-======================================================================
+Algebraic pre-filter: 44,247 → 44,247 (1.0x reduction)
+Grouped into 15 vectors, 239 (vector,x-residue) pairs
+  Vector group: 3 primes, avg 100.0 sols/prime
+  Raw combinations: 272,160
+  Adaptive limit: 272,160 (total combos: 272,160)
+  Vector group: 2 primes, avg 122.0 sols/prime
+  Raw combinations: 14,208
+  Adaptive limit: 14,208 (total combos: 14,208)
+  Vector group: 2 primes, avg 236.0 sols/prime
+  Raw combinations: 44,460
+  Adaptive limit: 44,460 (total combos: 44,460)
+  Vector group: 2 primes, avg 230.0 sols/prime
+  Raw combinations: 27,300
+  Adaptive limit: 27,300 (total combos: 27,300)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 14,700
+  Adaptive limit: 14,700 (total combos: 14,700)
+  Vector group: 2 primes, avg 165.0 sols/prime
+  Raw combinations: 22,464
+  Adaptive limit: 22,464 (total combos: 22,464)
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 20,172
+  Adaptive limit: 20,172 (total combos: 20,172)
+  Vector group: 2 primes, avg 125.0 sols/prime
+  Raw combinations: 12,600
+  Adaptive limit: 12,600 (total combos: 12,600)
+  Vector group: 2 primes, avg 111.0 sols/prime
+  Raw combinations: 12,200
+  Adaptive limit: 12,200 (total combos: 12,200)
+  Vector group: 2 primes, avg 161.0 sols/prime
+  Raw combinations: 25,560
+  Adaptive limit: 25,560 (total combos: 25,560)
+  Accepting 2-prime group: 51,660 combos (rare divisor)
+  Vector group: 2 primes, avg 228.0 sols/prime
+  Raw combinations: 51,660
+  Adaptive limit: 51,660 (total combos: 51,660)
+  Vector group: 2 primes, avg 199.0 sols/prime
+  Raw combinations: 33,672
+  Adaptive limit: 33,672 (total combos: 33,672)
+  Accepting 2-prime group: 89,976 combos (rare divisor)
+  Vector group: 2 primes, avg 301.0 sols/prime
+  Raw combinations: 89,976
+  Adaptive limit: 89,976 (total combos: 89,976)
+  Vector group: 2 primes, avg 208.0 sols/prime
+  Raw combinations: 43,260
+  Adaptive limit: 43,260 (total combos: 43,260)
 
-=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
-avg_fraction (unbiased sample): 0.000
-fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
-empirical visible fraction: (no prime_subsets available in analyzer)
+  Batched parallel processing: 28 groups, 719,510 total combos
+  Using 20 workers
+  Created 144 batches for parallel processing
 
-=== Pairwise MI on first 40 primes (binary match indicators) ===
-Top MI pairs (p,q,MI bits):
-  (  2,  3)  0.0000 bits
-  (  2,  5)  0.0000 bits
-  (  2,  7)  0.0000 bits
-  (  2, 11)  0.0000 bits
-  (  2, 13)  0.0000 bits
-  (  2, 17)  0.0000 bits
-  (  2, 19)  0.0000 bits
-  (  2, 23)  0.0000 bits
-  (  2, 29)  0.0000 bits
-  (  2, 31)  0.0000 bits
-  (  2, 37)  0.0000 bits
-  (  2, 41)  0.0000 bits
-  (  2, 43)  0.0000 bits
-  (  2, 47)  0.0000 bits
-  (  2, 53)  0.0000 bits
-  (  2, 59)  0.0000 bits
-  (  2, 61)  0.0000 bits
-  (  2, 67)  0.0000 bits
-  (  2, 71)  0.0000 bits
-  (  2, 73)  0.0000 bits
-fraction of pairs with MI >= 0.01 bits: 0.000%
-No prime_subsets available to check.
+=== RECONSTRUCTION SUMMARY ===
+  Combinations tried: 719,510
+  Groups skipped (2-prime): 0
+  Groups skipped (high density): 0
+  Pre-filtered out: 0
+  Rejected by height: 0
+  Rejected by consistency: 149,778
+  Rejected by algebraic constraint: 569,534
+  Successful reconstructions: 198
+  Unique Rational Points: 7
+  28 of 28 original divisors had rational roots in u(x)
 
-======================================================================
-SEARCH SUMMARY
-======================================================================
-Total points found: 1
-Total time: 4.6s
-CRT candidates tested: 0
-Rationality tests: 0
-Hit rate: 0.00%
-======================================================================
-Proof using OBSERVED max height: 0.00
+--- Building Independent Mumford Basis ---
+first 10 divisors:
+{'s': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'vector': (2,), 'has_rational_roots': True}
+{'s': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'vector': (2,), 'has_rational_roots': True}
+{'s': 2, 'p': 1, 'v_0': -17, 'v_1': 18, 'vector': (7,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'vector': (2,), 'has_rational_roots': True}
+{'s': 0, 'p': -4, 'v_0': 9, 'v_1': 5, 'vector': (2,), 'has_rational_roots': True}
+{'s': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1/2, 'p': -3, 'v_0': 13/2, 'v_1': 25/4, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 7, 'v_1': 6, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1, 'p': -2, 'v_0': 17/3, 'v_1': 20/3, 'vector': (2,), 'has_rational_roots': True}
+{'s': 2, 'p': 0, 'v_0': -1, 'v_1': 10, 'vector': (2,), 'has_rational_roots': True}
+[diag:smoothness]
+  split u(x): 28/28 (100.000%)
+  irreducible u(x): 0/28 (0.000%)
+[diag:saturation]
+  total root instances: 56
+  unique roots (factor base size): 7
+  saturation ratio: 8.00 (higher is better for attacks)
+[diag:coverage]
+  generated divisors: 28
+  linear rank (heuristic): 4
+  (!) Dependencies found mod 2000003. Potential relations for DLP.
+[basis] Truncating candidate divisors to 6
+[basis] Using Arakelov heights for basis construction
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 8.960912e-01
+Im(tau) eigenvalues: [0.4819303943825598, 1.6103147041453068]
+Im(tau) eigenvalues: [0.4819303943825598, 1.6103147041453068]
 
-======================================================================
-FORMAL COMPLETENESS PROOF (Roadmap Step 3)
-======================================================================
-No prime subsets were used. Cannot run sufficiency proof.
-======================================================================
+[arakelov] Building basis from 6 divisors
+[arakelov] Using precision: 2048 bits
+[arakelov] Parallelization: 20 workers
+[arakelov] Pre-computing heights for 6 candidates...
+  Divisor 0: h = 6.99416
+  Divisor 1: h = 5.60918
+  Divisor 2: h = 2.92212
+  Divisor 3: h = 10.3539
+  Divisor 4: h = 3.42529
+  Divisor 5: h = 9.23965
+[arakelov] Selecting basis incrementally...
+  Added divisor 0 (first basis element)
+[proj-log] k=1 cand=1 res=4.24 log10_res=0.628 log10_tol=-603
+  Added divisor 1 (basis now size 2)
+[proj-log] negative residual (proj > self): res_sq=-11.192791806374435
+  Rejected divisor 2: dependent
+[proj-log] negative residual (proj > self): res_sq=-1.3713017182471212
+  Rejected divisor 3: dependent
+[proj-log] cand=4 res=1.2 log10_res=0.0793 log10_tol=-603
+  Added divisor 4 (basis now size 3)
+[proj-log] Cholesky failed for candidate 5: matrix is not Hermitian
+[basis] Attempt 1 failed with prec=2048, retrying with prec=4096
+Basis construction failed: matrix is not Hermitian
 
-[fiber_collision_adjustment]
-  Collision primes: [13, 17]
-  Other rejected: [2, 3]
-  Reachable fraction: 0.8688
-  Adjustment factor: 0.8688
-  Raw p_visibility: 0.0000
-  Adjusted p_visibility: 0.0000
-
---- Arithmetic-informed prior (with fiber collision adjustment) ---
-Fiber collision primes detected: [13, 17]
-p_visibility (raw): 0.0000
-p_visibility (adjusted): 0.0000
-mu_selmer:   0
-mu_local:    0
-mu_height:   0.01
-mu_bootstrap:0
---> mu_combined = 0.01  (q = 0.009901)
-
---- Posterior summary (geometric prior from arithmetic signals) ---
-Observed points (k) = 1
-Estimated detection probability p = 0.000
-⚠️  Could not compute posterior probabilities (p_visibility likely 0).
-    Search may have been starved of valid primes.
-
-✓ Fiber collision detection validated: {17, 13} ⊆ ramification locus {97, 2, 3, 5, 7, 71, 50857, 683, 1104811, 13, 463, 17, 46872409}
-
---- Automorphism Search ---
-No scaling automorphisms found.
-Found 1 translation automorphisms:
-  [0] Translation by Section S0
-
-No non-trivial automorphisms found for the NS lattice.
-
---- Torsion Analysis ---
-Got 40 good specializations for torsion check.
-Fast method candidate torsion order (GCD of specializations): 1
-Fiber component counts: [1, 1]  -> lcm bound: 1
-Base section 0 does not appear to be small order torsion.
-
---- Running Saturation Diagnostics ---
-✅ p=2 appears to be saturated. Witness found: {'p': 2, 'm0': -3, 'ell': 11, 'subgroup_size': 14, 'E_mod_cardinality': 14}
-✅ p=3 appears to be saturated. Witness found: {'p': 3, 'm0': -3, 'ell': 17, 'subgroup_size': 6, 'E_mod_cardinality': 12}
-
---- Running Picard-Van Luijk Analysis ---
-Using 10 good prime candidates for reduction: [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
-[char 0] Using mw_rank = 1. Σ(m_v-1) = 0
-[char 0] ST lower bound: rho >= 3
-[skip] ell=5 dependence witnessed in reduction; witness={'p': 67, 'relation': (63,), 'm0s': [1, 2, 3], 'ell': 5}
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 7] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
-[skip] ell=11 dependence witnessed in reduction; witness={'p': 127, 'relation': (120,), 'm0s': [0, 2, 3, 5, 6, 7], 'ell': 11}
-[skip] ell=13 dependence witnessed in reduction; witness={'p': 173, 'relation': (168,), 'm0s': [0, 1, 2, 3, 5, 6], 'ell': 13}
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 17] sum fiber contrib = 1, rank>= 1 => rho_upper <= 4
-[skip] ell=19 dependence witnessed in reduction; witness={'p': 61, 'relation': (60,), 'm0s': [0, 1, 2, 3, 4, 5], 'ell': 19}
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 23] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 29] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 31] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[rank_over_fq(t)] independent reduced sections: 1
-[mod 37] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[summary] lower >= 3, best upper <= 3 at ell=23
-[collapsed fiber contribution / reduction-dependence primes] [5, 11, 13, 19]
-
-=== Picard Report ===
-Lower bound (char 0): 3
-Upper bounds from reductions:
-  ell=7: rho <= 4    (rank_lb=1, Σ=1)
-  ell=17: rho <= 4    (rank_lb=1, Σ=1)
-  ell=23: rho <= 3    (rank_lb=1, Σ=0)
-  ell=29: rho <= 3    (rank_lb=1, Σ=0)
-  ell=31: rho <= 3    (rank_lb=1, Σ=0)
-  ell=37: rho <= 3    (rank_lb=1, Σ=0)
-*** Concluded Picard number: ρ = 3 ***
-
---- Shioda-Tate Diagnostics ---
-Shioda-Tate Rank Estimate (assuming rho=3): 1
-Total Euler Characteristic: 12
-Sum of Fiber Contributions (Σ(m_v - 1)): 0
-
-======================================================================
-2-SELMER RANK BOUNDS
-======================================================================
-Mordell-Weil rank: 1
-Bad primes: [2, 3]
-Tamagawa product: 1
-
-Rank bounds:
-  1 ≤ rank(S²) ≤ 5
-
-known_pts {(-1, 1)}
-found {-1}
-only trying one fibration for Mumford basis search, for now.
-
---- Cumulative Run Statistics ---
-Total time: 6.17s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  prep_mod_data            : 0.78s
-  mumford_residues         : 0.01s
-  mumford_setup            : 0.00s
-  mumford_reconstruction   : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 532
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-
---- Final Results ---
-Final list of known points: [(-1, 1)]
+[mumford detailed timers]
+  crt_reconstruction_loop                 :    3.197s ( 93.2%)
+  algebraic_prefiltering                  :    0.226s (  6.6%)
+  canonicalization                        :    0.005s (  0.1%)
+  residue_grouping                        :    0.000s (  0.0%)
+  rational_root_check                     :    0.000s (  0.0%)
+  TOTAL                                   :    3.428s

@@ -2,7 +2,18 @@ from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealFi
 from .mumford_height import compute_height_pairing_exact, naive_height_exact
 from ..arakelov import arakelov_build_basis_with_heights, arakelov_height_pairing, clear_period_cache
 from .mumford_core import _poly_from_coeffs_qq
+from search_lll.smoothness import *
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
+# Try to import Arakelov
+try:
+    from ..arakelov import *
+    ARAKELOV_AVAILABLE = True
+except ImportError:
+    ARAKELOV_AVAILABLE = False
+    print("[mumford] Warning: arakelov.py not available, using fallback methods")
+
+
+MAX_BASIS_CANDIDATES = 6
 
 
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):

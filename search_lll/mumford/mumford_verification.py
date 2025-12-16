@@ -1,6 +1,7 @@
 from sage.all import QQ, PolynomialRing
 from .mumford_core import make_monic, reduce_v_mod_u, is_divisor_on_curve
 from math import isqrt
+from sage.all import GF, QQ
 
 def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failure=False):
     if modulus is None:

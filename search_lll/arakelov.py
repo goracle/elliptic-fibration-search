@@ -16,7 +16,7 @@ import time
 from collections import defaultdict
 
 from search_common import *
-from .jacobianbasis import *
+from .jacobian_basis import *
 
 # Global cache for period matrices
 _PERIOD_MATRIX_CACHE = {}
