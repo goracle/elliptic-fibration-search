@@ -652,7 +652,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         mumford_divisors.sort(key=naive_sort_key)
-        mumford_divisors.reverse() # psych!
+        #mumford_divisors.reverse() # psych!
 
         rational_roots_count = sum(1 for div in mumford_divisors_raw
                                    if 'has_rational_roots' in div and div.get('has_rational_roots'))

@@ -13,7 +13,7 @@ except ImportError:
     print("[mumford] Warning: arakelov.py not available, using fallback methods")
 
 
-MAX_BASIS_CANDIDATES = 6
+MAX_BASIS_CANDIDATES = 8
 
 
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=NUM_DOUBLINGS, debug=True):

@@ -80,7 +80,6 @@ def local_naive_height_p(div, p):
         return 0.0
 
 
-
 def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS, padic_prec=None):
     """
     Compute the local canonical height correction (Neron correction) at p 

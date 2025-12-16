@@ -79,4 +79,3 @@ def compute_height_worker(args):
         return (i, None, str(e))
 
 
-
