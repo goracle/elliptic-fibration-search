@@ -1,4 +1,4 @@
-"""NĂ©ron-Tate pairing computations."""
+"""Neron-Tate pairing computations."""
 
 import numpy as np
 import math
@@ -9,7 +9,8 @@ from sage.all import (
 from multiprocessing import Pool
 
 from .heights import arakelov_canonical_height
-from .parallel import _compute_pairing_worker
+from .parallel import compute_pairing_worker
+from .utilities import *
 
 # Functions: get_pairing, neron_tate_height_pairing,
 # precompute_pairings_parallel, gram_logdet_and_cond

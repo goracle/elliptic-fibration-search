@@ -70,8 +70,8 @@ from .utilities import (
 
 # Parallel workers (typically not needed by end users)
 from .parallel import (
-    _compute_height_worker,
-    _compute_pairing_worker,
+    compute_height_worker,
+    compute_pairing_worker,
 )
 
 __all__ = [

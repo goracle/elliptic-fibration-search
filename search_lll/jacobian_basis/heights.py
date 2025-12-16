@@ -5,7 +5,8 @@ from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve
 
 from .archimedean import archimedean_height_correction
 from .local import get_bad_primes, local_height_correction_finite
-from .periods import choose_numerical_base_point, get_period_matrix_auto_B
+from .periods import choose_numerical_base_point
+from search_lll.homology import *
 
 # Functions: naive_height_qq, arakelov_quasi_height, arakelov_canonical_height
 

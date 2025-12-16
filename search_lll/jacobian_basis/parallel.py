@@ -5,7 +5,7 @@ from sage.all import PolynomialRing, HyperellipticCurve, QQ
 from .heights import arakelov_canonical_height
 
 
-def _compute_pairing_worker(args):
+def compute_pairing_worker(args):
     """Worker function to compute a single Néron-Tate pairing"""
     from sage.all import PolynomialRing, HyperellipticCurve, QQ
     
@@ -47,7 +47,7 @@ def _compute_pairing_worker(args):
         return ((i, j), None, str(e))
 
 
-def _compute_height_worker(args):
+def compute_height_worker(args):
     """Worker function to compute a single height"""
     from sage.all import PolynomialRing, HyperellipticCurve, QQ
     

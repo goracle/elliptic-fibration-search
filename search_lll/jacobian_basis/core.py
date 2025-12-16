@@ -7,12 +7,12 @@ from sage.all import (
     PolynomialRing, HyperellipticCurve, Matrix, vector
 )
 from multiprocessing import Pool, cpu_count
-from search_common import get_period_matrix_auto_B
 
 from .pairings import precompute_pairings_parallel, gram_logdet_and_cond
 from .heights import arakelov_canonical_height
 from .utilities import make_matrix_numerically_positive_definite, sanity_check_pairings
-from .parallel import _compute_height_worker
+from .parallel import compute_height_worker, compute_pairing_worker
+from search_lll.homology import *
 
 # Functions: dedupe_basis, gram_logdet_and_cond (moved to pairings),
 # select_independent_indices_from_gram, arakelov_build_basis_with_heights,
@@ -71,7 +71,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     if n > 1 and n_jobs > 1:
         from multiprocessing import Pool
         with Pool(processes=n_jobs) as pool:
-            results = pool.map(_compute_height_worker, height_args)
+            results = pool.map(compute_height_worker, height_args)
         for i, h, error in results:
             if error:
                 raise RuntimeError(f"Height computation failed for divisor {i}: {error}")
@@ -103,7 +103,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             div_i = jac_elements[i][0]
             div_j = jac_elements[j][0]
             args = (i, j, div_i, div_j, f_coeffs, prec, height_cache[i], height_cache[j])
-            _, val, error = _compute_pairing_worker(args)
+            _, val, error = compute_pairing_worker(args)
             if error:
                 raise RuntimeError(f"Pairing computation failed: {error}")
         

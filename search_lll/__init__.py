@@ -10,6 +10,7 @@ from .search_analysis import *
 from .search_main import *
 from .diagnostics_univariate import *
 from . import mumford
+from . import jacobian_basis
 from .homology import *
 
 # Expose main execution functions
