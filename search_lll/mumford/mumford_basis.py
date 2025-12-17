@@ -1216,7 +1216,7 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=False):
         raise
         return None  # conversion failure is legitimate signal
 
-    for p in [1024]:
+    for p in [64]:
         try:
             h = arakelov_canonical_height(J_elem, f_coeffs, prec=p, debug=False)
             if h is not None and h >= 0:

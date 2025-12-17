@@ -21,6 +21,7 @@ def theta_direct(tau_in, z_in, R=3, prec_local=2048):
     """
     Direct summation of theta function for genus 2, used for cheap screening.
     """
+    key = (str(tau_in), str(z_in), R, prec_local)
     from sage.all import ComplexField, pi, exp
     CC_loc = ComplexField(prec_local)
     g_loc = len(z_in)
@@ -38,17 +39,20 @@ def theta_direct(tau_in, z_in, R=3, prec_local=2048):
                 linear = 2*(n0*Z[0] + n1*Z[1])
                 arg = CC_loc(pi*1j) * q + CC_loc(pi*1j) * linear
                 total += CC_loc(exp(arg))
-        return total
+        ret = total
     elif g_loc == 1:
-         for n0 in range(-R, R+1):
+        for n0 in range(-R, R+1):
             q = Tau[0][0]*n0*n0
             linear = 2*n0*Z[0]
             arg = CC_loc(pi*1j) * q + CC_loc(pi*1j) * linear
             total += CC_loc(exp(arg))
-         return total
+        
+        ret = total
     else:
         raise NotImplementedError("theta_direct optimization only implemented for g=1,2")
-
+    theta_direct.cache[key] = ret
+    return ret
+theta_direct.cache = {}
 
 # inside theta.py -- replace compute_theta_high_prec with this
 
@@ -59,6 +63,9 @@ def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_fact
 
     Raises when convergence is unsafe instead of returning junk.
     """
+    key = (tuple(z_vec), prec, max_terms, epsilon_factor)
+    if key in compute_theta_high_prec.cache:
+        return compute_theta_high_prec.cache[key]
 
     from sage.all import ComplexField, RealField, log, pi
     import math
@@ -151,5 +158,7 @@ def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_fact
 
     if abs(total) < epsilon:
         raise ValueError("Theta numerically zero")
-
-    return total
+    ret = total
+    compute_theta_high_prec.cache[key] = ret
+    return ret
+compute_theta_high_prec.cache = {}
