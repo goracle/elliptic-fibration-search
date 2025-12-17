@@ -441,21 +441,24 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                                       test_normalization=None, n_jobs=-1):
     """
     Incremental basis builder: compute period matrix once, precompute heights,
-    precompute pairings for a small prefix, and compute pairings on-demand using
-    the same period matrix. Robust to occasional theta/finite-place failures:
-    missing/failed computations are recorded conservatively as 0.0 with a warning.
+    precompute pairings for a small prefix, and compute pairings on-demand.
+    
+    Robustness Update:
+    - If height/pairing computations fail (e.g. negative heights, non-convergence),
+      the candidate divisor is REJECTED rather than falling back to 0.0.
+    - This prevents contamination of the Gram matrix with false zeros.
     """
     if not all_divisors:
         return [], 0, None
 
-    # determine number of workers (kept for logs only; we do serial heights to keep PM stable)
+    # determine number of workers
     if n_jobs == -1:
         try:
             n_jobs = cpu_count()
         except Exception:
             n_jobs = 1
 
-    # 1) Compute period matrix once at requested precision
+    # 1) Compute period matrix once
     if debug:
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
         print(f"[arakelov] Using precision: {prec} bits")
@@ -464,10 +467,9 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     try:
         PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
     except Exception as e:
-        # If period matrix itself fails, there's nothing much to do: propagate but give context.
         raise RuntimeError(f"[arakelov] get_period_matrix_auto_B failed at prec={prec}: {e}")
 
-    # 2) Build Jacobian elements (Sage objects) from raw mumford dicts
+    # 2) Build Jacobian elements
     Rq_QQ = PolynomialRing(QQ, 'x')
     x_QQ = Rq_QQ.gen()
     f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
@@ -476,7 +478,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
 
     jac_elements = []
     for div in all_divisors:
-        # build Mumford polynomials (assumes genus 2; adapt if variable degree)
         u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
         div_j = J([u_poly, v_poly])
@@ -486,7 +487,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     if n == 0:
         return [], 0, None
 
-    # 3) Compute individual canonical heights using the same PM (serial for stability).
+    # 3) Compute individual canonical heights
     if debug:
         print(f"[arakelov] Pre-computing heights for {n} candidates...")
 
@@ -496,76 +497,78 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             _, jacP, h = jac_elements[i]
             if h is None:
                 h = arakelov_canonical_height(jacP, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
-            # store as float for subsequent linear algebra usage
             height_cache[i] = float(h)
             if debug:
                 print(f"  Divisor {i}: h = {height_cache[i]:.6g}")
         except Exception as e:
-            warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Using 0.0 as conservative fallback.", RuntimeWarning)
-            height_cache[i] = 0.0
-            # Do NOT raise here; try to salvage other divisors
+            # If height fails, we cannot use this divisor. Don't add to cache.
+            if debug:
+                warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Skipping divisor.", RuntimeWarning)
 
-    # 4) Pairing cache & precompute a small prefix of pairings to avoid missing entries in sanity checks.
+    # 4) Pairing cache & precompute prefix
     pairing_cache = {}
-    # Store diagonal entries consistently with existing code (they used height_cache[i] for diag)
-    for i in range(n):
+    # Initialize diagonals for valid divisors
+    for i in height_cache:
         pairing_cache[(i, i)] = height_cache[i]
 
-    # Decide how many prefix indices to precompute pairings for.
-    # This should cover the typical small basis sanity checks; make it conservative.
     try:
         genus = C.genus()
     except Exception:
         genus = 2
-    prefix_precompute = min(n, max(8, 2 * genus + 4))  # e.g., for genus 2 => 8
+    prefix_precompute = min(n, max(8, 2 * genus + 4))
 
     if debug:
         print(f"[arakelov] Precomputing pairings for first {prefix_precompute} divisors (prefix).")
 
     for i in range(prefix_precompute):
         for j in range(i + 1, prefix_precompute):
+            # Only compute if both are valid
+            if i not in height_cache or j not in height_cache:
+                continue
             if (i, j) in pairing_cache:
                 continue
             try:
-                # compute height of sum using same PM, then pairing = 0.5*(h_ij - h_i - h_j)
                 _, Ji, _ = jac_elements[i]
                 _, Jj, _ = jac_elements[j]
                 hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
                 pairing_val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(pairing_val)
+                if debug:
+                    print(f"  Pair ({i},{j}): {pairing_val:.6g}")
             except Exception as e:
-                warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Using 0.0 fallback.", RuntimeWarning)
-                pairing_cache[(i, j)] = pairing_cache[(j, i)] = 0.0
-                # Do NOT raise here.
+                # If pairing fails here, just warn and don't cache. 
+                # On-demand will retry (and likely fail/raise) if needed later.
+                if debug:
+                    warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
 
-    # Helper to compute or fetch pairing lazily, using the same PM so results are consistent.
+    # Helper to compute or fetch pairing lazily
     def get_pairing_lazy(i, j):
-        # canonicalize order
-        if i > j:
-            i, j = j, i
+        if i > j: i, j = j, i
+        
+        # Check validity first
+        if i not in height_cache or j not in height_cache:
+            raise ValueError(f"Cannot pair divisors {i},{j}: invalid self-heights")
+
         if (i, j) in pairing_cache:
             return pairing_cache[(i, j)]
 
-        # if diagonal, return stored height
         if i == j:
-            val = height_cache.get(i, 0.0)
-            pairing_cache[(i, i)] = val
-            return val
+            # Should have been in pairing_cache if in height_cache
+            return height_cache[i]
 
-        # compute on-demand: compute h(D_i + D_j) with shared PM, then pairing = 0.5*(h_ij - hi - hj)
+        # Compute on-demand
         try:
             _, Ji, _ = jac_elements[i]
             _, Jj, _ = jac_elements[j]
             hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
-            val = 0.5 * (float(hij) - float(height_cache.get(i, 0.0)) - float(height_cache.get(j, 0.0)))
+            val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
             pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(val)
-            return pairing_cache[(i, j)]
+            return val
         except Exception as e:
-            warnings.warn(f"[arakelov] on-demand pairing computation failed for ({i},{j}): {e}. Using 0.0 fallback.", RuntimeWarning)
-            pairing_cache[(i, j)] = pairing_cache[(j, i)] = 0.0
-            return 0.0
+            # Propagate error so the candidate is rejected
+            raise RuntimeError(f"Pairing computation failed for ({i},{j}): {e}")
 
-    # 5) Incremental basis selection (same algorithm as before, but using the shared pairing function)
+    # 5) Incremental basis selection
     if debug:
         print("[arakelov] Selecting basis incrementally...")
 
@@ -573,14 +576,19 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     max_basis_size = 2 * genus
 
     for cand_idx in range(n):
-        # stop if we already have the expected maximal free-rank bound
         if len(basis_indices) >= max_basis_size:
             break
+            
+        # Skip if self-height was invalid
+        if cand_idx not in height_cache:
+            if debug:
+                print(f"  Skipping divisor {cand_idx}: invalid height")
+            continue
 
-        # first element: accept non-zero height
+        # First element
         if len(basis_indices) == 0:
-            h = height_cache.get(cand_idx, 0.0)
-            if abs(float(h)) > 1e-8:
+            h = height_cache[cand_idx]
+            if abs(h) > 1e-8:
                 basis_indices.append(cand_idx)
                 if debug:
                     print(f"  Added divisor {cand_idx} (first basis element)")
@@ -589,41 +597,44 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     print(f"  Skipping divisor {cand_idx}: height ~ 0")
             continue
 
-        # test independence using projection-based test
-        is_indep, info = is_independent_by_projection_log(
-            basis_indices,
-            cand_idx,
-            get_pairing_lazy,
-            prec,
-            debug=debug
-        )
+        # Test independence
+        try:
+            is_indep, info = is_independent_by_projection_log(
+                basis_indices,
+                cand_idx,
+                get_pairing_lazy,
+                prec,
+                debug=debug
+            )
+        except Exception as e:
+            if debug:
+                print(f"  Rejected divisor {cand_idx}: pairing computation failed ({e})")
+            continue
 
         if not is_indep:
             if debug:
                 print(f"  Rejected divisor {cand_idx}: dependent (proj test)")
             continue
 
-        # quick Gram-check using current basis_indices + candidate (use lower precision RealField)
-        k = len(basis_indices)
-        from sage.all import RealField as SFRealField, Matrix as SFMatrix
-        RR = SFRealField(max(128, int(prec // 4)))
-        G_test = SFMatrix(RR, k + 1, k + 1)
-
-        # fill matrix for basis_indices U {cand_idx}
-        indices_to_fill = basis_indices + [cand_idx]
-        for r in range(k + 1):
-            for c in range(r, k + 1):
-                pv = get_pairing_lazy(indices_to_fill[r], indices_to_fill[c])
-                G_test[r, c] = RR(pv)
-                G_test[c, r] = G_test[r, c]
-
+        # Quick Gram check
         try:
+            k = len(basis_indices)
+            from sage.all import RealField as SFRealField, Matrix as SFMatrix
+            RR_Gram = SFRealField(max(128, int(prec // 4)))
+            G_test = SFMatrix(RR_Gram, k + 1, k + 1)
+
+            indices_to_fill = basis_indices + [cand_idx]
+            for r in range(k + 1):
+                for c in range(r, k + 1):
+                    pv = get_pairing_lazy(indices_to_fill[r], indices_to_fill[c])
+                    G_test[r, c] = RR_Gram(pv)
+                    G_test[c, r] = G_test[r, c]
+            
             det_val = float(G_test.determinant())
-        except Exception:
-            # if determinant fails numerically, conservatively reject candidate
+        except Exception as e:
             if debug:
-                print(f"  Rejected divisor {cand_idx}: numeric determinant failed")
-            continue # do not raise
+                print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
+            continue
 
         if det_val > 0:
             basis_indices.append(cand_idx)
@@ -633,17 +644,20 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             if debug:
                 print(f"  Rejected divisor {cand_idx}: dependent (Gram det <= 0)")
 
-    # 6) Ensure sanity_check_pairings has the entries it needs
+    # 6) Sanity check pairings (fill missing if any)
     if len(basis_indices) > 0:
         need_k = min(len(basis_indices), 4)
         for ii in range(need_k):
             for jj in range(ii, need_k):
                 i = basis_indices[ii]; j = basis_indices[jj]
                 if (i, j) not in pairing_cache:
-                    _ = get_pairing_lazy(i, j)
+                    try:
+                        _ = get_pairing_lazy(i, j)
+                    except Exception:
+                        pass # Should have been caught earlier, but just in case
         sanity_check_pairings(pairing_cache, need_k)
 
-    # 7) Deduplicate basis and build final Gram matrix
+    # 7) Final output
     basis = [jac_elements[i][0] for i in basis_indices]
     basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
 
@@ -651,27 +665,28 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     H_final = None
 
     if final_rank > 0:
-        RR = RealField(max(128, int(prec // 4)))
-        H_final = Matrix(RR, final_rank, final_rank)
+        RR_Final = RealField(max(128, int(prec // 4)))
+        H_final = Matrix(RR_Final, final_rank, final_rank)
         if debug:
             print(f"[arakelov] Building final {final_rank}×{final_rank} Gram matrix...")
 
         for r in range(final_rank):
             for c in range(r, final_rank):
-                pv = get_pairing_lazy(basis_indices[r], basis_indices[c])
-                H_final[r, c] = RR(pv)
-                H_final[c, r] = H_final[r, c]
+                try:
+                    pv = get_pairing_lazy(basis_indices[r], basis_indices[c])
+                    H_final[r, c] = RR_Final(pv)
+                    H_final[c, r] = H_final[r, c]
+                except Exception:
+                    # This should theoretically not happen if we passed checks, but be safe
+                    H_final[r, c] = H_final[c, r] = 0
 
+        # Diagnostics
         try:
-            eigs = H_final.eigenvalues()
-            f_eigs = [float(e) for e in eigs]
+            eigs = [float(e) for e in H_final.eigenvalues()]
             if debug:
-                print("eigenvalues (float):", f_eigs)
+                print("eigenvalues (float):", eigs)
                 print("determinant:", float(H_final.determinant()))
-                if min(f_eigs) > 0:
-                    print("condition number (approx):", float(max(f_eigs) / min(f_eigs)))
         except Exception as e:
-            warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
-            # do not raise
+             warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
 
     return basis, final_rank, H_final

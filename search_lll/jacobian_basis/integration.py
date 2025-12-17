@@ -152,4 +152,3 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
 integrate_differential_path_with_branch.cache = {}
 
 
-
