@@ -18,8 +18,13 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     Exact archimedean height correction.
     Crashes on any inconsistency.
     """
+    key = (str(div), tuple(f_coeffs), prec)
+    if key in archimedean_height_correction.cache:
+        return archimedean_height_correction.cache[key]
+
     if div.is_zero():
         return QQ(0)
+
 
     RR = RealField(prec)
     CC = ComplexField(prec)
@@ -60,8 +65,10 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
         print("z =", [complex(zi) for zi in z])
         raise RuntimeError("Archimedean height negative")
 
-    return QQ(arch)
-
+    ret = QQ(arch)
+    archimedean_height_correction.cache[key] = ret
+    return ret
+archimedean_height_correction.cache = {}
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
     """
@@ -115,6 +122,9 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     If Im(tau) eigenvalue(s) are small (slow convergence) we *fallback* to a conservative
     reduction (return z_base) to avoid repeated heavy theta computations.
     """
+    key = (tuple(z_list), prec, max_attempts, y_min_threshold)
+    if key in reduce_z_arakelov.cache:
+        return reduce_z_arakelov.cache[key]
     RR = RealField(prec)
     CC = ComplexField(prec)
 
@@ -228,5 +238,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
 
     if debug:
         print(f"[reduce_z_arakelov] Final: {successful_evals} successful, {failed_evals} failed")
-
-    return [CC(best_z[i]) for i in range(g)]
+    ret = [CC(best_z[i]) for i in range(g)]
+    reduce_z_arakelov.cache[key] = ret
+    return ret
+reduce_z_arakelov.cache = {}

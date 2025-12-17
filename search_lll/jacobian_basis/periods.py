@@ -60,6 +60,9 @@ def abel_jacobi_mumford(
       `integrate_differential_path_with_branch` from the caller's scope.
     - Returns: vector(CC, length=2) (not reduced mod lattice unless period_matrix provided).
     """
+    key = (str(div), tuple(f_coeffs), base_point, prec)
+    if key in abel_jacobi_mumford.cache:
+        return abel_jacobi_mumford.cache[key]
     from sage.all import ComplexField, PolynomialRing, vector, matrix
     import math
 
@@ -229,7 +232,10 @@ def abel_jacobi_mumford(
             raise
             # continue without reduction
 
-    return aj_vec
+    ret = aj_vec
+    abel_jacobi_mumford.cache[key] = ret
+    return ret
+abel_jacobi_mumford.cache = {}
 
 
 def normalize_periods_and_z(Omega, z_vec):

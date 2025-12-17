@@ -55,6 +55,9 @@ def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=Fal
     Compute the Arakelov canonical height of `div`.
     Accepts optional `period_matrix` to avoid recomputing expensive periods.
     """
+    key = (str(div), tuple(f_coeffs), prec, max_prec)
+    if key in arakelov_canonical_height.cache:
+        return arakelov_canonical_height.cache[key]
     import warnings
     from sage.all import QQ
 
@@ -83,6 +86,7 @@ def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=Fal
     except Exception as e:
         warnings.warn(f"[arakelov_canonical_height] initial full computation failed: {e}. Attempting archimedean-only fallback.", RuntimeWarning)
         h_can = -1.0
+        raise
 
     if h_can >= -TOL_NEG:
         return float(max(h_can, 0.0))
@@ -98,6 +102,7 @@ def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=Fal
             return float(max(h_can_nf, 0.0))
     except Exception as e:
         warnings.warn(f"[arakelov_canonical_height] arch-only fallback failed: {e}", RuntimeWarning)
+        raise
 
     # Retry loop that may increase precision (still using provided PM only if present and matches prec)
     cur_prec = prec
@@ -122,7 +127,10 @@ def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=Fal
         f"Returning h_can (best estimate). Last observed h_can={h_can}. prec tried up to {cur_prec}.",
         RuntimeWarning
     )
-    return h_can
+    ret = h_can
+    arakelov_canonical_height.cache[key] = ret
+    return ret
+arakelov_canonical_height.cache = {}
 
 def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
                           use_finite_places=True, arch_override=None):
@@ -140,6 +148,9 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
         we fall back to archimedean-only and warn.
       - All numeric contributions are accumulated in a RealField to avoid mistaken QQ casts.
     """
+    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
+    if key in arakelov_quasi_height.cache:
+        return arakelov_quasi_height.cache[key]
     import warnings
     from sage.all import RealField, RR as sage_RR
     # functions assumed available in module scope:
@@ -164,6 +175,7 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
     except Exception as e:
         warnings.warn(f"[arakelov_quasi_height] archimedean_naive_height failed: {e}. Using 0.", RuntimeWarning)
         h_inf_naive = 0.0
+        raise
 
     # ensure we work in RF
     h_total = RF(h_inf_naive)
@@ -174,6 +186,7 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
             h_arch = RF(arch_override)
         except Exception:
             h_arch = RF(0)
+            raise
     else:
         try:
             if period_matrix is None:
@@ -182,6 +195,7 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
         except Exception as e:
             warnings.warn(f"[arakelov_quasi_height] archimedean_height_correction failed: {e}. Using 0.", RuntimeWarning)
             h_arch = RF(0)
+            raise
 
     h_total += h_arch
 
@@ -201,12 +215,14 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
                 # caching have recorded it).
                 val = None
                 warnings.warn(f"[arakelov_quasi_height] local_height_correction_finite raised for p={p}: {e}", RuntimeWarning)
+                raise
 
             # if val is None treat as failure, else add numeric contribution
             try:
                 div_id = (str(div[0]), str(div[1]))
             except Exception:
                 div_id = (repr(div),)
+                raise
 
             if val is None:
                 # count as failure
@@ -221,6 +237,8 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
                         h_finite += RF(float(val))
                     except Exception:
                         warnings.warn(f"[arakelov_quasi_height] could not cast finite correction for p={p}; skipping", RuntimeWarning)
+                        raise
+                    raise
 
             # account for cached failed_pairs recorded by the local routine
             if (div_id, p) in failed_pairs:
@@ -242,4 +260,7 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
     if float(h_total) < -1e-12:
         warnings.warn(f"[arakelov_quasi_height] height is slightly negative ({float(h_total)}). Returning as-is.", RuntimeWarning)
 
-    return h_total
+    ret = h_total
+    arakelov_quasi_height.cache[key] = ret
+    return ret
+arakelov_quasi_height.cache = {}

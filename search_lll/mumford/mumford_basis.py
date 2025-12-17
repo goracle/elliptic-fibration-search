@@ -841,8 +841,8 @@ def u_theta_degenerate_enhanced(div,
                     # compute numerator/denom for r: express r as rational
                     # We'll do exact QQ arithmetic
                     sqrt_disc = QQ(a_root)/QQ(b_root)
-                    r1 = (-s + sqrt_disc) / 2
-                    r2 = (-s - sqrt_disc) / 2
+                    r1 = (s + sqrt_disc) / 2
+                    r2 = (s - sqrt_disc) / 2
                     # check denominators
                     if int(r1.denominator()) <= small_root_den_bound or int(r2.denominator()) <= small_root_den_bound:
                         print("if int(r1.denominator()) <= small_root_den_bound or int(r2.denominator()) <= small_root_den_bound:")
@@ -908,8 +908,8 @@ def _has_rational_root_pair(div):
         rb = int(math.isqrt(b))
         if ra*ra == a and rb*rb == b:
             sqrt_disc = QQ(ra, rb)
-            r1 = (-s + sqrt_disc)/2
-            r2 = (-s - sqrt_disc)/2
+            r1 = (s + sqrt_disc)/2
+            r2 = (s - sqrt_disc)/2
             return True, (r1, r2)
     return False, ()
 
@@ -1140,8 +1140,8 @@ def _u_roots_rational(div):
     sqrt_num = Integer(num.sqrt())
     sqrt_den = Integer(den.sqrt())
     sqrt_disc = QQ(sqrt_num) / QQ(sqrt_den)
-    r1 = (-s + sqrt_disc) / 2
-    r2 = (-s - sqrt_disc) / 2
+    r1 = (s + sqrt_disc) / 2
+    r2 = (s - sqrt_disc) / 2
     return True, (r1, r2)
 
 def _drop_if_both_roots_give_rational_points(div, f_coeffs_or_curve):
@@ -1191,8 +1191,8 @@ def u_has_rational_root_lifting_to_point(div, f_coeffs_or_curve):
         return False
 
     sqrt_disc = QQ(Integer(a.sqrt())) / QQ(Integer(b.sqrt()))
-    r1 = (-s + sqrt_disc) / 2
-    r2 = (-s - sqrt_disc) / 2
+    r1 = (s + sqrt_disc) / 2
+    r2 = (s - sqrt_disc) / 2
 
     for r in (r1, r2):
         v = f(r)

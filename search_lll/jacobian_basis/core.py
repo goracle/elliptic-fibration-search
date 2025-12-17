@@ -110,6 +110,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as e:
             warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Using 0.0 as conservative fallback.", RuntimeWarning)
             height_cache[i] = 0.0
+            raise
 
     # 4) Pairing cache & precompute a small prefix of pairings to avoid missing entries in sanity checks.
     pairing_cache = {}
@@ -134,8 +135,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 continue
             try:
                 # compute height of sum using same PM, then pairing = 0.5*(h_ij - h_i - h_j)
-                _, Ji = jac_elements[i]
-                _, Jj = jac_elements[j]
+                _, Ji, _ = jac_elements[i]
+                _, Jj, _ = jac_elements[j]
                 hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
                 pairing_val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(pairing_val)
@@ -144,6 +145,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             except Exception as e:
                 warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Using 0.0 fallback.", RuntimeWarning)
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = 0.0
+                raise
 
     # Helper to compute or fetch pairing lazily, using the same PM so results are consistent.
     def get_pairing_lazy(i, j):
@@ -161,8 +163,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
 
         # compute on-demand: compute h(D_i + D_j) with shared PM, then pairing = 0.5*(h_ij - hi - hj)
         try:
-            _, Ji = jac_elements[i]
-            _, Jj = jac_elements[j]
+            _, Ji, _ = jac_elements[i]
+            _, Jj, _ = jac_elements[j]
             hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
             val = 0.5 * (float(hij) - float(height_cache.get(i, 0.0)) - float(height_cache.get(j, 0.0)))
             pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(val)
@@ -170,6 +172,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as e:
             warnings.warn(f"[arakelov] on-demand pairing computation failed for ({i},{j}): {e}. Using 0.0 fallback.", RuntimeWarning)
             pairing_cache[(i, j)] = pairing_cache[(j, i)] = 0.0
+            raise
             return 0.0
 
     # 5) Incremental basis selection (same algorithm as before, but using the shared pairing function)
@@ -230,6 +233,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             # if determinant fails numerically, conservatively reject candidate
             if debug:
                 print(f"  Rejected divisor {cand_idx}: numeric determinant failed")
+            raise
             continue
 
         if det_val > 0:
@@ -284,6 +288,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print("regulator:", float(H_final.determinant()))
         except Exception as e:
             warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
+            raise
 
     # optional diagnostics
     if debug and final_rank > 0:
@@ -296,6 +301,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as E:
             if debug:
                 print(f"[arakelov] Diagnostic failed: {E}")
+            raise
 
     return basis, final_rank, H_final
 
@@ -353,6 +359,7 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
     except Exception as e:
         # if pairings missing or non-numeric, return an informative failure
         info['error'] = f'pairing_error: {type(e).__name__}: {e}'
+        raise
         return False, info
 
     if not (isfinite(h_cand) and np.all(np.isfinite(G_np)) and np.all(np.isfinite(b_np))):
@@ -508,6 +515,7 @@ def select_independent_indices_from_gram(
         eigvals = svals.copy()
         eigvecs = U.copy()
         method = "svd"
+        raise
 
     # ensure an array and sort descending
     eigvals = np.array(eigvals, dtype=float)
@@ -521,6 +529,7 @@ def select_independent_indices_from_gram(
         except Exception:
             # leave eigvecs None; we'll fallback to SVD embedding if needed
             eigvecs = None
+            raise
 
     # ascending -> descending for compatibility with old info
     eigvals_desc = eigvals[::-1]
@@ -550,6 +559,7 @@ def select_independent_indices_from_gram(
             eigvals_desc = np.array(svals_svd, dtype=float)  # treat as descending
         except Exception:
             # matrix essentially zero; nothing to select
+            raise
             return [], {
                 "eigvals": eigvals_desc.tolist(),
                 "numeric_rank": 0,
@@ -593,6 +603,7 @@ def select_independent_indices_from_gram(
             # final fallback: use SVD U as eigenvectors proxy
             U, svals_svd, Vt = np.linalg.svd(G_np)
             eigvecs_full = U
+            raise
     else:
         eigvecs_full = eigvecs
 
@@ -608,6 +619,7 @@ def select_independent_indices_from_gram(
             Upos = U_desc[:, pos_indices_desc]
         except Exception:
             Upos = eigvecs_full[:, :r]
+            raise
     else:
         # non-square/unknown shape (SVD fallback), take first r columns
         Upos = eigvecs_full[:, :r]
@@ -677,6 +689,7 @@ def select_independent_indices_from_gram(
     except Exception:
         log10_abs_det = None
         log10_cond = None
+        raise
 
     info = {
         "eigvals": eigvals_desc.tolist(),
