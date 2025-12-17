@@ -13,62 +13,6 @@ from .periods import (
 )
 
 
-def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=False):
-    """
-    Exact archimedean height correction.
-    Crashes on any inconsistency.
-    """
-    key = (str(div), tuple(f_coeffs), prec)
-    if key in archimedean_height_correction.cache:
-        return archimedean_height_correction.cache[key]
-
-    if div.is_zero():
-        return QQ(0)
-
-
-    RR = RealField(prec)
-    CC = ComplexField(prec)
-
-    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    z_vec = abel_jacobi_mumford(div, f_coeffs, base_point=base_point, prec=prec)
-
-    tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
-    g = tau.nrows()
-
-    z_raw = [CC(z_norm_mat[i,0]) for i in range(g)]
-    z = reduce_z_arakelov(z_raw, tau, prec=prec, debug=debug)
-
-    # Im(tau)
-    Im_tau = Matrix(RR, g, g, [[RR(CC(tau[i,j]).imag()) for j in range(g)] for i in range(g)])
-    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
-    det_im = Im_tau.det()
-    assert det_im > 0
-
-    y_im = vector(RR, [RR(zi.imag()) for zi in z])
-    v = Im_tau.solve_right(y_im)
-    quad = RR(pi) * y_im.dot_product(v)
-
-    theta = compute_theta_high_prec_parallel(z, tau, prec=prec)
-    abs_theta = abs(CC(theta))
-    assert abs_theta > 0
-
-    log_theta = RR(abs_theta).log()
-    corr = QQ(1)/QQ(2) * RR(det_im).log()
-
-    arch = quad - log_theta + corr
-
-    if arch < -RR(1e-12):
-        print("\n[ARCHIMEDEAN HEIGHT FAILURE]")
-        print("quad =", float(quad))
-        print("log|theta| =", float(log_theta))
-        print("det(Im tau) =", float(det_im))
-        print("z =", [complex(zi) for zi in z])
-        raise RuntimeError("Archimedean height negative")
-
-    ret = QQ(arch)
-    archimedean_height_correction.cache[key] = ret
-    return ret
-archimedean_height_correction.cache = {}
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
     """
@@ -116,6 +60,8 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
 
 
 # inside archimedean.py -- replace reduce_z_arakelov with this
+
+
 def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_threshold=0.25):
     """
     Reduce z modulo lattice selecting representative maximizing quad - log|theta|.
@@ -161,7 +107,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     if y_min < y_min_threshold:
         if debug:
             print(f"[reduce_z_arakelov] Im(tau) y_min={y_min:.4g} < threshold={y_min_threshold}; skipping theta search.")
-        # Return lattice-reduced representative (converted to CC)
         return [CC(z_base[i]) for i in range(g)]
 
     # helper: quadratic form
@@ -192,8 +137,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
             # Reduce real parts to fundamental interval [0,1)
             z_candidate = vector(CC, [z_candidate[i] - CC(int(round(float(z_candidate[i].real())))) for i in range(g)])
 
-            # Estimate whether heavy theta will be required. If so use theta_direct as a cheap fallback.
-            # light estimate of y_min -> radius_needed
             try:
                 from sage.all import log as sage_log, RR as sage_RR
                 epsilon = sage_RR(2) ** (-(prec) + 8)
@@ -201,24 +144,18 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
             except Exception:
                 radius_needed = 10
 
-            # If radius_needed would be large, use theta_direct with small R instead of full high-prec summation.
             try:
                 if radius_needed > 18:
-                    # cheap direct theta
                     theta = theta_direct(tau, list(z_candidate), R=4, prec_local=max(128, prec//2))
                 else:
                     theta = compute_theta_high_prec_parallel(list(z_candidate), tau, prec=prec, max_terms=20000)
                 abs_theta = abs(CC(theta))
                 if abs_theta <= 0:
                     failed_evals += 1
-                    if debug:
-                        print(f"[reduce_z_arakelov] Zero theta at shift a={a_mask}, b={b_mask}")
                     continue
 
                 score = quad_val(z_candidate) - RR(abs_theta).log()
                 successful_evals += 1
-                if debug:
-                    print(f"[reduce_z_arakelov] shift ({a_mask},{b_mask}): score = {float(score):.6f}")
 
                 if (best_score is None) or (score > best_score):
                     best_score = score
@@ -226,19 +163,66 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
 
             except (ValueError, RuntimeError) as e:
                 failed_evals += 1
-                if debug:
-                    print(f"[reduce_z_arakelov] Theta failed at shift a={a_mask}, b={b_mask}: {e}")
                 continue
 
     if best_z is None:
-        # If all shifts failed, *return* the lattice-reduced base (conservative)
         if debug:
-            print(f"[reduce_z_arakelov] All shifts failed ({successful_evals} success / {failed_evals} failed); returning lattice base.")
+            print(f"[reduce_z_arakelov] All shifts failed; returning lattice base.")
         return [CC(z_base[i]) for i in range(g)]
 
-    if debug:
-        print(f"[reduce_z_arakelov] Final: {successful_evals} successful, {failed_evals} failed")
     ret = [CC(best_z[i]) for i in range(g)]
     reduce_z_arakelov.cache[key] = ret
     return ret
 reduce_z_arakelov.cache = {}
+
+
+def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=False):
+    """
+    Exact archimedean height correction.
+    """
+    key = (str(div), tuple(f_coeffs), prec)
+    if key in archimedean_height_correction.cache:
+        return archimedean_height_correction.cache[key]
+
+    if div.is_zero():
+        return QQ(0)
+
+    RR = RealField(prec)
+    CC = ComplexField(prec)
+
+    base_point = choose_numerical_base_point(f_coeffs, prec=prec)
+    z_vec = abel_jacobi_mumford(div, f_coeffs, base_point=base_point, prec=prec)
+
+    tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
+    g = tau.nrows()
+
+    z_raw = [CC(z_norm_mat[i,0]) for i in range(g)]
+    z = reduce_z_arakelov(z_raw, tau, prec=prec, debug=debug)
+
+    # Im(tau)
+    Im_tau = Matrix(RR, g, g, [[RR(CC(tau[i,j]).imag()) for j in range(g)] for i in range(g)])
+    Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
+    det_im = Im_tau.det()
+    assert det_im > 0
+
+    y_im = vector(RR, [RR(zi.imag()) for zi in z])
+    v = Im_tau.solve_right(y_im)
+    quad = RR(pi) * y_im.dot_product(v)
+
+    theta = compute_theta_high_prec_parallel(z, tau, prec=prec)
+    abs_theta = abs(CC(theta))
+    assert abs_theta > 0
+
+    log_theta = RR(abs_theta).log()
+    corr = QQ(1)/QQ(2) * RR(det_im).log()
+
+    arch = quad - log_theta + corr
+
+    if arch < -RR(1e-12):
+        if debug:
+            print(f"[ARCH] Warning: negative correction {float(arch)}")
+
+    ret = QQ(arch)
+    archimedean_height_correction.cache[key] = ret
+    return ret
+archimedean_height_correction.cache = {}

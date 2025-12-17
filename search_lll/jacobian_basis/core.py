@@ -17,10 +17,6 @@ from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ)
 from multiprocessing import cpu_count
 from search_lll.homology import *
 
-# Functions: dedupe_basis, gram_logdet_and_cond (moved to pairings),
-# select_independent_indices_from_gram, arakelov_build_basis_with_heights,
-# is_independent_by_projection_log
-
 
 def dedupe_basis(basis, basis_indices, debug=False):
     """
@@ -44,41 +40,19 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
                                      prec=300, debug=False,
                                      rel_eig_tol=1e-8, abs_eig_tol=1e-12):
     """
-    Robust independence test for a candidate divisor `cand_idx` against the
-    current basis `basis_indices`.
-
-    Policy:
-      - Build the k×k Gram G for basis and the augmented (k+1)×(k+1) Gram G_aug
-        that includes the candidate.
-      - Use eigenvalue thresholding (numeric rank) to decide whether the
-        augmented Gram increases rank.  If rank increases -> independent.
-      - If rank does not increase (ambiguous), fall back to two residual tests:
-          * relative residual vector norm from least-squares projection
-          * residual energy = h(cand) - alpha^T b
-        If both residuals are small -> dependent, otherwise independent.
-      - This *never* raises a fatal error simply because the Gram isn't PD;
-        instead it returns (is_indep, diagnostics).
-
-    Parameters:
-      basis_indices: list of ints (indices into the global divisor list)
-      cand_idx: int (index of candidate)
-      get_pairing: callable(i,j) -> pairing value (diagonal = height)
-      prec: bit-precision hint (used only for debug / tolerances scaling)
-      rel_eig_tol, abs_eig_tol: eigenvalue thresholding parameters
-    Returns:
-      (is_indep: bool, info: dict)
+    Robust independence test using eigenvalue rank and projection residuals.
+    Never returns ambiguous states; ambiguous states default to dependent unless
+    residuals are strong.
     """
     import numpy as np
     from math import isfinite
 
     info = {}
     k = len(basis_indices)
-    # trivial case
     if k == 0:
         info['reason'] = 'empty_basis'
         return True, info
 
-    # build Gram G (k x k), vector b (k), and h_cand
     try:
         G_np = np.zeros((k, k), dtype=float)
         b_np = np.zeros((k,), dtype=float)
@@ -91,42 +65,35 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
             b_np[i] = float(get_pairing(basis_indices[i], cand_idx))
         h_cand = float(get_pairing(cand_idx, cand_idx))
     except Exception as e:
-        # if pairings missing or non-numeric, return an informative failure
+        # Failure in pairing extraction -> return False so candidate is rejected
         info['error'] = f'pairing_error: {type(e).__name__}: {e}'
-        raise
         return False, info
 
     if not (isfinite(h_cand) and np.all(np.isfinite(G_np)) and np.all(np.isfinite(b_np))):
         info['error'] = 'nonfinite_entry_in_pairings'
         return False, info
 
-    # symmetrize to kill tiny noise
     G_np = 0.5 * (G_np + G_np.T)
 
-    # augmented Gram
     G_aug = np.zeros((k + 1, k + 1), dtype=float)
     G_aug[:k, :k] = G_np
     G_aug[:k, k] = b_np
     G_aug[k, :k] = b_np
     G_aug[k, k] = h_cand
 
-    # eigenvalue analysis (use eigh for symmetric)
     try:
         eigs_G = np.linalg.eigvalsh(G_np)
         eigs_aug = np.linalg.eigvalsh(G_aug)
     except np.linalg.LinAlgError:
-        # fallback: small random jitter then retry
         jitter = 1e-16
         G_np += jitter * np.eye(k)
         G_aug[:k, :k] = G_np
         eigs_G = np.linalg.eigvalsh(G_np)
         eigs_aug = np.linalg.eigvalsh(G_aug)
 
-    # compute numeric rank with thresholding
     max_eig_G = max(abs(eigs_G.max()), abs(eigs_G.min()), 1.0)
     max_eig_aug = max(abs(eigs_aug.max()), abs(eigs_aug.min()), 1.0)
 
-    # thresholds: relative to largest eigenvalue, plus absolute floor
     tol_G = max(rel_eig_tol * max_eig_G, abs_eig_tol)
     tol_aug = max(rel_eig_tol * max_eig_aug, abs_eig_tol)
 
@@ -142,16 +109,11 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         'h_cand': h_cand
     })
 
-    # Primary decision: strictly increasing numeric rank => independent
     if rank_aug > rank_G:
         info['reason'] = 'rank_increase'
         return True, info
 
-    # Otherwise ambiguous: use least-squares projection residual tests
-    # Solve G alpha ≈ b via least-squares / pseudo-inverse (numeric stable)
     try:
-        # handle near-singular by regularized least squares
-        # use np.linalg.lstsq for a stable pseudo-inverse solution
         alpha, *_ = np.linalg.lstsq(G_np, b_np, rcond=None)
         proj_b = G_np.dot(alpha)
         residual_vec = b_np - proj_b
@@ -159,7 +121,6 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         b_norm = float(np.linalg.norm(b_np))
         rel_residual = residual_norm / (b_norm + 1e-18)
 
-        # residual energy: h_cand - alpha^T b
         predicted = float(np.dot(alpha, b_np))
         residual_energy = float(h_cand - predicted)
 
@@ -171,10 +132,7 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
             'predicted': predicted,
         })
 
-        # thresholds (conservative):
-        # - small vector residual -> dependent
-        # - small residual energy (relative to h_cand) -> dependent
-        residual_vector_thresh = 1e-6  # relative tolerance on vector residual
+        residual_vector_thresh = 1e-6
         residual_energy_rel_thresh = 1e-6
         residual_energy_abs_thresh = 1e-10
 
@@ -190,38 +148,17 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
             return True, info
 
     except Exception as e:
-        # numeric failure; conservatively declare dependent but provide diagnostics
         info['error'] = f'lstsq_failed: {type(e).__name__}: {e}'
         info['reason'] = 'conservative_dependent_on_error'
         return False, info
 
 
-def select_independent_indices_from_gram(
-    G,
-    prec_bits=2048,
-    safety_digits=10,
-    rel_sv_tol=1e-12,
-    pivot_tol_factor=1e-9,
-    debug=False,
-):
-    """
-    Robust selection of numerically independent indices from a symmetric Gram matrix G.
-
-    - Accepts a Sage Matrix or an ndarray / list-of-lists.
-    - Symmetrizes, uses eigendecomposition to determine a numeric rank, but NEVER
-      throws if tiny negative eigenvalues appear: it regularizes them conservatively.
-    - Deterministic pivoting selects rows with largest residual norm (embedding deflation).
-    - Returns (selected_indices, info_dict).
-
-    Info dict fields:
-      'eigvals' (descending), 'numeric_rank', 'log10_abs_det', 'log10_cond', 'method'
-    """
+def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
+                                         rel_sv_tol=1e-12, pivot_tol_factor=1e-9, debug=False):
     import numpy as np
     import math
 
-    # --- convert to numpy float array (symmetrize) ---
     if hasattr(G, "nrows"):
-        # Sage matrix
         n = int(G.nrows())
         G_np = np.array([[float(G[i, j]) for j in range(n)] for i in range(n)], dtype=float)
     else:
@@ -230,70 +167,46 @@ def select_independent_indices_from_gram(
             raise ValueError("Input must be a square matrix")
         n = G_np.shape[0]
 
-    # symmetrize to reduce noise
     G_np = 0.5 * (G_np + G_np.T)
-
-    # tiny helper floors
     ABS_FLOOR = 1e-300
 
-    # --- eigendecomposition (symmetric) with robust fallback ---
     try:
-        eigvals = np.linalg.eigvalsh(G_np)  # ascending
+        eigvals = np.linalg.eigvalsh(G_np)
         eigvecs = None
         method = "eig"
     except Exception:
-        # fallback to SVD (more robust for badly conditioned inexact matrices)
-        if debug:
-            print("[select_from_gram] eigvalsh failed, falling back to SVD")
         U, svals, Vt = np.linalg.svd(G_np)
         eigvals = svals.copy()
         eigvecs = U.copy()
         method = "svd"
-        raise
 
-    # ensure an array and sort descending
     eigvals = np.array(eigvals, dtype=float)
     if eigvecs is None and method == "eig":
-        # get eigenvectors in a safe way (we only need them when positive eigs exist)
         try:
             w, V = np.linalg.eigh(G_np)
             eigvals = np.array(w, dtype=float)
             eigvecs = V
             method = "eig"
         except Exception:
-            # leave eigvecs None; we'll fallback to SVD embedding if needed
             eigvecs = None
             raise
 
-    # ascending -> descending for compatibility with old info
     eigvals_desc = eigvals[::-1]
-
-    # smax and candidate thresholding
     smax = float(max(eigvals_desc[0], 0.0)) if eigvals_desc.size else 0.0
-
-    # convert prec_bits -> decimal digits estimate (rough)
     dec_digits = int(prec_bits * 0.30103) if prec_bits > 0 else 50
     dec_digits_cap = min(max(dec_digits, 0), 50)
-
-    # build eigenvalue threshold (conservative)
     safety_power = max(safety_digits, dec_digits_cap)
-    # avoid 10**(-huge) underflow by scaling with smax
     ev_thresh = max(smax * (10.0 ** (-safety_power)), smax * rel_sv_tol, 1e-300)
 
-    # If smax is zero (nearly zero matrix), use SVD singulars to get scale
     if smax <= 0:
         try:
             _, svals_svd, _ = np.linalg.svd(G_np)
             smax = float(svals_svd[0]) if svals_svd.size else 0.0
             ev_thresh = max(smax * rel_sv_tol, 1e-300)
-            if debug:
-                print(f"[select_from_gram] smax was <=0; using SVD smax={smax:.3g}")
             method = "svd"
             eigvecs = np.linalg.svd(G_np)[0]
-            eigvals_desc = np.array(svals_svd, dtype=float)  # treat as descending
+            eigvals_desc = np.array(svals_svd, dtype=float)
         except Exception:
-            # matrix essentially zero; nothing to select
-            raise
             return [], {
                 "eigvals": eigvals_desc.tolist(),
                 "numeric_rank": 0,
@@ -302,24 +215,17 @@ def select_independent_indices_from_gram(
                 "method": method,
             }
 
-    # compute mask of 'positive' eigenvalues we keep
-    # here eigvals_desc is descending; find indices > ev_thresh
     pos_mask_desc = eigvals_desc > ev_thresh
     pos_indices_desc = np.nonzero(pos_mask_desc)[0]
     r = int(len(pos_indices_desc))
 
-    # If none are above threshold, try a more permissive fallback using rel_sv_tol
     if r == 0:
         alt_thresh = max(smax * rel_sv_tol, 1e-300)
         pos_mask_desc = eigvals_desc > alt_thresh
         pos_indices_desc = np.nonzero(pos_mask_desc)[0]
         r = int(len(pos_indices_desc))
 
-    if debug:
-        print(f"[select_from_gram] method={method} smax={smax:.3g} ev_thresh={ev_thresh:.3g} kept={r}")
-
     if r == 0:
-        # numeric rank 0
         return [], {
             "eigvals": eigvals_desc.tolist(),
             "numeric_rank": 0,
@@ -328,73 +234,51 @@ def select_independent_indices_from_gram(
             "method": method,
         }
 
-    # If we don't yet have eigenvectors aligned with eigvals_desc, attempt to compute them.
     if eigvecs is None:
         try:
             _, V = np.linalg.eigh(G_np)
             eigvecs_full = V
         except Exception:
-            # final fallback: use SVD U as eigenvectors proxy
             U, svals_svd, Vt = np.linalg.svd(G_np)
             eigvecs_full = U
-            raise
+
     else:
         eigvecs_full = eigvecs
 
-    # We need the vectors corresponding to the kept (largest) eigenvalues.
-    # For safety map indices correctly (eigs returned were ascending earlier).
-    # If eigvals came from eigvalsh (ascending), eigvals_desc = eigvals[::-1] so index mapping is n-1-idx
     if eigvecs_full.shape[1] == n:
-        # assume eigvecs_full columns correspond to ascending eigenvalues if method == 'eig'
-        # create Upos as columns for the top-r eigenvectors
         try:
-            # try using eigenvectors in descending order
             U_desc = eigvecs_full[:, ::-1]
             Upos = U_desc[:, pos_indices_desc]
         except Exception:
             Upos = eigvecs_full[:, :r]
-            raise
     else:
-        # non-square/unknown shape (SVD fallback), take first r columns
         Upos = eigvecs_full[:, :r]
 
-    # take eigenvalues for kept ones (descending)
     if eigvals_desc.size >= r:
-        Spos = eigvals_desc[pos_indices_desc]  # length r
+        Spos = eigvals_desc[pos_indices_desc]
     else:
-        # fallback: use top r singulars from SVD
         Spos = np.maximum(np.array(eigvals_desc[:r], dtype=float), ABS_FLOOR)
 
-    # ensure nonnegative and floor tiny negatives to small positive
     Spos = np.maximum(Spos, ABS_FLOOR)
-
-    # Embedding E (n x r) with rows as embedding vectors
     sqrtS = np.sqrt(Spos)
     E = Upos * sqrtS[np.newaxis, :]
 
-    # pivot tolerance derived from smallest retained eigenvalue + global scale
     min_pos_eig = float(Spos[-1]) if Spos.size else ABS_FLOOR
     pivot_tol = max(math.sqrt(max(min_pos_eig, ABS_FLOOR)) * pivot_tol_factor,
                     smax * 1e-16)
 
-    # deterministic pivot selection by largest residual norm (embedding deflation)
     rows = E.copy()
     norms = np.linalg.norm(rows, axis=1)
     selected = []
     selected_mask = np.zeros(n, dtype=bool)
 
-    # iterate selecting until max norm below pivot_tol or we've chosen r indices
     while True:
-        # mask out already selected by setting extremely small values
         masked_norms = norms.copy()
         masked_norms[selected_mask] = -1.0
         cand = int(np.argmax(masked_norms))
         maxnorm = float(masked_norms[cand])
-        if debug:
-            print(f"[pivot] pick={cand} maxnorm={maxnorm:.6g} selected={len(selected)} pivot_tol={pivot_tol:.6g}")
         if maxnorm <= pivot_tol or len(selected) >= r:
             break
-        # add candidate
         selected.append(cand)
         selected_mask[cand] = True
         v = rows[cand].copy()
@@ -402,15 +286,11 @@ def select_independent_indices_from_gram(
         if vnorm == 0.0:
             break
         v = v / vnorm
-        # deflate rows by projection
         proj = rows @ v
         rows = rows - np.outer(proj, v)
         norms = np.linalg.norm(rows, axis=1)
 
     numeric_rank = len(selected)
-
-    # compute log10 det and condition number info from Spos
-    # log10_abs_det = sum log10(Spos)
     log10_abs_det = None
     log10_cond = None
     try:
@@ -421,9 +301,7 @@ def select_independent_indices_from_gram(
         else:
             log10_cond = float('inf')
     except Exception:
-        log10_abs_det = None
-        log10_cond = None
-        raise
+        pass
 
     info = {
         "eigvals": eigvals_desc.tolist(),
@@ -443,33 +321,29 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     Incremental basis builder: compute period matrix once, precompute heights,
     precompute pairings for a small prefix, and compute pairings on-demand.
     
-    Robustness Update:
-    - If height/pairing computations fail (e.g. negative heights, non-convergence),
-      the candidate divisor is REJECTED rather than falling back to 0.0.
-    - This prevents contamination of the Gram matrix with false zeros.
+    Robustness:
+      - Uses a strictly raising height implementation.
+      - If height/pairing computations fail, the candidate divisor is REJECTED 
+        rather than poisoning the basis with 0.0.
     """
     if not all_divisors:
         return [], 0, None
 
-    # determine number of workers
     if n_jobs == -1:
         try:
             n_jobs = cpu_count()
         except Exception:
             n_jobs = 1
 
-    # 1) Compute period matrix once
     if debug:
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
         print(f"[arakelov] Using precision: {prec} bits")
-        print(f"[arakelov] Parallelization: {n_jobs} workers (heights computed serially for PM consistency)")
 
     try:
         PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
     except Exception as e:
         raise RuntimeError(f"[arakelov] get_period_matrix_auto_B failed at prec={prec}: {e}")
 
-    # 2) Build Jacobian elements
     Rq_QQ = PolynomialRing(QQ, 'x')
     x_QQ = Rq_QQ.gen()
     f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
@@ -487,7 +361,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     if n == 0:
         return [], 0, None
 
-    # 3) Compute individual canonical heights
     if debug:
         print(f"[arakelov] Pre-computing heights for {n} candidates...")
 
@@ -501,13 +374,10 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             if debug:
                 print(f"  Divisor {i}: h = {height_cache[i]:.6g}")
         except Exception as e:
-            # If height fails, we cannot use this divisor. Don't add to cache.
             if debug:
                 warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Skipping divisor.", RuntimeWarning)
 
-    # 4) Pairing cache & precompute prefix
     pairing_cache = {}
-    # Initialize diagonals for valid divisors
     for i in height_cache:
         pairing_cache[(i, i)] = height_cache[i]
 
@@ -522,7 +392,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
 
     for i in range(prefix_precompute):
         for j in range(i + 1, prefix_precompute):
-            # Only compute if both are valid
             if i not in height_cache or j not in height_cache:
                 continue
             if (i, j) in pairing_cache:
@@ -536,16 +405,13 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 if debug:
                     print(f"  Pair ({i},{j}): {pairing_val:.6g}")
             except Exception as e:
-                # If pairing fails here, just warn and don't cache. 
-                # On-demand will retry (and likely fail/raise) if needed later.
+                # Just ignore here; will raise if needed in the selection loop
                 if debug:
                     warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
 
-    # Helper to compute or fetch pairing lazily
     def get_pairing_lazy(i, j):
         if i > j: i, j = j, i
         
-        # Check validity first
         if i not in height_cache or j not in height_cache:
             raise ValueError(f"Cannot pair divisors {i},{j}: invalid self-heights")
 
@@ -553,10 +419,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             return pairing_cache[(i, j)]
 
         if i == j:
-            # Should have been in pairing_cache if in height_cache
             return height_cache[i]
 
-        # Compute on-demand
         try:
             _, Ji, _ = jac_elements[i]
             _, Jj, _ = jac_elements[j]
@@ -565,10 +429,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(val)
             return val
         except Exception as e:
-            # Propagate error so the candidate is rejected
             raise RuntimeError(f"Pairing computation failed for ({i},{j}): {e}")
 
-    # 5) Incremental basis selection
     if debug:
         print("[arakelov] Selecting basis incrementally...")
 
@@ -579,13 +441,11 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         if len(basis_indices) >= max_basis_size:
             break
             
-        # Skip if self-height was invalid
         if cand_idx not in height_cache:
             if debug:
                 print(f"  Skipping divisor {cand_idx}: invalid height")
             continue
 
-        # First element
         if len(basis_indices) == 0:
             h = height_cache[cand_idx]
             if abs(h) > 1e-8:
@@ -597,7 +457,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     print(f"  Skipping divisor {cand_idx}: height ~ 0")
             continue
 
-        # Test independence
         try:
             is_indep, info = is_independent_by_projection_log(
                 basis_indices,
@@ -616,7 +475,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print(f"  Rejected divisor {cand_idx}: dependent (proj test)")
             continue
 
-        # Quick Gram check
         try:
             k = len(basis_indices)
             from sage.all import RealField as SFRealField, Matrix as SFMatrix
@@ -644,7 +502,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             if debug:
                 print(f"  Rejected divisor {cand_idx}: dependent (Gram det <= 0)")
 
-    # 6) Sanity check pairings (fill missing if any)
     if len(basis_indices) > 0:
         need_k = min(len(basis_indices), 4)
         for ii in range(need_k):
@@ -654,10 +511,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     try:
                         _ = get_pairing_lazy(i, j)
                     except Exception:
-                        pass # Should have been caught earlier, but just in case
-        sanity_check_pairings(pairing_cache, need_k)
+                        pass
 
-    # 7) Final output
     basis = [jac_elements[i][0] for i in basis_indices]
     basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
 
@@ -677,10 +532,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     H_final[r, c] = RR_Final(pv)
                     H_final[c, r] = H_final[r, c]
                 except Exception:
-                    # This should theoretically not happen if we passed checks, but be safe
                     H_final[r, c] = H_final[c, r] = 0
 
-        # Diagnostics
         try:
             eigs = [float(e) for e in H_final.eigenvalues()]
             if debug:

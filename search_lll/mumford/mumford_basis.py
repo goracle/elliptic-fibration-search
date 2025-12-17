@@ -41,6 +41,15 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
 
     debug = True
 
+    # run the smoothness tests
+    p_test = 2_000_003  # large random-ish prime
+
+    diagnostic_x_root_distribution(all_divisors, p_test)
+    diagnostic_section_collapse(all_divisors)
+    diagnostic_smoothness_proxy(all_divisors, p_test)
+    diagnostic_factor_base_saturation(all_divisors, p_test)
+    diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+
     # Filter invalid / duplicate divisors early
     all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, debug=debug)
     print("survivors of kobayashi maru filter of numeric evil:")
@@ -1018,13 +1027,6 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
                 if _is_jacobian_u_x_squared(D_sum, rejected_jac_elements):
                     if debug:
                         warnings.warn(f"[filter] Dropping divisor because sum with existing candidate yields an already rejected divisor: {div}", RuntimeWarning)
-                    is_pairwise_evil = True
-                    break
-                # Also check difference just in case
-                D_diff = D - prevD
-                if _is_jacobian_u_x_squared(D_diff, rejected_jac_elements):
-                    if debug:
-                        warnings.warn(f"[filter] Dropping divisor because diff with existing candidate yields an already rejected divisor: {div}", RuntimeWarning)
                     is_pairwise_evil = True
                     break
             except Exception:
