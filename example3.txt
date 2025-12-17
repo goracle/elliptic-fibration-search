@@ -350,3 +350,425 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Batched parallel processing: 34 groups, 586,882 total combos
   Using 20 workers
   Created 137 batches for parallel processing
+
+=== RECONSTRUCTION SUMMARY ===
+  Combinations tried: 586,882
+  Groups skipped (2-prime): 1
+  Groups skipped (high density): 0
+  Pre-filtered out: 16,510,208
+  Rejected by height: 0
+  Rejected by consistency: 99,148
+  Rejected by algebraic constraint: 487,342
+  Successful reconstructions: 392
+  Unique Rational Points: 8
+  40 of 40 original divisors had rational roots in u(x)
+
+--- Building Independent Mumford Basis ---
+first 10 divisors:
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 9/4, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1, 'p': 0, 'v_0': 1, 'v_1': 2, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'has_rational_roots': True}
+{'s': 4/3, 'p': 1/3, 'v_0': -5/9, 'v_1': 32/9, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True}
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.284889e-01
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.284889e-01
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.284889e-01
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Im(tau) eigenvalues: [0.3978832023510672, 2.0650403657572025]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.281390e-01
+Im(tau) eigenvalues: [0.3978529235394611, 2.0658634839788723]
+Im(tau) eigenvalues: [0.3978529235394611, 2.0658634839788723]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.275133e-01
+Im(tau) eigenvalues: [0.39779870396660444, 2.06733743181674]
+Im(tau) eigenvalues: [0.39779870396660444, 2.06733743181674]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.272001e-01
+Im(tau) eigenvalues: [0.3977715218004977, 2.068076379333582]
+Im(tau) eigenvalues: [0.3977715218004977, 2.068076379333582]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.270471e-01
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.270471e-01
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+{}
+survivors of kobayashi maru filter of numeric evil:
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 0.7395785790110607}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 1.190124775658982}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.37479695490591336}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 9/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.729417062173046}
+{'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.7271600221913372}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.7652026479672069}
+[basis] Using Arakelov heights for basis construction
+
+[arakelov] Building basis from 6 divisors
+[arakelov] Using precision: 1024 bits
+[arakelov] Parallelization: 20 workers (heights computed serially for PM consistency)
+[arakelov] Pre-computing heights for 6 candidates...
+  Divisor 0: h = 0.739579
+  Divisor 1: h = 1.19012
+  Divisor 2: h = 0.374797
+  Divisor 3: h = 0.729417
+  Divisor 4: h = 0.72716
+  Divisor 5: h = 0.765203
+[arakelov] Precomputing pairings for first 6 divisors (prefix).
+[arakelov_canonical_height] attempt prec=1024 full: h1=1.3599324687869765, h2=3.107968650727274, h3=2.997111662466861, h_can=-0.9294465851003553
+[arakelov_canonical_height] arch-only: h1=1.3599324687869765, h2=3.107968650727274, h3=2.997111662466861, h_can_nf=-0.9294465851003553
+[arakelov_canonical_height] retry prec=2048 full: h1=1.3613296816149896, h2=3.1572741650898304, h3=3.0032902048940002, h_can=-0.9749642218353354
+[arakelov_canonical_height] retry prec=4096 full: h1=1.3507716988958527, h2=3.1668514917844113, h3=2.9259926953826647, h_can=-1.0284692946451526
+  Pair (0,1): -1.47909
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.5899797096460249, h3=1.9142091750299852, h_can=1.1811551169264594
+  Pair (0,2): 0.0333898
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.4718288854560928, h3=1.9551469988948726, h_can=1.319774853048835
+  Pair (0,3): -0.0746104
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.8703508146334133, h2=3.987648661682275, h3=3.321204361012204, h_can=-0.8918710738594662
+[arakelov_canonical_height] arch-only: h1=2.8703508146334133, h2=3.987648661682275, h3=3.321204361012204, h_can_nf=-0.8918710738594662
+[arakelov_canonical_height] retry prec=2048 full: h1=2.7423161084705514, h2=3.987870014830584, h3=3.3227292644288604, h_can=-0.9553473283808778
+[arakelov_canonical_height] retry prec=4096 full: h1=2.864538982694077, h2=3.9879781097717975, h3=3.341295914557498, h_can=-0.8850606611460101
+  Pair (0,4): -1.1759
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.067810961723504, h2=3.26700381081772, h3=6.093855444245768, h_can=0.8138293921669155
+  Pair (0,5): -0.345476
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.4718288854560928, h3=1.9551469988948726, h_can=1.319774853048835
+  Pair (1,2): -0.122573
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.5899797096460249, h3=1.9142091750299852, h_can=1.1811551169264594
+  Pair (1,3): -0.369193
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.3261842333216176, h2=4.018102338311603, h3=3.3519047912549755, h_can=-1.179057826023306
+[arakelov_canonical_height] arch-only: h1=2.3261842333216176, h2=4.018102338311603, h3=3.3519047912549755, h_can_nf=-1.179057826023306
+[arakelov_canonical_height] retry prec=2048 full: h1=2.4846474961995066, h2=4.018719251701739, h3=3.3501648969157025, h_can=-1.1013130551441348
+[arakelov_canonical_height] retry prec=4096 full: h1=2.6696579835588543, h2=4.019020705772892, h3=3.380016798566223, h_can=-0.9941833147103534
+  Pair (1,4): -1.45573
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.092503574313876, h2=3.8020062348338333, h3=5.5271109785998656, h_can=0.00780104162303763
+  Pair (1,5): -0.973763
+[arakelov_canonical_height] attempt prec=1024 full: h1=1.3599324687869765, h2=3.107968650727274, h3=2.997111662466861, h_can=-0.9294465851003553
+[arakelov_canonical_height] arch-only: h1=1.3599324687869765, h2=3.107968650727274, h3=2.997111662466861, h_can_nf=-0.9294465851003553
+[arakelov_canonical_height] retry prec=2048 full: h1=1.3613296816149896, h2=3.1572741650898304, h3=3.0032902048940002, h_can=-0.9749642218353354
+[arakelov_canonical_height] retry prec=4096 full: h1=1.3507716988958527, h2=3.1668514917844113, h3=2.9259926953826647, h_can=-1.0284692946451526
+  Pair (2,3): -1.06634
+Returning ambiguous form of degree genus+1.
+[arakelov_canonical_height] attempt prec=1024 full: h1=1.0561075798173254, h2=2.124288565093442, h3=6.473467440480225, h_can=1.6404989450553331
+  Pair (2,4): 0.269271
+[arakelov_canonical_height] attempt prec=1024 full: h1=0.0, h2=0.0, h3=0.0, h_can=0.0
+  Pair (2,5): -0.57
+[arakelov_canonical_height] attempt prec=1024 full: h1=5.842331829622253, h2=2.5974746159686037, h3=4.481115750664909, h_can=2.5642491741749773
+  Pair (3,4): 0.553836
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.4148127919074716, h2=4.1690107495928554, h3=1.2534942166605485, h_can=-2.3348572453088456
+[arakelov_canonical_height] arch-only: h1=2.4148127919074716, h2=4.1690107495928554, h3=1.2534942166605485, h_can_nf=-2.3348572453088456
+[arakelov_canonical_height] retry prec=2048 full: h1=2.404376316005381, h2=4.16908583703503, h3=1.1979641933781255, h_can=-2.3679155823432763
+[arakelov_canonical_height] retry prec=4096 full: h1=2.4058986620352587, h2=4.169122540594402, h3=1.1754144277769414, h_can=-2.378465995688302
+  Pair (3,5): -1.93654
+[arakelov_canonical_height] attempt prec=1024 full: h1=5.145897740208194, h2=3.203814712629678, h3=5.50197419266212, h_can=2.1201212538054786
+  Pair (4,5): 0.313879
+[arakelov] Selecting basis incrementally...
+  Added divisor 0 (first basis element)
+  Rejected divisor 1: dependent (Gram det <= 0)
+  Added divisor 2 (basis now size 2)
+  Rejected divisor 3: dependent (Gram det <= 0)
+  Rejected divisor 4: dependent (Gram det <= 0)
+  Rejected divisor 5: dependent (Gram det <= 0)
+[arakelov] Building final 2×2 Gram matrix...
+eigenvalues (float): [0.7426096817849914, 0.37176585213198265]
+determinant: 0.27607692115025784
+condition number (approx): 1.9975198838901251
+regulator: 0.27607692115025784
+[arakelov] Final numeric rank: 2/2
+[arakelov] log10|det|=-0.559, log10(cond)=0.3
+[arakelov] Final determinant: 0.276077
+
+Basis Construction Results:
+  Found 2 independent divisors
+  Determinant (float): 0.27607692115025784
+
+[mumford detailed timers]
+  basis_construction                      :  541.437s ( 99.5%)
+  crt_reconstruction_loop                 :    2.563s (  0.5%)
+  algebraic_prefiltering                  :    0.286s (  0.1%)
+  prefiltering                            :    0.048s (  0.0%)
+  canonicalization                        :    0.009s (  0.0%)
+  residue_grouping                        :    0.000s (  0.0%)
+  rational_root_check                     :    0.000s (  0.0%)
+  TOTAL                                   :  544.344s
+
+Mumford search reconstructed 2 divisors
+  2 divisors had rational roots in u(x)
+printing independent found:
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 0.7395785790110607}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.37479695490591336}
+Mumford search found 8 rational points
+rational points found:
+{0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
+Total time: 547.34s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_reconstruction   : 544.31s
+  mumford_residues         : 2.23s
+  prep_mod_data            : 0.80s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 560
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+Found 8 new point(s) and 0 new section(s).
+New x-coordinates: {0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
+
+======================================================================
+COMPLETENESS ANALYSIS (Exact CRT Check)
+======================================================================
+
+Found Points Reconstructibility:
+x          | Findable?  | Primes   | Log10 Cap
+---------------------------------------------
+0          | NO         | 0        | 0.00
+1          | NO         | 0        | 0.00
+2          | NO         | 0        | 0.00
+3          | NO         | 0        | 0.00
+1/2        | NO         | 0        | 0.00
+-2/3       | NO         | 0        | 0.00
+1/3        | NO         | 0        | 0.00
+-1         | NO         | 0        | 0.00
+
+⚠️  Some found points are NOT reconstructible from current residues.
+    (They were likely found via specialized subsets or lucky hits.)
+======================================================================
+
+=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===
+avg_fraction (unbiased sample): 0.000
+fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
+empirical visible fraction: (no prime_subsets available in analyzer)
+
+=== Pairwise MI on first 40 primes (binary match indicators) ===
+Top MI pairs (p,q,MI bits):
+  (  5,  7)  0.0000 bits
+  (  5, 11)  0.0000 bits
+  (  5, 13)  0.0000 bits
+  (  5, 17)  0.0000 bits
+  (  5, 19)  0.0000 bits
+  (  5, 23)  0.0000 bits
+  (  5, 29)  0.0000 bits
+  (  5, 31)  0.0000 bits
+  (  5, 37)  0.0000 bits
+  (  5, 41)  0.0000 bits
+  (  5, 43)  0.0000 bits
+  (  5, 47)  0.0000 bits
+  (  5, 53)  0.0000 bits
+  (  5, 59)  0.0000 bits
+  (  5, 61)  0.0000 bits
+  (  5, 67)  0.0000 bits
+  (  5, 71)  0.0000 bits
+  (  5, 73)  0.0000 bits
+  (  5, 79)  0.0000 bits
+  (  5, 83)  0.0000 bits
+fraction of pairs with MI >= 0.01 bits: 0.000%
+No prime_subsets available to check.
+
+======================================================================
+SEARCH SUMMARY
+======================================================================
+Total points found: 8
+Total time: 551.2s
+CRT candidates tested: 0
+Rationality tests: 0
+Hit rate: 0.00%
+======================================================================
+Proof using OBSERVED max height: 1.10
+
+======================================================================
+FORMAL COMPLETENESS PROOF (Roadmap Step 3)
+======================================================================
+No prime subsets were used. Cannot run sufficiency proof.
+======================================================================
+
+--- Arithmetic-informed prior (with fiber collision adjustment) ---
+p_visibility (raw): 0.0000
+p_visibility (adjusted): 0.0000
+mu_selmer:   0
+mu_local:    0
+mu_height:   0.01
+mu_bootstrap:0
+--> mu_combined = 0.01  (q = 0.009901)
+
+--- Posterior summary (geometric prior from arithmetic signals) ---
+Observed points (k) = 8
+Estimated detection probability p = 0.000
+⚠️  Could not compute posterior probabilities (p_visibility likely 0).
+    Search may have been starved of valid primes.
+
+✓ Fiber collision detection validated: set() ⊆ ramification locus {2, 3, 5, 7, 41, 59}
+
+--- Automorphism Search ---
+No scaling automorphisms found.
+Found 1 translation automorphisms:
+  [0] Translation by Section S0
+
+No non-trivial automorphisms found for the NS lattice.
+
+--- Torsion Analysis ---
+Got 40 good specializations for torsion check.
+Fast method candidate torsion order (GCD of specializations): 1
+Fiber component counts: [1, 1]  -> lcm bound: 1
+Base section 0 does not appear to be small order torsion.
+
+--- Running Saturation Diagnostics ---
+
+--- Running Picard-Van Luijk Analysis ---
+Using 10 good prime candidates for reduction: [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+[char 0] Using mw_rank = 1. Σ(m_v-1) = 0
+[char 0] ST lower bound: rho >= 3
+[skip] ell=5 dependence witnessed in reduction; witness={'p': 19, 'relation': (18,), 'm0s': [0, 2, 3, 4], 'ell': 5}
+[skip] ell=7 dependence witnessed in reduction; witness={'p': 137, 'relation': (132,), 'm0s': [1, 2, 3, 4, 5, 6], 'ell': 7}
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 11] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 13] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 17] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 19] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 23] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 29] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 31] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 37] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[summary] lower >= 3, best upper <= 3 at ell=11
+[collapsed fiber contribution / reduction-dependence primes] [5, 7]
+
+=== Picard Report ===
+Lower bound (char 0): 3
+Upper bounds from reductions:
+  ell=11: rho <= 3    (rank_lb=1, Σ=0)
+  ell=13: rho <= 3    (rank_lb=1, Σ=0)
+  ell=17: rho <= 3    (rank_lb=1, Σ=0)
+  ell=19: rho <= 3    (rank_lb=1, Σ=0)
+  ell=23: rho <= 3    (rank_lb=1, Σ=0)
+  ell=29: rho <= 3    (rank_lb=1, Σ=0)
+  ell=31: rho <= 3    (rank_lb=1, Σ=0)
+  ell=37: rho <= 3    (rank_lb=1, Σ=0)
+*** Concluded Picard number: ρ = 3 ***
+
+--- Shioda-Tate Diagnostics ---
+Shioda-Tate Rank Estimate (assuming rho=3): 1
+Total Euler Characteristic: 12
+Sum of Fiber Contributions (Σ(m_v - 1)): 0
+
+======================================================================
+2-SELMER RANK BOUNDS
+======================================================================
+Mordell-Weil rank: 1
+Bad primes: []
+Tamagawa product: 1
+
+Rank bounds:
+  1 ≤ rank(S²) ≤ 3
+
+known_pts {(1, 3)}
+found {0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
+new x: 0
+new x: 2
+new x: 3
+new x: 1/2
+new x: -2/3
+new x: 1/3
+new x: -1
+only trying one fibration for Mumford basis search, for now.
+
+--- Cumulative Run Statistics ---
+Total time: 553.12s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_reconstruction   : 544.31s
+  mumford_residues         : 2.23s
+  prep_mod_data            : 0.80s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 560
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+
+--- Final Results ---
+Final list of known points: [(-1, 5), (-2/3, 1/27), (0, 1), (1/3, 17/27), (1/2, 1/8), (1, 3), (2, 11), (3, 13)]
