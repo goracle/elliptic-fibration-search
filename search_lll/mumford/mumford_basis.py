@@ -1,272 +1,28 @@
 from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField
-from .mumford_height import compute_height_pairing_exact, naive_height_exact
-from ..arakelov import arakelov_build_basis_with_heights, arakelov_height_pairing, clear_period_cache
+from .mumford_height import *
+from ..arakelov import *
 from .mumford_core import _poly_from_coeffs_qq
 from search_lll.smoothness import *
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 import math
 import sys
 # Try to import Arakelov
-from ..arakelov import *
 from collections import defaultdict
 from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 from sage.all import QQ, log
 from sage.all import diagonal_matrix
 
-ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 6
-_FILTER_STATS = defaultdict(int)
-_BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
-
-
-# -------------------------
-# Basis builder (top-level)
-# -------------------------
-DEFAULT_PRECS = [1024, 2048]
-
-
-# -----------------------------------
-# Exact doubling fallback (refactored)
-# -----------------------------------
-
-
-# -------------------------
-# Projection helper
-# -------------------------
-
-
-# -------------------------
-# Mumford element builder
-# -------------------------
-
-
-# Debug helpers
-
-
-# Place near the other helpers; needs sage QQ import
-from sage.all import QQ, RealField
-
-
-from sage.all import QQ, Integer
-
-
-# Replace the previous helpers and filter_kobayashi_maru with the following.
-
-
-# Put near other helpers (top-level). No imports inside functions.
-
-
-from sage.all import PolynomialRing, QQ, HyperellipticCurve, Jacobian
-
-
-# In mumford_basis.py
-
-
 import warnings
-# Try to import Arakelov
+
+def custom_formatwarning(msg, category, filename, lineno, line=None):
+    return f"{filename}:{lineno}: {category.__name__}: {msg}\n"
+
+warnings.formatwarning = custom_formatwarning
 
 ARAKELOV_AVAILABLE = True
 MAX_BASIS_CANDIDATES = 6
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
-
-
-# -------------------------
-# Basis builder (top-level)
-# -------------------------
-DEFAULT_PRECS = [1024, 2048]
-
-
-# -----------------------------------
-# Exact doubling fallback (refactored)
-# -----------------------------------
-
-
-# -------------------------
-# Projection helper
-# -------------------------
-
-
-# -------------------------
-# Mumford element builder
-# -------------------------
-
-
-# Debug helpers
-
-
-# Place near the other helpers; needs sage QQ import
-
-
-# Replace the previous helpers and filter_kobayashi_maru with the following.
-
-
-# Put near other helpers (top-level). No imports inside functions.
-
-
-# In mumford_basis.py
-
-
-# Try to import Arakelov
-
-ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 6
-_FILTER_STATS = defaultdict(int)
-_BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
-
-
-def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
-    """
-    Build Jacobian elements and compute pairing matrix.
-    Uses Arakelov if available, otherwise falls back to manual method.
-    
-    Returns (is_indep, rank, H_matrix)
-    """
-    if not divisors:
-        return True, 0, None
-
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-
-    jac_elements = []
-    for div in divisors:
-        try:
-            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
-            if not elem.is_zero():
-                jac_elements.append(elem)
-            else:
-                if debug:
-                    print("[check] element is zero, skipping.")
-        except Exception:
-            if debug:
-                print("[check] failed to convert divisor to jac element:", div)
-            raise
-
-    if not jac_elements:
-        return True, 0, None
-
-    n = len(jac_elements)
-    
-    if ARAKELOV_AVAILABLE:
-        if debug:
-            print("[check] Using Arakelov heights")
-        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=300, debug=debug)
-        return is_indep, rank, H
-    else:
-        if debug:
-            print("[check] Using manual height computation")
-        H = Matrix(RDF, n, n)
-        for i in range(n):
-            for j in range(i, n):
-                try:
-                    val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
-                except Exception:
-                    if debug:
-                        print(f"[check] height pairing failed for indices {i},{j}")
-                    raise
-                H[i, j] = val
-                H[j, i] = val
-
-        if n == 1:
-            is_indep = abs(H[0, 0]) > 1e-8
-            rank = 1 if is_indep else 0
-        else:
-            rank = H.rank()
-            is_indep = (rank == n)
-        return is_indep, rank, H
-
-
-def _build_curve_from_coeffs(f_coeffs):
-    """Return (C, R, x) from f_coeffs (list-like of coefficients highest->lowest)."""
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-    return C, R, x
-
-
-def naive_height_from_record(div):
-    """
-    Compute a safe pre-Jacobian naive log height from the Mumford dict record.
-    Return float(log(max_coeffabs))) or 0.0 when trivial.
-    """
-    vals = []
-    for k in ('s', 'p', 'v_0', 'v_1'):
-        if k not in div:
-            continue
-        try:
-            q = _to_QQ_safe(div[k])
-        except Exception:
-            raise
-            return 0.0
-        if q != 0:
-            vals.append(abs(q.numerator()))
-            vals.append(int(q.denominator()))
-    if not vals:
-        return 0.0
-    return log(float(max(vals)))
-
-
-def structural_red_flag(div):
-    """Simple heuristic: u(x) coefficients all in {-1,0,1} (may indicate tiny-naive divisors)."""
-    u = div.get('u', None)
-    if u is None:
-        return False
-    coeffs = u.list()
-    return all(c in (-1, 0, 1) for c in coeffs)
-
-
-def naive_height_suspicion(div):
-    """
-    Detect record-level tiny numerical heights but nontrivial algebraic size.
-    Useful filter for x^2 type suspicious divisors.
-    """
-    vals = []
-    max_bits = 0
-    for k in ('s', 'p', 'v_0', 'v_1'):
-        try:
-            q = _to_QQ_safe(div[k])
-        except Exception:
-            raise
-            continue
-        if q != 0:
-            vals.append(abs(q.numerator()))
-            vals.append(int(q.denominator()))
-            if hasattr(q.numerator(), 'nbits'):
-                max_bits = max(max_bits, int(q.numerator().nbits()))
-            else:
-                try:
-                    max_bits = max(max_bits, int(abs(int(q)).bit_length()))
-                except Exception:
-                    raise
-    if not vals:
-        h = 0.0
-    else:
-        h = log(float(max(vals)))
-    # suspicious if numerically tiny but algebraically has some bit-size
-    return (h < 1e-6) and (max_bits >= 2)
-
-
-def doubling_growth_test(D, f_coeffs, naive_height_func=None):
-    """
-    Quick test: compute naive height of D and of 2*D; require growth > factor.
-    naive_height_qq is expensive; this is a convenience wrapper if you have one.
-    """
-    if naive_height_func is None:
-        # best-effort: try to use naive_height_exact if available
-        naive_height_func = naive_height_exact if naive_height_exact is not None else (lambda x: 0.0)
-    try:
-        h1 = float(naive_height_func(D))
-        D2 = D + D
-        h2 = float(naive_height_func(D2))
-        if h1 == 0:
-            return False
-        return h2 > 2.5 * h1
-    except Exception:
-        raise
-        return False
 
 
 # -------------------------
@@ -323,6 +79,15 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         if debug:
             print("[basis] Arakelov unavailable: using exact doubling fallback")
         return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=num_doublings, debug=debug)
+
+
+def structural_red_flag(div):
+    """Simple heuristic: u(x) coefficients all in {-1,0,1} (may indicate tiny-naive divisors)."""
+    u = div.get('u', None)
+    if u is None:
+        return False
+    coeffs = u.list()
+    return all(c in (-1, 0, 1) for c in coeffs)
 
 
 # -----------------------------------
@@ -416,6 +181,11 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
     basis_jac = []
     typical_height = None
 
+    # Wrapper to adapt compute_height_pairing_exact to _projection_residual_sq signature
+    # which passes 'prec' argument (Arakelov style), which exact routine doesn't accept.
+    def exact_pairing_wrapper(d1, d2, fc, prec=None):
+        return compute_height_pairing_exact(d1, d2, fc, num_doublings=num_doublings)
+
     pairing_cache = {}  # share cache across loop
     for idx, (div, D) in enumerate(jac_elements):
         if not basis:
@@ -423,12 +193,17 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
             try:
                 h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
                 h_float = float(h_exact)
-            except Exception as e:
+            except (ValueError, ArithmeticError, RuntimeError) as e:
+                # Catch specific CRT/reconstruction errors and skip divisor
                 if debug:
-                    warnings.warn(f"[basis] compute_height_pairing_exact failed for first candidate idx={idx}: {e}", RuntimeWarning)
-                raise
+                    warnings.warn(f"[basis] Skipping candidate {idx} (height too large/reconstruction failed): {e}", RuntimeWarning)
                 continue
-
+            except Exception as e:
+                # Unexpected errors should still raise
+                if debug:
+                    warnings.warn(f"[basis] compute_height_pairing_exact unexpected error for candidate {idx}: {e}", RuntimeWarning)
+                raise
+                
             if h_float <= 0:
                 if debug:
                     warnings.warn(f"[basis] Rejecting first candidate: non-positive self-pairing {h_float}", RuntimeWarning)
@@ -449,13 +224,16 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
         try:
             res_sq = _projection_residual_sq(basis_jac, D, f_coeffs,
                                             prec_bits=512,
-                                            pairing_func=compute_height_pairing_exact,
+                                            pairing_func=exact_pairing_wrapper,
                                             pairing_cache=pairing_cache,
                                             debug=debug)
+        except (ValueError, ArithmeticError, RuntimeError) as e:
+             if debug:
+                 warnings.warn(f"[basis] Skipping candidate {idx} (projection height too large): {e}", RuntimeWarning)
+             continue
         except Exception as e:
             warnings.warn(f"[basis] projection residual computation failed for idx={idx}: {e}", RuntimeWarning)
             raise
-            continue
 
         scale = typical_height if (typical_height and typical_height > 0) else 1.0
         # compute tolerance: conservative digits-of-precision rule
@@ -1476,3 +1254,148 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
     from pprint import pprint
     pprint(dict(_FILTER_STATS))
     return out
+
+
+def naive_height_suspicion(div):
+    """
+    Detect record-level tiny numerical heights but nontrivial algebraic size.
+    Useful filter for x^2 type suspicious divisors.
+    """
+    vals = []
+    max_bits = 0
+    for k in ('s', 'p', 'v_0', 'v_1'):
+        try:
+            q = _to_QQ_safe(div[k])
+        except Exception:
+            raise
+            continue
+        if q != 0:
+            vals.append(abs(q.numerator()))
+            vals.append(int(q.denominator()))
+            if hasattr(q.numerator(), 'nbits'):
+                max_bits = max(max_bits, int(q.numerator().nbits()))
+            else:
+                try:
+                    max_bits = max(max_bits, int(abs(int(q)).bit_length()))
+                except Exception:
+                    raise
+    if not vals:
+        h = 0.0
+    else:
+        h = log(float(max(vals)))
+    # suspicious if numerically tiny but algebraically has some bit-size
+    return (h < 1e-6) and (max_bits >= 2)
+
+
+def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
+    """
+    Build Jacobian elements and compute pairing matrix.
+    Uses Arakelov if available, otherwise falls back to manual method.
+    
+    Returns (is_indep, rank, H_matrix)
+    """
+    if not divisors:
+        return True, 0, None
+
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+
+    jac_elements = []
+    for div in divisors:
+        try:
+            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+            if not elem.is_zero():
+                jac_elements.append(elem)
+            else:
+                if debug:
+                    print("[check] element is zero, skipping.")
+        except Exception:
+            if debug:
+                print("[check] failed to convert divisor to jac element:", div)
+            raise
+
+    if not jac_elements:
+        return True, 0, None
+
+    n = len(jac_elements)
+    
+    if ARAKELOV_AVAILABLE:
+        if debug:
+            print("[check] Using Arakelov heights")
+        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=300, debug=debug)
+        return is_indep, rank, H
+    else:
+        if debug:
+            print("[check] Using manual height computation")
+        H = Matrix(RDF, n, n)
+        for i in range(n):
+            for j in range(i, n):
+                try:
+                    val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
+                except Exception:
+                    if debug:
+                        print(f"[check] height pairing failed for indices {i},{j}")
+                    raise
+                H[i, j] = val
+                H[j, i] = val
+
+        if n == 1:
+            is_indep = abs(H[0, 0]) > 1e-8
+            rank = 1 if is_indep else 0
+        else:
+            rank = H.rank()
+            is_indep = (rank == n)
+        return is_indep, rank, H
+
+
+def _build_curve_from_coeffs(f_coeffs):
+    """Return (C, R, x) from f_coeffs (list-like of coefficients highest->lowest)."""
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    return C, R, x
+
+
+def naive_height_from_record(div):
+    """
+    Compute a safe pre-Jacobian naive log height from the Mumford dict record.
+    Return float(log(max_coeffabs))) or 0.0 when trivial.
+    """
+    vals = []
+    for k in ('s', 'p', 'v_0', 'v_1'):
+        if k not in div:
+            continue
+        try:
+            q = _to_QQ_safe(div[k])
+        except Exception:
+            raise
+            return 0.0
+        if q != 0:
+            vals.append(abs(q.numerator()))
+            vals.append(int(q.denominator()))
+    if not vals:
+        return 0.0
+    return log(float(max(vals)))
+
+def doubling_growth_test(D, f_coeffs, naive_height_func=None):
+    """
+    Quick test: compute naive height of D and of 2*D; require growth > factor.
+    naive_height_qq is expensive; this is a convenience wrapper if you have one.
+    """
+    if naive_height_func is None:
+        # best-effort: try to use naive_height_exact if available
+        naive_height_func = naive_height_exact if naive_height_exact is not None else (lambda x: 0.0)
+    try:
+        h1 = float(naive_height_func(D))
+        D2 = D + D
+        h2 = float(naive_height_func(D2))
+        if h1 == 0:
+            return False
+        return h2 > 2.5 * h1
+    except Exception:
+        raise
+        return False
+
