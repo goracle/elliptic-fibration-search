@@ -102,7 +102,7 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.23s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.24s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 30 primes -> avg_roots=1.133, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 5, 5), (1, 1, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1333333333333333}
@@ -110,8 +110,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=40, avg_survivors≈4.29e-07, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 40, final_avg_survivors≈4.29e-07
+[empirical_pool] start pool size=40, avg_survivors≈3.97e-08, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 40, final_avg_survivors≈3.97e-08
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.30, avg_density=0.0763 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -269,7 +269,7 @@ Building 5-equation Mumford system from fibration...
 
 [prepare_modular_data_lll] Rejected 0 primes:
 [mumford] Generating tasks for 40 primes...
-[mumford] Residue computation took 3.91s
+[mumford] Residue computation took 3.90s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -285,15 +285,23 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Vector group: 2 primes, avg 208.0 sols/prime
   Raw combinations: 43,068
   Adaptive limit: 43,068 (total combos: 43,068)
+  Vector group: 2 primes, avg 209.0 sols/prime
+  Raw combinations: 37,440
+  Adaptive limit: 37,440 (total combos: 37,440)
+  Accepting 2-prime group: 63,072 combos (rare divisor)
+  Vector group: 2 primes, avg 254.0 sols/prime
+  Raw combinations: 63,072
+  Adaptive limit: 63,072 (total combos: 63,072)
+  Skipping 2-prime group: 103,600 combos, not rare
   Vector group: 3 primes, avg 37.3 sols/prime
   Raw combinations: 16,128
   Adaptive limit: 16,128 (total combos: 16,128)
-  Vector group: 2 primes, avg 228.0 sols/prime
-  Raw combinations: 31,820
-  Adaptive limit: 31,820 (total combos: 31,820)
   Vector group: 2 primes, avg 134.0 sols/prime
   Raw combinations: 10,212
   Adaptive limit: 10,212 (total combos: 10,212)
+  Vector group: 2 primes, avg 228.0 sols/prime
+  Raw combinations: 31,820
+  Adaptive limit: 31,820 (total combos: 31,820)
   Vector group: 4 primes, avg 85.5 sols/prime
   Raw combinations: 7,547,904
   High density detected - applying aggressive pre-filtering
@@ -303,6 +311,9 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Pre-filtering took 0.04s
   Filtered combinations: 26,624 (283.5x reduction)
   Adaptive limit: 26,624 (total combos: 26,624)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 16,684
+  Adaptive limit: 16,684 (total combos: 16,684)
   Vector group: 3 primes, avg 42.0 sols/prime
   Raw combinations: 34,944
   Adaptive limit: 34,944 (total combos: 34,944)
@@ -335,17 +346,6 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Vector group: 2 primes, avg 150.0 sols/prime
   Raw combinations: 18,900
   Adaptive limit: 18,900 (total combos: 18,900)
-  Vector group: 2 primes, avg 209.0 sols/prime
-  Raw combinations: 37,440
-  Adaptive limit: 37,440 (total combos: 37,440)
-  Accepting 2-prime group: 63,072 combos (rare divisor)
-  Vector group: 2 primes, avg 254.0 sols/prime
-  Raw combinations: 63,072
-  Adaptive limit: 63,072 (total combos: 63,072)
-  Skipping 2-prime group: 103,600 combos, not rare
-  Vector group: 2 primes, avg 140.0 sols/prime
-  Raw combinations: 16,684
-  Adaptive limit: 16,684 (total combos: 16,684)
 
   Batched parallel processing: 34 groups, 586,882 total combos
   Using 20 workers
@@ -366,9 +366,9 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
 --- Building Independent Mumford Basis ---
 first 10 divisors:
 {'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'has_rational_roots': True}
-{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (11,), 'has_rational_roots': True}
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (11,), 'has_rational_roots': True}
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (11,), 'has_rational_roots': True}
+{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (2,), 'has_rational_roots': True}
 {'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True}
 {'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 9/4, 'vector': (15,), 'has_rational_roots': True}
 {'s': 1, 'p': 0, 'v_0': 1, 'v_1': 2, 'vector': (15,), 'has_rational_roots': True}
@@ -405,7 +405,7 @@ Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
 Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
 {'small_disc': 1}
 survivors of kobayashi maru filter of numeric evil:
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (11,), 'has_rational_roots': True, '_h_diag': 0.7540873067982483}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 0.7540873067982483}
 {'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.5940035745337471}
 {'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 1.9679771044190644}
 {'s': 3, 'p': 0, 'v_0': -1, 'v_1': 14/3, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.6414737945668683}
@@ -425,53 +425,70 @@ survivors of kobayashi maru filter of numeric evil:
   Divisor 5: h = 0.317147
 [arakelov] Precomputing pairings for first 6 divisors (prefix).
 [arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.5899797096460249, h3=1.9142091750299852, h_can=1.1811551169264594
-  Pair (0,1): -0.0834679
 [arakelov_canonical_height] attempt prec=1024 full: h1=3.6969427229213956, h2=4.130433803380513, h3=1.3540103460585526, h_can=-1.604957268890539
 [arakelov_canonical_height] retry prec=2048 full: h1=3.8068980878709673, h2=4.141782105903041, h3=1.351468235392002, h_can=-1.5625989442715564
 [arakelov_canonical_height] retry prec=4096 full: h1=3.715540522565308, h2=4.152701244466731, h3=1.087703482301796, h_can=-1.7510792420331787
 [arakelov_canonical_height] retry prec=8192 full: h1=0.0, h2=2.9963631867718763, h3=0.0, h_can=-2.9963631867718763
-
-[arakelov] Building basis from 6 divisors
-[arakelov] Using precision: 2048 bits
-[arakelov] Parallelization: 20 workers (heights computed serially for PM consistency)
-[arakelov] Pre-computing heights for 6 candidates...
-  Divisor 0: h = 0.754087
-  Divisor 1: h = 0.594004
-  Divisor 2: h = 1.96798
-  Divisor 3: h = 0.641474
-  Divisor 4: h = 0.99185
-  Divisor 5: h = 0.317147
-[arakelov] Precomputing pairings for first 6 divisors (prefix).
-[arakelov_canonical_height] attempt prec=2048 full: h1=3.7216112506359855, h2=1.5899863653042428, h3=2.3719519558402804, h_can=1.4567952379338902
-  Pair (0,1): 0.0543522
-[arakelov_canonical_height] attempt prec=2048 full: h1=3.8068980878709673, h2=4.141782105903041, h3=1.351468235392002, h_can=-1.5625989442715564
-[arakelov_canonical_height] retry prec=4096 full: h1=3.715540522565308, h2=4.152701244466731, h3=1.087703482301796, h_can=-1.7510792420331787
-[arakelov_canonical_height] retry prec=8192 full: h1=0.0, h2=2.9963631867718763, h3=0.0, h_can=-2.9963631867718763
-[basis] Filtered 0 torsion divisors -> 6 candidates
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.3182911727170312, h2=5.363238851888455, h3=2.280194541035651, h_can=-2.563995995012114
+[arakelov_canonical_height] retry prec=2048 full: h1=3.2125594445860424, h2=5.406166724287148, h3=2.2701718732944416, h_can=-2.6648010653469063
+[arakelov_canonical_height] retry prec=4096 full: h1=3.2616608295301845, h2=5.211054367083394, h3=2.262091152389822, h_can=-2.4491783761233905
+[arakelov_canonical_height] retry prec=8192 full: h1=1.2628133043488694, h2=3.4804150289640665, h3=1.0947898842260226, h_can=-2.3016134346766206
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.0542118938719667, h2=3.2873316291895573, h3=8.469293749143958, h_can=2.474421192318405
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.7382574656369045, h2=4.48899159654983, h3=1.1063207838354283, h_can=-2.566702471813664
+[arakelov_canonical_height] retry prec=2048 full: h1=2.7436480748771994, h2=4.782476811631228, h3=1.107449734784838, h_can=-2.8569279068002094
+[arakelov_canonical_height] retry prec=4096 full: h1=2.730619879454301, h2=4.6105298900570295, h3=1.185507671824599, h_can=-2.65246611441758
+[arakelov_canonical_height] retry prec=8192 full: h1=1.55814461804655, h2=2.9033036523547295, h3=0.0, h_can=-2.124231343331455
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.9139902072143746, h2=3.3270572856211587, h3=5.139741147568748, h_can=1.1998083917704028
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.726905012341656, h2=1.8125517416877164, h3=2.9132179932743805, h_can=1.5075097611203019
+Returning ambiguous form of degree genus+1.
+[arakelov_canonical_height] attempt prec=1024 full: h1=6.646830337309155, h2=11.714683015082135, h3=33.79549836966154, h_can=8.50648133840321
+[arakelov_canonical_height] attempt prec=1024 full: h1=5.275443642591002, h2=1.352721826215424, h3=6.650427407004964, h_can=4.610213698582559
+[arakelov_canonical_height] attempt prec=1024 full: h1=4.7846129225048335, h2=1.8428332074540292, h3=2.8306844165283174, h_can=1.9648154620625462
+[arakelov_canonical_height] attempt prec=1024 full: h1=9.358516301426798, h2=2.4123005173676635, h3=1.2797962625906987, h_can=2.906855764641085
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.6607292954589314, h2=1.4913131449127546, h3=2.4966838410639265, h_can=1.5873934233486744
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.4780464533112676, h2=2.6633211538033357, h3=3.510982656454562, h_can=0.8311934010795792
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.2450052256947943, h2=2.766321286292881, h3=3.118332120673991, h_can=0.41534738689151185
+[arakelov_canonical_height] attempt prec=1024 full: h1=5.425225961003015, h2=3.0048966018003456, h3=1.715589081020503, h_can=0.5655109192114134
+[arakelov] Selecting basis incrementally...
+  Added divisor 0 (first basis element)
+  Added divisor 1 (basis now size 2)
+  Added divisor 2 (basis now size 3)
+  Added divisor 3 (basis now size 4)
+[arakelov] Building final 4×4 Gram matrix...
+eigenvalues (float): [2.3218482332522794, 0.7667855689233872, 0.5685048010541668, 0.3004031770880947]
+determinant: 0.30405098715583284
+condition number (approx): 7.72910678162164
 
 Basis Construction Results:
-  Found 0 independent divisors
+  Found 4 independent divisors
+  Determinant (float): 0.30405098715583284
 
 [mumford detailed timers]
-  basis_construction                      :  963.998s ( 99.4%)
-  crt_reconstruction_loop                 :    4.907s (  0.5%)
-  algebraic_prefiltering                  :    0.495s (  0.1%)
-  prefiltering                            :    0.085s (  0.0%)
-  canonicalization                        :    0.018s (  0.0%)
-  residue_grouping                        :    0.001s (  0.0%)
+  basis_construction                      :  701.942s ( 99.3%)
+  crt_reconstruction_loop                 :    4.395s (  0.6%)
+  algebraic_prefiltering                  :    0.499s (  0.1%)
+  prefiltering                            :    0.082s (  0.0%)
+  canonicalization                        :    0.015s (  0.0%)
+  residue_grouping                        :    0.000s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :  969.504s
+  TOTAL                                   :  706.933s
 
-Mumford search reconstructed 0 divisors
+Mumford search reconstructed 4 divisors
+  4 divisors had rational roots in u(x)
+printing independent found:
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 0.7540873067982483}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.5940035745337471}
+{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 1.9679771044190644}
+{'s': 3, 'p': 0, 'v_0': -1, 'v_1': 14/3, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.6414737945668683}
 Mumford search found 8 rational points
 rational points found:
 {0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
-Total time: 974.72s
+Total time: 712.15s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 969.42s
-  mumford_residues         : 3.91s
+  mumford_reconstruction   : 706.86s
+  mumford_residues         : 3.90s
   prep_mod_data            : 1.39s
   mumford_setup            : 0.00s
 
@@ -556,7 +573,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 8
-Total time: 981.1s
+Total time: 717.5s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -666,12 +683,12 @@ new x: -1
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 984.79s
+Total time: 719.41s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 969.42s
-  mumford_residues         : 3.91s
+  mumford_reconstruction   : 706.86s
+  mumford_residues         : 3.90s
   prep_mod_data            : 1.39s
   mumford_setup            : 0.00s
 

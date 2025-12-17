@@ -12,6 +12,9 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
     """
     import math
     from sage.all import ComplexField
+    key = (x_start, x_end, y_start, y_end, tuple(f_coeffs), use_x_weight, prec)
+    if key in integrate_differential_path_with_branch.cache:
+        return integrate_differential_path_with_branch.cache[key]
 
     CC = ComplexField(prec)
 
@@ -143,6 +146,10 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
         dxd = dx_factor * ws[i]
         integral += integrand * dxd
 
-    return integral
+    ret = integral
+    integrate_differential_path_with_branch.cache[key] = ret
+    return ret
+integrate_differential_path_with_branch.cache = {}
+
 
 
