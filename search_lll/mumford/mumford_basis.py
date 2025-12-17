@@ -39,6 +39,8 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     if not all_divisors:
         return [], 0, None
 
+    debug = True
+
     # Filter invalid / duplicate divisors early
     all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, debug=debug)
     print("survivors of kobayashi maru filter of numeric evil:")
@@ -93,190 +95,6 @@ def structural_red_flag(div):
 # -----------------------------------
 # Exact doubling fallback (refactored)
 # -----------------------------------
-def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=6, debug=True):
-    """
-    Build basis using compute_height_pairing_exact / doubling-based methods.
-    Returns (basis_records, rank, H_exact_matrix).
-    """
-    if not all_divisors:
-        return [], 0, None
-
-    if compute_height_pairing_exact is None:
-        raise RuntimeError("Exact height pairing routine compute_height_pairing_exact not available")
-
-    # Limit candidates
-    if len(all_divisors) > MAX_BASIS_CANDIDATES:
-        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
-        if debug:
-            print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
-
-    # build curve & jacobian
-    C, R, x = _build_curve_from_coeffs(f_coeffs)
-    J = C.jacobian()
-
-    # optional: filter out small/structurally suspicious divisors early
-    filtered = []
-    for div in all_divisors:
-        if naive_height_suspicion(div) or structural_red_flag(div):
-            if debug:
-                print(f"[basis] Suspect tiny/structural divisor; keeping for now but tagging: {div}")
-            # keep (we might want to reject later)
-        filtered.append(div)
-    all_divisors = filtered
-
-    # check torsion fast where implemented
-    non_torsion = []
-    torsion_count = 0
-    # your is_mumford_torsion_fast was being called earlier; keep that call if available
-
-    for div in all_divisors:
-        try:
-            is_tors = False
-            order = None
-            # call fast test if available
-            if 'is_mumford_torsion_fast' in globals() and callable(globals()['is_mumford_torsion_fast']):
-                try:
-                    is_tors, order = globals()['is_mumford_torsion_fast'](
-                        div['s'], div['p'], div['v_0'], div['v_1'], f_coeffs, max_order=100, debug=False
-                    )
-                except Exception:
-                    # don't let a torsion-test bug drop candidates silently
-                    is_tors, order = False, None
-                    raise
-            if is_tors:
-                torsion_count += 1
-                if debug and torsion_count <= 5:
-                    print(f"[basis] Filtered torsion divisor (order {order}): s={div['s']}, p={div['p']}")
-                continue
-            non_torsion.append(div)
-        except Exception as e:
-            warnings.warn(f"[basis] torsion filter error: {e}", RuntimeWarning)
-            non_torsion.append(div)
-            raise
-
-    if debug:
-        print(f"[basis] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
-
-    if not non_torsion:
-        return [], 0, None
-
-    # make jacobian elements
-    jac_elements = []
-    for div in non_torsion:
-        u_poly = x**2 - _to_QQ_safe(div['s']) * x + _to_QQ_safe(div['p'])
-        v_poly = _to_QQ_safe(div['v_1']) * x + _to_QQ_safe(div['v_0'])
-        # coerce into curve parent ring
-        try:
-            u_poly = R(u_poly)
-            v_poly = R(v_poly)
-            D = J([u_poly, v_poly])
-            jac_elements.append((div, D))
-        except Exception as e:
-            if debug:
-                warnings.warn(f"[basis] failed to build jacobian element for div {div}: {e}", RuntimeWarning)
-            raise
-
-    # incremental selection with projection residuals
-    basis = []
-    basis_jac = []
-    typical_height = None
-
-    # Wrapper to adapt compute_height_pairing_exact to _projection_residual_sq signature
-    # which passes 'prec' argument (Arakelov style), which exact routine doesn't accept.
-    def exact_pairing_wrapper(d1, d2, fc, prec=None):
-        return compute_height_pairing_exact(d1, d2, fc, num_doublings=num_doublings)
-
-    pairing_cache = {}  # share cache across loop
-    for idx, (div, D) in enumerate(jac_elements):
-        if not basis:
-            # first candidate: require positive, non-negligible self-pairing
-            try:
-                h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
-                h_float = float(h_exact)
-            except (ValueError, ArithmeticError, RuntimeError) as e:
-                # Catch specific CRT/reconstruction errors and skip divisor
-                if debug:
-                    warnings.warn(f"[basis] Skipping candidate {idx} (height too large/reconstruction failed): {e}", RuntimeWarning)
-                continue
-            except Exception as e:
-                # Unexpected errors should still raise
-                if debug:
-                    warnings.warn(f"[basis] compute_height_pairing_exact unexpected error for candidate {idx}: {e}", RuntimeWarning)
-                raise
-                
-            if h_float <= 0:
-                if debug:
-                    warnings.warn(f"[basis] Rejecting first candidate: non-positive self-pairing {h_float}", RuntimeWarning)
-                continue
-            if h_float < 1e-8:
-                if debug:
-                    warnings.warn(f"[basis] Rejecting first candidate: too small self-pairing {h_float}", RuntimeWarning)
-                continue
-
-            basis.append(div)
-            basis_jac.append(D)
-            typical_height = h_float
-            if debug:
-                print(f"[basis] Added divisor 0 (self-pairing {h_float:.6g})")
-            continue
-
-        # compute projection residual squared
-        try:
-            res_sq = _projection_residual_sq(basis_jac, D, f_coeffs,
-                                            prec_bits=512,
-                                            pairing_func=exact_pairing_wrapper,
-                                            pairing_cache=pairing_cache,
-                                            debug=debug)
-        except (ValueError, ArithmeticError, RuntimeError) as e:
-             if debug:
-                 warnings.warn(f"[basis] Skipping candidate {idx} (projection height too large): {e}", RuntimeWarning)
-             continue
-        except Exception as e:
-            warnings.warn(f"[basis] projection residual computation failed for idx={idx}: {e}", RuntimeWarning)
-            raise
-
-        scale = typical_height if (typical_height and typical_height > 0) else 1.0
-        # compute tolerance: conservative digits-of-precision rule
-        dec_digits = int(512 * 0.30103)
-        tol = float(scale) * (10.0 ** (-(max(6, dec_digits - 6))))
-
-        if res_sq > tol:
-            basis.append(div)
-            basis_jac.append(D)
-            if debug:
-                print(f"[basis] Added divisor {len(basis)-1} (res_sq={res_sq:.3g} tol={tol:.3g})")
-        else:
-            if debug:
-                print(f"[basis] Rejected divisor {idx}: residual {res_sq:.3g} <= tol {tol:.3g}")
-
-    rank = len(basis)
-
-    # Build final exact Gram if rank>0
-    H_exact = None
-    if rank > 0:
-        H_exact = Matrix(QQ, rank, rank)
-        for i in range(rank):
-            for j in range(i, rank):
-                try:
-                    h_ij_exact = compute_height_pairing_exact(
-                        basis_jac[i], basis_jac[j], f_coeffs, num_doublings=num_doublings
-                    )
-                except Exception as e:
-                    warnings.warn(f"[basis] final pairing failed for {i},{j}: {e}", RuntimeWarning)
-                    h_ij_exact = QQ(0)
-                    raise
-                H_exact[i, j] = h_ij_exact
-                H_exact[j, i] = h_ij_exact
-
-        if debug:
-            try:
-                det_exact = H_exact.determinant()
-                print(f"[basis] Final rank: {rank}; determinant (exact) = {det_exact}; determinant (float) = {float(det_exact):.6g}")
-            except Exception:
-                warnings.warn("[basis] could not compute determinant for final H_exact", RuntimeWarning)
-                raise
-
-    return basis, rank, H_exact
 
 
 # -------------------------
@@ -1199,14 +1017,14 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
                 D_sum = D + prevD
                 if _is_jacobian_u_x_squared(D_sum, rejected_jac_elements):
                     if debug:
-                        warnings.warn(f"[filter] Dropping divisor because sum with existing candidate yields evil/rejected: {div}", RuntimeWarning)
+                        warnings.warn(f"[filter] Dropping divisor because sum with existing candidate yields an already rejected divisor: {div}", RuntimeWarning)
                     is_pairwise_evil = True
                     break
                 # Also check difference just in case
                 D_diff = D - prevD
                 if _is_jacobian_u_x_squared(D_diff, rejected_jac_elements):
                     if debug:
-                        warnings.warn(f"[filter] Dropping divisor because diff with existing candidate yields evil/rejected: {div}", RuntimeWarning)
+                        warnings.warn(f"[filter] Dropping divisor because diff with existing candidate yields an already rejected divisor: {div}", RuntimeWarning)
                     is_pairwise_evil = True
                     break
             except Exception:
@@ -1399,3 +1217,188 @@ def doubling_growth_test(D, f_coeffs, naive_height_func=None):
         raise
         return False
 
+
+def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=6, debug=True):
+    """
+    Build basis using compute_height_pairing_exact / doubling-based methods.
+    Returns (basis_records, rank, H_exact_matrix).
+    """
+    if not all_divisors:
+        return [], 0, None
+
+    if compute_height_pairing_exact is None:
+        raise RuntimeError("Exact height pairing routine compute_height_pairing_exact not available")
+
+    # Limit candidates
+    if len(all_divisors) > MAX_BASIS_CANDIDATES:
+        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
+        if debug:
+            print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
+
+    # build curve & jacobian
+    C, R, x = _build_curve_from_coeffs(f_coeffs)
+    J = C.jacobian()
+
+    # optional: filter out small/structurally suspicious divisors early
+    filtered = []
+    for div in all_divisors:
+        if naive_height_suspicion(div) or structural_red_flag(div):
+            if debug:
+                print(f"[basis] Suspect tiny/structural divisor; keeping for now but tagging: {div}")
+            # keep (we might want to reject later)
+        filtered.append(div)
+    all_divisors = filtered
+
+    # check torsion fast where implemented
+    non_torsion = []
+    torsion_count = 0
+    # your is_mumford_torsion_fast was being called earlier; keep that call if available
+
+    for div in all_divisors:
+        try:
+            is_tors = False
+            order = None
+            # call fast test if available
+            if 'is_mumford_torsion_fast' in globals() and callable(globals()['is_mumford_torsion_fast']):
+                try:
+                    is_tors, order = globals()['is_mumford_torsion_fast'](
+                        div['s'], div['p'], div['v_0'], div['v_1'], f_coeffs, max_order=100, debug=False
+                    )
+                except Exception:
+                    # don't let a torsion-test bug drop candidates silently
+                    is_tors, order = False, None
+                    raise
+            if is_tors:
+                torsion_count += 1
+                if debug and torsion_count <= 5:
+                    print(f"[basis] Filtered torsion divisor (order {order}): s={div['s']}, p={div['p']}")
+                continue
+            non_torsion.append(div)
+        except Exception as e:
+            warnings.warn(f"[basis] torsion filter error: {e}", RuntimeWarning)
+            non_torsion.append(div)
+            raise
+
+    if debug:
+        print(f"[basis] Filtered {torsion_count} torsion divisors -> {len(non_torsion)} candidates")
+
+    if not non_torsion:
+        return [], 0, None
+
+    # make jacobian elements
+    jac_elements = []
+    for div in non_torsion:
+        u_poly = x**2 - _to_QQ_safe(div['s']) * x + _to_QQ_safe(div['p'])
+        v_poly = _to_QQ_safe(div['v_1']) * x + _to_QQ_safe(div['v_0'])
+        # coerce into curve parent ring
+        try:
+            u_poly = R(u_poly)
+            v_poly = R(v_poly)
+            D = J([u_poly, v_poly])
+            jac_elements.append((div, D))
+        except Exception as e:
+            if debug:
+                warnings.warn(f"[basis] failed to build jacobian element for div {div}: {e}", RuntimeWarning)
+            raise
+
+    # incremental selection with projection residuals
+    basis = []
+    basis_jac = []
+    typical_height = None
+
+    # Wrapper to adapt compute_height_pairing_exact to _projection_residual_sq signature
+    # which passes 'prec' argument (Arakelov style), which exact routine doesn't accept.
+    def exact_pairing_wrapper(d1, d2, fc, prec=None):
+        return compute_height_pairing_exact(d1, d2, fc, num_doublings=num_doublings)
+
+    pairing_cache = {}  # share cache across loop
+    for idx, (div, D) in enumerate(jac_elements):
+        if not basis:
+            # first candidate: require positive, non-negligible self-pairing
+            try:
+                h_exact = compute_height_pairing_exact(D, D, f_coeffs, num_doublings=num_doublings)
+                h_float = float(h_exact)
+            except (ValueError, ArithmeticError, RuntimeError) as e:
+                # Catch specific CRT/reconstruction errors and skip divisor
+                if debug:
+                    warnings.warn(f"[basis] Skipping candidate {idx} (height too large/reconstruction failed): {e}", RuntimeWarning)
+                continue
+            except Exception as e:
+                # Unexpected errors should still raise
+                if debug:
+                    warnings.warn(f"[basis] compute_height_pairing_exact unexpected error for candidate {idx}: {e}", RuntimeWarning)
+                raise
+                
+            if h_float <= 0:
+                if debug:
+                    warnings.warn(f"[basis] Rejecting first candidate: non-positive self-pairing {h_float}", RuntimeWarning)
+                continue
+            if h_float < 1e-8:
+                if debug:
+                    warnings.warn(f"[basis] Rejecting first candidate: too small self-pairing {h_float}", RuntimeWarning)
+                continue
+
+            basis.append(div)
+            basis_jac.append(D)
+            typical_height = h_float
+            if debug:
+                print(f"[basis] Added divisor 0 (self-pairing {h_float:.6g})")
+            continue
+
+        # compute projection residual squared
+        try:
+            res_sq = _projection_residual_sq(basis_jac, D, f_coeffs,
+                                            prec_bits=512,
+                                            pairing_func=exact_pairing_wrapper,
+                                            pairing_cache=pairing_cache,
+                                            debug=debug)
+        except (ValueError, ArithmeticError, RuntimeError) as e:
+             if debug:
+                 warnings.warn(f"[basis] Skipping candidate {idx} (projection height too large): {e}", RuntimeWarning)
+             continue
+        except Exception as e:
+            warnings.warn(f"[basis] projection residual computation failed for idx={idx}: {e}", RuntimeWarning)
+            raise
+
+        scale = typical_height if (typical_height and typical_height > 0) else 1.0
+        # compute tolerance: conservative digits-of-precision rule
+        dec_digits = int(512 * 0.30103)
+        tol = float(scale) * (10.0 ** (-(max(6, dec_digits - 6))))
+
+        if res_sq > tol:
+            basis.append(div)
+            basis_jac.append(D)
+            if debug:
+                print(f"[basis] Added divisor {len(basis)-1} (res_sq={res_sq:.3g} tol={tol:.3g})")
+        else:
+            if debug:
+                print(f"[basis] Rejected divisor {idx}: residual {res_sq:.3g} <= tol {tol:.3g}")
+
+    rank = len(basis)
+
+    # Build final exact Gram if rank>0
+    H_exact = None
+    if rank > 0:
+        H_exact = Matrix(QQ, rank, rank)
+        for i in range(rank):
+            for j in range(i, rank):
+                try:
+                    h_ij_exact = compute_height_pairing_exact(
+                        basis_jac[i], basis_jac[j], f_coeffs, num_doublings=num_doublings
+                    )
+                except Exception as e:
+                    warnings.warn(f"[basis] final pairing failed for {i},{j}: {e}", RuntimeWarning)
+                    h_ij_exact = QQ(0)
+                    raise
+                H_exact[i, j] = h_ij_exact
+                H_exact[j, i] = h_ij_exact
+
+        if debug:
+            try:
+                det_exact = H_exact.determinant()
+                print(f"[basis] Final rank: {rank}; determinant (exact) = {det_exact}; determinant (float) = {float(det_exact):.6g}")
+            except Exception:
+                warnings.warn("[basis] could not compute determinant for final H_exact", RuntimeWarning)
+                raise
+
+    return basis, rank, H_exact
