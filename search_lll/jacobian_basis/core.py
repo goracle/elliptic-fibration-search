@@ -84,7 +84,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     jac_elements = []
     for div in all_divisors:
         # build Mumford polynomials (assumes genus 2; adapt if variable degree)
-        u_poly = x_QQ**2 + QQ(div['s'])*x_QQ + QQ(div['p'])
+        u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
         div_j = J([u_poly, v_poly])
         jac_elements.append((div, div_j, div['_h_diag']))
