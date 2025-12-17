@@ -573,156 +573,6 @@ def dump_jacobian_mumford_info(JP, label="P"):
         raise
 
 
-def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False):
-    """
-    Filter divisors that are not finite Jacobian elements or duplicates.
-
-    Accepts either:
-      - f_coeffs (list-like): list of coefficients for y^2 = f(x)
-      - C: a HyperellipticCurve object
-
-    aggressive: when True, also drop other tiny/structural divisors (heuristic).
-    """
-    f_coeffs = f_coeffs_or_curve
-    # accept either f_coeffs or curve
-    if hasattr(f_coeffs_or_curve, 'hyperelliptic_polynomials'):
-        C = f_coeffs_or_curve
-    else:
-        C, _, _ = _build_curve_from_coeffs(f_coeffs_or_curve)
-
-    out = []
-    seen = set()
-    store_count = 0
-
-    def _is_u_x_squared(rec):
-        """
-        True if u(x) == x^2 (i.e. s == 0 and p == 0).
-        Use safe coercion.
-        """
-        try:
-            s_q = _to_QQ_safe(rec.get('s', 0))
-            p_q = _to_QQ_safe(rec.get('p', 0))
-            return s_q == 0 and p_q == 0
-        except Exception:
-            raise
-            return False
-
-    def _is_structural_small(rec):
-        # a tiny heuristic: u-coeffs in {-1,0,1} OR explicit flagged structural
-        if rec.get('u', None) is not None:
-            try:
-                coeffs = rec['u'].list()
-                if all(c in (-1, 0, 1) for c in coeffs):
-                    return True
-            except Exception:
-                raise
-        return False
-
-    for div in divs:
-        # quick structural short-circuit: explicit drop for u(x)=x^2
-        if _is_u_x_squared(div):
-            if debug:
-                import warnings
-                warnings.warn(f"[filter] Dropping explicit u(x)=x^2 divisor: {div}", RuntimeWarning)
-            # absolutely drop u(x)=x^2 since it repeatedly causes
-            # archimedean/theta blowups and negative heights in your logs.
-            continue
-
-        if u_is_theta_degenerate(div):
-            warnings.warn(
-                f"[filter] Dropping theta-degenerate divisor: {div}",
-                RuntimeWarning
-            )
-            continue
-
-        if u_theta_degenerate_from_sp(div):
-            warnings.warn(
-                f"[filter] Dropping theta-degenerate divisor (Δ≈0): {div}",
-                RuntimeWarning
-            )
-            continue
-
-        # inside the loop over divs, early, before heavy work:
-        if u_theta_degenerate_enhanced(div, debug=debug):
-            warnings.warn(f"[filter] Dropping enhanced theta-degenerate divisor: {div}", RuntimeWarning)
-            continue
-
-        # compute diagonal heights once:
-
-        h_diag = compute_canonical_height_with_budget(div, f_coeffs, debug=debug)
-
-        if h_diag is None:
-            warnings.warn(
-                f"[filter] Dropping divisor due to unstable negative canonical height (budgeted): {div}",
-                RuntimeWarning
-            )
-            continue
-
-
-        # inside loop over divs, BEFORE mumford_to_jacobian_element call:
-        flagged, reason = u_is_problematic(div, f_coeffs_or_curve, C=C, debug=debug)
-        if flagged:
-            if debug:
-                warnings.warn(f"[filter] Dropping divisor by {reason}: {div}", RuntimeWarning)
-            continue
-
-
-        try:
-            D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
-        except Exception as e:
-            if debug:
-                warnings.warn(f"[filter] failed to coerce div -> Jacobian element: {e} -- skipping", RuntimeWarning)
-            raise
-            continue
-
-        # ignore points that end up not finite / invalid in Jacobian
-        try:
-            if getattr(D, "is_finite", None) and not D.is_finite():
-                if debug:
-                    warnings.warn(f"[filter] skipping non-finite jacobian element for div {div}", RuntimeWarning)
-                continue
-        except Exception:
-            # Some Sage types might not have is_finite; skip the check then.
-            pass
-
-        # optional aggressive structural drop (toggle via aggressive=True)
-        if aggressive and _is_structural_small(div):
-            if debug:
-                warnings.warn(f"[filter] Aggressively dropping structurally-tiny divisor: {div}", RuntimeWarning)
-            continue
-
-        # use reduced representation as a canonical dedupe key
-        try:
-            key = D.reduced_representation()
-        except Exception:
-            # Some Jacobian elements may not support reduced_representation consistently;
-            # fall back to string repr as a last resort
-            try:
-                key = str(D)
-            except Exception:
-                # if even that fails, skip to be safe
-                if debug:
-                    warnings.warn(f"[filter] cannot build dedupe key for divisor {div}; skipping", RuntimeWarning)
-                continue 
-
-        if key in seen:
-            # dedup
-            continue
-
-        seen.add(key)
-        out.append(div)
-        # store it so pairings don't recompute it
-        div['_h_diag'] = h_diag
-        store_count += 1
-        if store_count >= MAX_BASIS_CANDIDATES:
-            break
-
-
-    from pprint import pprint
-    pprint(dict(_FILTER_STATS))
-    return out
-
-
 def u_is_theta_degenerate(div, bound=QQ(1)/QQ(100)):
     try:
         s = QQ(div['s'])
@@ -1216,7 +1066,7 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=False):
         raise
         return None  # conversion failure is legitimate signal
 
-    for p in [64]:
+    for p in [1024]:
         try:
             h = arakelov_canonical_height(J_elem, f_coeffs, prec=p, debug=False)
             if h is not None and h >= 0:
@@ -1258,3 +1108,161 @@ def mumford_pair_to_jacobian(u, v, f_coeffs):
     x = R.gen()
     J = Jacobian(HyperellipticCurve(R(list(reversed(f_coeffs)))))
     return J(u, v)
+
+
+# In mumford_basis.py
+
+def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False):
+    """
+    Filter divisors that are not finite Jacobian elements or duplicates.
+
+    Accepts either:
+      - f_coeffs (list-like): list of coefficients for y^2 = f(x)
+      - C: a HyperellipticCurve object
+
+    aggressive: when True, also drop other tiny/structural divisors (heuristic).
+    """
+    f_coeffs = f_coeffs_or_curve
+    # accept either f_coeffs or curve
+    if hasattr(f_coeffs_or_curve, 'hyperelliptic_polynomials'):
+        C = f_coeffs_or_curve
+    else:
+        C, _, _ = _build_curve_from_coeffs(f_coeffs_or_curve)
+
+    out = []
+    seen = set()
+    store_count = 0
+
+    def _is_u_x_squared(rec):
+        """
+        True if u(x) == x^2 (i.e. s == 0 and p == 0).
+        Use safe coercion.
+        """
+        try:
+            s_q = _to_QQ_safe(rec.get('s', 0))
+            p_q = _to_QQ_safe(rec.get('p', 0))
+            return s_q == 0 and p_q == 0
+        except Exception:
+            raise
+            return False
+
+    def _is_structural_small(rec):
+        # a tiny heuristic: u-coeffs in {-1,0,1} OR explicit flagged structural
+        if rec.get('u', None) is not None:
+            try:
+                coeffs = rec['u'].list()
+                if all(c in (-1, 0, 1) for c in coeffs):
+                    return True
+            except Exception:
+                raise
+        return False
+
+    for div in divs:
+        # quick structural short-circuit: explicit drop for u(x)=x^2
+        if _is_u_x_squared(div):
+            if debug:
+                import warnings
+                warnings.warn(f"[filter] Dropping explicit u(x)=x^2 divisor: {div}", RuntimeWarning)
+            # absolutely drop u(x)=x^2 since it repeatedly causes
+            # archimedean/theta blowups and negative heights in your logs.
+            continue
+            
+        # Detect numerically suspicious divisors (tiny naive height)
+        if naive_height_suspicion(div):
+            if debug:
+                warnings.warn(f"[filter] Dropping numerically suspicious (tiny height) divisor: {div}", RuntimeWarning)
+            continue
+
+        if u_is_theta_degenerate(div):
+            warnings.warn(
+                f"[filter] Dropping theta-degenerate divisor: {div}",
+                RuntimeWarning
+            )
+            continue
+
+        if u_theta_degenerate_from_sp(div):
+            warnings.warn(
+                f"[filter] Dropping theta-degenerate divisor (Δ≈0): {div}",
+                RuntimeWarning
+            )
+            continue
+
+        # inside the loop over divs, early, before heavy work:
+        if u_theta_degenerate_enhanced(div, debug=debug):
+            warnings.warn(f"[filter] Dropping enhanced theta-degenerate divisor: {div}", RuntimeWarning)
+            continue
+
+        # compute diagonal heights once:
+        # compute_canonical_height_with_budget now benefits from the ValueError raise in heights.py
+        h_diag = compute_canonical_height_with_budget(div, f_coeffs, debug=debug)
+
+        if h_diag is None:
+            warnings.warn(
+                f"[filter] Dropping divisor due to unstable negative/failure canonical height: {div}",
+                RuntimeWarning
+            )
+            continue
+
+
+        # inside loop over divs, BEFORE mumford_to_jacobian_element call:
+        flagged, reason = u_is_problematic(div, f_coeffs_or_curve, C=C, debug=debug)
+        if flagged:
+            if debug:
+                warnings.warn(f"[filter] Dropping divisor by {reason}: {div}", RuntimeWarning)
+            continue
+
+
+        try:
+            D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+        except Exception as e:
+            if debug:
+                warnings.warn(f"[filter] failed to coerce div -> Jacobian element: {e} -- skipping", RuntimeWarning)
+            raise
+            continue
+
+        # ignore points that end up not finite / invalid in Jacobian
+        try:
+            if getattr(D, "is_finite", None) and not D.is_finite():
+                if debug:
+                    warnings.warn(f"[filter] skipping non-finite jacobian element for div {div}", RuntimeWarning)
+                continue
+        except Exception:
+            # Some Sage types might not have is_finite; skip the check then.
+            pass
+
+        # optional aggressive structural drop (toggle via aggressive=True)
+        if aggressive and _is_structural_small(div):
+            if debug:
+                warnings.warn(f"[filter] Aggressively dropping structurally-tiny divisor: {div}", RuntimeWarning)
+            continue
+
+        # use reduced representation as a canonical dedupe key
+        try:
+            key = D.reduced_representation()
+        except Exception:
+            # Some Jacobian elements may not support reduced_representation consistently;
+            # fall back to string repr as a last resort
+            try:
+                key = str(D)
+            except Exception:
+                # if even that fails, skip to be safe
+                if debug:
+                    warnings.warn(f"[filter] cannot build dedupe key for divisor {div}; skipping", RuntimeWarning)
+                continue 
+
+        if key in seen:
+            # dedup
+            continue
+
+        seen.add(key)
+        out.append(div)
+        # store it so pairings don't recompute it
+        div['_h_diag'] = h_diag
+        store_count += 1
+        if store_count >= MAX_BASIS_CANDIDATES:
+            break
+
+
+    from pprint import pprint
+    pprint(dict(_FILTER_STATS))
+    return out

@@ -5,7 +5,7 @@ from sage.all import (
     Matrix, vector, pi
 )
 
-from .theta import compute_theta_high_prec, theta_direct
+from .theta import *
 from .periods import (
     choose_numerical_base_point,
     abel_jacobi_mumford,
@@ -48,7 +48,7 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     v = Im_tau.solve_right(y_im)
     quad = RR(pi) * y_im.dot_product(v)
 
-    theta = compute_theta_high_prec(z, tau, prec=prec)
+    theta = compute_theta_high_prec_parallel(z, tau, prec=prec)
     abs_theta = abs(CC(theta))
     assert abs_theta > 0
 
@@ -207,7 +207,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
                     # cheap direct theta
                     theta = theta_direct(tau, list(z_candidate), R=4, prec_local=max(128, prec//2))
                 else:
-                    theta = compute_theta_high_prec(list(z_candidate), tau, prec=prec, max_terms=20000)
+                    theta = compute_theta_high_prec_parallel(list(z_candidate), tau, prec=prec, max_terms=20000)
                 abs_theta = abs(CC(theta))
                 if abs_theta <= 0:
                     failed_evals += 1

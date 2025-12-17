@@ -50,86 +50,6 @@ def naive_height_qq(div, prec=53):
 
 # heights.py — replace/archetype arakelov_canonical_height with this version
 
-def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=False, period_matrix=None):
-    """
-    Compute the Arakelov canonical height of `div`.
-    Accepts optional `period_matrix` to avoid recomputing expensive periods.
-    """
-    key = (str(div), tuple(f_coeffs), prec, max_prec)
-    if key in arakelov_canonical_height.cache:
-        return arakelov_canonical_height.cache[key]
-    import warnings
-    from sage.all import QQ
-
-    TOL_NEG = 1e-12
-    PREC_INCR_FACTOR = 2
-
-    def _compute_quasi_heights(use_finite, use_period_prec, provided_PM=None):
-        # use provided period matrix if present; otherwise compute at requested precision
-        PM = provided_PM if provided_PM is not None else get_period_matrix_auto_B(f_coeffs, prec=use_period_prec)
-        D1 = div
-        D2 = div + div
-        D3 = D2 + div
-        h1 = arakelov_quasi_height(D1, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
-        h2 = arakelov_quasi_height(D2, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
-        h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
-        return float(h1), float(h2), float(h3)
-
-    # First attempt: use provided period_matrix if given
-    try:
-        h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=prec, provided_PM=period_matrix)
-        h_can = (h3 + h1 - 2.0 * h2) / 2.0
-        if debug:
-            print(f"[arakelov_canonical_height] attempt prec={prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
-    except ZeroDivisionError:
-        raise
-    except Exception as e:
-        warnings.warn(f"[arakelov_canonical_height] initial full computation failed: {e}. Attempting archimedean-only fallback.", RuntimeWarning)
-        h_can = -1.0
-        raise
-
-    if h_can >= -TOL_NEG:
-        return float(max(h_can, 0.0))
-
-    # Arch-only fallback, using same PM if provided
-    try:
-        h1_nf, h2_nf, h3_nf = _compute_quasi_heights(use_finite=False, use_period_prec=prec, provided_PM=period_matrix)
-        h_can_nf = (h3_nf + h1_nf - 2.0 * h2_nf) / 2.0
-        if debug:
-            print(f"[arakelov_canonical_height] arch-only: h1={h1_nf}, h2={h2_nf}, h3={h3_nf}, h_can_nf={h_can_nf}")
-        if h_can_nf >= -TOL_NEG:
-            warnings.warn(f"[arakelov_canonical_height] suppressed finite-place instability; using archimedean-only height for divisor={div}.", RuntimeWarning)
-            return float(max(h_can_nf, 0.0))
-    except Exception as e:
-        warnings.warn(f"[arakelov_canonical_height] arch-only fallback failed: {e}", RuntimeWarning)
-        raise
-
-    # Retry loop that may increase precision (still using provided PM only if present and matches prec)
-    cur_prec = prec
-    while cur_prec < max_prec:
-        cur_prec = min(max_prec, int(cur_prec * PREC_INCR_FACTOR))
-        try:
-            h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=cur_prec, provided_PM=period_matrix)
-            h_can = (h3 + h1 - 2.0 * h2) / 2.0
-            if debug:
-                print(f"[arakelov_canonical_height] retry prec={cur_prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
-            if h_can >= -TOL_NEG:
-                warnings.warn(f"[arakelov_canonical_height] resolved negativity after increasing precision to {cur_prec}.", RuntimeWarning)
-                return float(max(h_can, 0.0))
-        except ZeroDivisionError:
-            raise
-        except Exception as e:
-            warnings.warn(f"[arakelov_canonical_height] retry at prec={cur_prec} failed: {e}", RuntimeWarning)
-            continue
-
-    warnings.warn(
-        f"[arakelov_canonical_height] canonical height remained negative after all fallbacks for divisor={div}. "
-        f"Returning h_can (best estimate). Last observed h_can={h_can}. prec tried up to {cur_prec}.",
-        RuntimeWarning
-    )
-    ret = h_can
-    arakelov_canonical_height.cache[key] = ret
-    return ret
 arakelov_canonical_height.cache = {}
 
 def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
@@ -195,7 +115,6 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
         except Exception as e:
             warnings.warn(f"[arakelov_quasi_height] archimedean_height_correction failed: {e}. Using 0.", RuntimeWarning)
             h_arch = RF(0)
-            raise
 
     h_total += h_arch
 
@@ -263,4 +182,84 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
     ret = h_total
     arakelov_quasi_height.cache[key] = ret
     return ret
-arakelov_quasi_height.cache = {}
+
+
+# In heights.py
+
+def arakelov_canonical_height(div, f_coeffs, prec=2048, max_prec=8192, debug=False, period_matrix=None):
+    """
+    Compute the Arakelov canonical height of `div`.
+    Accepts optional `period_matrix` to avoid recomputing expensive periods.
+    
+    Raises ValueError if the computed height is negative (unstable/invalid).
+    """
+    key = (str(div), tuple(f_coeffs), prec, max_prec)
+    if key in arakelov_canonical_height.cache:
+        val = arakelov_canonical_height.cache[key]
+        if val < -1e-9:
+            # If a cached value is negative, it's poison; raise to force drop.
+            raise ValueError(f"Cached canonical height is negative: {val}")
+        return val
+
+    import warnings
+    from sage.all import QQ
+
+    TOL_NEG = 1e-9  # Stricter tolerance
+    PREC_INCR_FACTOR = 2
+
+    def _compute_quasi_heights(use_finite, use_period_prec, provided_PM=None):
+        PM = provided_PM if provided_PM is not None else get_period_matrix_auto_B(f_coeffs, prec=use_period_prec)
+        D1 = div
+        D2 = div + div
+        D3 = D2 + div
+        h1 = arakelov_quasi_height(D1, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        h2 = arakelov_quasi_height(D2, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        h3 = arakelov_quasi_height(D3, f_coeffs, period_matrix=PM, prec=use_period_prec, use_finite_places=use_finite)
+        return float(h1), float(h2), float(h3)
+
+    # First attempt: use provided period_matrix if given
+    try:
+        h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=prec, provided_PM=period_matrix)
+        h_can = (h3 + h1 - 2.0 * h2) / 2.0
+        if debug:
+            print(f"[arakelov_canonical_height] attempt prec={prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
+    except ZeroDivisionError:
+        raise
+    except Exception as e:
+        warnings.warn(f"[arakelov_canonical_height] initial full computation failed: {e}. Attempting archimedean-only fallback.", RuntimeWarning)
+        h_can = -1.0
+        # Don't return -1.0 yet; let the logic below decide to retry or fail
+        
+    if h_can >= -TOL_NEG:
+        ret = float(max(h_can, 0.0))
+        arakelov_canonical_height.cache[key] = ret
+        return ret
+
+    # Retry loop with increasing precision
+    cur_prec = prec
+    while cur_prec < max_prec:
+        cur_prec = min(max_prec, int(cur_prec * PREC_INCR_FACTOR))
+        try:
+            h1, h2, h3 = _compute_quasi_heights(use_finite=True, use_period_prec=cur_prec, provided_PM=period_matrix)
+            h_can = (h3 + h1 - 2.0 * h2) / 2.0
+            if debug:
+                print(f"[arakelov_canonical_height] retry prec={cur_prec} full: h1={h1}, h2={h2}, h3={h3}, h_can={h_can}")
+            if h_can >= -TOL_NEG:
+                warnings.warn(f"[arakelov_canonical_height] resolved negativity after increasing precision to {cur_prec}.", RuntimeWarning)
+                ret = float(max(h_can, 0.0))
+                arakelov_canonical_height.cache[key] = ret
+                return ret
+        except ZeroDivisionError:
+            raise
+        except Exception as e:
+            warnings.warn(f"[arakelov_canonical_height] retry at prec={cur_prec} failed: {e}", RuntimeWarning)
+            # Do not suppress exception if it's the last try
+            if cur_prec >= max_prec:
+                raise
+            continue
+
+    # If we reach here, h_can is still negative or unset.
+    # CRITICAL CHANGE: Raise error instead of returning negative garbage.
+    raise ValueError(f"Canonical height computation failed or remained negative ({h_can}) after retries for divisor {div}")
+
+arakelov_canonical_height.cache = {}
