@@ -59,6 +59,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
     for tup in divisors:
         s_raw, p_raw, v0_raw, v1_raw = tup['s'], tup['p'], tup['v_0'], tup['v_1']
 
+
         if not verify_mumford_pair(f_coeffs, s_raw, p_raw, v0_raw, v1_raw, modulus=None):
             continue
 
@@ -170,6 +171,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 tup['s'], tup['p'], tup['v_0'], tup['v_1'] = s1, p1, v01, v11
                 tup['has_rational_roots'] = False
                 out.append(tup)
+
 
     return out
 

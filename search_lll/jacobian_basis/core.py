@@ -84,10 +84,10 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     jac_elements = []
     for div in all_divisors:
         # build Mumford polynomials (assumes genus 2; adapt if variable degree)
-        u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+        u_poly = x_QQ**2 + QQ(div['s'])*x_QQ + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
         div_j = J([u_poly, v_poly])
-        jac_elements.append((div, div_j))
+        jac_elements.append((div, div_j, div['_h_diag']))
 
     n = len(jac_elements)
     if n == 0:
@@ -100,8 +100,9 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     height_cache = {}
     for i in range(n):
         try:
-            _, jacP = jac_elements[i]
-            h = arakelov_canonical_height(jacP, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
+            _, jacP, h = jac_elements[i]
+            if h is None:
+                h = arakelov_canonical_height(jacP, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
             # store as float for subsequent linear algebra usage
             height_cache[i] = float(h)
             if debug:
