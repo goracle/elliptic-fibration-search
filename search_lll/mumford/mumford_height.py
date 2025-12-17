@@ -1,4 +1,4 @@
-from sage.all import QQ, Matrix, RDF
+from sage.all import QQ, Matrix, RDF, GF, PolynomialRing, HyperellipticCurve, crt, Integer, prod
 from fractions import Fraction
 import math
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
@@ -8,9 +8,6 @@ def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     Compute naive height from Mumford representation without building Jacobian.
     Returns log(max(|coeffs of u|, |coeffs of v|)).
     """
-    from fractions import Fraction
-    import math
-    
     # Force conversion to QQ first, then to Fraction
     s_qq = QQ(s)
     p_qq = QQ(p)
@@ -52,9 +49,6 @@ def naive_height_exact(D):
     Compute a naive height in exact rationals from a Mumford divisor D = [u, v].
     Returns a QQ number (log of max coefficient magnitude, exact).
     """
-    from fractions import Fraction
-    import math
-    
     u_coeffs = D[0].list()
     v_coeffs = D[1].list()
     
@@ -159,9 +153,6 @@ def compute_height_pairing_simple(D1, D2, num_doublings=NUM_DOUBLINGS):
     
     Only does `num_doublings` iterations instead of 8.
     """
-    from fractions import Fraction
-    import math
-    
     def naive_height_from_jacobian(D):
         u, v = D[0], D[1]
         u_coeffs = u.list()
@@ -207,6 +198,124 @@ def compute_height_pairing_simple(D1, D2, num_doublings=NUM_DOUBLINGS):
     # Return the last value (most refined estimate)
     return vals[-1]
 
+def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, debug=False):
+    """
+    Compute 2^k * D using modular arithmetic and CRT reconstruction to avoid coefficient explosion.
+    
+    Args:
+        div: Jacobian element (divisor) to double.
+        f_coeffs: Coefficients of the curve y^2 = f(x) (highest degree first).
+        num_doublings: Number of times to double.
+        primes_list: List of primes to use for CRT.
+    """
+    # 1. Prepare data structures for CRT
+    moduli = []
+    # We expect u to be degree 2 (monic generic case) -> coefficients u0, u1
+    # We expect v to be degree 1 -> coefficients v0, v1
+    # residues stores tuples (u0, u1, v0, v1)
+    residues = []
+    
+    # 2. Extract input polynomial coefficients (over QQ)
+    # div is a Jacobian element. div[0] is u(x), div[1] is v(x).
+    # .list() returns coeffs lowest degree first
+    u_qq_coeffs = div[0].list()
+    v_qq_coeffs = div[1].list()
+    
+    # f_coeffs is highest degree first. Sage R(list) expects lowest first.
+    f_coeffs_lowest = list(reversed(f_coeffs))
+
+    for p in primes_list:
+        try:
+            K = GF(p)
+            R = PolynomialRing(K, 'x')
+            
+            # Map curve to GF(p)
+            f_p = R(f_coeffs_lowest)
+            C_p = HyperellipticCurve(f_p)
+            J_p = C_p.jacobian()
+            
+            # Map point to J(GF(p))
+            u_p = R([K(c) for c in u_qq_coeffs])
+            v_p = R([K(c) for c in v_qq_coeffs])
+            D_p = J_p(u_p, v_p)
+            
+            # Double repeatedly
+            Q_p = D_p
+            for _ in range(num_doublings):
+                Q_p = 2 * Q_p
+                
+            # Extract result
+            if Q_p.is_zero():
+                # Torsion or bad luck hitting infinity. Skip this prime.
+                continue
+                
+            res_u = Q_p[0]
+            res_v = Q_p[1]
+            
+            # Check for generic case (genus 2 generic divisor: deg(u)=2)
+            if res_u.degree() != 2:
+                # Degenerate reduction (weight < 2), skip to simplify CRT logic
+                continue
+                
+            # u = x^2 + u1 x + u0. list() -> [u0, u1, 1]
+            u_c = res_u.list()
+            # v = v1 x + v0. list() -> [v0, v1]
+            v_c = res_v.list()
+            
+            # Pad v if constant or empty
+            if len(v_c) < 2:
+                v_c = v_c + [K(0)] * (2 - len(v_c))
+            
+            # Collect residues: u0, u1, v0, v1
+            # Note: u_c[0]=u0, u_c[1]=u1.
+            rec = (Integer(u_c[0]), Integer(u_c[1]), Integer(v_c[0]), Integer(v_c[1]))
+            
+            residues.append(rec)
+            moduli.append(p)
+            
+        except (ValueError, ZeroDivisionError, ArithmeticError) as e:
+            if debug:
+                print(f"[compute_doubled_point_modular] Mod {p} failed: {e}")
+            continue
+            
+    if not moduli:
+        raise RuntimeError("compute_doubled_point_modular: No valid primes found for CRT reconstruction.")
+        
+    # 3. Rational Reconstruction
+    M = prod(moduli)
+    final_coeffs = []
+    
+    # Reconstruct 4 coefficients: u0, u1, v0, v1
+    for i in range(4):
+        # residues[j][i] is the i-th coeff for j-th prime
+        col = [r[i] for r in residues]
+        x_crt = crt(col, moduli)
+        
+        try:
+            val = x_crt.rational_reconstruction(M)
+            final_coeffs.append(val)
+        except ValueError:
+            raise RuntimeError(f"Rational reconstruction failed for coefficient index {i}. "
+                               f"Modulus size ~ 2^{len(str(M))*3.32:.1f}. "
+                               f"Consider increasing num primes in PRIME_POOL.")
+
+    # 4. Construct final Jacobian point over QQ
+    # u = x^2 + u1*x + u0
+    # v = v1*x + v0
+    u0, u1, v0, v1 = final_coeffs
+    
+    R_qq = PolynomialRing(QQ, 'x')
+    x = R_qq.gen()
+    
+    u_poly = x**2 + u1*x + u0
+    v_poly = v1*x + v0
+    
+    # Rebuild parent Jacobian
+    f_poly_qq = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly_qq)
+    J = C.jacobian()
+    
+    return J(u_poly, v_poly)
 
 def compute_height_pairing_exact(D1, D2, f_coeffs, num_doublings=NUM_DOUBLINGS, primes_list=PRIME_POOL, debug=False):
     """
@@ -303,4 +412,5 @@ def _extract_u_coeffs_as_fractions(u):
         frac_coeffs = [Fraction(1,1)] + frac_coeffs
 
     return frac_coeffs
+
 

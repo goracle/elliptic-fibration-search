@@ -50,7 +50,6 @@ def naive_height_qq(div, prec=53):
 
 # heights.py — replace/archetype arakelov_canonical_height with this version
 
-arakelov_canonical_height.cache = {}
 
 def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
                           use_finite_places=True, arch_override=None):
@@ -182,7 +181,7 @@ def arakelov_quasi_height(div, f_coeffs, period_matrix=None, prec=300,
     ret = h_total
     arakelov_quasi_height.cache[key] = ret
     return ret
-
+arakelov_quasi_height.cache = {}
 
 # In heights.py
 

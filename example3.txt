@@ -110,8 +110,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=40, avg_survivors≈2.23e-08, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 40, final_avg_survivors≈2.23e-08
+[empirical_pool] start pool size=40, avg_survivors≈6.56e-08, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 40, final_avg_survivors≈6.56e-08
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.30, avg_density=0.0763 -> size_bias='large (low density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -126,10 +126,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 500
-  NUM_PRIME_SUBSETS: 1085
+  NUM_PRIME_SUBSETS: 1086
   PRIME_POOL size: 40
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1085, PRIME_POOL size=40, TMAX=500
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1086, PRIME_POOL size=40, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 40
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -233,7 +233,7 @@ Height Pairing Matrix H:
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 20 primes -> avg_roots=1.15, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9)]
 [residue_counts] sample: [(5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1), (31, 0), (37, 0)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.15}
@@ -269,7 +269,7 @@ Building 5-equation Mumford system from fibration...
 
 [prepare_modular_data_lll] Rejected 0 primes:
 [mumford] Generating tasks for 40 primes...
-[mumford] Residue computation took 2.19s
+[mumford] Residue computation took 2.30s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -317,13 +317,13 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Vector group: 2 primes, avg 139.0 sols/prime
   Raw combinations: 16,296
   Adaptive limit: 16,296 (total combos: 16,296)
-  Vector group: 2 primes, avg 182.0 sols/prime
-  Raw combinations: 22,308
-  Adaptive limit: 22,308 (total combos: 22,308)
   Accepting 2-prime group: 70,416 combos (rare divisor)
   Vector group: 2 primes, avg 271.0 sols/prime
   Raw combinations: 70,416
   Adaptive limit: 70,416 (total combos: 70,416)
+  Vector group: 2 primes, avg 182.0 sols/prime
+  Raw combinations: 22,308
+  Adaptive limit: 22,308 (total combos: 22,308)
   Vector group: 4 primes, avg 85.5 sols/prime
   Raw combinations: 7,547,904
   High density detected - applying aggressive pre-filtering
@@ -350,3 +350,111 @@ Grouped into 15 vectors, 306 (vector,x-residue) pairs
   Batched parallel processing: 34 groups, 586,882 total combos
   Using 20 workers
   Created 137 batches for parallel processing
+
+=== RECONSTRUCTION SUMMARY ===
+  Combinations tried: 586,882
+  Groups skipped (2-prime): 1
+  Groups skipped (high density): 0
+  Pre-filtered out: 16,510,208
+  Rejected by height: 0
+  Rejected by consistency: 99,148
+  Rejected by algebraic constraint: 487,342
+  Successful reconstructions: 392
+  Unique Rational Points: 8
+  40 of 40 original divisors had rational roots in u(x)
+
+--- Building Independent Mumford Basis ---
+first 10 divisors:
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (2,), 'has_rational_roots': True}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 9/4, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1, 'p': 0, 'v_0': 1, 'v_1': 2, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'has_rational_roots': True}
+{'s': 4/3, 'p': 1/3, 'v_0': -5/9, 'v_1': 32/9, 'vector': (15,), 'has_rational_roots': True}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True}
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.275133e-01
+Im(tau) eigenvalues: [0.39779870396660444, 2.06733743181674]
+Im(tau) eigenvalues: [0.39779870396660444, 2.06733743181674]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.272001e-01
+Im(tau) eigenvalues: [0.3977715218004977, 2.068076379333582]
+Im(tau) eigenvalues: [0.3977715218004977, 2.068076379333582]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.270471e-01
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Polynomial degree: 6, expected genus: 2
+Using Sage's intersection pairing:
+[1 0]
+[0 1]
+det(A) magnitude: 6.270471e-01
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+Im(tau) eigenvalues: [0.3977582393560456, 2.0684374645380914]
+{'small_disc': 1}
+survivors of kobayashi maru filter of numeric evil:
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 13/9, 'vector': (2,), 'has_rational_roots': True, '_h_diag': 0.7540873067982483}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.5940035745337471}
+{'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.8138293921669155}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.6131837349477705}
+{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 1.9679771044190644}
+{'s': -1, 'p': 0, 'v_0': 1, 'v_1': 6, 'vector': (15,), 'has_rational_roots': True, '_h_diag': 0.6291404368532956}
+[basis] Using Arakelov heights for basis construction
+
+[arakelov] Building basis from 6 divisors
+[arakelov] Using precision: 1024 bits
+[arakelov] Parallelization: 20 workers (heights computed serially for PM consistency)
+[arakelov] Pre-computing heights for 6 candidates...
+  Divisor 0: h = 0.754087
+  Divisor 1: h = 0.594004
+  Divisor 2: h = 0.813829
+  Divisor 3: h = 0.613184
+  Divisor 4: h = 1.96798
+  Divisor 5: h = 0.62914
+[arakelov] Precomputing pairings for first 6 divisors (prefix).
+[arakelov_canonical_height] attempt prec=1024 full: h1=3.628060478114983, h2=1.5899797096460249, h3=1.9142091750299852, h_can=1.1811551169264594
+  Pair (0,1): -0.0834679
+[arakelov_canonical_height] attempt prec=1024 full: h1=2.8703508146334133, h2=3.987648661682275, h3=3.321204361012204, h_can=-0.8918710738594662
+[arakelov_canonical_height] retry prec=2048 full: h1=2.7423161084705514, h2=3.987870014830584, h3=3.3227292644288604, h_can=-0.9553473283808778
+[arakelov_canonical_height] retry prec=4096 full: h1=2.864538982694077, h2=3.9879781097717975, h3=3.341295914557498, h_can=-0.8850606611460101
+[arakelov_canonical_height] retry prec=8192 full: h1=0.7209765889161821, h2=1.9280053047798333, h3=1.7215324972163748, h_can=-0.7067507617135549
+
+[arakelov] Building basis from 6 divisors
+[arakelov] Using precision: 2048 bits
+[arakelov] Parallelization: 20 workers (heights computed serially for PM consistency)
+[arakelov] Pre-computing heights for 6 candidates...
+  Divisor 0: h = 0.754087
+  Divisor 1: h = 0.594004
+  Divisor 2: h = 0.813829
+  Divisor 3: h = 0.613184
+  Divisor 4: h = 1.96798
+  Divisor 5: h = 0.62914
+[arakelov] Precomputing pairings for first 6 divisors (prefix).
+[arakelov_canonical_height] attempt prec=2048 full: h1=3.7216112506359855, h2=1.5899863653042428, h3=2.3719519558402804, h_can=1.4567952379338902
+  Pair (0,1): 0.0543522
+[arakelov_canonical_height] attempt prec=2048 full: h1=2.7423161084705514, h2=3.987870014830584, h3=3.3227292644288604, h_can=-0.9553473283808778
+[arakelov_canonical_height] retry prec=4096 full: h1=2.864538982694077, h2=3.9879781097717975, h3=3.341295914557498, h_can=-0.8850606611460101
+[arakelov_canonical_height] retry prec=8192 full: h1=0.7209765889161821, h2=1.9280053047798333, h3=1.7215324972163748, h_can=-0.7067507617135549
+[basis] Filtered 0 torsion divisors -> 6 candidates
+Basis construction failed: rational reconstruction of 67946948288727379643390087153012346097831440506880342185691469376 (mod 75057496483503773740019767594982078252474291367722822891102573521) does not exist
+
+[mumford detailed timers]
+  crt_reconstruction_loop                 :    2.598s ( 88.2%)
+  algebraic_prefiltering                  :    0.289s (  9.8%)
+  prefiltering                            :    0.048s (  1.6%)
+  canonicalization                        :    0.009s (  0.3%)
+  residue_grouping                        :    0.000s (  0.0%)
+  rational_root_check                     :    0.000s (  0.0%)
+  TOTAL                                   :    2.945s

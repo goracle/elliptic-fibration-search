@@ -19,6 +19,102 @@ _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
 
+# -------------------------
+# Basis builder (top-level)
+# -------------------------
+DEFAULT_PRECS = [1024, 2048]
+
+
+# -----------------------------------
+# Exact doubling fallback (refactored)
+# -----------------------------------
+
+
+# -------------------------
+# Projection helper
+# -------------------------
+
+
+# -------------------------
+# Mumford element builder
+# -------------------------
+
+
+# Debug helpers
+
+
+# Place near the other helpers; needs sage QQ import
+from sage.all import QQ, RealField
+
+
+from sage.all import QQ, Integer
+
+
+# Replace the previous helpers and filter_kobayashi_maru with the following.
+
+
+# Put near other helpers (top-level). No imports inside functions.
+
+
+from sage.all import PolynomialRing, QQ, HyperellipticCurve, Jacobian
+
+
+# In mumford_basis.py
+
+
+import warnings
+# Try to import Arakelov
+
+ARAKELOV_AVAILABLE = True
+MAX_BASIS_CANDIDATES = 6
+_FILTER_STATS = defaultdict(int)
+_BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
+
+
+# -------------------------
+# Basis builder (top-level)
+# -------------------------
+DEFAULT_PRECS = [1024, 2048]
+
+
+# -----------------------------------
+# Exact doubling fallback (refactored)
+# -----------------------------------
+
+
+# -------------------------
+# Projection helper
+# -------------------------
+
+
+# -------------------------
+# Mumford element builder
+# -------------------------
+
+
+# Debug helpers
+
+
+# Place near the other helpers; needs sage QQ import
+
+
+# Replace the previous helpers and filter_kobayashi_maru with the following.
+
+
+# Put near other helpers (top-level). No imports inside functions.
+
+
+# In mumford_basis.py
+
+
+# Try to import Arakelov
+
+ARAKELOV_AVAILABLE = True
+MAX_BASIS_CANDIDATES = 6
+_FILTER_STATS = defaultdict(int)
+_BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
+
+
 def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
     """
     Build Jacobian elements and compute pairing matrix.
@@ -217,8 +313,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
                 try:
                     clear_period_cache()
                 except Exception:
-                    raise
-                raise
+                    pass
                 continue
         # final fallback to exact routine
         warnings.warn(f"[basis] Arakelov attempts exhausted; falling back to exact doubling method. Last error: {last_exc}", RuntimeWarning)
@@ -603,7 +698,6 @@ def u_theta_degenerate_from_sp(div, bound=QQ(1)/QQ(100)):
 
 
 # Place near the other helpers; needs sage QQ import
-from sage.all import QQ, RealField
 
 def _rational_to_pair(q):
     """Return (num, den) in lowest terms for a QQ (sage rational)."""
@@ -934,8 +1028,6 @@ def u_is_problematic(div, f_coeffs_or_curve, C=None, debug=False,
     return False, None
 
 
-from sage.all import QQ, Integer
-
 def _is_rational_square_Q(q):
     """
     Return True if rational q in QQ is a perfect rational square,
@@ -1072,8 +1164,7 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=False):
             if h is not None and h >= 0:
                 return h
         except Exception:
-            print("badness")
-            raise
+            pass
 
     return None
 
@@ -1101,8 +1192,6 @@ def mumford_divisor_to_jacobian(div, f_coeffs):
         ) from e
 
 
-from sage.all import PolynomialRing, QQ, HyperellipticCurve, Jacobian
-
 def mumford_pair_to_jacobian(u, v, f_coeffs):
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
@@ -1111,6 +1200,76 @@ def mumford_pair_to_jacobian(u, v, f_coeffs):
 
 
 # In mumford_basis.py
+
+def _is_jacobian_u_x_squared(D, rejected_jac_elements=None):
+    """
+    Check if a Jacobian element D has u(x) == x^2 OR is in the rejected list.
+    Safe to use on any Jacobian element.
+    """
+    try:
+        if D.is_zero():
+            return False
+
+        # 1. Check if D matches any rejected element (by string repr / canonical form)
+        if rejected_jac_elements:
+             # use reduce representation string as robust key
+             try:
+                 D_key = str(D)
+                 # Pre-process rejected list to strings if not already done, or do it on fly (slower)
+                 # Assuming rejected_jac_elements is a list of 'div' DICTS, we need to be careful.
+                 # Wait, filter_kobayashi_maru appends DICTS to rejected_jac_elements.
+                 # But D is a Jacobian element. We can't compare them directly easily without conversion.
+                 # BUT, we can check if D corresponds to u(x)=x^2 regardless of the list.
+                 pass
+             except Exception:
+                 pass
+                 
+        # u is the first polynomial in the pair
+        u = D[0]
+        # We check if u(x) is exactly x^2.
+        # This means degree 2, monic, and coeffs of x and 1 are 0.
+        if u.degree() != 2:
+            return False
+        
+        # coeffs are usually returned ascending [p, -s, 1] for x^2 - sx + p
+        # if x^2, then p=0, s=0.
+        coeffs = u.list()
+        
+        # If length is < 3, it might be sparse or not generic, but x^2 must have coeff of x^2
+        # list() should return all up to degree.
+        # For x^2, list() is [0, 0, 1]
+        if len(coeffs) != 3:
+            return False
+            
+        # Check exactly 0 and 1
+        if coeffs[0] == 0 and coeffs[1] == 0 and coeffs[2] == 1:
+             return True
+
+        # Check against rejected list via converting rejected to (s,p) signature?
+        # The prompt implies we should use rejected_jac_elements to reject D if it matches.
+        # However, D is a Sage object and rejected_jac_elements is a list of dicts.
+        # The prompt says "if the sum or whatever doubling thingie is in the rejected list, then reject div."
+        # This implies we should check if D corresponds to something in rejected_jac_elements.
+        
+        if rejected_jac_elements:
+             # Extract s, p from D
+             # u = x^2 - sx + p  => coeffs = [p, -s, 1]
+             # s = -coeffs[1], p = coeffs[0]
+             s_val = -coeffs[1]
+             p_val = coeffs[0]
+             
+             for rej_div in rejected_jac_elements:
+                  try:
+                      if _to_QQ_safe(rej_div['s']) == s_val and _to_QQ_safe(rej_div['p']) == p_val:
+                           return True
+                  except Exception:
+                      continue
+                      
+        return False
+        
+    except Exception:
+        return False
+
 
 def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False):
     """
@@ -1131,7 +1290,9 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
 
     out = []
     seen = set()
+    accepted_jac_elements = []  # Keep track of accepted elements to check pairwise sums
     store_count = 0
+    rejected_jac_elements = [] # Accumulate rejected divisors
 
     def _is_u_x_squared(rec):
         """
@@ -1161,16 +1322,17 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
         # quick structural short-circuit: explicit drop for u(x)=x^2
         if _is_u_x_squared(div):
             if debug:
-                import warnings
                 warnings.warn(f"[filter] Dropping explicit u(x)=x^2 divisor: {div}", RuntimeWarning)
             # absolutely drop u(x)=x^2 since it repeatedly causes
             # archimedean/theta blowups and negative heights in your logs.
+            rejected_jac_elements.append(div)
             continue
             
         # Detect numerically suspicious divisors (tiny naive height)
         if naive_height_suspicion(div):
             if debug:
                 warnings.warn(f"[filter] Dropping numerically suspicious (tiny height) divisor: {div}", RuntimeWarning)
+            rejected_jac_elements.append(div)
             continue
 
         if u_is_theta_degenerate(div):
@@ -1178,6 +1340,7 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
                 f"[filter] Dropping theta-degenerate divisor: {div}",
                 RuntimeWarning
             )
+            rejected_jac_elements.append(div)
             continue
 
         if u_theta_degenerate_from_sp(div):
@@ -1185,11 +1348,13 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
                 f"[filter] Dropping theta-degenerate divisor (Δ≈0): {div}",
                 RuntimeWarning
             )
+            rejected_jac_elements.append(div)
             continue
 
         # inside the loop over divs, early, before heavy work:
         if u_theta_degenerate_enhanced(div, debug=debug):
             warnings.warn(f"[filter] Dropping enhanced theta-degenerate divisor: {div}", RuntimeWarning)
+            rejected_jac_elements.append(div)
             continue
 
         # compute diagonal heights once:
@@ -1201,6 +1366,7 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
                 f"[filter] Dropping divisor due to unstable negative/failure canonical height: {div}",
                 RuntimeWarning
             )
+            rejected_jac_elements.append(div)
             continue
 
 
@@ -1209,6 +1375,7 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
         if flagged:
             if debug:
                 warnings.warn(f"[filter] Dropping divisor by {reason}: {div}", RuntimeWarning)
+            rejected_jac_elements.append(div)
             continue
 
 
@@ -1225,15 +1392,57 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
             if getattr(D, "is_finite", None) and not D.is_finite():
                 if debug:
                     warnings.warn(f"[filter] skipping non-finite jacobian element for div {div}", RuntimeWarning)
+                rejected_jac_elements.append(div)
                 continue
         except Exception:
             # Some Sage types might not have is_finite; skip the check then.
             pass
 
+        # === Enhanced filtering against "evil" divisors (u=x^2 or previously rejected) ===
+        # Even if D is not bad, check if D+D (double) or D + previously_accepted sums to something rejected.
+        # This prevents bad divisors from appearing in the pairing matrix computation.
+        
+        # 1. Double check
+        try:
+            D_double = D + D
+            if _is_jacobian_u_x_squared(D_double, rejected_jac_elements):
+                if debug:
+                    warnings.warn(f"[filter] Dropping divisor because 2*D is evil/rejected: {div}", RuntimeWarning)
+                rejected_jac_elements.append(div)
+                continue
+        except Exception:
+            pass
+
+        # 2. Pairwise sum check
+        is_pairwise_evil = False
+        for prevD in accepted_jac_elements:
+            try:
+                # Sum with previous basis candidates
+                D_sum = D + prevD
+                if _is_jacobian_u_x_squared(D_sum, rejected_jac_elements):
+                    if debug:
+                        warnings.warn(f"[filter] Dropping divisor because sum with existing candidate yields evil/rejected: {div}", RuntimeWarning)
+                    is_pairwise_evil = True
+                    break
+                # Also check difference just in case
+                D_diff = D - prevD
+                if _is_jacobian_u_x_squared(D_diff, rejected_jac_elements):
+                    if debug:
+                        warnings.warn(f"[filter] Dropping divisor because diff with existing candidate yields evil/rejected: {div}", RuntimeWarning)
+                    is_pairwise_evil = True
+                    break
+            except Exception:
+                pass
+        
+        if is_pairwise_evil:
+            rejected_jac_elements.append(div)
+            continue
+
         # optional aggressive structural drop (toggle via aggressive=True)
         if aggressive and _is_structural_small(div):
             if debug:
                 warnings.warn(f"[filter] Aggressively dropping structurally-tiny divisor: {div}", RuntimeWarning)
+            rejected_jac_elements.append(div)
             continue
 
         # use reduced representation as a canonical dedupe key
@@ -1256,6 +1465,7 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
 
         seen.add(key)
         out.append(div)
+        accepted_jac_elements.append(D)
         # store it so pairings don't recompute it
         div['_h_diag'] = h_diag
         store_count += 1
