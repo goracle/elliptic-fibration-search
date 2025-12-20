@@ -13,7 +13,6 @@ from .periods import (
 )
 
 
-
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
     """
     tau : g x g complex matrix or nested list

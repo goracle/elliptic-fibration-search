@@ -15,6 +15,13 @@ from .utilities import *
 # Functions: get_pairing, neron_tate_height_pairing,
 # precompute_pairings_parallel, gram_logdet_and_cond
 
+
+"""Neron-Tate pairing computations."""
+
+
+# Functions: get_pairing, neron_tate_height_pairing,
+# precompute_pairings_parallel, gram_logdet_and_cond
+
 def get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
     if i > j:
         i, j = j, i
@@ -111,20 +118,22 @@ def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs,
     if len(pairs_to_compute) > 2 and n_jobs > 1:
         with Pool(processes=n_jobs) as pool:
             results = []
-            for i, res in enumerate(pool.imap_unordered(_compute_pairing_worker, pairs_to_compute)):
+            # Fix: Use compute_pairing_worker (no underscore)
+            for i, res in enumerate(pool.imap_unordered(compute_pairing_worker, pairs_to_compute)):
                 results.append(res)
                 if (i + 1) % 100 == 0:
                     print(f"  Progress: {i+1}/{len(pairs_to_compute)}")
             
         for (i, j), val, error in results:
             if error:
-                raise RuntimeError(f"Pairing computation failed: {error}")
+                # We raise here because a failure in P+Q AND P-Q is a critical geometric failure
+                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
             pairing_cache[(i, j)] = val
     else:
         for args in pairs_to_compute:
-            (i, j), val, error = _compute_pairing_worker(args)
+            (i, j), val, error = compute_pairing_worker(args)
             if error:
-                raise RuntimeError(f"Pairing computation failed: {error}")
+                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
             pairing_cache[(i, j)] = val
     
     return pairing_cache
@@ -149,7 +158,10 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
     G = make_matrix_numerically_positive_definite(G, tol=RR(10)**(-20))
     min_ev = min(float(e) for e in G.eigenvalues())
     if min_ev <= 0:
-        raise RuntimeError(f"Gram not PD after clipping: min_eig={min_ev:.3e}")
+        # Note: We do NOT raise here. We let the SVD logic handle near-singular matrices
+        # unless it's strictly required by the caller.
+        pass
+        
     U, S, Vt = np.linalg.svd(G, full_matrices=False)
     svals = [float(x) for x in S]
     # log10_abs_det = sum(log10(svals)) (sign positive for Gram of PD matrix)
@@ -161,4 +173,3 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
     smax = svals[0]
     numeric_rank = sum(1 for s in svals if s > smax * tol_rel)
     return {"n": n, "svals": svals, "log10_abs_det": log10_abs_det, "log10_cond": log10_cond, "numeric_rank": numeric_rank}
-

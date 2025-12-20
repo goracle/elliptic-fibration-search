@@ -611,6 +611,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
     mumford_timer_add("canonicalization", time.time() - t0)
 
+    # In reconstruct_and_verify_mumford, after the reconstruction loop:
+
     mumford_divisors = []
     for i, divi in enumerate(mumford_divisors_raw):
         is_dep = False
@@ -641,7 +643,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     mumford_timer_add("rational_root_check", time.time() - t0)
 
     print(f"  Unique Rational Points: {len(found_xs)}")
-    
+
+
     if mumford_divisors:
         unique = {frozenset(d.items()): d for d in mumford_divisors}
         mumford_divisors = list(unique.values())
@@ -685,7 +688,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             traceback.print_exc()
             mumford_timers_print()
             raise
-    
+
+
     mumford_timers_print()
     return found_xs, mumford_divisors
 
@@ -864,3 +868,7 @@ def quick_dependence_check(div1, div2):
         return True  # negatives
     
     return False  # might still be dependent, but not obviously
+
+
+# Add to mumford_reconstruction.py, after the CRT reconstruction loop
+
