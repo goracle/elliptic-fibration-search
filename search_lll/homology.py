@@ -2,6 +2,10 @@
 from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix
 import math
 import itertools
+from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
+from sage.all import ComplexField, RealField, Matrix, identity_matrix
+from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix
+
 
 
 class HomologyExtractionError(Exception):
@@ -197,16 +201,7 @@ def compute_intersection_number(chain1, chain2):
 def compute_intersection_matrix_combinatorial(a_list, b_list, RS):
     """
     Compute intersection matrix using Sage's homology intersection pairing.
-    
-    Sage's RiemannSurface.homology_basis() returns cycles as paths on the 
-    upstairs graph. To compute their intersection numbers, we need to use
-    the algebraic/combinatorial intersection form, not geometric intersection.
-    
-    The homology_basis() typically returns [A0, A1, ..., B0, B1, ...] in some order.
-    We need to determine the intersection A_i · B_j.
     """
-    from sage.all import Matrix as SageMatrix
-    
     # Method 1: Try to get full intersection matrix from RS
     I_full = None
     try:
@@ -342,40 +337,6 @@ def integrate_chain(weighted_paths, f_coeffs, nodes, CC, tiny, max_depth=8):
     return total_I0, total_I1
 
 
-def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
-    """Test that the period matrix is positive definite."""
-    print(f"\n--- Period Matrix Test (prec={prec}) ---")
-    tau = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    
-    RRp = RealField(prec)
-    Im_tau = Matrix(RRp, 2, 2, [[RRp(tau[i, j].imag()) for j in range(2)] for i in range(2)])
-    evals = Im_tau.eigenvalues()
-    det = Im_tau.determinant()
-    sym_err = abs(tau[0, 1] - tau[1, 0])
-    is_pd = all(ev > RRp(0) for ev in evals)
-    
-    print("Result summary:")
-    print("  Symmetry error:", sym_err)
-    print("  Im(tau) determinant:", det)
-    print("  Eigenvalues:", evals)
-    print("  Positive definite:", is_pd)
-    
-    if not is_pd:
-        raise AssertionError("Period matrix is not positive definite")
-    
-    return True
-
-
-#old slow
-#-----------------------
-#new
-
-# [Insert at top level to satisfy "no imports inside functions" rule]
-try:
-    from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
-except ImportError:
-    pass
-
 def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes, CC, tiny, max_depth=8, depth=0):
     """
     Integrate ω_0 and ω_1 along a segment with adaptive subdivision.
@@ -474,6 +435,7 @@ def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes,
     
     return I0, I1, y_prev
 
+
 def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_tol=None):
     """
     Compute the period matrix for a genus-2 hyperelliptic curve y^2 = f(x).
@@ -563,64 +525,27 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
     # Robustly build Im(tau) using conversion helper (avoids method-object bug)
     Im_tau = build_Im_tau_from_tau(tau, RR, CC)
 
-    # Make numerically PD (clip / shift tiny negative eigenvalues)
-    Im_tau = make_matrix_numerically_positive_definite(Im_tau, tol=RR(10)**(-20))
-
-    # Now compute trace/determinant/eigenvalues from the cleaned Im_tau
-    a = Im_tau[0,0]; b = Im_tau[0,1]; d = Im_tau[1,1]
-    tr = a + d
-    det = a*d - b*b
-
-    # Compute discriminant safely in RR
-    delta = tr*tr - 4*det
-    if delta < 0:
-        # numeric noise; clamp to 0
-        delta = RR(0)
-    sqrt_delta = delta.sqrt()
-    ev1 = (tr - sqrt_delta) / 2
-    ev2 = (tr + sqrt_delta) / 2
-    evals = [float(ev1), float(ev2)]
-
-    if verbose:
-        print(f"Im(tau) eigenvalues: {evals}")
+    # Check strict PD property
+    evals = Im_tau.eigenvalues()
+    if not evals:
+        # Should not happen for 2x2
+        raise ArithmeticError("No eigenvalues found for Im(tau)")
+        
+    min_eig = min(evals)
 
     if pd_tol is None:
         pd_tol = -1e-10
 
-    if min(evals) < pd_tol:
-        raise ArithmeticError(
-            f"Tau not positive definite (min eigenvalue={min(evals):.2e}). "
+    if min_eig < pd_tol:
+         raise ArithmeticError(
+            f"Tau not positive definite (min eigenvalue={min_eig:.2e}). "
             "Basis may be non-symplectic or have wrong orientation."
         )
 
-    # Quadratic formula: (tr +/- sqrt(tr^2 - 4*det)) / 2
-    delta = tr*tr - 4*det
-    if delta < 0:
-        # Should be real symmetric, so this implies numerical noise or asymmetry
-        delta = 0 
-    sqrt_delta = delta.sqrt()
-    ev1 = (tr - sqrt_delta) / 2
-    ev2 = (tr + sqrt_delta) / 2
-    evals = [float(ev1), float(ev2)]
-    
-    if verbose:
-        print(f"Im(tau) eigenvalues: {evals}")
-    
-    if pd_tol is None:
-        pd_tol = -1e-10
-    
-    if min(evals) < pd_tol:
-        raise ArithmeticError(
-            f"Tau not positive definite (min eigenvalue={min(evals):.2e}). "
-            "Basis may be non-symplectic or have wrong orientation."
-        )
-    
     get_period_matrix_auto_B.cache[key] = tau
     return tau
 get_period_matrix_auto_B.cache = {}
 
-
-from sage.all import ComplexField, RealField, Matrix, identity_matrix
 
 def complex_of_sage(z, CC):
     """
@@ -639,6 +564,7 @@ def complex_of_sage(z, CC):
             except Exception:
                 raise
 
+
 def build_Im_tau_from_tau(tau, RR, CC):
     """
     Build a RealField matrix Im(tau) robustly from tau (a CC matrix).
@@ -651,6 +577,7 @@ def build_Im_tau_from_tau(tau, RR, CC):
             c = complex_of_sage(tau[i, j], CC)
             Im[i, j] = RR(c.imag)
     return Im
+
 
 def make_matrix_numerically_positive_definite(M, tol=None):
     """
@@ -674,6 +601,29 @@ def make_matrix_numerically_positive_definite(M, tol=None):
         M = M + shift * identity_matrix(RR, M.nrows())
     return M
 
+
+def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
+    """Test that the period matrix is positive definite."""
+    print(f"\n--- Period Matrix Test (prec={prec}) ---")
+    tau = get_period_matrix_auto_B(f_coeffs, prec=prec)
+    
+    RRp = RealField(prec)
+    Im_tau = Matrix(RRp, 2, 2, [[RRp(tau[i, j].imag()) for j in range(2)] for i in range(2)])
+    evals = Im_tau.eigenvalues()
+    det = Im_tau.determinant()
+    sym_err = abs(tau[0, 1] - tau[1, 0])
+    is_pd = all(ev > RRp(0) for ev in evals)
+    
+    print("Result summary:")
+    print("  Symmetry error:", sym_err)
+    print("  Im(tau) determinant:", det)
+    print("  Eigenvalues:", evals)
+    print("  Positive definite:", is_pd)
+    
+    if not is_pd:
+        raise AssertionError("Period matrix is not positive definite")
+    
+    return True
 
 # Example usage
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 from sage.all import QQ, log
 from sage.all import diagonal_matrix
 
+from search_lll.homology import *
 import warnings
 
 def custom_formatwarning(msg, category, filename, lineno, line=None):
@@ -754,7 +755,12 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=True):
 
     for prec in [256]:
         try:
-            h = arakelov_canonical_height(J_elem, f_coeffs, prec=prec, debug=debug)
+            PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
+        except Exception as e:
+            raise RuntimeError(f"[arakelov] get_period_matrix_auto_B failed at prec={prec}: {e}")
+
+        try:
+            h = arakelov_canonical_height(J_elem, f_coeffs, PM, prec=prec, debug=debug)
             if h is not None and h >= 0:
                 return h
         except Exception:

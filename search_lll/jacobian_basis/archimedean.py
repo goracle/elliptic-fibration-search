@@ -12,6 +12,8 @@ from .periods import (
     normalize_periods_and_z
 )
 
+import math
+
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
     """
@@ -55,12 +57,6 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
                 arch = CC(quad_val - log_theta))
 
 
-# put this near the TOP of archimedean_height_correction (or module-level)
-
-
-# inside archimedean.py -- replace reduce_z_arakelov with this
-
-
 def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_threshold=0.25):
     """
     Reduce z modulo lattice selecting representative maximizing quad - log|theta|.
@@ -74,6 +70,9 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     CC = ComplexField(prec)
 
     g = tau.nrows()
+    if g == 0:
+        raise ValueError("Cannot reduce z on genus 0 surface (tau is 0x0)")
+    
     assert len(z_list) == g
 
     # ensure CC matrix for tau
@@ -86,13 +85,10 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     if det_im <= 0:
         raise ValueError(f"Im(tau) not positive definite: det = {float(det_im)}")
 
-    # quick eigenvalue / y_min estimate
-    try:
-        eigs = [float(e) for e in Im_tau.eigenvalues()]
-        y_min = min(eigs)
-    except Exception:
-        # if eigen computation fails, be conservative
-        y_min = float(min([Im_tau[i,i] for i in range(g)]))
+    eigs = [float(e) for e in Im_tau.eigenvalues()]
+    if not eigs:
+        raise ValueError(f"No eigenvalues found for {g}x{g} matrix (Im(tau))")
+    y_min = min(eigs)
 
     # Full lattice reduction to base representative
     y = vector(RR, [RR(z.imag()) for z in z0])
@@ -194,6 +190,9 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
 
     tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
     g = tau.nrows()
+    
+    if g == 0:
+        raise ValueError(f"Normalized period matrix has dimension 0. Inputs: period_matrix {period_matrix.nrows()}x{period_matrix.ncols()}, z_vec {len(z_vec)}")
 
     z_raw = [CC(z_norm_mat[i,0]) for i in range(g)]
     z = reduce_z_arakelov(z_raw, tau, prec=prec, debug=debug)

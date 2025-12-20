@@ -369,7 +369,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         try:
             _, jacP, h = jac_elements[i]
             if h is None:
-                h = arakelov_canonical_height(jacP, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
+                h = arakelov_canonical_height(jacP, f_coeffs, PM, prec=prec, debug=debug)
             height_cache[i] = float(h)
             if debug:
                 print(f"  Divisor {i}: h = {height_cache[i]:.6g}")
@@ -399,7 +399,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             try:
                 _, Ji, _ = jac_elements[i]
                 _, Jj, _ = jac_elements[j]
-                hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
+                hij = arakelov_canonical_height(Ji + Jj, f_coeffs, PM, prec=prec, debug=debug)
                 pairing_val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(pairing_val)
                 if debug:
@@ -424,7 +424,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         try:
             _, Ji, _ = jac_elements[i]
             _, Jj, _ = jac_elements[j]
-            hij = arakelov_canonical_height(Ji + Jj, f_coeffs, prec=prec, debug=debug, period_matrix=PM)
+            hij = arakelov_canonical_height(Ji + Jj, f_coeffs, PM, prec=prec, debug=debug)
             val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
             pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(val)
             return val
