@@ -13,7 +13,7 @@ found 1 / 4
 shifted G poly1: 4*x^5 - 4*x^4 - 36*x^3 + 5*x^2 + 96*x + 64
 --- Building 1 Step Fibration Tower (deg 5 -> 4) ---
 --- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=13.4)
+  [Step 1] Selected best geometry (Score=12.9)
 r_m -m - 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -106,7 +106,7 @@ DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1,
 [bounds] Built SPLIT_POLY of degree 8 from Delta numerator.
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.10s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 30 primes -> avg_roots=0.7333, patterns_sample=[(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3)]
 [residue_counts] denom zero mod 3; using fallback
 [residue_counts] sample: [(2, 1), (3, 1), (5, 1), (7, 2), (11, 1), (13, 1), (17, 1), (19, 1), (23, 1), (29, 1)]
@@ -115,8 +115,8 @@ DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1,
 
 DEBUG: RET: {'splitting_field_degree_est': 840, 'unique_patterns': [(1, 1, 1, 1, 1, 3), (1, 1, 2, 4), (1, 1, 3, 3), (1, 1, 5), (1, 1, 6), (1, 2, 2, 3), (1, 2, 4), (1, 3, 4), (1, 7), (2, 2, 4), (2, 3, 3), (3, 5), (4, 4), (6,), (8,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=42, avg_survivors≈1.97e-05, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈1.97e-05
+[empirical_pool] start pool size=42, avg_survivors≈1.54e-05, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 42, final_avg_survivors≈1.54e-05
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.12, avg_density=0.1193 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -283,7 +283,7 @@ Skipping prime 2: resulting curve is singular (discriminant = 0 mod 2)
   p=2: singular_discriminant
   p=3: a4_denom_divisible
 [mumford] Generating tasks for 40 primes...
-[mumford] Residue computation took 1.90s
+[mumford] Residue computation took 1.87s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -296,6 +296,15 @@ Grouped into 17 vectors, 286 (vector,x-residue) pairs
   Vector group: 3 primes, avg 35.3 sols/prime
   Raw combinations: 36,960
   Adaptive limit: 36,960 (total combos: 36,960)
+  Vector group: 2 primes, avg 255.0 sols/prime
+  Raw combinations: 41,000
+  Adaptive limit: 41,000 (total combos: 41,000)
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 22,800
+  Adaptive limit: 22,800 (total combos: 22,800)
+  Vector group: 2 primes, avg 139.0 sols/prime
+  Raw combinations: 16,072
+  Adaptive limit: 16,072 (total combos: 16,072)
   Vector group: 2 primes, avg 204.0 sols/prime
   Raw combinations: 26,732
   Adaptive limit: 26,732 (total combos: 26,732)
@@ -311,29 +320,20 @@ Grouped into 17 vectors, 286 (vector,x-residue) pairs
   Vector group: 2 primes, avg 119.0 sols/prime
   Raw combinations: 12,792
   Adaptive limit: 12,792 (total combos: 12,792)
-  Accepting 2-prime group: 61,544 combos (rare divisor)
-  Vector group: 2 primes, avg 255.0 sols/prime
-  Raw combinations: 61,544
-  Adaptive limit: 61,544 (total combos: 61,544)
   Accepting 2-prime group: 90,432 combos (rare divisor)
   Vector group: 2 primes, avg 301.0 sols/prime
   Raw combinations: 90,432
   Adaptive limit: 90,432 (total combos: 90,432)
+  Accepting 2-prime group: 61,544 combos (rare divisor)
   Vector group: 2 primes, avg 255.0 sols/prime
-  Raw combinations: 41,000
-  Adaptive limit: 41,000 (total combos: 41,000)
-  Vector group: 2 primes, avg 164.0 sols/prime
-  Raw combinations: 22,800
-  Adaptive limit: 22,800 (total combos: 22,800)
-  Vector group: 2 primes, avg 139.0 sols/prime
-  Raw combinations: 16,072
-  Adaptive limit: 16,072 (total combos: 16,072)
-  Vector group: 2 primes, avg 138.0 sols/prime
-  Raw combinations: 15,680
-  Adaptive limit: 15,680 (total combos: 15,680)
+  Raw combinations: 61,544
+  Adaptive limit: 61,544 (total combos: 61,544)
   Vector group: 2 primes, avg 186.0 sols/prime
   Raw combinations: 23,780
   Adaptive limit: 23,780 (total combos: 23,780)
+  Vector group: 2 primes, avg 138.0 sols/prime
+  Raw combinations: 15,680
+  Adaptive limit: 15,680 (total combos: 15,680)
 
   Batched parallel processing: 31 groups, 505,226 total combos
   Using 20 workers
@@ -376,13 +376,18 @@ Using Sage's intersection pairing:
 det(A) magnitude: 6.722584e-01
 Im(tau) eigenvalues: [0.5309092836261529, 1.4568543444174222]
 Im(tau) eigenvalues: [0.5309092836261529, 1.4568543444174222]
+Height breakdown: Arch=4.0491, Locals=0.0000 (p=2: 3.250062678479315e-11) -> Total=4.0491
+Height breakdown: Arch=3.9309, Locals=0.0000 (p=2: 2.18543411932946e-10) -> Total=3.9309
+Height breakdown: Arch=4.0487, Locals=0.0000 (p=2: 2.18543411932946e-10) -> Total=4.0487
+Height breakdown: Arch=3.3174, Locals=0.0000 (p=2: 0.0) -> Total=3.3174
+Height breakdown: Arch=3.6359, Locals=0.0000 (p=2: 0.0) -> Total=3.6359
 {}
 survivors of kobayashi maru filter of numeric evil:
-{'s': 0, 'p': 0, 'v_0': 8, 'v_1': 6, 'vector': (3,), 'u_poly': x^2, 'v_poly': 6*x + 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 4.0491469854874245}
-{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 7*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 3.9309212934878897}
-{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 9, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 9*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 4.0487043291442735}
+{'s': 0, 'p': 0, 'v_0': 8, 'v_1': 6, 'vector': (3,), 'u_poly': x^2, 'v_poly': 6*x + 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 4.049146985516127}
+{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 7*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 3.930921293612749}
+{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 9, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 9*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 4.048704329269133}
 {'s': 4, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'u_poly': x^2 - 4*x, 'v_poly': 7*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 3.3174216502657683}
-{'s': 4, 'p': 0, 'v_0': -8, 'v_1': 11, 'vector': (3,), 'u_poly': x^2 - 4*x, 'v_poly': 11*x - 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 3.6358753822800964}
+{'s': 4, 'p': 0, 'v_0': -8, 'v_1': 11, 'vector': (3,), 'u_poly': x^2 - 4*x, 'v_poly': 11*x - 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 3.635875381384303}
 [basis] Using Arakelov heights for basis construction
 
 [arakelov] Building basis from 5 divisors
@@ -401,15 +406,25 @@ Im(tau) eigenvalues: [0.5308547180971068, 1.4569821449800628]
   Divisor 3: h = 3.31742
   Divisor 4: h = 3.63588
 [arakelov] Precomputing pairings for first 5 divisors (prefix).
+Height breakdown: Arch=12.9431, Locals=0.0000 (p=2: 2.18543411932946e-10) -> Total=12.9431
   Pair (0,1): 2.48149
+Height breakdown: Arch=14.8657, Locals=0.0000 (p=2: 2.18543411932946e-10) -> Total=14.8657
   Pair (0,2): 3.38394
+Height breakdown: Arch=16.5469, Locals=0.0000 (p=2: 0.0) -> Total=16.5469
   Pair (0,3): 4.59019
+Height breakdown: Arch=3.7569, Locals=0.0000 (p=2: 0.0) -> Total=3.7569
   Pair (0,4): -1.96406
+Height breakdown: Arch=4.2921, Locals=0.0000 (p=2: 3.250062678479315e-11) -> Total=4.2921
   Pair (1,2): -1.84375
+Height breakdown: Arch=9.0503, Locals=0.0000 (p=2: 1.3658963245809125e-11) -> Total=9.0503
   Pair (1,3): 0.900956
+Height breakdown: Arch=2.9882, Locals=0.0000 (p=2: 1.3658963245809125e-11) -> Total=2.9882
   Pair (1,4): -2.28929
+Height breakdown: Arch=13.3194, Locals=0.0000 (p=2: 5.46358529832365e-11) -> Total=13.3194
   Pair (2,3): 2.97665
+Height breakdown: Arch=4.5197, Locals=0.0000 (p=2: 5.46358529832365e-11) -> Total=4.5197
   Pair (2,4): -1.58244
+Height breakdown: Arch=8.2884, Locals=0.0000 (p=2: 0.0) -> Total=8.2884
   Pair (3,4): 0.667572
 [arakelov] Selecting basis incrementally...
   Added divisor 0 (first basis element)
@@ -418,38 +433,38 @@ Im(tau) eigenvalues: [0.5308547180971068, 1.4569821449800628]
   Rejected divisor 3: dependent (Gram det <= 0)
   Added divisor 4 (basis now size 3)
 [arakelov] Building final 3×3 Gram matrix...
-eigenvalues (float): [8.379498171084194, 1.8696447929473914, 1.3668006972238251]
-determinant: 21.413236149411535
+eigenvalues (float): [8.3794981703463, 1.8696447929118885, 1.36680069725499]
+determinant: 21.41323614760753
 
 Basis Construction Results:
   Found 3 independent divisors
-  Determinant (float): 21.413236149411535
+  Determinant (float): 21.41323614760753
 
 [mumford detailed timers]
-  basis_construction                      :   77.395s ( 96.7%)
-  crt_reconstruction_loop                 :    2.331s (  2.9%)
-  algebraic_prefiltering                  :    0.310s (  0.4%)
+  basis_construction                      :   17.272s ( 87.3%)
+  crt_reconstruction_loop                 :    2.252s ( 11.4%)
+  algebraic_prefiltering                  :    0.259s (  1.3%)
   canonicalization                        :    0.002s (  0.0%)
   residue_grouping                        :    0.000s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   80.037s
+  TOTAL                                   :   19.785s
 
 Mumford search reconstructed 3 divisors
   3 divisors had rational roots in u(x)
 printing independent found:
-{'s': 0, 'p': 0, 'v_0': 8, 'v_1': 6, 'vector': (3,), 'u_poly': x^2, 'v_poly': 6*x + 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 4.0491469854874245}
-{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 7*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 3.9309212934878897}
-{'s': 4, 'p': 0, 'v_0': -8, 'v_1': 11, 'vector': (3,), 'u_poly': x^2 - 4*x, 'v_poly': 11*x - 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 3.6358753822800964}
+{'s': 0, 'p': 0, 'v_0': 8, 'v_1': 6, 'vector': (3,), 'u_poly': x^2, 'v_poly': 6*x + 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 4.049146985516127}
+{'s': -1, 'p': 0, 'v_0': 8, 'v_1': 7, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 7*x + 8, 'has_rational_roots': True, 'scale_used': 1, '_h_diag': 3.930921293612749}
+{'s': 4, 'p': 0, 'v_0': -8, 'v_1': 11, 'vector': (3,), 'u_poly': x^2 - 4*x, 'v_poly': 11*x - 8, 'has_rational_roots': True, 'scale_used': -1, '_h_diag': 3.635875381384303}
 Mumford search found 3 rational points
 rational points found:
 {0, 4, -1}
-Total time: 82.81s
+Total time: 22.51s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 80.05s
-  mumford_residues         : 1.90s
-  prep_mod_data            : 0.86s
+  mumford_reconstruction   : 19.79s
+  mumford_residues         : 1.87s
+  prep_mod_data            : 0.85s
   mumford_setup            : 0.00s
 
 Counters:
@@ -528,7 +543,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 3
-Total time: 86.1s
+Total time: 25.7s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -635,13 +650,13 @@ new x: 4
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 87.96s
+Total time: 27.60s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_reconstruction   : 80.05s
-  mumford_residues         : 1.90s
-  prep_mod_data            : 0.86s
+  mumford_reconstruction   : 19.79s
+  mumford_residues         : 1.87s
+  prep_mod_data            : 0.85s
   mumford_setup            : 0.00s
 
 Counters:

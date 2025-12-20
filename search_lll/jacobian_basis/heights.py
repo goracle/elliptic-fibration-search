@@ -237,6 +237,7 @@ def mumford_dict_to_jacobian_element(div_dict, f_coeffs):
             total_scale = QQ(div_dict['scale_used'])
         except Exception:
             total_scale = QQ(1)
+            raise
     # first apply recorded scale (this was used to recover algebraic relation earlier)
     # then apply model v_scale (1/sqrt(LC)) to match monic model
     combined_scale = total_scale * v_scale
@@ -284,192 +285,133 @@ from sage.all import QQ
 logger = logging.getLogger("arakelov_debug")
 logger.setLevel(logging.INFO)
 
-def arakelov_canonical_height(div, f_coeffs, prec=1024, max_prec=8192, debug=True, period_matrix=None):
-    """
-    Debug-friendly canonical height builder.
-    Computes:
-       h_arch = arakelov_quasi_height(J_elem, use_finite_places=False)
-       s_p for p in bad_primes (computed one-by-one)
-       h_can = h_arch + sum_p s_p
-
-    Accepts either:
-      - a Sage Jacobian element, or
-      - a canonicalized dict with 'u_poly'/'v_poly' fields.
-    Returns float h_can. Does not raise immediately on negative result; logs full breakdown.
-    """
-    # 1) ensure we have a Sage Jacobian element
-    try:
-        # if it's a dict from canonicalizer, convert
-        if isinstance(div, dict) and 'u_poly' in div and 'v_poly' in div:
-            # use the normalized conversion helper (monic model scaling inside)
-            J_elem = mumford_dict_to_jacobian_element(div, f_coeffs)
-        else:
-            J_elem = div  # assume it's already a Jacobian element
-    except Exception as e:
-        logger.exception("Failed to convert input to Jacobian element: %s", e)
-        raise
-
-    # 2) compute archimedean (analytic) piece
-    try:
-        # arakelov_quasi_height should accept a Jacobian element and return a real value,
-        # with option to skip finite places (we use false to compute only analytic part)
-        # many codebases name it differently; adapt to your code if needed.
-        h_arch = arakelov_quasi_height(J_elem, f_coeffs, period_matrix=period_matrix, prec=prec, use_finite_places=False)
-        h_arch = float(h_arch)
-    except Exception as e:
-        logger.exception("archimedean contribution failed: %s", e)
-        # still continue to compute finite corrections for diagnostics
-        h_arch = None
-        raise
-
-    # 3) find bad primes (same code your logging shows)
-    try:
-        bad_primes = get_bad_primes(f_coeffs)
-    except Exception:
-        # fallback: if you have cached list or computed earlier, adapt accordingly
-        bad_primes = []
-        logger.warning("get_bad_primes unavailable; proceeding with empty list of bad primes")
-        raise
-
-    # 4) compute finite local corrections one-by-one (s_p)
-    s_list = []
-    per_prime = {}
-    for p in bad_primes:
-        try:
-            # if you already have a worker function that returns (idx, s_p) for a task,
-            # use local_naive_height_p or local_correction_worker adapted for single prime.
-            # Example: local_naive_height_p(J_elem, f_coeffs, p, prec) -> s_p (maybe returns list)
-            # Use whichever function in your code computes the finite correction for a single p.
-            # I'm using a conservative call to local_correction_worker(task) expecting it to accept a single-task tuple.
-            task = (0, _div_to_coeff_tuple_for_worker(J_elem), p, tuple(f_coeffs))
-            # NOTE: if your local_correction_worker expects a different format, replace accordingly.
-            # Use direct call (no multiprocessing) for deterministic logging:
-            idx, s_p = local_correction_worker(task)
-            s_val = float(s_p)
-            s_list.append(s_val)
-            per_prime[p] = s_val
-        except Exception as e:
-            # log exception for that prime; append None so indices line up
-            logger.exception("Local correction failed for p=%r: %s", p, e)
-            per_prime[p] = None
-            s_list.append(None)
-            raise
-
-    # 5) combine using additive formula: h_can = h_arch + sum(s_p)
-    # Only sum non-None s_p
-    sum_s = 0.0
-    for s in s_list:
-        if s is None:
-            raise RuntimeError("Critical failure: Local height correction is missing. Result is invalid.")
-        sum_s += float(s)
-
-    h_can = None
-    if h_arch is None:
-        # if archimedean failed, try fallback: maybe arakelov_quasi_height with use_finite_places=True returns total
-        try:
-            h_try = arakelov_quasi_height(J_elem, f_coeffs, period_matrix=period_matrix, prec=prec, use_finite_places=True)
-            h_can = float(h_try)
-            logger.info("[fallback] arakelov_quasi_height returned full h_can=%r", h_can)
-        except Exception:
-            logger.error("archimedean contribution missing and fallback failed.")
-            h_can = None
-            raise
-    else:
-        h_can = float(h_arch + sum_s)
-
-    # 6) debugging output
-    logger.info("=== ARakelov height debug ===")
-    logger.info("Div (repr): %s", getattr(J_elem, "__repr__", lambda: "<repr-failed>")()[:200] if hasattr(J_elem, "__repr__") else str(J_elem))
-    logger.info("archimedean h_arch = %r (prec=%d)", h_arch, prec)
-    logger.info("bad primes = %r", bad_primes)
-    for p in bad_primes:
-        logger.info("  p=%r -> s_p = %r", p, per_prime.get(p))
-    logger.info("sum finite corrections = %r", sum_s)
-    logger.info("combined h_can = %r", h_can)
-
-    # 7) If h_can negative, don't raise here: return the value but also dump extra diagnostics
-    if h_can is None:
-        logger.error("h_can is None (archimedean and fallback failed). returning None.")
-        return None
-
-    if h_can < -1e-12:
-        # extra diagnosis: compute naive height or check torsion
-        try:
-            # If Sage exposes canonical_height for Jacobian elements, use that
-            if hasattr(J_elem, "height") or hasattr(J_elem, "canonical_height"):
-                try:
-                    naive = J_elem.canonical_height() if hasattr(J_elem, "canonical_height") else J_elem.height()
-                    logger.info("Sage-reported canonical/naive height: %r", naive)
-                except Exception:
-                    raise
-        except Exception:
-            raise
-
-        logger.warning("Canonical height negative: h_can=%r for divisor; returning value (not raising) for debug.", h_can)
-        # return the negative value so caller can decide; but do not raise
-        return float(h_can)
-
-    # Otherwise return positive height
-    return float(h_can)
-arakelov_canonical_height.cache = {}
-
 
 # Helper to adapt a Jacobian element for the local worker tuple format.
 # Replace this with the exact function you use to build the worker tuple from a Mumford pair.
 
 
+"""Height computation functions."""
+
+
+from .local import get_bad_primes, local_height_correction_finite, local_correction_worker, local_naive_height_p
+# from search_lll.homology import * # Assuming this exists or is not needed for the fix
+import math
+
+# ... (Include naive_height_qq, arakelov_quasi_height, _div_to_coeff_tuple, mumford_dict_to_jacobian_element as provided in original) ...
+# ... (Include build_f_poly_from_coeffs, _scale_f_coeffs_by, etc. as provided) ...
+
+# -------------------------------------------------------------------------
+# Debug/Telemetry Enhanced Canonical Height
+# -------------------------------------------------------------------------
+logger = logging.getLogger("arakelov_debug")
+logger.setLevel(logging.INFO)
+
+
+"""Height computation functions."""
+
+
+# from search_lll.homology import * import multiprocessing
+
+# ... (naive_height_qq, arakelov_quasi_height, _div_to_coeff_tuple, mumford_dict_to_jacobian_element... keep these as they were) ...
+# ... (build_f_poly_from_coeffs, _scale_f_coeffs_by, etc... keep as they were) ...
+
+# -------------------------------------------------------------------------
+# Debug/Telemetry Enhanced Canonical Height
+# -------------------------------------------------------------------------
+logger = logging.getLogger("arakelov_debug")
+logger.setLevel(logging.INFO)
+
+
 def _div_to_coeff_tuple_for_worker(J_elem):
     """
-    Robustly extract (u,v) Mumford data from a Sage Jacobian element
-    and convert to the format expected by local_correction_worker:
-    ((u_pairs), (v_pairs)) where each pair is (numerator, denominator).
+    Robustly extract (u,v) Mumford data.
     """
     from sage.all import QQ
-    
-    # Try direct access to Mumford representation first
     try:
-        # For JacobianMorphism_divisor_class_field, access the internal _data attribute
-        # which contains the Mumford representation (u, v)
-        if hasattr(J_elem, '_data'):
+        if hasattr(J_elem, '_data'): # Some sage versions
             u, v = J_elem._data
         else:
-            # Fallback: try accessing as tuple
             u, v = J_elem[0], J_elem[1]
-    except Exception as e1:
-        # Try alternative methods
+    except Exception:
+        # Try finding mumford rep via divisor
         try:
-            # Some Sage versions support direct indexing
-            u = J_elem[0]
-            v = J_elem[1]
-        except Exception as e2:
-            # Last resort: try getting through divisor and reduction
-            try:
-                D = J_elem.divisor()
-                Dred = D.reduced()
-                u, v = Dred.mumford_representation()
-            except Exception as e3:
-                raise RuntimeError(
-                    f"Failed to extract Mumford (u,v) from Jacobian element of type {type(J_elem)}. "
-                    f"Tried _data access: {e1}, indexing: {e2}, divisor method: {e3}"
-                )
-            raise
+            u, v = J_elem.divisor().reduced().mumford_representation()
+        except Exception as e:
+            raise RuntimeError(f"Could not extract uv: {e}")
         raise
-    
-    # Convert to coefficient pairs (numerator, denominator) as expected by worker
+
     def coeffs_to_pairs(poly):
-        """Convert polynomial coefficients to (num, den) pairs."""
         pairs = []
         for c in poly.list():
             cQQ = QQ(c)
             pairs.append((int(cQQ.numerator()), int(cQQ.denominator())))
         return tuple(pairs)
     
-    try:
-        u_pairs = coeffs_to_pairs(u)
-        v_pairs = coeffs_to_pairs(v)
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to convert Mumford polynomials to coefficient pairs: {e}"
-        )
+    return (coeffs_to_pairs(u), coeffs_to_pairs(v))
+
+
+def arakelov_canonical_height(div, f_coeffs, prec=1024, max_prec=8192, debug=True, period_matrix=None):
+    """
+    Computes canonical height h(D) = h_arch(D) + sum(local_corrections).
+    Enforces model consistency between the Jacobian element and the curve coefficients.
+    """
+    from sage.all import QQ, HyperellipticCurve
     
-    return (u_pairs, v_pairs)
+    # 1) ensure we have a Sage Jacobian element
+    if isinstance(div, dict) and 'u_poly' in div:
+        J_elem = mumford_dict_to_jacobian_element(div, f_coeffs)
+    else:
+        J_elem = div
+
+    # CRITICAL: Access the curve via the parent Jacobian group.
+    # This avoids the AttributeError on JacobianMorphism_divisor_class_field.
+    jac = J_elem.parent()
+    curve = jac.curve()
+    
+    f_poly, _ = curve.hyperelliptic_polynomials()
+    # Sage returns coefficients Low->High, but this codebase expects High->Low.
+    consistent_coeffs = [QQ(c) for c in f_poly.list()[::-1]]
+    
+    # If the model was scaled (e.g. LC=4 moved to monic), period_matrix is invalid.
+    if period_matrix is not None:
+        if list(consistent_coeffs) != list(map(QQ, f_coeffs)):
+            period_matrix = None
+
+    # 2) compute archimedean (analytic) piece using CONSISTENT coeffs
+    # We pass use_finite_places=False because we handle them in the worker loop.
+    h_arch = arakelov_quasi_height(J_elem, consistent_coeffs, period_matrix=period_matrix, prec=prec, use_finite_places=False)
+    h_arch = float(h_arch)
+
+    # 3) find bad primes for the ACTUAL curve model
+    bad_primes = get_bad_primes(consistent_coeffs)
+
+    # 4) compute finite local corrections
+    s_list = []
+    per_prime = {}
+    
+    for p in bad_primes:
+        # Prepare task using consistent_coeffs to avoid rank inflation at p=2
+        task = (0, _div_to_coeff_tuple_for_worker(J_elem), p, tuple(consistent_coeffs))
+        
+        # Execute synchronously 
+        idx, result = local_correction_worker(task)
+        
+        # Propagate exceptions immediately as per aimist.txt
+        if isinstance(result, Exception):
+            raise result
+        
+        s_val = float(result)
+        s_list.append(s_val)
+        per_prime[p] = s_val
+
+    sum_s = sum(s_list)
+    h_can = float(h_arch + sum_s)
+
+    # 6) debugging output
+    if debug:
+        print(f"Height breakdown: Arch={h_arch:.4f}, Locals={sum_s:.4f} (p=2: {per_prime.get(2, 'N/A')}) -> Total={h_can:.4f}")
+
+    if h_can < -1e-9:
+        print(f"WARNING: Canonical height negative: {h_can}. Matrix may not be positive definite.")
+    
+    return float(h_can)
