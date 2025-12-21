@@ -153,6 +153,17 @@ _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), QQ(1)/QQ(2), QQ(1)
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
+
+from sage.all import QQ, PolynomialRing, Integer, GF
+
+# logger setup
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# candidate scales we try (including reciprocals)
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
 def rational_sqrt(q):
     """
     If q in QQ is an exact rational square, return its QQ square root.
@@ -170,6 +181,7 @@ def rational_sqrt(q):
     except Exception:
         return None
 
+
 def build_f_poly(f_coeffs, R):
     """
     Build f(x) with f_coeffs given highest-degree -> constant.
@@ -180,13 +192,16 @@ def build_f_poly(f_coeffs, R):
         f = f * x + QQ(c)
     return f
 
+
 def _u_from_sp(s_q, p_q, R):
     x = R.gen()
     return x**2 - s_q * x + p_q
 
+
 def _v_from_coeffs(v1_q, v0_q, R):
     x = R.gen()
     return v1_q * x + v0_q
+
 
 def _canon_key_from_polys(u, v):
     """
@@ -198,7 +213,8 @@ def _canon_key_from_polys(u, v):
         return pairs
     return ("u", coeff_pairs(u), "v", coeff_pairs(v))
 
-def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
+
+def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out, show_progress=False):
     """
     Try small scale factors lam in _SCALE_TRIALS so that (lam*v)^2 - f is divisible by u.
     If successful, append canonicalized dict to out and return True.
@@ -244,18 +260,24 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
                     newt['scale_used'] = lam
                     out.append(newt)
                     logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
+                    if show_progress:
+                        print(f"[canon] Accepted divisor s={s_q} p={p_q} scale={lam}")
                 return True
         except Exception:
             # on any algebraic failure, continue trying other scales
             continue
     return False
 
-def canonicalize_and_dedup(divisors, f_coeffs):
+
+def canonicalize_and_dedup(divisors, f_coeffs, show_progress=False, progress_interval=100):
     """
     Canonicalize and deduplicate Mumford (s,p,v0,v1) reconstructions.
 
     Returns list of canonicalized dicts with keys:
       'u_poly', 'v_poly', 's', 'p', 'v_0', 'v_1', 'has_rational_roots', and optional 'scale_used'
+
+    If show_progress=True, prints progress updates to stdout.
+    progress_interval controls how often (in items) progress is printed.
     """
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
@@ -267,7 +289,15 @@ def canonicalize_and_dedup(divisors, f_coeffs):
     accepted_count = 0
     skipped_count = 0
 
-    for tup in divisors:
+    n = len(divisors)
+    if show_progress:
+        print(f"[canon] Starting canonicalize_and_dedup on {n} candidate divisors")
+
+    for idx, tup in enumerate(divisors, start=1):
+        # progress print
+        if show_progress and (idx % progress_interval == 0 or idx == n):
+            print(f"[canon] processing {idx}/{n} (accepted={accepted_count} skipped={skipped_count})")
+
         # expected fields
         try:
             s_raw = tup['s']; p_raw = tup['p']; v0_raw = tup['v_0']; v1_raw = tup['v_1']
@@ -301,7 +331,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         try:
             if (v**2 - f_poly) % u == 0:
                 # accept with optional scale=1
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                 if accepted:
                     accepted_count += 1
                     continue
@@ -334,7 +364,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             # try direct ± match or small scaling via _try_scale_and_accept
             # First see if current v matches ±sqrt_fr at root (possibly sign-flipped)
             if vr == sqrt_fr or vr == -sqrt_fr:
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                 if accepted:
                     accepted_count += 1
                     continue
@@ -347,7 +377,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                     try:
                         v_scaled = lam_candidate * v
                         if (v_scaled**2 - f_poly) % u == 0:
-                            accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                            accepted = _try_scale_and_accept(u, v_scaled, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                             if accepted:
                                 accepted_count += 1
                                 continue
@@ -390,7 +420,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
 
             # quick exact match check (±)
             if (vr_plus == sqrt_plus and vr_minus == sqrt_minus) or (vr_plus == -sqrt_plus and vr_minus == -sqrt_minus):
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                 if accepted:
                     accepted_count += 1
                     continue
@@ -407,7 +437,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                             try:
                                 v_scaled = lam_candidate * v
                                 if (v_scaled**2 - f_poly) % u == 0:
-                                    accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                                    accepted = _try_scale_and_accept(u, v_scaled, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                                     if accepted:
                                         accepted_count += 1
                                         tried_scale = True
@@ -428,7 +458,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                     try:
                         if (v_candidate**2 - f_poly) % u == 0:
                             # acceptance tries scales inside _try_scale_and_accept
-                            accepted = _try_scale_and_accept(u, v_candidate, f_poly, s_q, p_q, tup, seen, R, out)
+                            accepted = _try_scale_and_accept(u, v_candidate, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                             if accepted:
                                 accepted_count += 1
                                 matched = True
@@ -449,12 +479,12 @@ def canonicalize_and_dedup(divisors, f_coeffs):
 
         # IRREDUCIBLE CASE (non-square discriminant)
         # Try negating v (global sign) and small scalings to see if we can match Mumford relation
-        accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+        accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
         if accepted:
             accepted_count += 1
             continue
         # try negated v
-        accepted = _try_scale_and_accept(u, -v, f_poly, s_q, p_q, tup, seen, R, out)
+        accepted = _try_scale_and_accept(u, -v, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
         if accepted:
             accepted_count += 1
             continue
@@ -463,7 +493,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             try:
                 v_scaled = lam * v
                 if (v_scaled**2 - f_poly) % u == 0:
-                    accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
+                    accepted = _try_scale_and_accept(u, v_scaled, f_poly, s_q, p_q, tup, seen, R, out, show_progress=show_progress)
                     if accepted:
                         accepted_count += 1
                         break
@@ -479,9 +509,15 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         logger.debug("Irreducible-case failed for s=%r p=%r; skipping", s_q, p_q)
         continue
 
-    # summary logging
+    # summary logging and printing
     logger.info("canonicalize_and_dedup: accepted=%d skipped=%d total_input=%d", len(out), skipped_count, len(divisors))
+    if show_progress:
+        print(f"[canon] finished: accepted={len(out)} skipped={skipped_count} total_input={len(divisors)}")
     if skipped_examples:
         logger.info("Sample skipped cases (up to 10): %r", skipped_examples)
+        if show_progress:
+            print("[canon] sample skipped cases (up to 10):")
+            for tag, ex in skipped_examples:
+                print(f"  - {tag}: {ex}")
 
     return out
