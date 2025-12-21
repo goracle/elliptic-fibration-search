@@ -7,6 +7,7 @@ from sage.all import ComplexField, RealField, Matrix, identity_matrix
 from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix
 
 
+
 class HomologyExtractionError(Exception):
     """Raised when homology cycle extraction fails."""
     pass
