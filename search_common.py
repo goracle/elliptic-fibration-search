@@ -364,15 +364,15 @@ COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
 
-# $y^2 = 4x^6 + 9x^4 - 4x^3 + 2x^2 - 4x + 1$ # rank 2
-COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(9), QQ(-4), QQ(2), QQ(-4), QQ(1)] # rank 2
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
 # prestige curve lol, rank 4
 COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
+
+# $y^2 = 4x^6 + 9x^4 - 4x^3 + 2x^2 - 4x + 1$ # rank 2
+COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(9), QQ(-4), QQ(2), QQ(-4), QQ(1)] # rank 2
+DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
+TERMINATE_WHEN_6 = 3
 
 
 ##### END TEST CURVES ######
@@ -381,12 +381,12 @@ TERMINATE_WHEN_6 = 11
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
 NUM_DOUBLINGS = 20 # for mumford height pairing independence test
-HEIGHT_BOUND = 2*370 # not that important, mostly, it seems
+HEIGHT_BOUND = 4*370 # not that important, mostly, it seems
 # prime config
 # magic prime settings, chosen empirically.
 #PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(90))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
+PRIME_POOL = list(primes(190))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...

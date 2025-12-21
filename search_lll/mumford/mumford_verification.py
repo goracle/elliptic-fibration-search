@@ -485,3 +485,338 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         logger.info("Sample skipped cases (up to 10): %r", skipped_examples)
 
     return out
+
+
+def canonicalize_and_dedup(divisors, f_coeffs):
+    """
+    Canonicalize and deduplicate Mumford (s,p,v0,v1) reconstructions.
+
+    Returns list of canonicalized dicts with keys:
+      'u_poly', 'v_poly', 's', 'p', 'v_0', 'v_1', 'has_rational_roots', and optional 'scale_used'
+    """
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = build_f_poly(f_coeffs, R)
+
+    seen = set()          # existing global (u,v) canonical keys (from _canon_key_from_polys)
+    seen_u = dict()       # map u_key -> canonical v_poly for that u (to forbid different v for same u)
+    out = []
+    skipped_examples = []
+    accepted_count = 0
+    skipped_count = 0
+
+    def u_key_from_poly(u_poly):
+        # canonical u key (low->high coeff pairs of rationals)
+        pairs = tuple((int(QQ(c).numerator()), int(QQ(c).denominator())) for c in u_poly.list())
+        return pairs
+
+    def same_v_up_to_sign_mod_u(v_a, v_b, u_poly):
+        """
+        Return True iff v_a ≡ ± v_b (mod u), working in R(QQ).
+        """
+        try:
+            # reduce both modulo u (ensures deg < deg u)
+            ra = v_a % u_poly
+            rb = v_b % u_poly
+            diff = (ra - rb) % u_poly
+            ssum = (ra + rb) % u_poly
+            return diff.is_zero() or ssum.is_zero()
+        except Exception:
+            # conservative: if arithmetic fails, say False (so we won't accept second different v)
+            return False
+
+    def finalize_v_and_normalize(u_poly, v_poly):
+        """
+        Reduce v mod u, force deg v < deg u, normalize sign (leading coeff >= 0).
+        Return normalized v (over QQ).
+        """
+        v_red = v_poly % u_poly
+        # ensure coefficients are QQ
+        try:
+            v_red = v_red.change_ring(QQ)
+        except Exception:
+            pass
+        coeffs = v_red.list()
+        if len(coeffs) == 0:
+            v_lead = QQ(0); v_const = QQ(0)
+        else:
+            v_lead = QQ(coeffs[-1])
+            v_const = QQ(coeffs[0])
+        if v_lead < 0 or (v_lead == 0 and v_const < 0):
+            v_red = -v_red
+        return v_red
+
+    def local_try_accept(u_poly, v_poly, s_q, p_q, orig_tup):
+        """
+        Try to accept (u_poly, v_poly) into 'out' using _try_scale_and_accept under control.
+        Enforces unique-u policy: if this u already accepted with a different v (not ±), reject.
+        Returns True if accepted, False otherwise.
+        """
+        nonlocal accepted_count, skipped_count
+
+        # ensure u is monic (should be already), and reduce v
+        try:
+            v_red = v_poly % u_poly
+        except Exception:
+            # if reduction fails conservatively skip
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("reduce_fail_preaccept", (u_poly, v_poly)))
+            logger.debug("Reduction failed preaccept for u=%r v=%r", u_poly, v_poly)
+            return False
+
+        # normalize v for comparison
+        v_norm = finalize_v_and_normalize(u_poly, v_red)
+
+        # compute u_key (pairs) for same-u check
+        u_k = u_key_from_poly(u_poly)
+
+        # if we already have an accepted v for this exact u, ensure ± equivalence
+        if u_k in seen_u:
+            existing_v = seen_u[u_k]
+            if same_v_up_to_sign_mod_u(v_norm, existing_v, u_poly):
+                # it's the same divisor up to sign; call _try_scale_and_accept to ensure canonical addition logic
+                accepted = _try_scale_and_accept(u_poly, v_norm, f_poly, s_q, p_q, orig_tup, seen, R, out)
+                if accepted:
+                    # update stored canonical v to the actually stored one
+                    seen_u[u_k] = out[-1]['v_poly']
+                    accepted_count += 1
+                    return True
+                return False
+            else:
+                # Different v for same u -> reject (we keep first accepted representative)
+                skipped_count += 1
+                if len(skipped_examples) < 10:
+                    skipped_examples.append(("duplicate_u_conflict", (s_q, p_q, u_poly, existing_v, v_norm)))
+                logger.debug("Rejecting new v for already-seen u (incompatible): s=%r p=%r u=%r", s_q, p_q, u_poly)
+                return False
+        else:
+            # no previous u: attempt to accept normally
+            accepted = _try_scale_and_accept(u_poly, v_norm, f_poly, s_q, p_q, orig_tup, seen, R, out)
+            if accepted:
+                # record canonical v we actually stored (out[-1])
+                try:
+                    stored_v = out[-1]['v_poly']
+                    seen_u[u_k] = stored_v
+                except Exception:
+                    # if something odd happens, still mark accepted via seen set
+                    seen_u[u_k] = v_norm
+                accepted_count += 1
+                return True
+            return False
+
+    # main loop (mostly unchanged, but all acceptance calls go through local_try_accept)
+    for tup in divisors:
+        # expected fields
+        try:
+            s_raw = tup['s']; p_raw = tup['p']; v0_raw = tup['v_0']; v1_raw = tup['v_1']
+        except Exception:
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("malformed", tup))
+            continue
+
+        # coerce to QQ
+        try:
+            s_q = QQ(s_raw); p_q = QQ(p_raw); v0_q = QQ(v0_raw); v1_q = QQ(v1_raw)
+        except Exception:
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("nonrational", (s_raw, p_raw, v0_raw, v1_raw)))
+            continue
+
+        # build u, v polynomials
+        try:
+            u = _u_from_sp(s_q, p_q, R)
+            v = _v_from_coeffs(v1_q, v0_q, R)
+        except Exception:
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("poly_build_fail", (s_q, p_q, v1_q, v0_q)))
+            continue
+
+        # reduce v immediately and normalize (pre-check)
+        try:
+            v = finalize_v_and_normalize(u, v)
+        except Exception:
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("pre_normalize_fail", (s_q, p_q, v1_q, v0_q)))
+            continue
+
+        # quick direct check: does current v already satisfy Mumford relation exactly?
+        try:
+            if (v**2 - f_poly) % u == 0:
+                accepted = local_try_accept(u, v, s_q, p_q, tup)
+                if accepted:
+                    continue
+                # if not accepted (e.g., conflict on same-u), fall through to possible other attempts or skip
+        except Exception:
+            # proceed to further logic on errors
+            pass
+
+        # compute discriminant of u to decide branch
+        disc = s_q * s_q - 4 * p_q
+        disc_sqrt = None
+        if disc == 0:
+            disc_sqrt = QQ(0)
+        else:
+            disc_sqrt = rational_sqrt(disc)
+
+        # HANDLE DOUBLE-ROOT (disc == 0)
+        if disc_sqrt is not None and disc_sqrt == 0:
+            r_double = s_q / QQ(2)
+            vr = v.list() and (v.list()[-1]*r_double + (v.list()[0] if len(v.list())>0 else QQ(0))) or QQ(0)
+            fr = f_poly(r_double)
+            sqrt_fr = rational_sqrt(fr)
+            if sqrt_fr is None:
+                skipped_count += 1
+                if len(skipped_examples) < 10:
+                    skipped_examples.append(("double_non_square", (s_q, p_q, r_double, fr)))
+                logger.debug("Double-root but f(r) not square: s=%r p=%r r=%r f(r)=%r; skipping", s_q, p_q, r_double, fr)
+                continue
+
+            # try direct ± match or small scaling via local_try_accept
+            if vr == sqrt_fr or vr == -sqrt_fr:
+                accepted = local_try_accept(u, v, s_q, p_q, tup)
+                if accepted:
+                    continue
+
+            # try scale lam = sqrt_fr / vr when vr != 0 and lam is small (in trials)
+            if vr != 0:
+                lam_candidate = QQ(sqrt_fr) / QQ(vr)
+                if lam_candidate in _SCALE_TRIALS:
+                    try:
+                        v_scaled = lam_candidate * v
+                        # normalize reduced/scaled v
+                        v_scaled = finalize_v_and_normalize(u, v_scaled)
+                        if (v_scaled**2 - f_poly) % u == 0:
+                            accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
+                            if accepted:
+                                continue
+                    except Exception:
+                        pass
+
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("double_unmatched", (s_q, p_q, vr, sqrt_fr)))
+            logger.debug("Double-root and v(r) != ±sqrt(f(r)) after scaling attempts: s=%r p=%r vr=%r sqrt_fr=%r; skipping", s_q, p_q, vr, sqrt_fr)
+            continue
+
+        # HANDLE SPLIT-ROOT (disc is a nonzero rational square)
+        if disc_sqrt is not None:
+            r_plus = (s_q + disc_sqrt) / QQ(2)
+            r_minus = (s_q - disc_sqrt) / QQ(2)
+            denom = r_plus - r_minus
+            if denom == 0:
+                skipped_count += 1
+                if len(skipped_examples) < 10:
+                    skipped_examples.append(("split_zero_denom", (s_q, p_q)))
+                logger.debug("Denominator zero in split-case interpolation; skipping: s=%r p=%r", s_q, p_q)
+                continue
+
+            fa_plus = f_poly(r_plus)
+            fa_minus = f_poly(r_minus)
+            sqrt_plus = rational_sqrt(fa_plus)
+            sqrt_minus = rational_sqrt(fa_minus)
+            if sqrt_plus is None or sqrt_minus is None:
+                skipped_count += 1
+                if len(skipped_examples) < 10:
+                    skipped_examples.append(("root_not_square", (s_q, p_q, fa_plus, fa_minus)))
+                logger.debug("Root values not rational squares: f(r+)=%r f(r-)=%r ; skipping", fa_plus, fa_minus)
+                continue
+
+            vr_plus = v1_q * r_plus + v0_q
+            vr_minus = v1_q * r_minus + v0_q
+
+            # quick exact match check (±)
+            if (vr_plus == sqrt_plus and vr_minus == sqrt_minus) or (vr_plus == -sqrt_plus and vr_minus == -sqrt_minus):
+                accepted = local_try_accept(u, v, s_q, p_q, tup)
+                if accepted:
+                    continue
+
+            # try small scaling candidates derived from first root and check second
+            tried_scale = False
+            if vr_plus != 0:
+                for target in (sqrt_plus, -sqrt_plus):
+                    lam_candidate = QQ(target) / QQ(vr_plus)
+                    if lam_candidate in _SCALE_TRIALS:
+                        # check if lam_candidate makes second root match ±sqrt
+                        if (lam_candidate * vr_minus == sqrt_minus) or (lam_candidate * vr_minus == -sqrt_minus):
+                            try:
+                                v_scaled = lam_candidate * v
+                                v_scaled = finalize_v_and_normalize(u, v_scaled)
+                                if (v_scaled**2 - f_poly) % u == 0:
+                                    accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
+                                    if accepted:
+                                        tried_scale = True
+                                        break
+                            except Exception:
+                                pass
+                if tried_scale:
+                    continue
+
+            # fallback: attempt to interpolate linear v that matches ±sqrt values (all sign combos)
+            matched = False
+            for sig_plus in (+1, -1):
+                for sig_minus in (+1, -1):
+                    num = (QQ(sig_plus) * sqrt_plus) - (QQ(sig_minus) * sqrt_minus)
+                    alpha = num / denom
+                    beta = (QQ(sig_plus) * sqrt_plus) - alpha * r_plus
+                    v_candidate = alpha * x + beta
+                    try:
+                        v_candidate = finalize_v_and_normalize(u, v_candidate)
+                        if (v_candidate**2 - f_poly) % u == 0:
+                            accepted = local_try_accept(u, v_candidate, s_q, p_q, tup)
+                            if accepted:
+                                matched = True
+                                break
+                    except Exception:
+                        continue
+                if matched:
+                    break
+            if matched:
+                continue
+
+            # nothing accepted
+            skipped_count += 1
+            if len(skipped_examples) < 10:
+                skipped_examples.append(("split_unmatched", (s_q, p_q, vr_plus, vr_minus)))
+            logger.debug("Split-case canonicalization failed for s=%r p=%r; skipping", s_q, p_q)
+            continue
+
+        # IRREDUCIBLE CASE (non-square discriminant)
+        # Try v and -v, and small scalings via local_try_accept
+        accepted = local_try_accept(u, v, s_q, p_q, tup)
+        if accepted:
+            continue
+        accepted = local_try_accept(u, -v, s_q, p_q, tup)
+        if accepted:
+            continue
+
+        for lam in _SCALE_TRIALS:
+            try:
+                v_scaled = lam * v
+                v_scaled = finalize_v_and_normalize(u, v_scaled)
+                if (v_scaled**2 - f_poly) % u == 0:
+                    accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
+                    if accepted:
+                        break
+            except Exception:
+                continue
+        if accepted:
+            continue
+
+        # nothing worked for irreducible: skip
+        skipped_count += 1
+        if len(skipped_examples) < 10:
+            skipped_examples.append(("irr_unmatched", (s_q, p_q, v1_q, v0_q)))
+        logger.debug("Irreducible-case failed for s=%r p=%r; skipping", s_q, p_q)
+        continue
+
+    # summary logging
+    logger.info("canonicalize_and_dedup: accepted=%d skipped=%d total_input=%d", len(out), skipped_count, len(divisors))
+    if skipped_examples:
+        logger.info("Sample skipped cases (up to 10): %r", skipped_examples)
+
+    return out
