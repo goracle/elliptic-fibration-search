@@ -21,7 +21,7 @@ def custom_formatwarning(msg, category, filename, lineno, line=None):
 warnings.formatwarning = custom_formatwarning
 
 ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 6
+MAX_BASIS_CANDIDATES = 12
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
@@ -49,10 +49,11 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     diagnostic_section_collapse(all_divisors)
     diagnostic_smoothness_proxy(all_divisors, p_test)
     diagnostic_factor_base_saturation(all_divisors, p_test)
-    diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+    ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     # Filter invalid / duplicate divisors early
-    all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, debug=debug)
+    all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
     print("survivors of kobayashi maru filter of numeric evil:")
     import sys
     for i in all_divisors:
@@ -60,10 +61,19 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         print(i)
     #sys.exit()
 
-    if len(all_divisors) > MAX_BASIS_CANDIDATES:
-        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
+
+    if len(all_divisors) > maxbasis:
+        # [Fix] Sort divisors by naive height (sum of absolute coeffs) to prioritize 
+        # small, simple divisors. This improves basis stability significantly.
+        def naive_sort_key(d):
+            return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
+        
+        all_divisors.sort(key=naive_sort_key)
+        #mumford_divisors.reverse() # psych!
+
+        all_divisors = all_divisors[:maxbasis]
         if debug:
-            print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
+            print(f"[basis] Truncating candidate divisors to {maxbasis}")
 
     if ARAKELOV_AVAILABLE and arakelov_build_basis_with_heights is not None:
         # try Arakelov building with a couple of increasing precisions
@@ -1008,10 +1018,20 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
         raise RuntimeError("Exact height pairing routine compute_height_pairing_exact not available")
 
     # Limit candidates
-    if len(all_divisors) > MAX_BASIS_CANDIDATES:
-        all_divisors = all_divisors[:MAX_BASIS_CANDIDATES]
+
+    ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
+
+    def naive_sort_key(d):
+        return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
+
+    all_divisors.sort(key=naive_sort_key)
+    #mumford_divisors.reverse() # psych!
+
+    if len(all_divisors) > maxbasis:
+        all_divisors = all_divisors[:maxbasis]
         if debug:
-            print(f"[basis] Truncating candidate divisors to {MAX_BASIS_CANDIDATES}")
+            print(f"[basis] Truncating candidate divisors to {maxbasis}")
 
     # build curve & jacobian
     C, R, x = _build_curve_from_coeffs(f_coeffs)
@@ -1277,7 +1297,7 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
     return False, None
 
 
-def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False):
+def filter_kobayashi_maru(divs, f_coeffs_or_curve, maxbasis, debug=True, aggressive=False):
     """
     Filter divisors that are not finite Jacobian elements or duplicates.
 
@@ -1428,7 +1448,7 @@ def filter_kobayashi_maru(divs, f_coeffs_or_curve, debug=True, aggressive=False)
         # store it so pairings don't recompute it
         div['_h_diag'] = h_diag
         store_count += 1
-        if store_count >= MAX_BASIS_CANDIDATES:
+        if store_count >= maxbasis:
             break
 
 

@@ -162,3 +162,4 @@ def diagnostic_mod_p_coverage(divisors, p, genus=2):
         print(f"  (!) Dependencies found mod {p}. Potential relations for DLP.")
     else:
         print(f"  Independence held mod {p}. Basis is expanding.")
+    return r
