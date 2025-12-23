@@ -764,7 +764,7 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=True):
         raise
         return None  # conversion failure is legitimate signal
 
-    for prec in [256]:
+    for prec in [1024]:
         try:
             PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
         except Exception as e:

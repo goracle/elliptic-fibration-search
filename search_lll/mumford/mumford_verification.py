@@ -141,21 +141,6 @@ def discriminant_has_nonqr_s_p(s, p, primes_nr):
 
     return True
 
-def _rational_is_square(q):
-    """
-    q is a QQ rational. Return (True, sqrt_QQ) if q is a rational square, else (False, None).
-    """
-    q = QQ(q)
-    num = int(q.numerator())
-    den = int(q.denominator())
-    if num < 0 or den <= 0:
-        return False, None
-    s_num = isqrt(abs(num))
-    s_den = isqrt(den)
-    if s_num * s_num == num and s_den * s_den == den:
-        return True, QQ(s_num) / QQ(s_den)
-    return False, None
-
 
 def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     """
@@ -234,6 +219,16 @@ logger.setLevel(logging.INFO)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
+
+# canonicalize_and_dedup.py  -- improved infinity-aware canonicalization
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# small rational scales to try
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
 def build_f_poly(f_coeffs, R):
     """
     Build f(x) with f_coeffs given strictly highest-degree -> lowest-degree.
@@ -244,23 +239,6 @@ def build_f_poly(f_coeffs, R):
     for c in f_coeffs:
         f = f * x + QQ(c)
     return f
-
-def normalize_infinity_parity(v_poly, f_poly):
-    """
-    Enforce canonical infinity-parity.
-    Standardizes v such that the leading coefficient is positive.
-    This ensures (u, v) and (u, -v) map to the same canonical form.
-    """
-    if v_poly.is_zero():
-        return v_poly
-    
-    try:
-        lc = v_poly.leading_coefficient()
-        if lc < 0:
-            return -v_poly
-        return v_poly
-    except Exception:
-        return v_poly
 
 def _u_from_sp(s_q, p_q, R):
     x = R.gen()
@@ -283,35 +261,74 @@ def _canon_key_from_polys(u, v):
     return ("u", coeff_pairs(u), "v", coeff_pairs(v))
 
 def same_v_up_to_sign_mod_u(v1, v2, u):
+    """
+    Check whether v1 == +/- v2 (mod u). Works on reduced representatives.
+    """
     diff = (v1 - v2) % u
     if diff.is_zero(): return True
     summ = (v1 + v2) % u
     if summ.is_zero(): return True
     return False
 
+def _rational_is_square(q):
+    """
+    q is a QQ rational. Return (True, sqrt_QQ) if q is a rational square, else (False, None).
+    """
+    q = QQ(q)
+    num = int(q.numerator())
+    den = int(q.denominator())
+    if num < 0 or den <= 0:
+        return False, None
+    s_num = isqrt(abs(num))
+    s_den = isqrt(den)
+    if s_num * s_num == num and s_den * s_den == den:
+        return True, QQ(s_num) / QQ(s_den)
+    return False, None
+
 def rational_sqrt(q):
     try:
-        if q < 0: return None
-        a = Integer(q.numerator())
-        b = Integer(q.denominator())
-        if a.is_square() and b.is_square():
-            return QQ(Integer(a.isqrt()) / Integer(b.isqrt()))
+        q = QQ(q)
+        if q < 0:
+            return None
+        a = int(q.numerator()); b = int(q.denominator())
+        # integer square test
+        sa = isqrt(a); sb = isqrt(b)
+        if sa * sa == a and sb * sb == b:
+            return QQ(sa) / QQ(sb)
         return None
     except Exception:
         return None
 
+def normalize_infinity_parity(v_poly, f_poly):
+    """
+    Enforce canonical infinity-parity. For genus-2 (deg f 5 or 6) this
+    chooses the sign so that the coefficient of x^(g-1) is nonnegative.
+
+    We intentionally only flip sign here (i.e. v -> -v) so we don't destroy
+    other structure. The deeper 'infinity translation' collapse is handled
+    by the Jacobian-based dedup step below.
+    """
+    if v_poly.is_zero():
+        return v_poly
+    try:
+        lc = v_poly.leading_coefficient()
+        if lc < 0:
+            return -v_poly
+        return v_poly
+    except Exception:
+        return v_poly
+
 def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failure=None):
     """
-    Standalone verification of Mumford condition.
-    Useful for unit testing specific divisors.
+    Standalone verification of Mumford condition using the same poly-build as
+    canonicalize_and_dedup. Returns True iff v^2 - f is divisible by u.
     """
     if modulus is None:
         R = PolynomialRing(QQ, 'x')
     else:
         R = PolynomialRing(GF(modulus), 'x')
-    
     x = R.gen()
-    
+
     if modulus is None:
         s_val = QQ(s); p_val = QQ(p); v0_val = QQ(v0); v1_val = QQ(v1)
         f_poly_coeffs = [QQ(c) for c in f_coeffs]
@@ -319,31 +336,144 @@ def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failur
         s_val = int(s) % modulus; p_val = int(p) % modulus
         v0_val = int(v0) % modulus; v1_val = int(v1) % modulus
         f_poly_coeffs = [int(c) % modulus for c in f_coeffs]
-    
+
     u_poly = x**2 - s_val*x + p_val
     v_poly = v1_val*x + v0_val
-    
+
     f_poly = R(0)
     for coeff in f_poly_coeffs:
         f_poly = f_poly * x + coeff
-    
+
     diff = v_poly**2 - f_poly
     remainder = diff % u_poly
-    
+
     return remainder.is_zero()
 
+def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list, C=None, J=None, jac_points=None):
+    """
+    Try lam in _SCALE_TRIALS: if (lam*v)^2 - f is divisible by u,
+    normalize and (heuristically) deduplicate using Mumford key + Jacobian heuristics.
+    If C and J are provided, compute jacobian points to allow cross-u deduplication.
+    """
+    for lam in _SCALE_TRIALS:
+        try:
+            v_test = lam * v_candidate
+
+            # verify Mumford condition BEFORE normalization
+            if (v_test**2 - f_poly) % u == 0:
+                # normalize parity for storage
+                v_norm = normalize_infinity_parity(v_test, f_poly)
+
+                # canonical key on polynomials
+                key = _canon_key_from_polys(u, v_norm)
+                if key in seen_keys:
+                    return True  # already present
+
+                # If we have a Jacobian available, try to deduplicate across u's
+                if J is not None and jac_points is not None and C is not None:
+                    try:
+                        # Build jacobian point (use explicit constructor)
+                        # The J constructor accepts a Mumford pair [u,v] in sage
+                        newJ = J([u, v_norm])
+                        # Try to match newJ against previous saved points up to small multiples
+                        # of the "infinity generator" (heuristic).
+                        # We approximate an 'infinity generator' D_inf once (see below).
+                        D_inf = jac_points.get('__D_inf__', None)
+                        if D_inf is None:
+                            # Heuristic: try to create an obvious infinity-like element.
+                            # For even-degree curves, try J([x,0]) as a generator probe.
+                            try:
+                                R = u.parent()
+                                x = R.gen()
+                                D_inf = J([x, R(0)])  # heuristic probe
+                                jac_points['__D_inf__'] = D_inf
+                            except Exception:
+                                D_inf = None
+
+                        # Try to match against stored points
+                        for stored_key, stored_data in jac_points.items():
+                            if stored_key == '__D_inf__':
+                                continue
+                            storedJ = stored_data['Jpt']
+                            diff = newJ - storedJ
+                            # test small multiples
+                            matched = False
+                            if D_inf is not None:
+                                for k in range(-3, 4):
+                                    try:
+                                        if (diff - k * D_inf).is_zero():
+                                            logger.info("Jacobian dedup: matched new divisor to stored key %s with k=%d", stored_key, k)
+                                            matched = True
+                                            break
+                                    except Exception:
+                                        # ignore arithmetic issues in heuristics
+                                        continue
+                            else:
+                                # If no D_inf, still check exact equality
+                                try:
+                                    if diff.is_zero():
+                                        logger.info("Jacobian dedup: exact equality match for stored key %s", stored_key)
+                                        matched = True
+                                except Exception:
+                                    matched = False
+                            if matched:
+                                # mark canonical key seen and skip actual storage (we regard as duplicate)
+                                seen_keys.add(key)
+                                return True
+                    except Exception:
+                        # Fail softly; fallback to polynomial-only dedup
+                        pass
+
+                # store canonical representation
+                seen_keys.add(key)
+                newt = dict(orig_tup)
+                newt['u_poly'] = u
+                newt['v_poly'] = v_norm
+                coeffs = v_norm.list()
+                if len(coeffs) == 0:
+                    newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
+                elif len(coeffs) == 1:
+                    newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(0)
+                else:
+                    newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(coeffs[1])
+                newt['s'] = QQ(s_q)
+                newt['p'] = QQ(p_q)
+                u_disc = u.discriminant()
+                newt['has_rational_roots'] = True if (u.degree() <= 2 and u_disc.is_square()) else False
+                newt['scale_used'] = lam
+
+                out_list.append(newt)
+
+                # If we have a Jacobian store, also keep this point for cross-checks
+                if J is not None and jac_points is not None and C is not None:
+                    try:
+                        newJ = J([u, v_norm])
+                        # make a stable key from u,v for jac_points index
+                        jkey = _canon_key_from_polys(u, v_norm)
+                        jac_points[jkey] = {'Jpt': newJ, 'u': u, 'v': v_norm}
+                    except Exception:
+                        pass
+
+                logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
+                return True
+        except Exception:
+            continue
+    return False
+
 def check_2torsion_difference(div1, div2, f_coeffs):
+    """
+    Optional heavy check: see whether 2*(D1-D2) == 0 in J(Q).
+    This is a diagnostic only and can be slow. Returns True if difference is 2-torsion.
+    """
     try:
         R = PolynomialRing(QQ, 'x')
         f_poly = build_f_poly(f_coeffs, R)
         C = HyperellipticCurve(f_poly)
         J = C.jacobian()
-        
         u1 = div1['u_poly']; v1 = div1['v_poly']
-        D1 = J([u1, v1])
         u2 = div2['u_poly']; v2 = div2['v_poly']
+        D1 = J([u1, v1])
         D2 = J([u2, v2])
-        
         diff = D1 - D2
         if (2 * diff).is_zero():
             return True
@@ -351,75 +481,28 @@ def check_2torsion_difference(div1, div2, f_coeffs):
     except Exception:
         return False
 
-def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list):
-    """
-    Tries scaling v_candidate. If (v_scaled^2 - f) % u == 0:
-      1. Normalizes v_scaled (infinity parity)
-      2. Deduplicates
-      3. Saves
-    """
-    for lam in _SCALE_TRIALS:
-        try:
-            v_test = lam * v_candidate
-            
-            # --- CRITICAL FIX ---
-            # Verify the Mumford condition BEFORE any normalization.
-            # Normalization flips signs, which doesn't affect v^2 (the check),
-            # but we want to ensure we found a valid root first.
-            if (v_test**2 - f_poly) % u == 0:
-                
-                # Normalize AFTER acceptance to ensure canonical storage
-                v_norm = normalize_infinity_parity(v_test, f_poly)
-                
-                key = _canon_key_from_polys(u, v_norm)
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    
-                    u_key = tuple(rational_pair_key(c) for c in u.list())
-                    seen_u_map[u_key] = (u, v_norm)
-
-                    newt = dict(orig_tup)
-                    newt['u_poly'] = u
-                    newt['v_poly'] = v_norm
-                    coeffs = v_norm.list()
-                    if len(coeffs) == 0:
-                        newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
-                    elif len(coeffs) == 1:
-                        newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(0)
-                    else:
-                        newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(coeffs[1])
-                        
-                    newt['s'] = QQ(s_q)
-                    newt['p'] = QQ(p_q)
-                    u_disc = u.discriminant()
-                    # Exact check for rational roots support
-                    newt['has_rational_roots'] = True if (u.degree() <= 2 and u_disc.is_square()) else False
-                    newt['scale_used'] = lam
-                    
-                    out_list.append(newt)
-                    # Log explicitly for debugging
-                    logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
-                return True
-        except Exception:
-            continue
-    return False
-
 def canonicalize_and_dedup(divisors, f_coeffs):
+    """
+    Main entry point: returns canonicalized, deduplicated divisors (list of dicts).
+    Uses polynomial acceptance logic and a heuristic Jacobian-based deduplication
+    step to collapse divisors differing by small multiples of an infinity-like generator.
+    """
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
-    
-    # Strictly build f(x) from High->Low coefficients
     f_poly = build_f_poly(f_coeffs, R)
-    
-    # Sanity check for genus 2
-    if f_poly.degree() not in [5, 6]:
-        logger.warning(f"Warning: f_poly degree is {f_poly.degree()}, expected 5 or 6 for Genus 2.")
 
-    seen = set()
-    seen_u = dict()
+    # Build curve and Jacobian for cross-u checks (heuristic)
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+
+    seen = set()      # polynomial canon keys
+    seen_u = dict()   # map u_key -> (u, v_stored)
     out = []
     skipped_count = 0
     accepted_count = 0
+
+    # jac_points stores known J points keyed by polynomial key; includes '__D_inf__' probe
+    jac_points = {}
 
     def u_key_from_poly(u_poly):
         return tuple(rational_pair_key(c) for c in u_poly.list())
@@ -441,7 +524,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             skipped_count += 1
             continue
 
-        # Start with reduced v, but do NOT normalize parity yet.
+        # reduced v modulo u (we keep reduced rep for checks)
         try:
             v_red = v % u
         except Exception:
@@ -450,86 +533,93 @@ def canonicalize_and_dedup(divisors, f_coeffs):
 
         u_k = u_key_from_poly(u)
 
-        # 1. Check for Duplicate U
+        # If we've seen same u already, collapse to single representative (one divisor per u)
         if u_k in seen_u:
             stored_u, stored_v = seen_u[u_k]
-            # If same v (up to sign), it's a duplicate.
-            # If different v, it's a dependent divisor (same x-coords, different y).
-            # We filter both to enforce one divisor per u support.
-            if not same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
-                 # Optional: Check 2-torsion difference for debug purposes only
-                temp_div1 = {'u_poly': u, 'v_poly': normalize_infinity_parity(v_red, f_poly)}
-                temp_div2 = {'u_poly': stored_u, 'v_poly': stored_v}
-                if check_2torsion_difference(temp_div1, temp_div2, f_coeffs):
-                     logger.debug("Skipping divisor differing by 2-torsion: s=%r p=%r", s_q, p_q)
-            
-            skipped_count += 1
-            continue
+            # if same up to sign, it's duplicate; otherwise we regard it as dependent and skip
+            if same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
+                skipped_count += 1
+                continue
+            else:
+                # Record that there was another v for same u but skip storing both to avoid
+                # multiple representatives with identical support.
+                skipped_count += 1
+                continue
 
-        # 2. Strategy 1: Direct Scaling
-        if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out):
+        # Strategy 1: direct scaling attempt with Jacobian-aware dedup
+        if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+            # keep the canonical u->v mapping for quick same-u collapse
+            if len(out) > 0:
+                last = out[-1]
+                seen_u[u_k] = (u, last['v_poly'])
             accepted_count += 1
             continue
 
-        # Discriminant for Root Strategies
+        # If direct scaling failed, attempt other strategies (double root, split roots)
         disc = s_q * s_q - 4 * p_q
         disc_sqrt = rational_sqrt(disc) if disc != 0 else QQ(0)
 
-        # 3. Strategy 2: Double Root (u = (x-r)^2)
+        # Double root case: u = (x - r)^2
         if disc_sqrt is not None and disc_sqrt == 0:
             r_double = s_q / QQ(2)
             fr = f_poly(r_double)
             sqrt_fr = rational_sqrt(fr)
-            
             if sqrt_fr is not None:
                 vr = v_red(r_double)
                 if vr != 0:
                     lam_candidate = QQ(sqrt_fr) / QQ(vr)
                     v_scaled = lam_candidate * v_red
-                    if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                    if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                        if len(out) > 0:
+                            last = out[-1]
+                            seen_u[u_k] = (u, last['v_poly'])
                         accepted_count += 1
                         continue
+            skipped_count += 1
             continue
 
-        # 4. Strategy 3: Split Roots (u = (x-r1)(x-r2))
+        # Split roots: u = (x - r1)(x - r2)
         if disc_sqrt is not None:
             r_plus = (s_q + disc_sqrt) / QQ(2)
             r_minus = (s_q - disc_sqrt) / QQ(2)
             denom = r_plus - r_minus
-            
             if denom != 0:
                 fa_plus = f_poly(r_plus)
                 fa_minus = f_poly(r_minus)
                 sqrt_plus = rational_sqrt(fa_plus)
                 sqrt_minus = rational_sqrt(fa_minus)
-                
+
                 if sqrt_plus is not None and sqrt_minus is not None:
-                    # A. Try scaling existing v
+                    # A. Try scaling existing v value to match y at roots
                     vr_plus = v_red(r_plus)
                     if vr_plus != 0:
                         tried_scale = False
                         for target in (sqrt_plus, -sqrt_plus):
                             lam = QQ(target) / QQ(vr_plus)
                             v_scaled = lam * v_red
-                            if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                            if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                                if len(out) > 0:
+                                    last = out[-1]
+                                    seen_u[u_k] = (u, last['v_poly'])
                                 accepted_count += 1
                                 tried_scale = True
                                 break
                         if tried_scale:
                             continue
 
-                    # B. Interpolate new v
+                    # B. Interpolate a fresh v that matches signs of sqrt at roots
                     matched = False
                     for sig_plus in (+1, -1):
                         for sig_minus in (+1, -1):
                             y_plus = QQ(sig_plus) * sqrt_plus
                             y_minus = QQ(sig_minus) * sqrt_minus
-                            
                             alpha = (y_plus - y_minus) / denom
                             beta = y_plus - alpha * r_plus
                             v_candidate = alpha * x + beta
-                            
-                            if _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                            if _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                                if len(out) > 0:
+                                    last = out[-1]
+                                    seen_u[u_k] = (u, last['v_poly'])
                                 accepted_count += 1
                                 matched = True
                                 break
@@ -538,6 +628,7 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                     if matched:
                         continue
 
+        # Give up on this tuple
         skipped_count += 1
 
     logger.info("canonicalize_and_dedup: accepted=%d skipped=%d", len(out), skipped_count)
