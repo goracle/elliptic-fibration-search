@@ -13,6 +13,9 @@ from .periods import (
 )
 
 import math
+# Suppress Sage's inexact ring eigenvalue warnings - we know what we're doing
+import warnings
+warnings.filterwarnings('ignore', message='Using generic algorithm for an inexact ring')
 
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):

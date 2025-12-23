@@ -2,6 +2,7 @@ from sage.all import QQ, PolynomialRing
 from .mumford_core import make_monic, reduce_v_mod_u, is_divisor_on_curve
 from math import isqrt
 from sage.all import GF, QQ
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField
 
 def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failure=False):
     if modulus is None:
@@ -188,15 +189,112 @@ def _v_from_coeffs(v1_q, v0_q, R):
     x = R.gen()
     return v1_q * x + v0_q
 
-def _canon_key_from_polys(u, v):
+
+def check_2torsion_difference(div1, div2, f_coeffs):
     """
-    Canonical key for deduplication: coefficient pairs (num,den) low->high for u and v.
+    Check if div1 - div2 is a 2-torsion element.
+    Returns True if they differ by 2-torsion (should be filtered).
     """
-    def coeff_pairs(poly):
-        # Sage poly.list() returns coefficients low->high
-        pairs = tuple((int(QQ(c).numerator()), int(QQ(c).denominator())) for c in poly.list())
-        return pairs
-    return ("u", coeff_pairs(u), "v", coeff_pairs(v))
+    try:
+        # Build curve and Jacobian
+        C, R, x = build_curve_from_coeffs(f_coeffs)
+        J = C.jacobian()
+        
+        # Convert both to Jacobian elements
+        u1 = div1['u_poly']
+        v1 = div1['v_poly']
+        D1 = J([u1, v1])
+        
+        u2 = div2['u_poly']
+        v2 = div2['v_poly']
+        D2 = J([u2, v2])
+        
+        # Compute difference
+        diff = D1 - D2
+        
+        # Check if 2*diff = 0
+        if (2 * diff).is_zero():
+            return True
+            
+        return False
+        
+    except Exception:
+        # If check fails, conservatively don't filter
+        raise
+        return False
+
+
+def build_curve_from_coeffs(f_coeffs):
+    """Return (C, R, x) from f_coeffs (list-like of coefficients highest->lowest)."""
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    return C, R, x
+
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# keep the same scale trials as before
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
+def normalize_infinity_parity(v_poly, f_poly):
+    """
+    Enforce a canonical infinity-parity for even-degree hyperelliptic curves.
+
+    For deg(f) even (e.g. 6), the expected "degree" of v in the local parameter at infinity
+    is d/2 - 1. We use the coefficient of x^(d/2 - 1) in v(x) as the parity indicator.
+    If that coefficient is negative, flip v -> -v. If it's zero, fall back deterministically
+    to the next highest coefficient (and finally the constant term) so the choice is stable.
+
+    This forces all accepted divisors into a single infinity parity coset.
+    """
+    try:
+        d = int(f_poly.degree())
+    except Exception:
+        return v_poly
+
+    if d % 2 != 0:
+        return v_poly
+
+    deg_v_expected = d // 2 - 1
+
+    coeffs = list(v_poly.list()) if hasattr(v_poly, "list") else []
+    
+    def get_coeff_at(idx):
+        if idx < 0:
+            return QQ(0)
+        if idx < len(coeffs):
+            return QQ(coeffs[idx])
+        return QQ(0)
+
+    sign_coeff = None
+    for idx in range(deg_v_expected, -1, -1):
+        c = get_coeff_at(idx)
+        if c != 0:
+            sign_coeff = c
+            break
+    if sign_coeff is None:
+        for idx in range(deg_v_expected + 1, deg_v_expected + 4):
+            c = get_coeff_at(idx)
+            if c != 0:
+                sign_coeff = c
+                break
+
+    if sign_coeff is None:
+        return v_poly
+
+    if sign_coeff < 0:
+        try:
+            v_poly = -v_poly
+        except Exception:
+            pass
+
+    return v_poly
+
 
 def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     """
@@ -207,14 +305,17 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     for lam in _SCALE_TRIALS:
         try:
             v_candidate = (lam * v)
-            # Ensure coefficients in QQ
             try:
                 v_candidate = v_candidate.change_ring(QQ)
             except Exception:
                 pass
-            # exact Mumford relation?
+            
+            try:
+                v_candidate = normalize_infinity_parity(v_candidate, f_poly)
+            except Exception:
+                pass
+            
             if (v_candidate**2 - f_poly) % u == 0:
-                # normalize sign: prefer leading coeff >= 0 (tie-break on const)
                 coeffs = v_candidate.list()
                 v_lead = QQ(coeffs[-1]) if len(coeffs) > 0 else QQ(0)
                 v_const = QQ(coeffs[0]) if len(coeffs) > 0 else QQ(0)
@@ -227,10 +328,9 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
                 key = _canon_key_from_polys(u, v_candidate)
                 if key not in seen:
                     seen.add(key)
-                    newt = dict(orig_tup)  # shallow copy original metadata
+                    newt = dict(orig_tup)
                     newt['u_poly'] = u
                     newt['v_poly'] = v_candidate
-                    # Ensure v_0 and v_1 are stored as QQ
                     coeffs = v_candidate.list()
                     if len(coeffs) == 0:
                         newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
@@ -246,292 +346,55 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
                     logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
                 return True
         except Exception:
-            # on any algebraic failure, continue trying other scales
             continue
     return False
+
+
+def rational_pair_key(c):
+    from sage.all import gcd, Integer
+    q = QQ(c)
+    a = Integer(q.numerator())
+    b = Integer(q.denominator())
+    g = gcd(a, b)
+    return (a//g, b//g)
+
 
 def canonicalize_and_dedup(divisors, f_coeffs):
     """
     Canonicalize and deduplicate Mumford (s,p,v0,v1) reconstructions.
-
-    Returns list of canonicalized dicts with keys:
-      'u_poly', 'v_poly', 's', 'p', 'v_0', 'v_1', 'has_rational_roots', and optional 'scale_used'
+    Enforces: at most ONE divisor per unique u(x), modulo v ↦ ±v (mod u).
+    Also applies infinity parity normalization for even-degree curves.
     """
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     f_poly = build_f_poly(f_coeffs, R)
 
     seen = set()
-    out = []
-    skipped_examples = []
-    accepted_count = 0
-    skipped_count = 0
-
-    for tup in divisors:
-        # expected fields
-        try:
-            s_raw = tup['s']; p_raw = tup['p']; v0_raw = tup['v_0']; v1_raw = tup['v_1']
-        except Exception:
-            # malformed input: skip but record example
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("malformed", tup))
-            continue
-
-        # coerce
-        try:
-            s_q = QQ(s_raw); p_q = QQ(p_raw); v0_q = QQ(v0_raw); v1_q = QQ(v1_raw)
-        except Exception:
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("nonrational", (s_raw, p_raw, v0_raw, v1_raw)))
-            continue
-
-        # build u, v polynomials
-        try:
-            u = _u_from_sp(s_q, p_q, R)
-            v = _v_from_coeffs(v1_q, v0_q, R)
-        except Exception:
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("poly_build_fail", (s_q, p_q, v1_q, v0_q)))
-            continue
-
-        # quick direct check: does current v already satisfy Mumford relation exactly?
-        try:
-            if (v**2 - f_poly) % u == 0:
-                # accept with optional scale=1
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                if accepted:
-                    accepted_count += 1
-                    continue
-                # if not accepted (shouldn't happen), fall through to attempts
-        except Exception:
-            # proceed to further logic
-            pass
-
-        # compute discriminant of u to decide branch
-        disc = s_q * s_q - 4 * p_q
-        disc_sqrt = None
-        if disc == 0:
-            disc_sqrt = QQ(0)
-        else:
-            disc_sqrt = rational_sqrt(disc)
-
-        # HANDLE DOUBLE-ROOT (disc == 0)
-        if disc_sqrt is not None and disc_sqrt == 0:
-            r_double = s_q / QQ(2)
-            vr = v1_q * r_double + v0_q
-            fr = f_poly(r_double)
-            sqrt_fr = rational_sqrt(fr)
-            if sqrt_fr is None:
-                skipped_count += 1
-                if len(skipped_examples) < 10:
-                    skipped_examples.append(("double_non_square", (s_q, p_q, r_double, fr)))
-                logger.debug("Double-root but f(r) not square: s=%r p=%r r=%r f(r)=%r; skipping", s_q, p_q, r_double, fr)
-                continue
-
-            # try direct ± match or small scaling via _try_scale_and_accept
-            # First see if current v matches ±sqrt_fr at root (possibly sign-flipped)
-            if vr == sqrt_fr or vr == -sqrt_fr:
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                if accepted:
-                    accepted_count += 1
-                    continue
-
-            # try scale lam = sqrt_fr / vr when vr != 0 and lam is small (in trials)
-            if vr != 0:
-                lam_candidate = QQ(sqrt_fr) / QQ(vr)
-                if lam_candidate in _SCALE_TRIALS:
-                    # attempt acceptance with lam_candidate
-                    try:
-                        v_scaled = lam_candidate * v
-                        if (v_scaled**2 - f_poly) % u == 0:
-                            accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                            if accepted:
-                                accepted_count += 1
-                                continue
-                    except Exception:
-                        pass
-
-            # nothing worked
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("double_unmatched", (s_q, p_q, vr, sqrt_fr)))
-            logger.debug("Double-root and v(r) != ±sqrt(f(r)) after scaling attempts: s=%r p=%r vr=%r sqrt_fr=%r; skipping", s_q, p_q, vr, sqrt_fr)
-            continue
-
-        # HANDLE SPLIT-ROOT (disc is a nonzero rational square)
-        if disc_sqrt is not None:
-            r_plus = (s_q + disc_sqrt) / QQ(2)
-            r_minus = (s_q - disc_sqrt) / QQ(2)
-            # avoid numerical denom=0 just in case (shouldn't happen when disc_sqrt != 0)
-            denom = r_plus - r_minus
-            if denom == 0:
-                skipped_count += 1
-                if len(skipped_examples) < 10:
-                    skipped_examples.append(("split_zero_denom", (s_q, p_q)))
-                logger.debug("Denominator zero in split-case interpolation; skipping: s=%r p=%r", s_q, p_q)
-                continue
-
-            fa_plus = f_poly(r_plus)
-            fa_minus = f_poly(r_minus)
-            sqrt_plus = rational_sqrt(fa_plus)
-            sqrt_minus = rational_sqrt(fa_minus)
-            if sqrt_plus is None or sqrt_minus is None:
-                skipped_count += 1
-                if len(skipped_examples) < 10:
-                    skipped_examples.append(("root_not_square", (s_q, p_q, fa_plus, fa_minus)))
-                logger.debug("Root values not rational squares: f(r+)=%r f(r-)=%r ; skipping", fa_plus, fa_minus)
-                continue
-
-            vr_plus = v1_q * r_plus + v0_q
-            vr_minus = v1_q * r_minus + v0_q
-
-            # quick exact match check (±)
-            if (vr_plus == sqrt_plus and vr_minus == sqrt_minus) or (vr_plus == -sqrt_plus and vr_minus == -sqrt_minus):
-                accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                if accepted:
-                    accepted_count += 1
-                    continue
-
-            # try small scaling candidates derived from first root and check second
-            tried_scale = False
-            if vr_plus != 0:
-                for target in (sqrt_plus, -sqrt_plus):
-                    lam_candidate = QQ(target) / QQ(vr_plus)
-                    if lam_candidate in _SCALE_TRIALS:
-                        # check if lam_candidate makes second root match ±sqrt
-                        if (lam_candidate * vr_minus == sqrt_minus) or (lam_candidate * vr_minus == -sqrt_minus):
-                            # test algebraic divisibility
-                            try:
-                                v_scaled = lam_candidate * v
-                                if (v_scaled**2 - f_poly) % u == 0:
-                                    accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                                    if accepted:
-                                        accepted_count += 1
-                                        tried_scale = True
-                                        break
-                            except Exception:
-                                pass
-                if tried_scale:
-                    continue
-
-            # fallback: attempt to interpolate linear v that matches ±sqrt values (all sign combos)
-            matched = False
-            for sig_plus in (+1, -1):
-                for sig_minus in (+1, -1):
-                    num = (QQ(sig_plus) * sqrt_plus) - (QQ(sig_minus) * sqrt_minus)
-                    alpha = num / denom
-                    beta = (QQ(sig_plus) * sqrt_plus) - alpha * r_plus
-                    v_candidate = alpha * x + beta
-                    try:
-                        if (v_candidate**2 - f_poly) % u == 0:
-                            # acceptance tries scales inside _try_scale_and_accept
-                            accepted = _try_scale_and_accept(u, v_candidate, f_poly, s_q, p_q, tup, seen, R, out)
-                            if accepted:
-                                accepted_count += 1
-                                matched = True
-                                break
-                    except Exception:
-                        continue
-                if matched:
-                    break
-            if matched:
-                continue
-
-            # nothing accepted
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("split_unmatched", (s_q, p_q, vr_plus, vr_minus)))
-            logger.debug("Split-case canonicalization failed for s=%r p=%r; skipping", s_q, p_q)
-            continue
-
-        # IRREDUCIBLE CASE (non-square discriminant)
-        # Try negating v (global sign) and small scalings to see if we can match Mumford relation
-        accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-        if accepted:
-            accepted_count += 1
-            continue
-        # try negated v
-        accepted = _try_scale_and_accept(u, -v, f_poly, s_q, p_q, tup, seen, R, out)
-        if accepted:
-            accepted_count += 1
-            continue
-        # finally try small lambda multiples if above didn't pick them up (redundant but safe)
-        for lam in _SCALE_TRIALS:
-            try:
-                v_scaled = lam * v
-                if (v_scaled**2 - f_poly) % u == 0:
-                    accepted = _try_scale_and_accept(u, v, f_poly, s_q, p_q, tup, seen, R, out)
-                    if accepted:
-                        accepted_count += 1
-                        break
-            except Exception:
-                continue
-        if accepted:
-            continue
-
-        # nothing worked for irreducible: skip
-        skipped_count += 1
-        if len(skipped_examples) < 10:
-            skipped_examples.append(("irr_unmatched", (s_q, p_q, v1_q, v0_q)))
-        logger.debug("Irreducible-case failed for s=%r p=%r; skipping", s_q, p_q)
-        continue
-
-    # summary logging
-    logger.info("canonicalize_and_dedup: accepted=%d skipped=%d total_input=%d", len(out), skipped_count, len(divisors))
-    if skipped_examples:
-        logger.info("Sample skipped cases (up to 10): %r", skipped_examples)
-
-    return out
-
-
-def canonicalize_and_dedup(divisors, f_coeffs):
-    """
-    Canonicalize and deduplicate Mumford (s,p,v0,v1) reconstructions.
-
-    Returns list of canonicalized dicts with keys:
-      'u_poly', 'v_poly', 's', 'p', 'v_0', 'v_1', 'has_rational_roots', and optional 'scale_used'
-    """
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = build_f_poly(f_coeffs, R)
-
-    seen = set()          # existing global (u,v) canonical keys (from _canon_key_from_polys)
-    seen_u = dict()       # map u_key -> canonical v_poly for that u (to forbid different v for same u)
+    seen_u = dict()
     out = []
     skipped_examples = []
     accepted_count = 0
     skipped_count = 0
 
     def u_key_from_poly(u_poly):
-        # canonical u key (low->high coeff pairs of rationals)
-        pairs = tuple((int(QQ(c).numerator()), int(QQ(c).denominator())) for c in u_poly.list())
+        pairs = tuple(rational_pair_key(c) for c in u_poly.list())
         return pairs
 
     def same_v_up_to_sign_mod_u(v_a, v_b, u_poly):
-        """
-        Return True iff v_a ≡ ± v_b (mod u), working in R(QQ).
-        """
         try:
-            # reduce both modulo u (ensures deg < deg u)
             ra = v_a % u_poly
             rb = v_b % u_poly
             diff = (ra - rb) % u_poly
             ssum = (ra + rb) % u_poly
             return diff.is_zero() or ssum.is_zero()
         except Exception:
-            # conservative: if arithmetic fails, say False (so we won't accept second different v)
             return False
 
     def finalize_v_and_normalize(u_poly, v_poly):
         """
-        Reduce v mod u, force deg v < deg u, normalize sign (leading coeff >= 0).
-        Return normalized v (over QQ).
+        Normalize sign of v_poly (assumes v_poly is already reduced mod u_poly).
         """
-        v_red = v_poly % u_poly
-        # ensure coefficients are QQ
+        v_red = v_poly
         try:
             v_red = v_red.change_ring(QQ)
         except Exception:
@@ -547,67 +410,42 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         return v_red
 
     def local_try_accept(u_poly, v_poly, s_q, p_q, orig_tup):
-        """
-        Try to accept (u_poly, v_poly) into 'out' using _try_scale_and_accept under control.
-        Enforces unique-u policy: if this u already accepted with a different v (not ±), reject.
-        Returns True if accepted, False otherwise.
-        """
         nonlocal accepted_count, skipped_count
 
-        # ensure u is monic (should be already), and reduce v
         try:
             v_red = v_poly % u_poly
         except Exception:
-            # if reduction fails conservatively skip
             skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("reduce_fail_preaccept", (u_poly, v_poly)))
-            logger.debug("Reduction failed preaccept for u=%r v=%r", u_poly, v_poly)
             return False
 
-        # normalize v for comparison
         v_norm = finalize_v_and_normalize(u_poly, v_red)
 
-        # compute u_key (pairs) for same-u check
+        v_norm = normalize_infinity_parity(v_norm, f_poly)
+
         u_k = u_key_from_poly(u_poly)
 
-        # if we already have an accepted v for this exact u, ensure ± equivalence
         if u_k in seen_u:
-            existing_v = seen_u[u_k]
-            if same_v_up_to_sign_mod_u(v_norm, existing_v, u_poly):
-                # it's the same divisor up to sign; call _try_scale_and_accept to ensure canonical addition logic
-                accepted = _try_scale_and_accept(u_poly, v_norm, f_poly, s_q, p_q, orig_tup, seen, R, out)
-                if accepted:
-                    # update stored canonical v to the actually stored one
-                    seen_u[u_k] = out[-1]['v_poly']
-                    accepted_count += 1
-                    return True
+            stored_u, stored_v = seen_u[u_k]
+            if same_v_up_to_sign_mod_u(v_norm, stored_v, stored_u):
                 return False
             else:
-                # Different v for same u -> reject (we keep first accepted representative)
                 skipped_count += 1
-                if len(skipped_examples) < 10:
-                    skipped_examples.append(("duplicate_u_conflict", (s_q, p_q, u_poly, existing_v, v_norm)))
-                logger.debug("Rejecting new v for already-seen u (incompatible): s=%r p=%r u=%r", s_q, p_q, u_poly)
                 return False
-        else:
-            # no previous u: attempt to accept normally
-            accepted = _try_scale_and_accept(u_poly, v_norm, f_poly, s_q, p_q, orig_tup, seen, R, out)
-            if accepted:
-                # record canonical v we actually stored (out[-1])
-                try:
-                    stored_v = out[-1]['v_poly']
-                    seen_u[u_k] = stored_v
-                except Exception:
-                    # if something odd happens, still mark accepted via seen set
-                    seen_u[u_k] = v_norm
-                accepted_count += 1
-                return True
-            return False
 
-    # main loop (mostly unchanged, but all acceptance calls go through local_try_accept)
+        accepted = _try_scale_and_accept(
+            u_poly, v_norm, f_poly,
+            s_q, p_q, orig_tup,
+            seen, R, out
+        )
+
+        if accepted:
+            seen_u[u_k] = (u_poly, v_norm)
+            accepted_count += 1
+            return True
+
+        return False
+
     for tup in divisors:
-        # expected fields
         try:
             s_raw = tup['s']; p_raw = tup['p']; v0_raw = tup['v_0']; v1_raw = tup['v_1']
         except Exception:
@@ -616,7 +454,6 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 skipped_examples.append(("malformed", tup))
             continue
 
-        # coerce to QQ
         try:
             s_q = QQ(s_raw); p_q = QQ(p_raw); v0_q = QQ(v0_raw); v1_q = QQ(v1_raw)
         except Exception:
@@ -625,7 +462,6 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 skipped_examples.append(("nonrational", (s_raw, p_raw, v0_raw, v1_raw)))
             continue
 
-        # build u, v polynomials
         try:
             u = _u_from_sp(s_q, p_q, R)
             v = _v_from_coeffs(v1_q, v0_q, R)
@@ -635,27 +471,9 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 skipped_examples.append(("poly_build_fail", (s_q, p_q, v1_q, v0_q)))
             continue
 
-        # reduce v immediately and normalize (pre-check)
-        try:
-            v = finalize_v_and_normalize(u, v)
-        except Exception:
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("pre_normalize_fail", (s_q, p_q, v1_q, v0_q)))
+        if local_try_accept(u, v, s_q, p_q, tup):
             continue
 
-        # quick direct check: does current v already satisfy Mumford relation exactly?
-        try:
-            if (v**2 - f_poly) % u == 0:
-                accepted = local_try_accept(u, v, s_q, p_q, tup)
-                if accepted:
-                    continue
-                # if not accepted (e.g., conflict on same-u), fall through to possible other attempts or skip
-        except Exception:
-            # proceed to further logic on errors
-            pass
-
-        # compute discriminant of u to decide branch
         disc = s_q * s_q - 4 * p_q
         disc_sqrt = None
         if disc == 0:
@@ -663,10 +481,8 @@ def canonicalize_and_dedup(divisors, f_coeffs):
         else:
             disc_sqrt = rational_sqrt(disc)
 
-        # HANDLE DOUBLE-ROOT (disc == 0)
         if disc_sqrt is not None and disc_sqrt == 0:
             r_double = s_q / QQ(2)
-            vr = v.list() and (v.list()[-1]*r_double + (v.list()[0] if len(v.list())>0 else QQ(0))) or QQ(0)
             fr = f_poly(r_double)
             sqrt_fr = rational_sqrt(fr)
             if sqrt_fr is None:
@@ -676,24 +492,17 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 logger.debug("Double-root but f(r) not square: s=%r p=%r r=%r f(r)=%r; skipping", s_q, p_q, r_double, fr)
                 continue
 
-            # try direct ± match or small scaling via local_try_accept
-            if vr == sqrt_fr or vr == -sqrt_fr:
-                accepted = local_try_accept(u, v, s_q, p_q, tup)
-                if accepted:
-                    continue
+            v_temp = v % u
+            v_temp = finalize_v_and_normalize(u, v_temp)
+            vr = v_temp(r_double)
 
-            # try scale lam = sqrt_fr / vr when vr != 0 and lam is small (in trials)
             if vr != 0:
                 lam_candidate = QQ(sqrt_fr) / QQ(vr)
                 if lam_candidate in _SCALE_TRIALS:
                     try:
                         v_scaled = lam_candidate * v
-                        # normalize reduced/scaled v
-                        v_scaled = finalize_v_and_normalize(u, v_scaled)
-                        if (v_scaled**2 - f_poly) % u == 0:
-                            accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
-                            if accepted:
-                                continue
+                        if local_try_accept(u, v_scaled, s_q, p_q, tup):
+                            continue
                     except Exception:
                         pass
 
@@ -703,7 +512,6 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             logger.debug("Double-root and v(r) != ±sqrt(f(r)) after scaling attempts: s=%r p=%r vr=%r sqrt_fr=%r; skipping", s_q, p_q, vr, sqrt_fr)
             continue
 
-        # HANDLE SPLIT-ROOT (disc is a nonzero rational square)
         if disc_sqrt is not None:
             r_plus = (s_q + disc_sqrt) / QQ(2)
             r_minus = (s_q - disc_sqrt) / QQ(2)
@@ -726,37 +534,27 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 logger.debug("Root values not rational squares: f(r+)=%r f(r-)=%r ; skipping", fa_plus, fa_minus)
                 continue
 
-            vr_plus = v1_q * r_plus + v0_q
-            vr_minus = v1_q * r_minus + v0_q
+            v_temp = v % u
+            v_temp = finalize_v_and_normalize(u, v_temp)
+            vr_plus = v_temp(r_plus)
+            vr_minus = v_temp(r_minus)
 
-            # quick exact match check (±)
-            if (vr_plus == sqrt_plus and vr_minus == sqrt_minus) or (vr_plus == -sqrt_plus and vr_minus == -sqrt_minus):
-                accepted = local_try_accept(u, v, s_q, p_q, tup)
-                if accepted:
-                    continue
-
-            # try small scaling candidates derived from first root and check second
             tried_scale = False
             if vr_plus != 0:
                 for target in (sqrt_plus, -sqrt_plus):
                     lam_candidate = QQ(target) / QQ(vr_plus)
                     if lam_candidate in _SCALE_TRIALS:
-                        # check if lam_candidate makes second root match ±sqrt
-                        if (lam_candidate * vr_minus == sqrt_minus) or (lam_candidate * vr_minus == -sqrt_minus):
-                            try:
+                        try:
+                            if (lam_candidate * vr_minus == sqrt_minus) or (lam_candidate * vr_minus == -sqrt_minus):
                                 v_scaled = lam_candidate * v
-                                v_scaled = finalize_v_and_normalize(u, v_scaled)
-                                if (v_scaled**2 - f_poly) % u == 0:
-                                    accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
-                                    if accepted:
-                                        tried_scale = True
-                                        break
-                            except Exception:
-                                pass
+                                if local_try_accept(u, v_scaled, s_q, p_q, tup):
+                                    tried_scale = True
+                                    break
+                        except Exception:
+                            pass
                 if tried_scale:
                     continue
 
-            # fallback: attempt to interpolate linear v that matches ±sqrt values (all sign combos)
             matched = False
             for sig_plus in (+1, -1):
                 for sig_minus in (+1, -1):
@@ -765,12 +563,9 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                     beta = (QQ(sig_plus) * sqrt_plus) - alpha * r_plus
                     v_candidate = alpha * x + beta
                     try:
-                        v_candidate = finalize_v_and_normalize(u, v_candidate)
-                        if (v_candidate**2 - f_poly) % u == 0:
-                            accepted = local_try_accept(u, v_candidate, s_q, p_q, tup)
-                            if accepted:
-                                matched = True
-                                break
+                        if local_try_accept(u, v_candidate, s_q, p_q, tup):
+                            matched = True
+                            break
                     except Exception:
                         continue
                 if matched:
@@ -778,45 +573,47 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             if matched:
                 continue
 
-            # nothing accepted
             skipped_count += 1
             if len(skipped_examples) < 10:
                 skipped_examples.append(("split_unmatched", (s_q, p_q, vr_plus, vr_minus)))
             logger.debug("Split-case canonicalization failed for s=%r p=%r; skipping", s_q, p_q)
             continue
 
-        # IRREDUCIBLE CASE (non-square discriminant)
-        # Try v and -v, and small scalings via local_try_accept
-        accepted = local_try_accept(u, v, s_q, p_q, tup)
-        if accepted:
-            continue
-        accepted = local_try_accept(u, -v, s_q, p_q, tup)
-        if accepted:
-            continue
-
+        accepted = False
         for lam in _SCALE_TRIALS:
             try:
                 v_scaled = lam * v
-                v_scaled = finalize_v_and_normalize(u, v_scaled)
-                if (v_scaled**2 - f_poly) % u == 0:
-                    accepted = local_try_accept(u, v_scaled, s_q, p_q, tup)
-                    if accepted:
-                        break
+                if local_try_accept(u, v_scaled, s_q, p_q, tup):
+                    accepted = True
+                    break
             except Exception:
                 continue
         if accepted:
             continue
 
-        # nothing worked for irreducible: skip
         skipped_count += 1
         if len(skipped_examples) < 10:
             skipped_examples.append(("irr_unmatched", (s_q, p_q, v1_q, v0_q)))
         logger.debug("Irreducible-case failed for s=%r p=%r; skipping", s_q, p_q)
-        continue
 
-    # summary logging
     logger.info("canonicalize_and_dedup: accepted=%d skipped=%d total_input=%d", len(out), skipped_count, len(divisors))
     if skipped_examples:
         logger.info("Sample skipped cases (up to 10): %r", skipped_examples)
 
+    for i in range(len(out)):
+        for j in range(i):
+            assert out[i]['u_poly'] != out[j]['u_poly'] or not same_v_up_to_sign_mod_u(out[i]['v_poly'], out[j]['v_poly'], out[i]['u_poly']), "duplicate v for same u slipped through"
+
+    if f_poly.degree() % 2 == 0:
+        for d in out:
+            vcheck = normalize_infinity_parity(d['v_poly'], f_poly)
+            assert vcheck == d['v_poly'], "parity not normalized for accepted v"
+
     return out
+
+
+def _canon_key_from_polys(u, v):
+    def coeff_pairs(poly):
+        return tuple(rational_pair_key(c) for c in poly.list())
+    return ("u", coeff_pairs(u), "v", coeff_pairs(v))
+

@@ -13,7 +13,10 @@ from sage.all import QQ, log
 from sage.all import diagonal_matrix
 
 from search_lll.homology import *
+from search_lll.jacobian_basis.heights import *
 import warnings
+from pprint import pprint
+import multiprocessing
 
 def custom_formatwarning(msg, category, filename, lineno, line=None):
     return f"{filename}:{lineno}: {category.__name__}: {msg}\n"
@@ -21,7 +24,7 @@ def custom_formatwarning(msg, category, filename, lineno, line=None):
 warnings.formatwarning = custom_formatwarning
 
 ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 12
+MAX_BASIS_CANDIDATES = 10
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
@@ -54,8 +57,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
 
     # Filter invalid / duplicate divisors early
     all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
-    print("survivors of kobayashi maru filter of numeric evil:")
-    import sys
+    print(f"survivors of kobayashi maru filter of numeric evil (amount = {len(all_divisors)}):")
     for i in all_divisors:
         pass
         print(i)
@@ -69,7 +71,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         all_divisors.sort(key=naive_sort_key)
-        #mumford_divisors.reverse() # psych!
+        #all_divisors.reverse() # psych!
 
         all_divisors = all_divisors[:maxbasis]
         if debug:
@@ -462,7 +464,6 @@ def _has_rational_root_pair(div):
         raise
         return False, ()
     # perfect square rational -> rational roots
-    import math
     if a >= 0:
         ra = int(math.isqrt(a))
         rb = int(math.isqrt(b))
@@ -1026,7 +1027,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
         return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
 
     all_divisors.sort(key=naive_sort_key)
-    #mumford_divisors.reverse() # psych!
+    #all_divisors.reverse() # psych!
 
     if len(all_divisors) > maxbasis:
         all_divisors = all_divisors[:maxbasis]
@@ -1297,161 +1298,83 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
     return False, None
 
 
-def filter_kobayashi_maru(divs, f_coeffs_or_curve, maxbasis, debug=True, aggressive=False):
+def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressive=True, num_doublings=5):
     """
-    Filter divisors that are not finite Jacobian elements or duplicates.
-
-    Accepts either:
-      - f_coeffs (list-like): list of coefficients for y^2 = f(x)
-      - C: a HyperellipticCurve object
-
-    aggressive: when True, also drop other tiny/structural divisors (heuristic).
+    Parallelized Kobayashi Maru filter.
+    Pre-computes period matrix to avoid redundant work in workers.
     """
-    f_coeffs = f_coeffs_or_curve
-    # accept either f_coeffs or curve
-    if hasattr(f_coeffs_or_curve, 'hyperelliptic_polynomials'):
-        C = f_coeffs_or_curve
-    else:
-        C, _, _ = _build_curve_from_coeffs(f_coeffs_or_curve)
-
+    _FILTER_STATS['total_input'] += len(all_divisors)
     out = []
     seen = set()
-    accepted_jac_elements = []  # Keep track of accepted elements to check pairwise sums
     store_count = 0
-    rejected_jac_elements = [] # Accumulate rejected divisors
 
-    def _is_structural_small(rec):
-        # a tiny heuristic: u-coeffs in {-1,0,1} OR explicit flagged structural
-        if rec.get('u', None) is not None:
-            try:
-                coeffs = rec['u'].list()
-                if all(c in (-1, 0, 1) for c in coeffs):
-                    return True
-            except Exception:
-                raise
-        return False
+    if not all_divisors:
+        return []
 
-    for div in divs:
-        # quick structural short-circuit: explicit drop for u(x)=x^2
+    # Pre-compute the period matrix once for the curve using YOUR actual function
+    if debug:
+        print("[filter] Computing period matrix for curve...")
+    try:
+        # Use get_period_matrix_auto_B from homology.py
+        p_mat = get_period_matrix_auto_B(f_coeffs, prec=256, verbose=False)
+    except Exception as e:
+        if debug:
+            print(f"[filter] Period matrix pre-computation failed: {e}. Workers will compute locally.")
+        p_mat = None
 
-        # compute diagonal heights once:
-        # compute_canonical_height_with_budget now benefits from the ValueError raise in heights.py
-        h_diag = compute_canonical_height_with_budget(div, f_coeffs, debug=debug)
+    # Prepare tasks
+    tasks = [(div, f_coeffs, p_mat, num_doublings) for div in all_divisors]
+    
+    if debug:
+        print(f"[filter] Launching parallel height checks on {len(tasks)} candidates...")
 
-        if h_diag is None:
-            warnings.warn(
-                f"[filter] Dropping divisor due to unstable negative/failure canonical height: {div}",
-                RuntimeWarning
-            )
-            rejected_jac_elements.append(div)
-            continue
-
-
-        # inside loop over divs, BEFORE mumford_to_jacobian_element call:
-        flagged, reason = u_is_problematic(div, f_coeffs_or_curve, C=C, debug=debug)
-        if flagged:
-            if debug:
-                warnings.warn(f"[filter] Dropping divisor by {reason}: {div}", RuntimeWarning)
-            rejected_jac_elements.append(div)
-            continue
-
-
-        try:
-            D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
-        except Exception as e:
-            if debug:
-                warnings.warn(f"[filter] failed to coerce div -> Jacobian element: {e} -- skipping", RuntimeWarning)
-            raise
-            continue
-
-        # ignore points that end up not finite / invalid in Jacobian
-        try:
-            if getattr(D, "is_finite", None) and not D.is_finite():
-                if debug:
-                    warnings.warn(f"[filter] skipping non-finite jacobian element for div {div}", RuntimeWarning)
-                rejected_jac_elements.append(div)
+    with multiprocessing.Pool() as pool:
+        # Use imap to allow early termination if we fill the basis
+        for h_val, div in pool.imap(_kobayashi_worker, tasks):
+            # Check for "evil" signatures (negative heights or tiny values indicating degeneracy)
+            if h_val < -1e-7:
+                _FILTER_STATS['rejected_evil'] += 1
                 continue
-        except Exception:
-            # Some Sage types might not have is_finite; skip the check then.
-            pass
 
-        # === Enhanced filtering against "evil" divisors (u=x^2 or previously rejected) ===
-        # Even if D is not bad, check if D+D (double) or D + previously_accepted sums to something rejected.
-        # This prevents bad divisors from appearing in the pairing matrix computation.
-        
-        # 1. Double check
-        try:
-            D_double = D + D
-            if _is_jacobian_u_x_squared(D_double, rejected_jac_elements):
-                if debug:
-                    warnings.warn(f"[filter] Dropping divisor because 2*D is evil/rejected: {div}", RuntimeWarning)
-                rejected_jac_elements.append(div)
+            if aggressive and (abs(h_val) < 1e-10):
+                _FILTER_STATS['rejected_tiny'] += 1
                 continue
-        except Exception:
-            pass
 
-        # 2. Pairwise sum check
-        is_pairwise_evil = False
-        if accepted_jac_elements:
-            is_unstable, reason = _sum_yields_unstable_height(D, accepted_jac_elements, f_coeffs, debug=debug)
-            if is_unstable:
-                if debug:
-                    print(f"[filter] Dropping divisor because sum with existing candidate yields an unstable height: {div} (Reason: {reason})")
-                is_pairwise_evil = True
-
-        for prevD in accepted_jac_elements:
-            if is_pairwise_evil:
-                break
+            # Deduplication
+            D = mumford_dict_to_jacobian_element(div, f_coeffs)
             try:
-                # Sum with previous basis candidates
-                D_sum = D + prevD
-                if _is_jacobian_u_x_squared(D_sum, rejected_jac_elements):
-                    if debug:
-                        warnings.warn(f"[filter] Dropping divisor because sum with existing candidate yields an already rejected divisor: {div}", RuntimeWarning)
-                    is_pairwise_evil = True
-                    break
+                key = D.reduced_representation()
             except Exception:
-                pass
-        
-        if is_pairwise_evil:
-            rejected_jac_elements.append(div)
-            continue
-
-        # optional aggressive structural drop (toggle via aggressive=True)
-        if aggressive and _is_structural_small(div):
-            if debug:
-                warnings.warn(f"[filter] Aggressively dropping structurally-tiny divisor: {div}", RuntimeWarning)
-            rejected_jac_elements.append(div)
-            continue
-
-        # use reduced representation as a canonical dedupe key
-        try:
-            key = D.reduced_representation()
-        except Exception:
-            # Some Jacobian elements may not support reduced_representation consistently;
-            # fall back to string repr as a last resort
-            try:
                 key = str(D)
-            except Exception:
-                # if even that fails, skip to be safe
-                if debug:
-                    warnings.warn(f"[filter] cannot build dedupe key for divisor {div}; skipping", RuntimeWarning)
-                continue 
 
-        if key in seen:
-            # dedup
-            continue
+            if key in seen:
+                _FILTER_STATS['rejected_dupe'] += 1
+                continue
 
-        seen.add(key)
-        out.append(div)
-        accepted_jac_elements.append(D)
-        # store it so pairings don't recompute it
-        div['_h_diag'] = h_diag
-        store_count += 1
-        if store_count >= maxbasis:
-            break
+            seen.add(key)
+            div['_h_diag'] = h_val
+            out.append(div)
+            store_count += 1
+            
+            if store_count >= maxbasis:
+                break
 
-
-    from pprint import pprint
-    pprint(dict(_FILTER_STATS))
     return out
+
+
+def _kobayashi_worker(args):
+    """
+    Worker for the Kobayashi Maru filter.
+    Processes a single divisor with a shared period matrix.
+    """
+    div, f_coeffs, p_mat, num_doublings = args
+    # Convert to Jacobian element
+    J_element = mumford_dict_to_jacobian_element(div, f_coeffs)
+    
+    # Compute height with the passed-in period matrix
+    # Note: num_doublings is not used here - it's for p-adic computations in other contexts
+    h_val = arakelov_quasi_height(J_element, f_coeffs, period_matrix=p_mat)
+    
+    return (float(h_val), div)
+
+

@@ -141,57 +141,6 @@ def archimedean_naive_height(div):
     return math.log(max(vals))
 
 
-def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
-                          use_finite_places=True, arch_override=None):
-    """
-    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
-    """
-    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
-    if key in arakelov_quasi_height.cache:
-        return arakelov_quasi_height.cache[key]
-    assert not (period_matrix is None), period_matrix
-    
-    from sage.all import RealField
-
-    # fast path
-    if getattr(div, "is_zero", lambda: False)():
-        return RealField(prec)(0)
-
-    RF = RealField(prec)
-
-    # 1) Naive Weil Height (u-only)
-    h_naive = naive_height_qq(div, prec=prec)
-    h_total = RF(h_naive)
-
-    # 2) Archimedean
-    if arch_override is not None:
-        h_arch = RF(arch_override)
-    else:
-        # Note: archimedean_height_correction handles the difference 
-        # between the full analytic height and the naive height
-        h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
-
-    h_total += h_arch
-
-    # 3) Finite local corrections
-    h_finite = RF(0)
-    
-    if use_finite_places:
-        bad_primes = get_bad_primes(f_coeffs)
-        for p in bad_primes:
-            val = local_height_correction_finite(div, p, f_coeffs)
-            if val is None:
-                raise RuntimeError(f"[arakelov_quasi_height] local correction returned None for p={p}")
-            h_finite += RF(val)
-
-    h_total += h_finite
-
-    ret = h_total
-    arakelov_quasi_height.cache[key] = ret
-    return ret
-arakelov_quasi_height.cache = {}
-
-
 def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024, max_prec=8192, debug=True):
     """
     Computes canonical height h(D) = h_arch(D) + sum(local_corrections).
@@ -403,3 +352,60 @@ def mumford_dict_to_jacobian_element(div_dict, f_coeffs):
         raise
 
     return J_elem
+
+
+from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve, log
+from .local import get_bad_primes, local_height_correction_finite, local_naive_height_p
+
+logger = logging.getLogger("arakelov_debug")
+
+
+def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
+                          use_finite_places=True, arch_override=None):
+    """
+    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
+    """
+    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
+    if key in arakelov_quasi_height.cache:
+        return arakelov_quasi_height.cache[key]
+    assert period_matrix is not None, "period_matrix must be provided"
+    
+    from sage.all import RealField
+
+    # fast path
+    if getattr(div, "is_zero", lambda: False)():
+        return RealField(prec)(0)
+
+    RF = RealField(prec)
+
+    # 1) Naive Weil Height (u-only)
+    h_naive = naive_height_qq(div, prec=prec)
+    h_total = RF(h_naive)
+
+    # 2) Archimedean
+    if arch_override is not None:
+        h_arch = RF(arch_override)
+    else:
+        # Note: archimedean_height_correction handles the difference 
+        # between the full analytic height and the naive height
+        h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
+
+    h_total += h_arch
+
+    # 3) Finite local corrections
+    h_finite = RF(0)
+    
+    if use_finite_places:
+        bad_primes = get_bad_primes(f_coeffs)
+        for p in bad_primes:
+            val = local_height_correction_finite(div, p, f_coeffs)
+            if val is None:
+                raise RuntimeError(f"[arakelov_quasi_height] local correction returned None for p={p}")
+            h_finite += RF(val)
+
+    h_total += h_finite
+
+    ret = h_total
+    arakelov_quasi_height.cache[key] = ret
+    return ret
+arakelov_quasi_height.cache = {}

@@ -435,11 +435,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         print("[arakelov] Selecting basis incrementally...")
 
     basis_indices = []
-    max_basis_size = 2 * genus
 
     for cand_idx in range(n):
-        if len(basis_indices) >= max_basis_size:
-            break
             
         if cand_idx not in height_cache:
             if debug:
@@ -543,3 +540,30 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
              warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
 
     return basis, final_rank, H_final
+
+
+def check_2torsion_equivalence(new_div, basis_divs, C):
+    """
+    Check if new_div ≡ existing_div (mod 2-torsion).
+    For genus-2, efficiently check via reduction.
+    """
+    J = C.jacobian()
+    
+    # Convert to Jacobian elements
+    new_elem = mumford_to_jacobian_element(new_div['s'], new_div['p'], 
+                                           new_div['v_0'], new_div['v_1'], C)
+    
+    for old_div in basis_divs:
+        old_elem = mumford_to_jacobian_element(old_div['s'], old_div['p'],
+                                               old_div['v_0'], old_div['v_1'], C)
+        
+        diff = new_elem - old_elem
+        
+        # Check if diff is 2-torsion: is 2*diff = 0?
+        try:
+            if (2 * diff).is_zero():
+                return True, old_div
+        except:
+            pass
+            
+    return False, None
