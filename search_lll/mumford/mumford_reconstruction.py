@@ -2,7 +2,7 @@ from functools import lru_cache
 from sage.all import QQ, ZZ
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
-from .mumford_verification import verify_mumford_pair, canonicalize_and_dedup, discriminant_has_nonqr_s_p
+from .mumford_verification import *
 from itertools import product, islice
 from .mumford_timing import *
 from .mumford_basis import *
@@ -609,7 +609,19 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
 
     t0 = time.time()
     mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+    print("accepted:", len(mumford_divisors_raw))
+    for d in mumford_divisors_raw:
+        # check parity idempotence
+        assert normalize_infinity_parity(d['v_poly'], build_f_poly(f_coeffs, PolynomialRing(QQ,'x'))) == d['v_poly']
+    # ensure no u duplicates modulo ±v
+    for i in range(len(mumford_divisors_raw)):
+        for j in range(i):
+            assert mumford_divisors_raw[i]['u_poly'] != mumford_divisors_raw[j]['u_poly'] or not same_v_up_to_sign_mod_u(mumford_divisors_raw[i]['v_poly'], mumford_divisors_raw[j]['v_poly'], mumford_divisors_raw[i]['u_poly'])
+    print("canonicalization invariants OK")
+
+
     mumford_timer_add("canonicalization", time.time() - t0)
+
 
     # In reconstruct_and_verify_mumford, after the reconstruction loop:
 
