@@ -4,7 +4,6 @@ import math
 from sage.all import ComplexField, PolynomialRing
 
 
-integrate_differential_path_with_branch.cache = {}
 
 
 """Integration of differentials along paths. — more robust branch handling"""
