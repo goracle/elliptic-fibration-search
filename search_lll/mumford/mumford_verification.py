@@ -80,19 +80,6 @@ _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
 
-def same_v_up_to_sign_mod_u(v1, v2, u):
-    """
-    Helper to check if v1 ≡ ±v2 (mod u).
-    """
-    diff = (v1 - v2) % u
-    if diff.is_zero():
-        return True
-    summ = (v1 + v2) % u
-    if summ.is_zero():
-        return True
-    return False
-
-
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
@@ -100,39 +87,6 @@ logger.setLevel(logging.INFO)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), 
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
-
-def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failure=False):
-    if modulus is None:
-        R = PolynomialRing(QQ, 'x')
-    else:
-        R = PolynomialRing(GF(modulus), 'x')
-    
-    x = R.gen()
-    
-    if modulus is None:
-        s_val = QQ(s)
-        p_val = QQ(p)
-        v0_val = QQ(v0)
-        v1_val = QQ(v1)
-        f_poly_coeffs = [QQ(c) for c in f_coeffs]
-    else:
-        s_val = int(s) % modulus
-        p_val = int(p) % modulus
-        v0_val = int(v0) % modulus
-        v1_val = int(v1) % modulus
-        f_poly_coeffs = [int(c) % modulus for c in f_coeffs]
-    
-    u_poly = x**2 - s_val*x + p_val
-    v_poly = v1_val*x + v0_val
-    
-    f_poly = R(0)
-    for coeff in f_poly_coeffs:
-        f_poly = f_poly * x + coeff
-    
-    diff = v_poly**2 - f_poly
-    remainder = diff % u_poly
-    
-    return remainder.is_zero()
 
 def validate_mumford_solver():
     """Simple test function (placeholder)."""
@@ -203,83 +157,6 @@ def _rational_is_square(q):
     return False, None
 
 
-def rational_sqrt(q):
-    """
-    If q in QQ is an exact rational square, return its QQ square root.
-    Otherwise return None.
-    """
-    try:
-        if q < 0:
-            return None
-        a = Integer(q.numerator())
-        b = Integer(q.denominator())
-        if a.is_square() and b.is_square():
-            return QQ(Integer(a.isqrt()) / Integer(b.isqrt()))
-        return None
-    except Exception:
-        return None
-
-def build_f_poly(f_coeffs, R):
-    """
-    Build f(x) with f_coeffs given highest-degree -> constant.
-    """
-    x = R.gen()
-    f = R(0)
-    for c in f_coeffs:
-        f = f * x + QQ(c)
-    return f
-
-def _u_from_sp(s_q, p_q, R):
-    x = R.gen()
-    return x**2 - s_q * x + p_q
-
-def _v_from_coeffs(v1_q, v0_q, R):
-    x = R.gen()
-    return v1_q * x + v0_q
-
-
-def check_2torsion_difference(div1, div2, f_coeffs):
-    """
-    Check if div1 - div2 is a 2-torsion element.
-    Returns True if they differ by 2-torsion (should be filtered).
-    """
-    try:
-        # Build curve and Jacobian
-        C, R, x = build_curve_from_coeffs(f_coeffs)
-        J = C.jacobian()
-        
-        # Convert both to Jacobian elements
-        u1 = div1['u_poly']
-        v1 = div1['v_poly']
-        D1 = J([u1, v1])
-        
-        u2 = div2['u_poly']
-        v2 = div2['v_poly']
-        D2 = J([u2, v2])
-        
-        # Compute difference
-        diff = D1 - D2
-        
-        # Check if 2*diff = 0
-        if (2 * diff).is_zero():
-            return True
-            
-        return False
-        
-    except Exception:
-        # If check fails, conservatively don't filter
-        return False
-
-
-def build_curve_from_coeffs(f_coeffs):
-    """Return (C, R, x) from f_coeffs."""
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-    return C, R, x
-
-
 def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     """
     Try small scale factors lam in _SCALE_TRIALS so that (lam*v)^2 - f is divisible by u.
@@ -324,166 +201,235 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     return False
 
 
+# Set up logging once
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# candidate scales we try (including reciprocals)
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
+def build_curve_from_coeffs(f_coeffs):
+    """Return (C, R, x) from f_coeffs."""
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    return C, R, x
+
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# candidate scales we try (including reciprocals)
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# candidate scales we try (including reciprocals)
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+def build_f_poly(f_coeffs, R):
+    """
+    Build f(x) with f_coeffs given strictly highest-degree -> lowest-degree.
+    Uses Horner's method to guarantee correct coefficient ordering.
+    """
+    x = R.gen()
+    f = R(0)
+    for c in f_coeffs:
+        f = f * x + QQ(c)
+    return f
+
+def normalize_infinity_parity(v_poly, f_poly):
+    """
+    Enforce canonical infinity-parity.
+    Standardizes v such that the leading coefficient is positive.
+    This ensures (u, v) and (u, -v) map to the same canonical form.
+    """
+    if v_poly.is_zero():
+        return v_poly
+    
+    try:
+        lc = v_poly.leading_coefficient()
+        if lc < 0:
+            return -v_poly
+        return v_poly
+    except Exception:
+        return v_poly
+
+def _u_from_sp(s_q, p_q, R):
+    x = R.gen()
+    return x**2 - s_q * x + p_q
+
+def _v_from_coeffs(v1_q, v0_q, R):
+    x = R.gen()
+    return v1_q * x + v0_q
+
 def rational_pair_key(c):
-    from sage.all import gcd, Integer
+    from sage.all import Integer
     q = QQ(c)
     a = Integer(q.numerator())
     b = Integer(q.denominator())
-    # a, b are coprime for QQ
     return (a, b)
-
 
 def _canon_key_from_polys(u, v):
     def coeff_pairs(poly):
         return tuple(rational_pair_key(c) for c in poly.list())
     return ("u", coeff_pairs(u), "v", coeff_pairs(v))
 
+def same_v_up_to_sign_mod_u(v1, v2, u):
+    diff = (v1 - v2) % u
+    if diff.is_zero(): return True
+    summ = (v1 + v2) % u
+    if summ.is_zero(): return True
+    return False
 
-def normalize_infinity_parity(v_poly, f_poly):
-    """
-    Enforce a canonical infinity-parity for even-degree hyperelliptic curves.
-    """
+def rational_sqrt(q):
     try:
-        d = int(f_poly.degree())
+        if q < 0: return None
+        a = Integer(q.numerator())
+        b = Integer(q.denominator())
+        if a.is_square() and b.is_square():
+            return QQ(Integer(a.isqrt()) / Integer(b.isqrt()))
+        return None
     except Exception:
-        raise
+        return None
 
-    if d % 2 != 0:
-        return v_poly
+def verify_mumford_pair(f_coeffs, s, p, v0, v1, modulus=None, debug_first_failure=None):
+    """
+    Standalone verification of Mumford condition.
+    Useful for unit testing specific divisors.
+    """
+    if modulus is None:
+        R = PolynomialRing(QQ, 'x')
+    else:
+        R = PolynomialRing(GF(modulus), 'x')
+    
+    x = R.gen()
+    
+    if modulus is None:
+        s_val = QQ(s); p_val = QQ(p); v0_val = QQ(v0); v1_val = QQ(v1)
+        f_poly_coeffs = [QQ(c) for c in f_coeffs]
+    else:
+        s_val = int(s) % modulus; p_val = int(p) % modulus
+        v0_val = int(v0) % modulus; v1_val = int(v1) % modulus
+        f_poly_coeffs = [int(c) % modulus for c in f_coeffs]
+    
+    u_poly = x**2 - s_val*x + p_val
+    v_poly = v1_val*x + v0_val
+    
+    f_poly = R(0)
+    for coeff in f_poly_coeffs:
+        f_poly = f_poly * x + coeff
+    
+    diff = v_poly**2 - f_poly
+    remainder = diff % u_poly
+    
+    return remainder.is_zero()
 
-    deg_v_expected = d // 2 - 1
+def check_2torsion_difference(div1, div2, f_coeffs):
+    try:
+        R = PolynomialRing(QQ, 'x')
+        f_poly = build_f_poly(f_coeffs, R)
+        C = HyperellipticCurve(f_poly)
+        J = C.jacobian()
+        
+        u1 = div1['u_poly']; v1 = div1['v_poly']
+        D1 = J([u1, v1])
+        u2 = div2['u_poly']; v2 = div2['v_poly']
+        D2 = J([u2, v2])
+        
+        diff = D1 - D2
+        if (2 * diff).is_zero():
+            return True
+        return False
+    except Exception:
+        return False
 
-    def coeff_at(k):
-        if k < 0: return QQ(0)
+def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list):
+    """
+    Tries scaling v_candidate. If (v_scaled^2 - f) % u == 0:
+      1. Normalizes v_scaled (infinity parity)
+      2. Deduplicates
+      3. Saves
+    """
+    for lam in _SCALE_TRIALS:
         try:
-            return QQ(v_poly.coefficient(k))
+            v_test = lam * v_candidate
+            
+            # --- CRITICAL FIX ---
+            # Verify the Mumford condition BEFORE any normalization.
+            # Normalization flips signs, which doesn't affect v^2 (the check),
+            # but we want to ensure we found a valid root first.
+            if (v_test**2 - f_poly) % u == 0:
+                
+                # Normalize AFTER acceptance to ensure canonical storage
+                v_norm = normalize_infinity_parity(v_test, f_poly)
+                
+                key = _canon_key_from_polys(u, v_norm)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    
+                    u_key = tuple(rational_pair_key(c) for c in u.list())
+                    seen_u_map[u_key] = (u, v_norm)
+
+                    newt = dict(orig_tup)
+                    newt['u_poly'] = u
+                    newt['v_poly'] = v_norm
+                    coeffs = v_norm.list()
+                    if len(coeffs) == 0:
+                        newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
+                    elif len(coeffs) == 1:
+                        newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(0)
+                    else:
+                        newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(coeffs[1])
+                        
+                    newt['s'] = QQ(s_q)
+                    newt['p'] = QQ(p_q)
+                    u_disc = u.discriminant()
+                    # Exact check for rational roots support
+                    newt['has_rational_roots'] = True if (u.degree() <= 2 and u_disc.is_square()) else False
+                    newt['scale_used'] = lam
+                    
+                    out_list.append(newt)
+                    # Log explicitly for debugging
+                    logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
+                return True
         except Exception:
-            return QQ(0)
-
-    sign_coeff = None
-    # Check expected degree
-    for k in range(deg_v_expected, -1, -1):
-        c = coeff_at(k)
-        if c != 0:
-            sign_coeff = c
-            break
-
-    # fallback
-    if sign_coeff is None:
-        for k in range(deg_v_expected + 1, deg_v_expected + 4):
-            c = coeff_at(k)
-            if c != 0:
-                sign_coeff = c
-                break
-
-    if sign_coeff is None:
-        return v_poly
-
-    if sign_coeff < 0:
-        return -v_poly
-
-    return v_poly
-
+            continue
+    return False
 
 def canonicalize_and_dedup(divisors, f_coeffs):
-    """
-    Canonicalize and deduplicate Mumford (s,p,v0,v1) reconstructions.
-    STRICTLY enforces: at most ONE divisor per unique u(x).
-    """
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
+    
+    # Strictly build f(x) from High->Low coefficients
     f_poly = build_f_poly(f_coeffs, R)
+    
+    # Sanity check for genus 2
+    if f_poly.degree() not in [5, 6]:
+        logger.warning(f"Warning: f_poly degree is {f_poly.degree()}, expected 5 or 6 for Genus 2.")
 
     seen = set()
-    seen_u = dict()  # Maps u_key -> (u_poly, v_poly)
+    seen_u = dict()
     out = []
-    skipped_examples = []
-    accepted_count = 0
     skipped_count = 0
+    accepted_count = 0
 
     def u_key_from_poly(u_poly):
-        pairs = tuple(rational_pair_key(c) for c in u_poly.list())
-        return pairs
-
-    def same_v_up_to_sign_mod_u(v_a, v_b, u_poly):
-        try:
-            ra = v_a % u_poly
-            rb = v_b % u_poly
-            diff = (ra - rb) % u_poly
-            ssum = (ra + rb) % u_poly
-            return diff.is_zero() or ssum.is_zero()
-        except Exception:
-            return False
-
-    def finalize_v_and_normalize(u_poly, v_poly):
-        v_red = v_poly
-        try:
-            v_red = v_red.change_ring(QQ)
-        except Exception:
-            raise
-        # Normalize infinity parity
-        v_red = normalize_infinity_parity(v_red, f_poly)
-        return v_red
-
-    def local_try_accept(u_poly, v_poly, s_q, p_q, orig_tup, f_coeffs):
-        nonlocal accepted_count, skipped_count
-
-        try:
-            v_red = v_poly % u_poly
-        except Exception:
-            skipped_count += 1
-            return False
-
-        v_norm = finalize_v_and_normalize(u_poly, v_red)
-        u_k = u_key_from_poly(u_poly)
-
-        # STRICT Check: If u is already seen, we MUST check duplication
-        if u_k in seen_u:
-            stored_u, stored_v = seen_u[u_k]
-            
-            # 1. Check if same v (or -v)
-            if same_v_up_to_sign_mod_u(v_norm, stored_v, stored_u):
-                return False
-            else:
-                # 2. Different v for same u.
-                # In genus 2 search context, we treat same-u as duplicate/dependent.
-                # We check 2-torsion for logging, but reject regardless to avoid phantom rank.
-                temp_div1 = {'u_poly': u_poly, 'v_poly': v_norm}
-                temp_div2 = {'u_poly': stored_u, 'v_poly': stored_v}
-                try:
-                    is_tors = check_2torsion_difference(temp_div1, temp_div2, f_coeffs)
-                    if is_tors:
-                         logger.debug("Skipping divisor differing by 2-torsion: s=%r p=%r", s_q, p_q)
-                except Exception:
-                    pass
-                
-                # Unconditional rejection of same-u to enforce rank constraints
-                skipped_count += 1
-                return False
-
-        accepted = _try_scale_and_accept(
-            u_poly, v_norm, f_poly,
-            s_q, p_q, orig_tup,
-            seen, R, out
-        )
-
-        if accepted:
-            # We record v_norm (the input to this function) as the representative for u
-            seen_u[u_k] = (u_poly, v_norm)
-            accepted_count += 1
-            return True
-
-        return False
+        return tuple(rational_pair_key(c) for c in u_poly.list())
 
     for tup in divisors:
         try:
-            s_raw = tup['s']; p_raw = tup['p']; v0_raw = tup['v_0']; v1_raw = tup['v_1']
-        except Exception:
-            skipped_count += 1
-            continue
-
-        try:
-            s_q = QQ(s_raw); p_q = QQ(p_raw); v0_q = QQ(v0_raw); v1_q = QQ(v1_raw)
+            s_q = QQ(tup['s'])
+            p_q = QQ(tup['p'])
+            v0_q = QQ(tup['v_0'])
+            v1_q = QQ(tup['v_1'])
         except Exception:
             skipped_count += 1
             continue
@@ -495,38 +441,57 @@ def canonicalize_and_dedup(divisors, f_coeffs):
             skipped_count += 1
             continue
 
-        # Strategy 1: Direct acceptance
-        if local_try_accept(u, v, s_q, p_q, tup, f_coeffs):
+        # Start with reduced v, but do NOT normalize parity yet.
+        try:
+            v_red = v % u
+        except Exception:
+            skipped_count += 1
             continue
 
-        # Check discriminant for roots
+        u_k = u_key_from_poly(u)
+
+        # 1. Check for Duplicate U
+        if u_k in seen_u:
+            stored_u, stored_v = seen_u[u_k]
+            # If same v (up to sign), it's a duplicate.
+            # If different v, it's a dependent divisor (same x-coords, different y).
+            # We filter both to enforce one divisor per u support.
+            if not same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
+                 # Optional: Check 2-torsion difference for debug purposes only
+                temp_div1 = {'u_poly': u, 'v_poly': normalize_infinity_parity(v_red, f_poly)}
+                temp_div2 = {'u_poly': stored_u, 'v_poly': stored_v}
+                if check_2torsion_difference(temp_div1, temp_div2, f_coeffs):
+                     logger.debug("Skipping divisor differing by 2-torsion: s=%r p=%r", s_q, p_q)
+            
+            skipped_count += 1
+            continue
+
+        # 2. Strategy 1: Direct Scaling
+        if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out):
+            accepted_count += 1
+            continue
+
+        # Discriminant for Root Strategies
         disc = s_q * s_q - 4 * p_q
         disc_sqrt = rational_sqrt(disc) if disc != 0 else QQ(0)
 
-        # Strategy 2: Double Root Logic
+        # 3. Strategy 2: Double Root (u = (x-r)^2)
         if disc_sqrt is not None and disc_sqrt == 0:
             r_double = s_q / QQ(2)
             fr = f_poly(r_double)
             sqrt_fr = rational_sqrt(fr)
             
             if sqrt_fr is not None:
-                # Check current v value
-                v_temp = v % u
-                v_temp = finalize_v_and_normalize(u, v_temp)
-                vr = v_temp(r_double)
-
+                vr = v_red(r_double)
                 if vr != 0:
                     lam_candidate = QQ(sqrt_fr) / QQ(vr)
-                    if lam_candidate in _SCALE_TRIALS:
-                        try:
-                            v_scaled = lam_candidate * v
-                            if local_try_accept(u, v_scaled, s_q, p_q, tup, f_coeffs):
-                                continue
-                        except Exception:
-                            pass
+                    v_scaled = lam_candidate * v_red
+                    if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                        accepted_count += 1
+                        continue
             continue
 
-        # Strategy 3: Split Root Logic
+        # 4. Strategy 3: Split Roots (u = (x-r1)(x-r2))
         if disc_sqrt is not None:
             r_plus = (s_q + disc_sqrt) / QQ(2)
             r_minus = (s_q - disc_sqrt) / QQ(2)
@@ -539,110 +504,41 @@ def canonicalize_and_dedup(divisors, f_coeffs):
                 sqrt_minus = rational_sqrt(fa_minus)
                 
                 if sqrt_plus is not None and sqrt_minus is not None:
-                    # Try Scaling Existing v
-                    v_temp = v % u
-                    v_temp = finalize_v_and_normalize(u, v_temp)
-                    vr_plus = v_temp(r_plus)
-                    vr_minus = v_temp(r_minus)
-
-                    tried_scale = False
+                    # A. Try scaling existing v
+                    vr_plus = v_red(r_plus)
                     if vr_plus != 0:
+                        tried_scale = False
                         for target in (sqrt_plus, -sqrt_plus):
-                            lam_candidate = QQ(target) / QQ(vr_plus)
-                            if lam_candidate in _SCALE_TRIALS:
-                                try:
-                                    # Check if this scale also satisfies the other root
-                                    val_minus = lam_candidate * vr_minus
-                                    if val_minus == sqrt_minus or val_minus == -sqrt_minus:
-                                        v_scaled = lam_candidate * v
-                                        if local_try_accept(u, v_scaled, s_q, p_q, tup, f_coeffs):
-                                            tried_scale = True
-                                            break
-                                except Exception:
-                                    pass
+                            lam = QQ(target) / QQ(vr_plus)
+                            v_scaled = lam * v_red
+                            if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                                accepted_count += 1
+                                tried_scale = True
+                                break
                         if tried_scale:
                             continue
 
-                    # Try Interpolation
+                    # B. Interpolate new v
                     matched = False
                     for sig_plus in (+1, -1):
                         for sig_minus in (+1, -1):
-                            num = (QQ(sig_plus) * sqrt_plus) - (QQ(sig_minus) * sqrt_minus)
-                            alpha = num / denom
-                            beta = (QQ(sig_plus) * sqrt_plus) - alpha * r_plus
+                            y_plus = QQ(sig_plus) * sqrt_plus
+                            y_minus = QQ(sig_minus) * sqrt_minus
+                            
+                            alpha = (y_plus - y_minus) / denom
+                            beta = y_plus - alpha * r_plus
                             v_candidate = alpha * x + beta
-                            try:
-                                if local_try_accept(u, v_candidate, s_q, p_q, tup, f_coeffs):
-                                    matched = True
-                                    break
-                            except Exception:
-                                continue
+                            
+                            if _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, tup, seen, seen_u, out):
+                                accepted_count += 1
+                                matched = True
+                                break
                         if matched:
                             break
                     if matched:
                         continue
 
-        # Strategy 4: Fallback Scaling (Irreducible Case)
-        accepted = False
-        for lam in _SCALE_TRIALS:
-            try:
-                v_scaled = lam * v
-                if local_try_accept(u, v_scaled, s_q, p_q, tup, f_coeffs):
-                    accepted = True
-                    break
-            except Exception:
-                continue
+        skipped_count += 1
 
-        if not accepted:
-            skipped_count += 1
-            if len(skipped_examples) < 10:
-                skipped_examples.append(("exhausted", (s_q, p_q)))
-
-    logger.info("canonicalize_and_dedup: accepted=%d skipped=%d total_input=%d", len(out), skipped_count, len(divisors))
-    
-    # Assert invariants
-    for i in range(len(out)):
-        for j in range(i):
-            assert out[i]['u_poly'] != out[j]['u_poly'], "Duplicate u_poly found in output!"
-
+    logger.info("canonicalize_and_dedup: accepted=%d skipped=%d", len(out), skipped_count)
     return out
-
-
-def normalize_infinity_parity(v_poly, f_poly):
-    """
-    Enforce canonical infinity-parity for even-degree hyperelliptic curves.
-    For genus 2: normalize so leading coefficient of v is positive.
-    """
-    try:
-        d = int(f_poly.degree())
-    except Exception:
-        raise
-
-    # Only applies to even degree curves
-    if d % 2 != 0:
-        return v_poly
-
-    # Get actual leading coefficient of v_poly
-    if v_poly.is_zero():
-        return v_poly
-    
-    # Use Sage's leading_coefficient() method
-    try:
-        lc = v_poly.leading_coefficient()
-        if lc < 0:
-            return -v_poly
-        return v_poly
-    except Exception:
-        # Fallback: manually find leading coefficient
-        coeffs = v_poly.list()
-        if not coeffs:
-            return v_poly
-        
-        # Find last nonzero coefficient
-        for c in reversed(coeffs):
-            if c != 0:
-                if c < 0:
-                    return -v_poly
-                return v_poly
-        
-        return v_poly
