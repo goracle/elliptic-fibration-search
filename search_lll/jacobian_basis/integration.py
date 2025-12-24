@@ -4,8 +4,6 @@ import math
 from sage.all import ComplexField, PolynomialRing
 
 
-
-
 """Integration of differentials along paths. — more robust branch handling"""
 
 from sage.all import ComplexField, RealField

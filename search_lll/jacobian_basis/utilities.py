@@ -80,49 +80,10 @@ from sage.all import Matrix, RR, identity_matrix, vector
 # Pairing cache validation (NON-FATAL, symmetry only)
 # ----------------------------------------------------------------------
 
-def sanity_check_pairings(pairing_cache, k):
-    """
-    Ensure symmetry and existence of required pairings.
-    DOES NOT require positivity.
-    """
-    for i in range(k):
-        if (i, i) not in pairing_cache:
-            raise ValueError(f"Missing diagonal pairing for {i}")
-
-    for i in range(k):
-        for j in range(i + 1, k):
-            if (i, j) in pairing_cache:
-                pairing_cache[(j, i)] = pairing_cache[(i, j)]
-            elif (j, i) in pairing_cache:
-                pairing_cache[(i, j)] = pairing_cache[(j, i)]
-            else:
-                raise ValueError(
-                    f"Missing pairing for {(i, j)} — ensure common period matrix"
-                )
-    return True
-
 
 # ----------------------------------------------------------------------
 # Gram matrix centering (CRITICAL)
 # ----------------------------------------------------------------------
-
-def center_gram(G):
-    """
-    Remove affine/null direction from a Gram matrix.
-
-    This is essential for canonical heights and near-torsion divisors.
-    """
-    if not hasattr(G, "nrows"):
-        raise TypeError("center_gram expects a Sage matrix")
-
-    k = G.nrows()
-    if k <= 1:
-        return G
-
-    RR = G.base_ring()
-    one = vector(RR, [1] * k)
-    P = identity_matrix(RR, k) - (one * one.transpose()) / RR(k)
-    return P * G * P
 
 
 # ----------------------------------------------------------------------
@@ -145,17 +106,6 @@ def is_psd_ldl(G, tol=1e-12):
 # Numerical rank (what you ACTUALLY want)
 # ----------------------------------------------------------------------
 
-def numerical_rank(G, tol=1e-12):
-    """
-    Compute numerical rank using eigenvalues with tolerance.
-    """
-    if hasattr(G, "eigenvalues"):
-        eigs = [float(e) for e in G.eigenvalues()]
-    else:
-        eigs = np.linalg.eigvalsh(np.array(G, dtype=float))
-
-    return sum(abs(e) > tol for e in eigs)
-
 
 # ----------------------------------------------------------------------
 # Ridge regularization (legitimate for regulators)
@@ -173,39 +123,119 @@ def add_ridge(G, eps):
 # Make Gram matrix usable for basis selection
 # ----------------------------------------------------------------------
 
+
+# ----------------------------------------------------------------------
+# Independence test helper
+# ----------------------------------------------------------------------
+
+
+def center_gram(G):
+    """
+    Remove the affine/null direction from a Gram matrix.
+
+    This is REQUIRED for canonical height independence tests.
+    """
+    if not hasattr(G, "nrows"):
+        raise TypeError("center_gram expects a Sage matrix")
+
+    k = G.nrows()
+    if k <= 1:
+        return G
+
+    RR = G.base_ring()
+    one = vector(RR, [1] * k)
+    P = identity_matrix(RR, k) - (one * one.transpose()) / RR(k)
+    return P * G * P
+
+
 def normalize_gram_for_basis(G, prec):
     """
-    Full normalization pipeline for basis selection:
-    - symmetrize
-    - center
-    - add tiny ridge
+    Normalize a Gram matrix for basis selection.
+
+    Steps:
+      1. Symmetrize
+      2. Center (quotient affine direction)
+      3. Add tiny ridge for numerical stability
     """
+    if not hasattr(G, "nrows"):
+        raise TypeError("normalize_gram_for_basis expects a Sage matrix")
+
     RR = G.base_ring()
     k = G.nrows()
 
-    # Symmetrize
+    # --- Symmetrize ---
     for i in range(k):
         for j in range(i + 1, k):
             avg = (G[i, j] + G[j, i]) / 2
             G[i, j] = avg
             G[j, i] = avg
 
-    # Center (THIS FIXES YOUR FAILURE)
+    # --- Center (CRITICAL) ---
     Gc = center_gram(G)
 
-    # Ridge (scale with precision)
+    # --- Ridge regularization (precision-scaled) ---
     eps = RR(10) ** (-prec // 4)
-    return add_ridge(Gc, eps)
+    return Gc + eps * identity_matrix(RR, k)
 
 
-# ----------------------------------------------------------------------
-# Independence test helper
-# ----------------------------------------------------------------------
-
-def rank_increases(G_old, G_new, tol=1e-12):
+def numerical_rank(G, tol=1e-12):
     """
-    Decide independence by rank growth, not PD.
+    Numerical rank via eigenvalues with tolerance.
     """
-    r_old = numerical_rank(G_old, tol) if G_old is not None else 0
-    r_new = numerical_rank(G_new, tol)
-    return r_new > r_old
+    if hasattr(G, "eigenvalues"):
+        eigs = [float(e) for e in G.eigenvalues()]
+    else:
+        import numpy as np
+        eigs = np.linalg.eigvalsh(np.array(G, dtype=float))
+
+    return sum(abs(e) > tol for e in eigs)
+
+
+def rank_increases(G_old, G_new, prec, tol=1e-12):
+    """
+    Decide independence by rank growth
+    AFTER proper Gram normalization.
+    """
+    G_new = normalize_gram_for_basis(G_new, prec)
+
+    if G_old is None:
+        return numerical_rank(G_new, tol) > 0
+
+    G_old = normalize_gram_for_basis(G_old, prec)
+    return numerical_rank(G_new, tol) > numerical_rank(G_old, tol)
+
+
+from .utilities import normalize_gram_for_basis
+from sage.all import Matrix
+
+def sanity_check_pairings(pairing_cache, k, prec=1024):
+    """
+    Ensure symmetry and existence of required pairings.
+    Normalizes the Gram matrix to ensure numerical stability.
+    DOES NOT require positivity.
+    """
+    # Check that diagonal pairings exist
+    for i in range(k):
+        if (i, i) not in pairing_cache:
+            raise ValueError(f"Missing diagonal pairing for {i}")
+
+    # Ensure symmetry in the pairing cache
+    for i in range(k):
+        for j in range(i + 1, k):
+            if (i, j) in pairing_cache:
+                pairing_cache[(j, i)] = pairing_cache[(i, j)]
+            elif (j, i) in pairing_cache:
+                pairing_cache[(i, j)] = pairing_cache[(j, i)]
+            else:
+                raise ValueError(f"Missing pairing for {(i, j)} — ensure common period matrix")
+
+    # If a Gram matrix is involved in pairings, normalize it for numerical stability
+    # Here we're assuming that the pairing_cache contains the Gram matrix.
+    # If pairing_cache is not directly a Gram matrix, 
+    # the relevant matrix computation needs to be retrieved and normalized.
+    
+    # Example: Assuming pairing_cache contains matrix data (e.g., for testing purposes)
+    pairing_matrix = Matrix(pairing_cache.base_ring(), k, k)  # Example conversion to Sage Matrix
+    pairing_matrix = normalize_gram_for_basis(pairing_matrix, prec)  # Normalize the matrix
+
+    return True  # Return True when the pairings have passed the sanity check

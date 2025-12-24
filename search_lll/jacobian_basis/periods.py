@@ -46,6 +46,65 @@ def choose_numerical_base_point(f_coeffs, prec=300):
     return (x_base, y_base)
 
 
+def normalize_periods_and_z(Omega, z_vec):
+    """
+    Normalize periods and Abel-Jacobi vector.
+    Returns tau (g×g) and z_norm (g×1 with SCALAR entries).
+    """
+    from sage.all import Matrix
+    
+    Omega = Matrix(Omega)
+    g = Omega.nrows()
+    
+    # Check if already normalized
+    if Omega.ncols() == g:
+        tau = Omega
+        if z_vec is None:
+            z_norm = None
+        else:
+            # Create g×1 matrix element by element
+            from sage.all import matrix
+            z_norm = matrix(tau.base_ring(), g, 1)
+            for i in range(g):
+                z_norm[i, 0] = z_vec[i]  # Direct indexing extracts scalars
+        return tau, z_norm
+    
+    if Omega.ncols() != 2*g:
+        raise ValueError(f"Omega shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g cols")
+    
+    # Split and normalize
+    Omega1 = Omega[:, :g]
+    Omega2 = Omega[:, g:]
+    
+    if not Omega1.is_invertible():
+        raise ValueError("Omega1 singular")
+    
+    Omega1_inv = Omega1.inverse()
+    tau = Omega1_inv * Omega2
+    
+    # Normalize z
+    if z_vec is None:
+        z_norm = None
+    else:
+        # Build column vector element-by-element
+        from sage.all import matrix
+        z_temp = matrix(Omega.base_ring(), g, 1)
+        for i in range(g):
+            z_temp[i, 0] = z_vec[i]
+        z_norm = Omega1_inv * z_temp
+    
+    # Sanity checks
+    if max(abs((tau - tau.transpose()).list())) > 1e-10:
+        raise ValueError("tau not symmetric")
+    
+    Im_tau = Matrix([[c.imag() for c in row] for row in tau])
+    eigs = Im_tau.eigenvalues()
+    if any(float(e) <= 1e-14 for e in eigs):
+        raise ValueError("Im(tau) not positive definite")
+    
+    return tau, z_norm
+
+
 def abel_jacobi_mumford(
     div, f_coeffs, base_point, *,
     integrate_func=None,    # function(base_x, x_end, y_end, f_coeffs, use_x_weight, prec, debug)
@@ -139,7 +198,7 @@ def abel_jacobi_mumford(
 
     # iterate roots
     for idx, x_pt in enumerate(roots):
-        # multiplicity handling: if multiplicity > 1 assume a Weierstrass (branch) point y=0
+        # multiplicity handling
         multiplicity = mults[idx] if idx < len(mults) else 1
 
         x_pt_cc = CC(x_pt)  # convert to CC
@@ -156,39 +215,32 @@ def abel_jacobi_mumford(
             min_f = absf
             min_idx = idx
 
-        # If multiplicity>1 trust it's a Weierstrass branch: set y=0 (but still allow tiny numerical)
-        if multiplicity > 1:
-            y_pt = CC(0)
+        # Determine y_pt
+        # Strategy: Trust v(x) if it satisfies y^2 = f(x), even if multiplicity > 1.
+        # This fixes the bug where non-Weierstrass double points (2P) were forced to y=0.
+        
+        is_consistent = (abs(y_from_v**2 - fval) < tol_consistency) or (abs(y_from_v**2 - fval) < 1e-5 * max(1, abs(fval)))
+        
+        if is_consistent:
+            y_pt = y_from_v
         else:
-            # If v(x) matches sqrt(f) within tolerance, accept v(x). Otherwise pick sqrt(f)
-            # but choose sign consistent with v(x) if possible.
-            # first check if fval is near zero
-            if abs(fval) < tiny:
-                # branch point: set y to zero (or to v if v tiny)
-                if abs(y_from_v) < tol_consistency:
-                    y_pt = CC(0)
-                else:
-                    # prefer v as it's probably the correct local branch
-                    y_pt = y_from_v
+            # v is inconsistent. Try to recover by taking sqrt(f) closest to v.
+            if debug:
+                print(f"[abel_jacobi] Warning: v(x)^2 != f(x) at root {idx}. Using sqrt(f). Diff={abs(y_from_v**2 - fval)}")
+            
+            y_sqrt = fval.sqrt()
+            if abs(y_from_v - y_sqrt) <= abs(y_from_v + y_sqrt):
+                y_pt = y_sqrt
             else:
-                # compute principal sqrt using CC
-                y_sqrt = fval.sqrt()     # this gives one sqrt in CC
-                # two choices: y_sqrt or -y_sqrt. choose the one closer to v(x).
-                if abs(y_from_v - y_sqrt) <= abs(y_from_v + y_sqrt):
-                    y_pt = y_sqrt
-                else:
-                    y_pt = -y_sqrt
+                y_pt = -y_sqrt
+            
+            # Double check for true branch points (y ~ 0) if v was inconsistent
+            if abs(y_pt) < tol_consistency and abs(fval) < tiny:
+                y_pt = CC(0)
 
-                # final safety: if distance is huge, fall back to v_from_v (but warn)
-                if abs((y_pt**2) - fval) > tol_consistency and debug:
-                    print(f"[abel_jacobi] Warning: y^2 != f at root idx {idx}, |y^2-f|={abs((y_pt**2)-fval)}")
         # At this point y_pt is the target y at x_pt we will pass to integrator.
         # Integrate two differentials: 1/(2y) and x/(2y)
         try:
-            #int0 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
-            #                      use_x_weight=False, prec=prec, debug=debug)
-            #int1 = integrate_func(base_x, x_pt_cc, y_pt, f_coeffs,
-            #                      use_x_weight=True, prec=prec, debug=debug)
             int0 = integrate_func(base_x, x_pt_cc, base_y, y_pt, f_coeffs,
                                   use_x_weight=False, prec=prec, debug=debug)
             int1 = integrate_func(base_x, x_pt_cc, base_y, y_pt, f_coeffs,
@@ -206,7 +258,10 @@ def abel_jacobi_mumford(
             raise
             continue
 
-        aj_vec += vector(CC, [int0, int1])
+        # [cite_start]CRITICAL FIX: Multiply contribution by multiplicity [cite: 52]
+        # A double root in u means the point appears twice in the divisor sum.
+        # Previously this was missing, causing h(2P) to be computed as h(P).
+        aj_vec += CC(multiplicity) * vector(CC, [int0, int1])
 
     if debug:
         print(f"[abel_jacobi] min |f(x)| among nodes (roots): {min_f} at index {min_idx}")
@@ -235,64 +290,5 @@ def abel_jacobi_mumford(
     ret = aj_vec
     abel_jacobi_mumford.cache[key] = ret
     return ret
+
 abel_jacobi_mumford.cache = {}
-
-
-def normalize_periods_and_z(Omega, z_vec):
-    """
-    Normalize periods and Abel-Jacobi vector.
-    Returns tau (g×g) and z_norm (g×1 with SCALAR entries).
-    """
-    from sage.all import Matrix
-    
-    Omega = Matrix(Omega)
-    g = Omega.nrows()
-    
-    # Check if already normalized
-    if Omega.ncols() == g:
-        tau = Omega
-        if z_vec is None:
-            z_norm = None
-        else:
-            # Create g×1 matrix element by element
-            from sage.all import matrix
-            z_norm = matrix(tau.base_ring(), g, 1)
-            for i in range(g):
-                z_norm[i, 0] = z_vec[i]  # Direct indexing extracts scalars
-        return tau, z_norm
-    
-    if Omega.ncols() != 2*g:
-        raise ValueError(f"Omega shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g cols")
-    
-    # Split and normalize
-    Omega1 = Omega[:, :g]
-    Omega2 = Omega[:, g:]
-    
-    if not Omega1.is_invertible():
-        raise ValueError("Omega1 singular")
-    
-    Omega1_inv = Omega1.inverse()
-    tau = Omega1_inv * Omega2
-    
-    # Normalize z
-    if z_vec is None:
-        z_norm = None
-    else:
-        # Build column vector element-by-element
-        from sage.all import matrix
-        z_temp = matrix(Omega.base_ring(), g, 1)
-        for i in range(g):
-            z_temp[i, 0] = z_vec[i]
-        z_norm = Omega1_inv * z_temp
-    
-    # Sanity checks
-    if max(abs((tau - tau.transpose()).list())) > 1e-10:
-        raise ValueError("tau not symmetric")
-    
-    Im_tau = Matrix([[c.imag() for c in row] for row in tau])
-    eigs = Im_tau.eigenvalues()
-    if any(float(e) <= 1e-14 for e in eigs):
-        raise ValueError("Im(tau) not positive definite")
-    
-    return tau, z_norm
-

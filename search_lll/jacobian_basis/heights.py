@@ -4,92 +4,16 @@ import warnings
 from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve
 
 from .archimedean import archimedean_height_correction
-from .local import get_bad_primes, local_height_correction_finite
 from .periods import choose_numerical_base_point
 from search_lll.homology import *
 import multiprocessing
 from .local import get_bad_primes, local_height_correction_finite, local_correction_worker
-
-
-# helper_jacobian_adapter.py (paste into heights.py or import)
 from sage.all import PolynomialRing, QQ, HyperellipticCurve
-
-
-# replace previous helper with this version
 from sage.all import PolynomialRing, QQ, HyperellipticCurve, Integer
+from sage.all import QQ
 import logging
 
 logger = logging.getLogger("mumford_adapter")
-
-
-from sage.all import QQ
-
-logger = logging.getLogger("arakelov_debug")
-logger.setLevel(logging.INFO)
-
-
-"""Height computation functions."""
-
-
-from .local import get_bad_primes, local_height_correction_finite, local_correction_worker, local_naive_height_p
-# from search_lll.homology import * # Assuming this exists or is not needed for the fix
-import math
-
-# ... (Include naive_height_qq, arakelov_quasi_height, _div_to_coeff_tuple, mumford_dict_to_jacobian_element as provided in original) ...
-# ... (Include build_f_poly_from_coeffs, _scale_f_coeffs_by, etc. as provided) ...
-
-# -------------------------------------------------------------------------
-# Debug/Telemetry Enhanced Canonical Height
-# -------------------------------------------------------------------------
-logger = logging.getLogger("arakelov_debug")
-logger.setLevel(logging.INFO)
-
-
-"""Height computation functions."""
-
-
-# from search_lll.homology import * import multiprocessing
-
-# ... (naive_height_qq, arakelov_quasi_height, _div_to_coeff_tuple, mumford_dict_to_jacobian_element... keep these as they were) ...
-# ... (build_f_poly_from_coeffs, _scale_f_coeffs_by, etc... keep as they were) ...
-
-# -------------------------------------------------------------------------
-# Debug/Telemetry Enhanced Canonical Height
-# -------------------------------------------------------------------------
-logger = logging.getLogger("arakelov_debug")
-logger.setLevel(logging.INFO)
-
-
-"""Height computation functions."""
-
-
-# Functions: naive_height_qq, arakelov_quasi_height, arakelov_canonical_height
-
-
-# helper_jacobian_adapter.py (paste into heights.py or import)
-
-
-# replace previous helper with this version
-
-logger = logging.getLogger("mumford_adapter")
-
-
-# -------------------------------------------------------------------------
-# Debug/Telemetry Enhanced Canonical Height
-# -------------------------------------------------------------------------
-logger = logging.getLogger("arakelov_debug")
-logger.setLevel(logging.INFO)
-
-
-"""Height computation functions."""
-
-
-logger = logging.getLogger("arakelov_debug")
-logger.setLevel(logging.INFO)
-
-# -------------------------------------------------------------------------
-# Height Functions
-# -------------------------------------------------------------------------
 
 def naive_height_qq(div, prec=53):
     """
@@ -352,12 +276,6 @@ def mumford_dict_to_jacobian_element(div_dict, f_coeffs):
         raise
 
     return J_elem
-
-
-from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve, log
-from .local import get_bad_primes, local_height_correction_finite, local_naive_height_p
-
-logger = logging.getLogger("arakelov_debug")
 
 
 def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,

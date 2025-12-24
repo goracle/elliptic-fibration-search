@@ -41,6 +41,7 @@ def get_bad_primes(f_coeffs):
     
     ret = sorted(list(bad))
     get_bad_primes.cache[key] = ret
+    assert ret, ret
     return ret
 get_bad_primes.cache = {}
 
@@ -58,6 +59,7 @@ def local_naive_height_p(div, p):
     except Exception:
         # Fallback for raw list/tuple input
         u_poly, _ = div[0], div[1]
+        raise
 
     coeffs = u_poly.list() 
     
@@ -80,6 +82,8 @@ def local_naive_height_p(div, p):
                     vals.append(QQ(c).valuation(p))
                 except Exception:
                     raise RuntimeError(f"Cannot compute valuation for coeff {c} type {type(c)}")
+                raise
+            raise
 
     if not vals:
         return 0.0
@@ -103,7 +107,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         return local_height_correction_finite.cache[key]
 
     if p == 2:
-        MIN_PADIC_PREC = 4096 
+        MIN_PADIC_PREC = 4096*8
         MAX_RETRIES = 5
     else:
         MIN_PADIC_PREC = 1024
@@ -142,6 +146,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         
         for k in range(0, num_doublings_local + 1):
             if current_P.is_zero():
+                assert None, "TORSION"
                 return float(0.0 - h0), "torsion_hit"
 
             h_k = local_naive_height_p(current_P, p)
@@ -191,6 +196,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             current_prec *= 2
             cur_num_doublings += 5
             attempt += 1
+            raise
 
     raise RuntimeError(f"local_height_correction_finite failed at p={p} after {attempt} attempts. Last reason: {last_reason}")
 

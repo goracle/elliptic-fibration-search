@@ -46,48 +46,6 @@ logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
 
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# keep the same scale trials as before
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
-from sage.all import QQ, PolynomialRing, GF, HyperellipticCurve, Matrix, CDF, RealField, Integer
-
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# candidate scales we try (including reciprocals)
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), 
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# candidate scales we try (including reciprocals)
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), 
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# candidate scales we try (including reciprocals)
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), 
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# candidate scales we try (including reciprocals)
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), 
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
 def validate_mumford_solver():
     """Simple test function (placeholder)."""
     print("Use verify_mumford_pair directly for testing.")

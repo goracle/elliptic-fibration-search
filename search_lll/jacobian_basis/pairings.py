@@ -94,49 +94,6 @@ def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0
     # Convert to QQ
     return real_part.nearby_rational(max_error=RR(2)**(-prec+10))
 
-def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
-    """Precompute all pairings for given indices in parallel"""
-    pairs_to_compute = []
-    for r in range(len(indices)):
-        for c in range(r, len(indices)):
-            i, j = indices[r], indices[c]
-            if i > j:
-                i, j = j, i
-            if (i, j) not in pairing_cache:
-                div_i = jac_elements[i][0]
-                div_j = jac_elements[j][0]
-                pairs_to_compute.append((
-                    i, j, div_i, div_j, f_coeffs, prec,
-                    height_cache[i], height_cache[j]
-                ))
-
-    if not pairs_to_compute:
-        return pairing_cache
-
-    print(f"[arakelov] Computing {len(pairs_to_compute)} pairings...")
-    
-    if len(pairs_to_compute) > 2 and n_jobs > 1:
-        with Pool(processes=n_jobs) as pool:
-            results = []
-            # Fix: Use compute_pairing_worker (no underscore)
-            for i, res in enumerate(pool.imap_unordered(compute_pairing_worker, pairs_to_compute)):
-                results.append(res)
-                if (i + 1) % 100 == 0:
-                    print(f"  Progress: {i+1}/{len(pairs_to_compute)}")
-            
-        for (i, j), val, error in results:
-            if error:
-                # We raise here because a failure in P+Q AND P-Q is a critical geometric failure
-                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
-            pairing_cache[(i, j)] = val
-    else:
-        for args in pairs_to_compute:
-            (i, j), val, error = compute_pairing_worker(args)
-            if error:
-                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
-            pairing_cache[(i, j)] = val
-    
-    return pairing_cache
 
 def gram_logdet_and_cond(basis_indices, get_pairing):
     """
@@ -173,3 +130,63 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
     smax = svals[0]
     numeric_rank = sum(1 for s in svals if s > smax * tol_rel)
     return {"n": n, "svals": svals, "log10_abs_det": log10_abs_det, "log10_cond": log10_cond, "numeric_rank": numeric_rank}
+
+
+from .utilities import normalize_gram_for_basis
+
+
+def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
+    """Precompute all pairings for given indices in parallel, ensuring numerical stability with Gram matrix normalization"""
+    
+    pairs_to_compute = []
+    for r in range(len(indices)):
+        for c in range(r, len(indices)):
+            i, j = indices[r], indices[c]
+            if i > j:
+                i, j = j, i
+            if (i, j) not in pairing_cache:
+                div_i = jac_elements[i][0]
+                div_j = jac_elements[j][0]
+                pairs_to_compute.append((
+                    i, j, div_i, div_j, f_coeffs, prec,
+                    height_cache[i], height_cache[j]
+                ))
+
+    if not pairs_to_compute:
+        return pairing_cache
+
+    print(f"[arakelov] Computing {len(pairs_to_compute)} pairings...")
+    
+    if len(pairs_to_compute) > 2 and n_jobs > 1:
+        with Pool(processes=n_jobs) as pool:
+            results = []
+            # Use compute_pairing_worker (no underscore)
+            for i, res in enumerate(pool.imap_unordered(compute_pairing_worker, pairs_to_compute)):
+                results.append(res)
+                if (i + 1) % 100 == 0:
+                    print(f"  Progress: {i+1}/{len(pairs_to_compute)}")
+            
+        # After computing the pairings, normalize the Gram matrix
+        for (i, j), val, error in results:
+            if error:
+                # A failure in both P+Q and P-Q is a critical geometric failure
+                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
+            pairing_cache[(i, j)] = val
+
+    else:
+        for args in pairs_to_compute:
+            (i, j), val, error = compute_pairing_worker(args)
+            if error:
+                raise RuntimeError(f"Pairing computation failed for ({i},{j}): {error}")
+            pairing_cache[(i, j)] = val
+
+    # Now, normalize the Gram matrix in the pairing cache (if relevant)
+    if isinstance(pairing_cache, dict):
+        # Iterate over pairing_cache and normalize matrices
+        for key, matrix in pairing_cache.items():
+            if isinstance(matrix, Matrix):
+                # Normalize the matrix using the desired precision
+                normalized_matrix = normalize_gram_for_basis(matrix, prec)
+                pairing_cache[key] = normalized_matrix
+
+    return pairing_cache

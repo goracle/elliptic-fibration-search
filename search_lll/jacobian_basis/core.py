@@ -315,6 +315,33 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
     return selected, info
 
 
+def check_2torsion_equivalence(new_div, basis_divs, C):
+    """
+    Check if new_div ≡ existing_div (mod 2-torsion).
+    For genus-2, efficiently check via reduction.
+    """
+    J = C.jacobian()
+    
+    # Convert to Jacobian elements
+    new_elem = mumford_to_jacobian_element(new_div['s'], new_div['p'], 
+                                           new_div['v_0'], new_div['v_1'], C)
+    
+    for old_div in basis_divs:
+        old_elem = mumford_to_jacobian_element(old_div['s'], old_div['p'],
+                                               old_div['v_0'], old_div['v_1'], C)
+        
+        diff = new_elem - old_elem
+        
+        # Check if diff is 2-torsion: is 2*diff = 0?
+        try:
+            if (2 * diff).is_zero():
+                return True, old_div
+        except:
+            pass
+            
+    return False, None
+
+
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
                                       test_normalization=None, n_jobs=-1):
     """
@@ -325,6 +352,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
       - Uses a strictly raising height implementation.
       - If height/pairing computations fail, the candidate divisor is REJECTED 
         rather than poisoning the basis with 0.0.
+      - Explicitly checks for 2-torsion equivalence to avoid rank inflation.
     """
     if not all_divisors:
         return [], 0, None
@@ -454,6 +482,39 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     print(f"  Skipping divisor {cand_idx}: height ~ 0")
             continue
 
+        # ---------------------------------------------------------
+        # Critical Fix: Check for 2-torsion equivalence against basis
+        # ---------------------------------------------------------
+        cand_jac = jac_elements[cand_idx][1]
+        is_torsion_equiv = False
+        
+        for b_idx in basis_indices:
+            basis_jac = jac_elements[b_idx][1]
+            # Check 2*(P - Q) == 0  (P = Q + T)
+            try:
+                diff = cand_jac - basis_jac
+                if (2 * diff).is_zero():
+                    is_torsion_equiv = True
+                    if debug:
+                        print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (diff)")
+                    break
+                
+                # Check 2*(P + Q) == 0 (P = -Q + T). 
+                # Since h(P) = h(-P), this is also a dependency.
+                summ = cand_jac + basis_jac
+                if (2 * summ).is_zero():
+                    is_torsion_equiv = True
+                    if debug:
+                        print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (sum)")
+                    break
+            except Exception:
+                # If Jacobian arithmetic fails, assume safe to proceed to height check
+                pass
+        
+        if is_torsion_equiv:
+            continue
+        # ---------------------------------------------------------
+
         try:
             is_indep, info = is_independent_by_projection_log(
                 basis_indices,
@@ -491,13 +552,15 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
             continue
 
-        if det_val > 0:
+        #  Robust check for positive definiteness
+        # Using 1e-9 to filter floating point noise around 0 for singular matrices
+        if det_val > 1e-9:
             basis_indices.append(cand_idx)
             if debug:
                 print(f"  Added divisor {cand_idx} (basis now size {len(basis_indices)})")
         else:
             if debug:
-                print(f"  Rejected divisor {cand_idx}: dependent (Gram det <= 0)")
+                print(f"  Rejected divisor {cand_idx}: dependent (Gram det <= 1e-9)")
 
     if len(basis_indices) > 0:
         need_k = min(len(basis_indices), 4)
@@ -540,30 +603,3 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
              warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
 
     return basis, final_rank, H_final
-
-
-def check_2torsion_equivalence(new_div, basis_divs, C):
-    """
-    Check if new_div ≡ existing_div (mod 2-torsion).
-    For genus-2, efficiently check via reduction.
-    """
-    J = C.jacobian()
-    
-    # Convert to Jacobian elements
-    new_elem = mumford_to_jacobian_element(new_div['s'], new_div['p'], 
-                                           new_div['v_0'], new_div['v_1'], C)
-    
-    for old_div in basis_divs:
-        old_elem = mumford_to_jacobian_element(old_div['s'], old_div['p'],
-                                               old_div['v_0'], old_div['v_1'], C)
-        
-        diff = new_elem - old_elem
-        
-        # Check if diff is 2-torsion: is 2*diff = 0?
-        try:
-            if (2 * diff).is_zero():
-                return True, old_div
-        except:
-            pass
-            
-    return False, None

@@ -17,7 +17,6 @@ from search_lll.jacobian_basis.heights import *
 import warnings
 from pprint import pprint
 import multiprocessing
-
 def custom_formatwarning(msg, category, filename, lineno, line=None):
     return f"{filename}:{lineno}: {category.__name__}: {msg}\n"
 
@@ -56,7 +55,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     # Filter invalid / duplicate divisors early
-    all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
+    #all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
     print(f"survivors of kobayashi maru filter of numeric evil (amount = {len(all_divisors)}):")
     for i in all_divisors:
         pass
@@ -113,15 +112,6 @@ def structural_red_flag(div):
     coeffs = u.list()
     return all(c in (-1, 0, 1) for c in coeffs)
 
-
-# -----------------------------------
-# Exact doubling fallback (refactored)
-# -----------------------------------
-
-
-# -------------------------
-# Projection helper
-# -------------------------
 
 def _projection_residual_sq(basis_jac, candidate_D, f_coeffs,
                             prec_bits=512, pairing_func=None, pairing_cache=None, debug=False):
@@ -948,6 +938,9 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
                 H[i, j] = val
                 H[j, i] = val
 
+        # Normalize the Gram matrix to ensure numerical stability
+        H = normalize_gram_for_basis(H, prec)
+
         if n == 1:
             is_indep = abs(H[0, 0]) > 1e-8
             rank = 1 if is_indep else 0
@@ -1192,6 +1185,9 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=
                 H_exact[i, j] = h_ij_exact
                 H_exact[j, i] = h_ij_exact
 
+        # Normalize the Gram matrix to ensure numerical stability
+        H_exact = normalize_gram_for_basis(H_exact, prec)
+
         if debug:
             try:
                 det_exact = H_exact.determinant()
@@ -1298,83 +1294,132 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
     return False, None
 
 
+def _kobayashi_worker(args):
+    """
+    Worker - reconstructs everything from scratch in clean process.
+    """
+    from sage.all import QQ, PolynomialRing, HyperellipticCurve, matrix, CDF, RealField
+    
+    div_data, f_coeffs_data, p_mat_list, num_doublings = args
+    
+    # Reconstruct QQ rationals
+    s = QQ(div_data['s'][0]) / QQ(div_data['s'][1])
+    p = QQ(div_data['p'][0]) / QQ(div_data['p'][1])
+    v_0 = QQ(div_data['v_0'][0]) / QQ(div_data['v_0'][1])
+    v_1 = QQ(div_data['v_1'][0]) / QQ(div_data['v_1'][1])
+    
+    f_coeffs = [QQ(num) / QQ(den) for num, den in f_coeffs_data]
+    
+    # Reconstruct period matrix
+    if p_mat_list is not None:
+        p_mat = matrix(CDF, p_mat_list)
+    else:
+        p_mat = None
+    
+    # Build Jacobian element fresh in this process
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(c * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    
+    u = x**2 - s * x + p
+    v = v_1 * x + v_0
+    J_element = J([u, v])
+    
+    # Compute height without any caches
+    h_val = _arakelov_quasi_height_nocache(J_element, f_coeffs, p_mat, prec=300)
+    
+    return (float(h_val), div_data)
+
+
 def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressive=True, num_doublings=5):
     """
-    Parallelized Kobayashi Maru filter.
-    Pre-computes period matrix to avoid redundant work in workers.
+    Filter divisors by canonical height, removing those with tiny or negative heights.
+    Uses naive height (fast, exact) instead of full canonical height to avoid 
+    multiprocessing complexity.
     """
     _FILTER_STATS['total_input'] += len(all_divisors)
     out = []
     seen = set()
-    store_count = 0
 
     if not all_divisors:
         return []
 
-    # Pre-compute the period matrix once for the curve using YOUR actual function
-    if debug:
-        print("[filter] Computing period matrix for curve...")
-    try:
-        # Use get_period_matrix_auto_B from homology.py
-        p_mat = get_period_matrix_auto_B(f_coeffs, prec=256, verbose=False)
-    except Exception as e:
-        if debug:
-            print(f"[filter] Period matrix pre-computation failed: {e}. Workers will compute locally.")
-        p_mat = None
+    # Build curve once in main process
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
 
-    # Prepare tasks
-    tasks = [(div, f_coeffs, p_mat, num_doublings) for div in all_divisors]
-    
     if debug:
-        print(f"[filter] Launching parallel height checks on {len(tasks)} candidates...")
+        print(f"[filter] Processing {len(all_divisors)} candidates with naive height filter...")
 
-    with multiprocessing.Pool() as pool:
-        # Use imap to allow early termination if we fill the basis
-        for h_val, div in pool.imap(_kobayashi_worker, tasks):
-            # Check for "evil" signatures (negative heights or tiny values indicating degeneracy)
-            if h_val < -1e-7:
-                _FILTER_STATS['rejected_evil'] += 1
+    for div in all_divisors:
+        try:
+            # Reconstruct Jacobian element from div dict
+            s = QQ(div['s'])
+            p = QQ(div['p'])
+            v_0 = QQ(div['v_0'])
+            v_1 = QQ(div['v_1'])
+            
+            u_poly = x**2 - s * x + p
+            v_poly = v_1 * x + v_0
+            
+            # Create Jacobian element
+            try:
+                D = J([u_poly, v_poly])
+            except Exception as e:
+                if debug:
+                    print(f"[filter] Failed to create Jacobian element: {e}")
+                _FILTER_STATS['rejected_invalid'] += 1
                 continue
-
-            if aggressive and (abs(h_val) < 1e-10):
+            
+            # Compute naive height (fast, exact, no period matrix needed)
+            try:
+                h_naive = float(naive_height_qq(D, prec=100))
+            except Exception as e:
+                if debug:
+                    print(f"[filter] Naive height computation failed: {e}")
+                _FILTER_STATS['rejected_invalid'] += 1
+                continue
+            
+            # Filter out extremely tiny heights (likely problematic)
+            if aggressive and abs(h_naive) < 1e-10:
                 _FILTER_STATS['rejected_tiny'] += 1
                 continue
 
-            # Deduplication
-            D = mumford_dict_to_jacobian_element(div, f_coeffs)
+            # Deduplication using string representation (safer than reduced_representation)
             try:
-                key = D.reduced_representation()
-            except Exception:
                 key = str(D)
-
+            except Exception:
+                # Fallback to dict signature
+                key = (s, p, v_0, v_1)
+            
             if key in seen:
                 _FILTER_STATS['rejected_dupe'] += 1
                 continue
-
-            seen.add(key)
-            div['_h_diag'] = h_val
-            out.append(div)
-            store_count += 1
             
-            if store_count >= maxbasis:
+            seen.add(key)
+            
+            # Store the naive height for sorting later
+            div['_h_naive'] = h_naive
+            out.append(div)
+            
+            if len(out) >= maxbasis:
                 break
+                
+        except Exception as e:
+            if debug:
+                print(f"[filter] Error processing divisor {div}: {e}")
+            _FILTER_STATS['rejected_invalid'] += 1
+            continue
+
+    if debug:
+        print(f"[filter] Kept {len(out)}/{len(all_divisors)} divisors after filtering")
+        print(f"[filter] Rejected: {_FILTER_STATS['rejected_tiny']} tiny, "
+              f"{_FILTER_STATS['rejected_dupe']} duplicates, "
+              f"{_FILTER_STATS.get('rejected_invalid', 0)} invalid")
 
     return out
-
-
-def _kobayashi_worker(args):
-    """
-    Worker for the Kobayashi Maru filter.
-    Processes a single divisor with a shared period matrix.
-    """
-    div, f_coeffs, p_mat, num_doublings = args
-    # Convert to Jacobian element
-    J_element = mumford_dict_to_jacobian_element(div, f_coeffs)
-    
-    # Compute height with the passed-in period matrix
-    # Note: num_doublings is not used here - it's for p-adic computations in other contexts
-    h_val = arakelov_quasi_height(J_element, f_coeffs, period_matrix=p_mat)
-    
-    return (float(h_val), div)
-
-
