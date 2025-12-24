@@ -178,8 +178,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=107, avg_survivors≈0.000242, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000242
+[empirical_pool] start pool size=107, avg_survivors≈0.000189, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000189
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.11, avg_density=0.1887 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -194,10 +194,10 @@ DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 
 [auto_cfg] Applied adaptive parameters:
   HEIGHT_BOUND: 473
   TMAX: 434
-  NUM_PRIME_SUBSETS: 1086
+  NUM_PRIME_SUBSETS: 1087
   PRIME_POOL size: 107
 
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1086, PRIME_POOL size=107, TMAX=434
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1087, PRIME_POOL size=107, TMAX=434
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 107
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
@@ -433,7 +433,7 @@ Skipping prime 3: fiber collision detected (gcd degree=9)
   p=2: singular_discriminant
   p=3: fiber_collision_deg_9
 [mumford] Generating tasks for 105 primes...
-[mumford] Residue computation took 8.05s
+[mumford] Residue computation took 8.15s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -443,82 +443,12 @@ MUMFORD RECONSTRUCTION PHASE
 
 Algebraic pre-filter: 427,924 → 427,924 (1.0x reduction)
 Grouped into 15 vectors, 739 (vector,x-residue) pairs
-  Vector group: 2 primes, avg 258.0 sols/prime
-  Raw combinations: 12,740
-  Adaptive limit: 12,740 (total combos: 12,740)
-  Vector group: 2 primes, avg 486.5 sols/prime
-  Raw combinations: 34,632
-  Adaptive limit: 34,632 (total combos: 34,632)
-  Vector group: 3 primes, avg 390.7 sols/prime
-  Raw combinations: 10,670,400
-  High density detected - applying aggressive pre-filtering
-    Found 28 candidates from first 2 primes (tried 11,232)
-    Prime 457: 950 → 28 sols (2.9%)
-  Pre-filtering took 0.46s
-  Filtered combinations: 314,496 (33.9x reduction)
-  Adaptive limit: 314,496 (total combos: 314,496)
-  Vector group: 2 primes, avg 208.0 sols/prime
-  Raw combinations: 43,068
-  Adaptive limit: 43,068 (total combos: 43,068)
-  Skipping 2-prime group: 108,080 combos, not rare
-  Vector group: 2 primes, avg 209.0 sols/prime
-  Raw combinations: 37,440
-  Adaptive limit: 37,440 (total combos: 37,440)
-  Vector group: 3 primes, avg 520.7 sols/prime
-  Raw combinations: 66,477,888
-  High density detected - applying aggressive pre-filtering
-    Found 28 candidates from first 2 primes (tried 50,001)
-    Prime 509: 1054 → 28 sols (2.7%)
-  Pre-filtering took 1.68s
-  Filtered combinations: 1,766,016 (37.6x reduction)
-  Adaptive limit: 500,000 (total combos: 1,766,016)
-  Skipping 2-prime group: 103,600 combos, not rare
-  Accepting 2-prime group: 87,660 combos (rare divisor)
-  Vector group: 2 primes, avg 532.0 sols/prime
-  Raw combinations: 87,660
-  Adaptive limit: 87,660 (total combos: 87,660)
-  Skipping 2-prime group: 878,240 combos, not rare
-  Vector group: 3 primes, avg 409.3 sols/prime
-  Raw combinations: 3,207,168
-  High density detected - applying aggressive pre-filtering
-    Found 22 candidates from first 2 primes (tried 3,456)
-    Prime 463: 928 → 18 sols (1.9%)
-  Pre-filtering took 0.25s
-  Filtered combinations: 62,208 (51.6x reduction)
-  Adaptive limit: 62,208 (total combos: 62,208)
-  Vector group: 2 primes, avg 324.0 sols/prime
-  Raw combinations: 47,376
-  Adaptive limit: 47,376 (total combos: 47,376)
-  Vector group: 2 primes, avg 140.0 sols/prime
-  Raw combinations: 16,684
-  Adaptive limit: 16,684 (total combos: 16,684)
-  Vector group: 2 primes, avg 335.0 sols/prime
-  Raw combinations: 15,504
-  Adaptive limit: 15,504 (total combos: 15,504)
-  Accepting 2-prime group: 95,040 combos (rare divisor)
-  Vector group: 2 primes, avg 494.0 sols/prime
-  Raw combinations: 95,040
-  Adaptive limit: 95,040 (total combos: 95,040)
-  Vector group: 2 primes, avg 284.0 sols/prime
-  Raw combinations: 38,220
-  Adaptive limit: 38,220 (total combos: 38,220)
-  Skipping 2-prime group: 207,432 combos, not rare
-  Skipping 2-prime group: 373,372 combos, not rare
-  Skipping 2-prime group: 640,832 combos, not rare
-  Vector group: 2 primes, avg 340.0 sols/prime
-  Raw combinations: 21,964
-  Adaptive limit: 21,964 (total combos: 21,964)
-  Skipping 2-prime group: 101,304 combos, not rare
-  Skipping 2-prime group: 314,496 combos, not rare
-  Skipping 2-prime group: 270,972 combos, not rare
-  Skipping 2-prime group: 227,036 combos, not rare
-  Skipping 2-prime group: 280,364 combos, not rare
-  Vector group: 2 primes, avg 134.0 sols/prime
-  Raw combinations: 10,212
-  Adaptive limit: 10,212 (total combos: 10,212)
   Vector group: 3 primes, avg 37.3 sols/prime
   Raw combinations: 16,128
   Adaptive limit: 16,128 (total combos: 16,128)
+  Vector group: 2 primes, avg 134.0 sols/prime
+  Raw combinations: 10,212
+  Adaptive limit: 10,212 (total combos: 10,212)
   Vector group: 2 primes, avg 228.0 sols/prime
   Raw combinations: 31,820
   Adaptive limit: 31,820 (total combos: 31,820)
@@ -527,54 +457,29 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   Adaptive limit: 36,456 (total combos: 36,456)
   Skipping 2-prime group: 136,240 combos, not rare
   Skipping 2-prime group: 239,120 combos, not rare
-  Vector group: 5 primes, avg 207.2 sols/prime
-  Raw combinations: 5,878,139,904
-  High density detected - applying aggressive pre-filtering
-    Found 8 candidates from first 2 primes (tried 416)
-    Prime 41: 84 → 8 sols (9.5%)
-    Prime 131: 258 → 8 sols (3.1%)
-    Prime 331: 652 → 8 sols (1.2%)
-  Pre-filtering took 0.06s
-  Filtered combinations: 212,992 (27597.9x reduction)
-  Adaptive limit: 212,992 (total combos: 212,992)
-  Accepting 2-prime group: 90,180 combos (rare divisor)
-  Vector group: 2 primes, avg 546.0 sols/prime
-  Raw combinations: 90,180
-  Adaptive limit: 90,180 (total combos: 90,180)
-  Vector group: 2 primes, avg 139.0 sols/prime
-  Raw combinations: 16,296
-  Adaptive limit: 16,296 (total combos: 16,296)
-  Vector group: 2 primes, avg 182.0 sols/prime
-  Raw combinations: 22,308
-  Adaptive limit: 22,308 (total combos: 22,308)
-  Vector group: 2 primes, avg 256.0 sols/prime
-  Raw combinations: 48,636
-  Adaptive limit: 48,636 (total combos: 48,636)
-  Accepting 2-prime group: 70,416 combos (rare divisor)
-  Vector group: 2 primes, avg 271.0 sols/prime
-  Raw combinations: 70,416
-  Adaptive limit: 70,416 (total combos: 70,416)
-  Skipping 2-prime group: 272,720 combos, not rare
-  Skipping 2-prime group: 1,211,268 combos, not rare
+  Vector group: 2 primes, avg 258.0 sols/prime
+  Raw combinations: 12,740
+  Adaptive limit: 12,740 (total combos: 12,740)
+  Vector group: 2 primes, avg 486.5 sols/prime
+  Raw combinations: 34,632
+  Adaptive limit: 34,632 (total combos: 34,632)
   Vector group: 4 primes, avg 85.5 sols/prime
   Raw combinations: 7,547,904
   High density detected - applying aggressive pre-filtering
     Found 8 candidates from first 2 primes (tried 416)
     Prime 41: 84 → 8 sols (9.5%)
     Prime 107: 216 → 8 sols (3.7%)
-  Pre-filtering took 0.02s
+  Pre-filtering took 0.03s
   Filtered combinations: 26,624 (283.5x reduction)
   Adaptive limit: 26,624 (total combos: 26,624)
   Vector group: 2 primes, avg 395.0 sols/prime
   Raw combinations: 45,136
   Adaptive limit: 45,136 (total combos: 45,136)
-  Vector group: 2 primes, avg 343.0 sols/prime
-  Raw combinations: 15,888
-  Adaptive limit: 15,888 (total combos: 15,888)
-  Skipping 2-prime group: 143,220 combos, not rare
-  Skipping 2-prime group: 133,128 combos, not rare
-  Skipping 2-prime group: 440,664 combos, not rare
-  Skipping 2-prime group: 334,180 combos, not rare
+  Accepting 2-prime group: 87,660 combos (rare divisor)
+  Vector group: 2 primes, avg 532.0 sols/prime
+  Raw combinations: 87,660
+  Adaptive limit: 87,660 (total combos: 87,660)
+  Skipping 2-prime group: 878,240 combos, not rare
   Vector group: 2 primes, avg 540.0 sols/prime
   Raw combinations: 27,404
   Adaptive limit: 27,404 (total combos: 27,404)
@@ -598,14 +503,109 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   Raw combinations: 54,180
   Adaptive limit: 54,180 (total combos: 54,180)
   Skipping 2-prime group: 236,436 combos, not rare
-  Vector group: 2 primes, avg 150.0 sols/prime
-  Raw combinations: 18,900
-  Adaptive limit: 18,900 (total combos: 18,900)
+  Vector group: 5 primes, avg 207.2 sols/prime
+  Raw combinations: 5,878,139,904
+  High density detected - applying aggressive pre-filtering
+    Found 8 candidates from first 2 primes (tried 416)
+    Prime 41: 84 → 8 sols (9.5%)
+    Prime 131: 258 → 8 sols (3.1%)
+    Prime 331: 652 → 8 sols (1.2%)
+  Pre-filtering took 0.05s
+  Filtered combinations: 212,992 (27597.9x reduction)
+  Adaptive limit: 212,992 (total combos: 212,992)
+  Vector group: 2 primes, avg 182.0 sols/prime
+  Raw combinations: 22,308
+  Adaptive limit: 22,308 (total combos: 22,308)
+  Vector group: 2 primes, avg 139.0 sols/prime
+  Raw combinations: 16,296
+  Adaptive limit: 16,296 (total combos: 16,296)
+  Accepting 2-prime group: 90,180 combos (rare divisor)
+  Vector group: 2 primes, avg 546.0 sols/prime
+  Raw combinations: 90,180
+  Adaptive limit: 90,180 (total combos: 90,180)
+  Vector group: 2 primes, avg 256.0 sols/prime
+  Raw combinations: 48,636
+  Adaptive limit: 48,636 (total combos: 48,636)
+  Accepting 2-prime group: 70,416 combos (rare divisor)
+  Vector group: 2 primes, avg 271.0 sols/prime
+  Raw combinations: 70,416
+  Adaptive limit: 70,416 (total combos: 70,416)
+  Skipping 2-prime group: 272,720 combos, not rare
+  Skipping 2-prime group: 1,211,268 combos, not rare
   Vector group: 2 primes, avg 175.5 sols/prime
   Raw combinations: 11,618
   Adaptive limit: 11,618 (total combos: 11,618)
+  Vector group: 2 primes, avg 150.0 sols/prime
+  Raw combinations: 18,900
+  Adaptive limit: 18,900 (total combos: 18,900)
   Skipping 2-prime group: 248,832 combos, not rare
   Skipping 2-prime group: 581,560 combos, not rare
+  Vector group: 3 primes, avg 390.7 sols/prime
+  Raw combinations: 10,670,400
+  High density detected - applying aggressive pre-filtering
+    Found 28 candidates from first 2 primes (tried 11,232)
+    Prime 457: 950 → 28 sols (2.9%)
+  Pre-filtering took 0.47s
+  Filtered combinations: 314,496 (33.9x reduction)
+  Adaptive limit: 314,496 (total combos: 314,496)
+  Vector group: 2 primes, avg 208.0 sols/prime
+  Raw combinations: 43,068
+  Adaptive limit: 43,068 (total combos: 43,068)
+  Skipping 2-prime group: 108,080 combos, not rare
+  Vector group: 2 primes, avg 343.0 sols/prime
+  Raw combinations: 15,888
+  Adaptive limit: 15,888 (total combos: 15,888)
+  Skipping 2-prime group: 143,220 combos, not rare
+  Skipping 2-prime group: 133,128 combos, not rare
+  Skipping 2-prime group: 334,180 combos, not rare
+  Skipping 2-prime group: 440,664 combos, not rare
+  Vector group: 2 primes, avg 340.0 sols/prime
+  Raw combinations: 21,964
+  Adaptive limit: 21,964 (total combos: 21,964)
+  Skipping 2-prime group: 101,304 combos, not rare
+  Skipping 2-prime group: 314,496 combos, not rare
+  Skipping 2-prime group: 270,972 combos, not rare
+  Skipping 2-prime group: 280,364 combos, not rare
+  Skipping 2-prime group: 227,036 combos, not rare
+  Vector group: 2 primes, avg 209.0 sols/prime
+  Raw combinations: 37,440
+  Adaptive limit: 37,440 (total combos: 37,440)
+  Vector group: 3 primes, avg 520.7 sols/prime
+  Raw combinations: 66,477,888
+  High density detected - applying aggressive pre-filtering
+    Found 28 candidates from first 2 primes (tried 50,001)
+    Prime 509: 1054 → 28 sols (2.7%)
+  Pre-filtering took 1.70s
+  Filtered combinations: 1,766,016 (37.6x reduction)
+  Adaptive limit: 500,000 (total combos: 1,766,016)
+  Skipping 2-prime group: 103,600 combos, not rare
+  Vector group: 3 primes, avg 409.3 sols/prime
+  Raw combinations: 3,207,168
+  High density detected - applying aggressive pre-filtering
+    Found 22 candidates from first 2 primes (tried 3,456)
+    Prime 463: 928 → 18 sols (1.9%)
+  Pre-filtering took 0.26s
+  Filtered combinations: 62,208 (51.6x reduction)
+  Adaptive limit: 62,208 (total combos: 62,208)
+  Vector group: 2 primes, avg 324.0 sols/prime
+  Raw combinations: 47,376
+  Adaptive limit: 47,376 (total combos: 47,376)
+  Vector group: 2 primes, avg 335.0 sols/prime
+  Raw combinations: 15,504
+  Adaptive limit: 15,504 (total combos: 15,504)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 16,684
+  Adaptive limit: 16,684 (total combos: 16,684)
+  Vector group: 2 primes, avg 284.0 sols/prime
+  Raw combinations: 38,220
+  Adaptive limit: 38,220 (total combos: 38,220)
+  Accepting 2-prime group: 95,040 combos (rare divisor)
+  Vector group: 2 primes, avg 494.0 sols/prime
+  Raw combinations: 95,040
+  Adaptive limit: 95,040 (total combos: 95,040)
+  Skipping 2-prime group: 207,432 combos, not rare
+  Skipping 2-prime group: 373,372 combos, not rare
+  Skipping 2-prime group: 640,832 combos, not rare
 
   Batched parallel processing: 49 groups, 3,463,820 total combos
   Using 20 workers
@@ -627,16 +627,16 @@ canonicalization invariants OK
 
 --- Building Independent Mumford Basis ---
 first 10 divisors:
-{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (13,), 'u_poly': x^2 - 1/3*x, 'v_poly': 10/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (13,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'u_poly': x^2 - 1/2*x, 'v_poly': 7/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (7,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (11,), 'u_poly': x^2 - 1/3*x, 'v_poly': 10/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (11,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (7,), 'u_poly': x^2 - 1/2*x, 'v_poly': 7/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'u_poly': x^2 - 1/3*x - 2/3, 'v_poly': 16/9*x + 11/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 1, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (7,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (7,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (13,), 'u_poly': x^2 - 1, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 2, 'p': 0, 'v_0': 1, 'v_1': 5, 'vector': (1,), 'u_poly': x^2 - 2*x, 'v_poly': 5*x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 3, 'p': 0, 'v_0': 1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 3*x, 'v_poly': 4*x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 3, 'p': 0, 'v_0': -1, 'v_1': 14/3, 'vector': (4,), 'u_poly': x^2 - 3*x, 'v_poly': 14/3*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 [diag:smoothness]
   split u(x): 22/25 (88.000%)
   irreducible u(x): 3/25 (12.000%)
@@ -649,29 +649,29 @@ first 10 divisors:
   linear rank (heuristic): 4
   (!) Dependencies found mod 2000003. Potential relations for DLP.
 survivors of kobayashi maru filter of numeric evil (amount = 25):
-{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (13,), 'u_poly': x^2 - 1/3*x, 'v_poly': 10/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (13,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (15,), 'u_poly': x^2 - 1/2*x, 'v_poly': 7/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (7,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (11,), 'u_poly': x^2 - 1/3*x, 'v_poly': 10/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (11,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1/2, 'p': 0, 'v_0': -1, 'v_1': 7/4, 'vector': (7,), 'u_poly': x^2 - 1/2*x, 'v_poly': 7/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'u_poly': x^2 - 1/3*x - 2/3, 'v_poly': 16/9*x + 11/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 1, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (7,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (7,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': -1, 'v_0': -1, 'v_1': 4, 'vector': (13,), 'u_poly': x^2 - 1, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 2, 'p': 0, 'v_0': 1, 'v_1': 5, 'vector': (1,), 'u_poly': x^2 - 2*x, 'v_poly': 5*x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 3, 'p': 0, 'v_0': 1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 3*x, 'v_poly': 4*x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 3, 'p': 0, 'v_0': -1, 'v_1': 14/3, 'vector': (4,), 'u_poly': x^2 - 3*x, 'v_poly': 14/3*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 4/3, 'p': -4/3, 'v_0': 25/9, 'v_1': 37/9, 'vector': (3,), 'u_poly': x^2 - 4/3*x - 4/3, 'v_poly': 37/9*x + 25/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4/3, 'p': 1/3, 'v_0': -22/9, 'v_1': 49/9, 'vector': (15,), 'u_poly': x^2 - 4/3*x + 1/3, 'v_poly': 49/9*x - 22/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 4/3, 'p': -4/3, 'v_0': 25/9, 'v_1': 37/9, 'vector': (8,), 'u_poly': x^2 - 4/3*x - 4/3, 'v_poly': 37/9*x + 25/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 2, 'p': -3, 'v_0': -1/2, 'v_1': 9/2, 'vector': (4,), 'u_poly': x^2 - 2*x - 3, 'v_poly': 9/2*x - 1/2, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 7/3, 'p': -2, 'v_0': 7/3, 'v_1': 32/9, 'vector': (4,), 'u_poly': x^2 - 7/3*x - 2, 'v_poly': 32/9*x + 7/3, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 7/3, 'p': 2/3, 'v_0': -13/9, 'v_1': 56/9, 'vector': (10,), 'u_poly': x^2 - 7/3*x + 2/3, 'v_poly': 56/9*x - 13/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 3/2, 'p': 1/2, 'v_0': -13/4, 'v_1': 25/4, 'vector': (15,), 'u_poly': x^2 - 3/2*x + 1/2, 'v_poly': 25/4*x - 13/4, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 3/2, 'p': 1/2, 'v_0': -11/4, 'v_1': 23/4, 'vector': (13,), 'u_poly': x^2 - 3/2*x + 1/2, 'v_poly': 23/4*x - 11/4, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 7/3, 'p': 2/3, 'v_0': -13/9, 'v_1': 56/9, 'vector': (14,), 'u_poly': x^2 - 7/3*x + 2/3, 'v_poly': 56/9*x - 13/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 10/3, 'p': 1, 'v_0': -7/3, 'v_1': 46/9, 'vector': (4,), 'u_poly': x^2 - 10/3*x + 1, 'v_poly': 46/9*x - 7/3, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1, 'p': -2, 'v_0': 7, 'v_1': 2, 'vector': (1,), 'u_poly': x^2 - x - 2, 'v_poly': 2*x + 7, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 7/2, 'p': 3/2, 'v_0': -11/4, 'v_1': 21/4, 'vector': (4,), 'u_poly': x^2 - 7/2*x + 3/2, 'v_poly': 21/4*x - 11/4, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 5/2, 'p': 1, 'v_0': -7/2, 'v_1': 29/4, 'vector': (8,), 'u_poly': x^2 - 5/2*x + 1, 'v_poly': 29/4*x - 7/2, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 2, 'p': 1, 'v_0': -13/3, 'v_1': 22/3, 'vector': (15,), 'u_poly': x^2 - 2*x + 1, 'v_poly': 22/3*x - 13/3, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 5/2, 'p': 1, 'v_0': -7/2, 'v_1': 29/4, 'vector': (3,), 'u_poly': x^2 - 5/2*x + 1, 'v_poly': 29/4*x - 7/2, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 2, 'p': 1, 'v_0': -13/3, 'v_1': 22/3, 'vector': (13,), 'u_poly': x^2 - 2*x + 1, 'v_poly': 22/3*x - 13/3, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 3, 'p': 2, 'v_0': -5, 'v_1': 8, 'vector': (1,), 'u_poly': x^2 - 3*x + 2, 'v_poly': 8*x - 5, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 4, 'p': 4, 'v_0': -37/11, 'v_1': 79/11, 'vector': (10,), 'u_poly': x^2 - 4*x + 4, 'v_poly': 79/11*x - 37/11, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 4, 'p': 4, 'v_0': -37/11, 'v_1': 79/11, 'vector': (12,), 'u_poly': x^2 - 4*x + 4, 'v_poly': 79/11*x - 37/11, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 5, 'p': 6, 'v_0': 7, 'v_1': 2, 'vector': (1,), 'u_poly': x^2 - 5*x + 6, 'v_poly': 2*x + 7, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4, 'p': 3, 'v_0': -11, 'v_1': 8, 'vector': (4,), 'u_poly': x^2 - 4*x + 3, 'v_poly': 8*x - 11, 'has_rational_roots': True, 'scale_used': 1}
 [basis] Truncating candidate divisors to 8
@@ -738,234 +738,3 @@ Height breakdown (Model LC=1):
   Naive(u-only) = 1.09861
   ArchCorr      = 2.21484
   Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 3.31345
-  Pair (0,1): -0.288583
-Height breakdown (Model LC=1):
-  Naive(u-only) = 6.41510
-  ArchCorr      = 1.12297
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 7.53807
-  Pair (0,2): 1.7508
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.69315
-  ArchCorr      = 2.01659
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 2.01659
-  Pair (0,3): -0.387959
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.69315
-  ArchCorr      = 1.48428
-  Locals        = 0.00000 (p=2: 2.237968593351803e-10)
-  Total         = 2.17743
-  Pair (0,4): -0.997798
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.00000
-  ArchCorr      = 1.63304
-  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
-  Total         = 1.63304
-  Pair (0,5): -0.685183
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.00000
-  ArchCorr      = 1.01713
-  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
-  Total         = 1.01713
-  Pair (0,6): -1.28946
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.09861
-  ArchCorr      = 1.39139
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 1.79685
-  Pair (0,7): -0.686708
-Height breakdown (Model LC=1):
-  Naive(u-only) = 2.19722
-  ArchCorr      = 1.05814
-  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
-  Total         = 3.25536
-  Pair (1,2): -0.751324
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.69315
-  ArchCorr      = 1.37887
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 2.07202
-  Pair (1,3): -0.721017
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.69315
-  ArchCorr      = 3.69694
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 3.69694
-  Pair (1,4): -0.598813
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.38629
-  ArchCorr      = 1.25607
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 2.64237
-  Pair (1,5): -0.541292
-Height breakdown (Model LC=1):
-  Naive(u-only) = 4.55388
-  ArchCorr      = 1.66817
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 6.22204
-  Pair (1,6): 0.952226
-Height breakdown (Model LC=1):
-  Naive(u-only) = 4.39445
-  ArchCorr      = 2.70413
-  Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 7.09858
-  Pair (1,7): 1.60338
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.79176
-  ArchCorr      = 3.76959
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 4.86820
-  Pair (2,3): 0.604149
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.00000
-  ArchCorr      = 1.63304
-  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
-  Total         = 1.63304
-  Pair (2,4): -1.70369
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.09861
-  ArchCorr      = 1.49245
-  Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 2.59106
-  Pair (2,5): -0.639868
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.60944
-  ArchCorr      = 2.50807
-  Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 4.11751
-  Pair (2,6): -0.172965
-Height breakdown (Model LC=1):
-  Naive(u-only) = 5.93489
-  ArchCorr      = 1.53290
-  Locals        = 0.00000 (p=2: 3.367459784832173e-10)
-  Total         = 7.46780
-  Pair (2,7): 1.71507
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.09861
-  ArchCorr      = 1.05611
-  Locals        = 0.00000 (p=2: 8.416022738379315e-11)
-  Total         = 2.15472
-  Pair (3,4): -0.820868
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.79176
-  ArchCorr      = 1.93683
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 3.03545
-  Pair (3,6): -0.0920175
-Height breakdown (Model LC=1):
-  Naive(u-only) = 0.69315
-  ArchCorr      = 1.87353
-  Locals        = 0.00000 (p=2: 3.367459784832173e-10)
-  Total         = 2.56668
-  Pair (3,7): -0.11351
-Height breakdown (Model LC=1):
-  Naive(u-only) = 3.46574
-  ArchCorr      = 1.64844
-  Locals        = 0.00000 (p=2: 3.367459784832173e-10)
-  Total         = 5.11417
-  Pair (4,5): 0.553412
-Height breakdown (Model LC=1):
-  Naive(u-only) = 3.49651
-  ArchCorr      = 1.51610
-  Locals        = 0.00000 (p=2: 3.367459784832173e-10)
-  Total         = 5.01261
-  Pair (4,6): 0.206308
-Height breakdown (Model LC=1):
-  Naive(u-only) = 2.89037
-  ArchCorr      = 2.13480
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 4.33202
-  Pair (4,7): 0.0789026
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.79176
-  ArchCorr      = 1.36708
-  Locals        = -0.69315 (p=2: -0.6931471805599453)
-  Total         = 2.46569
-  Pair (5,6): -0.482342
-Height breakdown (Model LC=1):
-  Naive(u-only) = 3.43399
-  ArchCorr      = 1.16393
-  Locals        = -1.38629 (p=2: -1.3862943611198906)
-  Total         = 3.21163
-  Pair (5,7): 0.103514
-Height breakdown (Model LC=1):
-  Naive(u-only) = 5.17048
-  ArchCorr      = 1.13218
-  Locals        = -2.77259 (p=2: -2.772588722239781)
-  Total         = 3.53008
-  Pair (6,7): -0.0335802
-[arakelov] Selecting basis incrementally...
-  Added divisor 0 (first basis element)
-  Added divisor 1 (basis now size 2)
-  Added divisor 2 (basis now size 3)
-  Rejected divisor 3: dependent (Gram det <= 1e-9)
-  Added divisor 4 (basis now size 4)
-  Added divisor 5 (basis now size 5)
-  Rejected divisor 6: dependent (Gram det <= 1e-9)
-  Rejected divisor 7: dependent (Gram det <= 1e-9)
-[arakelov] Building final 5 Gram matrix...
-eigenvalues (float): [5.545301864535455, 2.958711460986998, 1.3052316461076439, 0.4894044310576023, 0.05125215005705863]
-determinant: 0.5371497618914833
-
-Basis Construction Results:
-  Found 5 independent divisors
-  Determinant (float): 0.5371497618914833
-
-[mumford detailed timers]
-  basis_construction                      :   33.954s ( 67.1%)
-  crt_reconstruction_loop                 :   11.982s ( 23.7%)
-  prefiltering                            :    2.520s (  5.0%)
-  algebraic_prefiltering                  :    2.144s (  4.2%)
-  canonicalization                        :    0.015s (  0.0%)
-  residue_grouping                        :    0.001s (  0.0%)
-  rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   50.618s
-
-Mumford search reconstructed 5 divisors
-  5 divisors had rational roots in u(x)
-printing independent found:
-{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 10/9, 'vector': (13,), 'u_poly': x^2 - 1/3*x, 'v_poly': 10/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (13,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'u_poly': x^2 - 1/3*x - 2/3, 'v_poly': 16/9*x + 11/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-Mumford search found 8 rational points
-rational points found:
-{0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
-Total time: 58.44s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  mumford_reconstruction   : 48.13s
-  mumford_residues         : 8.05s
-  prep_mod_data            : 2.26s
-  mumford_setup            : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 1470
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-Found 8 new point(s) and 0 new section(s).
-New x-coordinates: {0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
