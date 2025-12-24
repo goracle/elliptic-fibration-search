@@ -4,6 +4,10 @@ from sage.all import (
     QQ, ZZ, RealField, ComplexField,
     Matrix, vector, pi
 )
+from sage.all import QQ, GF, Integer, PolynomialRing, gcd
+from sage.all import QQ, QQbar, log
+from sage.all import diagonal_matrix
+
 
 from .theta import *
 from .periods import (
@@ -219,6 +223,15 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
 
     arch = quad - log_theta + corr
 
+    # CRITICAL FIX: Weierstrass point correction
+    # For each Weierstrass point in the support, subtract log(2)
+    num_weier = count_weierstrass_in_support(div, f_coeffs)
+    if num_weier > 0:
+        weier_correction = -RR(num_weier) * RR(2).log()
+        arch += weier_correction
+        if debug:
+            print(f"[ARCH] Applied Weierstrass correction: {num_weier} points, {float(weier_correction):.6f}")
+
     if arch < -RR(1e-12):
         if debug:
             print(f"[ARCH] Warning: negative correction {float(arch)}")
@@ -227,3 +240,40 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     archimedean_height_correction.cache[key] = ret
     return ret
 archimedean_height_correction.cache = {}
+
+
+def get_weierstrass_points(f_coeffs, prec=300):
+    """Find all Weierstrass points (roots of f(x))."""
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    # Get rational roots
+    weier_pts = []
+    try:
+        roots = f_poly.roots(QQ, multiplicities=False)
+        weier_pts.extend(roots)
+    except Exception:
+        pass
+    
+    # Add point at infinity (always Weierstrass for even degree)
+    # For genus 2, there are exactly 6 Weierstrass points total
+    
+    return weier_pts
+
+def count_weierstrass_in_support(div, f_coeffs):
+    """Count how many Weierstrass points appear in divisor support."""
+    weier_pts = get_weierstrass_points(f_coeffs)
+    
+    # Extract roots of u(x) from Mumford representation
+    u_poly = div[0]
+    div_roots = u_poly.roots(QQbar, multiplicities=False)
+    
+    count = 0
+    for w in weier_pts:
+        for r in div_roots:
+            if abs(QQbar(w) - r) < 1e-10:  # numerical tolerance
+                count += 1
+                break
+    
+    return count

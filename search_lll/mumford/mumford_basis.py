@@ -92,16 +92,17 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
                 try:
                     clear_period_cache()
                 except Exception:
-                    pass
+                    raise
+                raise
                 continue
         # final fallback to exact routine
         warnings.warn(f"[basis] Arakelov attempts exhausted; falling back to exact doubling method. Last error: {last_exc}", RuntimeWarning)
-        return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=num_doublings, debug=debug)
+        return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_doublings=num_doublings, debug=debug)
     else:
         # Arakelov not available -> exact path
         if debug:
             print("[basis] Arakelov unavailable: using exact doubling fallback")
-        return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=num_doublings, debug=debug)
+        return build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_doublings=num_doublings, debug=debug)
 
 
 def structural_red_flag(div):
@@ -1000,7 +1001,7 @@ def doubling_growth_test(D, f_coeffs, naive_height_func=None):
         return False
 
 
-def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, num_doublings=6, debug=True):
+def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_doublings=6, debug=True):
     """
     Build basis using compute_height_pairing_exact / doubling-based methods.
     Returns (basis_records, rank, H_exact_matrix).

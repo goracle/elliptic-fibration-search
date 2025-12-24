@@ -16,6 +16,7 @@ import warnings
 from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ)
 from multiprocessing import cpu_count
 from search_lll.homology import *
+from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 
 
 def dedupe_basis(basis, basis_indices, debug=False):
@@ -67,6 +68,7 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
     except Exception as e:
         # Failure in pairing extraction -> return False so candidate is rejected
         info['error'] = f'pairing_error: {type(e).__name__}: {e}'
+        raise
         return False, info
 
     if not (isfinite(h_cand) and np.all(np.isfinite(G_np)) and np.all(np.isfinite(b_np))):
@@ -90,6 +92,7 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         G_aug[:k, :k] = G_np
         eigs_G = np.linalg.eigvalsh(G_np)
         eigs_aug = np.linalg.eigvalsh(G_aug)
+        raise
 
     max_eig_G = max(abs(eigs_G.max()), abs(eigs_G.min()), 1.0)
     max_eig_aug = max(abs(eigs_aug.max()), abs(eigs_aug.min()), 1.0)
@@ -150,6 +153,7 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
     except Exception as e:
         info['error'] = f'lstsq_failed: {type(e).__name__}: {e}'
         info['reason'] = 'conservative_dependent_on_error'
+        raise
         return False, info
 
 
@@ -179,6 +183,7 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
         eigvals = svals.copy()
         eigvecs = U.copy()
         method = "svd"
+        raise
 
     eigvals = np.array(eigvals, dtype=float)
     if eigvecs is None and method == "eig":
@@ -207,6 +212,7 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
             eigvecs = np.linalg.svd(G_np)[0]
             eigvals_desc = np.array(svals_svd, dtype=float)
         except Exception:
+            raise
             return [], {
                 "eigvals": eigvals_desc.tolist(),
                 "numeric_rank": 0,
@@ -241,6 +247,7 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
         except Exception:
             U, svals_svd, Vt = np.linalg.svd(G_np)
             eigvecs_full = U
+            raise
 
     else:
         eigvecs_full = eigvecs
@@ -251,6 +258,7 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
             Upos = U_desc[:, pos_indices_desc]
         except Exception:
             Upos = eigvecs_full[:, :r]
+            raise
     else:
         Upos = eigvecs_full[:, :r]
 
@@ -301,7 +309,7 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
         else:
             log10_cond = float('inf')
     except Exception:
-        pass
+        raise
 
     info = {
         "eigvals": eigvals_desc.tolist(),
@@ -336,8 +344,8 @@ def check_2torsion_equivalence(new_div, basis_divs, C):
         try:
             if (2 * diff).is_zero():
                 return True, old_div
-        except:
-            pass
+        except Exception:
+            raise
             
     return False, None
 
@@ -433,7 +441,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 if debug:
                     print(f"  Pair ({i},{j}): {pairing_val:.6g}")
             except Exception as e:
-                # Just ignore here; will raise if needed in the selection loop
                 if debug:
                     warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
 
@@ -482,15 +489,11 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     print(f"  Skipping divisor {cand_idx}: height ~ 0")
             continue
 
-        # ---------------------------------------------------------
-        # Critical Fix: Check for 2-torsion equivalence against basis
-        # ---------------------------------------------------------
         cand_jac = jac_elements[cand_idx][1]
         is_torsion_equiv = False
         
         for b_idx in basis_indices:
             basis_jac = jac_elements[b_idx][1]
-            # Check 2*(P - Q) == 0  (P = Q + T)
             try:
                 diff = cand_jac - basis_jac
                 if (2 * diff).is_zero():
@@ -499,8 +502,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                         print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (diff)")
                     break
                 
-                # Check 2*(P + Q) == 0 (P = -Q + T). 
-                # Since h(P) = h(-P), this is also a dependency.
                 summ = cand_jac + basis_jac
                 if (2 * summ).is_zero():
                     is_torsion_equiv = True
@@ -508,12 +509,10 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                         print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (sum)")
                     break
             except Exception:
-                # If Jacobian arithmetic fails, assume safe to proceed to height check
                 pass
         
         if is_torsion_equiv:
             continue
-        # ---------------------------------------------------------
 
         try:
             is_indep, info = is_independent_by_projection_log(
@@ -547,13 +546,30 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     G_test[c, r] = G_test[r, c]
             
             det_val = float(G_test.determinant())
+            
+            # Compute eigenvalues to check condition number
+            eigs = [float(e) for e in G_test.eigenvalues()]
+            eigs_sorted = sorted([abs(e) for e in eigs], reverse=True)
+            min_eig = eigs_sorted[-1]
+            max_eig = eigs_sorted[0]
+            
+            # Reject if any eigenvalue is too small (relative to max)
+            if min_eig < 1e-6 * max_eig:
+                if debug:
+                    print(f"  Rejected divisor {cand_idx}: matrix too ill-conditioned (min_eig={min_eig:.3e}, max_eig={max_eig:.3e})")
+                continue
+                
+            # Also reject if smallest eigenvalue is absolutely tiny
+            if min_eig < 1e-9:
+                if debug:
+                    print(f"  Rejected divisor {cand_idx}: smallest eigenvalue too small ({min_eig:.3e})")
+                continue
+            
         except Exception as e:
             if debug:
                 print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
             continue
 
-        #  Robust check for positive definiteness
-        # Using 1e-9 to filter floating point noise around 0 for singular matrices
         if det_val > 1e-9:
             basis_indices.append(cand_idx)
             if debug:
@@ -596,9 +612,15 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
 
         try:
             eigs = [float(e) for e in H_final.eigenvalues()]
+            det_final = float(H_final.determinant())
             if debug:
                 print("eigenvalues (float):", eigs)
-                print("determinant:", float(H_final.determinant()))
+                print("determinant:", det_final)
+            
+            # Final sanity check: matrix must be positive definite
+            assert det_final > 0, f"Gram matrix has negative determinant {det_final} - basis is dependent!"
+            assert all(e > -1e-12 for e in eigs), f"Gram matrix has negative eigenvalue - not positive definite!"
+            
         except Exception as e:
              warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
 

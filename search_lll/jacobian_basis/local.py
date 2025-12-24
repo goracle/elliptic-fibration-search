@@ -51,15 +51,19 @@ def local_naive_height_p(div, p):
     Strictly uses ONLY u_poly coefficients.
     """
     # Extract Mumford polynomials u, v
+    u_poly = None
     try:
         if hasattr(div, 'mumford_representation'):
             u_poly, _ = div.mumford_representation()
         else:
+            # Fallback for raw list/tuple input
             u_poly, _ = div[0], div[1]
     except Exception:
-        # Fallback for raw list/tuple input
-        u_poly, _ = div[0], div[1]
-        raise
+        # If both fail, try direct indexing as last resort
+        try:
+            u_poly = div[0]
+        except Exception as e:
+            raise RuntimeError(f"Could not extract u_poly from div: {e}")
 
     coeffs = u_poly.list() 
     
@@ -69,21 +73,28 @@ def local_naive_height_p(div, p):
             continue
         
         # Robust valuation check
+        val = None
+        # 1. Try p-adic / generic valuation (no args)
         try:
-            # Try Qp syntax first (no arguments)
-            vals.append(c.valuation())
+            val = c.valuation()
         except (TypeError, ValueError, AttributeError):
+            pass
+            
+        # 2. Try Integer/Rational syntax (requires p)
+        if val is None:
             try:
-                # Try Integer/Rational syntax (requires p)
-                vals.append(c.valuation(p))
+                val = c.valuation(p)
+            except (TypeError, ValueError, AttributeError):
+                pass
+        
+        # 3. Last resort: cast to QQ
+        if val is None:
+            try:
+                val = QQ(c).valuation(p)
             except Exception:
-                # Last resort: try casting to QQ (if possible)
-                try:
-                    vals.append(QQ(c).valuation(p))
-                except Exception:
-                    raise RuntimeError(f"Cannot compute valuation for coeff {c} type {type(c)}")
-                raise
-            raise
+                raise RuntimeError(f"Cannot compute valuation for coeff {c} type {type(c)}")
+        
+        vals.append(val)
 
     if not vals:
         return 0.0
@@ -101,7 +112,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
     """
     import math
     from sage.all import QQ
-    
+
     key = (str(div), p, tuple(f_coeffs), num_doublings, padic_prec)
     if key in local_height_correction_finite.cache:
         return local_height_correction_finite.cache[key]
@@ -146,11 +157,18 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         
         for k in range(0, num_doublings_local + 1):
             if current_P.is_zero():
-                assert None, "TORSION"
+                # Torsion / Zero detected explicitly
+                assert None, "TORSION" 
                 return float(0.0 - h0), "torsion_hit"
 
             h_k = local_naive_height_p(current_P, p)
             s_k = (4.0 ** (-k)) * float(h_k)
+            
+            # EFFECTIVE TORSION CHECK:
+            # If h_k is exactly 0.0 (good reduction) after doubling, we might be in the identity disk.
+            # If we started with bad reduction (h0 != 0) and jumped to 0, that's effectively torsion.
+            if k > 0 and abs(h_k) < 1e-12 and abs(h0) > 1e-9:
+                return float(0.0 - h0), "effective_torsion"
 
             if math.isnan(s_k) or math.isinf(s_k) or abs(s_k) > MAX_ACCEPTABLE_MAG:
                 raise ValueError("huge_or_nan")
@@ -191,14 +209,15 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             return res
         except (ValueError, ArithmeticError, RuntimeError) as e:
             # We only catch math/precision errors to retry. 
-            # Logic errors will propagate immediately.
             last_reason = str(e)
             current_prec *= 2
             cur_num_doublings += 5
             attempt += 1
-            raise
+            if attempt > MAX_RETRIES:
+                raise RuntimeError(f"local_height_correction_finite failed at p={p} after {attempt} attempts. Last reason: {last_reason}")
+            # Loop continues to next attempt
 
-    raise RuntimeError(f"local_height_correction_finite failed at p={p} after {attempt} attempts. Last reason: {last_reason}")
+    raise RuntimeError("Unreachable code")
 
 local_height_correction_finite.cache = {}
 
@@ -232,4 +251,3 @@ def local_correction_worker(args):
 local_height_correction_finite.warned_primes = getattr(local_height_correction_finite, "warned_primes", set())
 # BUG FIX: failed_pairs must be a dictionary {}, not a set()
 local_height_correction_finite.failed_pairs = getattr(local_height_correction_finite, "failed_pairs", {})
-

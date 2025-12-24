@@ -12,6 +12,7 @@ import multiprocessing
 import itertools
 import time
 import traceback
+from search_common import DATA_PTS_GENUS2
 
 
 def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height):
@@ -608,7 +609,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
         return found_xs, []
 
     t0 = time.time()
-    mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs)
+    mumford_divisors_raw = canonicalize_and_dedup(mumford_divisors_raw, f_coeffs, seed_x_coords=DATA_PTS_GENUS2)
     print("accepted:", len(mumford_divisors_raw))
     for d in mumford_divisors_raw:
         # check parity idempotence
@@ -883,4 +884,5 @@ def quick_dependence_check(div1, div2):
 
 
 # Add to mumford_reconstruction.py, after the CRT reconstruction loop
+
 
