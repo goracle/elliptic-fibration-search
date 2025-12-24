@@ -55,10 +55,9 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     # Filter invalid / duplicate divisors early
-    #all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
+    all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
     print(f"survivors of kobayashi maru filter of numeric evil (amount = {len(all_divisors)}):")
     for i in all_divisors:
-        pass
         print(i)
     #sys.exit()
 
@@ -70,7 +69,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         all_divisors.sort(key=naive_sort_key)
-        #all_divisors.reverse() # psych!
+        all_divisors.reverse() # psych!
 
         all_divisors = all_divisors[:maxbasis]
         if debug:
@@ -1017,12 +1016,6 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
     ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
     maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
-    def naive_sort_key(d):
-        return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
-
-    all_divisors.sort(key=naive_sort_key)
-    #all_divisors.reverse() # psych!
-
     if len(all_divisors) > maxbasis:
         all_divisors = all_divisors[:maxbasis]
         if debug:
@@ -1375,6 +1368,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
                 if debug:
                     print(f"[filter] Failed to create Jacobian element: {e}")
                 _FILTER_STATS['rejected_invalid'] += 1
+                raise
                 continue
             
             # Compute naive height (fast, exact, no period matrix needed)
@@ -1384,6 +1378,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
                 if debug:
                     print(f"[filter] Naive height computation failed: {e}")
                 _FILTER_STATS['rejected_invalid'] += 1
+                raise
                 continue
             
             # Filter out extremely tiny heights (likely problematic)
@@ -1397,6 +1392,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
             except Exception:
                 # Fallback to dict signature
                 key = (s, p, v_0, v_1)
+                raise
             
             if key in seen:
                 _FILTER_STATS['rejected_dupe'] += 1
@@ -1415,6 +1411,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
             if debug:
                 print(f"[filter] Error processing divisor {div}: {e}")
             _FILTER_STATS['rejected_invalid'] += 1
+            raise
             continue
 
     if debug:

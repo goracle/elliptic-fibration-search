@@ -599,7 +599,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         RR_Final = RealField(max(128, int(prec // 4)))
         H_final = Matrix(RR_Final, final_rank, final_rank)
         if debug:
-            print(f"[arakelov] Building final {final_rank}×{final_rank} Gram matrix...")
+            print(f"[arakelov] Building final {final_rank} Gram matrix...")
 
         for r in range(final_rank):
             for c in range(r, final_rank):

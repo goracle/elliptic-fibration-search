@@ -396,7 +396,7 @@ points appear in the support, not on the divisor class itself.
 
 def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024, 
                               max_prec=8192, debug=True, 
-                              include_weierstrass=True):  # NEW FLAG
+                              include_weierstrass=False):  # NEW FLAG
     """
     Computes canonical height h(D) = h_arch(D) + sum(local_corrections).
     
@@ -451,6 +451,7 @@ def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024,
     
     # 5) FIXED: Only add Weierstrass correction if requested
     weier_correction = 0.0
+    assert not include_weierstrass, "mathematically mistaken, weierstrass correction not possible"
     if include_weierstrass:
         weier_correction = local_height_at_weierstrass_points(J_elem, consistent_coeffs, debug=debug)
     
@@ -466,10 +467,6 @@ def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024,
         print(f"  Naive(u-only) = {h_naive_val:.5f}")
         print(f"  ArchCorr      = {h_arch_correction:.5f}")
         print(f"  Locals        = {sum_s:.5f} (p=2: {per_prime.get(2, 'N/A')})")
-        if include_weierstrass:
-            print(f"  Weierstrass   = {weier_correction:.5f} ({num_weier} points)")
-        else:
-            print(f"  Weierstrass   = OMITTED (for pairing computation)")
         print(f"  Total         = {h_can:.5f}")
 
     if h_can < -1e-9 and include_weierstrass:

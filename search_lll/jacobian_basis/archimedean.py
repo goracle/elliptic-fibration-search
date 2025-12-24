@@ -145,6 +145,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
                 radius_needed = int(math.sqrt(float(-sage_log(epsilon) / (RR(pi) * RR(y_min))))) + 2
             except Exception:
                 radius_needed = 10
+                raise
 
             try:
                 if radius_needed > 18:
@@ -225,9 +226,13 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
 
     # CRITICAL FIX: Weierstrass point correction
     # For each Weierstrass point in the support, subtract log(2)
+    import numpy as np
     num_weier = count_weierstrass_in_support(div, f_coeffs)
+    if num_weier:
+        print("NUM WEIER:", num_weier)
+    assert not num_weier, (div, f_coeffs)
     if num_weier > 0:
-        weier_correction = -RR(num_weier) * RR(2).log()
+        weier_correction = -RR(num_weier) * RR(2).log()*np.nan
         arch += weier_correction
         if debug:
             print(f"[ARCH] Applied Weierstrass correction: {num_weier} points, {float(weier_correction):.6f}")
@@ -254,7 +259,7 @@ def get_weierstrass_points(f_coeffs, prec=300):
         roots = f_poly.roots(QQ, multiplicities=False)
         weier_pts.extend(roots)
     except Exception:
-        pass
+        raise
     
     # Add point at infinity (always Weierstrass for even degree)
     # For genus 2, there are exactly 6 Weierstrass points total
