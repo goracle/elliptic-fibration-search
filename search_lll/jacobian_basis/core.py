@@ -370,6 +370,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             n_jobs = cpu_count()
         except Exception:
             n_jobs = 1
+            raise
 
     if debug:
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
@@ -412,6 +413,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as e:
             if debug:
                 warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Skipping divisor.", RuntimeWarning)
+            raise
 
     pairing_cache = {}
     for i in height_cache:
@@ -421,6 +423,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         genus = C.genus()
     except Exception:
         genus = 2
+        raise
     prefix_precompute = min(n, max(8, 2 * genus + 4))
 
     if debug:
@@ -443,6 +446,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             except Exception as e:
                 if debug:
                     warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
+                import numpy as np
+                pairing_cache[(i, j)] = pairing_cache[(j, i)] = np.nan
 
     def get_pairing_lazy(i, j):
         if i > j: i, j = j, i
@@ -509,7 +514,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                         print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (sum)")
                     break
             except Exception:
-                pass
+                raise
         
         if is_torsion_equiv:
             continue
@@ -525,6 +530,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as e:
             if debug:
                 print(f"  Rejected divisor {cand_idx}: pairing computation failed ({e})")
+            raise
             continue
 
         if not is_indep:
@@ -568,6 +574,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         except Exception as e:
             if debug:
                 print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
+            raise
             continue
 
         if det_val > 1e-9:
@@ -587,7 +594,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     try:
                         _ = get_pairing_lazy(i, j)
                     except Exception:
-                        pass
+                        raise
 
     basis = [jac_elements[i][0] for i in basis_indices]
     basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
@@ -608,7 +615,8 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     H_final[r, c] = RR_Final(pv)
                     H_final[c, r] = H_final[r, c]
                 except Exception:
-                    H_final[r, c] = H_final[c, r] = 0
+                    #H_final[r, c] = H_final[c, r] = 0 # ai thought it was ok to make this zero!  amazing!
+                    raise
 
         try:
             eigs = [float(e) for e in H_final.eigenvalues()]
@@ -623,5 +631,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             
         except Exception as e:
              warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
+             raise
 
     return basis, final_rank, H_final

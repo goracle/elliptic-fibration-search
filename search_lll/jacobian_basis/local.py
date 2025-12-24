@@ -64,6 +64,7 @@ def local_naive_height_p(div, p):
             u_poly = div[0]
         except Exception as e:
             raise RuntimeError(f"Could not extract u_poly from div: {e}")
+        raise
 
     coeffs = u_poly.list() 
     
@@ -78,14 +79,14 @@ def local_naive_height_p(div, p):
         try:
             val = c.valuation()
         except (TypeError, ValueError, AttributeError):
-            pass
+            raise
             
         # 2. Try Integer/Rational syntax (requires p)
         if val is None:
             try:
                 val = c.valuation(p)
             except (TypeError, ValueError, AttributeError):
-                pass
+                raise
         
         # 3. Last resort: cast to QQ
         if val is None:
@@ -158,7 +159,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         for k in range(0, num_doublings_local + 1):
             if current_P.is_zero():
                 # Torsion / Zero detected explicitly
-                assert None, "TORSION" 
+                assert None, "TORSION"
                 return float(0.0 - h0), "torsion_hit"
 
             h_k = local_naive_height_p(current_P, p)

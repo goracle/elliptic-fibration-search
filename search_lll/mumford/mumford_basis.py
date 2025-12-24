@@ -23,7 +23,7 @@ def custom_formatwarning(msg, category, filename, lineno, line=None):
 warnings.formatwarning = custom_formatwarning
 
 ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 10
+MAX_BASIS_CANDIDATES = 8
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
@@ -55,7 +55,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     # Filter invalid / duplicate divisors early
-    all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
+    #all_divisors = filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=debug)
     print(f"survivors of kobayashi maru filter of numeric evil (amount = {len(all_divisors)}):")
     for i in all_divisors:
         print(i)
@@ -69,7 +69,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         all_divisors.sort(key=naive_sort_key)
-        all_divisors.reverse() # psych!
+        #all_divisors.reverse() # psych!
 
         all_divisors = all_divisors[:maxbasis]
         if debug:
@@ -1014,7 +1014,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
     # Limit candidates
 
     ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
-    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
+    maxbasis = min(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     if len(all_divisors) > maxbasis:
         all_divisors = all_divisors[:maxbasis]
