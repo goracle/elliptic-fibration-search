@@ -10,6 +10,30 @@ from search_common import NUM_DOUBLINGS
 """Local (p-adic) height functions."""
 
 
+get_bad_primes.cache = {}
+
+
+local_height_correction_finite.cache = {}
+
+def _pairs_to_sage_poly(pairs, p, prec):
+    from sage.all import QQ, Qp, PolynomialRing
+    K = Qp(p, prec=prec)
+    R = PolynomialRing(K, 'x')
+    coeffs = []
+    for (num, den) in pairs:
+        if den == 0:
+            coeffs.append(K(0))
+        else:
+            coeffs.append(K(QQ(num) / QQ(den)))
+    return R(coeffs)
+
+
+"""Local (p-adic) height functions."""
+
+
+"""Local (p-adic) height functions."""
+
+
 def get_bad_primes(f_coeffs):
     """
     Identify primes of bad reduction for the curve y^2 = f(x).
@@ -144,6 +168,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
         try:
             u_in = div[0].list()
             v_in = div[1].list()
+            # Coerce the input coefficients (which should be QQ) to K (Qp)
             u_p = R([K(c) for c in u_in])
             v_p = R([K(c) for c in v_in])
         except Exception as e:
@@ -222,29 +247,37 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
 local_height_correction_finite.cache = {}
 
-def _pairs_to_sage_poly(pairs, p, prec):
-    from sage.all import QQ, Qp, PolynomialRing
-    K = Qp(p, prec=prec)
-    R = PolynomialRing(K, 'x')
+def _pairs_to_qq_poly(pairs):
+    """
+    Reconstruct a Sage Polynomial over QQ from (num, den) pairs.
+    """
+    from sage.all import QQ, PolynomialRing
+    R = PolynomialRing(QQ, 'x')
     coeffs = []
     for (num, den) in pairs:
         if den == 0:
-            coeffs.append(K(0))
+            coeffs.append(QQ(0))
         else:
-            coeffs.append(K(QQ(num) / QQ(den)))
+            coeffs.append(QQ(num) / QQ(den))
     return R(coeffs)
 
 def local_correction_worker(args):
     """
-    Worker function. Note: No try-except swallowing here.
+    Worker function. 
+    CRITICAL CHANGE: Do NOT convert to Qp here.
+    Reconstruct as QQ polynomials and pass to local_height_correction_finite.
+    This ensures that local_height_correction_finite can escalate precision
+    starting from exact data, rather than starting from truncated Qp data.
     """
     idx, div_repr, p, f_coeffs = args
-    padic_prec_worker = 4096 if p == 2 else 2048
+    # Note: we do not set padic_prec_worker here anymore because we are not coercing to Qp yet.
+    
     u_pairs, v_pairs = div_repr
-    u_p = _pairs_to_sage_poly(u_pairs, p, padic_prec_worker)
-    v_p = _pairs_to_sage_poly(v_pairs, p, padic_prec_worker)
+    u_qq = _pairs_to_qq_poly(u_pairs)
+    v_qq = _pairs_to_qq_poly(v_pairs)
 
-    div_for_call = [u_p, v_p]
+    div_for_call = [u_qq, v_qq]
+    # Function will handle Qp coercion with correct high precision (e.g. 32k for p=2)
     val = local_height_correction_finite(div_for_call, p, list(f_coeffs))
     return (idx, val)
 
@@ -252,3 +285,4 @@ def local_correction_worker(args):
 local_height_correction_finite.warned_primes = getattr(local_height_correction_finite, "warned_primes", set())
 # BUG FIX: failed_pairs must be a dictionary {}, not a set()
 local_height_correction_finite.failed_pairs = getattr(local_height_correction_finite, "failed_pairs", {})
+
