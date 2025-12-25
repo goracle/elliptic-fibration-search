@@ -10,11 +10,6 @@ from search_common import NUM_DOUBLINGS
 """Local (p-adic) height functions."""
 
 
-get_bad_primes.cache = {}
-
-
-local_height_correction_finite.cache = {}
-
 def _pairs_to_sage_poly(pairs, p, prec):
     from sage.all import QQ, Qp, PolynomialRing
     K = Qp(p, prec=prec)
@@ -27,11 +22,6 @@ def _pairs_to_sage_poly(pairs, p, prec):
             coeffs.append(K(QQ(num) / QQ(den)))
     return R(coeffs)
 
-
-"""Local (p-adic) height functions."""
-
-
-"""Local (p-adic) height functions."""
 
 
 def get_bad_primes(f_coeffs):
