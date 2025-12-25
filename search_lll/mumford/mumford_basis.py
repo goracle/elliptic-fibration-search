@@ -75,7 +75,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         all_divisors.sort(key=naive_sort_key)
-        all_divisors.reverse() # psych!
+        #all_divisors.reverse() # psych!
 
         all_divisors = all_divisors[:maxbasis]
         if debug:
