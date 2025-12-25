@@ -31,7 +31,7 @@ _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 # -------------------------
 # Basis builder (top-level)
 # -------------------------
-DEFAULT_PRECS = [1024, 2048]
+DEFAULT_PRECS = [2048]
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
     """
     Top-level basis builder. Prefers Arakelov module; falls back to exact doubling method.
@@ -61,6 +61,12 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         print(i)
     #sys.exit()
 
+    # cache check
+    seen = set()
+    for i in all_divisors:
+        seen.add(str(i))
+    assert len(all_divisors) == len(list(seen)), (len(all_divisors), len(list(seen)))
+
 
     if len(all_divisors) > maxbasis:
         # [Fix] Sort divisors by naive height (sum of absolute coeffs) to prioritize 
@@ -69,7 +75,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             return abs(QQ(d['s'])) + abs(QQ(d['p'])) + abs(QQ(d['v_0'])) + abs(QQ(d['v_1']))
         
         all_divisors.sort(key=naive_sort_key)
-        #all_divisors.reverse() # psych!
+        all_divisors.reverse() # psych!
 
         all_divisors = all_divisors[:maxbasis]
         if debug:
@@ -340,6 +346,7 @@ def u_theta_degenerate_enhanced(div,
         p = QQ(div.get('p', 0))
     except Exception:
         print("Can't coerce -> don't filter here")
+        raise
         return False
 
     # discriminant as QQ
@@ -347,6 +354,7 @@ def u_theta_degenerate_enhanced(div,
         disc = s*s - 4*p    # QQ
     except Exception:
         print("this should not be triggering")
+        raise
         return False
 
     # 1) exact double root
@@ -402,7 +410,7 @@ def u_theta_degenerate_enhanced(div,
         except Exception:
             # silently ignore if this test fails
             print("something bogus happening, small rational roots sig")
-            pass
+            raise
 
     # 4) small-numerator / large-denominator discriminant pattern
     # If |a| is very small (<= small_num_threshold) while b is large (>= 2*small_num_threshold)
@@ -427,7 +435,7 @@ def u_theta_degenerate_enhanced(div,
                     return True
         except Exception:
             print("something bogus happening, p-adic modular degen quick test")
-            pass
+            raise
 
     # No trigger
     return False
@@ -485,6 +493,7 @@ def _shares_root_mod_p(div, f_coeffs, p):
         return gg.degree() >= 1
     except Exception:
         # If any modular coercion fails, return False (don't filter)
+        raise
         return False
 
 def _modular_shared_root_count(div, f_coeffs, primes=(2,3,5,7,11,13,17)):
