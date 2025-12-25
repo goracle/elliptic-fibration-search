@@ -11,6 +11,54 @@ logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 logger.setLevel(logging.WARNING)
 
+
+# canonicalize_and_dedup.py  -- improved infinity-aware canonicalization
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# small rational scales to try
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
+def check_2torsion_difference(div1, div2, f_coeffs):
+    """
+    Optional heavy check: see whether 2*(D1-D2) == 0 in J(Q).
+    This is a diagnostic only and can be slow. Returns True if difference is 2-torsion.
+    """
+    try:
+        R = PolynomialRing(QQ, 'x')
+        f_poly = build_f_poly(f_coeffs, R)
+        C = HyperellipticCurve(f_poly)
+        J = C.jacobian()
+        u1 = div1['u_poly']; v1 = div1['v_poly']
+        u2 = div2['u_poly']; v2 = div2['v_poly']
+        D1 = J([u1, v1])
+        D2 = J([u2, v2])
+        diff = D1 - D2
+        if (2 * diff).is_zero():
+            return True
+        return False
+    except Exception:
+        raise
+        return False
+
+
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, Integer
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+# candidate scales we try (including reciprocals)
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
+
+
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+logger.setLevel(logging.WARNING)
+
 # candidate scales we try (including reciprocals)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
@@ -179,10 +227,10 @@ def _rational_is_square(q):
     return False, None
 
 
-def check_2torsion_difference(div1, div2, f_coeffs):
+def check_torsion_difference(div1, div2, f_coeffs, max_order=32):
     """
-    Optional heavy check: see whether 2*(D1-D2) == 0 in J(Q).
-    This is a diagnostic only and can be slow. Returns True if difference is 2-torsion.
+    Optional heavy check: see whether m*(D1-D2) == 0 in J(Q) for m up to max_order.
+    This replaces the old 2-torsion only check.
     """
     try:
         R = PolynomialRing(QQ, 'x')
@@ -194,15 +242,16 @@ def check_2torsion_difference(div1, div2, f_coeffs):
         D1 = J([u1, v1])
         D2 = J([u2, v2])
         diff = D1 - D2
-        if (2 * diff).is_zero():
-            return True
+        
+        # Check orders up to max_order
+        for m in range(1, max_order + 1):
+             if (m * diff).is_zero():
+                 return True
         return False
     except Exception:
         raise
         return False
 
-
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, Integer
 
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
@@ -297,31 +346,48 @@ def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_key
                     if D_inf is None:
                         R = u.parent()
                         x = R.gen()
-                        D_inf = J([x, R(0)])
-                        jac_points['__D_inf__'] = D_inf
+                        # Fallback attempt to get D_inf (only works if 0 is a Weierstrass point or similar)
+                        # Generally better to have passed D_inf in, or accept this failing.
+                        try:
+                            D_inf = J([x, R(0)])
+                            jac_points['__D_inf__'] = D_inf
+                        except Exception:
+                            D_inf = None
 
                     for stored_key, stored_data in jac_points.items():
                         if stored_key == '__D_inf__':
                             continue
                         storedJ = stored_data['Jpt']
                         diff = newJ - storedJ
+                        summ = newJ + storedJ
+                        
                         matched = False
                         if D_inf is not None:
+                            # If we have a special D_inf, check shifts by it
                             for k in range(-3, 4):
                                 if (diff - k * D_inf).is_zero():
                                     logger.info("Jacobian dedup: matched new divisor to stored key %s with k=%d", stored_key, k)
                                     matched = True
                                     break
                         else:
-                            if diff.is_zero():
-                                logger.info("Jacobian dedup: exact equality match for stored key %s", stored_key)
-                                matched = True
+                            # Standard deduplication: Check torsion on diff AND sum
+                            # Replacing pure equality check with loop up to order 32
+                            for m in range(1, 33):
+                                if (m * diff).is_zero():
+                                    logger.info("Jacobian dedup: matched new divisor to stored key %s (torsion diff order %d)", stored_key, m)
+                                    matched = True
+                                    break
+                                if (m * summ).is_zero():
+                                    logger.info("Jacobian dedup: matched new divisor to stored key %s (torsion sum order %d)", stored_key, m)
+                                    matched = True
+                                    break
+                                    
                         if matched:
                             seen_keys.add(key)
                             return True
                 except Exception as e:
-                    #logger.warning("Jacobian comparison failed: %s", e)
-                    pass # note to self: this function seems broken.
+                    # logger.warning("Jacobian comparison failed: %s", e)
+                    pass 
 
             seen_keys.add(key)
             newt = dict(orig_tup)

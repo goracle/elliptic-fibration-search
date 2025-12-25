@@ -350,6 +350,36 @@ def check_2torsion_equivalence(new_div, basis_divs, C):
     return False, None
 
 
+def check_torsion_equivalence(new_jac, basis_jacs, max_order=32):
+    """
+    Check if new_jac is equivalent to any basis element mod torsion.
+    Checks new +- old for torsion orders up to max_order.
+    """
+    if not basis_jacs:
+        return False, None
+        
+    for i, old_jac in enumerate(basis_jacs):
+        # Check Difference: D_new - D_old = Torsion?
+        diff = new_jac - old_jac
+        if diff.is_zero():
+             return True, i
+             
+        # Check Sum: D_new + D_old = Torsion?
+        summ = new_jac + old_jac
+        if summ.is_zero():
+             return True, i
+             
+        # Check higher orders (up to max_order)
+        # We check m * diff and m * summ
+        for m in range(2, max_order + 1):
+             if (m * diff).is_zero():
+                 return True, i
+             if (m * summ).is_zero():
+                 return True, i
+                 
+    return False, None
+
+
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
                                       test_normalization=None, n_jobs=-1):
     """
@@ -360,7 +390,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
       - Uses a strictly raising height implementation.
       - If height/pairing computations fail, the candidate divisor is REJECTED 
         rather than poisoning the basis with 0.0.
-      - Explicitly checks for 2-torsion equivalence to avoid rank inflation.
+      - Explicitly checks for torsion equivalence (all orders) to avoid rank inflation.
     """
     if not all_divisors:
         return [], 0, None
@@ -495,28 +525,17 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             continue
 
         cand_jac = jac_elements[cand_idx][1]
-        is_torsion_equiv = False
         
-        for b_idx in basis_indices:
-            basis_jac = jac_elements[b_idx][1]
-            try:
-                diff = cand_jac - basis_jac
-                if (2 * diff).is_zero():
-                    is_torsion_equiv = True
-                    if debug:
-                        print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (diff)")
-                    break
-                
-                summ = cand_jac + basis_jac
-                if (2 * summ).is_zero():
-                    is_torsion_equiv = True
-                    if debug:
-                        print(f"  Rejected divisor {cand_idx}: equivalent to basis {b_idx} mod 2-torsion (sum)")
-                    break
-            except Exception:
-                raise
+        # Gather current basis elements as Jacobian objects
+        basis_jacs = [jac_elements[b][1] for b in basis_indices]
         
-        if is_torsion_equiv:
+        # Check for torsion equivalence (all orders)
+        is_equiv, match_idx = check_torsion_equivalence(cand_jac, basis_jacs, max_order=32)
+        
+        if is_equiv:
+            if debug:
+                match_real_idx = basis_indices[match_idx]
+                print(f"  Rejected divisor {cand_idx}: equivalent to basis {match_real_idx} mod torsion")
             continue
 
         try:

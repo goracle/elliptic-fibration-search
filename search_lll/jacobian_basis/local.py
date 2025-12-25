@@ -23,7 +23,6 @@ def _pairs_to_sage_poly(pairs, p, prec):
     return R(coeffs)
 
 
-
 def get_bad_primes(f_coeffs):
     """
     Identify primes of bad reduction for the curve y^2 = f(x).
@@ -236,6 +235,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
     raise RuntimeError("Unreachable code")
 
 local_height_correction_finite.cache = {}
+
 
 def _pairs_to_qq_poly(pairs):
     """
