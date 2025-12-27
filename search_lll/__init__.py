@@ -12,6 +12,7 @@ from .diagnostics_univariate import *
 from . import mumford
 from . import jacobian_basis
 from .homology import *
+from .selmer_genus2 import *
 
 # Expose main execution functions
 # Expose main utilities (as needed by the parent scripts)

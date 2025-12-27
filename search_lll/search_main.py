@@ -11,6 +11,7 @@ from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 from .mumford import *
+from .selmer_genus2 import *
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -374,7 +375,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         print(stats.summary_string())
 
         # === NEW: SELMER UPPER BOUND COMPARISON ===
-        from selmer_genus2 import analyze_genus2_rank
 
         rank_analysis = analyze_genus2_rank(
             f_coeffs=coeffs_genus2,
