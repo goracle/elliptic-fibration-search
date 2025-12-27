@@ -14,7 +14,7 @@ THETA_RADIUS_CAP = 18        # default cap (conservative)
 THETA_MAX_TERMS = 20000      # default max terms
 THETA_EPS_FACTOR = 64        # default epsilon factor
 
-MAX_RADIUS = 70
+MAX_RADIUS = 60 # absolute max, do not raise it beyond this!  it is not combinatorially reasonable to do so!
 
 
 def theta_direct(tau_in, z_in, R=3, prec_local=2048):

@@ -1,4 +1,34 @@
-"""Core basis building functionality."""
+"""core.py
+
+Precision-hardened and robust replacements for pairing/height workers and
+parallel precomputation. Intended as a drop-in improvement to the original
+core/pairing modules you posted.
+
+Key design choices made here:
+- Use a modest, adaptive number of guard bits (not astronomically large).
+- Compute archimedean arithmetic in a single RealField(parent) and avoid
+  coercing exact QQ(0) into mixed parents.
+- Do not re-raise inside inner exception handlers (we want graceful fallbacks).
+- Return float results for pairing_cache (matches existing code paths which
+  subsequently convert to float). When a pairing truly fails, store np.nan.
+- Catch common "theta/radius/precision" style failures from arakelov routine
+  and mark the pair as unstable instead of hanging.
+
+This file intentionally keeps the external API compatible with your existing
+pipeline: compute_pairing_worker(args) and compute_height_worker(args) keep
+the same argument order/structure as before.
+
+You should still consider moving to the analytic Abel--Jacobi pairing for
+most Gram/regulator work (neron_tate_height_pairing) — this file provides
+robust fallbacks when analytic AJ is not available.
+"""
+
+from sage.all import (
+    QQ, PolynomialRing, HyperellipticCurve, RealField, ComplexField, Matrix, vector
+)
+from multiprocessing import Pool
+import traceback
+
 
 import numpy as np
 import math
@@ -653,3 +683,274 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
              raise
 
     return basis, final_rank, H_final
+
+
+
+# --- Worker replacements --------------------------------------------------
+
+def _adaptive_guard_bits(prec_bits: int) -> int:
+    """Return a modest number of guard bits based on requested precision.
+
+    Avoid exploding the working precision (user previously tried 8192 guard
+    bits which caused the theta radius to blow up). We use an adaptive rule:
+      guard = min(max(32, prec//8), 512)
+    so for very large `prec` we still cap at 512 extra bits.
+    """
+    return min(max(32, prec_bits // 8), 512)
+
+
+def compute_pairing_worker(args):
+    """Robust worker function to compute a single N\'eron--Tate pairing.
+
+    Args (tuple): (i, j, div_i, div_j, f_coeffs, prec, h_i, h_j)
+
+    Returns: ((i,j), float_val_or_nan, err_string_or_None)
+    """
+    try:
+        i, j, div_i, div_j, f_coeffs, prec, h_i, h_j = args
+    except Exception as e:
+        raise
+        return (None, None, f"bad_args: {e}")
+
+    # If identical indices short-circuit
+    if i == j:
+        try:
+            return ((i, j), float(h_i), None)
+        except Exception:
+            raise
+            return ((i, j), None, "bad_self_height")
+
+    # Work precision with guard bits
+    guard = _adaptive_guard_bits(int(prec))
+    work_prec = int(prec) + guard
+
+    # Use a consistent real parent for all numeric archimedean work
+    RR = RealField(work_prec)
+
+    # Rebuild curve and Jacobian (exact QQ arithmetic)
+    try:
+        Rq = PolynomialRing(QQ, 'x')
+        x = Rq.gen()
+        f_poly_QQ = sum(QQ(c) * x ** (len(f_coeffs) - 1 - k) for k, c in enumerate(f_coeffs))
+        C = HyperellipticCurve(f_poly_QQ)
+        J = C.jacobian()
+    except Exception as e:
+        raise
+        return ((i, j), None, f"curve_rebuild_failed: {e}")
+
+    def _rebuild_from_record(div_record):
+        try:
+            u = x**2 - QQ(div_record['s']) * x + QQ(div_record['p'])
+            v = QQ(div_record['v_1']) * x + QQ(div_record['v_0'])
+            return J([u, v])
+        except Exception as e:
+            raise ValueError(f"reconstruct_mumford_failed: {e}")
+
+    # Reconstruct Jacobian elements
+    try:
+        P = _rebuild_from_record(div_i)
+        Q = _rebuild_from_record(div_j)
+    except Exception as e:
+        raise
+        return ((i, j), None, f"div_reconstruct_failed: {e}")
+
+    h_sum = None
+    h_diff = None
+    sum_err = None
+    diff_err = None
+
+    # Try P+Q
+    try:
+        Dsum = P + Q
+        if Dsum.is_zero():
+            h_sum = RR(0)
+        else:
+            # arakelov_canonical_height should accept jacobian element and f_coeffs
+            h_tmp = arakelov_canonical_height(Dsum, f_coeffs, prec=work_prec)
+            # guard: if the height routine returns a rational or Sage numeric, coerce
+            h_sum = RR(h_tmp)
+    except Exception as e:
+        sum_err = traceback.format_exc()
+        h_sum = None
+        raise
+
+    # Try P-Q
+    try:
+        Ddiff = P - Q
+        if Ddiff.is_zero():
+            h_diff = RR(0)
+        else:
+            h_tmp = arakelov_canonical_height(Ddiff, f_coeffs, prec=work_prec)
+            h_diff = RR(h_tmp)
+    except Exception as e:
+        diff_err = traceback.format_exc()
+        h_diff = None
+        raise
+
+    # Combine results with stable arithmetic in RR
+    try:
+        if h_sum is not None and h_diff is not None:
+            val_rr = (h_sum - h_diff) / RR(4)
+        elif h_sum is not None:
+            # fallback formula: <P,Q> = (h(P+Q) - h(P) - h(Q)) / 2
+            val_rr = (h_sum - RR(h_i) - RR(h_j)) / RR(2)
+        elif h_diff is not None:
+            # <P,Q> = (h(P) + h(Q) - h(P-Q)) / 2
+            val_rr = (RR(h_i) + RR(h_j) - h_diff) / RR(2)
+        else:
+            # Both failed: mark as NaN but return error context so caller can decide
+            err_msg = "both_sum_and_diff_failed"
+            if sum_err:
+                err_msg += "; sum_err=" + sum_err.splitlines()[-1][:200]
+            if diff_err:
+                err_msg += "; diff_err=" + diff_err.splitlines()[-1][:200]
+            return ((i, j), float('nan'), err_msg)
+
+        # Cast to double for compatibility with existing pipelines which store floats
+        val_f = float(RealField(int(prec))(val_rr))
+        if not math.isfinite(val_f):
+            return ((i, j), float('nan'), "nonfinite_result")
+        return ((i, j), val_f, None)
+
+    except Exception as e:
+        raise
+        return ((i, j), float('nan'), f"combine_failed: {e}")
+
+
+def compute_height_worker(args):
+    """Worker function to compute a single (self-)height. Returns (i, float_h, err_or_None)."""
+    try:
+        i, div, f_coeffs, prec = args
+    except Exception as e:
+        raise
+        return (None, None, f"bad_args: {e}")
+
+    guard = _adaptive_guard_bits(int(prec))
+    work_prec = int(prec) + guard
+    RR = RealField(work_prec)
+
+    try:
+        Rq = PolynomialRing(QQ, 'x')
+        x = Rq.gen()
+        f_poly_QQ = sum(QQ(c) * x ** (len(f_coeffs) - 1 - k) for k, c in enumerate(f_coeffs))
+        C = HyperellipticCurve(f_poly_QQ)
+        J = C.jacobian()
+
+        u_poly = x**2 - QQ(div['s']) * x + QQ(div['p'])
+        v_poly = QQ(div['v_1']) * x + QQ(div['v_0'])
+        D = J([u_poly, v_poly])
+
+        h_tmp = arakelov_canonical_height(D, f_coeffs, prec=work_prec)
+        h_rr = RR(h_tmp)
+        return (i, float(RealField(int(prec))(h_rr)), None)
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        raise
+        return (i, float('nan'), tb.splitlines()[-1][:200])
+
+
+# --- Simple analytic pairing primitive -----------------------------------
+
+def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0):
+    """Compute analytic Abel--Jacobi pairing: Re(
+    conj(z1)^T * Im(\tau)^{-1} * z2
+    ) with normalization factor.
+
+    Inputs z1,z2 can be length-2 complex-like sequences (supports Python complex
+    or Sage complex elements). Im_tau should be a 2x2 matrix-like object.
+
+    Returns: float
+    """
+    # Use CC to hold intermediate complex values at requested precision
+    CC = ComplexField(int(prec))
+    RR = RealField(int(prec))
+
+    # Defensive conversion for Im_tau
+    try:
+        # Attempt to use Sage Matrix API if available
+        Im_tau_inv = Matrix(CC, Im_tau).inverse()
+    except Exception:
+        # fall back to numpy
+        try:
+            Im_np = np.array(Im_tau, dtype=float)
+            Im_tau_inv_np = np.linalg.inv(Im_np)
+            Im_tau_inv = Matrix(CC, Im_tau_inv_np.tolist())
+        except Exception as e:
+            raise RuntimeError(f"Im_tau inversion failed: {e}")
+        raise
+
+    z1_vec = vector(CC, [CC(z1[0]), CC(z1[1])])
+    z2_vec = vector(CC, [CC(z2[0]), CC(z2[1])])
+    z1_conj = vector(CC, [z1_vec[0].conjugate(), z1_vec[1].conjugate()])
+
+    temp = Im_tau_inv * z2_vec
+    result = z1_conj[0] * temp[0] + z1_conj[1] * temp[1]
+    real_part = RR(result.real()) * RR(normalization_factor)
+    return float(real_part)
+
+
+# --- Parallel precompute helper -----------------------------------------
+
+def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs=1):
+    """Compute missing pairings for `indices` in parallel.
+
+    jac_elements: list of (div_dict, jacobian_element, optional_self_height)
+    pairing_cache: dict mapping (i,j) -> float (symmetric) to be updated in-place
+    Returns the updated pairing_cache.
+    """
+    tasks = []
+    for r in range(len(indices)):
+        for c in range(r, len(indices)):
+            i = indices[r]
+            j = indices[c]
+            if i > j:
+                i, j = j, i
+            if (i, j) in pairing_cache:
+                continue
+            # prepare args in same order as compute_pairing_worker expects
+            div_i = jac_elements[i][0]
+            div_j = jac_elements[j][0]
+            h_i = height_cache.get(i, float('nan'))
+            h_j = height_cache.get(j, float('nan'))
+            tasks.append((i, j, div_i, div_j, f_coeffs, prec, h_i, h_j))
+
+    if not tasks:
+        return pairing_cache
+
+    # If parallel, use a pool; otherwise fall back to serial
+    results = []
+    if len(tasks) > 2 and (n_jobs is None or n_jobs > 1):
+        nproc = max(1, int(n_jobs))
+        with Pool(processes=nproc) as pool:
+            for idx, res in enumerate(pool.imap_unordered(compute_pairing_worker, tasks)):
+                results.append(res)
+    else:
+        for args in tasks:
+            results.append(compute_pairing_worker(args))
+
+    # Merge results into pairing_cache, converting to floats and symmetric keys
+    for item in results:
+        try:
+            pair, val, err = item
+            if pair is None:
+                # broken worker returned malformed result
+                continue
+            i, j = pair
+            if err is not None:
+                # store NaN and continue; caller may decide what to do
+                pairing_cache[(i, j)] = float('nan')
+                pairing_cache[(j, i)] = float('nan')
+            else:
+                # numeric value
+                pairing_cache[(i, j)] = float(val)
+                pairing_cache[(j, i)] = float(val)
+        except Exception:
+            # defensive: skip malformed entries
+            raise
+            continue
+
+    return pairing_cache
+
+
+# End of core_fixed.py
