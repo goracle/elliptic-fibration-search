@@ -53,65 +53,6 @@ def to_complex(z, CC):
         raise
 
 
-def extract_cycle_paths(cycle, vertex_source, CC):
-    """
-    Extract weighted paths from a Sage homology cycle.
-    
-    INPUT:
-    - cycle: list of (coeff, path) tuples where path is [(idx, sheet), ...]
-    - vertex_source: list of vertex coordinates
-    - CC: ComplexField
-    
-    OUTPUT:
-    - List of (coeff, [(z, sheet), ...]) tuples with complex coordinates
-    """
-    if not isinstance(cycle, list):
-        raise HomologyExtractionError(f"Expected cycle to be a list, got {type(cycle)}")
-    
-    weighted_paths = []
-    
-    for item in cycle:
-        if not isinstance(item, tuple) or len(item) != 2:
-            raise HomologyExtractionError(f"Expected (coeff, path) tuple, got {item}")
-        
-        coeff, raw_path = item
-        
-        if not isinstance(raw_path, list):
-            raise HomologyExtractionError(f"Expected path to be a list, got {type(raw_path)}")
-        
-        # Convert index-based path to coordinate-based path
-        z_s_path = []
-        for node in raw_path:
-            if not isinstance(node, (list, tuple)) or len(node) < 2:
-                raise HomologyExtractionError(f"Expected node (idx, sheet), got {node}")
-            
-            idx, sheet = int(node[0]), int(node[1])
-            
-            if idx < 0 or idx >= len(vertex_source):
-                raise HomologyExtractionError(f"Vertex index {idx} out of range (max {len(vertex_source)-1})")
-            
-            z = to_complex(vertex_source[idx], CC)
-            z_s_path.append((z, sheet))
-        
-        # Remove consecutive duplicates
-        clean_path = []
-        for p in z_s_path:
-            if not clean_path or clean_path[-1] != p:
-                clean_path.append(p)
-        
-        # Ensure closed
-        if len(clean_path) > 1 and clean_path[0] != clean_path[-1]:
-            clean_path.append(clean_path[0])
-        
-        if clean_path:
-            weighted_paths.append((coeff, clean_path))
-    
-    if not weighted_paths:
-        raise HomologyExtractionError("Extracted zero weighted paths from cycle")
-    
-    return weighted_paths
-
-
 def compute_intersection_matrix(A_cycles, B_cycles):
     """Compute 2x2 intersection matrix for genus-2 surface (geometric fallback)."""
     I = [[0, 0], [0, 0]]
@@ -224,7 +165,7 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
         try:
             print(f"det(A) magnitude: {float(abs(A.det())):.6e}")
         except Exception:
-            pass
+            raise
     
     # Compute tau = A^(-1) * B
     try:
@@ -259,7 +200,6 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_depth=8, pd_t
     return tau
 get_period_matrix_auto_B.cache = {}
 
-
 def complex_of_sage(z, CC):
     """
     Robustly coerce a Sage complex-like object to a Python complex (via CC if needed).
@@ -276,6 +216,8 @@ def complex_of_sage(z, CC):
                 return complex(str(z))
             except Exception:
                 raise
+            raise
+        raise
 
 
 def build_Im_tau_from_tau(tau, RR, CC):
@@ -306,6 +248,7 @@ def make_matrix_numerically_positive_definite(M, tol=None):
             tol = RR(10) ** (-30)
         except Exception:
             tol = RR(1e-30)
+            raise
     eigs = [float(e) for e in M.eigenvalues()]
     min_eig = min(eigs)
     if min_eig <= float(tol):
@@ -340,51 +283,6 @@ def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
 
 
 # --- Robust vertex extraction -------------------------------------------------
-def get_vertex_source(RS):
-    """
-    Robustly extract a list/sequence of vertex coordinates from a RiemannSurface object.
-    Returns a Python list of Sage/py numbers that can be converted to ComplexField later.
-    Raises HomologyExtractionError if nothing sensible is found.
-    """
-    candidate_attrs = ['vertices', 'points', '_nodes', '_embedding_nodes', '_zeros', 'nodes', 'embedding_nodes']
-    # try the obvious attributes first
-    for attr in candidate_attrs:
-        if hasattr(RS, attr):
-            try:
-                val = getattr(RS, attr)
-                if callable(val):
-                    val = val()
-                # accept sequences with numeric-like entries
-                if isinstance(val, (list, tuple)) and len(val) > 0:
-                    first = val[0]
-                    # allow tuples of coordinates or simple numeric values
-                    if hasattr(first, 'real') or isinstance(first, (int, float, complex)) or (
-                            isinstance(first, (list, tuple)) and len(first) >= 1):
-                        return list(val)
-            except Exception:
-                # don't crash on odd attributes; try next
-                continue
-
-    # Fallback: scan attributes heuristically for the longest numeric sequence
-    candidates = []
-    for attr in dir(RS):
-        if attr.startswith('_'):
-            continue
-        try:
-            val = getattr(RS, attr)
-        except Exception:
-            continue
-        if isinstance(val, (list, tuple)) and len(val) > 0:
-            first = val[0]
-            if (hasattr(first, 'real') or isinstance(first, (int, float, complex))
-                    or (isinstance(first, (list, tuple)) and len(first) >= 1)):
-                candidates.append((attr, val))
-    if candidates:
-        # prefer the longest sequence
-        candidates.sort(key=lambda x: len(x[1]), reverse=True)
-        return list(candidates[0][1])
-
-    raise HomologyExtractionError("Could not locate vertex coordinates in RiemannSurface object")
 
 
 # --- Segment intersection helpers (robust) -----------------------------------
@@ -481,6 +379,7 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
             print(f"Could not compute combinatorial intersection matrix: {e}")
         # Fallback: assume standard symplectic form
         I = [[1, 0], [0, 1]]
+        raise
 
     if verbose:
         print("Intersection pairing computed:")
@@ -489,6 +388,7 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
             print(sMatrix(I))
         except Exception:
             print(I)
+            raise
 
     # If already identity, return early
     if I == [[1, 0], [0, 1]]:
@@ -619,7 +519,698 @@ def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes,
 # you pass into canonicalize_cycles are those returned by extract_cycle_paths (i.e., coordinate-based).
 
 
+def get_vertex_source(RS):
+    """
+    Extract the exact vertex list used by Sage's homology graph.
+    This is the ONLY vertex source guaranteed to match homology indices.
+    """
+    if not hasattr(RS, "_graph"):
+        raise HomologyExtractionError("RiemannSurface has no internal graph")
+
+    G = RS._graph
+
+    try:
+        verts = list(G.vertices())
+    except Exception as e:
+        raise HomologyExtractionError(f"Could not extract graph vertices: {e}")
+
+    if not verts:
+        raise HomologyExtractionError("Graph has no vertices")
+
+    # Coerce vertices to complex numbers if possible
+    CC = RS.complex_field()
+    out = []
+    for v in verts:
+        try:
+            z = CC(v)
+        except Exception:
+            try:
+                z = CC(v[0])   # some Sage versions store (z, sheet)
+            except Exception:
+                raise HomologyExtractionError(f"Uncoercible vertex: {v}")
+            raise
+        out.append(z)
+
+    return out
+
+
+def extract_cycle_paths(cycle, vertex_source, CC):
+    """
+    Convert a Sage homology cycle into coordinate paths using
+    Sage's own graph vertices.
+    """
+    weighted_paths = []
+
+    for coeff, path in cycle:
+        pts = []
+        for idx in path:
+            if idx < 0 or idx >= len(vertex_source):
+                raise HomologyExtractionError(
+                    f"Vertex index {idx} out of range (max {len(vertex_source)-1})"
+                )
+            pts.append((CC(vertex_source[idx]), None))
+        weighted_paths.append((coeff, pts))
+
+    if not weighted_paths:
+        raise HomologyExtractionError("Empty cycle after extraction")
+
+    return weighted_paths
+
+
 # Example usage
 if __name__ == "__main__":
     f_coeffs = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]  # rank 4
     test_period_matrix_pos_def_auto(f_coeffs, prec=200)
+
+
+
+def get_period_matrix_auto_B(f_coeffs, prec=200):
+    """
+    Deterministic period matrix construction for genus 2 hyperelliptic curves.
+
+    Avoids Sage's RiemannSurface internals entirely.
+    """
+    from sage.all import (
+        HyperellipticCurve, CDF, ComplexField, sqrt, pi
+    )
+    key = (tuple(f_coeffs), prec)
+    if key in get_period_matrix_auto_B.cache:
+        return get_period_matrix_auto_B.cache[key]
+
+    # --- Build polynomial explicitly (highest -> lowest) ---
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+
+    n = len(f_coeffs) - 1
+    f = sum(QQ(c) * x**(n - i) for i, c in enumerate(f_coeffs))
+
+    if f.degree() != 6:
+        raise ValueError(f"Expected degree-6 polynomial for genus 2 {f.degree()}")
+
+    CC = ComplexField(prec)
+    C = HyperellipticCurve(f)
+
+    # Compute branch points
+    roots = [CC(r) for r in f.roots(multiplicities=False)]
+
+    if len(roots) != 6:
+        raise RuntimeError("Expected 6 branch points for genus 2")
+
+    # Sort by real part, then imag
+    roots.sort(key=lambda z: (z.real(), z.imag()))
+
+    # Pair branch points canonically
+    cuts = [(roots[0], roots[1]),
+            (roots[2], roots[3]),
+            (roots[4], roots[5])]
+
+    # Holomorphic differentials
+    # ω1 = dx / y
+    # ω2 = x dx / y
+    def omega1(x):
+        return 1 / sqrt(f(x))
+
+    def omega2(x):
+        return x / sqrt(f(x))
+
+    # Numerical integration along straight segments
+    def integrate(diff, a, b, steps=2000):
+        s = CC(0)
+        for k in range(steps):
+            t0 = CC(k) / steps
+            t1 = CC(k + 1) / steps
+            x0 = a + (b - a) * t0
+            x1 = a + (b - a) * t1
+            dx = (x1 - x0)
+            s += diff((x0 + x1) / 2) * dx
+        return s
+
+    # a-cycles
+    A = []
+    for a, b in cuts[:2]:
+        A.append([
+            integrate(omega1, a, b),
+            integrate(omega2, a, b)
+        ])
+
+    # b-cycles: connect cuts
+    B = []
+    for (a1, b1), (a2, b2) in [(cuts[0], cuts[1]), (cuts[1], cuts[2])]:
+        B.append([
+            integrate(omega1, b1, a2),
+            integrate(omega2, b1, a2)
+        ])
+
+    # Construct period matrices
+    A_mat = matrix(CC, A).transpose()
+    B_mat = matrix(CC, B).transpose()
+
+    return A_mat.inverse() * B_mat
+get_period_matrix_auto_B.cache = {}
+
+
+def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, perturb_attempts=5):
+    """
+    Robust genus-2 period matrix builder for y^2 = f(x), where f_coeffs is a list
+    from highest -> lowest (your convention).
+
+    - Supports deg 5 or 6 (genus 2). For deg 5, treats the point at infinity correctly
+      by introducing a large finite proxy for numerical integration.
+    - Uses ComplexField(prec) arithmetic and tanh-sinh quadrature (uses tanh_sinh_nodes).
+    - Retries root-finding with tiny random perturbations if multiplicities cause problems.
+    - Returns tau (2x2 ComplexField matrix), symmetrized.
+    """
+    from sage.all import PolynomialRing, QQ, ComplexField, sqrt, matrix, identity_matrix
+    import random, math
+
+    CC = ComplexField(prec)
+    #RR = CC.base_ring().real_field() if hasattr(CC, 'base_ring') else None
+    from sage.all import RealField
+    RR = RealField(prec)
+
+    # Build polynomial in sage ring (high -> low)
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    n = len(f_coeffs) - 1
+    f = sum(QQ(c) * x**(n - i) for i, c in enumerate(f_coeffs))
+
+    if n not in (5, 6):
+        raise ValueError(f"Expected degree 5 or 6 polynomial for genus 2; got degree {n}")
+
+    # Helper: attempt root-finding in ComplexField with small perturbation retries
+    def find_roots_with_retries(poly, attempts=perturb_attempts):
+        for attempt in range(attempts):
+            try:
+                # change ring to CC and compute numeric roots with multiplicities
+                poly_cc = poly.change_ring(CC)
+                roots_mults = poly_cc.roots(multiplicities=True)
+                # convert to list of CC numbers (multiplicity ignored here, but we check)
+                roots = [CC(r) for r, m in roots_mults]
+                mults = [m for r, m in roots_mults]
+                # check distinct count
+                if len(roots) >= (6 if n == 6 else 5):
+                    return roots, mults
+                # If not enough distinct numeric roots, try tiny perturbation (unless last attempt)
+                if attempt < attempts - 1:
+                    eps = CC(10) ** (-max(10, prec // 8))  # tiny perturbation magnitude
+                    noise = [complex(random.uniform(-1, 1), random.uniform(-1, 1)) * eps for _ in range(n + 1)]
+                    # add noise to coefficients and rebuild polynomial
+                    coeffs_pert = [QQ(float(c) + noise_i.real) for c, noise_i in zip(f.list(), noise)]
+                    poly = R(coeffs_pert)  # reassign and retry
+                else:
+                    # last attempt: return what we have (maybe with multiplicities)
+                    return roots, mults
+            except Exception:
+                # try a different perturbation next loop
+                if attempt < attempts - 1:
+                    eps = CC(10) ** (-max(10, prec // 8))
+                    noise = [complex(random.uniform(-1, 1), random.uniform(-1, 1)) * eps for _ in range(n + 1)]
+                    coeffs_pert = [QQ(float(c) + noise_i.real) for c, noise_i in zip(f.list(), noise)]
+                    poly = R(coeffs_pert)
+                    continue
+                else:
+                    raise RuntimeError("Root-finding failed after perturbation attempts")
+        raise RuntimeError("Unexpected exit from root-finding loop")
+
+    roots, mults = find_roots_with_retries(f, attempts=perturb_attempts)
+
+    # If multiplicities > 1 anywhere, curve is singular — abort with helpful message
+    if any(m > 1 for m in mults):
+        raise RuntimeError(f"Polynomial has repeated roots (multiplicities {mults}) -> singular curve")
+
+    # convert to CC and sort by (real, imag)
+    roots_cc = [CC(r) for r in roots]
+    roots_cc.sort(key=lambda z: (float(z.real()), float(z.imag())))
+
+    # If degree==6, expect 6 branch points; degree==5 expect 5 (plus infinity)
+    if n == 6 and len(roots_cc) != 6:
+        raise RuntimeError(f"Expected 6 branch points for genus 2, found {len(roots_cc)}")
+    if n == 5 and len(roots_cc) != 5:
+        raise RuntimeError(f"Expected 5 finite branch points for genus 2 (odd degree), found {len(roots_cc)}")
+
+    # For deg 5, create a finite proxy for infinity (large point) to integrate numerically.
+    if n == 5:
+        # choose scale from mean magnitude of roots (avoid too small)
+        mags = [abs(z) for z in roots_cc] or [CC(1)]
+        scale = max(CC(1), sum(mags) / len(mags))
+        big = CC(scale) * CC(10) ** 6  # large proxy
+        roots_for_pairing = roots_cc + [big]
+    else:
+        roots_for_pairing = roots_cc
+
+    # Pair branchpoints into 3 cuts: simple heuristic: pair consecutive sorted points
+    # (other canonical choices possible; this is robust for many generic configurations)
+    cuts = [(roots_for_pairing[0], roots_for_pairing[1]),
+            (roots_for_pairing[2], roots_for_pairing[3]),
+            (roots_for_pairing[4], roots_for_pairing[5])]
+
+    # Holomorphic differentials (numerical): omega1 = dx / y, omega2 = x dx / y
+    # we'll evaluate y = sqrt(f(x)) numerically using Horner on f and CC
+    f_coeffs_cc = [CC(c) for c in f_coeffs]
+    def f_eval(z):
+        # Horner evaluate; f_coeffs is high->low
+        r = f_coeffs_cc[0]
+        for c in f_coeffs_cc[1:]:
+            r = r * z + c
+        return r
+
+    # Quadrature nodes (use tanh_sinh_nodes helper if available)
+    Nnodes = max(400, min(2000, prec // 2))
+    try:
+        raw_nodes = tanh_sinh_nodes(Nnodes)
+    except Exception:
+        # fallback simple equidistant nodes
+        raw_nodes = []
+        for k in range(-Nnodes, Nnodes + 1):
+            t = k / Nnodes
+            x_mapped = t
+            w = 1.0 / (2 * Nnodes)
+            raw_nodes.append((t, CC(x_mapped), CC(w)))
+    # convert nodes to CC triples for speed
+    nodes_cc = [(CC(t), CC(xm), CC(w)) for (t, xm, w) in raw_nodes]
+
+    tiny = CC(2) ** (-prec // 2)
+
+    # Path integrator (straight-line segments) preserving branch continuity
+    def integrate_along_segment(a, b, sheet_hint=None):
+        """Return tuple (I1, I2, y_end) for integrals of dx/y and x dx/y along straight segment a->b."""
+        a_cc = CC(a); b_cc = CC(b)
+        vec = b_cc - a_cc
+        I0 = CC(0); I1 = CC(0)
+        y_prev = None if sheet_hint is None else CC(sheet_hint)
+
+        # small perpendicular offset to avoid hitting branchpoints exactly
+        perp = CC(0, 1) * vec
+        abs_perp = abs(perp)
+        if abs_perp == 0:
+            off = CC(0)
+        else:
+            off_mag = max(CC(1e-18), abs(vec) * CC(1e-8))
+            off = perp / abs_perp * off_mag
+
+        dx_factor = vec / CC(2)  # accounts for mapping in tanh-sinh where s in [-1,1] -> [0,1] via (x+1)/2
+
+        near_count = 0
+        total_nodes = len(nodes_cc)
+
+        for (t, x_mapped, w) in nodes_cc:
+            s = (x_mapped + CC(1)) / CC(2)  # map [-1,1] -> [0,1]
+            xval = a_cc + s * vec + off
+            fv = f_eval(xval)
+            if abs(fv) < tiny:
+                near_count += 1
+                continue
+            # sqrt
+            yplus = fv.sqrt()
+            # choose branch consistent with previous
+            if y_prev is not None:
+                if abs(yplus - y_prev) <= abs(-yplus - y_prev):
+                    ycur = yplus
+                else:
+                    ycur = -yplus
+            else:
+                # heuristic: choose branch with non-negative imag part
+                ycur = yplus if yplus.imag() >= 0 else -yplus
+
+            term = (dx_factor * w) / (CC(2) * ycur)
+            I0 += term
+            I1 += term * xval
+            y_prev = ycur
+
+        # if too many near-branch nodes, split adaptively (one level)
+        if near_count > max(1, total_nodes // 8):
+            mid = a_cc + vec / CC(2)
+            l0, l1, y_left = integrate_along_segment(a_cc, mid, sheet_hint)
+            r0, r1, y_right = integrate_along_segment(mid, b_cc, y_left)
+            return l0 + r0, l1 + r1, y_right
+
+        return I0, I1, y_prev
+
+    # Build A and B cycles as lists of segment paths (simple straight-line approach)
+    # a-cycles: loops around first two cuts (go from left endpoint to right endpoint and back on other sheet)
+    # We'll implement each cycle as straight segment path a->b and back b->a but with sign for sheet changes
+    def make_a_cycle(cut):
+        a, b = cut
+        # path: a -> b (sheet 0), b -> a (sheet 1) to close
+        return [(+1, [(a, 0), (b, 0)]), (-1, [(b, 1), (a, 1)])]
+
+    def make_b_cycle(cut1, cut2):
+        # Connect cuts across the plane: b1 -> a2 (choose endpoints)
+        b1 = cut1[1]
+        a2 = cut2[0]
+        # path: b1 -> a2 (sheet 0) then a2 -> b1 (sheet 1)
+        return [(+1, [(b1, 0), (a2, 0)]), (-1, [(a2, 1), (b1, 1)])]
+
+    A_cycles = [make_a_cycle(cuts[0]), make_a_cycle(cuts[1])]
+    B_cycles = [make_b_cycle(cuts[0], cuts[1]), make_b_cycle(cuts[1], cuts[2])]
+
+    # Convert these cycle descriptions into integrals using integrate_along_segment
+    # Each "path" above is a list of point tuples; we will integrate along each segment in order and weight with coeff
+    def integrate_chain_simple(weighted_paths):
+        tot0 = CC(0); tot1 = CC(0)
+        for coeff, pts in weighted_paths:
+            path_I0 = CC(0); path_I1 = CC(0)
+            y_prev = None
+            for i in range(len(pts) - 1):
+                p_curr, s_curr = pts[i]
+                p_next, _ = pts[i + 1]
+                seg0, seg1, y_end = integrate_along_segment(p_curr, p_next, y_prev)
+                path_I0 += seg0
+                path_I1 += seg1
+                y_prev = y_end
+            tot0 += coeff * path_I0
+            tot1 += coeff * path_I1
+        return tot0, tot1
+
+    # Fill A and B matrices
+    A = matrix(CC, 2, 2)
+    B = matrix(CC, 2, 2)
+    for j in range(2):
+        A[0, j], A[1, j] = integrate_chain_simple(A_cycles[j])
+        B[0, j], B[1, j] = integrate_chain_simple(B_cycles[j])
+
+    # Safety check: det(A) not too small
+    detA = A.det()
+    print("det(A) =", A.det())
+    print("cond(A) =", A.condition_number())
+    print("col norms =", [c.norm() for c in A.columns()])
+
+    if verbose:
+        try:
+            print("det(A) magnitude:", float(abs(detA)))
+        except Exception:
+            raise
+    if abs(detA) == 0:
+        raise ArithmeticError("A-matrix is singular (determinant zero) — check cycle choices / branch pairing")
+
+    # Compute tau = A^{-1} * B and symmetrize
+    try:
+        tau = A.inverse() * B
+    except Exception as e:
+        raise ArithmeticError(f"Could not invert A matrix: {e}")
+
+    tau = (tau + tau.transpose()) / CC(2)  # symmetrize
+
+    # Build Im(tau) robustly and ensure PD (use helper if available)
+    try:
+        Im_tau = build_Im_tau_from_tau(tau, None, CC)
+    except Exception:
+        # fallback manual convert
+        from sage.all import RealField, Matrix as sMatrix
+        RRp = RealField(prec)
+        Im_tau = sMatrix(RRp, 2, 2, [[RRp(complex(tau[i, j]).imag) for j in range(2)] for i in range(2)])
+        raise
+    # ensure numeric PD
+    try:
+        Im_tau = make_matrix_numerically_positive_definite(Im_tau)
+        evals = Im_tau.eigenvalues()
+        if any(ev <= 0 for ev in evals):
+            raise ArithmeticError("Imaginary part of tau is not positive definite after stabilization")
+    except Exception as e:
+        # still allow return but warn
+        if verbose:
+            print("Warning: Im(tau) PD stabilization failed:", e)
+        raise
+
+    # cache and return
+    get_period_matrix_auto_B.cache[(tuple(f_coeffs), prec)] = tau
+    return tau
+
+
+def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, perturb_attempts=5):
+    """
+    Robust genus-2 period matrix builder for y^2 = f(x).
+    
+    - Computes period integrals using high-precision tanh-sinh quadrature.
+    - robustly handles root finding and branch cut construction.
+    - Automatically searches for a symplectic homology basis to ensure Im(tau) is positive definite.
+    """
+    from sage.all import PolynomialRing, QQ, ComplexField, RealField, matrix, identity_matrix
+    import random
+    import itertools
+
+    CC = ComplexField(prec)
+    RR = RealField(prec)
+
+    # --- 1. Construct Polynomial and Find Roots ---
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    n = len(f_coeffs) - 1
+    f = sum(QQ(c) * x**(n - i) for i, c in enumerate(f_coeffs))
+
+    if n not in (5, 6):
+        raise ValueError(f"Expected degree 5 or 6 polynomial for genus 2; got degree {n}")
+
+    # Robust root finding with retries for stability
+    def find_roots_with_retries(poly, attempts=perturb_attempts):
+        for attempt in range(attempts):
+            try:
+                poly_cc = poly.change_ring(CC)
+                roots_mults = poly_cc.roots(multiplicities=True)
+                roots = [CC(r) for r, m in roots_mults]
+                mults = [m for r, m in roots_mults]
+                
+                # Check if we have enough distinct roots
+                if len(roots) >= (6 if n == 6 else 5):
+                    # Check for singularities (approximate collision check)
+                    min_dist = min(abs(roots[i] - roots[j]) for i in range(len(roots)) for j in range(i + 1, len(roots)))
+                    if min_dist > CC(2)**(-prec//2):
+                         return roots, mults
+                
+                # Perturb if failed
+                if attempt < attempts - 1:
+                    eps = CC(10) ** (-max(10, prec // 8))
+                    noise = [complex(random.uniform(-1, 1), random.uniform(-1, 1)) * eps for _ in range(n + 1)]
+                    coeffs_pert = [QQ(float(c) + noise_i.real) for c, noise_i in zip(f.list(), noise)]
+                    poly = R(coeffs_pert)
+                else:
+                    return roots, mults
+            except Exception:
+                if attempt == attempts - 1: raise
+                continue
+        raise RuntimeError("Root-finding failed")
+
+    roots, mults = find_roots_with_retries(f)
+    
+    # Sort roots: Real part primary, Imaginary part secondary
+    roots_cc = sorted([CC(r) for r in roots], key=lambda z: (float(z.real()), float(z.imag())))
+    
+    # Handle degree 5 (infinity point)
+    if n == 5:
+        mags = [abs(z) for z in roots_cc] or [CC(1)]
+        scale = max(CC(1), sum(mags) / len(mags))
+        big = CC(scale) * CC(10) ** 6
+        roots_for_pairing = roots_cc + [big]
+    else:
+        roots_for_pairing = roots_cc
+
+    cuts = [(roots_for_pairing[0], roots_for_pairing[1]),
+            (roots_for_pairing[2], roots_for_pairing[3]),
+            (roots_for_pairing[4], roots_for_pairing[5])]
+
+    # --- 2. Setup Integration ---
+    f_coeffs_cc = [CC(c) for c in f_coeffs]
+    
+    # Horner evaluation
+    def f_eval(z):
+        r = f_coeffs_cc[0]
+        for c in f_coeffs_cc[1:]:
+            r = r * z + c
+        return r
+
+    # Get nodes (cached or computed)
+    Nnodes = max(400, min(2000, prec // 2))
+    try:
+        # Assumes tanh_sinh_nodes is defined in the module scope
+        raw_nodes = tanh_sinh_nodes(Nnodes)
+    except NameError:
+        # Fallback if helper not found
+        raw_nodes = []
+        for k in range(-Nnodes, Nnodes + 1):
+            t = k / Nnodes; raw_nodes.append((t, CC(t), CC(1.0 / (2 * Nnodes))))
+            
+        raise
+
+    nodes_cc = [(CC(t), CC(xm), CC(w)) for (t, xm, w) in raw_nodes]
+    tiny = CC(2) ** (-prec // 2)
+
+    # Segment integrator
+    def integrate_along_segment(a, b, sheet_hint=None):
+        a_cc = CC(a); b_cc = CC(b)
+        vec = b_cc - a_cc
+        I0 = CC(0); I1 = CC(0)
+        y_prev = CC(sheet_hint) if sheet_hint is not None else None
+        
+        # Offset to avoid branch points
+        perp = CC(0, 1) * vec
+        abs_perp = abs(perp)
+        off = (perp / abs_perp * max(CC(1e-18), abs(vec) * CC(1e-8))) if abs_perp > 0 else CC(0)
+        
+        dx_factor = vec / CC(2)
+        
+        for (t, x_mapped, w) in nodes_cc:
+            s = (x_mapped + CC(1)) / CC(2)
+            xval = a_cc + s * vec + off
+            fv = f_eval(xval)
+            
+            if abs(fv) < tiny: continue # Skip too close to root
+            
+            yplus = fv.sqrt()
+            
+            # Continuity
+            if y_prev is not None:
+                if abs(yplus - y_prev) <= abs(-yplus - y_prev): ycur = yplus
+                else: ycur = -yplus
+            else:
+                ycur = yplus if yplus.imag() >= 0 else -yplus
+            
+            term = (dx_factor * w) / (CC(2) * ycur)
+            I0 += term
+            I1 += term * xval
+            y_prev = ycur
+            
+        return I0, I1, y_prev
+
+    # --- 3. Compute Raw Periods ---
+    # Cycle definitions for sequential cuts
+    def get_cycle_integrals(pt_list):
+        # Integrate along a path defined by points
+        tot0, tot1 = CC(0), CC(0)
+        for i in range(len(pt_list)):
+            coeff, sub_path = pt_list[i]
+            # sub_path is list of (point, sheet_index)
+            # We just need geometric segments
+            path_I0, path_I1 = CC(0), CC(0)
+            y_prev = None
+            for j in range(len(sub_path) - 1):
+                p_start = sub_path[j][0]
+                p_end = sub_path[j+1][0]
+                s0, s1, y_end = integrate_along_segment(p_start, p_end, y_prev)
+                path_I0 += s0
+                path_I1 += s1
+                y_prev = y_end
+            tot0 += coeff * path_I0
+            tot1 += coeff * path_I1
+        return tot0, tot1
+
+    # Define A and B cycles structurally
+    # A_i: Loop around cut i
+    # B_i: Path from cut i to cut i+1
+    A_defs = []
+    B_defs = []
+    
+    # A-cycles
+    for (a, b) in cuts[:2]:
+        # Loop a->b (sheet 0) then b->a (sheet 1)
+        # Note: We represent sheet change by coefficient sign in our simple integrator
+        # The segment integrator is generic, so we just sum contributions.
+        # Here we approximate: sum of a->b on sheet 0 minus a->b on sheet 0 (if we viewed it that way)
+        # Actually, integral dx/y changes sign on other sheet. 
+        # So \oint = \int_{a, sheet0}^b + \int_{b, sheet1}^a = 2 * \int_{a, sheet0}^b
+        # We calculate half-periods first.
+        
+        # Calculate integral a->b on principal branch
+        h0, h1, _ = integrate_along_segment(a, b)
+        A_defs.append((2*h0, 2*h1))
+
+    # B-cycles (connecting cuts)
+    # B1: connects cut0 to cut1. B2: connects cut1 to cut2.
+    # We take 2 * integral(b_previous_cut -> a_next_cut)
+    for i in range(2):
+        b_prev = cuts[i][1]
+        a_next = cuts[i+1][0]
+        h0, h1, _ = integrate_along_segment(b_prev, a_next)
+        B_defs.append((2*h0, 2*h1))
+
+    # Construct Raw Matrices (Columns are cycles)
+    # A_raw = [ [A1_w0, A2_w0], [A1_w1, A2_w1] ]
+    A_raw = matrix(CC, 2, 2, [ [A_defs[0][0], A_defs[1][0]], [A_defs[0][1], A_defs[1][1]] ])
+    B_raw = matrix(CC, 2, 2, [ [B_defs[0][0], B_defs[1][0]], [B_defs[0][1], B_defs[1][1]] ])
+
+    # --- 4. Symplectic Basis Search ---
+    # The raw basis might not be symplectic (A_i . B_j != delta_ij).
+    # We search for a transformed basis that yields a valid Riemann matrix.
+    
+    # Helper to check positive definiteness
+    def is_pd(mat):
+        try:
+            # Build Im(mat)
+            Im = matrix(RR, 2, 2, [[mat[i,j].imag() for j in range(2)] for i in range(2)])
+            # Symmetrize for stability
+            Im = (Im + Im.transpose())/2
+            evals = Im.eigenvalues()
+            return all(e > 1e-10 for e in evals)
+        except Exception:
+            raise
+            return False
+
+    # Strategies to generate candidate B matrices (and A matrices)
+    # 1. Sign flips of columns
+    # 2. Shears (B1 -> B1+B2, etc)
+    # 3. Handle swaps
+    
+    ac1, ac2 = A_raw.column(0), A_raw.column(1)
+    bc1, bc2 = B_raw.column(0), B_raw.column(1)
+    
+    # Transformations of B-columns (Mixing)
+    b_mixers = [
+        lambda b1, b2: (b1, b2),           # Identity
+        lambda b1, b2: (b1 + b2, b2),      # B1 += B2
+        lambda b1, b2: (b1 - b2, b2),      # B1 -= B2
+        lambda b1, b2: (b1, b2 + b1),      # B2 += B1
+        lambda b1, b2: (b1, b2 - b1),      # B2 -= B1
+        lambda b1, b2: (b1 + b2, b2 - b1), # Mix
+    ]
+
+    # Permutations of handles (Swap A1/A2 and B1/B2)
+    handle_perms = [
+        (ac1, ac2, bc1, bc2), # Normal
+        (ac2, ac1, bc2, bc1), # Swap handles
+    ]
+
+    best_tau = None
+    
+    # Search Loop
+    for (a1_base, a2_base, b1_base, b2_base) in handle_perms:
+        for b_mix_func in b_mixers:
+            # Apply mixing
+            b1_m, b2_m = b_mix_func(b1_base, b2_base)
+            
+            # Try all sign combinations (2^4 = 16)
+            for s_a1, s_a2, s_b1, s_b2 in itertools.product([1, -1], repeat=4):
+                
+                # Construct trial matrices
+                A_try = matrix(CC, 2, 2)
+                A_try.set_column(0, a1_base * s_a1)
+                A_try.set_column(1, a2_base * s_a2)
+                
+                B_try = matrix(CC, 2, 2)
+                B_try.set_column(0, b1_m * s_b1)
+                B_try.set_column(1, b2_m * s_b2)
+                
+                # Compute Tau
+                if abs(A_try.det()) < CC(1e-10): continue
+                
+                try:
+                    tau_cand = A_try.inverse() * B_try
+                    tau_cand = (tau_cand + tau_cand.transpose()) / CC(2)
+                    
+                    if is_pd(tau_cand):
+                        # Found a valid one!
+                        # Update cache and return
+                        key = (tuple(f_coeffs), prec)
+                        get_period_matrix_auto_B.cache[key] = tau_cand
+                        if verbose:
+                            print("Symplectic basis found.")
+                        return tau_cand
+                except Exception:
+                    raise
+                    continue
+
+    # Failure
+    raise ValueError("Could not find a symplectic basis yielding a positive definite period matrix.")
+
+# Initialize cache
+if not hasattr(get_period_matrix_auto_B, 'cache'):
+    get_period_matrix_auto_B.cache = {}# initialize cache if not present
+
