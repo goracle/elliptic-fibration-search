@@ -370,7 +370,22 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         print(f"Mumford search found {len(found_xs)} rational points")
         print("rational points found:")
         print(found_xs)
+        stats.incr('rational_points_unique', n=len(found_xs))
         print(stats.summary_string())
+
+        # === NEW: SELMER UPPER BOUND COMPARISON ===
+        from selmer_genus2 import analyze_genus2_rank
+
+        rank_analysis = analyze_genus2_rank(
+            f_coeffs=coeffs_genus2,
+            mumford_divisors=mumford_divisors,
+            bad_primes=prime_pool[:20],  # Use first 20 primes from pool
+            verbose=True
+        )
+
+        stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
+        stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
+        stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
 
         return found_xs, [], mumford_residues, stats
 

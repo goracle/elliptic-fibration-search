@@ -170,7 +170,7 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 [bounds] Built SPLIT_POLY of degree 12 from Delta numerator.
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.15s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.21s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 30 primes -> avg_roots=1.133, patterns_sample=[(1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 5, 5), (1, 1, 9)]
 [residue_counts] sample: [(2, 1), (3, 0), (5, 0), (7, 0), (11, 1), (13, 0), (17, 2), (19, 0), (23, 1), (29, 1)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.1333333333333333}
@@ -178,8 +178,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 13860, 'unique_patterns': [(1,), (1, 1, 1, 9), (1, 1, 2, 2, 2, 2, 2), (1, 1, 2, 3, 4), (1, 1, 3, 7), (1, 1, 9), (1, 2, 9), (1, 3, 7), (1, 4, 7), (1, 5, 6), (1, 10), (1, 11), (2, 4, 6), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=107, avg_survivors≈0.000326, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000326
+[empirical_pool] start pool size=107, avg_survivors≈0.000206, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000206
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.11, avg_density=0.1887 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -433,7 +433,7 @@ Skipping prime 3: fiber collision detected (gcd degree=9)
   p=2: singular_discriminant
   p=3: fiber_collision_deg_9
 [mumford] Generating tasks for 105 primes...
-[mumford] Residue computation took 8.23s
+[mumford] Residue computation took 8.03s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -443,18 +443,18 @@ MUMFORD RECONSTRUCTION PHASE
 
 Algebraic pre-filter: 427,924 → 427,924 (1.0x reduction)
 Grouped into 15 vectors, 739 (vector,x-residue) pairs
-  Vector group: 2 primes, avg 258.0 sols/prime
-  Raw combinations: 12,740
-  Adaptive limit: 12,740 (total combos: 12,740)
   Vector group: 2 primes, avg 486.5 sols/prime
   Raw combinations: 34,632
   Adaptive limit: 34,632 (total combos: 34,632)
+  Vector group: 2 primes, avg 258.0 sols/prime
+  Raw combinations: 12,740
+  Adaptive limit: 12,740 (total combos: 12,740)
   Vector group: 3 primes, avg 390.7 sols/prime
   Raw combinations: 10,670,400
   High density detected - applying aggressive pre-filtering
     Found 28 candidates from first 2 primes (tried 11,232)
     Prime 457: 950 → 28 sols (2.9%)
-  Pre-filtering took 0.47s
+  Pre-filtering took 0.46s
   Filtered combinations: 314,496 (33.9x reduction)
   Adaptive limit: 314,496 (total combos: 314,496)
   Vector group: 2 primes, avg 208.0 sols/prime
@@ -469,19 +469,19 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   High density detected - applying aggressive pre-filtering
     Found 28 candidates from first 2 primes (tried 50,001)
     Prime 509: 1054 → 28 sols (2.7%)
-  Pre-filtering took 1.70s
+  Pre-filtering took 1.68s
   Filtered combinations: 1,766,016 (37.6x reduction)
   Adaptive limit: 500,000 (total combos: 1,766,016)
   Skipping 2-prime group: 103,600 combos, not rare
   Vector group: 3 primes, avg 37.3 sols/prime
   Raw combinations: 16,128
   Adaptive limit: 16,128 (total combos: 16,128)
-  Vector group: 2 primes, avg 228.0 sols/prime
-  Raw combinations: 31,820
-  Adaptive limit: 31,820 (total combos: 31,820)
   Vector group: 2 primes, avg 134.0 sols/prime
   Raw combinations: 10,212
   Adaptive limit: 10,212 (total combos: 10,212)
+  Vector group: 2 primes, avg 228.0 sols/prime
+  Raw combinations: 31,820
+  Adaptive limit: 31,820 (total combos: 31,820)
   Vector group: 2 primes, avg 259.0 sols/prime
   Raw combinations: 36,456
   Adaptive limit: 36,456 (total combos: 36,456)
@@ -504,8 +504,8 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   Adaptive limit: 15,888 (total combos: 15,888)
   Skipping 2-prime group: 143,220 combos, not rare
   Skipping 2-prime group: 133,128 combos, not rare
-  Skipping 2-prime group: 334,180 combos, not rare
   Skipping 2-prime group: 440,664 combos, not rare
+  Skipping 2-prime group: 334,180 combos, not rare
   Accepting 2-prime group: 87,660 combos (rare divisor)
   Vector group: 2 primes, avg 532.0 sols/prime
   Raw combinations: 87,660
@@ -516,7 +516,7 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   High density detected - applying aggressive pre-filtering
     Found 22 candidates from first 2 primes (tried 3,456)
     Prime 463: 928 → 18 sols (1.9%)
-  Pre-filtering took 0.25s
+  Pre-filtering took 0.36s
   Filtered combinations: 62,208 (51.6x reduction)
   Adaptive limit: 62,208 (total combos: 62,208)
   Vector group: 2 primes, avg 324.0 sols/prime
@@ -525,8 +525,8 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   Vector group: 2 primes, avg 540.0 sols/prime
   Raw combinations: 27,404
   Adaptive limit: 27,404 (total combos: 27,404)
-  Skipping 2-prime group: 225,080 combos, not rare
   Skipping 2-prime group: 143,412 combos, not rare
+  Skipping 2-prime group: 225,080 combos, not rare
   Skipping 2-prime group: 819,904 combos, not rare
   Vector group: 2 primes, avg 335.0 sols/prime
   Raw combinations: 15,504
@@ -534,16 +534,16 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
   Vector group: 2 primes, avg 140.0 sols/prime
   Raw combinations: 16,684
   Adaptive limit: 16,684 (total combos: 16,684)
+  Vector group: 2 primes, avg 284.0 sols/prime
+  Raw combinations: 38,220
+  Adaptive limit: 38,220 (total combos: 38,220)
   Accepting 2-prime group: 95,040 combos (rare divisor)
   Vector group: 2 primes, avg 494.0 sols/prime
   Raw combinations: 95,040
   Adaptive limit: 95,040 (total combos: 95,040)
-  Vector group: 2 primes, avg 284.0 sols/prime
-  Raw combinations: 38,220
-  Adaptive limit: 38,220 (total combos: 38,220)
   Skipping 2-prime group: 207,432 combos, not rare
-  Skipping 2-prime group: 373,372 combos, not rare
   Skipping 2-prime group: 640,832 combos, not rare
+  Skipping 2-prime group: 373,372 combos, not rare
   Vector group: 4 primes, avg 236.5 sols/prime
   Raw combinations: 28,654,080
   High density detected - applying aggressive pre-filtering
@@ -568,22 +568,22 @@ Grouped into 15 vectors, 739 (vector,x-residue) pairs
     Prime 41: 84 → 8 sols (9.5%)
     Prime 131: 258 → 8 sols (3.1%)
     Prime 331: 652 → 8 sols (1.2%)
-  Pre-filtering took 0.05s
+  Pre-filtering took 0.06s
   Filtered combinations: 212,992 (27597.9x reduction)
   Adaptive limit: 212,992 (total combos: 212,992)
-  Vector group: 2 primes, avg 139.0 sols/prime
-  Raw combinations: 16,296
-  Adaptive limit: 16,296 (total combos: 16,296)
-  Vector group: 2 primes, avg 182.0 sols/prime
-  Raw combinations: 22,308
-  Adaptive limit: 22,308 (total combos: 22,308)
-  Vector group: 2 primes, avg 256.0 sols/prime
-  Raw combinations: 48,636
-  Adaptive limit: 48,636 (total combos: 48,636)
   Accepting 2-prime group: 90,180 combos (rare divisor)
   Vector group: 2 primes, avg 546.0 sols/prime
   Raw combinations: 90,180
   Adaptive limit: 90,180 (total combos: 90,180)
+  Vector group: 2 primes, avg 182.0 sols/prime
+  Raw combinations: 22,308
+  Adaptive limit: 22,308 (total combos: 22,308)
+  Vector group: 2 primes, avg 139.0 sols/prime
+  Raw combinations: 16,296
+  Adaptive limit: 16,296 (total combos: 16,296)
+  Vector group: 2 primes, avg 256.0 sols/prime
+  Raw combinations: 48,636
+  Adaptive limit: 48,636 (total combos: 48,636)
   Accepting 2-prime group: 70,416 combos (rare divisor)
   Vector group: 2 primes, avg 271.0 sols/prime
   Raw combinations: 70,416
@@ -1452,10 +1452,42 @@ Returning ambiguous form of degree genus+1.
 Returning ambiguous form of degree genus+1.
 Returning ambiguous form of degree genus+1.
 Returning ambiguous form of degree genus+1.
-accepted: 22
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+accepted: 23
 canonicalization invariants OK
   Unique Rational Points: 8
-  22 of 22 original divisors had rational roots in u(x)
+  23 of 23 original divisors had rational roots in u(x)
 
 --- Building Independent Mumford Basis ---
 first 10 divisors:
@@ -1464,28 +1496,29 @@ first 10 divisors:
 {'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'u_poly': x^2 - 1/3*x - 2/3, 'v_poly': 16/9*x + 11/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': -1, 'v_0': -4, 'v_1': 1, 'vector': (15,), 'u_poly': x^2 - 1, 'v_poly': x - 4, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 2, 'p': 0, 'v_0': 1, 'v_1': 5, 'vector': (1,), 'u_poly': x^2 - 2*x, 'v_poly': 5*x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 3, 'p': 0, 'v_0': 1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 3*x, 'v_poly': 4*x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4/3, 'p': 1/3, 'v_0': -22/9, 'v_1': 49/9, 'vector': (15,), 'u_poly': x^2 - 4/3*x + 1/3, 'v_poly': 49/9*x - 22/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4/3, 'p': -4/3, 'v_0': 25/9, 'v_1': 37/9, 'vector': (3,), 'u_poly': x^2 - 4/3*x - 4/3, 'v_poly': 37/9*x + 25/9, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 2, 'p': -3, 'v_0': -1/2, 'v_1': 9/2, 'vector': (4,), 'u_poly': x^2 - 2*x - 3, 'v_poly': 9/2*x - 1/2, 'has_rational_roots': True, 'scale_used': 1}
 [diag:smoothness]
-  split u(x): 19/22 (86.364%)
-  irreducible u(x): 3/22 (13.636%)
+  split u(x): 20/23 (86.957%)
+  irreducible u(x): 3/23 (13.043%)
 [diag:saturation]
-  total root instances: 38
+  total root instances: 40
   unique roots (factor base size): 7
-  saturation ratio: 5.43 (higher is better for attacks)
+  saturation ratio: 5.71 (higher is better for attacks)
 [diag:coverage]
-  generated divisors: 22
+  generated divisors: 23
   linear rank (heuristic): 4
   (!) Dependencies found mod 2000003. Potential relations for DLP.
-survivors of kobayashi maru filter of numeric evil (amount = 22):
+survivors of kobayashi maru filter of numeric evil (amount = 23):
 {'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (15,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': -2/3, 'p': 0, 'v_0': 1, 'v_1': 14/9, 'vector': (11,), 'u_poly': x^2 + 2/3*x, 'v_poly': 14/9*x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1/3, 'p': -2/3, 'v_0': 11/9, 'v_1': 16/9, 'vector': (15,), 'u_poly': x^2 - 1/3*x - 2/3, 'v_poly': 16/9*x + 11/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': -1, 'p': 0, 'v_0': -1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 + x, 'v_poly': 4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': -1, 'v_0': -4, 'v_1': 1, 'vector': (15,), 'u_poly': x^2 - 1, 'v_poly': x - 4, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 2, 'p': 0, 'v_0': 1, 'v_1': 5, 'vector': (1,), 'u_poly': x^2 - 2*x, 'v_poly': 5*x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 3, 'p': 0, 'v_0': 1, 'v_1': 4, 'vector': (15,), 'u_poly': x^2 - 3*x, 'v_poly': 4*x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4/3, 'p': 1/3, 'v_0': -22/9, 'v_1': 49/9, 'vector': (15,), 'u_poly': x^2 - 4/3*x + 1/3, 'v_poly': 49/9*x - 22/9, 'has_rational_roots': True, 'scale_used': 1}
@@ -1545,23 +1578,23 @@ Height breakdown (Model LC=1):
   Total         = 2.01125
   Divisor 4: h = 2.01125
 Height breakdown (Model LC=1):
+  Naive(u-only) = 0.00000
+  ArchCorr      = 1.25229
+  Locals        = 0.00000 (p=2: 0.0)
+  Total         = 1.25229
+  Divisor 5: h = 1.25229
+Height breakdown (Model LC=1):
   Naive(u-only) = 0.69315
   ArchCorr      = 1.36845
   Locals        = 0.00000 (p=2: 3.446261495865687e-11)
   Total         = 2.06160
-  Divisor 5: h = 2.0616
+  Divisor 6: h = 2.0616
 Height breakdown (Model LC=1):
   Naive(u-only) = 1.09861
   ArchCorr      = 1.01846
   Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
   Total         = 2.11707
-  Divisor 6: h = 2.11707
-Height breakdown (Model LC=1):
-  Naive(u-only) = 1.38629
-  ArchCorr      = 1.70083
-  Locals        = 0.00000 (p=2: 0.0)
-  Total         = 3.08713
-  Divisor 7: h = 3.08713
+  Divisor 7: h = 2.11707
 [arakelov] Precomputing pairings for first 8 divisors (prefix).
 Height breakdown (Model LC=1):
   Naive(u-only) = 6.41510
@@ -1588,23 +1621,23 @@ Height breakdown (Model LC=1):
   Total         = 1.00528
   Pair (0,4): -1.27579
 Height breakdown (Model LC=1):
+  Naive(u-only) = 2.48491
+  ArchCorr      = 1.29009
+  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
+  Total         = 3.77500
+  Pair (0,5): 0.488554
+Height breakdown (Model LC=1):
   Naive(u-only) = 1.79176
   ArchCorr      = 1.27906
   Locals        = -0.69315 (p=2: -0.6931471805599453)
   Total         = 2.37768
-  Pair (0,5): -0.614763
+  Pair (0,6): -0.614763
 Height breakdown (Model LC=1):
   Naive(u-only) = 1.09861
   ArchCorr      = 1.37444
   Locals        = -0.69315 (p=2: -0.6931471805599453)
   Total         = 1.77990
-  Pair (0,6): -0.941386
-Height breakdown (Model LC=1):
-  Naive(u-only) = 5.56452
-  ArchCorr      = 1.48136
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 7.04588
-  Pair (0,7): 1.20658
+  Pair (0,7): -0.941386
 Height breakdown (Model LC=1):
   Naive(u-only) = 0.00000
   ArchCorr      = 1.79150
@@ -1624,23 +1657,23 @@ Height breakdown (Model LC=1):
   Total         = 4.11836
   Pair (1,4): -0.173326
 Height breakdown (Model LC=1):
+  Naive(u-only) = 2.89037
+  ArchCorr      = 1.88741
+  Locals        = -2.07944 (p=2: -2.0794415416798357)
+  Total         = 2.69834
+  Pair (1,5): -0.503855
+Height breakdown (Model LC=1):
   Naive(u-only) = 6.92363
   ArchCorr      = 2.68212
   Locals        = 0.00000 (p=2: 3.446261495865687e-11)
   Total         = 9.60575
-  Pair (1,5): 2.54519
+  Pair (1,6): 2.54519
 Height breakdown (Model LC=1):
   Naive(u-only) = 2.56495
   ArchCorr      = 1.33002
   Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
   Total         = 3.89497
-  Pair (1,6): -0.337933
-Height breakdown (Model LC=1):
-  Naive(u-only) = 10.02464
-  ArchCorr      = 2.30460
-  Locals        = -2.77259 (p=2: -2.772588722239781)
-  Total         = 9.55666
-  Pair (1,7): 2.00788
+  Pair (1,7): -0.337933
 Height breakdown (Model LC=1):
   Naive(u-only) = 3.46574
   ArchCorr      = 1.56534
@@ -1654,23 +1687,23 @@ Height breakdown (Model LC=1):
   Total         = 5.04510
   Pair (2,4): 0.208647
 Height breakdown (Model LC=1):
+  Naive(u-only) = 1.60944
+  ArchCorr      = 2.54108
+  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
+  Total         = 4.15052
+  Pair (2,5): 0.14084
+Height breakdown (Model LC=1):
   Naive(u-only) = 0.00000
   ArchCorr      = 1.36175
   Locals        = 0.00000 (p=2: 2.237968593351803e-10)
   Total         = 1.36175
-  Pair (2,5): -1.6582
+  Pair (2,6): -1.6582
 Height breakdown (Model LC=1):
   Naive(u-only) = 5.88053
   ArchCorr      = 2.31174
   Locals        = 0.00000 (p=2: 3.446261495865687e-11)
   Total         = 8.19228
-  Pair (2,6): 1.72933
-Height breakdown (Model LC=1):
-  Naive(u-only) = 3.29584
-  ArchCorr      = 3.42385
-  Locals        = 0.00000 (p=2: 1.22300255524014e-10)
-  Total         = 6.71969
-  Pair (2,7): 0.508006
+  Pair (2,7): 1.72933
 Height breakdown (Model LC=1):
   Naive(u-only) = 1.79176
   ArchCorr      = 1.39130
@@ -1678,59 +1711,59 @@ Height breakdown (Model LC=1):
   Total         = 2.48991
   Pair (3,4): -0.452539
 Height breakdown (Model LC=1):
+  Naive(u-only) = 0.00000
+  ArchCorr      = 2.01125
+  Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
+  Total         = 2.01125
+  Pair (3,5): -0.312387
+Height breakdown (Model LC=1):
   Naive(u-only) = 1.09861
   ArchCorr      = 1.72772
   Locals        = 0.00000 (p=2: 1.22300255524014e-10)
   Total         = 2.82633
-  Pair (3,5): -0.309503
+  Pair (3,6): -0.309503
 Height breakdown (Model LC=1):
   Naive(u-only) = 1.38629
   ArchCorr      = 1.48464
   Locals        = 0.00000 (p=2: 0.0)
   Total         = 2.87093
-  Pair (3,6): -0.314939
+  Pair (3,7): -0.314939
 Height breakdown (Model LC=1):
-  Naive(u-only) = 3.89182
-  ArchCorr      = 1.70565
+  Naive(u-only) = 7.84815
+  ArchCorr      = 3.34962
   Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 5.59747
-  Pair (3,7): 0.563301
+  Total         = 11.19777
+  Pair (4,5): 3.96712
 Height breakdown (Model LC=1):
   Naive(u-only) = 0.69315
   ArchCorr      = 1.07465
   Locals        = 0.00000 (p=2: 1.22300255524014e-10)
   Total         = 1.76780
-  Pair (4,5): -1.15252
+  Pair (4,6): -1.15252
 Height breakdown (Model LC=1):
   Naive(u-only) = 1.09861
   ArchCorr      = 1.41753
   Locals        = 0.00000 (p=2: 0.0)
   Total         = 2.51615
-  Pair (4,6): -0.806088
+  Pair (4,7): -0.806088
 Height breakdown (Model LC=1):
-  Naive(u-only) = 4.39445
-  ArchCorr      = 2.85877
+  Naive(u-only) = 5.23111
+  ArchCorr      = 1.14871
+  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
+  Total         = 6.37982
+  Pair (5,6): 1.53297
+Height breakdown (Model LC=1):
+  Naive(u-only) = 4.17439
+  ArchCorr      = 1.90003
   Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 7.25322
-  Pair (4,7): 1.07742
+  Total         = 6.07442
+  Pair (5,7): 1.35253
 Height breakdown (Model LC=1):
   Naive(u-only) = 0.00000
   ArchCorr      = 2.52488
   Locals        = 0.00000 (p=2: 8.416022738379315e-11)
   Total         = 2.52488
-  Pair (5,6): -0.826895
-Height breakdown (Model LC=1):
-  Naive(u-only) = 6.35957
-  ArchCorr      = 1.38782
-  Locals        = 0.00000 (p=2: 3.446261495865687e-11)
-  Total         = 7.74739
-  Pair (5,7): 1.29933
-Height breakdown (Model LC=1):
-  Naive(u-only) = 4.07754
-  ArchCorr      = 1.93344
-  Locals        = 0.00000 (p=2: 2.3619499520445315e-10)
-  Total         = 6.01098
-  Pair (6,7): 0.403391
+  Pair (6,7): -0.826895
 [arakelov] Selecting basis incrementally...
   Added divisor 0 (first basis element)
   Added divisor 1 (basis now size 2)
@@ -1769,72 +1802,40 @@ Returning ambiguous form of degree genus+1.
   Added divisor 2 (basis now size 3)
   Added divisor 3 (basis now size 4)
   Rejected divisor 4: dependent (Gram det <= 1e-9)
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
   Rejected divisor 5: dependent (Gram det <= 1e-9)
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
+Returning ambiguous form of degree genus+1.
   Rejected divisor 6: dependent (Gram det <= 1e-9)
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
-Returning ambiguous form of degree genus+1.
   Rejected divisor 7: dependent (Gram det <= 1e-9)
 [arakelov] Building final 4 Gram matrix...
 eigenvalues (float): [5.458759286014969, 1.2948457477458735, 1.102108155401019, 0.14394033735663112]
@@ -1845,14 +1846,14 @@ Basis Construction Results:
   Determinant (float): 1.1212919672497619
 
 [mumford detailed timers]
-  basis_construction                      :  100.007s ( 72.3%)
-  canonicalization                        :   20.816s ( 15.1%)
-  crt_reconstruction_loop                 :   12.616s (  9.1%)
-  prefiltering                            :    2.546s (  1.8%)
-  algebraic_prefiltering                  :    2.284s (  1.7%)
-  residue_grouping                        :    0.001s (  0.0%)
+  basis_construction                      :   95.653s ( 70.6%)
+  canonicalization                        :   22.333s ( 16.5%)
+  crt_reconstruction_loop                 :   12.806s (  9.4%)
+  prefiltering                            :    2.619s (  1.9%)
+  algebraic_prefiltering                  :    2.130s (  1.6%)
+  residue_grouping                        :    0.002s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :  138.271s
+  TOTAL                                   :  135.543s
 
 Mumford search reconstructed 4 divisors
   4 divisors had rational roots in u(x)
@@ -1864,13 +1865,13 @@ printing independent found:
 Mumford search found 8 rational points
 rational points found:
 {0, 1, 2, 3, 1/2, -2/3, 1/3, -1}
-Total time: 146.28s
-Total Rational Points Found (Unique x): 0
+Total time: 143.25s
+Total Rational Points Found (Unique x): 8
 
 Phases (s):
-  mumford_reconstruction   : 135.76s
-  mumford_residues         : 8.23s
-  prep_mod_data            : 2.28s
+  mumford_reconstruction   : 132.97s
+  mumford_residues         : 8.03s
+  prep_mod_data            : 2.25s
   mumford_setup            : 0.00s
 
 Counters:
@@ -1880,7 +1881,7 @@ Counters:
   modular_mults                 : 1470
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 0
+  rational_points_unique        : 8
   rational_recon_attempts_worker: 0
   rational_recon_failure_worker : 0
   rational_recon_success_worker : 0
@@ -1954,7 +1955,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 8
-Total time: 152.0s
+Total time: 149.2s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -2070,13 +2071,13 @@ new x: -1
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 165.14s
-Total Rational Points Found (Unique x): 0
+Total time: 162.14s
+Total Rational Points Found (Unique x): 8
 
 Phases (s):
-  mumford_reconstruction   : 135.76s
-  mumford_residues         : 8.23s
-  prep_mod_data            : 2.28s
+  mumford_reconstruction   : 132.97s
+  mumford_residues         : 8.03s
+  prep_mod_data            : 2.25s
   mumford_setup            : 0.00s
 
 Counters:
@@ -2086,7 +2087,7 @@ Counters:
   modular_mults                 : 1470
   multiply_ops                  : 0
   new_sections_unique           : 0
-  rational_points_unique        : 0
+  rational_points_unique        : 8
   rational_recon_attempts_worker: 0
   rational_recon_failure_worker : 0
   rational_recon_success_worker : 0

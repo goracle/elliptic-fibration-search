@@ -31,7 +31,7 @@ _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 # -------------------------
 # Basis builder (top-level)
 # -------------------------
-DEFAULT_PRECS = [2048]
+DEFAULT_PRECS = [1024]
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
     """
     Top-level basis builder. Prefers Arakelov module; falls back to exact doubling method.
