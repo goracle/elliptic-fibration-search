@@ -947,7 +947,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
     # Limit candidates
 
     ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
-    maxbasis = min(MAX_BASIS_CANDIDATES, 2*ranklin)
+    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
     if len(all_divisors) > maxbasis:
         all_divisors = all_divisors[:maxbasis]
