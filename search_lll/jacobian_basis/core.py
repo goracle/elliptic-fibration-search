@@ -87,7 +87,6 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
     from .analytic_pairings import get_analytic_pairing
 
 
-
     try:
         G_np = np.zeros((k, k), dtype=float)
         b_np = np.zeros((k,), dtype=float)
@@ -690,7 +689,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
              raise
 
     return basis, final_rank, H_final
-
 
 
 # --- Worker replacements --------------------------------------------------

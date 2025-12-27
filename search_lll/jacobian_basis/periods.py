@@ -10,6 +10,15 @@ from .integration import integrate_differential_path_with_branch
 # Functions: choose_numerical_base_point, abel_jacobi_mumford,
 # normalize_periods_and_z
 
+
+
+
+"""Period matrix and Abel-Jacobi map computations."""
+
+
+# Functions: choose_numerical_base_point, abel_jacobi_mumford,
+# normalize_periods_and_z
+
 def choose_numerical_base_point(f_coeffs, prec=300):
     """
     Selects a numerically safe base point for Abel-Jacobi maps.
@@ -127,8 +136,45 @@ def abel_jacobi_mumford(
 
     CC = ComplexField(prec)
 
-    if div.is_zero():
+    # [Fix] Handle dictionary input (Mumford dict) or Sage Jacobian element
+    u_poly = None
+    v_poly = None
+    
+    # Build a polynomial ring for reconstruction if needed
+    R = PolynomialRing(CC, 'x')
+    x = R.gen()
+
+    if isinstance(div, dict):
+        # Dictionary input: assume standard Mumford keys s, p, v_1, v_0
+        try:
+            s_val = CC(div.get('s', 0))
+            p_val = CC(div.get('p', 0))
+            # u = x^2 - s*x + p
+            u_poly = x**2 - s_val*x + p_val
+            
+            v1_val = CC(div.get('v_1', 0))
+            v0_val = CC(div.get('v_0', 0))
+            v_poly = v1_val*x + v0_val
+            
+            # Check for trivial divisor (degree 0 u)
+            if u_poly.degree() == 0:
+                 return vector(CC, [0, 0])
+        except Exception as e:
+            if debug:
+                print(f"[abel_jacobi] Failed to reconstruct from dict: {e}")
+            raise
+    elif hasattr(div, 'is_zero') and div.is_zero():
         return vector(CC, [0, 0])
+    else:
+        # Standard Jacobian element or tuple-like
+        try:
+            u_poly = div[0]
+            v_poly = div[1]
+        except (IndexError, TypeError):
+             # Fallback check for is_zero if indexing failed
+             if hasattr(div, 'is_zero') and div.is_zero():
+                  return vector(CC, [0, 0])
+             raise ValueError(f"abel_jacobi_mumford: cannot parse input type {type(div)}")
 
     # require full base point (x,y)
     if not (isinstance(base_point, (tuple, list)) and len(base_point) == 2):
@@ -144,18 +190,13 @@ def abel_jacobi_mumford(
         except NameError:
             raise ValueError("No integrate_func provided and integrate_differential_path_with_branch not found.")
 
-    # build polynomial rings over CC
-    R = PolynomialRing(CC, 'x')
-    x = R.gen()
-
-    u_poly = div[0]
-    v_poly = div[1]
-
     # Convert u(x) and v(x) to CC polynomials (note: u_poly.list() gives coefficients from const->highest)
     u_list = u_poly.list()
     v_list = v_poly.list()
 
     # build u_cc for root finding (coeffs placed into polynomial ring)
+    # Note: if u_poly was built above in R, u_list are already CC. 
+    # If it was a QQ poly, they are QQ. We strictly cast to CC here.
     u_cc = sum(CC(c) * x**i for i, c in enumerate(u_list))
 
     # get roots with multiplicity info
