@@ -324,105 +324,6 @@ def normalize_infinity_parity(v_poly, f_poly):
         return -v_poly
     return v_poly
 
-def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list, C=None, J=None, jac_points=None):
-    """
-    Try lam in _SCALE_TRIALS: if (lam*v)^2 - f is divisible by u,
-    normalize and (heuristically) deduplicate using Mumford key + Jacobian heuristics.
-    """
-    for lam in _SCALE_TRIALS:
-        v_test = lam * v_candidate
-
-        if (v_test**2 - f_poly) % u == 0:
-            v_norm = normalize_infinity_parity(v_test, f_poly)
-
-            key = _canon_key_from_polys(u, v_norm)
-            if key in seen_keys:
-                return True
-
-            if J is not None and jac_points is not None and C is not None:
-                try:
-                    newJ = J([u, v_norm])
-                    D_inf = jac_points.get('__D_inf__', None)
-                    if D_inf is None:
-                        R = u.parent()
-                        x = R.gen()
-                        # Fallback attempt to get D_inf (only works if 0 is a Weierstrass point or similar)
-                        # Generally better to have passed D_inf in, or accept this failing.
-                        try:
-                            D_inf = J([x, R(0)])
-                            jac_points['__D_inf__'] = D_inf
-                        except Exception:
-                            D_inf = None
-
-                    for stored_key, stored_data in jac_points.items():
-                        if stored_key == '__D_inf__':
-                            continue
-                        storedJ = stored_data['Jpt']
-                        diff = newJ - storedJ
-                        summ = newJ + storedJ
-                        
-                        matched = False
-                        if D_inf is not None:
-                            # If we have a special D_inf, check shifts by it
-                            for k in range(-3, 4):
-                                if (diff - k * D_inf).is_zero():
-                                    logger.info("Jacobian dedup: matched new divisor to stored key %s with k=%d", stored_key, k)
-                                    matched = True
-                                    break
-                        else:
-                            # Standard deduplication: Check torsion on diff AND sum
-                            # Replacing pure equality check with loop up to order 32
-                            for m in range(1, 33):
-                                if (m * diff).is_zero():
-                                    logger.info("Jacobian dedup: matched new divisor to stored key %s (torsion diff order %d)", stored_key, m)
-                                    matched = True
-                                    break
-                                if (m * summ).is_zero():
-                                    logger.info("Jacobian dedup: matched new divisor to stored key %s (torsion sum order %d)", stored_key, m)
-                                    matched = True
-                                    break
-                                    
-                        if matched:
-                            seen_keys.add(key)
-                            return True
-                except Exception as e:
-                    # logger.warning("Jacobian comparison failed: %s", e)
-                    pass 
-
-            seen_keys.add(key)
-            newt = dict(orig_tup)
-            newt['u_poly'] = u
-            newt['v_poly'] = v_norm
-            coeffs = v_norm.list()
-            # Careful extraction of v coeffs
-            if len(coeffs) == 0:
-                newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
-            elif len(coeffs) == 1:
-                newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(0)
-            else:
-                newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(coeffs[1])
-            
-            # Use original s,p unless u changed (which is handled in caller)
-            newt['s'] = QQ(s_q)
-            newt['p'] = QQ(p_q)
-            
-            u_disc = u.discriminant()
-            newt['has_rational_roots'] = True if (u.degree() <= 2 and u_disc.is_square()) else False
-            newt['scale_used'] = lam
-
-            out_list.append(newt)
-
-            if J is not None and jac_points is not None and C is not None:
-                try:
-                    newJ = J([u, v_norm])
-                    jkey = _canon_key_from_polys(u, v_norm)
-                    jac_points[jkey] = {'Jpt': newJ, 'u': u, 'v': v_norm}
-                except Exception:
-                    raise
-
-            logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
-            return True
-    return False
 
 def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
     """
@@ -742,7 +643,6 @@ def silence_stdout_stderr():
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         null_file.close()
-
 
 
 def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list, C=None, J=None, jac_points=None):
