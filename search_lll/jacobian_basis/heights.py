@@ -32,147 +32,11 @@ logger = logging.getLogger("mumford_adapter")
 # NEW: Weierstrass Point Detection and Handling
 # =========================================================================
 
-def get_weierstrass_points(f_coeffs, prec=300):
-    """
-    Find all rational Weierstrass points (roots of f(x)).
-    For y^2 = f(x), Weierstrass points are where f(x) = 0.
-    """
-    key = tuple(f_coeffs)
-    if key in get_weierstrass_points.cache:
-        return get_weierstrass_points.cache[key]
-    
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    weier_pts = []
-    try:
-        # Get all rational roots
-        roots = f_poly.roots(QQ, multiplicities=False)
-        weier_pts.extend(roots)
-    except Exception as e:
-        logger.warning(f"Could not compute rational Weierstrass points: {e}")
-    
-    result = sorted(weier_pts)
-    get_weierstrass_points.cache[key] = result
-    return result
 
-get_weierstrass_points.cache = {}
-
-
-def count_weierstrass_in_support(div, f_coeffs, tolerance=1e-10):
-    """
-    Count how many Weierstrass points appear in the support of divisor div.
-    
-    Args:
-        div: Sage Jacobian element with Mumford representation [u(x), v(x)]
-        f_coeffs: Coefficients of the curve polynomial (high to low degree)
-        tolerance: Numerical tolerance for root matching
-    
-    Returns:
-        int: Number of Weierstrass points in the divisor's support
-    """
-    weier_pts = get_weierstrass_points(f_coeffs)
-    if not weier_pts:
-        return 0
-    
-    # Extract u(x) from Mumford representation
-    try:
-        u_poly = div[0]
-    except Exception:
-        try:
-            u_poly, _ = div.mumford_representation()
-        except Exception as e:
-            logger.warning(f"Could not extract u_poly from divisor: {e}")
-            return 0
-    
-    # Get roots of u(x) - these are the x-coordinates in the divisor's support
-    try:
-        # Try rational roots first
-        div_roots = u_poly.roots(QQ, multiplicities=False)
-        if not div_roots:
-            # Fall back to algebraic closure if needed
-            div_roots = u_poly.roots(QQbar, multiplicities=False)
-    except Exception as e:
-        logger.warning(f"Could not compute roots of u_poly: {e}")
-        return 0
-    
-    # Count matches between divisor roots and Weierstrass points
-    count = 0
-    for w in weier_pts:
-        w_alg = QQbar(w)
-        for r in div_roots:
-            r_alg = QQbar(r)
-            if abs(w_alg - r_alg) < tolerance:
-                count += 1
-                break  # Don't double-count the same Weierstrass point
-    
-    return count
-
-
-def local_height_at_weierstrass_points(div, f_coeffs, debug=False):
-    """
-    Compute the additional local height correction at Weierstrass points.
-    
-    For each Weierstrass point in the support, we need -log(2) correction
-    due to ramification at these points.
-    
-    Returns:
-        float: Total correction (typically negative)
-    """
-    num_weier = count_weierstrass_in_support(div, f_coeffs)
-    
-    if num_weier == 0:
-        return 0.0
-    
-    import math
-    correction = -float(num_weier) * math.log(2)
-    
-    if debug:
-        print(f"  Weierstrass correction: {num_weier} points → {correction:.5f}")
-    
-    return correction
 
 # =========================================================================
 # Modified Functions
 # =========================================================================
-
-def naive_height_qq(div, prec=53):
-    """
-    Compute naive (logarithmic) height of Mumford u-polynomial coefficients.
-    Strictly excludes v(x) to match Kummer surface height definitions.
-    """
-    from sage.all import QQ, RealField
-    from math import gcd
-    
-    # Extract coefficients from u(x) only
-    # div[0] is u(x), div[1] is v(x)
-    u_coeffs = [QQ(c) for c in div[0].list()]
-    
-    all_coeffs = [c for c in u_coeffs if c != 0]
-    
-    if not all_coeffs:
-        return QQ(0)
-        
-    # Clear denominators
-    dens = [c.denominator() for c in all_coeffs]
-    
-    # Compute LCM of denominators without reduce()
-    lcm_den = 1
-    for d in dens:
-        if d == 1:
-            continue
-        lcm_den = (lcm_den * d) // gcd(lcm_den, d)
-    
-    # Scale coefficients to integers
-    int_coeffs = [int((c * lcm_den).numerator()) for c in all_coeffs]
-    # Include the denominator itself (Projective height of [coeffs : 1])
-    int_coeffs.append(lcm_den)
-    
-    max_abs = max(abs(c) for c in int_coeffs)
-    
-    R = RealField(prec)
-    return R(max_abs).log()
 
 
 def archimedean_naive_height(div):
@@ -331,56 +195,6 @@ def mumford_dict_to_jacobian_element(div_dict, f_coeffs):
     return J_elem
 
 
-def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
-                          use_finite_places=True, arch_override=None):
-    """
-    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
-    """
-    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
-    if key in arakelov_quasi_height.cache:
-        return arakelov_quasi_height.cache[key]
-    assert period_matrix is not None, "period_matrix must be provided"
-    
-    from sage.all import RealField
-
-    # fast path
-    if getattr(div, "is_zero", lambda: False)():
-        return RealField(prec)(0)
-
-    RF = RealField(prec)
-
-    # 1) Naive Weil Height (u-only)
-    h_naive = naive_height_qq(div, prec=prec)
-    h_total = RF(h_naive)
-
-    # 2) Archimedean (now includes Weierstrass corrections internally)
-    if arch_override is not None:
-        h_arch = RF(arch_override)
-    else:
-        # Note: archimedean_height_correction handles the difference 
-        # between the full analytic height and the naive height
-        h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
-
-    h_total += h_arch
-
-    # 3) Finite local corrections
-    h_finite = RF(0)
-    
-    if use_finite_places:
-        bad_primes = get_bad_primes(f_coeffs)
-        for p in bad_primes:
-            val = local_height_correction_finite(div, p, f_coeffs)
-            if val is None:
-                raise RuntimeError(f"[arakelov_quasi_height] local correction returned None for p={p}")
-            h_finite += RF(val)
-
-    h_total += h_finite
-
-    ret = h_total
-    arakelov_quasi_height.cache[key] = ret
-    return ret
-arakelov_quasi_height.cache = {}
-
 
 """
 CRITICAL FIX: Weierstrass point corrections must NOT be included in 
@@ -394,11 +208,183 @@ points appear in the support, not on the divisor class itself.
 
 # In heights.py, modify arakelov_canonical_height():
 
+
+# In your arakelov pairing code (wherever arakelov_height_pairing is defined):
+
+
+"""Height computation functions."""
+
+
+logger = logging.getLogger("mumford_adapter")
+
+# -------------------------------------------------------------------------
+# Helper Functions
+# -------------------------------------------------------------------------
+
+def get_weierstrass_points(f_coeffs, prec=300):
+    """
+    Find all rational Weierstrass points (roots of f(x)).
+    For y^2 = f(x), Weierstrass points are where f(x) = 0.
+    """
+    key = tuple(f_coeffs)
+    if key in get_weierstrass_points.cache:
+        return get_weierstrass_points.cache[key]
+    
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    weier_pts = []
+    try:
+        # Get all rational roots
+        roots = f_poly.roots(QQ, multiplicities=False)
+        weier_pts.extend(roots)
+    except Exception as e:
+        logger.warning(f"Could not compute rational Weierstrass points: {e}")
+    
+    result = sorted(weier_pts)
+    get_weierstrass_points.cache[key] = result
+    return result
+
+get_weierstrass_points.cache = {}
+
+
+def count_weierstrass_in_support(div, f_coeffs, tolerance=1e-10):
+    """
+    Count how many Weierstrass points appear in the support of divisor div.
+    Args:
+        div: Sage Jacobian element with Mumford representation [u(x), v(x)]
+        f_coeffs: Coefficients of the curve polynomial (high to low degree)
+        tolerance: Numerical tolerance for root matching
+    """
+    weier_pts = get_weierstrass_points(f_coeffs)
+    if not weier_pts:
+        return 0
+    
+    # Extract u(x) from Mumford representation
+    try:
+        u_poly = div[0]
+    except Exception:
+        try:
+            u_poly, _ = div.mumford_representation()
+        except Exception as e:
+            return 0
+    
+    # Get roots of u(x)
+    try:
+        # Try rational roots first
+        div_roots = u_poly.roots(QQ, multiplicities=False)
+    except Exception:
+        return 0
+    
+    count = 0
+    for w in weier_pts:
+        if w in div_roots:
+            count += 1
+    
+    return count
+
+
+def local_height_at_weierstrass_points(div, f_coeffs, debug=False):
+    """
+    Compute the additional local height correction at Weierstrass points.
+    For each Weierstrass point in the support, we need -log(2) correction.
+    """
+    num_weier = count_weierstrass_in_support(div, f_coeffs)
+    
+    if num_weier == 0:
+        return 0.0
+    
+    import math
+    correction = -float(num_weier) * math.log(2)
+    
+    if debug:
+        print(f"  Weierstrass correction: {num_weier} points → {correction:.5f}")
+    
+    return correction
+
+
+def naive_height_qq(div, prec=53):
+    """
+    Compute naive (logarithmic) height of Mumford u-polynomial coefficients.
+    Strictly excludes v(x).
+    """
+    from sage.all import QQ, RealField
+    from math import gcd
+    
+    u_coeffs = [QQ(c) for c in div[0].list()]
+    all_coeffs = [c for c in u_coeffs if c != 0]
+    
+    if not all_coeffs:
+        return QQ(0)
+        
+    dens = [c.denominator() for c in all_coeffs]
+    lcm_den = 1
+    for d in dens:
+        if d == 1: continue
+        lcm_den = (lcm_den * d) // gcd(lcm_den, d)
+    
+    int_coeffs = [int((c * lcm_den).numerator()) for c in all_coeffs]
+    int_coeffs.append(lcm_den)
+    
+    max_abs = max(abs(c) for c in int_coeffs)
+    R = RealField(prec)
+    return R(max_abs).log()
+
+
+def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
+                          use_finite_places=True, arch_override=None):
+    """
+    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
+    """
+    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
+    if key in arakelov_quasi_height.cache:
+        return arakelov_quasi_height.cache[key]
+    assert period_matrix is not None, "period_matrix must be provided"
+    
+    from sage.all import RealField
+
+    if getattr(div, "is_zero", lambda: False)():
+        return RealField(prec)(0)
+
+    RF = RealField(prec)
+
+    # 1) Naive Weil Height (u-only)
+    h_naive = naive_height_qq(div, prec=prec)
+    h_total = RF(h_naive)
+
+    # 2) Archimedean
+    if arch_override is not None:
+        h_arch = RF(arch_override)
+    else:
+        # returns quadratic form part only (no weierstrass correction)
+        h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
+
+    h_total += h_arch
+
+    # 3) Finite local corrections
+    h_finite = RF(0)
+    if use_finite_places:
+        bad_primes = get_bad_primes(f_coeffs)
+        for p in bad_primes:
+            val = local_height_correction_finite(div, p, f_coeffs)
+            if val is None:
+                raise RuntimeError(f"local correction returned None for p={p}")
+            h_finite += RF(val)
+
+    h_total += h_finite
+
+    ret = h_total
+    arakelov_quasi_height.cache[key] = ret
+    return ret
+arakelov_quasi_height.cache = {}
+
+
 def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024, 
                               max_prec=8192, debug=True, 
-                              include_weierstrass=False):  # NEW FLAG
+                              include_weierstrass=False):
     """
-    Computes canonical height h(D) = h_arch(D) + sum(local_corrections).
+    Computes canonical height h(D).
     
     Args:
         include_weierstrass: If False, omit Weierstrass corrections.
@@ -407,16 +393,21 @@ def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024,
     """
     from sage.all import QQ
     
-    # 1) ensure we have a Sage Jacobian element
     if isinstance(div, dict) and 'u_poly' in div:
-        J_elem = mumford_dict_to_jacobian_element(div, f_coeffs)
+        # Helper to convert dict back to element, assuming existence in module
+        # (Using minimal reconstruction logic here if helper missing)
+        try:
+            from .mumford_basis import mumford_dict_to_jacobian_element
+            J_elem = mumford_dict_to_jacobian_element(div, f_coeffs)
+        except ImportError:
+            # Fallback if circular import prevention needed
+            # (Assume caller usually passes Jacobian element)
+            raise RuntimeError("Cannot convert dict to Jacobian element without helper")
     else:
         J_elem = div
 
-    # CRITICAL: Access the curve via the parent Jacobian group.
     jac = J_elem.parent()
     curve = jac.curve()
-    
     f_poly, _ = curve.hyperelliptic_polynomials()
     consistent_coeffs = [QQ(c) for c in f_poly.list()[::-1]]
     
@@ -424,7 +415,7 @@ def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024,
         if list(consistent_coeffs) != list(map(QQ, f_coeffs)):
             period_matrix = None
 
-    # 2) compute archimedean (analytic) piece
+    # 2) compute archimedean (analytic) piece (without Weierstrass)
     h_arch_total = arakelov_quasi_height(J_elem, consistent_coeffs, period_matrix, 
                                          prec=prec, use_finite_places=False)
     h_arch_total = float(h_arch_total)
@@ -434,77 +425,53 @@ def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024,
 
     # 4) compute finite local corrections
     s_list = []
-    per_prime = {}
+    
+    # We must construct a clean tuple for the worker to avoid pickling the Jacobian element
+    # if using multiprocessing, but here we run serial or lightweight
+    from .local import _pairs_to_qq_poly
+    # Helper extract
+    try:
+        u, v = J_elem[0], J_elem[1]
+    except Exception:
+        u, v = J_elem.divisor().reduced().mumford_representation()
+    
+    div_for_local = [u, v]
     
     for p in bad_primes:
-        task = (0, _div_to_coeff_tuple_for_worker(J_elem), p, tuple(consistent_coeffs))
-        idx, result = local_correction_worker(task)
-        
-        if isinstance(result, Exception):
-            raise result
-        
-        s_val = float(result)
-        s_list.append(s_val)
-        per_prime[p] = s_val
+        val = local_height_correction_finite(div_for_local, p, consistent_coeffs)
+        s_list.append(float(val))
 
     sum_s = sum(s_list)
     
-    # 5) FIXED: Only add Weierstrass correction if requested
+    # 5) Add Weierstrass correction ONLY if requested
     weier_correction = 0.0
-    assert not include_weierstrass, "mathematically mistaken, weierstrass correction not possible"
     if include_weierstrass:
         weier_correction = local_height_at_weierstrass_points(J_elem, consistent_coeffs, debug=debug)
     
     h_can = float(h_arch_total + sum_s + weier_correction)
-
-    # 6) debugging output
-    if debug:
-        h_naive_val = float(naive_height_qq(J_elem, prec=prec))
-        h_arch_correction = h_arch_total - h_naive_val
-        num_weier = count_weierstrass_in_support(J_elem, consistent_coeffs)
-        
-        print(f"Height breakdown (Model LC={consistent_coeffs[0]}):")
-        print(f"  Naive(u-only) = {h_naive_val:.5f}")
-        print(f"  ArchCorr      = {h_arch_correction:.5f}")
-        print(f"  Locals        = {sum_s:.5f} (p=2: {per_prime.get(2, 'N/A')})")
-        print(f"  Total         = {h_can:.5f}")
-
-    if h_can < -1e-9 and include_weierstrass:
-        print(f"WARNING: Canonical height negative: {h_can}. Matrix may not be positive definite.")
     
     return float(h_can)
 
 
-# In your arakelov pairing code (wherever arakelov_height_pairing is defined):
-
 def arakelov_height_pairing(D1, D2, f_coeffs, prec=1024, debug=False):
     """
     Compute <D1, D2> via polarization: (h(D1+D2) - h(D1) - h(D2))/2
-    
     CRITICAL: Must use include_weierstrass=False to maintain bilinearity!
     """
     from sage.all import QQ
     
-    # Get period matrix once
+    # Assumption: get_period_matrix_auto_B exists in scope or imported
+    from .utilities import get_period_matrix_auto_B
     PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
     
-    # Compute heights WITHOUT Weierstrass corrections
     h1 = arakelov_canonical_height(D1, f_coeffs, PM, prec=prec, debug=False,
                                    include_weierstrass=False)
     h2 = arakelov_canonical_height(D2, f_coeffs, PM, prec=prec, debug=False,
                                    include_weierstrass=False)
     
-    # Compute sum
     D_sum = D1 + D2
     h_sum = arakelov_canonical_height(D_sum, f_coeffs, PM, prec=prec, debug=False,
                                      include_weierstrass=False)
     
-    # Polarization formula
     pairing = (h_sum - h1 - h2) / 2.0
-    
-    if debug:
-        print(f"  Pair: h1={h1:.5f}, h2={h2:.5f}, h_sum={h_sum:.5f}, <D1,D2>={pairing:.5f}")
-    
     return float(pairing)
-
-

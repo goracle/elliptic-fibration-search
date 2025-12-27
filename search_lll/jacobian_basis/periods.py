@@ -11,8 +11,6 @@ from .integration import integrate_differential_path_with_branch
 # normalize_periods_and_z
 
 
-
-
 """Period matrix and Abel-Jacobi map computations."""
 
 
