@@ -478,170 +478,171 @@ def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
                 return True
         return False
 
-    for tup in divisors:
-        s_q = QQ(tup['s'])
-        p_q = QQ(tup['p'])
-        v0_q = QQ(tup['v_0'])
-        v1_q = QQ(tup['v_1'])
+    with silence_stdout_stderr():
+        for tup in divisors:
+            s_q = QQ(tup['s'])
+            p_q = QQ(tup['p'])
+            v0_q = QQ(tup['v_0'])
+            v1_q = QQ(tup['v_1'])
 
-        u = _u_from_sp(s_q, p_q, R)
-        v = _v_from_coeffs(v1_q, v0_q, R)
+            u = _u_from_sp(s_q, p_q, R)
+            v = _v_from_coeffs(v1_q, v0_q, R)
 
-        if has_weierstrass_support(u):
-            if D_generic is None:
-                logger.warning("Divisor has Weierstrass support but no valid D_generic found. Skipping.")
-                skipped_count += 1
-                continue
+            if has_weierstrass_support(u):
+                if D_generic is None:
+                    logger.warning("Divisor has Weierstrass support but no valid D_generic found. Skipping.")
+                    skipped_count += 1
+                    continue
 
-            logger.info("Divisor with Weierstrass support detected: s=%s, p=%s", s_q, p_q)
-            try:
-                D = J([u, v])
-            except Exception as e:
-                logger.warning("Failed to construct Jacobian point for Weierstrass shifting: %s", e)
-                skipped_count += 1
-                raise
-                continue
-
-            # Try shifting by multiples of D_generic to move off Weierstrass support
-            shifted_success = False
-            # Try a broader range of shifts to be robust against torsion/geometric collisions
-            shift_attempts = []
-            for k in range(1, 10):
-                shift_attempts.append(k)
-                shift_attempts.append(-k)
-            
-            for k in shift_attempts:
+                logger.info("Divisor with Weierstrass support detected: s=%s, p=%s", s_q, p_q)
                 try:
-                    D_shifted = D + k * D_generic
-                    u_new, v_new = D_shifted
-                    
-                    # CRITICAL: Ensure we have a valid generic Mumford divisor (degree 2 for genus 2)
-                    # If degree is != 2, we can't represent it with (s, p) cleanly, so we skip it.
-                    if u_new.degree() != 2:
-                        logger.debug("Shift resulted in u_poly of degree %d (expected 2), trying next", u_new.degree())
-                        continue
-
-                    if not has_weierstrass_support(u_new):
-                        u = u_new
-                        v = v_new
-                        
-                        u_coeffs = u.list()
-                        # u = x^2 - sx + p  =>  s = -coeff[1], p = coeff[0]
-                        # We are guaranteed degree 2 here by the check above.
-                        s_q = -u_coeffs[1]
-                        p_q = u_coeffs[0]
-                            
-                        v_coeffs = v.list()
-                        v0_q = v_coeffs[0] if len(v_coeffs) > 0 else QQ(0)
-                        v1_q = v_coeffs[1] if len(v_coeffs) > 1 else QQ(0)
-                        
-                        logger.info("Shifted away from Weierstrass support using k=%d. New s=%s, p=%s", k, s_q, p_q)
-                        shifted_success = True
-                        break
+                    D = J([u, v])
                 except Exception as e:
-                    logger.debug("Shift attempt k=%d failed: %s", k, e)
+                    logger.warning("Failed to construct Jacobian point for Weierstrass shifting: %s", e)
+                    skipped_count += 1
                     raise
                     continue
-            
-            if not shifted_success:
-                logger.warning("Could not shift away from Weierstrass support for s=%s, p=%s after multiple attempts", s_q, p_q)
-                skipped_count += 1
-                continue
 
-        v_red = v % u
+                # Try shifting by multiples of D_generic to move off Weierstrass support
+                shifted_success = False
+                # Try a broader range of shifts to be robust against torsion/geometric collisions
+                shift_attempts = []
+                for k in range(1, 10):
+                    shift_attempts.append(k)
+                    shift_attempts.append(-k)
 
-        u_k = u_key_from_poly(u)
+                for k in shift_attempts:
+                    try:
+                        D_shifted = D + k * D_generic
+                        u_new, v_new = D_shifted
 
-        if u_k in seen_u:
-            stored_u, stored_v = seen_u[u_k]
-            if same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
-                skipped_count += 1
-                continue
-            else:
-                skipped_count += 1
-                continue
-
-        if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
-            if len(out) > 0:
-                last = out[-1]
-                seen_u[u_k] = (u, last['v_poly'])
-            accepted_count += 1
-            continue
-        
-        # ... [Logic for s^2-4p checks omitted for brevity, logic follows essentially the same flow] ...
-        # If we reached here, try standard scaling heuristics based on discriminant...
-        
-        # Recalculate disc in case s,p changed
-        disc = s_q * s_q - 4 * p_q
-        disc_sqrt = rational_sqrt(disc) if disc != 0 else QQ(0)
-
-        if disc_sqrt is not None and disc_sqrt == 0:
-             # Repeated root logic
-             r_double = s_q / QQ(2)
-             fr = f_poly(r_double)
-             sqrt_fr = rational_sqrt(fr)
-             if sqrt_fr is not None:
-                vr = v_red(r_double)
-                if vr != 0:
-                    lam_candidate = QQ(sqrt_fr) / QQ(vr)
-                    v_scaled = lam_candidate * v_red
-                    if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
-                         if len(out) > 0:
-                            last = out[-1]
-                            seen_u[u_k] = (u, last['v_poly'])
-                         accepted_count += 1
-                         continue
-        
-        elif disc_sqrt is not None:
-            # Distinct roots logic
-            r_plus = (s_q + disc_sqrt) / QQ(2)
-            r_minus = (s_q - disc_sqrt) / QQ(2)
-            denom = r_plus - r_minus
-            if denom != 0:
-                fa_plus = f_poly(r_plus)
-                fa_minus = f_poly(r_minus)
-                sqrt_plus = rational_sqrt(fa_plus)
-                sqrt_minus = rational_sqrt(fa_minus)
-
-                if sqrt_plus is not None and sqrt_minus is not None:
-                    vr_plus = v_red(r_plus)
-                    if vr_plus != 0:
-                        tried_scale = False
-                        for target in (sqrt_plus, -sqrt_plus):
-                            lam = QQ(target) / QQ(vr_plus)
-                            v_scaled = lam * v_red
-                            if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
-                                if len(out) > 0:
-                                    last = out[-1]
-                                    seen_u[u_k] = (u, last['v_poly'])
-                                accepted_count += 1
-                                tried_scale = True
-                                break
-                        if tried_scale:
+                        # CRITICAL: Ensure we have a valid generic Mumford divisor (degree 2 for genus 2)
+                        # If degree is != 2, we can't represent it with (s, p) cleanly, so we skip it.
+                        if u_new.degree() != 2:
+                            logger.debug("Shift resulted in u_poly of degree %d (expected 2), trying next", u_new.degree())
                             continue
 
-                    # Try linear interpolation v(x) construction
-                    matched = False
-                    for sig_plus in (+1, -1):
-                        for sig_minus in (+1, -1):
-                            y_plus = QQ(sig_plus) * sqrt_plus
-                            y_minus = QQ(sig_minus) * sqrt_minus
-                            alpha = (y_plus - y_minus) / denom
-                            beta = y_plus - alpha * r_plus
-                            v_candidate = alpha * x + beta
-                            if _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
-                                if len(out) > 0:
-                                    last = out[-1]
-                                    seen_u[u_k] = (u, last['v_poly'])
-                                accepted_count += 1
-                                matched = True
-                                break
-                        if matched:
+                        if not has_weierstrass_support(u_new):
+                            u = u_new
+                            v = v_new
+
+                            u_coeffs = u.list()
+                            # u = x^2 - sx + p  =>  s = -coeff[1], p = coeff[0]
+                            # We are guaranteed degree 2 here by the check above.
+                            s_q = -u_coeffs[1]
+                            p_q = u_coeffs[0]
+
+                            v_coeffs = v.list()
+                            v0_q = v_coeffs[0] if len(v_coeffs) > 0 else QQ(0)
+                            v1_q = v_coeffs[1] if len(v_coeffs) > 1 else QQ(0)
+
+                            logger.info("Shifted away from Weierstrass support using k=%d. New s=%s, p=%s", k, s_q, p_q)
+                            shifted_success = True
                             break
-                    if matched:
+                    except Exception as e:
+                        logger.debug("Shift attempt k=%d failed: %s", k, e)
+                        raise
                         continue
 
-        skipped_count += 1
+                if not shifted_success:
+                    logger.warning("Could not shift away from Weierstrass support for s=%s, p=%s after multiple attempts", s_q, p_q)
+                    skipped_count += 1
+                    continue
+
+            v_red = v % u
+
+            u_k = u_key_from_poly(u)
+
+            if u_k in seen_u:
+                stored_u, stored_v = seen_u[u_k]
+                if same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
+                    skipped_count += 1
+                    continue
+                else:
+                    skipped_count += 1
+                    continue
+
+            if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                if len(out) > 0:
+                    last = out[-1]
+                    seen_u[u_k] = (u, last['v_poly'])
+                accepted_count += 1
+                continue
+
+            # ... [Logic for s^2-4p checks omitted for brevity, logic follows essentially the same flow] ...
+            # If we reached here, try standard scaling heuristics based on discriminant...
+
+            # Recalculate disc in case s,p changed
+            disc = s_q * s_q - 4 * p_q
+            disc_sqrt = rational_sqrt(disc) if disc != 0 else QQ(0)
+
+            if disc_sqrt is not None and disc_sqrt == 0:
+                # Repeated root logic
+                r_double = s_q / QQ(2)
+                fr = f_poly(r_double)
+                sqrt_fr = rational_sqrt(fr)
+                if sqrt_fr is not None:
+                    vr = v_red(r_double)
+                    if vr != 0:
+                        lam_candidate = QQ(sqrt_fr) / QQ(vr)
+                        v_scaled = lam_candidate * v_red
+                        if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                            if len(out) > 0:
+                                last = out[-1]
+                                seen_u[u_k] = (u, last['v_poly'])
+                            accepted_count += 1
+                            continue
+
+            elif disc_sqrt is not None:
+                # Distinct roots logic
+                r_plus = (s_q + disc_sqrt) / QQ(2)
+                r_minus = (s_q - disc_sqrt) / QQ(2)
+                denom = r_plus - r_minus
+                if denom != 0:
+                    fa_plus = f_poly(r_plus)
+                    fa_minus = f_poly(r_minus)
+                    sqrt_plus = rational_sqrt(fa_plus)
+                    sqrt_minus = rational_sqrt(fa_minus)
+
+                    if sqrt_plus is not None and sqrt_minus is not None:
+                        vr_plus = v_red(r_plus)
+                        if vr_plus != 0:
+                            tried_scale = False
+                            for target in (sqrt_plus, -sqrt_plus):
+                                lam = QQ(target) / QQ(vr_plus)
+                                v_scaled = lam * v_red
+                                if _attempt_scale_and_save(u, v_scaled, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                                    if len(out) > 0:
+                                        last = out[-1]
+                                        seen_u[u_k] = (u, last['v_poly'])
+                                    accepted_count += 1
+                                    tried_scale = True
+                                    break
+                            if tried_scale:
+                                continue
+
+                        # Try linear interpolation v(x) construction
+                        matched = False
+                        for sig_plus in (+1, -1):
+                            for sig_minus in (+1, -1):
+                                y_plus = QQ(sig_plus) * sqrt_plus
+                                y_minus = QQ(sig_minus) * sqrt_minus
+                                alpha = (y_plus - y_minus) / denom
+                                beta = y_plus - alpha * r_plus
+                                v_candidate = alpha * x + beta
+                                if _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
+                                    if len(out) > 0:
+                                        last = out[-1]
+                                        seen_u[u_k] = (u, last['v_poly'])
+                                    accepted_count += 1
+                                    matched = True
+                                    break
+                            if matched:
+                                break
+                        if matched:
+                            continue
+
+            skipped_count += 1
 
     logger.info("canonicalize_and_dedup: accepted=%d skipped=%d", len(out), skipped_count)
     return out
@@ -688,3 +689,56 @@ def quick_dependence_check(div1, div2):
         return True
     
     return False
+
+
+import os
+import sys
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stdout_stderr():
+    """
+    Context manager to suppress stdout and stderr.
+    Useful for silencing chatty libraries (like Sage/Singular internals).
+    """
+    # Save original streams
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    
+    # Open a null device
+    null_file = open(os.devnull, 'w')
+    
+    try:
+        # Redirect Python streams
+        sys.stdout = null_file
+        sys.stderr = null_file
+        
+        # Redirect C-level file descriptors (if possible/needed)
+        # (This catches prints from C libraries wrapped by Python)
+        try:
+            fd_out = original_stdout.fileno()
+            fd_err = original_stderr.fileno()
+            
+            # Save original fds
+            saved_out_fd = os.dup(fd_out)
+            saved_err_fd = os.dup(fd_err)
+            
+            try:
+                os.dup2(null_file.fileno(), fd_out)
+                os.dup2(null_file.fileno(), fd_err)
+                yield
+            finally:
+                # Restore fds
+                os.dup2(saved_out_fd, fd_out)
+                os.dup2(saved_err_fd, fd_err)
+                os.close(saved_out_fd)
+                os.close(saved_err_fd)
+        except Exception:
+            # Fallback if file descriptors aren't available (e.g. some IDLEs)
+            yield
+    finally:
+        # Restore Python streams
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        null_file.close()
+
