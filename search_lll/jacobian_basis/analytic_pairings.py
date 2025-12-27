@@ -11,7 +11,7 @@ from multiprocessing import Pool
 # Import your existing AJ/integration helpers
 from .periods import abel_jacobi_mumford, normalize_periods_and_z, choose_numerical_base_point
 from .integration import integrate_differential_path_with_branch  # used implicitly by abel_jacobi_mumford
-from .utilities import ( )  # keep import placeholder if needed elsewhere
+from .utilities import *  # keep import placeholder if needed elsewhere
 
 # Module-level AJ context and cache. Call set_aj_context(...) before bulk pairing.
 _AJ_CONTEXT = {
@@ -434,3 +434,24 @@ def build_analytic_gram_matrix(indices):
             G[b, a] = RR(val)
 
     return make_matrix_numerically_positive_definite(G)
+
+
+from sage.all import Matrix
+
+def build_Im_tau_from_tau(tau, RR, CC):
+    """
+    Construct Im(tau) as a real symmetric matrix over RR.
+
+    tau: g×g complex period matrix
+    RR: RealField used for numeric work
+    CC: ComplexField used to store tau
+    """
+    tau = Matrix(CC, tau)
+    g = tau.nrows()
+
+    Im_tau = Matrix(RR, g, g)
+    for i in range(g):
+        for j in range(g):
+            Im_tau[i, j] = RR(tau[i, j].imag())
+
+    return Im_tau

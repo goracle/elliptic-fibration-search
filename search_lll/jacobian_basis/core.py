@@ -84,17 +84,23 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         info['reason'] = 'empty_basis'
         return True, info
 
+    from .analytic_pairings import get_analytic_pairing
+
+
+
     try:
         G_np = np.zeros((k, k), dtype=float)
         b_np = np.zeros((k,), dtype=float)
         for i in range(k):
             for j in range(i, k):
-                val = float(get_pairing(basis_indices[i], basis_indices[j]))
+                #val = float(get_pairing(basis_indices[i], basis_indices[j]))
+                #val = float(get_analytic_pairing(i, j))
+                val = float(get_analytic_pairing(basis_indices[i], basis_indices[j]))
                 G_np[i, j] = val
                 G_np[j, i] = val
         for i in range(k):
-            b_np[i] = float(get_pairing(basis_indices[i], cand_idx))
-        h_cand = float(get_pairing(cand_idx, cand_idx))
+            b_np[i] = float(get_analytic_pairing(basis_indices[i], cand_idx))
+        h_cand = float(get_analytic_pairing(cand_idx, cand_idx))
     except Exception as e:
         # Failure in pairing extraction -> return False so candidate is rejected
         info['error'] = f'pairing_error: {type(e).__name__}: {e}'
@@ -422,6 +428,16 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         rather than poisoning the basis with 0.0.
       - Explicitly checks for torsion equivalence (all orders) to avoid rank inflation.
     """
+    PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
+
+    from .analytic_pairings import setup_analytic_pairing_context
+    setup_analytic_pairing_context(
+        f_coeffs=f_coeffs,
+        tau=PM,
+        prec=prec,
+        verbose=True
+    )
+
     if not all_divisors:
         return [], 0, None
 
@@ -436,10 +452,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
         print(f"[arakelov] Using precision: {prec} bits")
 
-    try:
-        PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    except Exception as e:
-        raise RuntimeError(f"[arakelov] get_period_matrix_auto_B failed at prec={prec}: {e}")
 
     Rq_QQ = PolynomialRing(QQ, 'x')
     x_QQ = Rq_QQ.gen()
@@ -455,6 +467,18 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         jac_elements.append((div, div_j, div.get('_h_diag', None)))
 
     n = len(jac_elements)
+
+    from .analytic_pairings import precompute_abel_jacobi_images
+
+    indices = list(range(len(jac_elements)))
+    precompute_abel_jacobi_images(
+        indices,
+        jac_elements,
+        prec=prec,
+        debug=debug
+    )
+
+
     if n == 0:
         return [], 0, None
 
@@ -509,27 +533,10 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                 import numpy as np
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = np.nan
 
+    from .analytic_pairings import get_analytic_pairing
+
     def get_pairing_lazy(i, j):
-        if i > j: i, j = j, i
-        
-        if i not in height_cache or j not in height_cache:
-            raise ValueError(f"Cannot pair divisors {i},{j}: invalid self-heights")
-
-        if (i, j) in pairing_cache:
-            return pairing_cache[(i, j)]
-
-        if i == j:
-            return height_cache[i]
-
-        try:
-            _, Ji, _ = jac_elements[i]
-            _, Jj, _ = jac_elements[j]
-            hij = arakelov_canonical_height(Ji + Jj, f_coeffs, PM, prec=prec, debug=debug)
-            val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
-            pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(val)
-            return val
-        except Exception as e:
-            raise RuntimeError(f"Pairing computation failed for ({i},{j}): {e}")
+        return get_analytic_pairing(i, j)
 
     if debug:
         print("[arakelov] Selecting basis incrementally...")
