@@ -551,16 +551,17 @@ def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
 
             v_red = v % u
 
+            # --- safer handling for previously-seen u ---
             u_k = u_key_from_poly(u)
 
+            # If we've previously seen the same u, we still allow the new (u,v) through.
+            # We keep bookkeeping so we can report duplicates later, but do NOT auto-skip here.
+            # Deduplication will be decided by _attempt_scale_and_save using exact Jacobian equality.
             if u_k in seen_u:
-                stored_u, stored_v = seen_u[u_k]
-                if same_v_up_to_sign_mod_u(v_red, stored_v, stored_u):
-                    skipped_count += 1
-                    continue
-                else:
-                    skipped_count += 1
-                    continue
+                # record that this u value recurred (diagnostic), but do not reject immediately
+                # keep the existing stored pair(s) and proceed to attempt matching/acceptance
+                # (do not increment skipped_count yet; we only increment on true skips)
+                logger.debug("Encountered previously-seen u; allowing candidate through for robust dedup: %s", u_k)
 
             if _attempt_scale_and_save(u, v_red, f_poly, s_q, p_q, tup, seen, seen_u, out, C=C, J=J, jac_points=jac_points):
                 if len(out) > 0:
@@ -742,3 +743,108 @@ def silence_stdout_stderr():
         sys.stderr = original_stderr
         null_file.close()
 
+
+
+def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list, C=None, J=None, jac_points=None):
+    """
+    Safer attempt: accept (u, v) if some lam makes (lam*v)^2 - f divisible by u.
+    Deduplication rules:
+      - If J and jac_points available, compare exact Jacobian equality (newJ - storedJ).is_zero()
+        or exact negation (newJ + storedJ).is_zero(). Only treat as duplicate in that case.
+      - Otherwise dedupe only on exact canonical (u,v) key.
+    On accept, append canonicalized dict to out_list and update seen_keys and seen_u_map.
+    """
+    for lam in _SCALE_TRIALS:
+        try:
+            v_test = lam * v_candidate
+        except Exception:
+            # If scaling fails for some crazy reason, try next lam
+            continue
+
+        try:
+            if (v_test**2 - f_poly) % u != 0:
+                continue
+        except Exception:
+            # If modular check fails unexpectedly, skip this lam rather than crash
+            continue
+
+        # Normalize parity for presentation but do not use sign-flip as sole dedupe.
+        v_norm = normalize_infinity_parity(v_test, f_poly)
+
+        key = _canon_key_from_polys(u, v_norm)
+
+        # Fast path: if we've already seen exact canonical (u,v), accept as duplicate.
+        if key in seen_keys:
+            return True
+
+        # If Jacobian context exists, do exact Jacobian comparisons (preferred).
+        matched_via_J = False
+        if J is not None and jac_points is not None:
+            try:
+                newJ = J([u, v_norm])
+                # Compare exactly against stored Jacobian points
+                for stored_key, stored_data in jac_points.items():
+                    if stored_key == '__D_inf__':
+                        continue
+                    try:
+                        storedJ = stored_data['Jpt']
+                        # Exact equality (works in exact QQ arithmetic)
+                        if (newJ - storedJ).is_zero():
+                            matched_via_J = True
+                            break
+                        # Also treat exact negation as duplicate (same class up to inversion)
+                        if (newJ + storedJ).is_zero():
+                            matched_via_J = True
+                            break
+                    except Exception:
+                        # If stored data is malformed or .is_zero() fails, skip that stored entry
+                        continue
+                if matched_via_J:
+                    seen_keys.add(key)
+                    return True
+            except Exception:
+                # If building newJ fails, don't dedupe on Jacobian; fall back to key-based behavior below.
+                pass
+
+        # Not matched by exact Jacobian test. Accept as a new canonical divisor.
+        seen_keys.add(key)
+
+        newt = dict(orig_tup)
+        newt['u_poly'] = u
+        newt['v_poly'] = v_norm
+        coeffs = v_norm.list()
+        if len(coeffs) == 0:
+            newt['v_0'] = QQ(0); newt['v_1'] = QQ(0)
+        elif len(coeffs) == 1:
+            newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(0)
+        else:
+            newt['v_0'] = QQ(coeffs[0]); newt['v_1'] = QQ(coeffs[1])
+
+        newt['s'] = QQ(s_q)
+        newt['p'] = QQ(p_q)
+        u_disc = u.discriminant()
+        newt['has_rational_roots'] = True if (u.degree() <= 2 and u_disc.is_square()) else False
+        newt['scale_used'] = lam
+
+        # record into seen_u_map for bookkeeping (allow multiple entries per u)
+        try:
+            u_k = tuple(rational_pair_key(c) for c in u.list())
+            seen_u_map.setdefault(u_k, []).append((u, v_norm))
+        except Exception:
+            # best-effort: ignore bookkeeping failure
+            pass
+
+        # store precise Jacobian object if possible for future exact comparisons
+        if J is not None and jac_points is not None:
+            try:
+                jkey = _canon_key_from_polys(u, v_norm)
+                jac_points[jkey] = {'Jpt': J([u, v_norm]), 'u': u, 'v': v_norm}
+            except Exception:
+                # do not fail the whole routine if J-building fails here
+                pass
+
+        out_list.append(newt)
+        logger.info("Accepted divisor s=%r p=%r with scale=%r", s_q, p_q, lam)
+        return True
+
+    return False

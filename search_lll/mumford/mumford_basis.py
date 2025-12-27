@@ -23,7 +23,7 @@ def custom_formatwarning(msg, category, filename, lineno, line=None):
 warnings.formatwarning = custom_formatwarning
 
 ARAKELOV_AVAILABLE = True
-MAX_BASIS_CANDIDATES = 10
+MAX_BASIS_CANDIDATES = 30
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
