@@ -5,6 +5,7 @@ import itertools
 from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
 from sage.all import ComplexField, RealField, Matrix, identity_matrix
 from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix
+from sage.all import ZZ, RR
 
 
 class HomologyExtractionError(Exception):
@@ -662,8 +663,8 @@ def get_period_matrix_auto_B(f_coeffs, prec=200):
         ])
 
     # Construct period matrices
-    A_mat = matrix(CC, A).transpose()
-    B_mat = matrix(CC, B).transpose()
+    A_mat = Matrix(CC, A).transpose()
+    B_mat = Matrix(CC, B).transpose()
 
     return A_mat.inverse() * B_mat
 get_period_matrix_auto_B.cache = {}
@@ -883,8 +884,8 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, 
         return tot0, tot1
 
     # Fill A and B matrices
-    A = matrix(CC, 2, 2)
-    B = matrix(CC, 2, 2)
+    A = Matrix(CC, 2, 2)
+    B = Matrix(CC, 2, 2)
     for j in range(2):
         A[0, j], A[1, j] = integrate_chain_simple(A_cycles[j])
         B[0, j], B[1, j] = integrate_chain_simple(B_cycles[j])
@@ -937,7 +938,18 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, 
     return tau
 
 
-def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, perturb_attempts=5):
+# Positive–definiteness test for Im(tau)
+def is_pd(tau, prec=200):
+    # tau is 2×2 complex matrix; we test the symmetric imaginary part
+    Im = Matrix(RR, 2, 2, [[tau[i,j].imag() for j in range(2)] for i in range(2)])
+    Im = (Im + Im.transpose())/2   # symmetrize for stability
+    evals = Im.eigenvalues()
+    # require strictly positive (tolerance chosen relative to precision)
+    return all(e > 2**(-prec//3) for e in evals)
+
+
+
+def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, perturb_attempts=5):
     """
     Robust genus-2 period matrix builder for y^2 = f(x).
     
@@ -948,6 +960,7 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, 
     from sage.all import PolynomialRing, QQ, ComplexField, RealField, matrix, identity_matrix
     import random
     import itertools
+    verbose = True
 
     CC = ComplexField(prec)
     RR = RealField(prec)
@@ -1124,35 +1137,119 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, 
 
     # Construct Raw Matrices (Columns are cycles)
     # A_raw = [ [A1_w0, A2_w0], [A1_w1, A2_w1] ]
-    A_raw = matrix(CC, 2, 2, [ [A_defs[0][0], A_defs[1][0]], [A_defs[0][1], A_defs[1][1]] ])
-    B_raw = matrix(CC, 2, 2, [ [B_defs[0][0], B_defs[1][0]], [B_defs[0][1], B_defs[1][1]] ])
+    A_raw = Matrix(CC, 2, 2, [ [A_defs[0][0], A_defs[1][0]], [A_defs[0][1], A_defs[1][1]] ])
+    B_raw = Matrix(CC, 2, 2, [ [B_defs[0][0], B_defs[1][0]], [B_defs[0][1], B_defs[1][1]] ])
+
+
+    # === DIAGNOSTICS: quick sanity checks on raw period matrices ===
+    print("=== PERIOD BASIS DIAGNOSTIC ===")
+    print("A_raw shape:", A_raw.nrows(), "x", A_raw.ncols())
+    print("B_raw shape:", B_raw.nrows(), "x", B_raw.ncols())
+
+    # Determinant magnitude and (approx) condition
+    try:
+        detA = A_raw.det()
+    except Exception:
+        detA = None
+    print("det(A_raw) =", detA)
+
+    # column norms
+    col_norms_A = [sum(abs(c) for c in A_raw.column(j)) for j in range(A_raw.ncols())]
+    col_norms_B = [sum(abs(c) for c in B_raw.column(j)) for j in range(B_raw.ncols())]
+    print("col norms A:", col_norms_A)
+    print("col norms B:", col_norms_B)
+
+    # rank
+    try:
+        rankA = A_raw.rank()
+        rankB = B_raw.rank()
+    except Exception:
+        rankA = rankB = None
+    print("rank(A_raw) =", rankA, "rank(B_raw) =", rankB)
+
+    # tiny threshold tuned to precision
+    try:
+        threshold = CC(2) ** (-max(10, prec // 4))
+    except Exception:
+        threshold = CC(1e-12)
+    print("tiny threshold (for linear depend checks) ~", threshold)
+
+    # Column linear-dependence quick test: check if one column is tiny linear combo of the other
+    if rankA is not None and rankA < 2:
+        print("WARNING: A_raw appears rank deficient (<=1) -> likely rank-2 collapse downstream.")
+    if detA is not None and abs(detA) < threshold:
+        print("WARNING: det(A_raw) tiny -> near linear dependence / branch-flip problem.")
+
+    print("Roots used for cuts:", roots_for_pairing)
+    print("Cuts:", cuts)
+    print("Nodes used:", len(nodes_cc))
+    print("=== END DIAGNOSTIC ===")
+
 
     # --- 4. Symplectic Basis Search ---
     # The raw basis might not be symplectic (A_i . B_j != delta_ij).
     # We search for a transformed basis that yields a valid Riemann matrix.
-    
-    # Helper to check positive definiteness
-    def is_pd(mat):
+    # --- 4. Symplectic Basis Search (improved) ---
+    import math
+
+    def try_tau_from(A_try, B_try, prec=prec):
+        # quick guard
         try:
-            # Build Im(mat)
-            Im = matrix(RR, 2, 2, [[mat[i,j].imag() for j in range(2)] for i in range(2)])
-            # Symmetrize for stability
-            Im = (Im + Im.transpose())/2
-            evals = Im.eigenvalues()
-            return all(e > 1e-10 for e in evals)
+            if abs(A_try.det()) < CC(2) ** (-max(10, prec // 4)): 
+                raise
+                return None
         except Exception:
             raise
-            return False
+            return None
+        try:
+            tau_cand = A_try.inverse() * B_try
+            tau_cand = (tau_cand + tau_cand.transpose()) / CC(2)
+            if is_pd(tau_cand, prec=prec):
+                return tau_cand
+        except Exception:
+            raise
+            return None
+        return None
 
-    # Strategies to generate candidate B matrices (and A matrices)
-    # 1. Sign flips of columns
-    # 2. Shears (B1 -> B1+B2, etc)
-    # 3. Handle swaps
-    
+    # Generate small unimodular integer 2x2 matrices (entries in [-2..2]) with det = ±1
+    gl2_candidates = []
+    for a in range(-2, 3):
+        for b in range(-2, 3):
+            for c in range(-2, 3):
+                for d in range(-2, 3):
+                    det = a*d - b*c
+                    if det in (1, -1):
+                        gl2_candidates.append(((a,b),(c,d)))
+
+    # Try unimodular column transforms first: new_columns = old_columns * U
+    # (i.e. A_new = A_raw * U ; B_new = B_raw * U)
+    for (arow, brow) in gl2_candidates:
+        U = Matrix(ZZ, 2, 2, [arow[0], brow[0], arow[1], brow[1]]) if False else None  # placeholder
+    # build properly:
+    gl2_mats = []
+    for (a,b),(c,d) in gl2_candidates:
+        try:
+            Umat = Matrix(ZZ, 2, 2, [a, b, c, d]).transpose()  # ensure column layout
+            gl2_mats.append(Umat)
+        except Exception:
+            raise
+            continue
+
+    # Try GL(2,Z) transforms
+    for U in gl2_mats:
+        A_try = A_raw * U
+        B_try = B_raw * U
+        tau = try_tau_from(A_try, B_try)
+        if tau is not None:
+            if verbose: print("Found tau via GL(2,Z) column transform U =", U)
+            key = (tuple(f_coeffs), prec)
+            get_period_matrix_auto_B.cache[key] = tau
+            return tau
+
+    # Fallback: original style search (mix B-columns, perms, sign flips) but with try_tau_from helper
     ac1, ac2 = A_raw.column(0), A_raw.column(1)
     bc1, bc2 = B_raw.column(0), B_raw.column(1)
-    
-    # Transformations of B-columns (Mixing)
+
     b_mixers = [
         lambda b1, b2: (b1, b2),           # Identity
         lambda b1, b2: (b1 + b2, b2),      # B1 += B2
@@ -1162,53 +1259,44 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=False, max_steps=5000, 
         lambda b1, b2: (b1 + b2, b2 - b1), # Mix
     ]
 
-    # Permutations of handles (Swap A1/A2 and B1/B2)
     handle_perms = [
         (ac1, ac2, bc1, bc2), # Normal
         (ac2, ac1, bc2, bc1), # Swap handles
     ]
 
-    best_tau = None
-    
-    # Search Loop
     for (a1_base, a2_base, b1_base, b2_base) in handle_perms:
         for b_mix_func in b_mixers:
-            # Apply mixing
             b1_m, b2_m = b_mix_func(b1_base, b2_base)
-            
-            # Try all sign combinations (2^4 = 16)
-            for s_a1, s_a2, s_b1, s_b2 in itertools.product([1, -1], repeat=4):
-                
-                # Construct trial matrices
-                A_try = matrix(CC, 2, 2)
-                A_try.set_column(0, a1_base * s_a1)
-                A_try.set_column(1, a2_base * s_a2)
-                
-                B_try = matrix(CC, 2, 2)
-                B_try.set_column(0, b1_m * s_b1)
-                B_try.set_column(1, b2_m * s_b2)
-                
-                # Compute Tau
-                if abs(A_try.det()) < CC(1e-10): continue
-                
-                try:
-                    tau_cand = A_try.inverse() * B_try
-                    tau_cand = (tau_cand + tau_cand.transpose()) / CC(2)
-                    
-                    if is_pd(tau_cand):
-                        # Found a valid one!
-                        # Update cache and return
-                        key = (tuple(f_coeffs), prec)
-                        get_period_matrix_auto_B.cache[key] = tau_cand
-                        if verbose:
-                            print("Symplectic basis found.")
-                        return tau_cand
-                except Exception:
-                    raise
-                    continue
+            # Try also mixing A columns (shears) -- small set
+            a_mixers = [
+                lambda a1, a2: (a1, a2),
+                lambda a1, a2: (a1 + a2, a2),
+                lambda a1, a2: (a1 - a2, a2),
+                lambda a1, a2: (a1, a2 + a1),
+                lambda a1, a2: (a1, a2 - a1),
+            ]
+            for a_mix_func in a_mixers:
+                a1_m, a2_m = a_mix_func(a1_base, a2_base)
+                # Try sign combos
+                for s_a1, s_a2, s_b1, s_b2 in itertools.product([1, -1], repeat=4):
+                    A_try = Matrix(CC, 2, 2)
+                    A_try.set_column(0, a1_m * s_a1)
+                    A_try.set_column(1, a2_m * s_a2)
+                    B_try = Matrix(CC, 2, 2)
+                    B_try.set_column(0, b1_m * s_b1)
+                    B_try.set_column(1, b2_m * s_b2)
 
-    # Failure
+                    tau = try_tau_from(A_try, B_try)
+                    if tau is not None:
+                        key = (tuple(f_coeffs), prec)
+                        get_period_matrix_auto_B.cache[key] = tau
+                        if verbose:
+                            print("Symplectic basis found (fallback mixers).")
+                        return tau
+
+    # If we get here: failure
     raise ValueError("Could not find a symplectic basis yielding a positive definite period matrix.")
+
 
 # Initialize cache
 if not hasattr(get_period_matrix_auto_B, 'cache'):
