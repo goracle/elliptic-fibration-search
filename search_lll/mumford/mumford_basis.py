@@ -31,7 +31,7 @@ _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 # -------------------------
 # Basis builder (top-level)
 # -------------------------
-DEFAULT_PRECS = [2048]
+DEFAULT_PRECS = [4096*2]
 
 
 def structural_red_flag(div):

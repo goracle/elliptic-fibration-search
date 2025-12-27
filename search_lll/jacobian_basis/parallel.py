@@ -24,7 +24,7 @@ def compute_pairing_worker(args):
         return ((i, j), h_i, None)
 
     # Guard bits against cancellation
-    guard_bits = 32
+    guard_bits = 8192
     work_prec = prec + guard_bits
     RR = RealField(work_prec)
 

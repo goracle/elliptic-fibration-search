@@ -12,9 +12,9 @@ from sage.all import ComplexField, RealField, exp, pi
 # tuning knobs (module-level; change at runtime if needed)
 THETA_RADIUS_CAP = 18        # default cap (conservative)
 THETA_MAX_TERMS = 20000      # default max terms
-THETA_EPS_FACTOR = 10        # default epsilon factor
+THETA_EPS_FACTOR = 64        # default epsilon factor
 
-MAX_RADIUS = 60
+MAX_RADIUS = 70
 
 
 def theta_direct(tau_in, z_in, R=3, prec_local=2048):
@@ -99,7 +99,7 @@ def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_fact
     genus = 2
     radius_cap = min(
         max(12, int(2 * genus * math.sqrt(prec))),
-        60
+        MAX_RADIUS
     )
 
     radius = min(radius_needed, radius_cap)
@@ -223,17 +223,12 @@ def compute_theta_high_prec_parallel(z_vec, tau, prec=2048, max_terms=20000,
     genus = 2
     radius_cap = min(
         max(12, int(2 * genus * math.sqrt(float(prec)))),
-        60
+        MAX_RADIUS
     )
 
     radius = min(radius_needed, radius_cap)
 
     # ensure MAX_RADIUS exists in module or use default
-    try:
-        MAX_RADIUS
-    except NameError:
-        MAX_RADIUS = 60
-
     if radius_needed > MAX_RADIUS:
         raise RuntimeError(f"radius needed ({radius_needed}) exceeded the max radius of {MAX_RADIUS}.")
 
