@@ -5,6 +5,7 @@ from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve
 
 from .archimedean import archimedean_height_correction
 from .periods import choose_numerical_base_point
+from .theta import *
 from search_lll.homology import *
 import multiprocessing
 from .local import get_bad_primes, local_height_correction_finite, local_correction_worker
@@ -330,54 +331,6 @@ def naive_height_qq(div, prec=53):
     return R(max_abs).log()
 
 
-def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
-                          use_finite_places=True, arch_override=None):
-    """
-    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
-    """
-    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
-    if key in arakelov_quasi_height.cache:
-        return arakelov_quasi_height.cache[key]
-    assert period_matrix is not None, "period_matrix must be provided"
-    
-    from sage.all import RealField
-
-    if getattr(div, "is_zero", lambda: False)():
-        return RealField(prec)(0)
-
-    RF = RealField(prec)
-
-    # 1) Naive Weil Height (u-only)
-    h_naive = naive_height_qq(div, prec=prec)
-    h_total = RF(h_naive)
-
-    # 2) Archimedean
-    if arch_override is not None:
-        h_arch = RF(arch_override)
-    else:
-        # returns quadratic form part only (no weierstrass correction)
-        h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
-
-    h_total += h_arch
-
-    # 3) Finite local corrections
-    h_finite = RF(0)
-    if use_finite_places:
-        bad_primes = get_bad_primes(f_coeffs)
-        for p in bad_primes:
-            val = local_height_correction_finite(div, p, f_coeffs)
-            if val is None:
-                raise RuntimeError(f"local correction returned None for p={p}")
-            h_finite += RF(val)
-
-    h_total += h_finite
-
-    ret = h_total
-    arakelov_quasi_height.cache[key] = ret
-    return ret
-arakelov_quasi_height.cache = {}
-
-
 def arakelov_canonical_height(div, f_coeffs, period_matrix, prec=1024, 
                               max_prec=8192, debug=True, 
                               include_weierstrass=False):
@@ -473,3 +426,55 @@ def arakelov_height_pairing(D1, D2, f_coeffs, prec=1024, debug=False):
     
     pairing = (h_sum - h1 - h2) / 2.0
     return float(pairing)
+
+
+# ============================================================================
+# FOR heights.py - add this import at top:
+# from .archimedean import ThetaComputationError
+# ============================================================================
+
+def arakelov_quasi_height(div, f_coeffs, period_matrix, prec=300,
+                          use_finite_places=True, arch_override=None):
+    """
+    Compute a quasi-canonical Arakelov height for a Mumford divisor `div`.
+    """
+    key = (str(div), tuple(f_coeffs), prec, use_finite_places, arch_override)
+    if key in arakelov_quasi_height.cache:
+        return arakelov_quasi_height.cache[key]
+    assert period_matrix is not None, "period_matrix must be provided"
+    
+    from sage.all import RealField
+
+    if getattr(div, "is_zero", lambda: False)():
+        return RealField(prec)(0)
+
+    RF = RealField(prec)
+
+    h_naive = naive_height_qq(div, prec=prec)
+    h_total = RF(h_naive)
+
+    if arch_override is not None:
+        h_arch = RF(arch_override)
+    else:
+        try:
+            h_arch = RF(archimedean_height_correction(div, f_coeffs, period_matrix, prec=prec))
+        except (RuntimeError, ThetaComputationError) as e:
+            raise RuntimeError(f"Archimedean height failed: {e}")
+
+    h_total += h_arch
+
+    h_finite = RF(0)
+    if use_finite_places:
+        bad_primes = get_bad_primes(f_coeffs)
+        for p in bad_primes:
+            val = local_height_correction_finite(div, p, f_coeffs)
+            if val is None:
+                raise RuntimeError(f"local correction returned None for p={p}")
+            h_finite += RF(val)
+
+    h_total += h_finite
+
+    ret = h_total
+    arakelov_quasi_height.cache[key] = ret
+    return ret
+arakelov_quasi_height.cache = {}

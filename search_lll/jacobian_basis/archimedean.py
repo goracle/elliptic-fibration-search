@@ -64,6 +64,53 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
                 arch = CC(quad_val - log_theta))
 
 
+def get_weierstrass_points(f_coeffs, prec=300):
+    """Find all Weierstrass points (roots of f(x))."""
+    R = PolynomialRing(QQ, 'x')
+    x = R.gen()
+    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    
+    # Get rational roots
+    weier_pts = []
+    try:
+        roots = f_poly.roots(QQ, multiplicities=False)
+        weier_pts.extend(roots)
+    except Exception:
+        raise
+    
+    # Add point at infinity (always Weierstrass for even degree)
+    # For genus 2, there are exactly 6 Weierstrass points total
+    
+    return weier_pts
+
+def count_weierstrass_in_support(div, f_coeffs):
+    """Count how many Weierstrass points appear in divisor support."""
+    weier_pts = get_weierstrass_points(f_coeffs)
+    
+    # Extract roots of u(x) from Mumford representation
+    u_poly = div[0]
+    div_roots = u_poly.roots(QQbar, multiplicities=False)
+    
+    count = 0
+    for w in weier_pts:
+        for r in div_roots:
+            if abs(QQbar(w) - r) < 1e-10:  # numerical tolerance
+                count += 1
+                break
+    
+    return count
+
+
+"""
+Functions that need to be replaced to integrate hardened theta.
+Paste these at the bottom of their respective files and run dedup.py.
+"""
+
+# ============================================================================
+# FOR archimedean.py - add this import at top:
+# from .theta import ThetaComputationError
+# ============================================================================
+
 def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_threshold=0.25):
     """
     Reduce z modulo lattice selecting representative maximizing quad - log|theta|.
@@ -82,7 +129,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     
     assert len(z_list) == g
 
-    # ensure CC matrix for tau
     Tau = Matrix(CC, tau)
     z0 = vector(CC, [CC(z) for z in z_list])
 
@@ -97,7 +143,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
         raise ValueError(f"No eigenvalues found for {g}x{g} matrix (Im(tau))")
     y_min = min(eigs)
 
-    # Full lattice reduction to base representative
     y = vector(RR, [RR(z.imag()) for z in z0])
     c = Im_tau.solve_right(y)
     n = vector(ZZ, [ZZ(int(round(float(ci)))) * (-1) for ci in c])
@@ -105,13 +150,11 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     m = vector(ZZ, [ZZ(int(round(float(z1[i].real())))) * (-1) for i in range(g)])
     z_base = z1 + m
 
-    # If the imaginary part is too small (theta converges slowly), avoid the theta search:
     if y_min < y_min_threshold:
         if debug:
             print(f"[reduce_z_arakelov] Im(tau) y_min={y_min:.4g} < threshold={y_min_threshold}; skipping theta search.")
         return [CC(z_base[i]) for i in range(g)]
 
-    # helper: quadratic form
     def quad_val(zvec):
         y_im = vector(RR, [RR(zvec[i].imag()) for i in range(g)])
         v = Im_tau.solve_right(y_im)
@@ -122,7 +165,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     successful_evals = 0
     failed_evals = 0
 
-    # enumerate half-period shifts (limited)
     limit = 1 << g
     for a_mask in range(limit):
         if failed_evals > max_attempts:
@@ -136,7 +178,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
             shift = CC(1)/CC(2) * (a + Tau * b)
             z_candidate = z_base + shift
 
-            # Reduce real parts to fundamental interval [0,1)
             z_candidate = vector(CC, [z_candidate[i] - CC(int(round(float(z_candidate[i].real())))) for i in range(g)])
 
             try:
@@ -145,7 +186,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
                 radius_needed = int(math.sqrt(float(-sage_log(epsilon) / (RR(pi) * RR(y_min))))) + 2
             except Exception:
                 radius_needed = 10
-                raise
 
             try:
                 if radius_needed > 18:
@@ -164,7 +204,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
                     best_score = score
                     best_z = z_candidate
 
-            except (ValueError, RuntimeError) as e:
+            except (ValueError, RuntimeError, ThetaComputationError) as e:
                 failed_evals += 1
                 continue
 
@@ -205,7 +245,6 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     z_raw = [CC(z_norm_mat[i,0]) for i in range(g)]
     z = reduce_z_arakelov(z_raw, tau, prec=prec, debug=debug)
 
-    # Im(tau)
     Im_tau = Matrix(RR, g, g, [[RR(CC(tau[i,j]).imag()) for j in range(g)] for i in range(g)])
     Im_tau = 0.5 * (Im_tau + Im_tau.transpose())
     det_im = Im_tau.det()
@@ -215,17 +254,18 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     v = Im_tau.solve_right(y_im)
     quad = RR(pi) * y_im.dot_product(v)
 
-    theta = compute_theta_high_prec_parallel(z, tau, prec=prec)
-    abs_theta = abs(CC(theta))
-    assert abs_theta > 0
+    try:
+        theta = compute_theta_high_prec_parallel(z, tau, prec=prec)
+        abs_theta = abs(CC(theta))
+        assert abs_theta > 0
+    except ThetaComputationError as e:
+        raise RuntimeError(f"Theta computation failed: {e}")
 
     log_theta = RR(abs_theta).log()
     corr = QQ(1)/QQ(2) * RR(det_im).log()
 
     arch = quad - log_theta + corr
 
-    # CRITICAL FIX: Weierstrass point correction
-    # For each Weierstrass point in the support, subtract log(2)
     import numpy as np
     num_weier = count_weierstrass_in_support(div, f_coeffs)
     if num_weier:
@@ -247,38 +287,3 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
 archimedean_height_correction.cache = {}
 
 
-def get_weierstrass_points(f_coeffs, prec=300):
-    """Find all Weierstrass points (roots of f(x))."""
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
-    # Get rational roots
-    weier_pts = []
-    try:
-        roots = f_poly.roots(QQ, multiplicities=False)
-        weier_pts.extend(roots)
-    except Exception:
-        raise
-    
-    # Add point at infinity (always Weierstrass for even degree)
-    # For genus 2, there are exactly 6 Weierstrass points total
-    
-    return weier_pts
-
-def count_weierstrass_in_support(div, f_coeffs):
-    """Count how many Weierstrass points appear in divisor support."""
-    weier_pts = get_weierstrass_points(f_coeffs)
-    
-    # Extract roots of u(x) from Mumford representation
-    u_poly = div[0]
-    div_roots = u_poly.roots(QQbar, multiplicities=False)
-    
-    count = 0
-    for w in weier_pts:
-        for r in div_roots:
-            if abs(QQbar(w) - r) < 1e-10:  # numerical tolerance
-                count += 1
-                break
-    
-    return count

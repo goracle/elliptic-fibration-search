@@ -415,6 +415,282 @@ def check_torsion_equivalence(new_jac, basis_jacs, max_order=32):
     return False, None
 
 
+def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
+                                      test_normalization=None, n_jobs=-1):
+    """
+    Incremental basis builder: compute period matrix once, precompute heights,
+    precompute pairings for a small prefix, and compute pairings on-demand.
+    
+    Robustness:
+      - Uses a strictly raising height implementation.
+      - If height/pairing computations fail, the candidate divisor is REJECTED 
+        rather than poisoning the basis with 0.0.
+      - Explicitly checks for torsion equivalence (all orders) to avoid rank inflation.
+    """
+    PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
+
+    from .analytic_pairings import setup_analytic_pairing_context
+    setup_analytic_pairing_context(
+        f_coeffs=f_coeffs,
+        tau=PM,
+        prec=prec,
+        verbose=True
+    )
+
+    if not all_divisors:
+        return [], 0, None
+
+    if n_jobs == -1:
+        try:
+            n_jobs = cpu_count()
+        except Exception:
+            n_jobs = 1
+            raise
+
+    if debug:
+        print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
+        print(f"[arakelov] Using precision: {prec} bits")
+
+
+    Rq_QQ = PolynomialRing(QQ, 'x')
+    x_QQ = Rq_QQ.gen()
+    f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly_QQ)
+    J = C.jacobian()
+
+    jac_elements = []
+    for div in all_divisors:
+        u_poly = x_QQ**2 - QQ(div['s'])*x_QQ + QQ(div['p'])
+        v_poly = QQ(div['v_1'])*x_QQ + QQ(div['v_0'])
+        div_j = J([u_poly, v_poly])
+        jac_elements.append((div, div_j, div.get('_h_diag', None)))
+
+    n = len(jac_elements)
+
+    from .analytic_pairings import precompute_abel_jacobi_images
+
+    indices = list(range(len(jac_elements)))
+    precompute_abel_jacobi_images(
+        indices,
+        jac_elements,
+        prec=prec,
+        debug=debug
+    )
+
+
+    if n == 0:
+        return [], 0, None
+
+    if debug:
+        print(f"[arakelov] Pre-computing heights for {n} candidates...")
+
+    height_cache = {}
+    for i in range(n):
+        try:
+            _, jacP, h = jac_elements[i]
+            if h is None:
+                h = arakelov_canonical_height(jacP, f_coeffs, PM, prec=prec, debug=debug)
+            height_cache[i] = float(h)
+            if debug:
+                print(f"  Divisor {i}: h = {height_cache[i]:.6g}")
+        except Exception as e:
+            if debug:
+                warnings.warn(f"[arakelov] height computation failed for index {i}: {e}. Skipping divisor.", RuntimeWarning)
+            raise
+
+    pairing_cache = {}
+    for i in height_cache:
+        pairing_cache[(i, i)] = height_cache[i]
+
+    try:
+        genus = C.genus()
+    except Exception:
+        genus = 2
+        raise
+    prefix_precompute = min(n, max(8, 2 * genus + 4))
+
+    if debug:
+        print(f"[arakelov] Precomputing pairings for first {prefix_precompute} divisors (prefix).")
+
+    for i in range(prefix_precompute):
+        for j in range(i + 1, prefix_precompute):
+            if i not in height_cache or j not in height_cache:
+                continue
+            if (i, j) in pairing_cache:
+                continue
+            try:
+                _, Ji, _ = jac_elements[i]
+                _, Jj, _ = jac_elements[j]
+                hij = arakelov_canonical_height(Ji + Jj, f_coeffs, PM, prec=prec, debug=debug)
+                pairing_val = 0.5 * (float(hij) - float(height_cache[i]) - float(height_cache[j]))
+                pairing_cache[(i, j)] = pairing_cache[(j, i)] = float(pairing_val)
+                if debug:
+                    print(f"  Pair ({i},{j}): {pairing_val:.6g}")
+            except Exception as e:
+                if debug:
+                    warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
+                import numpy as np
+                pairing_cache[(i, j)] = pairing_cache[(j, i)] = np.nan
+
+    from .analytic_pairings import get_analytic_pairing
+
+    def get_pairing_lazy(i, j):
+        return get_analytic_pairing(i, j)
+
+    if debug:
+        print("[arakelov] Selecting basis incrementally...")
+
+    basis_indices = []
+
+    for cand_idx in range(n):
+            
+        if cand_idx not in height_cache:
+            if debug:
+                print(f"  Skipping divisor {cand_idx}: invalid height")
+            continue
+
+        if len(basis_indices) == 0:
+            h = height_cache[cand_idx]
+            if abs(h) > 1e-8:
+                basis_indices.append(cand_idx)
+                if debug:
+                    print(f"  Added divisor {cand_idx} (first basis element)")
+            else:
+                if debug:
+                    print(f"  Skipping divisor {cand_idx}: height ~ 0")
+            continue
+
+        cand_jac = jac_elements[cand_idx][1]
+        
+        # Gather current basis elements as Jacobian objects
+        basis_jacs = [jac_elements[b][1] for b in basis_indices]
+        
+        # Check for torsion equivalence (all orders)
+        is_equiv, match_idx = check_torsion_equivalence(cand_jac, basis_jacs, max_order=32)
+        
+        if is_equiv:
+            if debug:
+                match_real_idx = basis_indices[match_idx]
+                print(f"  Rejected divisor {cand_idx}: equivalent to basis {match_real_idx} mod torsion")
+            continue
+
+        try:
+            is_indep, info = is_independent_by_projection_log(
+                basis_indices,
+                cand_idx,
+                get_pairing_lazy,
+                prec,
+                debug=debug
+            )
+        except Exception as e:
+            if debug:
+                print(f"  Rejected divisor {cand_idx}: pairing computation failed ({e})")
+            raise
+            continue
+
+        if not is_indep:
+            if debug:
+                print(f"  Rejected divisor {cand_idx}: dependent (proj test)")
+            continue
+
+        try:
+            k = len(basis_indices)
+            from sage.all import RealField as SFRealField, Matrix as SFMatrix
+            RR_Gram = SFRealField(max(128, int(prec // 4)))
+            G_test = SFMatrix(RR_Gram, k + 1, k + 1)
+
+            indices_to_fill = basis_indices + [cand_idx]
+            for r in range(k + 1):
+                for c in range(r, k + 1):
+                    pv = get_pairing_lazy(indices_to_fill[r], indices_to_fill[c])
+                    G_test[r, c] = RR_Gram(pv)
+                    G_test[c, r] = G_test[r, c]
+            
+            det_val = float(G_test.determinant())
+            
+            # Compute eigenvalues to check condition number
+            eigs = [float(e) for e in G_test.eigenvalues()]
+            eigs_sorted = sorted([abs(e) for e in eigs], reverse=True)
+            min_eig = eigs_sorted[-1]
+            max_eig = eigs_sorted[0]
+            
+            # Reject if any eigenvalue is too small (relative to max)
+            if min_eig < 1e-6 * max_eig:
+                if debug:
+                    print(f"  Rejected divisor {cand_idx}: matrix too ill-conditioned (min_eig={min_eig:.3e}, max_eig={max_eig:.3e})")
+                continue
+                
+            # Also reject if smallest eigenvalue is absolutely tiny
+            if min_eig < 1e-9:
+                if debug:
+                    print(f"  Rejected divisor {cand_idx}: smallest eigenvalue too small ({min_eig:.3e})")
+                continue
+            
+        except Exception as e:
+            if debug:
+                print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
+            raise
+            continue
+
+        if det_val > 1e-12:
+            basis_indices.append(cand_idx)
+            if debug:
+                print(f"  Added divisor {cand_idx} (basis now size {len(basis_indices)})")
+        else:
+            if debug:
+                print(f"  Rejected divisor {cand_idx}: dependent (Gram det <= 1e-12)")
+
+    if len(basis_indices) > 0:
+        need_k = min(len(basis_indices), 4)
+        for ii in range(need_k):
+            for jj in range(ii, need_k):
+                i = basis_indices[ii]; j = basis_indices[jj]
+                if (i, j) not in pairing_cache:
+                    try:
+                        _ = get_pairing_lazy(i, j)
+                    except Exception:
+                        raise
+
+    basis = [jac_elements[i][0] for i in basis_indices]
+    basis, basis_indices = dedupe_basis(basis, basis_indices, debug=debug)
+
+    final_rank = len(basis)
+    H_final = None
+
+    if final_rank > 0:
+        RR_Final = RealField(max(128, int(prec // 4)))
+        H_final = Matrix(RR_Final, final_rank, final_rank)
+        if debug:
+            print(f"[arakelov] Building final {final_rank} Gram matrix...")
+
+        for r in range(final_rank):
+            for c in range(r, final_rank):
+                try:
+                    pv = get_pairing_lazy(basis_indices[r], basis_indices[c])
+                    H_final[r, c] = RR_Final(pv)
+                    H_final[c, r] = H_final[r, c]
+                except Exception:
+                    #H_final[r, c] = H_final[c, r] = 0 # ai thought it was ok to make this zero!  amazing!
+                    raise
+
+        try:
+            eigs = [float(e) for e in H_final.eigenvalues()]
+            det_final = float(H_final.determinant())
+            if debug:
+                print("eigenvalues (float):", eigs)
+                print("determinant:", det_final)
+            
+            # Final sanity check: matrix must be positive definite
+            assert det_final > 0, f"Gram matrix has negative determinant {det_final} - basis is dependent!"
+            assert all(e > -1e-12 for e in eigs), f"Gram matrix has negative eigenvalue - not positive definite!"
+            
+        except Exception as e:
+             warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
+             raise
+
+    return basis, final_rank, H_final
+
+
 # --- Worker replacements --------------------------------------------------
 
 def _adaptive_guard_bits(prec_bits: int) -> int:
@@ -683,144 +959,3 @@ def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs,
 
 
 # End of core_fixed.py
-
-
-def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
-                                      test_normalization=None, n_jobs=-1):
-    """
-    Numerically-robust basis builder for genus-2 Arakelov heights.
-
-    Key changes vs the previous version:
-      • No determinant or absolute-eigenvalue rejection
-      • Independence decided by QR-rank + projection-residual
-      • Torsion-equivalence checked only for borderline cases
-      • Pairing failures cause candidate rejection, not pipeline abort
-    """
-    PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
-
-    from .analytic_pairings import setup_analytic_pairing_context
-    setup_analytic_pairing_context(
-        f_coeffs=f_coeffs,
-        tau=PM,
-        prec=prec,
-        verbose=debug
-    )
-
-    if not all_divisors:
-        return [], 0, None
-
-    # --- Build curve / Jacobian once ---
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i,c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()
-
-    jac_elements = []
-    for div in all_divisors:
-        u = x**2 - QQ(div['s'])*x + QQ(div['p'])
-        v = QQ(div['v_1'])*x + QQ(div['v_0'])
-        jac_elements.append((div, J([u,v]), div.get('_h_diag', None)))
-
-    n = len(jac_elements)
-
-    from .analytic_pairings import (
-        precompute_abel_jacobi_images,
-        get_analytic_pairing
-    )
-
-    precompute_abel_jacobi_images(list(range(n)), jac_elements,
-                                  prec=prec, debug=debug)
-
-    # --- Heights first ---
-    height_cache = {}
-    for i,(rec,jac,h) in enumerate(jac_elements):
-        try:
-            if h is None:
-                h = arakelov_canonical_height(jac, f_coeffs, PM,
-                                              prec=prec, debug=debug)
-            height_cache[i] = float(h)
-        except Exception as e:
-            if debug:
-                print(f"[height] failed for {i}: {e}")
-            continue
-
-    def pairing(i,j):
-        try:
-            return float(get_analytic_pairing(i,j))
-        except Exception:
-            return np.nan
-
-    # --- Incremental selection ---
-    basis_indices = []
-
-    for cand in range(n):
-
-        if cand not in height_cache:
-            continue
-
-        # always accept first non-zero height
-        if not basis_indices:
-            if abs(height_cache[cand]) > 1e-9:
-                basis_indices.append(cand)
-                if debug:
-                    print(f"  added {cand} (seed)")
-            continue
-
-        # build Gram for basis + candidate
-        k = len(basis_indices)
-        idxs = basis_indices + [cand]
-
-        G = np.zeros((k+1,k+1),float)
-        bad = False
-        for r in range(k+1):
-            for c2 in range(r,k+1):
-                v = pairing(idxs[r], idxs[c2])
-                if not np.isfinite(v):
-                    bad = True
-                    break
-                G[r,c2]=G[c2,r]=v
-            if bad: break
-        if bad:
-            if debug: print(f"  reject {cand}: pairing failure")
-            continue
-
-        # symmetrize + scale
-        G = 0.5*(G+G.T)
-        scale = 1/max(1.0,np.linalg.norm(G))
-        Q,R = np.linalg.qr(scale*G)
-        diag = np.abs(np.diag(R))
-        tol = 1e-12*max(1.0,diag.max())
-        rank = np.sum(diag > tol)
-
-        if rank > len(basis_indices):
-            # borderline? → torsion check only here
-            cand_j = jac_elements[cand][1]
-            basis_j = [jac_elements[i][1] for i in basis_indices]
-            equiv,_ = check_torsion_equivalence(cand_j, basis_j, max_order=32)
-            if equiv:
-                if debug:
-                    print(f"  reject {cand}: torsion-equivalent")
-                continue
-
-            basis_indices.append(cand)
-            if debug:
-                print(f"  added {cand} (basis size {len(basis_indices)})")
-
-        if len(basis_indices) >= C.genus():
-            break
-
-    # --- Final Gram matrix ---
-    basis = [jac_elements[i][0] for i in basis_indices]
-    m = len(basis_indices)
-
-    H = None
-    if m>0:
-        RR = RealField(max(128,int(prec//4)))
-        H = Matrix(RR,m,m)
-        for r in range(m):
-            for c2 in range(r,m):
-                v = pairing(basis_indices[r], basis_indices[c2])
-                H[r,c2]=RR(v); H[c2,r]=H[r,c2]
-
-    return basis, len(basis_indices), H

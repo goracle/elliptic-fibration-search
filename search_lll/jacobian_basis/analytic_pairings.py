@@ -389,32 +389,6 @@ def precompute_abel_jacobi_images(
     return ctx["aj_cache"]
 
 
-def get_analytic_pairing(i, j):
-    """
-    Return <P_i, P_j> using analytic Néron–Tate pairing.
-    """
-    ctx = _AJ_CONTEXT
-
-    if i == j:
-        z = ctx["aj_cache"].get(i)
-        if z is None:
-            raise RuntimeError(f"Missing AJ image for index {i}")
-        return neron_tate_height_pairing(z, z, ctx["Im_tau"], prec=ctx["prec"]) / 2
-
-    z_i = ctx["aj_cache"].get(i)
-    z_j = ctx["aj_cache"].get(j)
-
-    if z_i is None or z_j is None:
-        raise RuntimeError(f"Missing AJ image for ({i},{j})")
-
-    return neron_tate_height_pairing(
-        z_i,
-        z_j,
-        ctx["Im_tau"],
-        prec=ctx["prec"]
-    )
-
-
 def build_analytic_gram_matrix(indices):
     """
     Build symmetric Gram matrix using analytic Néron–Tate pairing.
@@ -455,3 +429,19 @@ def build_Im_tau_from_tau(tau, RR, CC):
             Im_tau[i, j] = RR(tau[i, j].imag())
 
     return Im_tau
+
+
+def get_analytic_pairing(i, j):
+    """
+    Return <P_i, P_j> using analytic Néron–Tate pairing.
+    Applies the 1/2 factor to all pairings, including off-diagonal.
+    """
+    ctx = _AJ_CONTEXT
+
+    z_i = ctx["aj_cache"].get(i)
+    z_j = ctx["aj_cache"].get(j)
+
+    if z_i is None or z_j is None:
+        raise RuntimeError(f"Missing AJ image for ({i},{j})")
+
+    return neron_tate_height_pairing(z_i, z_j, ctx["Im_tau"], prec=ctx["prec"]) / 2
