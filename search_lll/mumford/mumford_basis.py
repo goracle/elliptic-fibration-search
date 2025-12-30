@@ -31,7 +31,7 @@ _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 # -------------------------
 # Basis builder (top-level)
 # -------------------------
-DEFAULT_PRECS = [64]
+DEFAULT_PRECS = [256]
 
 
 def structural_red_flag(div):
@@ -687,7 +687,7 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=True):
         raise
         return None  # conversion failure is legitimate signal
 
-    for prec in [64]:
+    for prec in DEFAULT_PRECS:
         try:
             PM = get_period_matrix_auto_B(f_coeffs, prec=prec)
         except Exception as e:

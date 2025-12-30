@@ -13,7 +13,7 @@ found 1 / 11
 shifted G poly1: x^6 + 8*x^5 + 10*x^4 - 10*x^3 - 11*x^2 + 2*x + 1
 --- Building 2 Step Fibration Tower (deg 6 -> 4) ---
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=15.5)
+  [Step 1] Selected best geometry (Score=16.0)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
   [Step 2] Selected best geometry (Score=14.8)
 r_m -m - 1
@@ -180,8 +180,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 3), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=107, avg_survivors≈0.000263, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000263
+[empirical_pool] start pool size=107, avg_survivors≈0.00024, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.00024
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.07, avg_density=0.1974 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
@@ -418,7 +418,7 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [mumford] Generating tasks for 103 primes...
-[mumford] Residue computation took 8.56s
+[mumford] Residue computation took 8.14s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -431,15 +431,50 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
   Vector group: 3 primes, avg 100.0 sols/prime
   Raw combinations: 272,160
   Adaptive limit: 272,160 (total combos: 272,160)
-  Vector group: 2 primes, avg 302.0 sols/prime
-  Raw combinations: 38,304
-  Adaptive limit: 38,304 (total combos: 38,304)
+  Skipping 2-prime group: 713,184 combos, not rare
+  Accepting 2-prime group: 98,940 combos (rare divisor)
+  Vector group: 2 primes, avg 352.0 sols/prime
+  Raw combinations: 98,940
+  Adaptive limit: 98,940 (total combos: 98,940)
+  Skipping 2-prime group: 121,952 combos, not rare
+  Skipping 2-prime group: 421,428 combos, not rare
+  Skipping 2-prime group: 711,632 combos, not rare
+  Vector group: 4 primes, avg 341.5 sols/prime
+  Raw combinations: 953,224,416
+  High density detected - applying aggressive pre-filtering
+    Found 204 candidates from first 2 primes (tried 2,952)
+    Prime 211: 426 → 22 sols (5.2%)
+    Prime 401: 758 → 22 sols (2.9%)
+  Pre-filtering took 1.56s
+  Filtered combinations: 1,428,768 (667.2x reduction)
+  Adaptive limit: 500,000 (total combos: 1,428,768)
+  Vector group: 3 primes, avg 222.7 sols/prime
+  Raw combinations: 5,266,800
+  High density detected - applying aggressive pre-filtering
+    Found 0 candidates from first 2 primes (tried 12,600)
+  Pre-filtering took 0.43s
+  Filtered combinations: 5,266,800 (1.0x reduction)
+  Skipping group - too many combinations after filtering (5,266,800)
+  Vector group: 3 primes, avg 522.0 sols/prime
+  Raw combinations: 52,708,800
+  High density detected - applying aggressive pre-filtering
+    Found 0 candidates from first 2 primes (tried 50,001)
+  Pre-filtering took 1.74s
+  Filtered combinations: 52,708,800 (1.0x reduction)
+  Skipping group - too many combinations after filtering (52,708,800)
+  Accepting 2-prime group: 91,728 combos (rare divisor)
+  Vector group: 2 primes, avg 313.0 sols/prime
+  Raw combinations: 91,728
+  Adaptive limit: 91,728 (total combos: 91,728)
   Vector group: 2 primes, avg 470.0 sols/prime
   Raw combinations: 16,596
   Adaptive limit: 16,596 (total combos: 16,596)
   Vector group: 3 primes, avg 242.3 sols/prime
   Raw combinations: 331,452
   Adaptive limit: 331,452 (total combos: 331,452)
+  Vector group: 2 primes, avg 302.0 sols/prime
+  Raw combinations: 38,304
+  Adaptive limit: 38,304 (total combos: 38,304)
   Accepting 2-prime group: 62,140 combos (rare divisor)
   Vector group: 2 primes, avg 304.0 sols/prime
   Raw combinations: 62,140
@@ -449,34 +484,57 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
   Raw combinations: 87,688
   Adaptive limit: 87,688 (total combos: 87,688)
   Skipping 2-prime group: 487,104 combos, not rare
+  Vector group: 2 primes, avg 230.0 sols/prime
+  Raw combinations: 27,300
+  Adaptive limit: 27,300 (total combos: 27,300)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 14,700
+  Adaptive limit: 14,700 (total combos: 14,700)
+  Skipping 2-prime group: 138,104 combos, not rare
+  Skipping 2-prime group: 258,720 combos, not rare
   Accepting 2-prime group: 82,000 combos (rare divisor)
   Vector group: 2 primes, avg 460.0 sols/prime
   Raw combinations: 82,000
   Adaptive limit: 82,000 (total combos: 82,000)
   Skipping 2-prime group: 512,076 combos, not rare
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 20,172
+  Adaptive limit: 20,172 (total combos: 20,172)
   Vector group: 3 primes, avg 204.0 sols/prime
   Raw combinations: 3,561,840
   High density detected - applying aggressive pre-filtering
     Found 0 candidates from first 2 primes (tried 9,180)
-  Pre-filtering took 0.31s
+  Pre-filtering took 0.29s
   Filtered combinations: 3,561,840 (1.0x reduction)
   Adaptive limit: 500,000 (total combos: 3,561,840)
-  Vector group: 2 primes, avg 164.0 sols/prime
-  Raw combinations: 20,172
-  Adaptive limit: 20,172 (total combos: 20,172)
   Vector group: 2 primes, avg 165.0 sols/prime
   Raw combinations: 22,464
   Adaptive limit: 22,464 (total combos: 22,464)
-  Skipping 2-prime group: 442,624 combos, not rare
   Skipping 2-prime group: 315,240 combos, not rare
+  Skipping 2-prime group: 442,624 combos, not rare
   Skipping 2-prime group: 585,156 combos, not rare
-  Skipping 2-prime group: 121,952 combos, not rare
-  Accepting 2-prime group: 98,940 combos (rare divisor)
-  Vector group: 2 primes, avg 352.0 sols/prime
-  Raw combinations: 98,940
-  Adaptive limit: 98,940 (total combos: 98,940)
-  Skipping 2-prime group: 421,428 combos, not rare
-  Skipping 2-prime group: 711,632 combos, not rare
+  Vector group: 2 primes, avg 122.0 sols/prime
+  Raw combinations: 14,208
+  Adaptive limit: 14,208 (total combos: 14,208)
+  Skipping 2-prime group: 262,128 combos, not rare
+  Vector group: 2 primes, avg 236.0 sols/prime
+  Raw combinations: 44,460
+  Adaptive limit: 44,460 (total combos: 44,460)
+  Skipping 2-prime group: 381,840 combos, not rare
+  Skipping 2-prime group: 608,396 combos, not rare
+  Vector group: 2 primes, avg 199.0 sols/prime
+  Raw combinations: 33,672
+  Adaptive limit: 33,672 (total combos: 33,672)
+  Skipping 2-prime group: 208,372 combos, not rare
+  Accepting 2-prime group: 89,976 combos (rare divisor)
+  Vector group: 2 primes, avg 301.0 sols/prime
+  Raw combinations: 89,976
+  Adaptive limit: 89,976 (total combos: 89,976)
+  Vector group: 2 primes, avg 208.0 sols/prime
+  Raw combinations: 43,260
+  Adaptive limit: 43,260 (total combos: 43,260)
+  Skipping 2-prime group: 207,000 combos, not rare
+  Skipping 2-prime group: 888,352 combos, not rare
   Vector group: 2 primes, avg 111.0 sols/prime
   Raw combinations: 12,200
   Adaptive limit: 12,200 (total combos: 12,200)
@@ -490,64 +548,6 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
   Skipping 2-prime group: 155,956 combos, not rare
   Skipping 2-prime group: 275,340 combos, not rare
   Skipping 2-prime group: 627,136 combos, not rare
-  Skipping 2-prime group: 608,396 combos, not rare
-  Vector group: 2 primes, avg 199.0 sols/prime
-  Raw combinations: 33,672
-  Adaptive limit: 33,672 (total combos: 33,672)
-  Accepting 2-prime group: 89,976 combos (rare divisor)
-  Vector group: 2 primes, avg 301.0 sols/prime
-  Raw combinations: 89,976
-  Adaptive limit: 89,976 (total combos: 89,976)
-  Skipping 2-prime group: 208,372 combos, not rare
-  Vector group: 2 primes, avg 208.0 sols/prime
-  Raw combinations: 43,260
-  Adaptive limit: 43,260 (total combos: 43,260)
-  Skipping 2-prime group: 207,000 combos, not rare
-  Skipping 2-prime group: 888,352 combos, not rare
-  Skipping 2-prime group: 713,184 combos, not rare
-  Vector group: 4 primes, avg 341.5 sols/prime
-  Raw combinations: 953,224,416
-  High density detected - applying aggressive pre-filtering
-    Found 204 candidates from first 2 primes (tried 2,952)
-    Prime 211: 426 → 22 sols (5.2%)
-    Prime 401: 758 → 22 sols (2.9%)
-  Pre-filtering took 1.55s
-  Filtered combinations: 1,428,768 (667.2x reduction)
-  Adaptive limit: 500,000 (total combos: 1,428,768)
-  Vector group: 3 primes, avg 522.0 sols/prime
-  Raw combinations: 52,708,800
-  High density detected - applying aggressive pre-filtering
-    Found 0 candidates from first 2 primes (tried 50,001)
-  Pre-filtering took 1.80s
-  Filtered combinations: 52,708,800 (1.0x reduction)
-  Skipping group - too many combinations after filtering (52,708,800)
-  Vector group: 3 primes, avg 222.7 sols/prime
-  Raw combinations: 5,266,800
-  High density detected - applying aggressive pre-filtering
-    Found 0 candidates from first 2 primes (tried 12,600)
-  Pre-filtering took 0.45s
-  Filtered combinations: 5,266,800 (1.0x reduction)
-  Skipping group - too many combinations after filtering (5,266,800)
-  Accepting 2-prime group: 91,728 combos (rare divisor)
-  Vector group: 2 primes, avg 313.0 sols/prime
-  Raw combinations: 91,728
-  Adaptive limit: 91,728 (total combos: 91,728)
-  Vector group: 2 primes, avg 230.0 sols/prime
-  Raw combinations: 27,300
-  Adaptive limit: 27,300 (total combos: 27,300)
-  Vector group: 2 primes, avg 140.0 sols/prime
-  Raw combinations: 14,700
-  Adaptive limit: 14,700 (total combos: 14,700)
-  Skipping 2-prime group: 138,104 combos, not rare
-  Skipping 2-prime group: 258,720 combos, not rare
-  Vector group: 2 primes, avg 122.0 sols/prime
-  Raw combinations: 14,208
-  Adaptive limit: 14,208 (total combos: 14,208)
-  Skipping 2-prime group: 262,128 combos, not rare
-  Vector group: 2 primes, avg 236.0 sols/prime
-  Raw combinations: 44,460
-  Adaptive limit: 44,460 (total combos: 44,460)
-  Skipping 2-prime group: 381,840 combos, not rare
 
   Batched parallel processing: 35 groups, 6,500,732 total combos
   Using 20 workers
@@ -613,7 +613,7 @@ survivors of kobayashi maru filter of numeric evil (amount = 25):
 {'s': 1, 'p': -2, 'v_0': 17/3, 'v_1': 20/3, 'vector': (2,), 'u_poly': x^2 - x - 2, 'v_poly': 20/3*x + 17/3, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 7/3, 'p': 2/3, 'v_0': -29/9, 'v_1': 100/9, 'vector': (2,), 'u_poly': x^2 - 7/3*x + 2/3, 'v_poly': 100/9*x - 29/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 0, 'p': -4, 'v_0': 10, 'v_1': 9/2, 'vector': (2,), 'u_poly': x^2 - 4, 'v_poly': 9/2*x + 10, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 2, 'p': 1, 'v_0': -17, 'v_1': 18, 'vector': (14,), 'u_poly': x^2 - 2*x + 1, 'v_poly': 18*x - 17, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 2, 'p': 1, 'v_0': -17, 'v_1': 18, 'vector': (7,), 'u_poly': x^2 - 2*x + 1, 'v_poly': 18*x - 17, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 3, 'p': 2, 'v_0': -17, 'v_1': 18, 'vector': (2,), 'u_poly': x^2 - 3*x + 2, 'v_poly': 18*x - 17, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 3, 'p': 2, 'v_0': -21, 'v_1': 20, 'vector': (2,), 'u_poly': x^2 - 3*x + 2, 'v_poly': 20*x - 21, 'has_rational_roots': True, 'scale_used': 1}
 [basis] Using Arakelov heights for basis construction
@@ -621,25 +621,25 @@ survivors of kobayashi maru filter of numeric evil (amount = 25):
 A_raw shape: 2 x 2
 B_raw shape: 2 x 2
 rank(A_raw) = 2 rank(B_raw) = 2
-tiny threshold (for linear depend checks) ~ 0.0000152587890625000000
+tiny threshold (for linear depend checks) ~ 5.421010862427522170037264004349708557128906250000000000000000000000000000000e-20
 Nodes used: 801
 === END DIAGNOSTIC ===
 Found tau via GL(2,Z) column transform U = [-2 -1]
 [ 1  0]
 [AJ] Analytic pairing context initialized
-  base point: (-1.33333333333333333 + 0.0000152587890625000000*I, -2.44808931482320065 + 0.0000488631564122839247*I)
-  Im(tau) eigenvalues: [1.99173950848256110, 0.00207380824807659490]
+  base point: (-1.333333333333333333333333333333333333333333333333333333333333333333333333333 + 7.131460635484967907240589624903472408590617992746911723850880366612767744733e-6*I, -2.448089314198425463483046541983828917830886667636825019762596455899379648982 + 0.00002283704657126080227769437737972639373473618602282618141231058907635225908974*I)
+  Im(tau) eigenvalues: [1.991739508482561098026525407420169089363936003418881638485065440848151274992, 0.002073808248076595182613781796621769233456095580144651436463576284176802438399]
 
 [arakelov] Building basis from 25 divisors
-[arakelov] Using precision: 64 bits
+[arakelov] Using precision: 256 bits
 [arakelov] Pre-computing heights for 25 candidates...
-Basis construction failed: name 'ThetaComputationError' is not defined
+Basis construction failed: 'sage.modules.free_module_element.FreeModuleElement_generic_dense' object has no attribute 'imag'
 
 [mumford detailed timers]
-  crt_reconstruction_loop                 :   15.304s ( 70.3%)
-  prefiltering                            :    4.119s ( 18.9%)
-  algebraic_prefiltering                  :    2.312s ( 10.6%)
-  canonicalization                        :    0.027s (  0.1%)
+  crt_reconstruction_loop                 :   15.191s ( 70.5%)
+  prefiltering                            :    4.016s ( 18.6%)
+  algebraic_prefiltering                  :    2.310s ( 10.7%)
+  canonicalization                        :    0.028s (  0.1%)
   residue_grouping                        :    0.001s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   21.764s
+  TOTAL                                   :   21.547s
