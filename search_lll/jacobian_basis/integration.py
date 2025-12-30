@@ -215,30 +215,190 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
 integrate_differential_path_with_branch.cache = {}
 
 
-def integrate_differential_path_joint(x0, x1, y0, y1, f_coeffs,
-                                      *, prec=200, debug=False):
+def integrate_differential_path_joint(x_start, x_end, y_start, y_end, f_coeffs,
+                                      *, prec=200, debug=False,
+                                      perp_offset=True, subdivide_thresh=1e-9, _depth=0):
     """
-    Follow one path, one sheet history, and return:
-        ( ∫ dx/(2y),  ∫ x dx/(2y) )
-    FIXES Problem #3: both coordinates share the same branch + path.
+    Integrate both holomorphic differentials along a straight path from (x_start,y_start)
+    to (x_end,y_end) on y^2 = f(x), returning a tuple:
+        ( integral_of_1/(2y), integral_of_x/(2y) ).
+
+    Key properties:
+      - single sqrt-branch propagation for both integrals (no per-coordinate drift)
+      - tanh-sinh quadrature nodes
+      - recursive subdivision if path passes too close to branch points (f ~ 0)
+      - caching for repeated calls
     """
+    import math
     from sage.all import ComplexField
     CC = ComplexField(prec)
 
-    I0 = CC(0)
-    I1 = CC(0)
+    # recursion guard
+    if _depth > 30:
+        raise RuntimeError("Maximum subdivision depth reached in integrate_differential_path_joint")
 
-    # reuse your existing quadrature machinery — but once — and
-    # propagate sqrt signs only once for both integrands
-    #
-    # [minimal change: call the old path integrator in "vector mode"]
-    #
-    vals = _integrate_with_tracked_sheet(
-        x0, x1, y0, y1, f_coeffs, prec=prec, debug=debug
-    )
+    # safe cache key (rounded floats for endpoints + coefficients)
+    def _round_for_cache(x):
+        try:
+            z = complex(x)
+            return (round(z.real, 12), round(z.imag, 12))
+        except Exception:
+            return str(x)
 
-    for (xv, yv, w) in vals:
-        I0 += w * (1 / (2 * yv))
-        I1 += w * (xv / (2 * yv))
+    key = ("joint",
+           _round_for_cache(x_start), _round_for_cache(x_end),
+           _round_for_cache(y_start), _round_for_cache(y_end),
+           tuple(float(c) for c in f_coeffs), int(prec), bool(perp_offset))
+    if key in integrate_differential_path_joint.cache:
+        return integrate_differential_path_joint.cache[key]
 
-    return I0, I1
+    p0 = CC(x_start)
+    p1 = CC(x_end)
+    y0_target = CC(y_start)
+    y1_target = CC(y_end)
+
+    vec = p1 - p0
+    seg_len = abs(vec)
+
+    # choose a small perpendicular offset to avoid branch cuts when helpful
+    if perp_offset and seg_len != 0:
+        perp = CC(0, 1) * vec
+        offset_mag = max(seg_len * CC(1e-12), CC(2) ** (-(prec // 4)))
+        off = perp / abs(perp) * offset_mag
+    else:
+        off = CC(0)
+
+    # tanh-sinh nodes generator (symmetric)
+    def tanh_sinh_nodes(N):
+        nodes = []
+        h = 1.0 / float(N)
+        pi = math.pi
+        for k in range(-N, N + 1):
+            t = k * h
+            sx = math.sinh(t)
+            x_mapped = math.tanh((pi / 2.0) * sx)
+            dx_dt = (pi / 2.0) * math.cosh(t) / (math.cosh((pi / 2.0) * sx) ** 2)
+            w = dx_dt * h
+            nodes.append((t, x_mapped, w))
+        return nodes
+
+    # choose nodes based on precision (bounded)
+    Nnodes = max(200, min(2000, max(200, prec // 2)))
+    nodes = tanh_sinh_nodes(Nnodes)
+
+    # sample points along straight path p0 -> p1 (with offset)
+    xvals = []
+    ws = []
+    for (_t, x_mapped, w) in nodes:
+        s = (CC(x_mapped) + CC(1)) / CC(2)   # map [-1,1] -> [0,1]
+        xval = p0 + s * vec + off
+        xvals.append(xval)
+        ws.append(CC(w))
+
+    # Horner evaluation of f (descending coefficients assumed)
+    def f_at(z):
+        res = CC(f_coeffs[0])
+        for c in f_coeffs[1:]:
+            res = res * z + CC(c)
+        return res
+
+    fvals = [f_at(xv) for xv in xvals]
+
+    tiny = CC(2) ** (-prec // 2)
+    # if any fvals too small (near branch point), subdivide the path
+    min_abs_f = min([abs(v) for v in fvals] + [CC(1e99)])
+    if min_abs_f < CC(subdivide_thresh):
+        mid_x = (p0 + p1) / CC(2)
+        mid_y = (y0_target + y1_target) / CC(2)
+        left0, left1 = integrate_differential_path_joint(x_start, mid_x, y_start, mid_y, f_coeffs,
+                                                         prec=prec, debug=debug, perp_offset=perp_offset,
+                                                         subdivide_thresh=subdivide_thresh, _depth=_depth+1)
+        right0, right1 = integrate_differential_path_joint(mid_x, x_end, mid_y, y_end, f_coeffs,
+                                                           prec=prec, debug=debug, perp_offset=perp_offset,
+                                                           subdivide_thresh=subdivide_thresh, _depth=_depth+1)
+        val0 = left0 + right0
+        val1 = left1 + right1
+        integrate_differential_path_joint.cache[key] = (val0, val1)
+        return (val0, val1)
+
+    # find a good seed index (where fvals not too small) for sqrt propagation
+    start_idx = 0
+    for i in range(len(xvals)):
+        if abs(fvals[i]) >= tiny:
+            start_idx = i
+            break
+
+    # pick sqrt branch minimizing distance to prev value
+    def choose_sqrt_match(prev_y, fval):
+        s = fval.sqrt()
+        if abs(s - prev_y) <= abs(-s - prev_y):
+            return s
+        else:
+            return -s
+
+    # attempt two possible global sign choices for seeding
+    def try_propagation(seed_sign):
+        n = len(xvals)
+        yvals = [None] * n
+        sqrt_seed = fvals[start_idx].sqrt()
+        yvals[start_idx] = sqrt_seed if seed_sign >= 0 else -sqrt_seed
+
+        # forward propagation
+        for i in range(start_idx + 1, n):
+            if abs(fvals[i]) < tiny:
+                # if extremely close to 0, keep tiny or match neighbor
+                yvals[i] = CC(0) if abs(fvals[i]) < (tiny * CC(1e-3)) else choose_sqrt_match(yvals[i-1], fvals[i])
+            else:
+                yvals[i] = choose_sqrt_match(yvals[i-1], fvals[i])
+
+        # backward propagation
+        for i in range(start_idx - 1, -1, -1):
+            if abs(fvals[i]) < tiny:
+                yvals[i] = CC(0) if abs(fvals[i]) < (tiny * CC(1e-3)) else choose_sqrt_match(yvals[i+1], fvals[i])
+            else:
+                yvals[i] = choose_sqrt_match(yvals[i+1], fvals[i])
+
+        # quadrature: compute both integrals together
+        I0 = CC(0)
+        I1 = CC(0)
+        dx_factor = vec / CC(2)
+        for i in range(n):
+            ycur = yvals[i]
+            if ycur is None or abs(ycur) == 0:
+                # should be rare due to subdivision; guard to avoid div-by-zero
+                if debug:
+                    print("[integrator:joint] near-zero ycur at node", i)
+                ycur = tiny
+            integrand0 = CC(1) / (CC(2) * ycur)
+            integrand1 = xvals[i] / (CC(2) * ycur)
+            dxd = dx_factor * ws[i]
+            I0 += integrand0 * dxd
+            I1 += integrand1 * dxd
+
+        # measure endpoint sheet mismatch to decide sign flip later
+        end_mismatch_plus = abs(yvals[-1] - y1_target)
+        end_mismatch_minus = abs(-yvals[-1] - y1_target)
+
+        return I0, I1, float(min(end_mismatch_plus, end_mismatch_minus)), float(end_mismatch_plus), float(end_mismatch_minus), yvals
+
+    I0_a, I1_a, m_a, endap_a, endam_a, yvals_a = try_propagation(+1)
+    I0_b, I1_b, m_b, endap_b, endam_b, yvals_b = try_propagation(-1)
+
+    # pick the propagation with smaller endpoint mismatch
+    if m_a <= m_b:
+        I0, I1 = I0_a, I1_a
+        endp, endm = endap_a, endam_a
+    else:
+        I0, I1 = I0_b, I1_b
+        endp, endm = endap_b, endam_b
+
+    # If the propagated endpoint is closer to -y_end than +y_end, flip both integrals' sign
+    if endp > endm:
+        I0 = -I0
+        I1 = -I1
+
+    integrate_differential_path_joint.cache[key] = (I0, I1)
+    return (I0, I1)
+
+# initialize cache
+integrate_differential_path_joint.cache = {}

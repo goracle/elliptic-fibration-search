@@ -91,8 +91,6 @@ def integrate_chain(weighted_paths, f_coeffs, nodes, CC, tiny, max_depth=8):
     return total_I0, total_I1
 
 
-get_period_matrix_auto_B.cache = {}
-
 def complex_of_sage(z, CC):
     """
     Robustly coerce a Sage complex-like object to a Python complex (via CC if needed).
@@ -474,9 +472,6 @@ def extract_cycle_paths(cycle, vertex_source, CC):
 if __name__ == "__main__":
     f_coeffs = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]  # rank 4
     test_period_matrix_pos_def_auto(f_coeffs, prec=200)
-
-
-get_period_matrix_auto_B.cache = {}
 
 
 # Positive–definiteness test for Im(tau)

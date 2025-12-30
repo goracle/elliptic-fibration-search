@@ -106,77 +106,6 @@ def choose_numerical_base_point(f_coeffs, prec=300):
     return (x_base, y_base)
 choose_numerical_base_point.cache = {}
 
-def normalize_periods_and_z(Omega, z_vec):
-    """
-    Normalize period matrix Omega and Abel-Jacobi vector z_vec.
-    Omega may be either:
-      - g x g (already tau)
-      - g x 2g (Omega1 | Omega2) where tau = Omega1^{-1} * Omega2
-
-    Returns (tau, z_norm) where:
-      - tau is a g x g complex symmetric matrix with Im(tau) positive definite
-      - z_norm is a g x 1 column vector (or None if z_vec is None)
-    """
-    from sage.all import Matrix, ComplexField, RealField, matrix, vector, QQ
-    Omega = Matrix(Omega)  # canonicalize
-    g = Omega.nrows()
-
-    if Omega.ncols() not in (g, 2 * g):
-        raise ValueError(f"Omega shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g cols")
-
-    # If already g×g, treat as tau
-    if Omega.ncols() == g:
-        tau = Omega
-        if z_vec is None:
-            z_norm = None
-        else:
-            # Accept a sequence or matrix for z_vec and coerce to column vector
-            z_temp = matrix(tau.base_ring(), g, 1)
-            for i in range(g):
-                z_temp[i, 0] = z_vec[i]
-            z_norm = z_temp
-    else:
-        # Omega has 2g cols: split into Omega1 | Omega2
-        Omega1 = Omega[:, :g]
-        Omega2 = Omega[:, g:]
-        # check invertibility with a numerically stable tolerance
-        if Omega1.det() == 0:
-            raise ValueError("Omega1 singular (determinant zero). Can't normalize periods.")
-        Omega1_inv = Omega1.inverse()
-        tau = Omega1_inv * Omega2
-
-        if z_vec is None:
-            z_norm = None
-        else:
-            z_temp = matrix(Omega.base_ring(), g, 1)
-            for i in range(g):
-                z_temp[i, 0] = z_vec[i]
-            z_norm = Omega1_inv * z_temp
-
-    # symmetry check (numerical tolerance based on base_ring precision if possible)
-    try:
-        prec = getattr(tau.base_ring(), 'precision', None)
-    except Exception:
-        prec = None
-        raise
-    tol = 10 ** (-10) if prec is None else 2 ** (-(prec // 2))
-
-    # check symmetry: max |tau_ij - tau_ji|
-    max_asym = max([abs(tau[i, j] - tau[j, i]) for i in range(g) for j in range(g)])
-    if max_asym > tol:
-        raise ValueError(f"tau not symmetric (max asymmetry = {max_asym})")
-
-    # check Im(tau) positive definite: construct a real matrix and test eigenvalues
-    RF = RealField(53 if prec is None else max(53, int(prec // 2)))
-    Im_mat = Matrix(RF, g, g, [float((tau[i, j].imag()).real()) if hasattr(tau[i, j], 'imag') else float(complex(tau[i, j]).imag) for i in range(g) for j in range(g)])
-    eigs = Im_mat.eigenvalues()
-    min_eig = min([float(e) for e in eigs])
-    if min_eig <= 1e-14:
-        raise ValueError(f"Im(tau) not positive definite (smallest eigenvalue {min_eig})")
-
-    return tau, z_norm
-
-
 
 def abel_jacobi_mumford(
     div, f_coeffs, base_point,
@@ -263,3 +192,87 @@ def abel_jacobi_mumford(
 abel_jacobi_mumford.cache = {}
 
 
+def normalize_periods_and_z(Omega, z_vec=None):
+    """
+    Normalize period matrix Omega and Abel-Jacobi vector z_vec.
+
+    Omega may be g×g (already tau) or g×2g (Omega1 | Omega2).
+    Returns (tau, z_norm) where:
+      - tau is g×g complex symmetric with Im(tau) positive definite
+      - z_norm is a g×1 column vector (or None)
+    This version robustly handles the base_ring precision attribute (callable or not).
+    """
+    from sage.all import Matrix, RealField
+
+    Omega = Matrix(Omega)  # canonicalize to Sage matrix
+    g = Omega.nrows()
+
+    if Omega.ncols() not in (g, 2 * g):
+        raise ValueError(f"Omega shape {Omega.nrows()}×{Omega.ncols()}, expected g or 2g cols")
+
+    # If already g×g, treat as tau
+    if Omega.ncols() == g:
+        tau = Omega
+        if z_vec is None:
+            z_norm = None
+        else:
+            # coerce z_vec into a column matrix
+            z_norm = Matrix(tau.base_ring(), g, 1, [z_vec[i] for i in range(g)])
+    else:
+        # Omega has 2g cols: split into Omega1 | Omega2 and compute tau = Omega1^{-1} * Omega2
+        Omega1 = Omega[:, :g]
+        Omega2 = Omega[:, g:]
+        # numeric invertibility check
+        try:
+            Omega1_inv = Omega1.inverse()
+        except Exception:
+            raise ValueError("Omega1 appears singular (cannot invert). Cannot normalize periods.")
+        tau = Omega1_inv * Omega2
+        if z_vec is None:
+            z_norm = None
+        else:
+            z_norm = Omega1_inv * Matrix(tau.base_ring(), g, 1, [z_vec[i] for i in range(g)])
+
+    # --- determine numeric tolerance sensibly from base_ring precision (if available) ---
+    base_ring = tau.base_ring()
+    base_prec = None
+    prec_attr = getattr(base_ring, "precision", None)
+    try:
+        if prec_attr is None:
+            base_prec = None
+        elif callable(prec_attr):
+            # precision() often returns an int
+            base_prec = int(prec_attr())
+        else:
+            # precision could be an attribute (not callable)
+            base_prec = int(prec_attr)
+    except Exception:
+        base_prec = None
+
+    # fallback tolerances
+    if base_prec is None:
+        tol = 1e-10
+    else:
+        # use a conservative tolerance based on bits of precision
+        try:
+            tol = 2 ** (-(base_prec // 2))
+        except Exception:
+            tol = 1e-10
+
+    # symmetry check (numerical)
+    max_asym = max([abs(tau[i, j] - tau[j, i]) for i in range(g) for j in range(g)])
+    if max_asym > tol:
+        raise ValueError(f"tau not symmetric (max asymmetry = {max_asym})")
+
+    # check Im(tau) positive definite using RealField
+    rf_bits = 53 if base_prec is None else max(53, int(base_prec // 2))
+    RF = RealField(rf_bits)
+    # build real matrix of imag parts (safe via complex())
+    Im_entries = [float(complex(tau[i, j]).imag) for i in range(g) for j in range(g)]
+    Im_mat = Matrix(RF, g, g, Im_entries)
+    eigs = Im_mat.eigenvalues()
+    min_eig = min([float(e) for e in eigs])
+    if min_eig <= 1e-14:
+        raise ValueError(f"Im(tau) not positive definite (smallest eigenvalue {min_eig})")
+
+    return tau, z_norm
