@@ -268,7 +268,6 @@ def compute_theta_high_prec(z_vec, tau, prec=2048, max_terms=20000, epsilon_fact
 compute_theta_high_prec.cache = {}
 
 
-
 def compute_theta_safe(z_vec, tau, prec=2048, max_terms=20000, epsilon_factor=8,
                        parallel=True, max_workers=None):
     """
