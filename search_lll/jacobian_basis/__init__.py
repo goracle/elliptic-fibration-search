@@ -57,10 +57,7 @@ from .archimedean import (
 )
 
 # Integration
-from .integration import (
-    integrate_differential_path_with_branch,
-)
-
+from .integration import *
 # Utilities
 from .utilities import (
     sanity_check_pairings,

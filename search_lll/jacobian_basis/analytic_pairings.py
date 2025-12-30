@@ -10,7 +10,7 @@ from multiprocessing import Pool
 
 # Import your existing AJ/integration helpers
 from .periods import abel_jacobi_mumford, normalize_periods_and_z, choose_numerical_base_point
-from .integration import integrate_differential_path_with_branch  # used implicitly by abel_jacobi_mumford
+from .integration import integrate_differential_path_joint  # used implicitly by abel_jacobi_mumford
 from .utilities import *  # keep import placeholder if needed elsewhere
 
 # Module-level AJ context and cache. Call set_aj_context(...) before bulk pairing.
@@ -140,7 +140,7 @@ def compute_pairing_worker(args):
         try:
             # compute raw z (no internal period reduction) at requested precision
             z_raw = abel_jacobi_mumford(div_obj, ctx["f_coeffs"], ctx["base_point"],
-                                        integrate_func=integrate_differential_path_with_branch,
+                                        integrate_func=integrate_differential_path_joint,
                                         prec=prec, period_matrix=None)
             # normalize using the stored Omega/tau if available
             if ctx.get("tau") is not None:
@@ -234,7 +234,7 @@ def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs,
         div_record = jac_elements[idx][0]
         try:
             z_raw = abel_jacobi_mumford(div_record, _AJ_CONTEXT["f_coeffs"], _AJ_CONTEXT["base_point"],
-                                        integrate_func=integrate_differential_path_with_branch,
+                                        integrate_func=integrate_differential_path_joint,
                                         prec=_AJ_CONTEXT["prec"], period_matrix=None)
             # normalize if tau present
             if _AJ_CONTEXT.get("tau") is not None:
