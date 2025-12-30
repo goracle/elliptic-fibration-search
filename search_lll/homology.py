@@ -686,13 +686,13 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
         detA = A_raw.det()
     except Exception:
         detA = None
-    print("det(A_raw) =", detA)
+    #print("det(A_raw) =", detA)
 
     # column norms
     col_norms_A = [sum(abs(c) for c in A_raw.column(j)) for j in range(A_raw.ncols())]
     col_norms_B = [sum(abs(c) for c in B_raw.column(j)) for j in range(B_raw.ncols())]
-    print("col norms A:", col_norms_A)
-    print("col norms B:", col_norms_B)
+    #print("col norms A:", col_norms_A)
+    #print("col norms B:", col_norms_B)
 
     # rank
     try:
@@ -715,8 +715,8 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
     if detA is not None and abs(detA) < threshold:
         print("WARNING: det(A_raw) tiny -> near linear dependence / branch-flip problem.")
 
-    print("Roots used for cuts:", roots_for_pairing)
-    print("Cuts:", cuts)
+    #print("Roots used for cuts:", roots_for_pairing)
+    #print("Cuts:", cuts)
     print("Nodes used:", len(nodes_cc))
     print("=== END DIAGNOSTIC ===")
 
