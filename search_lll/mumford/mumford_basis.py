@@ -17,6 +17,44 @@ from search_lll.jacobian_basis.heights import *
 import warnings
 from pprint import pprint
 import multiprocessing
+
+warnings.formatwarning = custom_formatwarning
+
+ARAKELOV_AVAILABLE = True
+MAX_BASIS_CANDIDATES = 300
+_FILTER_STATS = defaultdict(int)
+_BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
+
+
+# -------------------------
+# Basis builder (top-level)
+# -------------------------
+DEFAULT_PRECS = [256]
+
+
+# -------------------------
+# Mumford element builder
+# -------------------------
+
+
+# Debug helpers
+
+
+# Place near the other helpers; needs sage QQ import
+
+
+# Replace the previous helpers and filter_kobayashi_maru with the following.
+
+
+# Put near other helpers (top-level). No imports inside functions.
+
+
+# In mumford_basis.py
+
+
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, VERIFY_INDEPENDENCE_MOD_P
+# Try to import Arakelov
+
 def custom_formatwarning(msg, category, filename, lineno, line=None):
     return f"{filename}:{lineno}: {category.__name__}: {msg}\n"
 
@@ -1019,6 +1057,54 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
             if debug:
                 warnings.warn(f"[basis] failed to build jacobian element for div {div}: {e}", RuntimeWarning)
             raise
+    
+    # -------------------------------------------------------------
+    # NEW: Mod-P Independence Check (Exact Path)
+    # -------------------------------------------------------------
+    if VERIFY_INDEPENDENCE_MOD_P:
+        if debug:
+            print(f"[basis] Using modular independence check (p={p_test})")
+        try:
+            J_p, G_p, map_p = setup_mod_p_check(f_coeffs, p_test)
+            basis = []
+            basis_jac = []
+            basis_vectors_p = []
+            
+            for idx, (div, D) in enumerate(jac_elements):
+                 # Convert to mod p
+                 D_p = mumford_to_mod_p(div, J_p)
+                 if D_p is None:
+                     continue
+                 vec_p = map_p(D_p)
+                 
+                 if is_independent_mod_p(basis_vectors_p, vec_p, G_p):
+                     basis.append(div)
+                     basis_jac.append(D)
+                     basis_vectors_p.append(vec_p)
+                     if debug:
+                         print(f"[basis] Added divisor {len(basis)-1} (indep mod {p_test})")
+                 else:
+                     if debug:
+                         print(f"[basis] Rejected divisor {idx} (dependent mod {p_test})")
+            
+            # Post-processing: Compute H_exact for accepted basis if needed
+            rank = len(basis)
+            H_exact = None
+            if rank > 0:
+                H_exact = Matrix(QQ, rank, rank)
+                for i in range(rank):
+                    for j in range(i, rank):
+                        try:
+                            h_ij = compute_height_pairing_exact(basis_jac[i], basis_jac[j], f_coeffs, num_doublings=num_doublings)
+                            H_exact[i, j] = H_exact[j, i] = h_ij
+                        except Exception:
+                            raise
+                H_exact = normalize_gram_for_basis(H_exact, 100) # dummy prec
+                
+            return basis, rank, H_exact
+            
+        except Exception as e:
+             warnings.warn(f"[basis] Mod p check failed: {e}. Falling back to normal flow.", RuntimeWarning)
 
     # incremental selection with projection residuals
     basis = []
@@ -1091,7 +1177,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
                 print(f"[basis] Added divisor {len(basis)-1} (res_sq={res_sq:.3g} tol={tol:.3g})")
         else:
             if debug:
-                print(f"[basis] Rejected divisor {idx}: residual {res_sq:.3g} <= tol {tol:.3g}")
+                print(f"[basis] Rejected divisor {idx}: residual {res_sq:.3g} <= tol {tol:.3g})")
 
     rank = len(basis)
 
@@ -1356,6 +1442,66 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
     return out
 
 
+def setup_mod_p_check(f_coeffs, p):
+    """Initialize group structure for independence checking mod p."""
+    R = GF(p)['x']
+    # f_coeffs is typically high degree -> low degree
+    # sage requires generic list for polynomial constructor or x-based sum
+    x = R.gen()
+    f_p = sum(GF(p)(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+    try:
+        # Compute abelian group structure
+        G = J.abelian_group()
+        # Map from Jacobian to Group
+        M = J.abelian_group_map() 
+    except Exception:
+        raise RuntimeError(f"Failed to compute Jacobian group structure mod {p}")
+    return J, G, M
+
+
+def mumford_to_mod_p(div, J_p):
+    """Convert rational mumford dict to J(GF(p)) element."""
+    try:
+        R_p = J_p.base_ring()['x']
+        x = R_p.gen()
+        
+        # Extract and reduce coefficients
+        s_val = QQ(div['s'])
+        p_val = QQ(div['p'])
+        v1_val = QQ(div['v_1'])
+        v0_val = QQ(div['v_0'])
+        
+        # Check for bad reduction (denominators divisible by p)
+        p_char = J_p.base_ring().characteristic()
+        if (s_val.denominator() % p_char == 0 or 
+            p_val.denominator() % p_char == 0 or
+            v1_val.denominator() % p_char == 0 or
+            v0_val.denominator() % p_char == 0):
+            return None
+            
+        u_p = x**2 - R_p(s_val)*x + R_p(p_val)
+        v_p = R_p(v1_val)*x + R_p(v0_val)
+        
+        return J_p([u_p, v_p])
+    except Exception:
+        return None
+
+
+def is_independent_mod_p(basis_vectors, new_vector, G):
+    """
+    Check if new_vector is linearly independent of basis_vectors in the abelian group G.
+    Returns True if independent (cannot be generated by basis), False otherwise.
+    """
+    if not basis_vectors:
+        return not new_vector.is_zero()
+    
+    # In Sage, we can check submodule membership
+    S = G.submodule(basis_vectors)
+    return new_vector not in S
+
+
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
     """
     Top-level basis builder. Prefers Arakelov module; falls back to exact doubling method.
@@ -1413,6 +1559,38 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         last_exc = None
         for prec in DEFAULT_PRECS:
             try:
+                # MODIFICATION: We inject the mod p filtering here if enabled, 
+                # but arakelov_build_basis_with_heights handles the iteration.
+                # However, since arakelov_build_basis_with_heights is imported 
+                # from a helper file usually, we should adapt the call or check if 
+                # we need to filter *before* calling it.
+                
+                # If VERIFY_INDEPENDENCE_MOD_P is True, we can filter the list *before*
+                # passing it to the heavy Arakelov builder.
+                if VERIFY_INDEPENDENCE_MOD_P:
+                    if debug:
+                        print(f"[basis] Pre-filtering using independence mod {p_test}")
+                    try:
+                         J_p, G_p, map_p = setup_mod_p_check(f_coeffs, p_test)
+                         basis_vecs = []
+                         filtered_divs = []
+                         for div in all_divisors:
+                             D_p = mumford_to_mod_p(div, J_p)
+                             if D_p is None: continue
+                             vec_p = map_p(D_p)
+                             if is_independent_mod_p(basis_vecs, vec_p, G_p):
+                                 basis_vecs.append(vec_p)
+                                 filtered_divs.append(div)
+                         
+                         if debug:
+                             print(f"[basis] Reduced {len(all_divisors)} -> {len(filtered_divs)} candidates using mod p check")
+                         
+                         # Now build the basis (mostly just computing the Gram matrix)
+                         res = arakelov_build_basis_with_heights(filtered_divs, f_coeffs, prec=prec, debug=debug)
+                         return res
+                    except Exception as e:
+                        warnings.warn(f"[basis] Mod p filter failed: {e}. using unfiltered list.", RuntimeWarning)
+
                 res = arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=prec, debug=debug)
                 return res
             except Exception as e:
