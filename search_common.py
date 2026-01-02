@@ -391,6 +391,8 @@ PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 sh
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
+VERIFY_INDEPENDENCE_MOD_P = False # verify mumford_search divisors mod a prime of good reduction
+VERIFY_INDEPENDENCE_MOD_P = True # verify mumford_search divisors mod a prime of good reduction
 
 MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent

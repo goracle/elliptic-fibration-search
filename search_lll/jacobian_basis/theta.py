@@ -391,7 +391,7 @@ def compute_theta_high_prec_parallel(z_vec, tau, prec=2048, max_terms=20000,
         return compute_theta_high_prec_parallel.cache[key]
 
 
-    tau = siegel_reduce_genus2(tau, prec=53)
+    tau, _ = siegel_reduce_genus2(tau, prec=53)
     max_terms = max(THETA_MAX_TERMS, max_terms)
 
     CC = ComplexField(prec)
