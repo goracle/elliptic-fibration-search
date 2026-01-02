@@ -178,8 +178,8 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 
 
 DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1,), (1, 1, 1, 4, 5), (1, 1, 1, 9), (1, 1, 2, 7), (1, 1, 10), (1, 2, 4, 5), (1, 3, 3, 5), (1, 3, 7), (1, 3, 8), (1, 11), (2, 4, 6), (2, 10), (3, 9), (4, 8), (5, 7), (12,)], 'num_primes_tested': 19}
 
-[empirical_pool] start pool size=107, avg_survivors≈0.000273, target=1.0, subset_size=5, samples=50
-[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000273
+[empirical_pool] start pool size=107, avg_survivors≈0.000281, target=1.0, subset_size=5, samples=50
+[empirical_pool] finished: added 0 primes -> final pool size 107, final_avg_survivors≈0.000281
 [adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
 [adaptive_subsets] zero_ratio=0.10, avg_density=0.1961 -> size_bias='mixed (moderate density)'
 [adaptive_subsets] Density-adjusted base num_subsets: 500
