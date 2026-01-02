@@ -1926,7 +1926,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
                           max_modulus=MAX_MODULUS,
                           update_search_common=False,
                           num_subsets_hint=NUM_PRIME_SUBSETS,
-                          run_heavy_analysis=True, 
+                          run_heavy_analysis=False, 
                           debug=DEBUG):
     """
     Automatic configuration for search parameters.

@@ -49,7 +49,25 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 
 === Auto-configuring search parameters for this fibration ===
 [auto_cfg] Building height estimation from 1 known x-coords.
-[auto_cfg] Init: Pool Size=107 | Heavy Analysis=True
+[auto_cfg] Init: Pool Size=107 | Heavy Analysis=False
+[auto_cfg] Height Bound: 473 (derived from h_can=log(2) + 1.5)
+[residue_counts] Using split_poly degree=12
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.14s, info=Transitive group number 301 of degree 12
+[galois/empirical] Tested 40 primes -> avg_roots=1.025, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
+[residue_counts] denom zero mod 3; using fallback
+[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.025}
+[auto_cfg] Final Config: TMAX=434, Subsets=1086, Modulus=1000000000
+
+[auto_cfg] Applied adaptive parameters:
+  HEIGHT_BOUND: 473
+  TMAX: 434
+  NUM_PRIME_SUBSETS: 1086
+  PRIME_POOL size: 107
+
+[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1086, PRIME_POOL size=107, TMAX=434
+[bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 107
 [bounds] mod 2 factorization failed: factorization of 0 is not defined
 [bounds] mod 3 factorization failed: factorization of 0 is not defined
@@ -166,39 +184,6 @@ DEBUG: RET: {'splitting_field_degree_est': 27720, 'unique_patterns': [(1, 1, 1, 
 [bounds] Diagnostics: {'discriminant': 2274951770760656620357735775252205881956710160780045056213571475654744564398384477440133256463082293542501134751845573264906850999884617585331394619011832172677992187997484926233477120, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
 [bounds] is_good_prime_for_surface rejected 2
 [bounds] is_good_prime_for_surface rejected 3
-[auto_cfg] Height Bound: 473 (derived from h_can=log(2) + 1.5)
-[residue_counts] Using split_poly degree=12
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.13s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 40 primes -> avg_roots=1.025, patterns_sample=[(1, 1, 1, 2, 7), (1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5)]
-[residue_counts] denom zero mod 3; using fallback
-[residue_counts] sample: [(2, 1), (3, 1), (5, 2), (7, 1), (11, 0), (13, 1), (17, 2), (19, 0), (23, 2), (29, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.025}
-
-DEBUG: RET: {'splitting_field_degree_est': 2520, 'unique_patterns': [(1, 1, 2, 2, 6), (1, 1, 2, 5), (1, 1, 2, 8), (1, 1, 4, 5), (1, 1, 5, 5), (1, 2, 3, 5), (1, 2, 9), (1, 4, 7), (1, 9), (1, 10), (3, 3, 6), (3, 4, 5), (3, 9), (6, 6)], 'num_primes_tested': 18}
-
-[auto_cfg] Est. Splitting Field Deg: 2520
-[auto_cfg] Adaptive Pool: 107 -> 107 primes
-[adaptive_subsets] height_bound=473.0, base_height=100, height_ratio=4.73
-[adaptive_subsets] zero_ratio=0.11, avg_density=0.1526 -> size_bias='mixed (moderate density)'
-[adaptive_subsets] Density-adjusted base num_subsets: 500
-[adaptive_subsets] Height scale factor (sqrt): 2.17
-[adaptive_subsets] Final num_subsets: 500 * 2.17 ≈ 1087 (overall adj: 2.17x vs base 500)
-[adaptive_subsets] Final subset sizes: [3, 9]
-[auto_cfg] Final Config: TMAX=434, Subsets=1087, Modulus=1000000000
-
-[auto_cfg] Applied adaptive parameters:
-  HEIGHT_BOUND: 473
-  TMAX: 434
-  NUM_PRIME_SUBSETS: 1087
-  PRIME_POOL size: 107
-
-[auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1087, PRIME_POOL size=107, TMAX=434
-[bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
-[bounds] Starting with prime pool size: 107
-[bounds] Diagnostics: {'discriminant': 2274951770760656620357735775252205881956710160780045056213571475654744564398384477440133256463082293542501134751845573264906850999884617585331394619011832172677992187997484926233477120, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[bounds] is_good_prime_for_surface rejected 2
-[bounds] is_good_prime_for_surface rejected 3
 [prime_pool] Final pool has 105 primes up to 587
 === Fibration Summary ===
 Data points: ((-1, 1),)
@@ -297,7 +282,7 @@ Skipping prime 17: fiber collision detected (gcd degree=2)
   p=13: fiber_collision_deg_3
   p=17: fiber_collision_deg_2
 [mumford] Generating tasks for 103 primes...
-[mumford] Residue computation took 7.99s
+[mumford] Residue computation took 8.01s
 
 ======================================================================
 MUMFORD RECONSTRUCTION PHASE
@@ -307,30 +292,43 @@ MUMFORD RECONSTRUCTION PHASE
 
 Algebraic pre-filter: 413,838 → 413,838 (1.0x reduction)
 Grouped into 15 vectors, 680 (vector,x-residue) pairs
-  Accepting 2-prime group: 82,000 combos (rare divisor)
-  Vector group: 2 primes, avg 460.0 sols/prime
-  Raw combinations: 82,000
-  Adaptive limit: 82,000 (total combos: 82,000)
-  Skipping 2-prime group: 512,076 combos, not rare
-  Vector group: 2 primes, avg 164.0 sols/prime
-  Raw combinations: 20,172
-  Adaptive limit: 20,172 (total combos: 20,172)
-  Vector group: 2 primes, avg 165.0 sols/prime
-  Raw combinations: 22,464
-  Adaptive limit: 22,464 (total combos: 22,464)
-  Vector group: 3 primes, avg 204.0 sols/prime
-  Raw combinations: 3,561,840
-  High density detected - applying aggressive pre-filtering
-    Found 0 candidates from first 2 primes (tried 9,180)
-  Pre-filtering took 0.33s
-  Filtered combinations: 3,561,840 (1.0x reduction)
-  Adaptive limit: 500,000 (total combos: 3,561,840)
-  Skipping 2-prime group: 315,240 combos, not rare
-  Skipping 2-prime group: 442,624 combos, not rare
-  Skipping 2-prime group: 585,156 combos, not rare
   Vector group: 3 primes, avg 100.0 sols/prime
   Raw combinations: 272,160
   Adaptive limit: 272,160 (total combos: 272,160)
+  Vector group: 2 primes, avg 122.0 sols/prime
+  Raw combinations: 14,208
+  Adaptive limit: 14,208 (total combos: 14,208)
+  Skipping 2-prime group: 262,128 combos, not rare
+  Vector group: 2 primes, avg 236.0 sols/prime
+  Raw combinations: 44,460
+  Adaptive limit: 44,460 (total combos: 44,460)
+  Skipping 2-prime group: 381,840 combos, not rare
+  Vector group: 2 primes, avg 230.0 sols/prime
+  Raw combinations: 27,300
+  Adaptive limit: 27,300 (total combos: 27,300)
+  Vector group: 2 primes, avg 140.0 sols/prime
+  Raw combinations: 14,700
+  Adaptive limit: 14,700 (total combos: 14,700)
+  Skipping 2-prime group: 138,104 combos, not rare
+  Skipping 2-prime group: 258,720 combos, not rare
+  Vector group: 2 primes, avg 302.0 sols/prime
+  Raw combinations: 38,304
+  Adaptive limit: 38,304 (total combos: 38,304)
+  Vector group: 2 primes, avg 470.0 sols/prime
+  Raw combinations: 16,596
+  Adaptive limit: 16,596 (total combos: 16,596)
+  Vector group: 3 primes, avg 242.3 sols/prime
+  Raw combinations: 331,452
+  Adaptive limit: 331,452 (total combos: 331,452)
+  Accepting 2-prime group: 62,140 combos (rare divisor)
+  Vector group: 2 primes, avg 304.0 sols/prime
+  Raw combinations: 62,140
+  Adaptive limit: 62,140 (total combos: 62,140)
+  Accepting 2-prime group: 87,688 combos (rare divisor)
+  Vector group: 2 primes, avg 307.0 sols/prime
+  Raw combinations: 87,688
+  Adaptive limit: 87,688 (total combos: 87,688)
+  Skipping 2-prime group: 487,104 combos, not rare
   Skipping 2-prime group: 713,184 combos, not rare
   Accepting 2-prime group: 98,940 combos (rare divisor)
   Vector group: 2 primes, avg 352.0 sols/prime
@@ -343,7 +341,7 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
   Raw combinations: 52,708,800
   High density detected - applying aggressive pre-filtering
     Found 0 candidates from first 2 primes (tried 50,001)
-  Pre-filtering took 1.33s
+  Pre-filtering took 1.28s
   Filtered combinations: 52,708,800 (1.0x reduction)
   Skipping group - too many combinations after filtering (52,708,800)
   Vector group: 4 primes, avg 341.5 sols/prime
@@ -352,50 +350,41 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
     Found 204 candidates from first 2 primes (tried 2,952)
     Prime 211: 426 → 22 sols (5.2%)
     Prime 401: 758 → 22 sols (2.9%)
-  Pre-filtering took 1.45s
+  Pre-filtering took 1.41s
   Filtered combinations: 1,428,768 (667.2x reduction)
   Adaptive limit: 500,000 (total combos: 1,428,768)
   Vector group: 3 primes, avg 222.7 sols/prime
   Raw combinations: 5,266,800
   High density detected - applying aggressive pre-filtering
     Found 0 candidates from first 2 primes (tried 12,600)
-  Pre-filtering took 0.33s
+  Pre-filtering took 0.32s
   Filtered combinations: 5,266,800 (1.0x reduction)
   Skipping group - too many combinations after filtering (5,266,800)
   Accepting 2-prime group: 91,728 combos (rare divisor)
   Vector group: 2 primes, avg 313.0 sols/prime
   Raw combinations: 91,728
   Adaptive limit: 91,728 (total combos: 91,728)
-  Vector group: 2 primes, avg 470.0 sols/prime
-  Raw combinations: 16,596
-  Adaptive limit: 16,596 (total combos: 16,596)
-  Vector group: 3 primes, avg 242.3 sols/prime
-  Raw combinations: 331,452
-  Adaptive limit: 331,452 (total combos: 331,452)
-  Vector group: 2 primes, avg 302.0 sols/prime
-  Raw combinations: 38,304
-  Adaptive limit: 38,304 (total combos: 38,304)
-  Accepting 2-prime group: 62,140 combos (rare divisor)
-  Vector group: 2 primes, avg 304.0 sols/prime
-  Raw combinations: 62,140
-  Adaptive limit: 62,140 (total combos: 62,140)
-  Accepting 2-prime group: 87,688 combos (rare divisor)
-  Vector group: 2 primes, avg 307.0 sols/prime
-  Raw combinations: 87,688
-  Adaptive limit: 87,688 (total combos: 87,688)
-  Skipping 2-prime group: 487,104 combos, not rare
-  Vector group: 2 primes, avg 230.0 sols/prime
-  Raw combinations: 27,300
-  Adaptive limit: 27,300 (total combos: 27,300)
-  Vector group: 2 primes, avg 140.0 sols/prime
-  Raw combinations: 14,700
-  Adaptive limit: 14,700 (total combos: 14,700)
-  Skipping 2-prime group: 138,104 combos, not rare
-  Skipping 2-prime group: 258,720 combos, not rare
-  Vector group: 2 primes, avg 122.0 sols/prime
-  Raw combinations: 14,208
-  Adaptive limit: 14,208 (total combos: 14,208)
-  Skipping 2-prime group: 262,128 combos, not rare
+  Accepting 2-prime group: 82,000 combos (rare divisor)
+  Vector group: 2 primes, avg 460.0 sols/prime
+  Raw combinations: 82,000
+  Adaptive limit: 82,000 (total combos: 82,000)
+  Skipping 2-prime group: 512,076 combos, not rare
+  Vector group: 2 primes, avg 164.0 sols/prime
+  Raw combinations: 20,172
+  Adaptive limit: 20,172 (total combos: 20,172)
+  Vector group: 3 primes, avg 204.0 sols/prime
+  Raw combinations: 3,561,840
+  High density detected - applying aggressive pre-filtering
+    Found 0 candidates from first 2 primes (tried 9,180)
+  Pre-filtering took 0.22s
+  Filtered combinations: 3,561,840 (1.0x reduction)
+  Adaptive limit: 500,000 (total combos: 3,561,840)
+  Vector group: 2 primes, avg 165.0 sols/prime
+  Raw combinations: 22,464
+  Adaptive limit: 22,464 (total combos: 22,464)
+  Skipping 2-prime group: 315,240 combos, not rare
+  Skipping 2-prime group: 442,624 combos, not rare
+  Skipping 2-prime group: 585,156 combos, not rare
   Skipping 2-prime group: 608,396 combos, not rare
   Vector group: 2 primes, avg 111.0 sols/prime
   Raw combinations: 12,200
@@ -410,10 +399,6 @@ Grouped into 15 vectors, 680 (vector,x-residue) pairs
   Skipping 2-prime group: 155,956 combos, not rare
   Skipping 2-prime group: 275,340 combos, not rare
   Skipping 2-prime group: 627,136 combos, not rare
-  Vector group: 2 primes, avg 236.0 sols/prime
-  Raw combinations: 44,460
-  Adaptive limit: 44,460 (total combos: 44,460)
-  Skipping 2-prime group: 381,840 combos, not rare
   Vector group: 2 primes, avg 199.0 sols/prime
   Raw combinations: 33,672
   Adaptive limit: 33,672 (total combos: 33,672)
@@ -448,16 +433,16 @@ canonicalization invariants OK
 
 --- Building Independent Mumford Basis ---
 first 10 divisors:
-{'s': -1, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -1, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (11,), 'u_poly': x^2 + x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 0, 'p': -1, 'v_0': 0, 'v_1': 1, 'vector': (1,), 'u_poly': x^2 - 1, 'v_poly': x, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 0, 'p': -1, 'v_0': 1, 'v_1': 0, 'vector': (1,), 'u_poly': x^2 - 1, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (3,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (11,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (1,), 'u_poly': x^2 - x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 4/3, 'p': 1/3, 'v_0': 2/9, 'v_1': 7/9, 'vector': (7,), 'u_poly': x^2 - 4/3*x + 1/3, 'v_poly': 7/9*x + 2/9, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 1/3, 'p': 0, 'v_0': -1, 'v_1': 14/9, 'vector': (11,), 'u_poly': x^2 - 1/3*x, 'v_poly': 14/9*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -2, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (3,), 'u_poly': x^2 + 2*x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -3/2, 'p': 0, 'v_0': -1, 'v_1': 5/4, 'vector': (3,), 'u_poly': x^2 + 3/2*x, 'v_poly': 5/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': -2, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (3,), 'u_poly': x^2 + 2*x, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -2, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (11,), 'u_poly': x^2 + 2*x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -3/2, 'p': 0, 'v_0': -1, 'v_1': 5/4, 'vector': (11,), 'u_poly': x^2 + 3/2*x, 'v_poly': 5/4*x - 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -2, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (11,), 'u_poly': x^2 + 2*x, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
 [diag:smoothness]
   split u(x): 25/25 (100.000%)
   irreducible u(x): 0/25 (0.000%)
@@ -474,12 +459,12 @@ first 10 divisors:
 [basis] Scoring divisors across multiple primes...
 [scoring] Score distribution:
   0: score=45
-  1: score=37
-  2: score=23
-  3: score=21
-  4: score=21
-  5: score=21
-  6: score=21
+  1: score=39
+  2: score=25
+  3: score=25
+  4: score=23
+  5: score=23
+  6: score=19
   7: score=19
   8: score=19
   9: score=19
@@ -487,6 +472,7 @@ first 10 divisors:
 [basis] Added divisor 0 (certified rank now 1)
 [basis] Added divisor 1 (certified rank now 2)
 [basis] Added divisor 2 (certified rank now 3)
+[basis] Rejected divisor (rank stays 3)
 [basis] Added divisor 3 (certified rank now 4)
 [torsion rank] Computed J(F_p) order: 99
 [torsion rank] l=3: element not l-torsion, skipping
@@ -613,32 +599,32 @@ Basis Construction Results:
   Found 4 independent divisors
 
 [mumford detailed timers]
-  crt_reconstruction_loop                 :   14.302s ( 54.8%)
-  basis_construction                      :    6.178s ( 23.7%)
-  prefiltering                            :    3.436s ( 13.2%)
-  algebraic_prefiltering                  :    2.152s (  8.2%)
-  canonicalization                        :    0.026s (  0.1%)
-  residue_grouping                        :    0.002s (  0.0%)
+  crt_reconstruction_loop                 :   14.217s ( 53.8%)
+  basis_construction                      :    6.789s ( 25.7%)
+  prefiltering                            :    3.231s ( 12.2%)
+  algebraic_prefiltering                  :    2.167s (  8.2%)
+  canonicalization                        :    0.027s (  0.1%)
+  residue_grouping                        :    0.001s (  0.0%)
   rational_root_check                     :    0.000s (  0.0%)
-  TOTAL                                   :   26.096s
+  TOTAL                                   :   26.432s
 
 Mumford search reconstructed 4 divisors
   4 divisors had rational roots in u(x)
 printing independent found:
-{'s': -1, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (3,), 'u_poly': x^2 + x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': -1, 'p': 0, 'v_0': 1, 'v_1': 0, 'vector': (11,), 'u_poly': x^2 + x, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 0, 'p': -1, 'v_0': 0, 'v_1': 1, 'vector': (1,), 'u_poly': x^2 - 1, 'v_poly': x, 'has_rational_roots': True, 'scale_used': 1}
 {'s': 0, 'p': -1, 'v_0': 1, 'v_1': 0, 'vector': (1,), 'u_poly': x^2 - 1, 'v_poly': 1, 'has_rational_roots': True, 'scale_used': 1}
-{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (3,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
+{'s': 0, 'p': 0, 'v_0': 1, 'v_1': 1, 'vector': (11,), 'u_poly': x^2, 'v_poly': x + 1, 'has_rational_roots': True, 'scale_used': 1}
 Mumford search found 7 rational points
 rational points found:
 {0, 1, -3/2, 2, 1/3, -2, -1}
-Total time: 32.95s
+Total time: 33.51s
 Total Rational Points Found (Unique x): 7
 
 Phases (s):
-  mumford_reconstruction   : 22.71s
-  mumford_residues         : 7.99s
-  prep_mod_data            : 2.25s
+  mumford_reconstruction   : 23.25s
+  mumford_residues         : 8.01s
+  prep_mod_data            : 2.24s
   mumford_setup            : 0.00s
 
 Counters:
@@ -767,7 +753,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 7
-Total time: 38.9s
+Total time: 39.7s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -880,13 +866,13 @@ new x: -2
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 50.21s
+Total time: 51.13s
 Total Rational Points Found (Unique x): 7
 
 Phases (s):
-  mumford_reconstruction   : 22.71s
-  mumford_residues         : 7.99s
-  prep_mod_data            : 2.25s
+  mumford_reconstruction   : 23.25s
+  mumford_residues         : 8.01s
+  prep_mod_data            : 2.24s
   mumford_setup            : 0.00s
 
 Counters:
