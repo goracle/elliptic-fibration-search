@@ -360,10 +360,6 @@ COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
 # $y^2 = 4x^6 + 9x^4 - 4x^3 + 2x^2 - 4x + 1$ # rank 2
 COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(9), QQ(-4), QQ(2), QQ(-4), QQ(1)] # rank 2
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
@@ -373,6 +369,10 @@ TERMINATE_WHEN_6 = 3
 COEFFS_GENUS2 = [QQ(4), QQ(-12), QQ(16), QQ(-8), QQ(-3), QQ(4), QQ(0)] # rank 2
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 3
+
+COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
+DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 12
 
 
 ##### END TEST CURVES ######
