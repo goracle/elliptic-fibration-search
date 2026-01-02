@@ -81,15 +81,15 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
           - unique_patterns (list of tuples): sorted unique factorization patterns
           - num_primes_tested (int): how many primes were actually used
     """
+    if primes_to_test is None:
+        from sage.all import primes
+        primes_to_test = list(primes(100))[:20]
+
     key = (str(poly), tuple(primes_to_test))
     if key in estimate_galois_signature_modp.cache:
         return estimate_galois_signature_modp.cache[key]
 
     from sage.all import GF, lcm as sage_lcm
-
-    if primes_to_test is None:
-        from sage.all import primes
-        primes_to_test = list(primes(100))[:20]
 
     patterns_seen = set()
     primes_used = 0
@@ -2019,6 +2019,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             if debug:
                 print(f"[auto_cfg] Galois stats error: {e}")
             galois_degree = None
+            raise
 
     # 5. Adaptive Pool Sizing
     if run_heavy_analysis:
