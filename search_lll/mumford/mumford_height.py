@@ -3,6 +3,7 @@ from fractions import Fraction
 import math
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 
+
 def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     """
     Compute naive height from Mumford representation without building Jacobian.
@@ -294,7 +295,9 @@ def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, deb
         try:
             val = x_crt.rational_reconstruction(M)
             final_coeffs.append(val)
-        except ValueError:
+        except (ValueError, ArithmeticError):
+            # Sage's rational_reconstruction can raise ArithmeticError (or ValueError)
+            # if the reconstruction is impossible within the modulus M.
             raise RuntimeError(f"Rational reconstruction failed for coefficient index {i}. "
                                f"Modulus size ~ 2^{len(str(M))*3.32:.1f}. "
                                f"Consider increasing num primes in PRIME_POOL.")
@@ -412,5 +415,3 @@ def _extract_u_coeffs_as_fractions(u):
         frac_coeffs = [Fraction(1,1)] + frac_coeffs
 
     return frac_coeffs
-
-
