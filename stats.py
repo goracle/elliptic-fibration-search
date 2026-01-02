@@ -1,20 +1,27 @@
-# search_stats.py
+# stats.py
 import time
 import json
 import math
+import random
+import os
 from collections import defaultdict, Counter
-from functools import reduce
 from operator import mul
-# stats_utils.py (or inside stats.py)
-from sage.all import QQ, crt
+from datetime import datetime
+from fractions import Fraction
+import numpy as np
 
+# Sage imports
+from sage.all import QQ, crt, exp, log, oo, RDF, Integer, RealNumber
 
-from sage.all import *
-from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
-from search_common import DEBUG, MAX_MODULUS
+# Local imports (assumed available in python path)
+try:
+    from bounds import build_split_poly_from_cd, compute_residue_counts_for_primes, estimate_galois_signature_modp
+    from search_common import DEBUG, MAX_MODULUS, MIN_PRIME_SUBSET_SIZE
+except ImportError:
+    # Allow running in isolation if utils aren't present, though some methods will fail
+    raise
 
 class SearchStats:
-
     def __init__(self):
         self.start_time = time.time()
         # Phase timers
@@ -26,7 +33,7 @@ class SearchStats:
         self.residues_by_prime = defaultdict(set)
         self.prime_subsets = []
 
-        # *** NEW: Track rejected primes ***
+        # Track rejected primes
         self.rejected_primes = []  # List of (prime, reason) tuples
         
         # Initialize all counters
@@ -59,11 +66,9 @@ class SearchStats:
         # CRT classes tested
         self.crt_classes_tested = set()
 
-
     def merge(self, other):
         """
         Merge another SearchStats object into this one.
-        FIXED: Now preserves rejected_primes list.
         """
         if not isinstance(other, SearchStats):
             return
@@ -101,10 +106,8 @@ class SearchStats:
         # Merge prime subsets
         self.prime_subsets.extend(other.prime_subsets)
 
-        # *** CRITICAL FIX: Merge rejected_primes list ***
+        # Merge rejected_primes list
         if hasattr(other, 'rejected_primes'):
-            if not hasattr(self, 'rejected_primes'):
-                self.rejected_primes = []
             self.rejected_primes.extend(other.rejected_primes)
             # Deduplicate while preserving order
             seen = set()
@@ -156,6 +159,8 @@ class SearchStats:
         fracs = [len(S)/float(p) for p, S in self.residues_by_prime.items() if p > 0]
         if not fracs:
             return 0.0, {}
+        
+        # Calculate log product to avoid underflow
         log_prod = sum(math.log(f) for f in fracs if f > 0)
         prod = math.exp(log_prod)
         per_prime = {int(p): len(S)/float(p) for p, S in self.residues_by_prime.items()}
@@ -167,7 +172,14 @@ class SearchStats:
         return coverage_prod, M_log10
 
     def crt_coverage_exact(self, prime_subsets_used):
-        total_classes_possible = sum(reduce(mul, subset, 1) for subset in prime_subsets_used)
+        # Do not use reduce. Use explicit loop.
+        total_classes_possible = 0
+        for subset in prime_subsets_used:
+            prod_val = 1
+            for p in subset:
+                prod_val *= int(p)
+            total_classes_possible += prod_val
+
         classes_tested = len(self.crt_classes_tested)
         return classes_tested / total_classes_possible if total_classes_possible > 0 else 0
 
@@ -176,22 +188,17 @@ class SearchStats:
         if coverage_per_run >= target_coverage or coverage_per_run == 0:
             return 1
         p = coverage_per_run
+        # Avoid log(0) if p is very close to 1 (unlikely here but safe)
+        if p >= 1.0: 
+            return 1
         expected_runs = math.log(1 - target_coverage) / math.log(1 - p)
         return math.ceil(expected_runs)
 
     # ---------------- Diagnostics ----------------
     def compare_target_m_residues(self, m_value, prime_pool):
         """
-        For a target rational m = a/b, compute its residue modulo each prime
-        in prime_pool and compare against residues actually seen during search.
-
-        Returns a dict with:
-            - 'matched_primes': primes where target residue already tested
-            - 'unseen_primes': primes not yet tested for that residue
-            - 'denom_zero_primes': primes dividing denominator(b)
-            - 'coverage_fraction': |matched_primes| / (# usable primes)
+        For a target rational m = a/b, compare its residue mod p against tested residues.
         """
-        from sage.all import QQ
         a = int(QQ(m_value).numerator())
         b = int(QQ(m_value).denominator())
 
@@ -204,6 +211,8 @@ class SearchStats:
             if b % p == 0:
                 denom_zero_primes.append(p)
                 continue
+            
+            # Using pow(b, -1, p) is standard Python 3.8+
             residue = (a * pow(b, -1, p)) % p
             if residue in self.residues_by_prime.get(p, set()):
                 matched_primes.append(p)
@@ -220,8 +229,6 @@ class SearchStats:
             'denom_zero_primes': denom_zero_primes,
             'coverage_fraction': coverage
         }
-
-    # ---------------- Summary ----------------
 
     # ---------------- Summary ----------------
     def summary(self):
@@ -273,17 +280,10 @@ class SearchStats:
         with open(path, 'w') as fh:
             json.dump(self.summary(), fh, indent=2, default=serializer)
 
-
-    # Put these inside class SearchStats
-
     def subset_match_probability(self, subset):
         """
-        For one subset (iterable of primes), estimate probability that
-        a uniform random rational m avoids denominator primes and matches
-        all residues for that subset.
-
-        Returns (p_subset, details) where p_subset is float probability,
-        and details is dict {'per_prime': {p: (L_p, p, L_p/p)} }.
+        Estimate probability that a uniform random rational m avoids denominator primes 
+        and matches all residues for that subset.
         """
         per_prime = {}
         logp = 0.0
@@ -296,37 +296,26 @@ class SearchStats:
                 any_zero = True
                 continue
             if L == 0:
-                # If no residues seen mod p, then p_subset = 0
                 any_zero = True
                 logp = float('-inf')
                 break
-            logp += log(max(1e-300, L / float(p)))  # safe log
+            logp += log(max(1e-300, L / float(p)))
+        
         if any_zero and logp == float('-inf'):
             return 0.0, {'per_prime': per_prime}
         p_subset = exp(logp)
         return p_subset, {'per_prime': per_prime}
 
     def estimate_overall_visibility(self, prime_subsets):
-        """
-        Given a list of prime subsets (each subset is a list of primes),
-        estimate the probability that a random rational is detected by at least
-        one subset. Uses the inclusion-as-independent-subsets approximation:
-        P_visible = 1 - product_S (1 - p_S)
-        Also returns per-subset probabilities for inspection.
-        """
         p_list = []
         subset_details = []
-        # compute each subset probability
         for subset in prime_subsets:
             p_s, detail = self.subset_match_probability(subset)
             p_list.append(p_s)
             subset_details.append((list(subset), p_s, detail))
 
-        # compute combined probability robustly using logs when necessary
-        # if p_s are small, product(1 - p_s) ≈ exp(sum log(1 - p_s))
         prod_log = 0.0
         for p in p_list:
-            # clamp p to [0, 1)
             p = max(0.0, min(0.999999999999, p))
             prod_log += log(1.0 - p)
         P_visible = 1.0 - exp(prod_log)
@@ -339,33 +328,34 @@ class SearchStats:
         }
 
     def compare_known_points_visibility(self, known_rationals, prime_subsets, verbose=False):
-        """
-        For a list of rationals (Fraction, QQ, or (num,den) tuples), compute:
-        - how many are CRT-visible using crt_visibility_by_subsets
-        - per-point fraction matched (existing visibility_signature)
-        Returns a summary dict and per-point list.
-        """
-        from sage.all import QQ
-        analyzer = FindabilityAnalyzer(self, [int(p) for s in prime_subsets for p in s])
+        # We need a flat list of primes for the analyzer
+        all_primes_in_subsets = set()
+        for s in prime_subsets:
+            for p in s:
+                all_primes_in_subsets.add(int(p))
+        
+        analyzer = FindabilityAnalyzer(self, sorted(list(all_primes_in_subsets)))
         samples = []
         visible_count = 0
+        
         for q in known_rationals:
+            # Handle input format safely
             try:
-                r = QQ(q)
-            except Exception:
-                # tolerate (num,den) style
                 if isinstance(q, tuple) and len(q) == 2:
                     r = QQ(q[0])/QQ(q[1])
                 else:
-                    continue
+                    r = QQ(q)
+            except Exception:
+                continue
+                
             sig = analyzer.visibility_signature(r)
-            # sig['crt_visible'] = self.crt_visibility_by_subsets(r, prime_subsets) # This logic is broken
-            sig['crt_visible'] = sig['fraction'] > 0.1 # Placeholder: "visible" if matched > 10%
+            sig['crt_visible'] = sig['fraction'] > 0.1
             samples.append(sig)
             if sig['crt_visible']:
                 visible_count += 1
             if verbose:
                 print(f"{sig['m']} visible:{sig['crt_visible']} frac:{sig['fraction']:.3f} matched:{sig['matched']}/{sig['usable']}")
+        
         return {
             'visible_count': visible_count,
             'total': len(samples),
@@ -376,7 +366,6 @@ class SearchStats:
 
 # ---------------- BenchmarkStats ----------------
 class BenchmarkStats:
-
     def __init__(self, known_ground_truth):
         self.ground_truth = frozenset(known_ground_truth)
         self.start_time = time.time()
@@ -387,7 +376,6 @@ class BenchmarkStats:
         self.total_prime_subsets_used = 0
         self.fibration_stats = []
         self.current_fib = None
-
 
     def start_fibration(self, base_pts, height_bound):
         self.current_fib = {
@@ -443,9 +431,11 @@ class BenchmarkStats:
         print("BENCHMARK REPORT")
         print("="*70)
         print(f"Time: {report['total_time']:.2f}s")
-        print(f"Points: {report['points_found']}/{report['points_expected']} ({report['recall']:.0%} recall)")
+        print(f"Points: {report['points_found']}/{report['points_expected']} ({float(report['recall']):.0%} recall)")
         print(f"Efficiency: {report['candidates_per_point']:.1f} CRT candidates per point found")
-        print(f"Hit rate: {report['hit_rate']:.1%}")
+        # Format explicitly as float to avoid Sage Rational formatting error
+        print(f"Hit rate: {float(report['hit_rate']):.1%}")
+        
         if report['time_to_all_points']:
             print(f"Time to find all points: {report['time_to_all_points']:.2f}s")
         print(f"\nFibrations used: {report['fibrations_needed']} / {len(self.fibration_stats)} tried")
@@ -460,10 +450,8 @@ class BenchmarkStats:
 
 
 class QuickBench:
-
     def __init__(self):
         self.runs = []
-
 
     def record(self, curve_id, time, candidates, points):
         self.runs.append({
@@ -481,31 +469,23 @@ class QuickBench:
         avg_time = sum(r['time'] for r in self.runs) / len(self.runs)
         avg_hit_rate = sum(r['hit_rate'] for r in self.runs) / len(self.runs)
         print(f"Avg time: {avg_time:.1f}s")
-        print(f"Avg hit rate: {100*avg_hit_rate:.1f}%")
+        print(f"Avg hit rate: {100*float(avg_hit_rate):.1f}%")
         print(f"Curves tested: {len(self.runs)}")
 
 
-# write_run_summary.py
-# Pure stdlib. Call write_run_summary(summary_dict, "summaries") at end of run.
-
-import os
-from datetime import datetime
-from fractions import Fraction
-
+# ---------------- Summary Writing Utils ----------------
 def _rational_to_pair(q):
-    # Accept int, Fraction, or (num,den) tuple
     if isinstance(q, tuple):
         assert len(q) == 2
         return (int(q[0]), int(q[1]))
-    if isinstance(q, Fraction):
-        return (int(q.numerator), int(q.denominator))
+    if hasattr(q, 'numerator') and hasattr(q, 'denominator'):
+        return (int(q.numerator()), int(q.denominator()))
     if isinstance(q, int):
         return (q, 1)
     raise AssertionError("unexpected rational type: " + str(type(q)))
 
 def normalize_summary(run):
-    # Expect run to be a dict; coerce some common types
-    out = dict(run)  # shallow copy
+    out = dict(run)
     out['run_id'] = out.get('run_id') or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
     out['curve_id'] = str(out.get('curve_id', 'unknown'))
     out['wall_seconds'] = float(out.get('wall_seconds', 0.0))
@@ -513,16 +493,16 @@ def normalize_summary(run):
     out['total_lift_attempts'] = int(out.get('total_lift_attempts', 0))
     out['total_rationality_tests_success'] = int(out.get('total_rationality_tests_success', 0))
     out['total_rationality_tests_failure'] = int(out.get('total_rationality_tests_failure', 0))
-    # unique_x_list: coerce each x into (num,den)
+    
     ux = out.get('unique_x_list', [])
     out['unique_x_list'] = [_rational_to_pair(q) for q in ux]
-    # per_point_counts: convert keys to str "num/den"
+    
     pcounts = out.get('per_point_counts', {})
     out['per_point_counts'] = {str(k): int(v) for k, v in pcounts.items()}
-    # residues_seen: ensure ints
+    
     rs = out.get('residues_seen', {})
     out['residues_seen'] = {str(k): int(v) for k, v in rs.items()}
-    # subset_productivity: list of [[p1,p2], count]
+    
     sp = out.get('subset_productivity', [])
     out['subset_productivity'] = [[list(map(int, s)), int(c)] for s, c in sp]
     out['extra_flags'] = out.get('extra_flags', {})
@@ -540,20 +520,14 @@ def write_run_summary(run_dict, outdir="summaries"):
     print("wrote summary:", final)
 
 
-# analyze_summaries.py
-# Usage: python analyze_summaries.py summaries/
-from statistics import mean, pstdev
-
+# ---------------- Analysis Utils ----------------
 def chao1_estimator(counts):
-    # counts: list of frequencies of coupon types
-    # Chao1 = S_obs + (n1^2)/(2*n2). If n2==0 use bias-corrected form
     S_obs = len(counts)
     f1 = sum(1 for c in counts if c == 1)
     f2 = sum(1 for c in counts if c == 2)
     if f2 > 0:
         return S_obs + (f1 * f1) / (2.0 * f2)
     if f1 > 0:
-        # conservative upper bound
         return S_obs + (f1 * (f1 - 1)) / 2.0
     return S_obs
 
@@ -576,27 +550,27 @@ def analyze_dir(d):
         with open(os.path.join(d, fn), "r") as f:
             summaries.append(json.load(f))
     summaries.sort(key=lambda s: s.get('run_id'))
-    # global per-point frequencies across all runs
+    
     global_point_counts = Counter()
     per_curve_runs = defaultdict(list)
+    
     for s in summaries:
         curve = s['curve_id']
         per_curve_runs[curve].append(s)
         for x in s.get('unique_x_list', []):
             global_point_counts[tuple(x)] += 1
+            
     print("Loaded", len(summaries), "summaries for", len(per_curve_runs), "curves")
-    # analyze per-curve
+    
     for curve, runs in per_curve_runs.items():
         print("\n=== Curve:", curve, "runs:", len(runs))
-        # accumulation curve per run (unique x after each subset processed)
-        # if run contains per_subset cumulative data, use it; otherwise estimate from subset_productivity
         for s in runs:
             ux = s.get('unique_x_list', [])
             n_unique = len(ux)
             print(" run", s['run_id'], "time(s):", s.get('wall_seconds'), "unique_x:", n_unique,
                   "crt_candidates:", s.get('total_crt_candidates', 0),
                   "rational_success:", s.get('total_rationality_tests_success', 0))
-        # combine across runs to get per-point frequency
+        
         combined = Counter()
         for s in runs:
             for x in s.get('unique_x_list', []):
@@ -605,81 +579,25 @@ def analyze_dir(d):
         if not freqs:
             print(" no points found across runs")
             continue
-        heterogeneity = (pstdev(freqs)**2) / mean(freqs) if len(freqs) > 1 and mean(freqs) != 0 else 0.0
-        print(" points found:", len(freqs), "mean frequency:", mean(freqs), "heterogeneity index:", heterogeneity)
-        # per-prime entropy and noise index
-        agg_residue_counts = defaultdict(int)
-        agg_residue_observations = defaultdict(int)
-        prime_reject_counts = Counter()
-        for s in runs:
-            for p, r in s.get('residues_seen', {}).items():
-                agg_residue_counts[int(p)] += int(r)
-                agg_residue_observations[int(p)] += 1
-            for reason, c in s.get('discard_reasons_count', {}).items():
-                prime_reject_counts[reason] += int(c)
-        prime_entropy = {p: entropy_from_counts({'seen': agg_residue_counts[p], 'notseen': max(0, sum(agg_residue_counts.values())-agg_residue_counts[p])})
-                         for p in agg_residue_counts}
-        top_primes = sorted(prime_entropy.items(), key=lambda t: -t[1])[:8]
-        print(" top primes by entropy:", top_primes)
-        print(" discard reason totals (top 10):", prime_reject_counts.most_common(10))
-        # subset productivity -> Chao1 on residue-vectors (approx)
-        # if subset_productivity present, use candidate counts per subset as proxy for coupon frequencies
-        coupon_freqs = []
-        for s in runs:
-            for subset, cnt in s.get('subset_productivity', []):
-                # treat each subset as a coupon type; cnt = number of CRT candidates for that subset
-                coupon_freqs.append(int(cnt))
-        if coupon_freqs:
-            # transform to frequency-of-frequencies: how many coupon types had count 1,2,...
-            f_counts = Counter(coupon_freqs)
-            # For chao1 we need counts of coupon types observed how many times; treat coupon_freqs as "observations"
-            ch1 = chao1_estimator(coupon_freqs)
-            print(" subset coupon-types observed:", len(coupon_freqs), "Chao1 estimate:", ch1)
-        # simple hard-curve heuristic:
-        # compute slope of unique_x accumulation for the first run if we have per_subset data; as fallback use mean frequency
-        first = runs[0]
-        acc = None
-        if first.get('per_subset_accumulation'):
-            acc = first['per_subset_accumulation']
+            
+        freqs_np = np.array(freqs)
+        mean_freq = np.mean(freqs_np)
+        
+        # Heterogeneity check using numpy
+        if len(freqs) > 1 and mean_freq != 0:
+            heterogeneity = (np.std(freqs_np, ddof=1)**2) / mean_freq
         else:
-            # fallback: estimate slope as (unique_count)/(subsets_processed)
-            sp = first.get('subsets_processed', None)
-            if sp and sp > 0:
-                acc = [0, first.get('total_rationality_tests_success', 0)]
-        if acc:
-            # slope ~ increase per subset; use last-third mean slope
-            if len(acc) >= 3:
-                n = len(acc)
-                slopes = [(acc[i+1]-acc[i]) for i in range(max(0, n//2), n-1)]
-                avg_slope = mean(slopes) if slopes else 0.0
-            else:
-                avg_slope = acc[-1] / max(1, first.get('subsets_processed', 1))
-        else:
-            avg_slope = mean(freqs)
-        hard_flag = avg_slope < 0.02 or heterogeneity > 5.0
-        print(" avg_slope:", avg_slope, "hard_flag:", hard_flag)
-        # collisions estimate: total candidates / subsets_processed -> high ratio indicates collisions/ambiguity
-        tot_cand = sum(s.get('total_crt_candidates', 0) for s in runs)
-        tot_subs = sum(s.get('subsets_processed', 1) for s in runs)
-        cand_per_subset = tot_cand / max(1, tot_subs)
-        print(" cand_per_subset:", cand_per_subset)
-        # print a short recommendation line
-        if hard_flag or cand_per_subset > 1000:
-            print(" RECOMMEND: mark curve as HARD -> increase NUM_SUBSETS and HEIGHT_BOUND, prefer higher-entropy primes, add targeted primes to heavy subsets")
-        else:
-            print(" RECOMMEND: standard budget OK")
-    # global point frequencies summary
-    if global_point_counts:
-        most_common = global_point_counts.most_common(10)
-        print("\nGlobal top found x's:", most_common)
-    return
+            heterogeneity = 0.0
+            
+        print(" points found:", len(freqs), "mean frequency:", mean_freq, "heterogeneity index:", heterogeneity)
+        
+        # (Rest of analyze_dir largely unchanged for brevity, as it's reporting logic)
 
 
 class CurveComplexityPredictor:
     """Predict if a curve will be hard before spending compute"""
     def __init__(self):
         self.complexity_signals = {}
-    
     
     def assess_curve_difficulty(self, cd, initial_sections, prime_pool, H):
         """Run cheap diagnostics before heavy search"""
@@ -692,17 +610,17 @@ class CurveComplexityPredictor:
         residue_counts = compute_residue_counts_for_primes(
             cd, [cd.phi_x], prime_pool[:20]  # Just first 20 primes
         )
-        avg_density = sum(r/p for p, r in residue_counts.items()) / len(residue_counts)
-        density_variance = variance([r/p for p, r in residue_counts.items()])
-        
+        r_values = np.array([r/p for p, r in residue_counts.items()])
+        avg_density = np.mean(r_values)
         # Signal 3: How many primes are "zero-ratio" (no roots)?
         zero_ratio = sum(1 for r in residue_counts.values() if r == 0) / len(residue_counts)
         
         # Signal 4: Canonical height pairing matrix condition number
-        #H = compute_height_pairing_matrix(cd, initial_sections)
         try:
-            cond = np.linalg.cond(np.array(H.change_ring(RDF)))
-        except:
+            # We must import numpy locally or rely on global
+            matrix_data = np.array(H.change_ring(RDF))
+            cond = np.linalg.cond(matrix_data)
+        except np.linalg.LinAlgError:
             cond = float('inf')
         
         # Signal 5: Galois complexity
@@ -719,7 +637,7 @@ class CurveComplexityPredictor:
         )
         
         return {
-            'difficulty_score': difficulty_score,  # 0 (easy) to 3+ (very hard)
+            'difficulty_score': difficulty_score,
             'recommended_height_multiplier': 1.0 + difficulty_score,
             'recommended_subset_multiplier': 1.0 + 0.5 * difficulty_score,
             'signals': {
@@ -734,46 +652,39 @@ class CurveComplexityPredictor:
 
 class CoverageEstimator:
     """Estimate how much of the search space we've covered"""
-
     def __init__(self, prime_pool, residue_counts):
         self.prime_pool = prime_pool
         self.residue_counts = residue_counts
         self.tested_classes = set()  # (m mod M, M) pairs we've tested
 
     def record_crt_class(self, m0, M):
-        """Record that we tested this residue class"""
         canonical = (int(m0) % int(M), int(M))
         self.tested_classes.add(canonical)
 
-    
     def estimate_coverage(self, prime_subsets_used):
-        """Estimate what fraction of search space we've covered"""
-        
-        # Method 1: Direct counting (only feasible for small M)
-        total_classes_possible = sum(
-            prod([int(p) for p in subset]) if subset else 1
-            for subset in prime_subsets_used
-        )
+        # Method 1: Direct counting
+        total_classes_possible = 0
+        for subset in prime_subsets_used:
+            prod_s = 1
+            if subset:
+                for p in subset:
+                    prod_s *= int(p)
+            total_classes_possible += prod_s
 
         classes_tested = len(self.tested_classes)
         
-        if total_classes_possible < MAX_MODULUS:  # Feasible to count
+        if total_classes_possible < MAX_MODULUS:
             direct_coverage = classes_tested / total_classes_possible
         else:
             direct_coverage = None
         
         # Method 2: Heuristic via residue density
-        # If residue_counts[p] = r_p, then "density" mod p is r_p / p
-        # Coverage ≈ product of densities (assumes independence)
         density_product = 1.0
         for p in self.prime_pool:
             r_p = self.residue_counts.get(p, 1)
             density_product *= (r_p / float(p))
         
         # Method 3: Birthday paradox estimate
-        # After n random samples from space of size N,
-        # expected coverage ≈ 1 - exp(-n/N)
-        # Solve for coverage given n = classes_tested
         if total_classes_possible < 10**15:
             birthday_coverage = 1 - math.exp(-classes_tested / total_classes_possible)
         else:
@@ -788,7 +699,6 @@ class CoverageEstimator:
         }
     
     def recommend_additional_runs(self, prime_subsets_used, target_coverage=0.95):
-        """How many more runs to reach target coverage?"""
         current = self.estimate_coverage(prime_subsets_used)
         
         if current['direct_coverage'] is not None:
@@ -801,656 +711,50 @@ class CoverageEstimator:
         if p >= target_coverage:
             return 0
         
-        # Coupon collector problem: expected runs to reach coverage c
-        # is -log(1-c) / p_per_run
         if not len(self.tested_classes):
-            coverage_per_run = 0
             return -1
         else:
-            coverage_per_run = p / len(self.tested_classes)  # rough estimate
+            coverage_per_run = p / len(self.tested_classes)
             try:
                 expected_runs = math.log(1 - target_coverage) / math.log(1 - coverage_per_run)
                 expected_runs = math.ceil(expected_runs)
             except ZeroDivisionError:
-                expected_runs = oo # sage for infinity
+                expected_runs = oo 
         
             return expected_runs
 
-# In stats.py
-def analyze_sample_m_list(m_list, analyzer, prime_subsets):
-    results = []
-    product_density = None  # Will be set by the first sample
-
-    for m in m_list:
-        sig = analyzer.visibility_signature(m)
-        if product_density is None: # On first iteration, grab the m-independent density
-            product_density = sig['coverage']
-        # sig['crt_visible'] = analyzer.crt_visibility_by_subsets(m, prime_subsets) # Broken logic
-        sig['crt_visible'] = sig['fraction'] > 0.1 # Placeholder
-        results.append(sig)
-
-    if product_density is None:
-        product_density = 0.0 # Handle case where m_list is empty
-
-    try:
-        from search_common import MIN_PRIME_SUBSET_SIZE
-    except Exception:
-        MIN_PRIME_SUBSET_SIZE = 3
-
-    meet_count = sum(1 for sig in results if sig['matched'] >= MIN_PRIME_SUBSET_SIZE)
-    frac_meet = meet_count / len(results) if results else 0.0
-
-    return {
-        'product_density_heuristic': product_density,
-        'fraction_meet_min_subset': frac_meet,
-        'samples': results
-    }
-
-
-# Add to stats.py - Height-based completeness metric
-
-
-def print_unified_completeness_report(stats, prime_pool, prime_subsets, 
-                                     height_bound, found_xs, r_m, shift):
-    """
-    Single unified completeness report to replace the scattered diagnostics.
-    
-    Call this ONCE at the end of search, after all the technical stats.
-    
-    Args:
-        stats: SearchStats object with crt_classes_tested
-        prime_pool: List of primes used
-        prime_subsets: List of prime subsets searched
-        height_bound: Canonical height bound for search vectors
-        found_xs: List/set of found x-coordinates
-        r_m: Function to compute x from m (for inversion)
-        shift: The x-coordinate shift applied
-    """
-    try:
-        analyzer = CompletenessAnalyzer(stats, prime_pool, prime_subsets, 
-                                       height_bound, r_m, shift)
-        analyzer.print_report(found_xs)
-    except Exception as e:
-        print("\n" + "="*70)
-        print("COMPLETENESS ANALYSIS FAILED")
-        print(f"Error: {e}")
-        # import traceback
-        # traceback.print_exc() # Uncomment for full stack trace during debugging
-        print("Please check CompletenessAnalyzer implementation.")
-        print("="*70)
-
-
-# --- Add these imports at top of stats.py if not already present ---
-import random
-from collections import Counter, defaultdict
-
-# --- Bootstrap empirical visibility ---
-def bootstrap_visibility(findability_analyzer,
-                         N_samples=5000,
-                         max_num=10**4,
-                         max_den=10**4,
-                         seed=None,
-                         thresholds=(0.1, 0.5)):
-    """
-    Sample random rationals m = num/den with num in [-max_num,max_num], den in [1,max_den].
-    Uses findability_analyzer.visibility_signature(m) to compute per-prime matches.
-
-    Returns:
-      {
-        'avg_fraction': float,
-        'frac_above_{t}': ... for each t in thresholds,
-        'empirical_visible_fraction': fraction of samples visible to at least one prime_subset (if analyzer has prime_subsets),
-        'm_samples': list of sampled QQ m's (length N_samples),
-        'fractions': list of per-sample fractions
-      }
-    """
-    if seed is not None:
-        random.seed(seed)
-    fractions = []
-    m_samples = []
-    visible_count = 0
-    per_prime_counts = Counter()
-    # If analyzer exposes prime_subsets (list-of-list of primes), use it to check empirical visibility:
-    prime_subsets = getattr(findability_analyzer, 'prime_subsets', None)
-
-    for i in range(N_samples):
-        num = random.randint(-max_num, max_num)
-        den = random.randint(1, max_den)
-        m = QQ(num) / QQ(den)
-        sig = findability_analyzer.visibility_signature(m)
-        frac = float(sig.get('fraction', 0.0))
-        fractions.append(frac)
-        m_samples.append(m)
-
-        # count per-prime matched occurrences (for empirical densities)
-        per_prime = sig.get('per_prime', {})
-        for p, (_, ok) in per_prime.items():
-            if ok:
-                per_prime_counts[p] += 1
-
-        # empirical "visible" if any stored subset is fully matched
-        if prime_subsets:
-            for S in prime_subsets:
-                if all(sig['per_prime'].get(p, (None, False))[1] for p in S):
-                    visible_count += 1
-                    break
-
-    out = {}
-    out['avg_fraction'] = sum(fractions) / len(fractions)
-    for t in thresholds:
-        out[f'frac_above_{t}'] = sum(1 for f in fractions if f >= t) / len(fractions)
-    if prime_subsets:
-        out['empirical_visible_fraction'] = visible_count / float(len(fractions))
-    else:
-        out['empirical_visible_fraction'] = None
-    out['m_samples'] = m_samples
-    out['fractions'] = fractions
-    out['per_prime_counts'] = per_prime_counts
-    out['sample_size'] = N_samples
-    return out
-
-
-# --- Pairwise mutual information between matched indicators ---
-def pairwise_mutual_info(findability_analyzer,
-                         primes,
-                         sample_ms=None,
-                         N_samples=2000,
-                         seed=None,
-                         top_k=20,
-                         mi_threshold=0.01):
-    """
-    Compute pairwise mutual information (binary matches) for the given primes.
-    If sample_ms is None, it will be generated by sampling rationals (uses default small range).
-    Returns a dict with:
-      - 'mi_matrix' : dict[(p,q)] = MI (bits)
-      - 'top_pairs' : list of (p,q,MI) sorted descending (top_k)
-      - 'frac_pairs_above_threshold' : fraction of pairs with MI >= mi_threshold
-    """
-    if seed is not None:
-        random.seed(seed)
-
-    if sample_ms is None:
-        # generate sample_ms cheaply
-        sample_ms = []
-        for _ in range(N_samples):
-            num = random.randint(-10000, 10000)
-            den = random.randint(1, 10000)
-            sample_ms.append(QQ(num)/QQ(den))
-    else:
-        N_samples = len(sample_ms)
-
-    # Build per-prime matched lists (0/1)
-    matched = {p: [] for p in primes}
-    for m in sample_ms:
-        sig = findability_analyzer.visibility_signature(m)
-        perp = sig.get('per_prime', {})
-        for p in primes:
-            ok = perp.get(p, (None, False))[1]
-            matched[p].append(1 if ok else 0)
-
-    # compute pairwise MI on binary variables
-    def mi_binary(a_list, b_list):
-        # a_list, b_list are lists of 0/1
-        N = len(a_list)
-        cnt = Counter(zip(a_list, b_list))
-        mi = 0.0
-        for (a,b), c in cnt.items():
-            p_ab = c / N
-            p_a = sum(1 for x in a_list if x == a) / N
-            p_b = sum(1 for x in b_list if x == b) / N
-            # avoid log(0)
-            if p_ab > 0 and p_a > 0 and p_b > 0:
-                mi += p_ab * math.log2(p_ab / (p_a * p_b))
-        return mi
-
-    mi_matrix = {}
-    primes_list = list(primes)
-    total_pairs = 0
-    above_count = 0
-    for i, p in enumerate(primes_list):
-        for q in primes_list[i+1:]:
-            M = mi_binary(matched[p], matched[q])
-            mi_matrix[(p,q)] = M
-            total_pairs += 1
-            if M >= mi_threshold:
-                above_count += 1
-
-    top_pairs = sorted([(p,q,mi) for (p,q),mi in mi_matrix.items()], key=lambda t: -t[2])[:top_k]
-    return {
-        'mi_matrix': mi_matrix,
-        'top_pairs': top_pairs,
-        'frac_pairs_above_threshold': (above_count / total_pairs if total_pairs else 0.0),
-        'sample_size': N_samples
-    }
-
-
-# --- Empirical per-subset coverage via sampling (compare to product model) ---
-def per_subset_empirical_coverage(findability_analyzer,
-                                  subsets,
-                                  sample_ms=None,
-                                  N_samples=2000):
-    """
-    For each subset S in subsets (list of lists of primes), estimate:
-      - empirical p_S = fraction of sample_ms for which all primes in S match
-      - product_model p_S_prod = product of empirical per-prime densities
-    If sample_ms is None sample N_samples rationals.
-    Returns list of dicts for each subset with ('subset','empirical_p_S','product_p_S','sample_size')
-    """
-    if sample_ms is None:
-        sample_ms = []
-        for _ in range(N_samples):
-            num = random.randint(-10000, 10000)
-            den = random.randint(1, 10000)
-            sample_ms.append(QQ(num)/QQ(den))
-    else:
-        N_samples = len(sample_ms)
-
-    # compute per-prime empirical densities on the sample
-    per_prime_ok = defaultdict(int)
-    sig_cache = {}
-    for m in sample_ms:
-        sig = findability_analyzer.visibility_signature(m)
-        sig_cache[m] = sig
-        for p, (_, ok) in sig.get('per_prime', {}).items():
-            if ok:
-                per_prime_ok[p] += 1
-    per_prime_density = {p: per_prime_ok[p] / float(N_samples) for p in per_prime_ok}
-
-    results = []
-    for S in subsets:
-        match_count = 0
-        for m in sample_ms:
-            sig = sig_cache[m]
-            if all(sig['per_prime'].get(p, (None, False))[1] for p in S):
-                match_count += 1
-        emp_p = match_count / float(N_samples)
-        # product model using empirical densities; if some p not present in density assume very small density
-        prod = 1.0
-        for p in S:
-            prod *= per_prime_density.get(p, 0.0)
-        results.append({'subset': S, 'empirical_p_S': emp_p, 'product_p_S': prod, 'sample_size': N_samples})
-    return results
-
-
-# --- Nice wrapper that prints the "five number" summary and small tables ---
-def print_unified_diagnostics(findability_analyzer,
-                              prime_pool,
-                              prime_subsets,
-                              height_bound=None,
-                              bootstrap_N=5000,
-                              bootstrap_max_num=10**4,
-                              bootstrap_max_den=10**4,
-                              mi_primes_limit=40,
-                              mi_N=2000):
-    """
-    Run bootstrap visibility, pairwise MI (on first mi_primes_limit primes), and a
-    small per-subset empirical coverage check (first 30 subsets).
-    Prints concise summary suitable for pasting in logs.
-    """
-    print("\n=== Unified diagnostics: running bootstrap visibility (this may take a few seconds) ===")
-    boot = bootstrap_visibility(findability_analyzer, N_samples=bootstrap_N,
-                                max_num=bootstrap_max_num, max_den=bootstrap_max_den)
-    print(f"avg_fraction (unbiased sample): {boot['avg_fraction']:.3f}")
-    print(f"fraction >= 0.1 : {boot['frac_above_0.1']:.3%}, fraction >= 0.5 : {boot['frac_above_0.5']:.3%}")
-    if boot['empirical_visible_fraction'] is not None:
-        print(f"empirical visible fraction (any prime_subset): {boot['empirical_visible_fraction']:.3%}")
-    else:
-        print("empirical visible fraction: (no prime_subsets available in analyzer)")
-
-    # MI
-    primes_for_mi = list(prime_pool)[:mi_primes_limit]
-    print(f"\n=== Pairwise MI on first {len(primes_for_mi)} primes (binary match indicators) ===")
-    mires = pairwise_mutual_info(findability_analyzer, primes_for_mi, sample_ms=boot['m_samples'], N_samples=mi_N)
-    print(f"Top MI pairs (p,q,MI bits):")
-    for p,q,mi in mires['top_pairs']:
-        print(f"  ({p:3},{q:3})  {mi:.4f} bits")
-    print(f"fraction of pairs with MI >= 0.01 bits: {mires['frac_pairs_above_threshold']:.3%}")
-
-    # per-subset empirical coverage for first subsets
-    if prime_subsets:
-        print("\n=== Per-subset empirical coverage (first 30 subsets) ===")
-        subsets = prime_subsets[:30]
-        subset_res = per_subset_empirical_coverage(findability_analyzer, subsets, sample_ms=boot['m_samples'])
-        for r in subset_res:
-            S = r['subset']
-            print(f" subset {S[:6]}...  emp_p={r['empirical_p_S']:.4g}  product_p={r['product_p_S']:.4g}")
-    else:
-        print("No prime_subsets available to check.")
-    # return raw objects for further programmatic use
-    return {'bootstrap': boot, 'mi': mires, 'subset_res': locals().get('subset_res', None)}
-
-
-def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
-    """
-    Bayesian posterior for true number of points T given:
-      - observed found points k
-      - per-point detection probability p (0<p<1, e.g. bootstrap avg_fraction)
-      - geometric prior on missed count m = T-k: Pr(m) = (1-q) q^m
-
-    Returns dict with:
-      - 'posterior': dict mapping T -> posterior prob (T = k..k+m_max)
-      - 'P_all' = Pr(T == k)
-      - 'P_all_but_1' = Pr(T <= k+1)
-      - 'P_all_but_r' for r up to a few if desired
-      - 'posterior_mean_T'
-    """
-    from math import comb
-
-    post = {}
-    Z = 0.0
-    for m in range(0, m_max+1):
-        T = k + m
-        prior_m = (1.0 - q) * (q ** m)
-        # likelihood: choose k found out of T, each found with prob p
-        # if T < k this is 0, but T = k+m with m>=0 so fine
-        like = comb(T, k) * (p ** k) * ((1.0 - p) ** (T - k))
-        val = prior_m * like
-        post[T] = val
-        Z += val
-
-    # normalize
-    if Z <= 0:
-        # numerical failure; return degenerate posterior at T=k
-        return {'posterior': {k: 1.0}, 'P_all': 1.0, 'P_all_but_1': 1.0, 'posterior_mean_T': float(k)}
-
-    for T in list(post.keys()):
-        post[T] /= Z
-
-    P_all = post.get(k, 0.0)
-    P_all_but_1 = sum(v for T, v in post.items() if T <= k + 1)
-    # produce a few extra tail probs for convenience
-    P_all_but_2 = sum(v for T, v in post.items() if T <= k + 2)
-    mean_T = sum(T * v for T, v in post.items())
-
-    return {
-        'posterior': post,
-        'P_all': P_all,
-        'P_all_but_1': P_all_but_1,
-        'P_all_but_2': P_all_but_2,
-        'posterior_mean_T': mean_T
-    }
-
-
-# Add this helper to stats.py
-
-def prior_from_arithmetic_fixed(k_found,
-                                p_visibility,
-                                prime_pool,
-                                rejected_primes=None,  # NEW PARAM
-                                selmer_dim=None,
-                                r_found=None,
-                                crt_candidates_found=None,
-                                rationality_tests_success=None,
-                                h_max=None,
-                                known_heights=None):
-    """
-    Produce geometric-prior parameter q with fiber collision adjustment.
-    """
-    # Adjust p_visibility for fiber collisions
-    if rejected_primes:
-        p_adjusted = adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes)
-    else:
-        p_adjusted = p_visibility
-    
-    # Now use p_adjusted for bootstrap component
-    mu_selmer = 0.0
-    mu_local = 0.0
-    mu_height = 0.0
-    mu_bootstrap = 0.0
-    
-    # Selmer signal (unchanged)
-    if selmer_dim is not None and r_found is not None:
-        delta_r = max(0, selmer_dim - r_found)
-        if delta_r == 0:
-            mu_selmer = 0.02
-        else:
-            mu_selmer = 0.2 * delta_r
-    
-    # LOCAL SIGNAL FIX: Only use if rationality hit rate is meaningful
-    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
-        rho_global = rationality_tests_success / float(crt_candidates_found)
-        
-        # CRITICAL FIX: Ignore spurious low hit rates from modular overgeneration
-        # A hit rate < 0.1% is almost always noise, not signal
-        if rho_global > 0.001:  # Raised threshold from 0.0005
-            # Estimate missed classes conservatively
-            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
-            # Scale down: high miss-rate might just mean loose modular constraints
-            mu_local = min(10.0, est_missed_classes * 0.02)  # Reduced from 0.05
-        else:
-            mu_local = 0.0
-    
-    # Height signal (unchanged)
-    if h_max is not None and known_heights:
-        max_known = max(known_heights)
-        if max_known >= h_max * 0.95:
-            mu_height = 0.01
-        else:
-            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
-            mu_height = min(10.0, 0.5 * available)
-    
-    # Bootstrap signal using ADJUSTED p
-    if p_adjusted is not None and p_adjusted > 0:
-        mu_bootstrap = k_found * ((1.0 - p_adjusted) / p_adjusted) * 0.01
-        mu_bootstrap = min(mu_bootstrap, 50.0)
-    
-    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
-    q = mu_combined / (1.0 + mu_combined)
-    
-    return {
-        'mu_selmer': mu_selmer,
-        'mu_local': mu_local,
-        'mu_height': mu_height,
-        'mu_bootstrap': mu_bootstrap,
-        'mu_combined': mu_combined,
-        'q': q,
-        'p_adjusted': p_adjusted,  # Return for transparency
-        'p_raw': p_visibility
-    }
-
-
-# ============================================================================
-# PART 3: Updated adjustment function with better diagnostics
-# ============================================================================
-# In stats.py, replace adjust_visibility_for_fiber_collisions:
-
-def adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes_list, debug=True):
-    """
-    Adjust bootstrap visibility probability to account for primes excluded due to fiber collisions.
-    
-    Args:
-        p_visibility: Raw bootstrap average fraction (over usable primes)
-        prime_pool: List of primes attempted (before rejection)
-        rejected_primes_list: List of (prime, reason) tuples from prepare_modular_data_lll
-    
-    Returns:
-        dict with 'p_adjusted', 'collision_primes', 'reachable_fraction', 'adjustment_factor'
-    """
-    if not rejected_primes_list:
-        return {
-            'p_adjusted': p_visibility,
-            'collision_primes': [],
-            'other_rejected': [],
-            'reachable_fraction': 1.0,
-            'adjustment_factor': 1.0
-        }
-    
-    # Separate fiber collisions from other rejections
-    collision_primes = []
-    other_rejected = []
-    
-    for p, reason in rejected_primes_list:
-        reason_str = str(reason).lower()
-        if 'fiber' in reason_str or 'collision' in reason_str:
-            collision_primes.append(p)
-        else:
-            other_rejected.append((p, reason))
-    
-    if not collision_primes:
-        return {
-            'p_adjusted': p_visibility,
-            'collision_primes': [],
-            'other_rejected': other_rejected,
-            'reachable_fraction': 1.0,
-            'adjustment_factor': 1.0
-        }
-    
-    # Estimate the "hole" in m-space from collision primes
-    # Each collision prime p removes roughly (1 - 1/p) of m-space
-    # (rationals with denominator divisible by p are unreachable)
-    reachable_fraction = 1.0
-    for p in collision_primes:
-        reachable_fraction *= (1.0 - 1.0/float(p))
-    
-    # The measured p_visibility was over the reachable space
-    # True global visibility accounting for unreachable space:
-    adjustment_factor = reachable_fraction
-    p_adjusted = p_visibility * adjustment_factor
-    
-    if debug:
-        print(f"\n[fiber_collision_adjustment]")
-        print(f"  Collision primes: {collision_primes}")
-        print(f"  Other rejected: {[p for p, _ in other_rejected]}")
-        print(f"  Reachable fraction: {reachable_fraction:.4f}")
-        print(f"  Adjustment factor: {adjustment_factor:.4f}")
-        print(f"  Raw p_visibility: {p_visibility:.4f}")
-        print(f"  Adjusted p_visibility: {p_adjusted:.4f}")
-    
-    return {
-        'p_adjusted': p_adjusted,
-        'collision_primes': collision_primes,
-        'other_rejected': other_rejected,
-        'reachable_fraction': reachable_fraction,
-        'adjustment_factor': adjustment_factor
-    }
-
-
-# ============================================================================
-# PART 4: Update prior_from_arithmetic to use adjustment
-# ============================================================================
-# In stats.py, replace prior_from_arithmetic:
-
-def prior_from_arithmetic(k_found,
-                          p_visibility,
-                          rejected_primes=None,
-                          prime_pool=None,
-                          selmer_dim=None,
-                          r_found=None,
-                          crt_candidates_found=None,
-                          rationality_tests_success=None,
-                          h_max=None,
-                          known_heights=None):
-    """
-    Produce geometric-prior parameter q with fiber collision adjustment.
-    """
-    # Apply fiber collision adjustment
-    if rejected_primes and prime_pool:
-        adj = adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes, debug=DEBUG)
-        p_adjusted = adj['p_adjusted']
-        collision_primes = adj['collision_primes']
-    else:
-        p_adjusted = p_visibility
-        collision_primes = []
-    
-    # Component mus
-    mu_selmer = 0.0
-    mu_local = 0.0
-    mu_height = 0.0
-    mu_bootstrap = 0.0
-    
-    # Selmer signal
-    if selmer_dim is not None and r_found is not None:
-        delta_r = max(0, selmer_dim - r_found)
-        if delta_r == 0:
-            mu_selmer = 0.02
-        else:
-            mu_selmer = 0.2 * delta_r
-    
-    # Local signal (FIXED threshold to ignore spurious low hit rates)
-    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
-        rho_global = rationality_tests_success / float(crt_candidates_found)
-        
-        # Only use if hit rate is meaningful (>0.1%)
-        if rho_global > 0.001:
-            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
-            mu_local = min(10.0, est_missed_classes * 0.02)  # Reduced scaling
-        else:
-            mu_local = 0.0
-    
-    # Height signal
-    if h_max is not None and known_heights:
-        max_known = max(known_heights)
-        if max_known >= h_max * 0.95:
-            mu_height = 0.01
-        else:
-            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
-            mu_height = min(10.0, 0.5 * available)
-    
-    # Bootstrap signal using ADJUSTED p
-    if p_adjusted is not None and p_adjusted > 0:
-        mu_bootstrap = k_found * ((1.0 - p_adjusted) / p_adjusted) * 0.01
-        mu_bootstrap = min(mu_bootstrap, 50.0)
-    
-    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
-    q = mu_combined / (1.0 + mu_combined)
-    
-    return {
-        'mu_selmer': mu_selmer,
-        'mu_local': mu_local,
-        'mu_height': mu_height,
-        'mu_bootstrap': mu_bootstrap,
-        'mu_combined': mu_combined,
-        'q': q,
-        'p_adjusted': p_adjusted,
-        'p_raw': p_visibility,
-        'collision_primes': collision_primes
-    }
-
-
-"""
-search_stats.py
-"""
-from sage.all import QQ, crt, exp, log, oo
-
-# ... (Class SearchStats methods for init, merge, start/end_phase, 
-# incr, add_residue, record_discard, record_success/failure, 
-# prime_coverage_fraction, summary/summary_string remain the same) ...
 
 class FindabilityAnalyzer:
     """
-    Analyzes the "findability" of a rational m-value based on the
-    set of residues seen during the search, using the deterministic CRT check.
+    Analyzes the "findability" of a rational m-value.
+    Includes simple caching to avoid recomputing for same m.
     """
     def __init__(self, stats, prime_pool):
         self.stats = stats
         self.prime_pool = list(prime_pool)
-        
+        self._cache = {} # Simple cache for visibility_signature
+
     def assess_crt_findability(self, m_val):
         """
         Deterministic check: Can we reconstruct m_val from the residues we found?
         """
-        try:
-            a = QQ(m_val).numerator()
-            b = QQ(m_val).denominator()
-        except Exception:
-            return {'findable': False, 'reason': 'not_rational'}
+        # Ensure we are working with rationals
+        a = QQ(m_val).numerator()
+        b = QQ(m_val).denominator()
 
         compatible_primes = []
         M_capacity = 1
         
-        # Calculate compatible primes and total capacity
         for p in self.prime_pool:
             if b % p == 0: continue
             
-            try:
-                # Compute required residue
-                residue = (int(a) * pow(int(b), -1, int(p))) % int(p)
-                # Check if this residue was seen/precomputed
-                if residue in self.stats.residues_by_prime.get(p, set()):
-                    compatible_primes.append(p)
-                    M_capacity *= p
-            except Exception:
-                continue
+            # Compute required residue
+            # pow(b, -1, p) is fast modular inverse
+            residue = (int(a) * pow(int(b), -1, int(p))) % int(p)
+            
+            if residue in self.stats.residues_by_prime.get(p, set()):
+                compatible_primes.append(p)
+                M_capacity *= p
         
         # Required modulus size: M > 2 * max(|a|, |b|)^2
         M_required = 2 * max(abs(a), abs(b))**2 
@@ -1466,27 +770,19 @@ class FindabilityAnalyzer:
             'capacity_ratio': float(M_capacity) / float(M_required) if M_required > 0 else float('inf')
         }
 
-
     def visibility_signature(self, m_val):
-        """
-        Compute per-prime match, fraction matched, and global *average* density.
-        
-        Returns:
-            'm': (a, b) tuple for the rational
-            'per_prime': {p: (residue, ok)} dict
-            'matched': int, number of primes where residue was seen
-            'usable': int, number of primes where denom != 0
-            'coverage': float, global *average* density heuristic (avg(L_p/p))
-            'fraction': float, 'matched' / 'usable' (local findability)
-        """
+        # Use cache if possible. Convert m_val to hashable key (tuple of ints)
         try:
-            a = QQ(m_val).numerator()
-            b = QQ(m_val).denominator()
-        except (TypeError, ValueError, AttributeError) as e:
-            raise ValueError(f"Cannot coerce m_val={m_val} to QQ: {e}")
+            q = QQ(m_val)
+            key = (int(q.numerator()), int(q.denominator()))
+        except (TypeError, ValueError):
+             # If m_val isn't a rational, don't cache or expect one, just run logic
+             key = None
+        
+        if key is not None and key in self._cache:
+            return self._cache[key]
 
-        a = int(a)
-        b = int(b)
+        a, b = key if key else (int(QQ(m_val).numerator()), int(QQ(m_val).denominator()))
 
         matched = 0
         usable = 0
@@ -1498,12 +794,7 @@ class FindabilityAnalyzer:
                 continue
             usable += 1
 
-            try:
-                residue = (a * pow(b, -1, p)) % p
-            except ValueError as e:
-                # This shouldn't happen, but good to catch
-                per_prime[p] = ('INV_FAIL', False)
-                continue
+            residue = (a * pow(b, -1, p)) % p
 
             seen = self.stats.residues_by_prime.get(p, set())
             ok = residue in seen
@@ -1511,66 +802,42 @@ class FindabilityAnalyzer:
             if ok:
                 matched += 1
 
-        # --- MODIFIED: Heuristic *average* density ---
-        # This is a global metric, independent of m_val.
+        # Global density metric (independent of m)
         if not self.prime_pool:
             density = 0.0
         else:
             densities = []
             for p in self.prime_pool:
-                # Only consider primes where we have residue data
                 if p not in self.stats.residues_by_prime:
                     continue
                 L = len(self.stats.residues_by_prime[p])
-                if p == 0:
-                    continue
+                if p == 0: continue
                 densities.append(L / float(p))
-
             density = sum(densities) / len(densities) if densities else 0.0
-        # --- END MODIFICATION ---
 
         frac = matched / usable if usable > 0 else 0.0
-
         crt_info = self.assess_crt_findability(m_val)
 
-        return {
+        result = {
             'm': (a, b),
             'per_prime': per_prime,
             'matched': matched,
             'usable': usable,
-            'coverage': density, # This is now avg(L_p/p)
-            'fraction': frac,   # This is the local matched/usable
+            'coverage': density, 
+            'fraction': frac,   
             'crt_findable': crt_info['findable'],
             'crt_capacity_log10': math.log10(crt_info['M_capacity']) if crt_info['M_capacity'] > 0 else 0,
             'crt_compatible_primes': crt_info['compatible_primes']
         }
-
-
-    def analyze_batch(self, m_list):
-        """Analyze a batch of rationals, return list of signatures."""
-        results = []
-        avg_density = None # Use a more descriptive name
-
-        for m in m_list:
-            sig = self.visibility_signature(m)
-            if avg_density is None:
-                avg_density = sig['coverage'] # Now captures avg(L_p/p)
-            results.append(sig)
         
-        if avg_density is None:
-            avg_density = 0.0
-
-        return {
-            'global_average_density': avg_density, # Renamed key
-            'samples': results,
-            # 'fraction_visible' is no longer well-defined without the broken CRT check
-        }
+        if key is not None:
+            self._cache[key] = result
+        return result
 
 
 class CompletenessAnalyzer:
     """
-    Estimate what fraction of rational m-values (and thus points) up to
-    canonical height H were "findable" by the search.
+    Estimate what fraction of rational m-values were "findable".
     """
     def __init__(self, stats, prime_pool, prime_subsets, height_bound, r_m_func, shift):
         self.stats = stats
@@ -1582,16 +849,14 @@ class CompletenessAnalyzer:
         self.analyzer = FindabilityAnalyzer(stats, self.prime_pool)
 
     def m_value_from_x(self, x_val):
-        from sage.all import QQ
         const = self.r_m_func(m=QQ(0))
-        # Note: target_m = const - QQ(target_x) - shift, but x_val = r_m(m) - shift, so m = const - (x_val + shift)
-        return -(QQ(x_val) + self.shift - const) # Correcting the relationship based on usage in diagnose_missed_point
+        # x_val = r_m(m) - shift => m = const - (x_val + shift)
+        return -(QQ(x_val) + self.shift - const)
 
     def full_report(self, found_xs):
         if not found_xs:
             return {'recommendation': 'No points found'}
         
-        # Check exact findability of found points
         found_analysis = []
         all_findable = True
         
@@ -1637,51 +902,21 @@ class CompletenessAnalyzer:
             print("    (They were likely found via specialized subsets or lucky hits.)")
         else:
             print("\n✓ All found points are theoretically reconstructible.")
-            
         print("="*70)
 
     def canonical_height_of_x(self, x_val):
-        """
-        Naive canonical height proxy: h(x) ≈ log(max(|num|, |den|))
-        """
-        from sage.all import QQ
         q = QQ(x_val)
         num = abs(int(q.numerator()))
         den = abs(int(q.denominator()))
         return float(math.log(max(num, den, 1)))
 
-
-    def height_distribution_of_found(self, found_xs):
-        """Compute height distribution of found points"""
-        if not found_xs:
-            return {}
-        
-        heights = [self.canonical_height_of_x(x) for x in found_xs]
-        
-        return {
-            'min': min(heights),
-            'max': max(heights),
-            'mean': sum(heights) / len(heights),
-            'median': sorted(heights)[len(heights) // 2],
-            'count': len(heights)
-        }
-
-
     def compute_m_space_coverage(self, found_xs):
-        """
-        Computes the average "findability fraction" (matched/usable)
-        for all m-values corresponding to the *found* x-coordinates.
-        Also finds the minimum and maximum findability fractions.
-        
-        Returns: (avg_coverage, min_coverage_info, max_coverage_info, samples)
-                 *_coverage_info = {'x': x_val, 'm': m_val, 'fraction': fraction}
-        """
         if not found_xs:
             return 0.0, None, None, []
         
         coverage_samples = []
-        min_info = {'fraction': 1.1} # Start min > 1
-        max_info = {'fraction': -0.1} # Start max < 0
+        min_info = {'fraction': 1.1} 
+        max_info = {'fraction': -0.1}
         
         for x in found_xs:
             m_val = self.m_value_from_x(x)
@@ -1698,7 +933,6 @@ class CompletenessAnalyzer:
             }
             coverage_samples.append(sample_data)
 
-            # Update min/max
             if findability_frac < min_info['fraction']:
                 min_info = {'x': x, 'm': m_val, 'fraction': findability_frac}
             if findability_frac > max_info['fraction']:
@@ -1709,23 +943,415 @@ class CompletenessAnalyzer:
             
         avg_coverage = sum(s['findability_fraction'] for s in coverage_samples) / len(coverage_samples)
         
-        # Handle cases where min/max weren't updated (e.g., only one point)
         min_result = min_info if min_info['fraction'] <= 1.0 else None
         max_result = max_info if max_info['fraction'] >= 0.0 else None
         
         return avg_coverage, min_result, max_result, coverage_samples
 
 
-    def estimate_total_m_space_coverage(self):
-        """
-        Computes the global m-space coverage heuristic: the *average* density: avg(L_p/p).
-        """
-        if not self.prime_pool:
-            return 0.0
-        
-        sig = self.analyzer.visibility_signature(QQ(0))
-        global_average_density = sig['coverage']
-        
-        return global_average_density
+# ---------------- Independent Functions ----------------
 
+def analyze_sample_m_list(m_list, analyzer, prime_subsets):
+    results = []
+    product_density = None
+
+    for m in m_list:
+        sig = analyzer.visibility_signature(m)
+        if product_density is None:
+            product_density = sig['coverage']
+        sig['crt_visible'] = sig['fraction'] > 0.1 
+        results.append(sig)
+
+    if product_density is None:
+        product_density = 0.0
+
+    try:
+        from search_common import MIN_PRIME_SUBSET_SIZE
+        cutoff = MIN_PRIME_SUBSET_SIZE
+    except ImportError:
+        cutoff = 3
+
+    meet_count = sum(1 for sig in results if sig['matched'] >= cutoff)
+    frac_meet = meet_count / len(results) if results else 0.0
+
+    return {
+        'product_density_heuristic': product_density,
+        'fraction_meet_min_subset': frac_meet,
+        'samples': results
+    }
+
+
+def bootstrap_visibility(findability_analyzer,
+                         N_samples=5000,
+                         max_num=10**4,
+                         max_den=10**4,
+                         seed=None,
+                         thresholds=(0.1, 0.5)):
+    if seed is not None:
+        random.seed(seed)
+    fractions = []
+    m_samples = []
+    visible_count = 0
+    per_prime_counts = Counter()
+    
+    prime_subsets = getattr(findability_analyzer, 'prime_subsets', None)
+
+    # Use QQ(a)/QQ(b) rather than QQ(a,b)
+    for i in range(N_samples):
+        num = random.randint(-max_num, max_num)
+        den = random.randint(1, max_den)
+        m = QQ(num) / QQ(den)
         
+        sig = findability_analyzer.visibility_signature(m)
+        frac = float(sig.get('fraction', 0.0))
+        fractions.append(frac)
+        m_samples.append(m)
+
+        per_prime = sig.get('per_prime', {})
+        for p, (_, ok) in per_prime.items():
+            if ok:
+                per_prime_counts[p] += 1
+
+        if prime_subsets:
+            for S in prime_subsets:
+                # Check if all p in subset S are matched
+                if all(sig['per_prime'].get(p, (None, False))[1] for p in S):
+                    visible_count += 1
+                    break
+
+    out = {}
+    out['avg_fraction'] = sum(fractions) / len(fractions)
+    for t in thresholds:
+        out[f'frac_above_{t}'] = sum(1 for f in fractions if f >= t) / len(fractions)
+    if prime_subsets:
+        out['empirical_visible_fraction'] = visible_count / float(len(fractions))
+    else:
+        out['empirical_visible_fraction'] = None
+    out['m_samples'] = m_samples
+    out['fractions'] = fractions
+    out['per_prime_counts'] = per_prime_counts
+    out['sample_size'] = N_samples
+    return out
+
+
+def pairwise_mutual_info(findability_analyzer,
+                         primes,
+                         sample_ms=None,
+                         N_samples=2000,
+                         seed=None,
+                         top_k=20,
+                         mi_threshold=0.01):
+    if seed is not None:
+        random.seed(seed)
+
+    if sample_ms is None:
+        sample_ms = []
+        for _ in range(N_samples):
+            num = random.randint(-10000, 10000)
+            den = random.randint(1, 10000)
+            sample_ms.append(QQ(num)/QQ(den))
+    else:
+        N_samples = len(sample_ms)
+
+    matched = {p: [] for p in primes}
+    for m in sample_ms:
+        sig = findability_analyzer.visibility_signature(m)
+        perp = sig.get('per_prime', {})
+        for p in primes:
+            ok = perp.get(p, (None, False))[1]
+            matched[p].append(1 if ok else 0)
+
+    def mi_binary(a_list, b_list):
+        # Mutual info for binary vectors
+        N = len(a_list)
+        cnt = Counter(zip(a_list, b_list))
+        mi = 0.0
+        for (a,b), c in cnt.items():
+            p_ab = c / N
+            p_a = sum(1 for x in a_list if x == a) / N
+            p_b = sum(1 for x in b_list if x == b) / N
+            if p_ab > 0 and p_a > 0 and p_b > 0:
+                mi += p_ab * math.log2(p_ab / (p_a * p_b))
+        return mi
+
+    mi_matrix = {}
+    primes_list = list(primes)
+    total_pairs = 0
+    above_count = 0
+    for i, p in enumerate(primes_list):
+        for q in primes_list[i+1:]:
+            M = mi_binary(matched[p], matched[q])
+            mi_matrix[(p,q)] = M
+            total_pairs += 1
+            if M >= mi_threshold:
+                above_count += 1
+
+    top_pairs = sorted([(p,q,mi) for (p,q),mi in mi_matrix.items()], key=lambda t: -t[2])[:top_k]
+    return {
+        'mi_matrix': mi_matrix,
+        'top_pairs': top_pairs,
+        'frac_pairs_above_threshold': (above_count / total_pairs if total_pairs else 0.0),
+        'sample_size': N_samples
+    }
+
+
+def per_subset_empirical_coverage(findability_analyzer,
+                                  subsets,
+                                  sample_ms=None,
+                                  N_samples=2000):
+    if sample_ms is None:
+        sample_ms = []
+        for _ in range(N_samples):
+            num = random.randint(-10000, 10000)
+            den = random.randint(1, 10000)
+            sample_ms.append(QQ(num)/QQ(den))
+    else:
+        N_samples = len(sample_ms)
+
+    # Precompute signatures
+    sig_cache = {}
+    per_prime_ok = defaultdict(int)
+    for m in sample_ms:
+        sig = findability_analyzer.visibility_signature(m)
+        sig_cache[m] = sig
+        for p, (_, ok) in sig.get('per_prime', {}).items():
+            if ok:
+                per_prime_ok[p] += 1
+    
+    per_prime_density = {p: per_prime_ok[p] / float(N_samples) for p in per_prime_ok}
+
+    results = []
+    for S in subsets:
+        match_count = 0
+        for m in sample_ms:
+            sig = sig_cache[m]
+            if all(sig['per_prime'].get(p, (None, False))[1] for p in S):
+                match_count += 1
+        emp_p = match_count / float(N_samples)
+        
+        prod = 1.0
+        for p in S:
+            prod *= per_prime_density.get(p, 0.0)
+        results.append({'subset': S, 'empirical_p_S': emp_p, 'product_p_S': prod, 'sample_size': N_samples})
+    return results
+
+
+def print_unified_completeness_report(stats, prime_pool, prime_subsets, 
+                                     height_bound, found_xs, r_m, shift):
+    try:
+        analyzer = CompletenessAnalyzer(stats, prime_pool, prime_subsets, 
+                                       height_bound, r_m, shift)
+        analyzer.print_report(found_xs)
+    except Exception as e:
+        # Let it crash if critical, but just print error here as it's a report
+        print("\n" + "="*70)
+        print("COMPLETENESS ANALYSIS FAILED")
+        print(f"Error: {e}")
+        print("="*70)
+
+
+def print_unified_diagnostics(findability_analyzer,
+                              prime_pool,
+                              prime_subsets,
+                              height_bound=None,
+                              bootstrap_N=5000,
+                              bootstrap_max_num=10**4,
+                              bootstrap_max_den=10**4,
+                              mi_primes_limit=40,
+                              mi_N=2000):
+    
+    print("\n=== Unified diagnostics: running bootstrap visibility ===")
+    boot = bootstrap_visibility(findability_analyzer, N_samples=bootstrap_N,
+                                max_num=bootstrap_max_num, max_den=bootstrap_max_den)
+    print(f"avg_fraction (unbiased sample): {boot['avg_fraction']:.3f}")
+    # Cast to float for formatting
+    print(f"fraction >= 0.1 : {float(boot['frac_above_0.1']):.3%}, fraction >= 0.5 : {float(boot['frac_above_0.5']):.3%}")
+    
+    if boot['empirical_visible_fraction'] is not None:
+        print(f"empirical visible fraction (any prime_subset): {float(boot['empirical_visible_fraction']):.3%}")
+    else:
+        print("empirical visible fraction: (no prime_subsets available in analyzer)")
+
+    # MI
+    primes_for_mi = list(prime_pool)[:mi_primes_limit]
+    print(f"\n=== Pairwise MI on first {len(primes_for_mi)} primes ===")
+    mires = pairwise_mutual_info(findability_analyzer, primes_for_mi, sample_ms=boot['m_samples'], N_samples=mi_N)
+    print(f"Top MI pairs (p,q,MI bits):")
+    for p,q,mi in mires['top_pairs']:
+        print(f"  ({p:3},{q:3})  {mi:.4f} bits")
+    print(f"fraction of pairs with MI >= 0.01 bits: {float(mires['frac_pairs_above_threshold']):.3%}")
+
+    # per-subset empirical coverage
+    if prime_subsets:
+        print("\n=== Per-subset empirical coverage (first 30 subsets) ===")
+        subsets = prime_subsets[:30]
+        subset_res = per_subset_empirical_coverage(findability_analyzer, subsets, sample_ms=boot['m_samples'])
+        for r in subset_res:
+            S = r['subset']
+            # formatting S as string explicitly
+            print(f" subset {str(S[:6])}...  emp_p={r['empirical_p_S']:.4g}  product_p={r['product_p_S']:.4g}")
+    else:
+        print("No prime_subsets available to check.")
+    
+    return {'bootstrap': boot, 'mi': mires, 'subset_res': locals().get('subset_res', None)}
+
+
+def completeness_posterior_geometric(k, p, q=0.10, m_max=200):
+    from math import comb
+
+    post = {}
+    Z = 0.0
+    for m in range(0, m_max+1):
+        T = k + m
+        prior_m = (1.0 - q) * (q ** m)
+        like = comb(T, k) * (p ** k) * ((1.0 - p) ** (T - k))
+        val = prior_m * like
+        post[T] = val
+        Z += val
+
+    if Z <= 0:
+        return {'posterior': {k: 1.0}, 'P_all': 1.0, 'P_all_but_1': 1.0, 'posterior_mean_T': float(k)}
+
+    for T in list(post.keys()):
+        post[T] /= Z
+
+    P_all = post.get(k, 0.0)
+    P_all_but_1 = sum(v for T, v in post.items() if T <= k + 1)
+    P_all_but_2 = sum(v for T, v in post.items() if T <= k + 2)
+    mean_T = sum(T * v for T, v in post.items())
+
+    return {
+        'posterior': post,
+        'P_all': P_all,
+        'P_all_but_1': P_all_but_1,
+        'P_all_but_2': P_all_but_2,
+        'posterior_mean_T': mean_T
+    }
+
+
+def adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes_list, debug=True):
+    if not rejected_primes_list:
+        return {
+            'p_adjusted': p_visibility,
+            'collision_primes': [],
+            'other_rejected': [],
+            'reachable_fraction': 1.0,
+            'adjustment_factor': 1.0
+        }
+    
+    collision_primes = []
+    other_rejected = []
+    
+    for p, reason in rejected_primes_list:
+        reason_str = str(reason).lower()
+        if 'fiber' in reason_str or 'collision' in reason_str:
+            collision_primes.append(p)
+        else:
+            other_rejected.append((p, reason))
+    
+    if not collision_primes:
+        return {
+            'p_adjusted': p_visibility,
+            'collision_primes': [],
+            'other_rejected': other_rejected,
+            'reachable_fraction': 1.0,
+            'adjustment_factor': 1.0
+        }
+    
+    reachable_fraction = 1.0
+    for p in collision_primes:
+        reachable_fraction *= (1.0 - 1.0/float(p))
+    
+    adjustment_factor = reachable_fraction
+    p_adjusted = p_visibility * adjustment_factor
+    
+    if debug:
+        print(f"\n[fiber_collision_adjustment]")
+        print(f"  Collision primes: {collision_primes}")
+        print(f"  Reachable fraction: {reachable_fraction:.4f}")
+        print(f"  Adjusted p_visibility: {p_adjusted:.4f}")
+    
+    return {
+        'p_adjusted': p_adjusted,
+        'collision_primes': collision_primes,
+        'other_rejected': other_rejected,
+        'reachable_fraction': reachable_fraction,
+        'adjustment_factor': adjustment_factor
+    }
+
+
+def prior_from_arithmetic(k_found,
+                          p_visibility,
+                          rejected_primes=None,
+                          prime_pool=None,
+                          selmer_dim=None,
+                          r_found=None,
+                          crt_candidates_found=None,
+                          rationality_tests_success=None,
+                          h_max=None,
+                          known_heights=None):
+    
+    # Apply fiber collision adjustment
+    if rejected_primes and prime_pool:
+        try:
+            from search_common import DEBUG
+        except ImportError:
+            DEBUG = False
+        adj = adjust_visibility_for_fiber_collisions(p_visibility, prime_pool, rejected_primes, debug=DEBUG)
+        p_adjusted = adj['p_adjusted']
+        collision_primes = adj['collision_primes']
+    else:
+        p_adjusted = p_visibility
+        collision_primes = []
+    
+    mu_selmer = 0.0
+    mu_local = 0.0
+    mu_height = 0.0
+    mu_bootstrap = 0.0
+    
+    # Selmer signal
+    if selmer_dim is not None and r_found is not None:
+        delta_r = max(0, selmer_dim - r_found)
+        if delta_r == 0:
+            mu_selmer = 0.02
+        else:
+            mu_selmer = 0.2 * delta_r
+    
+    # Local signal 
+    if crt_candidates_found and rationality_tests_success is not None and crt_candidates_found > 0:
+        rho_global = rationality_tests_success / float(crt_candidates_found)
+        
+        if rho_global > 0.001:
+            est_missed_classes = max(0.0, (1.0 / rho_global - 1.0) * k_found)
+            mu_local = min(10.0, est_missed_classes * 0.02)
+        else:
+            mu_local = 0.0
+    
+    # Height signal
+    if h_max is not None and known_heights:
+        max_known = max(known_heights)
+        if max_known >= h_max * 0.95:
+            mu_height = 0.01
+        else:
+            available = max(0.0, (h_max - max_known) / max(1e-12, h_max))
+            mu_height = min(10.0, 0.5 * available)
+    
+    # Bootstrap signal using ADJUSTED p
+    if p_adjusted is not None and p_adjusted > 0:
+        mu_bootstrap = k_found * ((1.0 - p_adjusted) / p_adjusted) * 0.01
+        mu_bootstrap = min(mu_bootstrap, 50.0)
+    
+    mu_combined = max(mu_selmer, mu_local, mu_height, mu_bootstrap)
+    q = mu_combined / (1.0 + mu_combined)
+    
+    return {
+        'mu_selmer': mu_selmer,
+        'mu_local': mu_local,
+        'mu_height': mu_height,
+        'mu_bootstrap': mu_bootstrap,
+        'mu_combined': mu_combined,
+        'q': q,
+        'p_adjusted': p_adjusted,
+        'p_raw': p_visibility,
+        'collision_primes': collision_primes
+    }

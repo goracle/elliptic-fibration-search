@@ -2659,69 +2659,6 @@ from sage.all import ZZ, Integer
 from sage.all import ZZ, Integer, Matrix
 
 # ---------- Kedlaya-backed group order (robust, monic normalization) ----------
-def jacobian_group_order(J_p, prec=2):
-    """
-    Compute #J(F_p) for genus-2 Jacobian J_p using Kedlaya (Monsky-Washnitzer).
-    Attempts to make the defining polynomial monic before calling Sage's
-    matrix_of_frobenius_hyperelliptic. Raises only if everything fails.
-    """
-    try:
-        C = J_p.curve()
-    except Exception as e:
-        raise RuntimeError(f"jacobian_group_order: cannot get curve from J_p: {e}")
-
-    if C.genus() != 2:
-        raise NotImplementedError("jacobian_group_order only implemented for genus 2")
-
-    try:
-        p = Integer(J_p.base_ring().characteristic())
-    except Exception as e:
-        raise RuntimeError(f"jacobian_group_order: cannot determine base-field characteristic: {e}")
-
-    if p < 5:
-        raise ValueError("Kedlaya implementation requires p >= 5")
-
-    try:
-        polys = C.hyperelliptic_polynomials()
-        if not polys:
-            raise RuntimeError("curve.hyperelliptic_polynomials() returned empty")
-        f = polys[0]
-    except Exception as e:
-        raise RuntimeError(f"jacobian_group_order: failed to extract hyperelliptic polynomial: {e}")
-
-    # Ensure monic (matrix_of_frobenius_hyperelliptic requires monic polynomial)
-    if not f.is_monic():
-        try:
-            f = f.monic()
-        except Exception as e:
-            lc = None
-            try:
-                lc = polys[0].leading_coefficient()
-            except Exception:
-                pass
-            msg = "jacobian_group_order: could not make defining polynomial monic. "
-            if lc is not None:
-                msg += f"Leading coefficient = {lc!r} (likely not a unit modulo p). "
-            msg += "matrix_of_frobenius_hyperelliptic requires a monic polynomial."
-            raise RuntimeError(msg + f" Underlying error: {e}")
-
-    # choose adjusted precision M if available; be tolerant if it errors
-    try:
-        M = adjusted_prec(int(p), int(prec))
-    except Exception:
-        M = prec
-
-    # Call Kedlaya
-    try:
-        A, _ = matrix_of_frobenius_hyperelliptic(f, int(p), int(M))
-    except Exception as e:
-        raise RuntimeError(f"Kedlaya Frobenius computation failed: {e}")
-
-    try:
-        P = A.charpoly()
-        return ZZ(P(1))
-    except Exception as e:
-        raise RuntimeError(f"Failed to compute/evaluate Frobenius charpoly: {e}")
 
 
 # ---------- Fallback simple independence check ----------
@@ -2936,8 +2873,6 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
 
     return max_rank
 
-
-from sage.all import ZZ
 
 def jacobian_group_order(J_p):
     """
