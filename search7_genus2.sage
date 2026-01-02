@@ -24,6 +24,35 @@ from consensus import *
 from mobius import *
 load('tower.sage')
 from stats import SearchStats # <-- Make sure stats is imported
+from sage.misc.verbose import set_verbose
+set_verbose(0)
+import warnings
+
+# Suppress the specific "ambiguous form" warning from Sage's Monsky-Washnitzer code
+warnings.filterwarnings("ignore", message=".*Returning ambiguous form of degree genus+1.*")
+
+import sys
+
+class SpamFilter:
+    def __init__(self, stream):
+        self.stream = stream
+        self._buffer = ""
+
+    def write(self, data):
+        self._buffer += data
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if "Returning ambiguous form of degree genus+1." not in line:
+                self.stream.write(line + "\n")
+
+    def flush(self):
+        if self._buffer:
+            if "Returning ambiguous form of degree genus+1." not in self._buffer:
+                self.stream.write(self._buffer)
+            self._buffer = ""
+        self.stream.flush()
+
+sys.stdout = SpamFilter(sys.stdout)
 
 # -------------------------
 # Tower builder adapter for search (lightweight, deterministic, no tests)
