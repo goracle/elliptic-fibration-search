@@ -12,6 +12,65 @@ ll_utilities.py: Matrix and lattice reduction helpers.
 from search_common import NUM_PRIME_SUBSETS
 
 
+# Add near other helpers in search_lll.py (no leading underscores)
+from collections import defaultdict, Counter
+from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
+
+
+from sage.all import gcd
+
+from collections import Counter
+import math
+from sage.all import Zmod, Integer
+
+# ----------------------------------------
+# helpers for residue orders
+# ----------------------------------------
+
+from collections import Counter, defaultdict
+
+
+"""
+Complete residue analysis with proper diagnostics.
+Add this to ll_utilities.py, replacing the incomplete versions.
+"""
+
+from sage.all import Zmod, Integer, QQ, var
+
+# ============================================================================
+# HELPER FUNCTIONS (keep existing ones, add these)
+# ============================================================================
+
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+"""
+Enhanced prime subset generation with QC-aware biasing.
+Add this to ll_utilities.py
+"""
+
+
+# Drop-in replacement wrapper
+
+
+"""
+ll_utilities.py: Matrix and lattice reduction helpers.
+"""
+
+
 def _compute_column_norms(M):
     """
     Compute L2 norm per column of integer matrix M (sage matrix).
@@ -52,6 +111,13 @@ def _scale_matrix_columns_int(M, scales):
     D = diagonal_matrix([ZZ(s) for s in scales])
     return M * D, D
 
+# =============================================================================
+# MOCK CLASSES FOR LARGE PRIMES (Bypassing Singular Overflow)
+# =============================================================================
+
+
+# =============================================================================
+
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
     """
     Prepare modular data for LLL-based search across multiple primes.
@@ -79,7 +145,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     if r == 0:
         return {}, [], {}, {}
 
-    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
+    Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll = {}, [{} for _ in rhs_list], {}, {}
     multiplies_lll, vecs_lll = {}, {}
     rejected_primes = []  # Track (prime, reason) tuples
     
@@ -173,9 +239,14 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
                 raise
 
-            # Construct elliptic curve
+            # Construct elliptic curve with FALLBACK for large primes
             try:
                 Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+            except (OverflowError, ValueError) as e:
+                # Catch Singular overflow for large primes
+                if DEBUG:
+                    print(f"Warning: EllipticCurve construction failed for p={p} ({e}). using LargePrimeMockCurve.")
+                Ep_local = LargePrimeMockCurve(Fp_m, a4_modp, a6_modp)
             except ArithmeticError as e:
                 if DEBUG:
                     print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
@@ -199,7 +270,13 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     raise
 
             # Run LLL reduction
-            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+            # Note: lll_reduce_basis_modp needs to work with MockCurve if used.
+            # If it fails, we fall back to identity.
+            try:
+                new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+            except Exception as e:
+                if DEBUG: print(f"LLL reduction failed for p={p} ({e}), skipping LLL")
+                new_basis, Uinv = None, None
 
             # Fallback for Uinv
             if Uinv is None:
@@ -255,7 +332,12 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             mults = [{} for _ in range(r)]
             any_mult_error = False
             for i_sec in range(r):
-                Pi = new_basis[i_sec]
+                # Use new_basis if available, otherwise original sections
+                Pi = new_basis[i_sec] if new_basis else None
+                if Pi is None:
+                    # Fallback to original section reduced mod p
+                    Pi = reduce_point_hom(Ep_local, current_sections[i_sec], p)
+
                 required_ks = required_ks_per_section[i_sec]
                 if not required_ks:
                     required_ks = {-1, 0, 1}
@@ -352,10 +434,17 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
             continue
 
         Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
-        den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
-        Xp = Xr.numerator() * (den // Xr.denominator())
-        Yp = Yr.numerator() * (den // Yr.denominator())
-        Zp = Zr.numerator() * (den // Zr.denominator())
+        # Use .numerator()/.denominator() safely (works for both Sage and Mock)
+        # Note: MockPoint coords are elements of Fp(m), so they have num/den
+        
+        try:
+            den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
+            Xp = Xr.numerator() * (den // Xr.denominator())
+            Yp = Yr.numerator() * (den // Yr.denominator())
+            Zp = Zr.numerator() * (den // Zr.denominator())
+        except AttributeError:
+             # Case where they might not be fraction field elements but polys
+             Xp, Yp, Zp = Xr, Yr, Zr
 
         xc, dx = _get_coeff_data(Xp)
         yc, dy = _get_coeff_data(Yp)
@@ -445,6 +534,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     # --- FIX 3 ---
     # Rebuild the basis, safely handling None in reduced_sections_mod_p
     new_basis = []
+    # Use curve(0) safely (works for Mock and Sage)
     identity_point = curve_modp(0)
     
     for i in range(r): # Loop r times
@@ -854,8 +944,6 @@ def print_subset_productivity_stats(productive, all_subsets):
 
 
 # Add near other helpers in search_lll.py (no leading underscores)
-from collections import defaultdict, Counter
-from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
 
 def compute_residues_by_prime_numeric(precomputed_residues):
     """
@@ -875,12 +963,6 @@ def compute_residues_by_prime_numeric(precomputed_residues):
     return residues_by_prime
 
 
-from sage.all import gcd
-
-from collections import Counter
-import math
-from sage.all import Zmod, Integer
-
 # ----------------------------------------
 # helpers for residue orders
 # ----------------------------------------
@@ -891,7 +973,6 @@ def residue_order_additive(residue, p):
     from math import gcd
     return p // gcd(residue, p)
 
-from collections import Counter, defaultdict
 
 def summarize_order_stats(order_list):
     """Return frequency, dominance, and entropy of a list of orders"""
@@ -910,7 +991,6 @@ Complete residue analysis with proper diagnostics.
 Add this to ll_utilities.py, replacing the incomplete versions.
 """
 
-from sage.all import Zmod, Integer, QQ, var
 
 # ============================================================================
 # HELPER FUNCTIONS (keep existing ones, add these)
@@ -1242,21 +1322,6 @@ def analyze_unused_residue_orders(precomputed_residues,
         'global': global_summary
     }
 
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
 
 """
 Enhanced prime subset generation with QC-aware biasing.
@@ -1628,40 +1693,6 @@ def _robust_coerce_to_modp(val, Fp_m, p):
         return None
 
 
-def reduce_point_hom(E_mod_p, P, p, logger=None):
-    """
-    Reduce a projective/affine point P to E_mod_p.
-    Uses robust coefficient mapping to avoid Sage coercion errors.
-    RAISES exceptions on validation failure.
-    """
-    def log(msg):
-        if logger: logger(msg)
-        elif DEBUG: print(msg)
-
-    # No global try-except block here - let exceptions propagate!
-    
-    Fp_target = E_mod_p.base_field() # e.g. GF(p)(m)
-    coords = tuple(P)
-
-    reduced_coords = []
-    for c in coords:
-        rc = _robust_coerce_to_modp(c, Fp_target, p)
-        if rc is None:
-            # Denominator vanished or coercion failed
-            return None
-        reduced_coords.append(rc)
-
-    # Construct point (this will RAISE TypeError if point is not on curve)
-    if len(reduced_coords) == 3:
-        pt = E_mod_p(reduced_coords)
-    elif len(reduced_coords) == 2:
-        pt = E_mod_p(reduced_coords[0], reduced_coords[1])
-    else:
-        raise ValueError(f"Unsupported coordinate length: {len(reduced_coords)}")
-        
-    return pt
-
-
 def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                                      rhs_list, num_subsets, min_size, max_size,
                                      combo_cap, seed=None, debug=False,
@@ -1867,7 +1898,7 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
     return unique_subsets
 
 
-def generate_ff_search_vectors(num_sections, max_coeff=80, num_vecs=1000):
+def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
     """
     Generate diverse search vectors for finite field mode.
     Returns canonicalized vectors (first non-zero element positive).
@@ -1908,3 +1939,165 @@ def generate_ff_search_vectors(num_sections, max_coeff=80, num_vecs=1000):
     print(f"  Sample: {canonical[:10]}")
     
     return canonical
+
+
+class LargePrimeMockCurve:
+    """Minimal Elliptic Curve implementation to bypass Singular limits for large primes."""
+    def __init__(self, base_ring, a4, a6):
+        self._base_ring = base_ring
+        self._a4 = a4
+        self._a6 = a6
+
+    def a4(self): return self._a4
+    def a6(self): return self._a6
+    def base_ring(self): return self._base_ring
+    
+    # [Fix] Added alias required by reduce_point_hom
+    def base_field(self): return self._base_ring 
+    
+    def __call__(self, *args):
+        # Handle construction: E(0), E((x,y,z)), E(x,y)
+        if len(args) == 1:
+            arg = args[0]
+            if arg == 0:
+                return LargePrimeMockPoint(self, (0, 1, 0)) # Identity
+            if isinstance(arg, (tuple, list)):
+                c = arg
+                if len(c) == 2: return LargePrimeMockPoint(self, (c[0], c[1], 1))
+                return LargePrimeMockPoint(self, tuple(c))
+        if len(args) == 2:
+            return LargePrimeMockPoint(self, (args[0], args[1], 1))
+        if len(args) == 3:
+            return LargePrimeMockPoint(self, args)
+        raise ValueError(f"Invalid arguments for LargePrimeMockCurve: {args}")
+
+def reduce_point_hom(E_mod_p, P, p, logger=None):
+    """
+    Reduce a projective/affine point P to E_mod_p.
+    Uses robust coefficient mapping to avoid Sage coercion errors.
+    RAISES exceptions on validation failure.
+    """
+    def log(msg):
+        if logger: logger(msg)
+        elif DEBUG: print(msg)
+
+    # [Fix] robustness for Mock curves vs Sage curves
+    if hasattr(E_mod_p, 'base_field'):
+        Fp_target = E_mod_p.base_field() 
+    else:
+        Fp_target = E_mod_p.base_ring()
+
+    coords = tuple(P)
+
+    reduced_coords = []
+    for c in coords:
+        rc = _robust_coerce_to_modp(c, Fp_target, p)
+        if rc is None:
+            # Denominator vanished or coercion failed
+            return None
+        reduced_coords.append(rc)
+
+    # Construct point (this will RAISE TypeError if point is not on curve)
+    if len(reduced_coords) == 3:
+        pt = E_mod_p(reduced_coords)
+    elif len(reduced_coords) == 2:
+        pt = E_mod_p(reduced_coords[0], reduced_coords[1])
+    else:
+        raise ValueError(f"Unsupported coordinate length: {len(reduced_coords)}")
+        
+    return pt
+
+class LargePrimeMockPoint:
+    """Minimal Point implementation for LargePrimeMockCurve."""
+    def __init__(self, curve, coords):
+        self._curve = curve
+        self._coords = tuple(coords)
+        
+    def __getitem__(self, idx): return self._coords[idx]
+    def curve(self): return self._curve
+    def list(self): return list(self._coords)
+    def __iter__(self): return iter(self._coords)
+    def __repr__(self): return f"MockPoint({self._coords})"
+    
+    # [Fix] Added missing is_zero method to satisfy API
+    def is_zero(self):
+        # Standard projective identity is (0:1:0)
+        return self._coords == (0, 1, 0) or (self._coords[0] == 0 and self._coords[2] == 0)
+
+    def __neg__(self):
+        X, Y, Z = self._coords
+        return LargePrimeMockPoint(self._curve, (X, -Y, Z))
+        
+    def __add__(self, other):
+        # Standard projective addition formulas (Short Weierstrass)
+        # Bypasses Singular/Sage coordinate ring machinery
+        if self.is_zero(): return other
+        if other.is_zero(): return self
+        
+        X1, Y1, Z1 = self._coords
+        X2, Y2, Z2 = other._coords
+        
+        # Check if P1 == P2 (Doubling) or P1 == -P2
+        # Note: In Fp(m), equality is symbolic/polynomial equality
+        U1 = X1 * Z2
+        U2 = X2 * Z1
+        S1 = Y1 * Z2
+        S2 = Y2 * Z1
+        
+        if U1 == U2:
+            if S1 != S2:
+                return self._curve(0) # P + (-P) = 0
+            return self.double()
+
+        # Addition
+        W = Z1 * Z2
+        P_val = U2 - U1
+        R = S2 - S1
+        
+        P2 = P_val * P_val
+        P3 = P2 * P_val
+        
+        X3 = -2 * U1 * P2
+        X3 += -P3 + R*R * W 
+        
+        Y3 = -S1 * P3 + R * (U1 * P2 - X3)
+        Z3 = W * P3
+        
+        return LargePrimeMockPoint(self._curve, (X3, Y3, Z3))
+        
+    def double(self):
+        X1, Y1, Z1 = self._coords
+        if Y1 == 0: return self._curve(0)
+        
+        a4 = self._curve.a4()
+        
+        W = 3 * X1 * X1 + a4 * Z1 * Z1
+        S = Y1 * Z1
+        B = X1 * Y1 * S
+        H = W * W - 8 * B
+        
+        X3 = 2 * H * S
+        S2 = S * S
+        Y1_2 = Y1 * Y1
+        Y3 = W * (4 * B - H) - 8 * Y1_2 * S2
+        Z3 = 8 * S * S2
+        
+        return LargePrimeMockPoint(self._curve, (X3, Y3, Z3))
+
+    def __rmul__(self, scalar):
+        # Double and Add
+        scalar = int(scalar)
+        if scalar == 0: return self._curve(0)
+        if scalar < 0: return (-self).__rmul__(-scalar)
+        
+        res = self._curve(0)
+        temp = self
+        while scalar > 0:
+            if scalar % 2 == 1:
+                res = res + temp
+            temp = temp.double()
+            scalar //= 2
+        return res
+    
+    def __mul__(self, scalar):
+        return self.__rmul__(scalar)

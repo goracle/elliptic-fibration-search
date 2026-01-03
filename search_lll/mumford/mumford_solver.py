@@ -8,95 +8,6 @@ def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
     const_val = int(QQ(eqs_dict.get('const', 0)))
     return solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val)
 
-def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val):
-    """
-    Optimized solver for v^2 = f(x) mod u(x) where u(x) = x^2 - s*x + p_val.
-    Uses Sage's GF(p) for efficient square roots for all primes.
-    """
-    solutions = []
-    x_res = int(x_residue) % p
-    x_sq = (x_res * x_res) % p
-    
-    # Use Sage's finite field for robust arithmetic and square roots
-    Fp = GF(p)
-
-    for s_val in range(p):
-        # u(x_res) = 0  =>  x_res^2 - s*x_res + p_val = 0
-        p_val = (s_val * x_res - x_sq) % p
-        
-        # Fast reduction of f mod u to get linear remainder A*x + B
-        # f(x) = A*x + B mod u(x)
-        # Note: f_coeffs is expected in HIGH -> LOW order
-        A, B = _poly_mod_quad_fast(f_coeffs, s_val, p_val, p)
-        
-        # We solve the system:
-        # 1) s*v1^2 + 2*v1*v0 = A
-        # 2) v0^2 - p*v1^2 = B
-        # This reduces to a quadratic in Z = v1^2:
-        # (s^2 - 4p)Z^2 + (-2As - 4B)Z + A^2 = 0
-        
-        a_q = (s_val * s_val - 4 * p_val) % p
-        b_q = (-2 * (A * s_val + 2 * B)) % p
-        c_q = (A * A) % p
-        
-        Z_roots = []
-
-        if a_q == 0:
-            if b_q != 0:
-                Z_roots.append((-c_q * pow(b_q, -1, p)) % p)
-        else:
-            disc_q = (b_q * b_q - 4 * a_q * c_q) % p
-            try:
-                # Use GF(p) for sqrt
-                delta = Fp(disc_q)
-                if delta.is_square():
-                    sq_root = int(delta.sqrt())
-                    inv_2a = pow(2 * a_q, -1, p)
-                    Z_roots.append(((-b_q + sq_root) * inv_2a) % p)
-                    if sq_root != 0:
-                        Z_roots.append(((-b_q - sq_root) * inv_2a) % p)
-            except Exception:
-                raise
-        
-        valid_v1s = []
-        for Z in Z_roots:
-            Z_ele = Fp(Z)
-            if Z_ele.is_square():
-                r = int(Z_ele.sqrt())
-                valid_v1s.append(r)
-                if r != 0:
-                    valid_v1s.append(p - r)
-
-        for v1_val in valid_v1s:
-            if v1_val == 0:
-                # If v1=0, then A must be 0 (from eq 1) and v0^2 = B (from eq 2)
-                if A != 0:
-                    continue
-                B_ele = Fp(B)
-                if B_ele.is_square():
-                    r = int(B_ele.sqrt())
-                    solutions.append((s_val, p_val, r, 0))
-                    if r != 0:
-                        solutions.append((s_val, p_val, p - r, 0))
-            else:
-                if p == 2:
-                    # Special case for p=2
-                    v0_val = (B + p_val) % 2
-                    if (s_val * v1_val) % 2 == A % 2:
-                         solutions.append((s_val, p_val, v0_val, v1_val))
-                else:
-                    # v0 is determined linearly if v1 != 0
-                    # 2*v1*v0 = A - s*v1^2
-                    num = (A - s_val * (v1_val * v1_val)) % p
-                    den = (2 * v1_val) % p
-                    v0_val = (num * pow(den, -1, p)) % p
-                    
-                    # Verify with second equation as check
-                    lhs_2 = (v0_val * v0_val - p_val * v1_val * v1_val) % p
-                    if lhs_2 == B:
-                        solutions.append((s_val, p_val, v0_val, v1_val))
-
-    return solutions
 
 def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=False):
     """
@@ -356,3 +267,100 @@ def filter_primes_avoiding_denoms(primes_list, divisors):
                 raise
     return [p for p in primes_list if p not in bad]
 
+
+def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val, max_solutions=500):
+    """
+    Optimized solver for Index Calculus with early termination and smoothness filter.
+    """
+    solutions = []
+    x_res = int(x_residue) % p
+    x_sq = (x_res * x_res) % p
+    
+    Fp = GF(p)
+    
+    # Precompute inverse of 2 (used frequently)
+    inv_2 = pow(2, -1, p) if p > 2 else None
+    
+    for s_val in range(p):
+        # Early termination for Index Calculus
+        if len(solutions) >= max_solutions:
+            break
+            
+        p_val = (s_val * x_res - x_sq) % p
+        
+        # CRITICAL: Smoothness filter - only keep divisors where u(x) splits
+        disc = (s_val * s_val - 4 * p_val) % p
+        if disc != 0:
+            disc_elem = Fp(disc)
+            if not disc_elem.is_square():
+                continue  # Skip non-smooth divisors
+        
+        A, B = _poly_mod_quad_fast(f_coeffs, s_val, p_val, p)
+        
+        # Reuse disc computation
+        a_q = disc
+        b_q = (-2 * (A * s_val + 2 * B)) % p
+        c_q = (A * A) % p
+        
+        Z_roots = []
+        
+        if a_q == 0:
+            if b_q != 0:
+                try:
+                    Z_roots.append((-c_q * pow(b_q, -1, p)) % p)
+                except (ValueError, ZeroDivisionError):
+                    continue
+        else:
+            disc_q = (b_q * b_q - 4 * a_q * c_q) % p
+            try:
+                delta = Fp(disc_q)
+                if delta.is_square():
+                    sq_root = int(delta.sqrt())
+                    try:
+                        inv_a = pow(a_q, -1, p)
+                        inv_2a = (inv_2 * inv_a) % p
+                    except (ValueError, ZeroDivisionError):
+                        continue
+                    Z_roots.append(((-b_q + sq_root) * inv_2a) % p)
+                    if sq_root != 0:
+                        Z_roots.append(((-b_q - sq_root) * inv_2a) % p)
+            except Exception:
+                continue
+        
+        valid_v1s = []
+        for Z in Z_roots:
+            Z_ele = Fp(Z)
+            if Z_ele.is_square():
+                r = int(Z_ele.sqrt())
+                valid_v1s.append(r)
+                if r != 0:
+                    valid_v1s.append(p - r)
+        
+        for v1_val in valid_v1s:
+            if v1_val == 0:
+                if A != 0:
+                    continue
+                B_ele = Fp(B)
+                if B_ele.is_square():
+                    r = int(B_ele.sqrt())
+                    solutions.append((s_val, p_val, r, 0))
+                    if r != 0:
+                        solutions.append((s_val, p_val, p - r, 0))
+            else:
+                if p == 2:
+                    v0_val = (B + p_val) % 2
+                    if (s_val * v1_val) % 2 == A % 2:
+                         solutions.append((s_val, p_val, v0_val, v1_val))
+                else:
+                    num = (A - s_val * (v1_val * v1_val)) % p
+                    den = (2 * v1_val) % p
+                    try:
+                        v0_val = (num * pow(den, -1, p)) % p
+                    except (ValueError, ZeroDivisionError):
+                        continue
+                    
+                    lhs_2 = (v0_val * v0_val - p_val * v1_val * v1_val) % p
+                    if lhs_2 == B:
+                        solutions.append((s_val, p_val, v0_val, v1_val))
+    
+    return solutions

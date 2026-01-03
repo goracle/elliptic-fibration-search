@@ -13,7 +13,7 @@ from multiprocessing import TimeoutError
 from sage.all import (
     QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor,
     Curve, Jacobian, EllipticCurve, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
-    is_prime, Integer, log
+    is_prime, Integer, log, next_prime
 )
 from math import gcd, log
 
@@ -389,7 +389,8 @@ HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 FINITE_FIELD = None
-FINITE_FIELD = list(primes(10**4+20))[-1]
+FINITE_FIELD = next_prime(2**22+50)
+MAXN = 10
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"
