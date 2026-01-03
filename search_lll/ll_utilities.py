@@ -62,6 +62,19 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     if search_primes is None:
         search_primes = prime_pool
 
+    # === NEW: FINITE FIELD MODE SHORTCUT ===
+    from search_common import FINITE_FIELD
+    if FINITE_FIELD:
+        # In FF mode, only process the field characteristic
+        if FINITE_FIELD not in search_primes:
+            print(f"ERROR: FINITE_FIELD={FINITE_FIELD} not in search_primes")
+            return {}, [], {}, {}
+        
+        # Force single-prime processing
+        search_primes = [FINITE_FIELD]
+        print(f"[FF MODE] Forcing search to single prime: {FINITE_FIELD}")
+    # === END NEW ===
+
     r = len(current_sections)
     if r == 0:
         return {}, [], {}, {}
@@ -1852,3 +1865,46 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
     # === END FIX ===
     
     return unique_subsets
+
+
+def generate_ff_search_vectors(num_sections, max_coeff=20, num_vecs=1000):
+    """
+    Generate diverse search vectors for finite field mode.
+    Returns canonicalized vectors (first non-zero element positive).
+    """
+    from itertools import product
+    import random
+    
+    vecs = set()
+    
+    # Phase 1: All single-section multiples [1..max_coeff]
+    for i in range(num_sections):
+        for k in range(1, max_coeff + 1):
+            v = [0] * num_sections
+            v[i] = k
+            vecs.add(tuple(v))
+    
+    # Phase 2: Small combinations (up to ±5)
+    for coeffs in product(range(-5, 6), repeat=num_sections):
+        if all(c == 0 for c in coeffs):
+            continue
+        if sum(abs(c) for c in coeffs) > max_coeff:
+            continue
+        vecs.add(coeffs)
+    
+    # Phase 3: Random combinations
+    for _ in range(num_vecs):
+        v = tuple(random.randint(-max_coeff, max_coeff) for _ in range(num_sections))
+        if any(c != 0 for c in v):
+            vecs.add(v)
+    
+    # Convert to list
+    vecs_list = list(vecs)
+    
+    # Canonicalize
+    canonical = canonicalize_by_sign(vecs_list)
+    
+    print(f"[FF vectors] Generated {len(canonical)} canonical vectors")
+    print(f"  Sample: {canonical[:10]}")
+    
+    return canonical

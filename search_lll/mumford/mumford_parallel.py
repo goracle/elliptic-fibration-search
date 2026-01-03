@@ -418,6 +418,7 @@ class ModInverseCache:
                 return None
         return self.cache[key]
 
+
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                                          rhs_modp_list, vecs_list, num_workers=8, debug=False):
     """
@@ -429,8 +430,14 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     f_coeffs = eqs_dict['f_coeffs']
     f_coeffs_ints = [int(c) for c in f_coeffs]
     
+    # Safe constant conversion (handles both QQ rationals and GF elements)
     try:
-        const_val_int = int(QQ(eqs_dict['const']))
+        if hasattr(eqs_dict['const'], 'parent'):
+            # It's a Sage element (Integer, Rational, or GF element)
+            const_val_int = int(eqs_dict['const'])
+        else:
+            # Fallback for strings/floats/other
+            const_val_int = int(QQ(eqs_dict['const']))
     except Exception:
         const_val_int = 0
         raise
@@ -443,6 +450,9 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     
     for p in prime_list:
         if p not in Ep_dict:
+            # In single-prime/FF mode, user might not populate Ep_dict if not using sieve.
+            # But logic below relies on Ep_dict[p] to check vector consistency.
+            # If Ep_dict is missing p, we skip.
             continue
         Ep = Ep_dict[p]
         p_vecs = vecs_lll.get(p)

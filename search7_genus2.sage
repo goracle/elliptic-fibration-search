@@ -303,7 +303,11 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
     print(f"  [analyze_fibration] Fibration H:\n{this_H}")
     
     # Use the SCALED height bound here!
-    fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
+    if FINITE_FIELD:
+        fib_specific_vecs = generate_ff_search_vectors(len(current_sections), max_coeff=20, num_vecs=5000)
+    else:
+        fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
+
     fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
     
     print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
@@ -655,9 +659,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             height_bound *= difficulty['recommended_height_multiplier']
             num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
 
-
-        vecs = compute_search_vectors(H, height_bound)
+        if FINITE_FIELD:
+            vecs = generate_ff_search_vectors(len(current_sections), max_coeff=20, num_vecs=5000)
+        else:
+            vecs = compute_search_vectors(H, height_bound)
         vecs = canonicalize_by_sign(vecs)
+
         print(f"Searching {len(vecs)} vectors up to height {height_bound}...")
 
         if not vecs:

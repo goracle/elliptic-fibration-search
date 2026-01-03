@@ -152,34 +152,6 @@ def _projection_residual_sq(basis_jac, candidate_D, f_coeffs,
 # -------------------------
 # Mumford element builder
 # -------------------------
-def mumford_to_jacobian_element(s, p, v0, v1, C):
-    """
-    Construct Jacobian element D from mumford parameters, but coerce into curve parent rings.
-    Raises descriptive ValueError on failure.
-    """
-    try:
-        f_curve, h_curve = C.hyperelliptic_polynomials()
-        R = f_curve.parent()
-        x = R.gen()
-    except Exception as e:
-        raise ValueError(f"Invalid curve object passed to mumford_to_jacobian_element: {e}")
-
-    try:
-        s_q = _to_QQ_safe(s)
-        p_q = _to_QQ_safe(p)
-        v0_q = _to_QQ_safe(v0)
-        v1_q = _to_QQ_safe(v1)
-    except Exception as e:
-        raise ValueError(f"Cannot coerce mumford coefficients to QQ: {e}")
-
-    try:
-        u_poly = x**2 - s_q * x + p_q
-        v_poly = v1_q * x + v0_q
-        u_poly = R(u_poly)
-        v_poly = R(v_poly)
-        return C.jacobian()([u_poly, v_poly])
-    except Exception as e:
-        raise ValueError(f"Failed to build jacobian element from mumford data: {e}")
 
 
 # Debug helpers
@@ -805,81 +777,6 @@ def naive_height_suspicion(div):
         h = log(float(max(vals)))
     # suspicious if numerically tiny but algebraically has some bit-size
     return (h < 1e-6) and (max_bits >= 2)
-
-
-def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
-    """
-    Build Jacobian elements and compute pairing matrix.
-    Uses Arakelov if available, otherwise falls back to manual method.
-    
-    Returns (is_indep, rank, H_matrix)
-    """
-    if not divisors:
-        return True, 0, None
-
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-
-    jac_elements = []
-    for div in divisors:
-        try:
-            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
-            if not elem.is_zero():
-                jac_elements.append(elem)
-            else:
-                if debug:
-                    print("[check] element is zero, skipping.")
-        except Exception:
-            if debug:
-                print("[check] failed to convert divisor to jac element:", div)
-            raise
-
-    if not jac_elements:
-        return True, 0, None
-
-    n = len(jac_elements)
-    
-    if ARAKELOV_AVAILABLE:
-        if debug:
-            print("[check] Using Arakelov heights")
-        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=300, debug=debug)
-        return is_indep, rank, H
-    else:
-        if debug:
-            print("[check] Using manual height computation")
-        H = Matrix(RDF, n, n)
-        for i in range(n):
-            for j in range(i, n):
-                try:
-                    val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
-                except Exception:
-                    if debug:
-                        print(f"[check] height pairing failed for indices {i},{j}")
-                    raise
-                H[i, j] = val
-                H[j, i] = val
-
-        # Normalize the Gram matrix to ensure numerical stability
-        H = normalize_gram_for_basis(H, prec)
-
-        if n == 1:
-            is_indep = abs(H[0, 0]) > 1e-8
-            rank = 1 if is_indep else 0
-        else:
-            rank = H.rank()
-            is_indep = (rank == n)
-        return is_indep, rank, H
-
-
-def _build_curve_from_coeffs(f_coeffs):
-    """Return (C, R, x) from f_coeffs (list-like of coefficients highest->lowest)."""
-    R = PolynomialRing(QQ, 'x')
-    x = R.gen()
-    f_poly = sum(QQ(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
-    C = HyperellipticCurve(f_poly)
-    return C, R, x
 
 
 def naive_height_from_record(div):
@@ -2345,260 +2242,6 @@ def compute_rank_via_bruteforce_linalg(elements_p, J_p, debug=False):
     return max_rank
 
 
-def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
-    """
-    FULLY CORRECTED version with all ChatGPT fixes applied.
-    
-    Key fixes:
-    1. Uses EXACT rank computation via group structure
-    2. NO single-prime filtering (only multi-prime aggregation)
-    3. Proper hyperelliptic bad reduction checks
-    4. Frequency distribution for robustness
-    5. Scoring for ordering, not hard rejection
-    """
-    if not all_divisors:
-        return [], 0, None
-
-    p_test = 2_000_003
-
-    # Keep existing diagnostics (these are fine - they're just info)
-    if debug:
-        diagnostic_x_root_distribution(all_divisors, p_test)
-        diagnostic_section_collapse(all_divisors)
-        diagnostic_smoothness_proxy(all_divisors, p_test)
-        diagnostic_factor_base_saturation(all_divisors, p_test)
-    
-    ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
-    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
-
-    if debug:
-        print(f"[basis] Starting with {len(all_divisors)} candidates")
-
-    # STEP 1: Garbage collection (pre-filtering)
-    # These are HEURISTIC filters to remove junk, NOT independence tests
-    
-    filtered = []
-    rejected_reasons = defaultdict(int)
-    
-    for div in all_divisors:
-        # Keep existing garbage filters - they're fine for their purpose
-        if naive_height_suspicion(div):
-            rejected_reasons['naive_height'] += 1
-            continue
-        
-        if structural_red_flag(div):
-            rejected_reasons['structural'] += 1
-            continue
-        
-        # Theta-adjacency filter (for garbage collection only)
-        is_bad, reason = u_is_problematic(div, f_coeffs, C=None, debug=False)
-        if is_bad:
-            rejected_reasons[f'problematic_{reason}'] += 1
-            continue
-        
-        filtered.append(div)
-    
-    if debug:
-        print(f"[basis] After garbage collection: {len(filtered)}/{len(all_divisors)}")
-        for reason, count in sorted(rejected_reasons.items()):
-            print(f"  - {reason}: {count}")
-    
-    all_divisors = filtered
-
-    if not all_divisors:
-        return [], 0, None
-
-    # STEP 2: Score divisors (no hard filtering yet)
-    
-    if debug:
-        print("[basis] Scoring divisors across multiple primes...")
-    
-    primes = select_good_primes(f_coeffs, all_divisors, num_primes=15)
-    
-    if not primes:
-        if debug:
-            print("[basis] WARNING: No good primes found for mod-p checks")
-        # Continue without mod-p scoring
-        scored_divs = [(div, 0) for div in all_divisors]
-    else:
-        scored_divs = score_divisors_by_mod_p(all_divisors, f_coeffs, primes=primes, debug=debug)
-    
-    # Sort by score (best first) but keep ALL divisors
-    all_divisors = [div for div, score in scored_divs]
-    
-    # Truncate only if needed (but don't filter based on score)
-    if len(all_divisors) > maxbasis:
-        if debug:
-            print(f"[basis] Truncating to {maxbasis} highest-scored divisors")
-        all_divisors = all_divisors[:maxbasis]
-
-    # STEP 3: Try Arakelov if available
-    
-    if ARAKELOV_AVAILABLE and arakelov_build_basis_with_heights is not None and not VERIFY_INDEPENDENCE_MOD_P:
-        if debug:
-            print("[basis] Attempting Arakelov heights for basis construction")
-        
-        for prec in DEFAULT_PRECS:
-            try:
-                res = arakelov_build_basis_with_heights(
-                    all_divisors, f_coeffs, prec=prec, debug=debug
-                )
-                
-                # Arakelov succeeded - verify with mod-p
-                basis_divs, rank_ara, H_ara = res
-                
-                if basis_divs and primes:
-                    rank_cert, rank_dist, _ = certify_independence_mod_p(
-                        basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
-                    )
-                    
-                    if rank_cert == len(basis_divs):
-                        if debug:
-                            print(f"[basis] ✓ Arakelov basis CERTIFIED by mod-p (rank={rank_cert})")
-                        return basis_divs, rank_cert, H_ara
-                    elif rank_cert >= len(basis_divs) - 1:
-                        if debug:
-                            print(f"[basis] ✓ Arakelov basis LIKELY GOOD (mod-p rank={rank_cert}/{len(basis_divs)})")
-                        return basis_divs, rank_ara, H_ara
-                    else:
-                        if debug:
-                            print(f"[basis] ⚠ Arakelov basis UNCERTAIN (mod-p only certifies rank={rank_cert}/{len(basis_divs)})")
-                        # Continue to try other methods
-                
-                return res
-                
-            except Exception as e:
-                if debug:
-                    warnings.warn(
-                        f"[basis] Arakelov failed at prec={prec}: {type(e).__name__}: {e}",
-                        RuntimeWarning
-                    )
-                try:
-                    clear_period_cache()
-                except:
-                    raise
-                continue
-        
-        if debug:
-            print("[basis] All Arakelov attempts failed")
-
-    # STEP 4: Build basis using multi-prime certification
-    
-    if debug:
-        print("[basis] Building basis via multi-prime mod-p certification")
-    
-    if not primes:
-        if debug:
-            print("[basis] ERROR: Cannot build basis without good primes")
-        return [], 0, None
-    
-    # FIXED: Don't filter - build basis incrementally and certify at each step
-    
-    basis_divs = []
-    
-    # Start with highest-scored divisors and add greedily
-    for div in all_divisors:
-        candidate_basis = basis_divs + [div]
-        
-        # Certify independence of candidate basis
-        rank_cert, rank_dist, _ = certify_independence_mod_p(
-            candidate_basis, f_coeffs, primes=primes, min_agreement=3, debug=False
-        )
-        
-        # Accept if rank increases
-        if rank_cert > len(basis_divs):
-            basis_divs.append(div)
-            if debug:
-                print(f"[basis] Added divisor {len(basis_divs)-1} (certified rank now {rank_cert})")
-        else:
-            if debug:
-                print(f"[basis] Rejected divisor (rank stays {rank_cert})")
-        
-        # Stop if we've reached expected rank
-        if rank_cert >= min(ranklin, 4):  # genus 2 -> rank <= 4 typically
-            break
-    
-    rank_final, rank_dist_final, details = certify_independence_mod_p(
-        basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
-    )
-    
-    if debug:
-        print(f"[basis] Final basis: {len(basis_divs)} divisors, certified rank {rank_final}")
-    
-    # STEP 5: Gram matrix computation
-    # CRITICAL FIX: Skip Gram matrix if using mod-p verification!
-    # The mod-p check already proved independence - we don't need the regulator
-    
-    H_exact = None
-    
-    if VERIFY_INDEPENDENCE_MOD_P:
-        # Mod-p already certified independence - skip expensive Gram matrix
-        if debug:
-            print("[basis] Skipping Gram matrix computation (independence certified by mod-p)")
-        return basis_divs, rank_final, None
-    
-    # Only compute Gram matrix if NOT using mod-p verification
-    if len(basis_divs) > 0 and compute_height_pairing_exact is not None:
-        if debug:
-            print("[basis] Attempting exact height Gram matrix...")
-        
-        try:
-            # Build Jacobian elements
-            C, R, x = _build_curve_from_coeffs(f_coeffs)
-            J = C.jacobian()
-            
-            basis_jac = []
-            for div in basis_divs:
-                u_poly = x**2 - _to_QQ_safe(div['s']) * x + _to_QQ_safe(div['p'])
-                v_poly = _to_QQ_safe(div['v_1']) * x + _to_QQ_safe(div['v_0'])
-                D = J([R(u_poly), R(v_poly)])
-                basis_jac.append(D)
-            
-            # Compute Gram matrix
-            n = len(basis_jac)
-            H_exact = Matrix(QQ, n, n)
-            
-            for i in range(n):
-                for j in range(i, n):
-                    try:
-                        h_ij = compute_height_pairing_exact(
-                            basis_jac[i], basis_jac[j], f_coeffs, 
-                            num_doublings=num_doublings
-                        )
-                        H_exact[i, j] = h_ij
-                        H_exact[j, i] = h_ij
-                    except Exception as e:
-                        if debug:
-                            warnings.warn(
-                                f"[basis] Height pairing failed for ({i},{j}): {e}",
-                                RuntimeWarning
-                            )
-                        H_exact = None
-                        raise
-                        break
-                
-                if H_exact is None:
-                    break
-            
-            if H_exact is not None:
-                H_exact = normalize_gram_for_basis(H_exact, 100)
-                
-                if debug:
-                    try:
-                        det_exact = H_exact.determinant()
-                        print(f"[basis] Gram matrix computed: det = {float(det_exact):.6g}")
-                    except Exception:
-                        raise
-        
-        except Exception as e:
-            if debug:
-                warnings.warn(f"[basis] Gram matrix computation failed: {e}", RuntimeWarning)
-            H_exact = None
-            raise
-    
-    return basis_divs, rank_final, H_exact
-
-
 def compute_subgroup_rank_mod_p(divisors, J_p, p, debug=False):
     """
     Compute the rank of the subgroup generated by divisors in J(F_p).
@@ -2679,6 +2322,7 @@ def fallback_rank_check(elements_p, J_p, debug=False):
             # If a weird object fails is_zero(), skip it
             if debug:
                 print("[fallback rank] is_zero() check failed for element, skipping")
+            raise
             continue
 
         is_dependent = False
@@ -2700,6 +2344,7 @@ def fallback_rank_check(elements_p, J_p, debug=False):
                 # If arithmetic fails for some combo, skip that combo
                 if debug:
                     print("[fallback rank] combination arithmetic failed, skipping combo")
+                raise
                 continue
 
         if not is_dependent:
@@ -2762,6 +2407,7 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
                 candidate_l.append(l)
         except Exception:
             # tolerate weird N types
+            raise
             continue
 
     if not candidate_l:
@@ -2781,6 +2427,8 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
             J_zero = J_p.zero()
         except Exception:
             J_zero = None
+            raise
+        raise
 
     for l in candidate_l:
         if max_rank == k:
@@ -2791,6 +2439,7 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
         except Exception:
             if debug:
                 print(f"[torsion rank] invalid cofactor for l={l}, skipping")
+            raise
             continue
 
         basis = []
@@ -2851,6 +2500,7 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
             except Exception:
                 # if iteration fails for any reason, treat as unknown and skip dependence test
                 is_dependent = False
+                raise
 
             if not is_dependent:
                 basis.append(T)
@@ -2905,7 +2555,7 @@ def jacobian_group_order(J_p):
         # For Jacobians: #J(F_p) = L(1)
         return ZZ(frob(1))
     except (AttributeError, NotImplementedError):
-        pass
+        raise
     except Exception as e:
         raise RuntimeError("Frobenius polynomial computation failed") from e
 
@@ -2950,3 +2600,373 @@ def jacobian_group_order(J_p):
     raise NotImplementedError(
         f"Jacobian order reconstruction not implemented for genus {g}"
     )
+
+
+from search_common import FINITE_FIELD
+
+def _build_curve_from_coeffs(f_coeffs):
+    """
+    Return (C, R, x) from f_coeffs.
+    Handles both QQ (Rational Field) and Finite Field modes.
+    """
+    if FINITE_FIELD:
+        K = GF(FINITE_FIELD)
+    else:
+        K = QQ
+
+    R = PolynomialRing(K, 'x')
+    x = R.gen()
+    
+    # Coerce coefficients to the correct field
+    f_poly = sum(K(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
+    C = HyperellipticCurve(f_poly)
+    return C, R, x
+
+def mumford_to_jacobian_element(s, p, v0, v1, C):
+    """
+    Construct Jacobian element D from mumford parameters.
+    Handles both QQ and Finite Field cases based on the curve's base ring.
+    """
+    try:
+        f_curve, h_curve = C.hyperelliptic_polynomials()
+        R = f_curve.parent()
+        x = R.gen()
+        base_ring = C.base_ring()
+    except Exception as e:
+        raise ValueError(f"Invalid curve object passed to mumford_to_jacobian_element: {e}")
+
+    try:
+        if FINITE_FIELD:
+            # Coerce to integer first, then to field element to handle potential string/rational inputs
+            s_val = base_ring(int(s))
+            p_val = base_ring(int(p))
+            v0_val = base_ring(int(v0))
+            v1_val = base_ring(int(v1))
+        else:
+            s_val = _to_QQ_safe(s)
+            p_val = _to_QQ_safe(p)
+            v0_val = _to_QQ_safe(v0)
+            v1_val = _to_QQ_safe(v1)
+    except Exception as e:
+        raise ValueError(f"Cannot coerce mumford coefficients to {base_ring}: {e}")
+
+    try:
+        u_poly = x**2 - s_val * x + p_val
+        v_poly = v1_val * x + v0_val
+        u_poly = R(u_poly)
+        v_poly = R(v_poly)
+        return C.jacobian()([u_poly, v_poly])
+    except Exception as e:
+        raise ValueError(f"Failed to build jacobian element from mumford data: {e}")
+
+def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
+    """
+    Build Jacobian elements and check independence/rank.
+    In Finite Field mode, calculates the rank of the subgroup generated by the divisors.
+    In QQ mode, uses Height pairings (Arakelov or Manual).
+    
+    Returns (is_indep, rank, H_matrix)
+    """
+    if not divisors:
+        return True, 0, None
+
+    # Finite Field Path
+    if FINITE_FIELD:
+        try:
+            C, R, x = _build_curve_from_coeffs(f_coeffs)
+            J = C.jacobian()
+            
+            elements_p = []
+            valid_divs = []
+            
+            for div in divisors:
+                try:
+                    D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+                    if not D.is_zero():
+                        elements_p.append(D)
+                        valid_divs.append(div)
+                except Exception:
+                    if debug:
+                        print(f"[check] Failed to convert divisor {div} to J(F_p)")
+                    continue
+            
+            if not elements_p:
+                return True, 0, None
+                
+            # Use torsion projection to find the rank of the generated subgroup
+            rank = compute_rank_via_torsion_projection(elements_p, J, debug=debug)
+            
+            # For FF, we don't have a Gram matrix in the height sense.
+            return True, rank, None
+            
+        except Exception as e:
+            if debug:
+                print(f"[check] Finite field independence check failed: {e}")
+            raise
+
+    # Rational Field (QQ) Path
+    C, R, x = _build_curve_from_coeffs(f_coeffs)
+    
+    jac_elements = []
+    for div in divisors:
+        try:
+            elem = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+            if not elem.is_zero():
+                jac_elements.append(elem)
+            else:
+                if debug:
+                    print("[check] element is zero, skipping.")
+        except Exception:
+            if debug:
+                print("[check] failed to convert divisor to jac element:", div)
+            raise
+
+    if not jac_elements:
+        return True, 0, None
+
+    n = len(jac_elements)
+    
+    if ARAKELOV_AVAILABLE:
+        if debug:
+            print("[check] Using Arakelov heights")
+        is_indep, rank, H = arakelov_check_independence(jac_elements, f_coeffs, prec=300, debug=debug)
+        return is_indep, rank, H
+    else:
+        if debug:
+            print("[check] Using manual height computation")
+        H = Matrix(RDF, n, n)
+        for i in range(n):
+            for j in range(i, n):
+                try:
+                    val = compute_manual_height_pairing(jac_elements[i], jac_elements[j], debug=debug)
+                except Exception:
+                    if debug:
+                        print(f"[check] height pairing failed for indices {i},{j}")
+                    raise
+                H[i, j] = val
+                H[j, i] = val
+
+        # Normalize the Gram matrix to ensure numerical stability
+        H = normalize_gram_for_basis(H, 100) # Assuming 100 prec if not passed
+
+        if n == 1:
+            is_indep = abs(H[0, 0]) > 1e-8
+            rank = 1 if is_indep else 0
+        else:
+            rank = H.rank()
+            is_indep = (rank == n)
+        return is_indep, rank, H
+
+def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
+    """
+    Builds a basis (or generating set) from candidate divisors.
+    
+    In FINITE_FIELD mode:
+        - Returns a set of generators for the subgroup found in J(F_p).
+        - Skips all height-based logic.
+    
+    In QQ mode:
+        - Builds independent basis for Mordell-Weil group using heights.
+    """
+    if not all_divisors:
+        return [], 0, None
+
+    # --- FINITE FIELD MODE ---
+    if FINITE_FIELD:
+        if debug:
+            print(f"[basis] Finite Field Mode GF({FINITE_FIELD})")
+            print(f"[basis] Starting with {len(all_divisors)} candidates")
+            
+        C, R, x = _build_curve_from_coeffs(f_coeffs)
+        J = C.jacobian()
+        
+        # 1. Filter and Convert
+        # In FF mode, we don't have "bad height" or "structural red flags" in the same way.
+        # We just want valid group elements.
+        
+        elements_p = []
+        valid_divs = []
+        
+        for div in all_divisors:
+            try:
+                # Basic checks for validity
+                s, p_val = int(div['s']), int(div['p'])
+                v0, v1 = int(div['v_0']), int(div['v_1'])
+                
+                D = mumford_to_jacobian_element(s, p_val, v0, v1, C)
+                
+                if not D.is_zero():
+                    elements_p.append(D)
+                    valid_divs.append(div)
+            except Exception as e:
+                if debug:
+                    print(f"[basis] Bad divisor in FF mode: {e}")
+                continue
+
+        if not elements_p:
+            return [], 0, None
+
+        # 2. Compute Rank of the Subgroup
+        # We use the robust torsion projection method
+        if debug:
+            print(f"[basis] Computing rank of subgroup generated by {len(elements_p)} elements...")
+            
+        rank = compute_rank_via_torsion_projection(elements_p, J, debug=debug)
+        
+        if debug:
+            print(f"[basis] Subgroup rank estimate: {rank}")
+            # Try to get group order if possible for context
+            try:
+                N = jacobian_group_order(J)
+                print(f"[basis] J(F_p) Group Order: {N}")
+            except:
+                raise
+
+        # For FF, we return the valid divisors found as the "basis" (generators)
+        # H_exact is None because height pairing doesn't exist
+        return valid_divs, rank, None
+
+
+    # --- RATIONAL FIELD (QQ) MODE ---
+    # (Original logic follows)
+    
+    p_test = 2_000_003
+
+    if debug:
+        diagnostic_x_root_distribution(all_divisors, p_test)
+        diagnostic_section_collapse(all_divisors)
+        diagnostic_smoothness_proxy(all_divisors, p_test)
+        diagnostic_factor_base_saturation(all_divisors, p_test)
+    
+    ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
+    maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
+
+    if debug:
+        print(f"[basis] Starting with {len(all_divisors)} candidates (QQ Mode)")
+
+    # STEP 1: Garbage collection
+    filtered = []
+    rejected_reasons = defaultdict(int)
+    
+    for div in all_divisors:
+        if naive_height_suspicion(div):
+            rejected_reasons['naive_height'] += 1
+            continue
+        
+        if structural_red_flag(div):
+            rejected_reasons['structural'] += 1
+            continue
+        
+        is_bad, reason = u_is_problematic(div, f_coeffs, C=None, debug=False)
+        if is_bad:
+            rejected_reasons[f'problematic_{reason}'] += 1
+            continue
+        
+        filtered.append(div)
+    
+    if debug:
+        print(f"[basis] After garbage collection: {len(filtered)}/{len(all_divisors)}")
+    
+    all_divisors = filtered
+
+    if not all_divisors:
+        return [], 0, None
+
+    # STEP 2: Score divisors
+    primes = select_good_primes(f_coeffs, all_divisors, num_primes=15)
+    
+    if not primes:
+        if debug:
+            print("[basis] WARNING: No good primes found for mod-p checks")
+        scored_divs = [(div, 0) for div in all_divisors]
+    else:
+        scored_divs = score_divisors_by_mod_p(all_divisors, f_coeffs, primes=primes, debug=debug)
+    
+    all_divisors = [div for div, score in scored_divs]
+    
+    if len(all_divisors) > maxbasis:
+        all_divisors = all_divisors[:maxbasis]
+
+    # STEP 3: Try Arakelov
+    if ARAKELOV_AVAILABLE and arakelov_build_basis_with_heights is not None and not VERIFY_INDEPENDENCE_MOD_P:
+        if debug:
+            print("[basis] Attempting Arakelov heights for basis construction")
+        
+        for prec in DEFAULT_PRECS:
+            try:
+                res = arakelov_build_basis_with_heights(
+                    all_divisors, f_coeffs, prec=prec, debug=debug
+                )
+                basis_divs, rank_ara, H_ara = res
+                
+                if basis_divs and primes:
+                    rank_cert, rank_dist, _ = certify_independence_mod_p(
+                        basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
+                    )
+                    
+                    if rank_cert >= len(basis_divs) - 1:
+                        if debug:
+                            print(f"[basis] ✓ Arakelov basis validated (rank={rank_cert})")
+                        return basis_divs, rank_ara, H_ara
+                
+                return res
+            except Exception:
+                raise
+                continue
+
+    # STEP 4: Build basis via multi-prime certification
+    if debug:
+        print("[basis] Building basis via multi-prime mod-p certification")
+    
+    if not primes:
+        return [], 0, None
+    
+    basis_divs = []
+    
+    for div in all_divisors:
+        candidate_basis = basis_divs + [div]
+        
+        rank_cert, rank_dist, _ = certify_independence_mod_p(
+            candidate_basis, f_coeffs, primes=primes, min_agreement=3, debug=False
+        )
+        
+        if rank_cert > len(basis_divs):
+            basis_divs.append(div)
+            if debug:
+                print(f"[basis] Added divisor {len(basis_divs)-1}")
+        
+        if rank_cert >= min(ranklin, 4):
+            break
+    
+    rank_final, _, _ = certify_independence_mod_p(
+        basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
+    )
+    
+    # STEP 5: Gram Matrix
+    H_exact = None
+    if not VERIFY_INDEPENDENCE_MOD_P and len(basis_divs) > 0 and compute_height_pairing_exact is not None:
+        if debug:
+            print("[basis] Attempting exact height Gram matrix...")
+        try:
+            C, R, x = _build_curve_from_coeffs(f_coeffs)
+            J = C.jacobian()
+            basis_jac = []
+            for div in basis_divs:
+                D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
+                basis_jac.append(D)
+            
+            n = len(basis_jac)
+            H_exact = Matrix(QQ, n, n)
+            for i in range(n):
+                for j in range(i, n):
+                    h_ij = compute_height_pairing_exact(basis_jac[i], basis_jac[j], f_coeffs, num_doublings=num_doublings)
+                    H_exact[i, j] = H_exact[j, i] = h_ij
+            
+            H_exact = normalize_gram_for_basis(H_exact, 100)
+        except Exception as e:
+            if debug:
+                print(f"[basis] Gram matrix failed: {e}")
+            H_exact = None
+            raise
+
+    return basis_divs, rank_final, H_exact

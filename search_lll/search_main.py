@@ -12,6 +12,9 @@ from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 from .mumford import *
 from .selmer_genus2 import *
+# After your Mumford search in FINITE_FIELD mode:
+from .smoothness import *
+
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -364,9 +367,20 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             rational_roots_count = sum(1 for div in mumford_divisors 
                                       if 'has_rational_roots' in div and div.get('has_rational_roots'))
             print(f"  {rational_roots_count} divisors had rational roots in u(x)")
-            print("printing independent found:")
-            for i in mumford_divisors:
+            print("printing independent found (first 50):")
+            for i in mumford_divisors[:50]:
                 print(i)
+
+            if FINITE_FIELD:
+                report = diagnose_finite_field_search(
+                    mumford_divisors,  # Your 12,264 divisors
+                    verbose=True
+                )
+
+            # Access specific metrics:
+            print(f"Factor base size: {report['factor_base']['size']}")
+            print(f"Attack feasible: {report['attack_feasibility']['feasible']}")
+            print(f"Speedup vs generic: {report['complexity']['speedup_vs_generic']}x")
         
         print(f"Mumford search found {len(found_xs)} rational points")
         print("rational points found:")

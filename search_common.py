@@ -388,6 +388,12 @@ HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
 PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
+FINITE_FIELD = None
+FINITE_FIELD = list(primes(10**4))[-1]
+
+if FINITE_FIELD:
+    # Use only the field characteristic as our "prime"
+    PRIME_POOL = [FINITE_FIELD]
 
 NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
 
@@ -843,17 +849,37 @@ def naive_pairing(P, Q):
 
 
 def canonicalize_by_sign(vecs):
+    """
+    Canonicalize vectors by sign: make first non-zero element positive.
+    This ensures (4,) and (-4,) map to (4,), not (-4,).
+    """
     seen = set()
     out = []
     for v in vecs:
         vt = tuple(int(x) for x in v)
         if all(x == 0 for x in vt):
             continue
-        neg = tuple(-x for x in vt)
-        can = vt if vt <= neg else neg
+        
+        # Find first non-zero element
+        first_nonzero_idx = None
+        for i, x in enumerate(vt):
+            if x != 0:
+                first_nonzero_idx = i
+                break
+        
+        if first_nonzero_idx is None:
+            continue  # All zeros
+        
+        # Canonicalize: make first non-zero positive
+        if vt[first_nonzero_idx] < 0:
+            can = tuple(-x for x in vt)
+        else:
+            can = vt
+        
         if can not in seen:
             seen.add(can)
-            out.append(vt)
+            out.append(can)  # <-- Return canonical form, not original vt
+    
     return out
 
 

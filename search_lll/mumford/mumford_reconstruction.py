@@ -389,10 +389,19 @@ def quick_dependence_check(div1, div2):
 # Add to mumford_reconstruction.py, after the CRT reconstruction loop
 
 
+from search_common import DATA_PTS_GENUS2, FINITE_FIELD
+from sage.all import GF
+
+
 def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
     """
     Optimized reconstruction with batched parallel processing.
     """
+    # === FINITE FIELD MODE ===
+    if FINITE_FIELD:
+        return _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug)
+    
+    # === RATIONAL (QQ) MODE ===
     t_start_total = time.time()
     
     print("\n" + "="*70)
@@ -671,6 +680,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             pool = ctx.Pool(num_workers)
         except Exception:
             pool = multiprocessing.Pool(num_workers)
+            raise
         
         try:
             for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel_v2, all_batches):
@@ -887,4 +897,205 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
 
 
     mumford_timers_print()
+    return found_xs, mumford_divisors
+
+
+# In mumford_reconstruction.py, modify _reconstruct_mumford_finite_field:
+
+
+def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
+    """
+    Memory-efficient reconstruction with SUPPORT-AWARE early stopping.
+    """
+    from search_common import FINITE_FIELD
+    
+    print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({FINITE_FIELD})) ===")
+    
+    p = int(FINITE_FIELD)
+    if p not in residues:
+        if debug:
+            print(f"  No residues found for field characteristic {p}")
+        return set(), []
+
+    import math
+    from sage.all import matrix, GF, ZZ
+    
+    genus = (len(f_coeffs) - 1) // 2
+    target_B = int(math.ceil(p ** (1.0 / genus)))
+    min_relations = 2 * target_B
+    
+    # MORE AGGRESSIVE LIMITS
+    SUPPORT_MULTIPLICITY_CAP = 1  # Only keep ONE divisor per support
+    HARD_CAP = min(5000, 20 * target_B)  # Much lower cap
+    RANK_STABLE_WINDOW = max(50, target_B)
+    
+    if debug:
+        print(f"  Genus: {genus}")
+        print(f"  Target factor base size B: {target_B}")
+        print(f"  Support multiplicity cap: {SUPPORT_MULTIPLICITY_CAP}")
+        print(f"  Hard cap: {HARD_CAP}")
+    
+    found_xs = set()
+    
+    # Track by SUPPORT, not full divisor
+    seen_supports = set()
+    support_to_divisor = {}  # Keep only first divisor per support
+    
+    factor_base = set()
+    smooth_supports_list = []  # List of root tuples
+    
+    count_raw = 0
+    count_alg_fail = 0
+    count_duplicate_support = 0
+    
+    F = GF(p)
+    
+    # Rank tracking
+    last_rank = 0
+    iterations_since_rank_increase = 0
+    
+    def compute_current_rank():
+        if len(smooth_supports_list) < 2:
+            return len(smooth_supports_list)
+        
+        root_list = sorted(factor_base)
+        root_to_idx = {r: i for i, r in enumerate(root_list)}
+        
+        rows = []
+        for roots in smooth_supports_list:
+            row = [0] * len(root_list)
+            for r in roots:
+                if r in root_to_idx:
+                    row[root_to_idx[r]] += 1
+            rows.append(row)
+        
+        M = matrix(ZZ, rows)
+        return M.rank()
+    
+    # Flatten residue structure
+    for v_tuple, val in residues[p].items():
+        sols_list = []
+        if isinstance(val, list):
+            sols_list = val
+        elif isinstance(val, dict):
+            for x_res, s_list in val.items():
+                sols_list.extend(s_list)
+        
+        for sol in sols_list:
+            # === EARLY STOPPING CHECKS ===
+            
+            # 1. Hard cap
+            if len(seen_supports) >= HARD_CAP:
+                if debug:
+                    print(f"\n  [EARLY STOP] Hard cap reached: {HARD_CAP} unique supports")
+                break
+            
+            # 2. Rank stabilization check
+            if len(smooth_supports_list) >= min_relations and \
+               len(smooth_supports_list) % RANK_STABLE_WINDOW == 0:
+                
+                current_rank = compute_current_rank()
+                
+                if debug and len(smooth_supports_list) % (2*RANK_STABLE_WINDOW) == 0:
+                    print(f"  [Progress] Unique supports: {len(seen_supports)}, "
+                          f"Factor base: {len(factor_base)}, "
+                          f"Rank: {current_rank}/{len(factor_base)}")
+                
+                if current_rank > last_rank:
+                    last_rank = current_rank
+                    iterations_since_rank_increase = 0
+                else:
+                    iterations_since_rank_increase += RANK_STABLE_WINDOW
+                    
+                    if current_rank == len(factor_base):
+                        if debug:
+                            print(f"\n  [EARLY STOP] Full rank: {current_rank}/{len(factor_base)}")
+                        break
+                    
+                    if iterations_since_rank_increase >= 2 * RANK_STABLE_WINDOW:
+                        if debug:
+                            print(f"\n  [EARLY STOP] Rank stable at {current_rank}/{len(factor_base)}")
+                        break
+            
+            # === PROCESS DIVISOR ===
+            count_raw += 1
+            s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
+            
+            # Verify algebraic constraints
+            if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
+                count_alg_fail += 1
+                continue
+            
+            # Check for rational roots and compute support
+            delta = (s_val * s_val - 4 * p_val) % p
+            delta_ele = F(delta)
+            
+            if not delta_ele.is_square():
+                # Not smooth, skip
+                continue
+            
+            sqrt_delta = delta_ele.sqrt()
+            inv_2 = F(2).inverse()
+            r1 = int((F(s_val) + sqrt_delta) * inv_2)
+            r2 = int((F(s_val) - sqrt_delta) * inv_2)
+            roots = tuple(sorted([r1, r2]))  # Canonical support
+            
+            # CRITICAL: Check if we've seen this support
+            if roots in seen_supports:
+                count_duplicate_support += 1
+                continue
+            
+            # NEW SUPPORT - accept it
+            seen_supports.add(roots)
+            factor_base.update(roots)
+            smooth_supports_list.append(roots)
+            
+            # Check for curve points
+            for r in roots:
+                x_cand = r - int(shift)
+                try:
+                    if rationality_test(x_cand) is not None:
+                        found_xs.add(x_cand)
+                except Exception:
+                    pass
+            
+            # Store divisor (one per support)
+            div_entry = {
+                's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
+                'vector': v_tuple,
+                'has_rational_roots': True,
+                'roots': list(roots)
+            }
+            support_to_divisor[roots] = div_entry
+        
+        # Check stops after each v_tuple
+        if len(seen_supports) >= HARD_CAP:
+            break
+        if len(smooth_supports_list) >= min_relations and \
+           iterations_since_rank_increase >= 2 * RANK_STABLE_WINDOW:
+            break
+    
+    # === FINAL REPORT ===
+    mumford_divisors = list(support_to_divisor.values())
+    final_rank = compute_current_rank() if smooth_supports_list else 0
+    
+    print(f"  Raw solutions processed: {count_raw}")
+    print(f"  Algebraic rejects: {count_alg_fail}")
+    print(f"  Duplicate supports rejected: {count_duplicate_support}")
+    print(f"  Unique supports kept: {len(seen_supports)}")
+    print(f"  Factor base size: {len(factor_base)}")
+    print(f"  Final rank: {final_rank}/{len(factor_base)}")
+    print(f"  Points found in base field: {len(found_xs)}")
+    print(f"  RAM savings: {count_duplicate_support} duplicates avoided")
+    
+    # Quality assessment
+    if final_rank == len(factor_base):
+        print(f"  ✓ FULL RANK: Index calculus attack is feasible!")
+    elif final_rank >= len(factor_base) - 1:
+        print(f"  ⚠️  Nearly full rank ({final_rank}/{len(factor_base)})")
+    else:
+        deficit = len(factor_base) - final_rank
+        print(f"  ✗ Rank deficient by {deficit}")
+        print(f"     This suggests geometric degeneracy in search vectors")
+    
     return found_xs, mumford_divisors
