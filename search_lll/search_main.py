@@ -956,4 +956,3 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     return new_xs, new_sections, precomputed_residues, stats
 
 
-
