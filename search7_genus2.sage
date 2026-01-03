@@ -660,7 +660,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
 
         if FINITE_FIELD:
-            vecs = generate_ff_search_vectors(len(current_sections), max_coeff=20, num_vecs=5000)
+            vecs = generate_ff_search_vectors(len(current_sections), num_vecs=5000)
         else:
             vecs = compute_search_vectors(H, height_bound)
         vecs = canonicalize_by_sign(vecs)

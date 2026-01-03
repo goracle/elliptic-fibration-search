@@ -1867,7 +1867,7 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
     return unique_subsets
 
 
-def generate_ff_search_vectors(num_sections, max_coeff=20, num_vecs=1000):
+def generate_ff_search_vectors(num_sections, max_coeff=40, num_vecs=1000):
     """
     Generate diverse search vectors for finite field mode.
     Returns canonicalized vectors (first non-zero element positive).

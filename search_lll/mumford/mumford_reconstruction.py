@@ -905,161 +905,385 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
 
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
-    Memory-efficient reconstruction with SUPPORT-AWARE early stopping.
+    Multi-prime Mumford reconstruction (Consensus Strategy).
+    Iterates over ALL primes in residues to maximize vector coverage.
     """
     from search_common import FINITE_FIELD
-    
-    print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({FINITE_FIELD})) ===")
-    
-    p = int(FINITE_FIELD)
-    if p not in residues:
-        if debug:
-            print(f"  No residues found for field characteristic {p}")
-        return set(), []
-
     import math
     from sage.all import matrix, GF, ZZ
     
-    genus = (len(f_coeffs) - 1) // 2
-    target_B = int(math.ceil(p ** (1.0 / genus)))
-    min_relations = 2 * target_B
-    
-    # MORE AGGRESSIVE LIMITS
-    SUPPORT_MULTIPLICITY_CAP = 1  # Only keep ONE divisor per support
-    HARD_CAP = min(5000, 20 * target_B)  # Much lower cap
-    RANK_STABLE_WINDOW = max(50, target_B)
-    
-    if debug:
-        print(f"  Genus: {genus}")
-        print(f"  Target factor base size B: {target_B}")
-        print(f"  Support multiplicity cap: {SUPPORT_MULTIPLICITY_CAP}")
-        print(f"  Hard cap: {HARD_CAP}")
-    
+    # 1. Setup global counters and collections
+    # We collect divisors across ALL primes to ensure we span all geometric directions (vectors)
+    all_unique_divisors = []
+    seen_supports = set()  # Global support deduplication
     found_xs = set()
     
-    # Track by SUPPORT, not full divisor
-    seen_supports = set()
-    support_to_divisor = {}  # Keep only first divisor per support
+    # Track which vectors are contributing across the whole campaign
+    global_vector_stats = defaultdict(lambda: {'collected': 0, 'primes_active': set()})
     
+    sorted_primes = sorted(residues.keys())
+    print(f"\n=== MUMFORD SEARCH (MULTI-PRIME CONSENSUS) ===")
+    print(f"Aggregating over {len(sorted_primes)} primes: {sorted_primes}")
+    
+    genus = (len(f_coeffs) - 1) // 2
+    
+    # Quotas to prevent one 'lucky' vector from flooding the factor base
+    # We want diversity (vectors), not just volume.
+    DIVISORS_PER_VECTOR_PER_PRIME = 5 
+    
+    total_raw_processed = 0
+    total_smooth_kept = 0
+    
+    for p in sorted_primes:
+        if debug:
+            print(f"\n--- Processing Prime p={p} ---")
+            
+        F = GF(p)
+        
+        # Per-prime structures
+        vector_iterators = {}
+        
+        # Build iterators for this prime
+        # residues[p] is typically {vector_tuple: [solutions...]}
+        vectors_at_p = list(residues[p].keys())
+        
+        for v_tuple in vectors_at_p:
+            val = residues[p][v_tuple]
+            sols_list = []
+            if isinstance(val, list):
+                sols_list = val
+            elif isinstance(val, dict):
+                for x_res, s_list in val.items():
+                    sols_list.extend(s_list)
+            vector_iterators[v_tuple] = iter(sols_list)
+            
+        active_vectors = set(vectors_at_p)
+        local_collected_count = 0
+        
+        # Round-robin collection for this prime
+        # We limit the number of divisors per vector to avoid wasting time on saturated directions
+        while active_vectors:
+            vectors_exhausted = set()
+            
+            for v_tuple in list(active_vectors):
+                # Check local quota
+                current_collected = global_vector_stats[v_tuple].get(f'collected_p_{p}', 0)
+                if current_collected >= DIVISORS_PER_VECTOR_PER_PRIME:
+                    vectors_exhausted.add(v_tuple)
+                    continue
+
+                try:
+                    sol = next(vector_iterators[v_tuple])
+                except StopIteration:
+                    vectors_exhausted.add(v_tuple)
+                    continue
+                
+                total_raw_processed += 1
+                s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
+                
+                # Fast algebraic verify
+                if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
+                    continue
+                    
+                # Smoothness check (splitting of u(x))
+                delta = (s_val * s_val - 4 * p_val) % p
+                delta_ele = F(delta)
+                
+                if not delta_ele.is_square():
+                    continue
+                
+                # Compute roots (Support)
+                sqrt_delta = delta_ele.sqrt()
+                inv_2 = F(2).inverse()
+                r1 = int((F(s_val) + sqrt_delta) * inv_2)
+                r2 = int((F(s_val) - sqrt_delta) * inv_2)
+                roots = tuple(sorted([r1, r2]))
+                
+                # GLOBAL DEDUPLICATION
+                # If we have seen this support (roots) before (even in another prime? No, supports are unique to p)
+                # Actually, supports are mod p. We cannot dedup supports across different primes.
+                # But we treat the 'vector' as the invariant.
+                
+                # We store the divisor.
+                # Note: We cannot mix divisors from different primes in a single relation matrix 
+                # for index calculus unless we map them to a global basis. 
+                # HOWEVER, for the purpose of checking rank of *vectors*, we just collect them.
+                
+                div_entry = {
+                    's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
+                    'vector': v_tuple,
+                    'has_rational_roots': True,
+                    'roots': list(roots),
+                    'field_prime': p 
+                }
+                
+                all_unique_divisors.append(div_entry)
+                
+                # Update stats
+                global_vector_stats[v_tuple]['collected'] += 1
+                global_vector_stats[v_tuple]['primes_active'].add(p)
+                global_vector_stats[v_tuple][f'collected_p_{p}'] = current_collected + 1
+                
+                local_collected_count += 1
+                total_smooth_kept += 1
+                
+                # Optional: Rational point check (always cheap to do)
+                for r in roots:
+                    x_cand = r - int(shift)
+                    try:
+                        if rationality_test(x_cand) is not None:
+                            found_xs.add(x_cand)
+                    except Exception:
+                        pass
+
+            active_vectors -= vectors_exhausted
+            
+            # Safety break for this prime
+            if local_collected_count > len(vectors_at_p) * DIVISORS_PER_VECTOR_PER_PRIME * 2:
+                break
+    
+    # === FINAL AGGREGATE REPORT ===
+    print("\n" + "="*60)
+    print("CONSENSUS STRATEGY REPORT")
+    print("="*60)
+    print(f"Total raw solutions processed: {total_raw_processed}")
+    print(f"Total smooth divisors kept: {total_smooth_kept}")
+    print(f"Total primes contributed: {len(sorted_primes)}")
+    print(f"Total unique vectors active: {len(global_vector_stats)}")
+    
+    print("\nVector Participation:")
+    active_vectors_count = 0
+    for v_tuple, stats in sorted(global_vector_stats.items(), key=lambda x: -x[1]['collected']):
+        if stats['collected'] > 0:
+            active_vectors_count += 1
+            print(f"  Vector {v_tuple}: {stats['collected']} divisors across {len(stats['primes_active'])} primes")
+            
+    print(f"\nTotal Active Vectors: {active_vectors_count}")
+    
+    # If we have enough vectors, we essentially have full rank in the abstract sense
+    # (assuming generic independence of the sections).
+    if active_vectors_count >= 15: # Heuristic threshold
+        print("✓ High vector coverage achieved. Jacobian basis likely findable.")
+    else:
+        print("⚠️ Low vector coverage. Try adding more primes to the pool.")
+
+    return found_xs, all_unique_divisors
+
+
+def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
+    """
+    Memory-efficient reconstruction for a SINGLE target finite field (search_common.FINITE_FIELD).
+
+    - Respects the original contract: reconstruct divisors only for FINITE_FIELD (one prime).
+    - If `residues` contains multiple primes, performs a lightweight diagnostic (vector activity)
+      and then proceeds to reconstruct only from the target prime.
+    - Uses per-vector quotas, support deduplication and round-robin collection to force diversity.
+    """
+    from collections import defaultdict
+    import math
+    from sage.all import matrix, GF, ZZ
+    from search_common import FINITE_FIELD
+    # verify_mumford_pair should be available in module scope; otherwise import it here:
+    # from .mumford_verification import verify_mumford_pair
+
+    # ---------- sanity / target prime ----------
+    if FINITE_FIELD is None:
+        raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
+
+    p0 = int(FINITE_FIELD)
+
+    if p0 not in residues:
+        # If residues contains other primes, we can still print diagnostics
+        if debug and residues:
+            # lightweight vector-activity summary across primes
+            print(f"\n[Diagnostics] FINITE_FIELD={p0} not in residues; found primes: {sorted(residues.keys())}")
+            vec_activity = {}
+            for p, res_p in sorted(residues.items()):
+                vecs = list(res_p.keys())
+                vec_activity[p] = len(vecs)
+            print("  Per-prime vector counts:", vec_activity)
+        if debug:
+            print(f"  No residues found for field characteristic {p0}")
+        return set(), []
+
+    # ---------- quick multi-prime diagnostic (no cross-prime mixing) ----------
+    if debug and len(residues) > 1:
+        print("\n[Diagnostic] Multiple primes present in residues. Performing lightweight vector-activity pass (no cross-prime aggregation).")
+        active_summary = {}
+        for p, res_p in sorted(residues.items()):
+            # Count vectors that have at least one candidate solution
+            cnt = 0
+            for v_tuple, vval in res_p.items():
+                # treat dict or list shapes
+                if isinstance(vval, list):
+                    if len(vval) > 0:
+                        cnt += 1
+                elif isinstance(vval, dict):
+                    # some primes give a dict of x_res -> sols; check nonempty lists
+                    nonempty = any(len(slist) > 0 for slist in vval.values())
+                    if nonempty:
+                        cnt += 1
+                else:
+                    # unknown structure: count as present
+                    cnt += 1
+            active_summary[p] = cnt
+        print("  Per-prime active-vector counts (prime: #vectors):")
+        for p, cnt in active_summary.items():
+            print(f"    p={p}: {cnt}")
+        print("  End diagnostic. Proceeding to reconstruct only for FINITE_FIELD.\n")
+
+    # ---------- prepare parameters for target prime ----------
+    p = p0
+    res_p = residues[p]  # expected mapping: vector_tuple -> sols (list or dict)
+    genus = (len(f_coeffs) - 1) // 2
+    target_B = int(math.ceil(p ** (1.0 / max(1, genus))))
+
+    # NUM_VECTORS present for this prime
+    vector_list = list(res_p.keys())
+    num_vectors = max(1, len(vector_list))
+
+    # Per-vector quota: balanced but capped to avoid blowups
+    # Heuristics: want a few per vector but not enormous. Caller may tune.
+    DIVISORS_PER_VECTOR = max(3, target_B // max(1, num_vectors) + 5)
+    # cap to avoid runaway memory usage
+    DIVISORS_PER_VECTOR = min(DIVISORS_PER_VECTOR, 100)
+
+    # Global safety cap (in number of distinct supports)
+    GLOBAL_HARD_CAP = max(1000, DIVISORS_PER_VECTOR * num_vectors * 3)
+
+    # How many consecutive rounds with no rank increase before we stop
+    RANK_STABLE_WINDOW = max(10, target_B // 2)
+
+    if debug:
+        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+        print(f"  Genus: {genus}")
+        print(f"  Target factor base size B: {target_B}")
+        print(f"  Vectors available: {num_vectors}")
+        print(f"  Quota per vector: {DIVISORS_PER_VECTOR}")
+        print(f"  Global hard cap: {GLOBAL_HARD_CAP}")
+        print("  (Using single-prime reconstruction; other primes were only used for diagnostics.)")
+
+    # ---------- state ----------
+    found_xs = set()
+    seen_supports = set()               # set of tuples (r1, r2) mod p seen
+    support_to_divisor = {}             # map support -> representative divisor (lightweight)
+    vector_stats = defaultdict(lambda: {'collected': 0, 'rejected_dup': 0, 'rejected_quota': 0})
     factor_base = set()
-    smooth_supports_list = []  # List of root tuples
-    
+    smooth_supports_list = []           # list of support tuples (for matrix rows)
+
     count_raw = 0
     count_alg_fail = 0
     count_duplicate_support = 0
-    
+    count_quota_reject = 0
+
     F = GF(p)
-    
-    # Rank tracking
-    last_rank = 0
-    iterations_since_rank_increase = 0
-    
+
+    # incremental rank computation function
     def compute_current_rank():
-        if len(smooth_supports_list) < 2:
-            return len(smooth_supports_list)
-        
+        if not smooth_supports_list:
+            return 0
         root_list = sorted(factor_base)
-        root_to_idx = {r: i for i, r in enumerate(root_list)}
-        
+        root_index = {r: i for i, r in enumerate(root_list)}
         rows = []
         for roots in smooth_supports_list:
             row = [0] * len(root_list)
             for r in roots:
-                if r in root_to_idx:
-                    row[root_to_idx[r]] += 1
+                if r in root_index:
+                    row[root_index[r]] += 1
             rows.append(row)
-        
-        M = matrix(ZZ, rows)
-        return M.rank()
-    
-    # Flatten residue structure
-    for v_tuple, val in residues[p].items():
+        try:
+            M = matrix(ZZ, rows)
+            return M.rank()
+        except Exception:
+            # fallback to simple heuristic
+            return min(len(rows), len(root_list))
+
+    # ---------- build iterators for each vector ----------
+    vector_iterators = {}
+    for v_tuple in vector_list:
+        val = res_p[v_tuple]
         sols_list = []
         if isinstance(val, list):
             sols_list = val
         elif isinstance(val, dict):
-            for x_res, s_list in val.items():
+            for _xres, s_list in val.items():
                 sols_list.extend(s_list)
-        
-        for sol in sols_list:
-            # === EARLY STOPPING CHECKS ===
-            
-            # 1. Hard cap
-            if len(seen_supports) >= HARD_CAP:
-                if debug:
-                    print(f"\n  [EARLY STOP] Hard cap reached: {HARD_CAP} unique supports")
-                break
-            
-            # 2. Rank stabilization check
-            if len(smooth_supports_list) >= min_relations and \
-               len(smooth_supports_list) % RANK_STABLE_WINDOW == 0:
-                
-                current_rank = compute_current_rank()
-                
-                if debug and len(smooth_supports_list) % (2*RANK_STABLE_WINDOW) == 0:
-                    print(f"  [Progress] Unique supports: {len(seen_supports)}, "
-                          f"Factor base: {len(factor_base)}, "
-                          f"Rank: {current_rank}/{len(factor_base)}")
-                
-                if current_rank > last_rank:
-                    last_rank = current_rank
-                    iterations_since_rank_increase = 0
-                else:
-                    iterations_since_rank_increase += RANK_STABLE_WINDOW
-                    
-                    if current_rank == len(factor_base):
-                        if debug:
-                            print(f"\n  [EARLY STOP] Full rank: {current_rank}/{len(factor_base)}")
-                        break
-                    
-                    if iterations_since_rank_increase >= 2 * RANK_STABLE_WINDOW:
-                        if debug:
-                            print(f"\n  [EARLY STOP] Rank stable at {current_rank}/{len(factor_base)}")
-                        break
-            
-            # === PROCESS DIVISOR ===
+        else:
+            # unknown structure: try to treat as single sol
+            sols_list = [val]
+        vector_iterators[v_tuple] = iter(sols_list)
+
+    # ---------- round-robin collection ----------
+    active_vectors = set(vector_list)
+    round_num = 0
+    last_rank = 0
+    iterations_since_rank_increase = 0
+
+    while active_vectors and len(seen_supports) < GLOBAL_HARD_CAP:
+        round_num += 1
+        vectors_exhausted_this_round = set()
+
+        for v_tuple in list(active_vectors):
+            # quota check
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                # keep vector in active_vectors until its iterator is exhausted; but skip producing more
+                # we'll still try to consume the iterator so we know it's exhausted
+                # here we skip consuming further to avoid wasted work
+                continue
+
+            # fetch next candidate
+            try:
+                sol = next(vector_iterators[v_tuple])
+            except StopIteration:
+                vectors_exhausted_this_round.add(v_tuple)
+                continue
+
             count_raw += 1
-            s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
-            
-            # Verify algebraic constraints
+            try:
+                s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
+            except Exception:
+                # malformed solution; skip
+                continue
+
+            # algebraic verify (mod p)
             if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
                 count_alg_fail += 1
                 continue
-            
-            # Check for rational roots and compute support
+
+            # smoothness / roots check
             delta = (s_val * s_val - 4 * p_val) % p
             delta_ele = F(delta)
-            
             if not delta_ele.is_square():
-                # Not smooth, skip
+                # not split over GF(p)
                 continue
-            
+
             sqrt_delta = delta_ele.sqrt()
             inv_2 = F(2).inverse()
             r1 = int((F(s_val) + sqrt_delta) * inv_2)
             r2 = int((F(s_val) - sqrt_delta) * inv_2)
-            roots = tuple(sorted([r1, r2]))  # Canonical support
-            
-            # CRITICAL: Check if we've seen this support
+            roots = tuple(sorted((r1, r2)))
+
+            # duplicate support checking
             if roots in seen_supports:
                 count_duplicate_support += 1
+                vector_stats[v_tuple]['rejected_dup'] += 1
                 continue
-            
-            # NEW SUPPORT - accept it
+
+            # quota freshness re-check (race-safe)
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                continue
+
+            # accept support
             seen_supports.add(roots)
             factor_base.update(roots)
             smooth_supports_list.append(roots)
-            
-            # Check for curve points
-            for r in roots:
-                x_cand = r - int(shift)
-                try:
-                    if rationality_test(x_cand) is not None:
-                        found_xs.add(x_cand)
-                except Exception:
-                    pass
-            
-            # Store divisor (one per support)
+            vector_stats[v_tuple]['collected'] += 1
+
+            # representative lightweight divisor
             div_entry = {
                 's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
                 'vector': v_tuple,
@@ -1067,35 +1291,805 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                 'roots': list(roots)
             }
             support_to_divisor[roots] = div_entry
-        
-        # Check stops after each v_tuple
-        if len(seen_supports) >= HARD_CAP:
+
+            # rational-point test (cheap)
+            for r in roots:
+                x_cand = r - int(shift)
+                try:
+                    if rationality_test(x_cand) is not None:
+                        found_xs.add(x_cand)
+                except Exception:
+                    pass
+
+            # safety early escape if global cap hit
+            if len(seen_supports) >= GLOBAL_HARD_CAP:
+                break
+
+        # remove exhausted vectors
+        active_vectors -= vectors_exhausted_this_round
+
+        # rank stabilization check every few rounds
+        if len(smooth_supports_list) >= max(3, target_B) and round_num % 5 == 0:
+            current_rank = compute_current_rank()
+            if debug and round_num % 10 == 0:
+                print(f"  [Round {round_num}] Supports: {len(seen_supports)}, Factor base: {len(factor_base)}, Rank: {current_rank}/{len(factor_base)}, Active vectors: {len(active_vectors)}")
+
+            if current_rank > last_rank:
+                last_rank = current_rank
+                iterations_since_rank_increase = 0
+            else:
+                iterations_since_rank_increase += 1
+                if current_rank == len(factor_base):
+                    if debug:
+                        print(f"\n  [EARLY STOP] Full rank: {current_rank}/{len(factor_base)}")
+                    break
+                if iterations_since_rank_increase >= RANK_STABLE_WINDOW:
+                    if debug:
+                        print(f"\n  [EARLY STOP] Rank stable at {current_rank}/{len(factor_base)} (no increase in {iterations_since_rank_increase} checks)")
+                    break
+
+        if not active_vectors:
+            if debug:
+                print(f"\n  [STOP] All vectors exhausted or iterators drained")
             break
-        if len(smooth_supports_list) >= min_relations and \
-           iterations_since_rank_increase >= 2 * RANK_STABLE_WINDOW:
-            break
-    
-    # === FINAL REPORT ===
+
+    # ---------- final reporting ----------
     mumford_divisors = list(support_to_divisor.values())
     final_rank = compute_current_rank() if smooth_supports_list else 0
-    
+
     print(f"  Raw solutions processed: {count_raw}")
     print(f"  Algebraic rejects: {count_alg_fail}")
     print(f"  Duplicate supports rejected: {count_duplicate_support}")
+    print(f"  Quota rejections: {count_quota_reject}")
     print(f"  Unique supports kept: {len(seen_supports)}")
     print(f"  Factor base size: {len(factor_base)}")
     print(f"  Final rank: {final_rank}/{len(factor_base)}")
     print(f"  Points found in base field: {len(found_xs)}")
-    print(f"  RAM savings: {count_duplicate_support} duplicates avoided")
-    
-    # Quality assessment
-    if final_rank == len(factor_base):
+
+    if debug:
+        print(f"\n  Per-vector statistics (top 20 by collected):")
+        for v_tuple in sorted(vector_stats.keys(), key=lambda v: -vector_stats[v]['collected'])[:20]:
+            stats = vector_stats[v_tuple]
+            print(f"    Vector {v_tuple}: collected {stats['collected']}, dup rejects {stats['rejected_dup']}, quota rejects {stats['rejected_quota']}")
+
+    vectors_used = sum(1 for v, s in vector_stats.items() if s['collected'] > 0)
+    print(f"\n  Vectors contributing: {vectors_used}/{num_vectors}")
+
+    if final_rank == len(factor_base) and len(factor_base) > 0:
         print(f"  ✓ FULL RANK: Index calculus attack is feasible!")
-    elif final_rank >= len(factor_base) - 1:
+    elif final_rank >= max(0, len(factor_base) - 1):
         print(f"  ⚠️  Nearly full rank ({final_rank}/{len(factor_base)})")
     else:
         deficit = len(factor_base) - final_rank
         print(f"  ✗ Rank deficient by {deficit}")
-        print(f"     This suggests geometric degeneracy in search vectors")
+        if vectors_used < 3:
+            print(f"     Only {vectors_used} vectors contributed - need more diversity")
+
+    return found_xs, mumford_divisors
+
+
+def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
+    """
+    Memory-efficient reconstruction for a SINGLE target finite field (search_common.FINITE_FIELD).
+    Includes 'mixing' strategy to break vector-induced rank deficiencies.
+    """
+    from collections import defaultdict
+    import math
+    from sage.all import matrix, GF, ZZ
+    from search_common import FINITE_FIELD
+
+    # ---------- sanity / target prime ----------
+    if FINITE_FIELD is None:
+        raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
+
+    p0 = int(FINITE_FIELD)
+
+    if p0 not in residues:
+        if debug and residues:
+            print(f"\n[Diagnostics] FINITE_FIELD={p0} not in residues; found primes: {sorted(residues.keys())}")
+            vec_activity = {}
+            for p, res_p in sorted(residues.items()):
+                vecs = list(res_p.keys())
+                vec_activity[p] = len(vecs)
+            print("  Per-prime vector counts:", vec_activity)
+        if debug:
+            print(f"  No residues found for field characteristic {p0}")
+        return set(), []
+
+    # ---------- quick multi-prime diagnostic ----------
+    if debug and len(residues) > 1:
+        print("\n[Diagnostic] Multiple primes present. Reconstructing only for FINITE_FIELD.")
+
+    # ---------- prepare parameters ----------
+    p = p0
+    res_p = residues[p]
+    genus = (len(f_coeffs) - 1) // 2
+    target_B = int(math.ceil(p ** (1.0 / max(1, genus))))
+
+    vector_list = list(res_p.keys())
+    num_vectors = max(1, len(vector_list))
+
+    DIVISORS_PER_VECTOR = max(3, target_B // max(1, num_vectors) + 5)
+    DIVISORS_PER_VECTOR = min(DIVISORS_PER_VECTOR, 100)
+    GLOBAL_HARD_CAP = max(1000, DIVISORS_PER_VECTOR * num_vectors * 3)
+    RANK_STABLE_WINDOW = max(10, target_B // 2)
+
+    if debug:
+        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+        print(f"  Genus: {genus}")
+        print(f"  Target factor base size B: {target_B}")
+        print(f"  Vectors available: {num_vectors}")
+
+    # ---------- state ----------
+    found_xs = set()
+    seen_supports = set()
+    support_to_divisor = {}
+    vector_stats = defaultdict(lambda: {'collected': 0, 'rejected_dup': 0, 'rejected_quota': 0})
+    factor_base = set()
+    smooth_supports_list = []
+
+    count_raw = 0
+    count_alg_fail = 0
+    count_duplicate_support = 0
+    count_quota_reject = 0
+
+    F = GF(p)
     
+    # --- Helper to calculate roots of u(x) ---
+    def get_u_roots(s_val, p_val):
+        delta = (s_val * s_val - 4 * p_val) % p
+        delta_ele = F(delta)
+        if not delta_ele.is_square():
+            return None
+        sqrt_delta = delta_ele.sqrt()
+        inv_2 = F(2).inverse()
+        r1 = int((F(s_val) + sqrt_delta) * inv_2)
+        r2 = int((F(s_val) - sqrt_delta) * inv_2)
+        return tuple(sorted((r1, r2)))
+
+    # --- HELPER: Evaluate f(x) ---
+    def eval_f(x_val):
+        val = F(0)
+        for c in f_coeffs:
+            val = val * x_val + F(c)
+        return val
+
+    # --- STRATEGY: MIXING VECTORS (Option C) ---
+    # We identify the "fixed" root for each vector (the one that stays constant).
+    # Then we explicitly add divisors linking these fixed roots to break block dependencies.
+    
+    vector_fixed_roots = {}
+    
+    # 1. Identify fixed roots
+    for v_tuple in vector_list:
+        val = res_p[v_tuple]
+        sols_list = val if isinstance(val, list) else (list(val.values())[0] if isinstance(val, dict) else [val])
+        
+        if not sols_list: continue
+        
+        # Intersect roots of first few solutions to find the constant one
+        common_roots = None
+        check_limit = min(5, len(sols_list))
+        
+        for i in range(check_limit):
+            s, pv = sols_list[i][0], sols_list[i][1]
+            roots = get_u_roots(s, pv)
+            if roots:
+                if common_roots is None:
+                    common_roots = set(roots)
+                else:
+                    common_roots &= set(roots)
+        
+        if common_roots and len(common_roots) == 1:
+            vector_fixed_roots[v_tuple] = list(common_roots)[0]
+        elif common_roots and len(common_roots) > 1:
+            # If both are fixed (rare), just pick smallest
+            vector_fixed_roots[v_tuple] = min(common_roots)
+    
+    # 2. Generate Mixing Divisors
+    sorted_vecs = sorted(vector_fixed_roots.keys())
+    mixing_added = 0
+    
+    if len(sorted_vecs) > 1:
+        if debug:
+            print(f"  Mixing Strategy: Generating relations for {len(sorted_vecs)} vector anchors...")
+            
+        for i in range(len(sorted_vecs)):
+            vA = sorted_vecs[i]
+            vB = sorted_vecs[(i+1) % len(sorted_vecs)]
+            
+            xA = vector_fixed_roots[vA]
+            xB = vector_fixed_roots[vB]
+            
+            if xA == xB: continue
+            
+            # Check if f(xA) and f(xB) are squares (they should be, they come from sections)
+            yA_sq = eval_f(xA)
+            yB_sq = eval_f(xB)
+            
+            if not yA_sq.is_square() or not yB_sq.is_square():
+                continue
+                
+            yA = yA_sq.sqrt()
+            yB = yB_sq.sqrt()
+            
+            # Construct v(x) for u(x) = (x-xA)(x-xB)
+            # We solve: v(xA) = yA, v(xB) = yB (Lagrange)
+            # v(x) = v1*x + v0
+            det = F(xA - xB)
+            if det == 0: continue
+            det_inv = det.inverse()
+            
+            # We try one sign combination; others are just linear combos
+            # v1 = (yA - yB) / (xA - xB)
+            v1_ele = (yA - yB) * det_inv
+            # v0 = (xA*yB - xB*yA) / (xA - xB)
+            v0_ele = (F(xA) * yB - F(xB) * yA) * det_inv
+            
+            s_mix = (xA + xB) % p
+            p_mix = (xA * xB) % p
+            v0_mix = int(v0_ele)
+            v1_mix = int(v1_ele)
+            
+            # Verify and Add
+            if verify_mumford_pair(f_coeffs, s_mix, p_mix, v0_mix, v1_mix, modulus=p):
+                roots = tuple(sorted((xA, xB)))
+                if roots not in seen_supports:
+                    seen_supports.add(roots)
+                    factor_base.update(roots)
+                    smooth_supports_list.append(roots)
+                    
+                    div_entry = {
+                        's': s_mix, 'p': p_mix, 'v_0': v0_mix, 'v_1': v1_mix,
+                        'vector': tuple(sorted(vA + vB)), # Symbolic vector name
+                        'has_rational_roots': True,
+                        'roots': list(roots)
+                    }
+                    support_to_divisor[roots] = div_entry
+                    mixing_added += 1
+
+    if debug and mixing_added > 0:
+        print(f"  ✓ Added {mixing_added} mixing relations to break block dependencies.")
+
+    # --- END MIXING STRATEGY ---
+
+    # incremental rank computation
+    def compute_current_rank():
+        if not smooth_supports_list:
+            return 0
+        root_list = sorted(factor_base)
+        root_index = {r: i for i, r in enumerate(root_list)}
+        rows = []
+        for roots in smooth_supports_list:
+            row = [0] * len(root_list)
+            for r in roots:
+                if r in root_index:
+                    row[root_index[r]] += 1
+            rows.append(row)
+        try:
+            M = matrix(ZZ, rows)
+            return M.rank()
+        except Exception:
+            return min(len(rows), len(root_list))
+
+    # ---------- build iterators ----------
+    vector_iterators = {}
+    for v_tuple in vector_list:
+        val = res_p[v_tuple]
+        sols_list = []
+        if isinstance(val, list):
+            sols_list = val
+        elif isinstance(val, dict):
+            for _xres, s_list in val.items():
+                sols_list.extend(s_list)
+        else:
+            sols_list = [val]
+        vector_iterators[v_tuple] = iter(sols_list)
+
+    # ---------- round-robin collection ----------
+    active_vectors = set(vector_list)
+    round_num = 0
+    last_rank = 0
+    iterations_since_rank_increase = 0
+
+    while active_vectors and len(seen_supports) < GLOBAL_HARD_CAP:
+        round_num += 1
+        vectors_exhausted_this_round = set()
+
+        for v_tuple in list(active_vectors):
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                continue
+
+            try:
+                sol = next(vector_iterators[v_tuple])
+            except StopIteration:
+                vectors_exhausted_this_round.add(v_tuple)
+                continue
+
+            count_raw += 1
+            try:
+                s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
+            except Exception:
+                continue
+
+            # algebraic verify
+            if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
+                count_alg_fail += 1
+                continue
+
+            # smoothness / roots check
+            roots = get_u_roots(s_val, p_val)
+            if roots is None:
+                continue
+
+            if roots in seen_supports:
+                count_duplicate_support += 1
+                vector_stats[v_tuple]['rejected_dup'] += 1
+                continue
+
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                continue
+
+            seen_supports.add(roots)
+            factor_base.update(roots)
+            smooth_supports_list.append(roots)
+            vector_stats[v_tuple]['collected'] += 1
+
+            div_entry = {
+                's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
+                'vector': v_tuple,
+                'has_rational_roots': True,
+                'roots': list(roots)
+            }
+            support_to_divisor[roots] = div_entry
+
+            for r in roots:
+                x_cand = r - int(shift)
+                try:
+                    if rationality_test(x_cand) is not None:
+                        found_xs.add(x_cand)
+                except Exception:
+                    pass
+
+            if len(seen_supports) >= GLOBAL_HARD_CAP:
+                break
+
+        active_vectors -= vectors_exhausted_this_round
+
+        if len(smooth_supports_list) >= max(3, target_B) and round_num % 5 == 0:
+            current_rank = compute_current_rank()
+            if debug and round_num % 10 == 0:
+                print(f"  [Round {round_num}] Supports: {len(seen_supports)}, Factor base: {len(factor_base)}, Rank: {current_rank}/{len(factor_base)}, Active vectors: {len(active_vectors)}")
+
+            if current_rank > last_rank:
+                last_rank = current_rank
+                iterations_since_rank_increase = 0
+            else:
+                iterations_since_rank_increase += 1
+                if current_rank == len(factor_base):
+                    if debug:
+                        print(f"\n  [EARLY STOP] Full rank: {current_rank}/{len(factor_base)}")
+                    break
+                if iterations_since_rank_increase >= RANK_STABLE_WINDOW:
+                    if debug:
+                        print(f"\n  [EARLY STOP] Rank stable at {current_rank}/{len(factor_base)} (no increase in {iterations_since_rank_increase} checks)")
+                    break
+
+        if not active_vectors:
+            break
+
+    # ---------- final reporting ----------
+    mumford_divisors = list(support_to_divisor.values())
+    final_rank = compute_current_rank() if smooth_supports_list else 0
+
+    print(f"  Raw solutions processed: {count_raw}")
+    print(f"  Algebraic rejects: {count_alg_fail}")
+    print(f"  Duplicate supports rejected: {count_duplicate_support}")
+    print(f"  Quota rejections: {count_quota_reject}")
+    print(f"  Mixing relations added: {mixing_added}")
+    print(f"  Unique supports kept: {len(seen_supports)}")
+    print(f"  Factor base size: {len(factor_base)}")
+    print(f"  Final rank: {final_rank}/{len(factor_base)}")
+    print(f"  Points found in base field: {len(found_xs)}")
+
+    vectors_used = sum(1 for v, s in vector_stats.items() if s['collected'] > 0)
+    print(f"\n  Vectors contributing: {vectors_used}/{num_vectors}")
+
+    if final_rank == len(factor_base) and len(factor_base) > 0:
+        print(f"  ✓ FULL RANK: Index calculus attack is feasible!")
+    elif final_rank >= max(0, len(factor_base) - 1):
+        print(f"  ⚠️  Nearly full rank ({final_rank}/{len(factor_base)})")
+    else:
+        deficit = len(factor_base) - final_rank
+        print(f"  ✗ Rank deficient by {deficit}")
+        if vectors_used < 3:
+            print(f"     Only {vectors_used} vectors contributed - need more diversity")
+
+    return found_xs, mumford_divisors
+
+
+def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
+    """
+    Memory-efficient reconstruction for a SINGLE target finite field (search_common.FINITE_FIELD).
+    Includes 'mixing' strategy to break vector-induced rank deficiencies.
+    Includes 'doubling' strategy to break bipartiteness.
+    """
+    from collections import defaultdict
+    import math
+    from sage.all import matrix, GF, ZZ
+    from search_common import FINITE_FIELD
+
+    # ---------- sanity / target prime ----------
+    if FINITE_FIELD is None:
+        raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
+
+    p0 = int(FINITE_FIELD)
+
+    if p0 not in residues:
+        if debug and residues:
+            print(f"\n[Diagnostics] FINITE_FIELD={p0} not in residues; found primes: {sorted(residues.keys())}")
+            vec_activity = {}
+            for p, res_p in sorted(residues.items()):
+                vecs = list(res_p.keys())
+                vec_activity[p] = len(vecs)
+            print("  Per-prime vector counts:", vec_activity)
+        if debug:
+            print(f"  No residues found for field characteristic {p0}")
+        return set(), []
+
+    # ---------- quick multi-prime diagnostic ----------
+    if debug and len(residues) > 1:
+        print("\n[Diagnostic] Multiple primes present. Reconstructing only for FINITE_FIELD.")
+
+    # ---------- prepare parameters ----------
+    p = p0
+    res_p = residues[p]
+    genus = (len(f_coeffs) - 1) // 2
+    target_B = int(math.ceil(p ** (1.0 / max(1, genus))))
+
+    vector_list = list(res_p.keys())
+    num_vectors = max(1, len(vector_list))
+
+    DIVISORS_PER_VECTOR = max(3, target_B // max(1, num_vectors) + 5)
+    DIVISORS_PER_VECTOR = min(DIVISORS_PER_VECTOR, 100)
+    GLOBAL_HARD_CAP = max(1000, DIVISORS_PER_VECTOR * num_vectors * 3)
+    RANK_STABLE_WINDOW = max(10, target_B // 2)
+
+    if debug:
+        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+        print(f"  Genus: {genus}")
+        print(f"  Target factor base size B: {target_B}")
+        print(f"  Vectors available: {num_vectors}")
+
+    # ---------- state ----------
+    found_xs = set()
+    seen_supports = set()
+    support_to_divisor = {}
+    vector_stats = defaultdict(lambda: {'collected': 0, 'rejected_dup': 0, 'rejected_quota': 0})
+    factor_base = set()
+    smooth_supports_list = []
+
+    count_raw = 0
+    count_alg_fail = 0
+    count_duplicate_support = 0
+    count_quota_reject = 0
+
+    F = GF(p)
+    
+    # --- Helper to calculate roots of u(x) ---
+    def get_u_roots(s_val, p_val):
+        delta = (s_val * s_val - 4 * p_val) % p
+        delta_ele = F(delta)
+        if not delta_ele.is_square():
+            return None
+        sqrt_delta = delta_ele.sqrt()
+        inv_2 = F(2).inverse()
+        r1 = int((F(s_val) + sqrt_delta) * inv_2)
+        r2 = int((F(s_val) - sqrt_delta) * inv_2)
+        return tuple(sorted((r1, r2)))
+
+    # --- HELPER: Evaluate f(x) ---
+    def eval_f(x_val):
+        val = F(0)
+        # f_coeffs is highest->lowest
+        for c in f_coeffs:
+            val = val * F(x_val) + F(c)
+        return val
+
+    # --- STRATEGY: MIXING VECTORS (Option C) ---
+    vector_fixed_roots = {}
+    
+    # 1. Identify fixed roots
+    for v_tuple in vector_list:
+        val = res_p[v_tuple]
+        sols_list = val if isinstance(val, list) else (list(val.values())[0] if isinstance(val, dict) else [val])
+        
+        if not sols_list: continue
+        
+        # Intersect roots of first few solutions to find the constant one
+        common_roots = None
+        check_limit = min(5, len(sols_list))
+        
+        for i in range(check_limit):
+            s, pv = sols_list[i][0], sols_list[i][1]
+            roots = get_u_roots(s, pv)
+            if roots:
+                if common_roots is None:
+                    common_roots = set(roots)
+                else:
+                    common_roots &= set(roots)
+        
+        if common_roots and len(common_roots) == 1:
+            vector_fixed_roots[v_tuple] = list(common_roots)[0]
+        elif common_roots and len(common_roots) > 1:
+            vector_fixed_roots[v_tuple] = min(common_roots)
+    
+    # 2. Generate Mixing Divisors
+    sorted_vecs = sorted(vector_fixed_roots.keys())
+    mixing_added = 0
+    
+    if len(sorted_vecs) > 1:
+        if debug:
+            print(f"  Mixing Strategy: Generating relations for {len(sorted_vecs)} vector anchors...")
+            
+        for i in range(len(sorted_vecs)):
+            vA = sorted_vecs[i]
+            vB = sorted_vecs[(i+1) % len(sorted_vecs)]
+            
+            xA = vector_fixed_roots[vA]
+            xB = vector_fixed_roots[vB]
+            
+            if xA == xB: continue
+            
+            yA_sq = eval_f(xA)
+            yB_sq = eval_f(xB)
+            
+            if not yA_sq.is_square() or not yB_sq.is_square():
+                continue
+                
+            yA = yA_sq.sqrt()
+            yB = yB_sq.sqrt()
+            
+            det = F(xA - xB)
+            if det == 0: continue
+            det_inv = det.inverse()
+            
+            v1_ele = (yA - yB) * det_inv
+            v0_ele = (F(xA) * yB - F(xB) * yA) * det_inv
+            
+            s_mix = (xA + xB) % p
+            p_mix = (xA * xB) % p
+            v0_mix = int(v0_ele)
+            v1_mix = int(v1_ele)
+            
+            if verify_mumford_pair(f_coeffs, s_mix, p_mix, v0_mix, v1_mix, modulus=p):
+                roots = tuple(sorted((xA, xB)))
+                if roots not in seen_supports:
+                    seen_supports.add(roots)
+                    factor_base.update(roots)
+                    smooth_supports_list.append(roots)
+                    
+                    div_entry = {
+                        's': s_mix, 'p': p_mix, 'v_0': v0_mix, 'v_1': v1_mix,
+                        'vector': tuple(sorted(vA + vB)),
+                        'has_rational_roots': True,
+                        'roots': list(roots)
+                    }
+                    support_to_divisor[roots] = div_entry
+                    mixing_added += 1
+
+    # --- STRATEGY: DOUBLING (Break Bipartiteness) ---
+    doubling_added = 0
+    if mixing_added > 0:
+        for v_target in sorted_vecs:
+            if doubling_added > 0: break
+            
+            x_target = vector_fixed_roots[v_target]
+            y_sq = eval_f(x_target)
+            
+            if not y_sq.is_square(): continue
+            y_target = y_sq.sqrt()
+            
+            if y_target == 0: continue
+            
+            # Calculate derivative f'(x_target)
+            f_prime_x = F(0)
+            deg = len(f_coeffs) - 1
+            for i, c in enumerate(f_coeffs):
+                power = deg - i
+                if power > 0:
+                    f_prime_x += F(c) * power * (F(x_target) ** (power - 1))
+            
+            # v1 = f'(x) / 2y
+            inv_2y = (F(2) * y_target).inverse()
+            v1_double = f_prime_x * inv_2y
+            
+            # v0 = y - v1*x
+            v0_double = y_target - v1_double * F(x_target)
+            
+            s_double = (2 * x_target) % p
+            p_double = (x_target * x_target) % p
+            
+            roots_double = tuple(sorted((x_target, x_target)))
+            
+            if verify_mumford_pair(f_coeffs, s_double, p_double, int(v0_double), int(v1_double), modulus=p):
+                 if roots_double not in seen_supports:
+                    seen_supports.add(roots_double)
+                    factor_base.update(roots_double)
+                    smooth_supports_list.append(roots_double)
+                    
+                    div_entry = {
+                        's': s_double, 'p': p_double, 'v_0': int(v0_double), 'v_1': int(v1_double),
+                        'vector': tuple(list(v_target) + ['double']),
+                        'has_rational_roots': True,
+                        'roots': list(roots_double)
+                    }
+                    support_to_divisor[roots_double] = div_entry
+                    doubling_added += 1
+                    if debug:
+                        print(f"  ✓ Added doubling relation for x={x_target} to break graph bipartiteness.")
+
+    if debug and (mixing_added > 0 or doubling_added > 0):
+        print(f"  ✓ Strategy Report: {mixing_added} mixing, {doubling_added} doubling relations added.")
+
+    # incremental rank computation
+    def compute_current_rank():
+        if not smooth_supports_list:
+            return 0
+        root_list = sorted(factor_base)
+        root_index = {r: i for i, r in enumerate(root_list)}
+        rows = []
+        for roots in smooth_supports_list:
+            row = [0] * len(root_list)
+            for r in roots:
+                if r in root_index:
+                    row[root_index[r]] += 1
+            rows.append(row)
+        try:
+            M = matrix(ZZ, rows)
+            return M.rank()
+        except Exception:
+            return min(len(rows), len(root_list))
+
+    # ---------- build iterators ----------
+    vector_iterators = {}
+    for v_tuple in vector_list:
+        val = res_p[v_tuple]
+        sols_list = []
+        if isinstance(val, list):
+            sols_list = val
+        elif isinstance(val, dict):
+            for _xres, s_list in val.items():
+                sols_list.extend(s_list)
+        else:
+            sols_list = [val]
+        vector_iterators[v_tuple] = iter(sols_list)
+
+    # ---------- round-robin collection ----------
+    active_vectors = set(vector_list)
+    round_num = 0
+    last_rank = 0
+    iterations_since_rank_increase = 0
+
+    while active_vectors and len(seen_supports) < GLOBAL_HARD_CAP:
+        round_num += 1
+        vectors_exhausted_this_round = set()
+
+        for v_tuple in list(active_vectors):
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                continue
+
+            try:
+                sol = next(vector_iterators[v_tuple])
+            except StopIteration:
+                vectors_exhausted_this_round.add(v_tuple)
+                continue
+
+            count_raw += 1
+            try:
+                s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
+            except Exception:
+                continue
+
+            # algebraic verify
+            if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
+                count_alg_fail += 1
+                continue
+
+            # smoothness / roots check
+            roots = get_u_roots(s_val, p_val)
+            if roots is None:
+                continue
+
+            if roots in seen_supports:
+                count_duplicate_support += 1
+                vector_stats[v_tuple]['rejected_dup'] += 1
+                continue
+
+            if vector_stats[v_tuple]['collected'] >= DIVISORS_PER_VECTOR:
+                vector_stats[v_tuple]['rejected_quota'] += 1
+                count_quota_reject += 1
+                continue
+
+            seen_supports.add(roots)
+            factor_base.update(roots)
+            smooth_supports_list.append(roots)
+            vector_stats[v_tuple]['collected'] += 1
+
+            div_entry = {
+                's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
+                'vector': v_tuple,
+                'has_rational_roots': True,
+                'roots': list(roots)
+            }
+            support_to_divisor[roots] = div_entry
+
+            for r in roots:
+                x_cand = r - int(shift)
+                try:
+                    if rationality_test(x_cand) is not None:
+                        found_xs.add(x_cand)
+                except Exception:
+                    pass
+
+            if len(seen_supports) >= GLOBAL_HARD_CAP:
+                break
+
+        active_vectors -= vectors_exhausted_this_round
+
+        if len(smooth_supports_list) >= max(3, target_B) and round_num % 5 == 0:
+            current_rank = compute_current_rank()
+            if debug and round_num % 10 == 0:
+                print(f"  [Round {round_num}] Supports: {len(seen_supports)}, Factor base: {len(factor_base)}, Rank: {current_rank}/{len(factor_base)}, Active vectors: {len(active_vectors)}")
+
+            if current_rank > last_rank:
+                last_rank = current_rank
+                iterations_since_rank_increase = 0
+            else:
+                iterations_since_rank_increase += 1
+                if current_rank == len(factor_base):
+                    if debug:
+                        print(f"\n  [EARLY STOP] Full rank: {current_rank}/{len(factor_base)}")
+                    break
+                if iterations_since_rank_increase >= RANK_STABLE_WINDOW:
+                    if debug:
+                        print(f"\n  [EARLY STOP] Rank stable at {current_rank}/{len(factor_base)} (no increase in {iterations_since_rank_increase} checks)")
+                    break
+
+        if not active_vectors:
+            break
+
+    # ---------- final reporting ----------
+    mumford_divisors = list(support_to_divisor.values())
+    final_rank = compute_current_rank() if smooth_supports_list else 0
+
+    print(f"  Raw solutions processed: {count_raw}")
+    print(f"  Algebraic rejects: {count_alg_fail}")
+    print(f"  Duplicate supports rejected: {count_duplicate_support}")
+    print(f"  Quota rejections: {count_quota_reject}")
+    print(f"  Relations added: Mixing={mixing_added}, Doubling={doubling_added}")
+    print(f"  Unique supports kept: {len(seen_supports)}")
+    print(f"  Factor base size: {len(factor_base)}")
+    print(f"  Final rank: {final_rank}/{len(factor_base)}")
+    print(f"  Points found in base field: {len(found_xs)}")
+
+    vectors_used = sum(1 for v, s in vector_stats.items() if s['collected'] > 0)
+    print(f"\n  Vectors contributing: {vectors_used}/{num_vectors}")
+
+    if final_rank == len(factor_base) and len(factor_base) > 0:
+        print(f"  ✓ FULL RANK: Index calculus attack is feasible!")
+    elif final_rank >= max(0, len(factor_base) - 1):
+        print(f"  ⚠️  Nearly full rank ({final_rank}/{len(factor_base)})")
+    else:
+        deficit = len(factor_base) - final_rank
+        print(f"  ✗ Rank deficient by {deficit}")
+        if vectors_used < 3:
+            print(f"     Only {vectors_used} vectors contributed - need more diversity")
+
     return found_xs, mumford_divisors

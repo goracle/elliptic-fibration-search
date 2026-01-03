@@ -13,7 +13,7 @@ found 1 / 11
 shifted G poly1: x^6 + 8*x^5 + 10*x^4 - 10*x^3 - 11*x^2 + 2*x + 1
 --- Building 2 Step Fibration Tower (deg 6 -> 4) ---
 --- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=16.0)
+  [Step 1] Selected best geometry (Score=15.5)
 --- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
   [Step 2] Selected best geometry (Score=14.8)
 r_m -m - 1
@@ -53,9 +53,9 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [auto_cfg] Height Bound: 473 (derived from h_can=log(2) + 1.5)
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.23s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.18s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 4, 5)]
-[residue_counts] sample: [(9973, 0)]
+[residue_counts] sample: [(1000003, 1)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 2.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
@@ -68,14 +68,14 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 1
-[bounds] mod 9973 factorization: [1, 4, 7] -> pattern (1, 4, 7)
-[bounds] Unique patterns from 1 primes: [(1, 4, 7)]
-[bounds] Estimated splitting field degree: 28
+[bounds] mod 1000003 factorization: [1, 1, 10] -> pattern (1, 1, 10)
+[bounds] Unique patterns from 1 primes: [(1, 1, 10)]
+[bounds] Estimated splitting field degree: 10
 
-DEBUG: RET: {'splitting_field_degree_est': 28, 'unique_patterns': [(1, 4, 7)], 'num_primes_tested': 1}
+DEBUG: RET: {'splitting_field_degree_est': 10, 'unique_patterns': [(1, 1, 10)], 'num_primes_tested': 1}
 
 [bounds] Diagnostics: {'discriminant': 2274951770760656620357735775252205881956710160780045056213571475654744564398384477440133256463082293542501134751845573264906850999884617585331394619011832172677992187997484926233477120, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[prime_pool] Final pool has 1 primes up to 9973
+[prime_pool] Final pool has 1 primes up to 1000003
 === Fibration Summary ===
 Data points: ((-1, 1),)
 Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 + 4*m + 15)*x^4 + (-2*m^3 - 10*m^2 + 16*m + 50)*x^3 + (-6*m^3 - 12*m^2 + 24*m + 46)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 16*m + 14)*x + (-2*m^3 - m^2 + 4*m + 2)
@@ -127,13 +127,13 @@ Height Pairing Matrix H:
  [2]
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 4, 5)]
-[residue_counts] sample: [(9973, 0)]
+[residue_counts] sample: [(1000003, 1)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 2.0}
-[FF vectors] Generated 20 canonical vectors
-  Sample: [(4,), (2,), (5,), (11,), (8,), (14,), (17,), (20,), (1,), (7,)]
-Searching 20 vectors up to height 473...
+[FF vectors] Generated 40 canonical vectors
+  Sample: [(20,), (35,), (29,), (26,), (38,), (17,), (8,), (13,), (22,), (33,)]
+Searching 40 vectors up to height 473...
 
 ======================================================================
 MUMFORD JACOBIAN ELEMENT SEARCH MODE
@@ -141,7 +141,7 @@ Searching for (s,p,v_0,v_1) instead of rational m
 ======================================================================
 
 Building 5-equation Mumford system from fibration...
-[FF MODE] Forcing search to single prime: 9973
+[FF MODE] Forcing search to single prime: 1000003
 
 [prepare_modular_data_lll] Rejected 0 primes:
 [mumford] Generating tasks for 1 primes...

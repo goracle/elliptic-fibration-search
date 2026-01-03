@@ -255,7 +255,7 @@ def _reconstruct_worker_parallel_v2(args):
     
     return results, stats
 
-def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=8, debug=False):
+def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=20, debug=False):
     """
     Parallel CRT reconstruction with batching.
     
@@ -420,7 +420,7 @@ class ModInverseCache:
 
 
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=8, debug=False):
+                                         rhs_modp_list, vecs_list, num_workers=20, debug=False):
     """
     Parallel residue computation with timing.
     Same function signature as original.
@@ -544,6 +544,160 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
                                   total=len(tasks), desc="Solving Mumford Mod P"):
             results_dict[p] = result_map
+    
+    mumford_timer_add("parallel_solving", time.time() - t0)
+    mumford_timer_add("residue_computation_total", time.time() - t_start)
+    
+    if debug:
+        print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
+            
+    return results_dict
+
+
+def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                                         rhs_modp_list, vecs_list, num_workers=20, debug=False):
+    """
+    Parallel residue computation with timing.
+    Optimized to chunk vectors for better parallelism in single-prime/FINITE_FIELD mode.
+    """
+    t_start = time.time()
+    
+    f_coeffs = eqs_dict['f_coeffs']
+    f_coeffs_ints = [int(c) for c in f_coeffs]
+    
+    # Safe constant conversion (handles both QQ rationals and GF elements)
+    try:
+        if hasattr(eqs_dict['const'], 'parent'):
+            # It's a Sage element (Integer, Rational, or GF element)
+            const_val_int = int(eqs_dict['const'])
+        else:
+            # Fallback for strings/floats/other
+            const_val_int = int(QQ(eqs_dict['const']))
+    except Exception:
+        const_val_int = 0
+        raise
+        
+    if debug:
+        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
+
+    t0 = time.time()
+    tasks = []
+    
+    # Heuristic: If we have few primes (e.g., FINITE_FIELD mode), we must chunk the vectors
+    # to utilize all workers. If we have many primes, one task per prime is sufficient.
+    force_chunking = (len(prime_list) < num_workers * 2)
+    
+    for p in prime_list:
+        if p not in Ep_dict:
+            continue
+        Ep = Ep_dict[p]
+        p_vecs = vecs_lll.get(p)
+        if not p_vecs:
+            continue
+        
+        try:
+            Fp = GF(p)
+            R_m = Fp['m']
+            m_var = R_m.gen()
+            rhs_poly = -m_var + Fp(const_val_int)
+        except Exception:
+            raise
+            continue
+
+        x_residues_map = {}
+        p_mults = mult_lll.get(p, {})
+        
+        # Pre-compute x-residues (this is fast relative to the solving step)
+        for v_idx, v_tuple in enumerate(vecs_list):
+            if not v_tuple:
+                continue
+            
+            Pm = Ep(0)
+            valid_vec = True
+            v_coeffs = p_vecs[v_idx]
+
+            for i, c in enumerate(v_coeffs):
+                k = int(c)
+                if k == 0:
+                    continue
+                
+                try:
+                    mults_for_sec = p_mults[i]
+                    if k in mults_for_sec:
+                        Pm += mults_for_sec[k]
+                    else:
+                        valid_vec = False
+                        break
+                except (IndexError, KeyError, TypeError):
+                    valid_vec = False
+                    raise
+                    break
+            
+            if not valid_vec or Pm.is_zero() or Pm[2] == 0:
+                continue
+            
+            try:
+                diff = Pm[0] - Pm[2] * rhs_poly
+                diff_num = diff.numerator()
+                
+                if diff_num.is_zero():
+                    continue
+                    
+                roots = diff_num.roots(multiplicities=False)
+                
+                if roots:
+                    valid_residues = []
+                    for m_root in roots:
+                        m_val = int(m_root)
+                        x_val = (-m_val + const_val_int) % p
+                        valid_residues.append(x_val)
+                    
+                    if valid_residues:
+                        x_residues_map[v_tuple] = valid_residues
+            except Exception:
+                raise
+                continue
+            
+        if x_residues_map:
+            # Chunking Logic to enable parallelism for single-prime cases
+            if force_chunking:
+                n_vecs = len(x_residues_map)
+                # Aim for multiple tasks per worker to ensure good load balancing
+                target_chunks = num_workers * 4
+                # Ceil division without importing math
+                chunk_size = (n_vecs + target_chunks - 1) // target_chunks
+                chunk_size = max(1, chunk_size)
+                
+                items = list(x_residues_map.items())
+                for i in range(0, n_vecs, chunk_size):
+                    chunk = dict(items[i:i+chunk_size])
+                    tasks.append((p, f_coeffs_ints, chunk, const_val_int))
+            else:
+                tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
+
+    mumford_timer_add("task_generation", time.time() - t0)
+
+    if not tasks:
+        if debug:
+            print("[mumford] No tasks generated!")
+        return {}
+    
+    t0 = time.time()
+    try:
+        ctx = multiprocessing.get_context("fork")
+        pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
+    except Exception:
+        pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
+        raise
+
+    results_dict = {}
+    with pool_obj as pool:
+        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
+                                  total=len(tasks), desc="Solving Mumford Mod P"):
+            if p not in results_dict:
+                results_dict[p] = {}
+            # Update is necessary because we may have split one prime into multiple tasks
+            results_dict[p].update(result_map)
     
     mumford_timer_add("parallel_solving", time.time() - t0)
     mumford_timer_add("residue_computation_total", time.time() - t_start)

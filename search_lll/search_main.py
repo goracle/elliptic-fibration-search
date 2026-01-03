@@ -288,7 +288,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                                          all_found_x, num_subsets, rationality_test_func,
                                          sconf, coeffs_genus2,
                                          tower_data=None,  # <-- ADD THIS
-                                         num_workers=8, debug=DEBUG,
+                                         num_workers=20, debug=DEBUG,
                                          precomputed_residues=None):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
@@ -309,6 +309,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         assert USE_MUMFORD
     
     if USE_MUMFORD:
+
         print("\n" + "="*70)
         print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
         print("Searching for (s,p,v_0,v_1) instead of rational m")
@@ -322,7 +323,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
         stats.end_phase('mumford_setup')
         
-        # Prepare modular data (same as standard search)
+        # Prepare modular data
+        # NOTE: For Finite Field consensus mode, prime_pool must contain the target FF primes!
         stats.start_phase('prep_mod_data')
         Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
             cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
@@ -332,16 +334,20 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         if not Ep_dict:
             return set(), [], {}, stats
         
-        # Ensure 'prime_pool' is a list
+        # Ensure 'prime_list' is the full list of valid primes from the pool
         prime_list = sorted(list(Ep_dict.keys()))
+        
+        # [MODIFIED] Removed the "Forcing search to single prime" block.
+        # We now pass the entire list of compatible primes to precompute and reconstruction.
+        if FINITE_FIELD and len(prime_list) > 1:
+            print(f"[FF MODE] Multi-prime consensus enabled. Using {len(prime_list)} primes.")
         
         stats.start_phase('mumford_residues')
         vecs_list = list(vecs)
         
-        # Updated call signature
         mumford_residues = mumford_precompute_residues_parallel(
             eqs_dict, 
-            prime_list, # explicit list
+            prime_list, 
             Ep_dict, 
             mult_lll, 
             vecs_lll,
@@ -352,48 +358,40 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         )
         stats.end_phase('mumford_residues')
         
-        # Reconstruct
+        # Reconstruct (Consensus Strategy)
         stats.start_phase('mumford_reconstruction')
-        prime_list = sorted(Ep_dict.keys())
+        
+        # We pass the full prime_list. The reconstruction function now iterates them all.
         found_xs, mumford_divisors = reconstruct_and_verify_mumford(
             mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
         )
         stats.end_phase('mumford_reconstruction')
 
-
-        # Print divisor summary (optional - can remove if too verbose)
         print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
         if mumford_divisors:
             rational_roots_count = sum(1 for div in mumford_divisors 
                                       if 'has_rational_roots' in div and div.get('has_rational_roots'))
             print(f"  {rational_roots_count} divisors had rational roots in u(x)")
-            print("printing independent found (first 50):")
-            for i in mumford_divisors[:50]:
-                print(i)
-
+            
+            # Note: diagnose_finite_field_search expects a single prime for matrix analysis.
+            # If we are in multi-prime mode, that analysis is less relevant (or needs refactoring).
+            # For now, we skip detailed matrix diagnostics if multiple primes are used.
             if FINITE_FIELD:
-                report = diagnose_finite_field_search(
-                    mumford_divisors,  # Your 12,264 divisors
-                    verbose=True
-                )
+                if len(prime_list) == 1:
+                    from .smoothness import diagnose_finite_field_search
+                    diagnose_finite_field_search(mumford_divisors, verbose=True)
+                else:
+                    print("[Info] Skipping single-prime matrix diagnostics (Multi-prime mode active).")
 
-            # Access specific metrics:
-            print(f"Factor base size: {report['factor_base']['size']}")
-            print(f"Attack feasible: {report['attack_feasibility']['feasible']}")
-            print(f"Speedup vs generic: {report['complexity']['speedup_vs_generic']}x")
-        
         print(f"Mumford search found {len(found_xs)} rational points")
-        print("rational points found:")
-        print(found_xs)
         stats.incr('rational_points_unique', n=len(found_xs))
         print(stats.summary_string())
 
         # === NEW: SELMER UPPER BOUND COMPARISON ===
-
         rank_analysis = analyze_genus2_rank(
             f_coeffs=coeffs_genus2,
             mumford_divisors=mumford_divisors,
-            bad_primes=prime_pool[:20],  # Use first 20 primes from pool
+            bad_primes=prime_pool[:20], 
             verbose=True
         )
 
@@ -956,5 +954,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(stats.summary_string())
 
     return new_xs, new_sections, precomputed_residues, stats
+
 
 

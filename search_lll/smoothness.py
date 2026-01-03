@@ -703,3 +703,34 @@ def build_relation_matrix(divisors, factor_base, p, verbose=True):
         'sufficient': M.nrows() >= M.ncols(),
         'deficit': max(0, M.ncols() - M.nrows())
     }
+
+def diagnose_vector_diversity(divisors, verbose=True):
+    """
+    Check if divisors come from diverse search vectors.
+    Lack of diversity indicates geometric degeneracy.
+    """
+    from collections import Counter
+    
+    vector_counts = Counter(d.get('vector') for d in divisors)
+    
+    if verbose:
+        print(f"\n[Vector Diversity Analysis]")
+        print(f"  Total divisors: {len(divisors)}")
+        print(f"  Unique vectors used: {len(vector_counts)}")
+        
+        if len(vector_counts) == 1:
+            print(f"  ⚠️  SEVERE: All divisors from single vector!")
+            print(f"     This causes rank collapse in factor base")
+        elif len(vector_counts) < 5:
+            print(f"  ⚠️  LOW DIVERSITY: Only {len(vector_counts)} vectors active")
+        
+        print(f"  Divisors per vector:")
+        for vec, count in sorted(vector_counts.items(), key=lambda x: -x[1])[:10]:
+            pct = 100.0 * count / len(divisors)
+            print(f"    Vector {vec}: {count} divisors ({pct:.1f}%)")
+    
+    return {
+        'unique_vectors': len(vector_counts),
+        'vector_counts': dict(vector_counts),
+        'is_degenerate': len(vector_counts) <= 2
+    }
