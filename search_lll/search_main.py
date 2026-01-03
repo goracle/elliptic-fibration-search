@@ -11,6 +11,7 @@ from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter # <-- IMPORTED COUNTER
 from .mumford import *
+from .mumford import analyze_active_dead_vectors
 from .selmer_genus2 import *
 # After your Mumford search in FINITE_FIELD mode:
 from .smoothness import *
@@ -357,6 +358,23 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             debug=True
         )
         stats.end_phase('mumford_residues')
+
+        if FINITE_FIELD:
+            # 2. Analyze vector activity for a specific prime
+            # Ensure vecs_lll is a list of tuples
+            vecs_list_for_p_safe = [tuple(v) if hasattr(v, '__iter__') else (v,) for v in vecs_lll]
+
+            summary, per_vec, cumulative_supports = analyze_active_dead_vectors(
+                mumford_residues,
+                vecs_generated_list=vecs_lll,   # the canonical vectors you generated (80 in your example)
+                vecs_list_for_p=vecs_list_for_p_safe,       # the same list passed to the parallel routine
+                prime=FINITE_FIELD                       # the prime you’re analyzing
+            )
+
+            # 3. Optionally, print or plot
+            print(summary)
+            pass
+
         
         # Reconstruct (Consensus Strategy)
         stats.start_phase('mumford_reconstruction')

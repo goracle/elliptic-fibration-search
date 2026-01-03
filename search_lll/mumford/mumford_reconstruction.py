@@ -939,7 +939,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     # ---------- prepare parameters ----------
     p = p0
     res_p = residues[p]
-    genus = (len(f_coeffs) - 1) // 2
+    genus = 2
     target_B = int(math.ceil(p ** (1.0 / max(1, genus))))
 
     vector_list = list(res_p.keys())

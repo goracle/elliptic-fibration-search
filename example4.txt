@@ -53,9 +53,9 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [auto_cfg] Height Bound: 473 (derived from h_can=log(2) + 1.5)
 [residue_counts] Using split_poly degree=12
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.18s, info=Transitive group number 301 of degree 12
+[galois] poly.galois_group() took 0.19s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 4, 5)]
-[residue_counts] sample: [(1000003, 1)]
+[residue_counts] sample: [(10009, 4)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 2.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
@@ -68,14 +68,14 @@ Delta: -6912*m^12 + 27648*m^11 - 41472*m^10 + 387072*m^9 - 864000*m^8 + 1004544*
 [auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 1
-[bounds] mod 1000003 factorization: [1, 1, 10] -> pattern (1, 1, 10)
-[bounds] Unique patterns from 1 primes: [(1, 1, 10)]
-[bounds] Estimated splitting field degree: 10
+[bounds] mod 10009 factorization: [2, 2, 8] -> pattern (2, 2, 8)
+[bounds] Unique patterns from 1 primes: [(2, 2, 8)]
+[bounds] Estimated splitting field degree: 8
 
-DEBUG: RET: {'splitting_field_degree_est': 10, 'unique_patterns': [(1, 1, 10)], 'num_primes_tested': 1}
+DEBUG: RET: {'splitting_field_degree_est': 8, 'unique_patterns': [(2, 2, 8)], 'num_primes_tested': 1}
 
 [bounds] Diagnostics: {'discriminant': 2274951770760656620357735775252205881956710160780045056213571475654744564398384477440133256463082293542501134751845573264906850999884617585331394619011832172677992187997484926233477120, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[prime_pool] Final pool has 1 primes up to 1000003
+[prime_pool] Final pool has 1 primes up to 10009
 === Fibration Summary ===
 Data points: ((-1, 1),)
 Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (-3*m^2 + 4*m + 15)*x^4 + (-2*m^3 - 10*m^2 + 16*m + 50)*x^3 + (-6*m^3 - 12*m^2 + 24*m + 46)*x^2 + y^2 + (-6*m^3 - 6*m^2 + 16*m + 14)*x + (-2*m^3 - m^2 + 4*m + 2)
@@ -129,11 +129,11 @@ Height Pairing Matrix H:
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() took 0.01s, info=Transitive group number 301 of degree 12
 [galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 4, 5)]
-[residue_counts] sample: [(1000003, 1)]
+[residue_counts] sample: [(10009, 4)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 2.0}
-[FF vectors] Generated 40 canonical vectors
-  Sample: [(20,), (35,), (29,), (26,), (38,), (17,), (8,), (13,), (22,), (33,)]
-Searching 40 vectors up to height 473...
+[FF vectors] Generated 80 canonical vectors
+  Sample: [(63,), (44,), (20,), (35,), (29,), (26,), (38,), (17,), (72,), (47,)]
+Searching 80 vectors up to height 473...
 
 ======================================================================
 MUMFORD JACOBIAN ELEMENT SEARCH MODE
@@ -141,7 +141,338 @@ Searching for (s,p,v_0,v_1) instead of rational m
 ======================================================================
 
 Building 5-equation Mumford system from fibration...
-[FF MODE] Forcing search to single prime: 1000003
+[FF MODE] Forcing search to single prime: 10009
 
 [prepare_modular_data_lll] Rejected 0 primes:
 [mumford] Generating tasks for 1 primes...
+[mumford] Residue computation took 110.56s
+PRIME: 10009
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 10009, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(10009)) ===
+  Genus: 3
+  Target factor base size B: 22
+  Vectors available: 31
+  Mixing Strategy: Generating relations for 31 vector anchors...
+  ✓ Added doubling relation for x=3363 to break graph bipartiteness.
+  ✓ Strategy Report: 31 mixing, 1 doubling relations added.
+  [Round 10] Supports: 125, Factor base: 124, Rank: 124/124, Active vectors: 31
+  [Round 20] Supports: 187, Factor base: 186, Rank: 186/186, Active vectors: 31
+
+  [EARLY STOP] Full rank: 186/186
+  Raw solutions processed: 527
+  Algebraic rejects: 0
+  Duplicate supports rejected: 372
+  Quota rejections: 248
+  Relations added: Mixing=31, Doubling=1
+  Unique supports kept: 187
+  Factor base size: 186
+  Final rank: 186/186
+  Points found in base field: 0
+
+  Vectors contributing: 31/31
+  ✓ FULL RANK: Index calculus attack is feasible!
+
+Mumford search reconstructed 187 divisors
+  187 divisors had rational roots in u(x)
+
+======================================================================
+INDEX CALCULUS FEASIBILITY ANALYSIS
+======================================================================
+Field: GF(10009)
+Genus: 2
+Divisors collected: 187
+
+[Factor Base - Support Deduplicated]
+  Unique supports: 187
+  Distinct x-coordinates: 186
+  Total x-instances (after dedup): 374
+  Original factored divisors: 187
+  Kept after support dedup: 187
+  Average multiplicity per support: 1.0
+  Top 5 most duplicated supports:
+    (150, 3363): 1 duplicates (kept 1)
+    (150, 7300): 1 duplicates (kept 1)
+    (1672, 7300): 1 duplicates (kept 1)
+    (1672, 9058): 1 duplicates (kept 1)
+    (3318, 9058): 1 duplicates (kept 1)
+  Top 5 most frequent x-coordinates (after dedup):
+    x=3363: appears 9 times
+    x=150: appears 7 times
+    x=7300: appears 7 times
+    x=1672: appears 7 times
+    x=9058: appears 7 times
+
+[Smoothness Distribution]
+  Smooth divisors: 187/187 (100.0%)
+  Non-smooth: 0/187 (0.0%)
+  Smoothness by search vector:
+    Vector (63,): 5/5 (100.0%)
+    Vector (5,): 5/5 (100.0%)
+    Vector (14,): 5/5 (100.0%)
+    Vector (78,): 5/5 (100.0%)
+    Vector (17,): 5/5 (100.0%)
+    Vector (20,): 5/5 (100.0%)
+    Vector (26,): 5/5 (100.0%)
+    Vector (35,): 5/5 (100.0%)
+    Vector (38,): 5/5 (100.0%)
+    Vector (41,): 5/5 (100.0%)
+
+[Relation Matrix]
+  Dimensions: 187 relations × 186 factor base elements
+  (After support deduplication)
+  Rank: 186
+  Nullity: 0
+  Over-determined: True
+  ✓ Sufficient relations for linear algebra attack!
+  Row sparsity:
+    Avg non-zeros per row: 2.0
+    Min: 1, Max: 2
+
+[Linear Algebra Attack Feasibility]
+  Factor base size: 186
+  Relations collected: 187
+  Matrix rank: 186
+  Estimated #J(GF(10009)): ~1.00e+08
+  Factor base coverage: 18600/100180081%
+  ✓ ATTACK FEASIBLE: Matrix is full-rank and over-determined
+    Next step: Solve linear system mod #J to express arbitrary divisors
+
+[DLP Complexity Estimate]
+  Theoretical (genus 2): O(p^1.5) ≈ 1001350.3037044528 ops
+  Practical with B=7:
+    Relation collection: 1309 ops (DONE)
+    Linear algebra (dense): 343 ops
+    Linear algebra (sparse): 49 ops
+    Individual DLP: 7 ops
+  Total (dense): 1659 ops
+  Total (sparse): 1365 ops
+  Generic baby-step-giant-step: O(p^1) ≈ 10009 ops
+  ✓ Index calculus is faster by ~10009/1365x
+======================================================================
+
+
+======================================================================
+SUMMARY & RECOMMENDATIONS
+======================================================================
+✓ INDEX CALCULUS ATTACK IS FEASIBLE
+  - Factor base size: 186
+  - Relations collected: 187
+  - Matrix is full-rank and over-determined
+  - Estimated complexity: 1365 operations
+
+Next steps:
+  1. Solve linear system to express factor base in terms of relations
+  2. For target divisor D, decompose D over factor base
+  3. Express D = linear combination of known divisors
+======================================================================
+
+Mumford search found 0 rational points
+Total time: 123.37s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 110.57s
+  prep_mod_data            : 12.72s
+  mumford_reconstruction   : 0.06s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+
+======================================================================
+GENUS 2 SELMER RANK UPPER BOUND
+======================================================================
+
+Curve: y^2 = x^6 + 2*x^5 - 11*x^4 - 10*x^3 + 10*x^2 + 8*x + 1
+  p=10009: local dimension = 3
+
+Total local dimensions: 4
+After reciprocity: 3
+
+Selmer rank upper bound: 3
+(Rank of J(Q) <= 3)
+
+Mumford basis size: 187
+
+======================================================================
+RANK BOUNDS SUMMARY
+======================================================================
+
+Lower bound (Mumford basis): 187
+Upper bound (Selmer): 3
+
+⚠️  WARNING: Lower bound exceeds upper bound!
+This indicates a bug in either computation.
+Found 0 new point(s) and 0 new section(s).
+
+======================================================================
+COMPLETENESS ANALYSIS (Exact CRT Check)
+======================================================================
+
+Found Points Reconstructibility:
+x          | Findable?  | Primes   | Log10 Cap
+---------------------------------------------
+-1         | NO         | 0        | 0.00
+
+⚠️  Some found points are NOT reconstructible from current residues.
+    (They were likely found via specialized subsets or lucky hits.)
+======================================================================
+
+=== Unified diagnostics: running bootstrap visibility ===
+avg_fraction (unbiased sample): 0.000
+fraction >= 0.1 : 0.000%, fraction >= 0.5 : 0.000%
+empirical visible fraction: (no prime_subsets available in analyzer)
+
+=== Pairwise MI on first 1 primes ===
+Top MI pairs (p,q,MI bits):
+fraction of pairs with MI >= 0.01 bits: 0.000%
+No prime_subsets available to check.
+
+======================================================================
+SEARCH SUMMARY
+======================================================================
+Total points found: 1
+Total time: 125.7s
+CRT candidates tested: 0
+Rationality tests: 0
+Hit rate: 0.00%
+======================================================================
+Proof using OBSERVED max height: 0.00
+
+======================================================================
+FORMAL COMPLETENESS PROOF (Roadmap Step 3)
+======================================================================
+No prime subsets were used. Cannot run sufficiency proof.
+======================================================================
+
+--- Arithmetic-informed prior (with fiber collision adjustment) ---
+p_visibility (raw): 0.0000
+p_visibility (adjusted): 0.0000
+mu_selmer:   0
+mu_local:    0
+mu_height:   0.01
+mu_bootstrap:0
+--> mu_combined = 0.01  (q = 0.009901)
+
+--- Posterior summary (geometric prior from arithmetic signals) ---
+Observed points (k) = 1
+Estimated detection probability p = 0.000
+⚠️  Could not compute posterior probabilities (p_visibility likely 0).
+    Search may have been starved of valid primes.
+
+✓ Fiber collision detection validated: set() ⊆ ramification locus {97, 2, 3, 5, 7, 71, 50857, 683, 1104811, 13, 463, 17, 46872409}
+
+--- Automorphism Search ---
+No scaling automorphisms found.
+Found 1 translation automorphisms:
+  [0] Translation by Section S0
+
+No non-trivial automorphisms found for the NS lattice.
+
+--- Torsion Analysis ---
+Got 40 good specializations for torsion check.
+Fast method candidate torsion order (GCD of specializations): 1
+Fiber component counts: [1, 1]  -> lcm bound: 1
+Base section 0 does not appear to be small order torsion.
+
+--- Running Saturation Diagnostics ---
+
+--- Running Picard-Van Luijk Analysis ---
+Using 1 good prime candidates for reduction: [10009]
+[char 0] Using mw_rank = 1. Σ(m_v-1) = 0
+[char 0] ST lower bound: rho >= 3
+[rank_over_fq(t)] independent reduced sections: 1
+[mod 10009] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
+[summary] lower >= 3, best upper <= 3 at ell=10009
+
+=== Picard Report ===
+Lower bound (char 0): 3
+Upper bounds from reductions:
+  ell=10009: rho <= 3    (rank_lb=1, Σ=0)
+*** Concluded Picard number: ρ = 3 ***
+
+--- Shioda-Tate Diagnostics ---
+Shioda-Tate Rank Estimate (assuming rho=3): 1
+Total Euler Characteristic: 12
+Sum of Fiber Contributions (Σ(m_v - 1)): 0
+
+======================================================================
+2-SELMER RANK BOUNDS
+======================================================================
+Mordell-Weil rank: 1
+Bad primes: []
+Tamagawa product: 1
+
+Rank bounds:
+  1 ≤ rank(S²) ≤ 3
+
+known_pts {(-1, 1)}
+found {-1}
+only trying one fibration for Mumford basis search, for now.
+
+--- Cumulative Run Statistics ---
+Total time: 125.83s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 110.57s
+  prep_mod_data            : 12.72s
+  mumford_reconstruction   : 0.06s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rank_exact                    : 0
+  rank_lower_bound              : 187
+  rank_upper_bound              : 3
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+
+--- Final Results ---
+Final list of known points: [(-1, 1)]

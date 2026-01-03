@@ -4,7 +4,7 @@ from tqdm import tqdm
 from .mumford_solver import solve_mumford_mod_p_optimized
 from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_p
 from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
-from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, FINITE_FIELD
 import time
 import sys
 import traceback
@@ -24,36 +24,6 @@ def mumford_precompute_residues_sequential(eqs_dict, prime_pool, Ep_dict, mult_l
 def _init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-def _solve_worker_wrapper(args):
-    p, f_coeffs_ints, x_residues_map, const_val_int = args
-    try:
-        p_results = {}
-        for v_tuple, x_res_list in x_residues_map.items():
-            if isinstance(x_res_list, int):
-                x_res_list = [x_res_list]
-            
-            x_res_to_sols = {}
-            for x_res in x_res_list:
-                sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_res, const_val_int)
-                
-                verified_sols = []
-                for sol in sols:
-                    s, p_val, v0, v1 = sol
-                    if verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
-                        verified_sols.append(sol)
-                
-                if verified_sols:
-                    x_res_to_sols[x_res] = verified_sols
-            
-            if x_res_to_sols:
-                p_results[v_tuple] = x_res_to_sols
-                
-        return p, p_results
-    except Exception:
-        sys.stderr.write(f"\nCRITICAL ERROR IN MUMFORD WORKER (p={p}):\n")
-        traceback.print_exc(file=sys.stderr)
-        raise
-        return p, {}
 
 def _mumford_worker_entry(args):
     """Legacy entry point (placeholder)."""
@@ -419,28 +389,78 @@ class ModInverseCache:
         return self.cache[key]
 
 
+def _solve_worker_wrapper(args):
+    p, f_coeffs_ints, chunk_items, const_val_int = args
+    
+    try:
+        Fp = GF(p)
+        R = Fp['t']
+        t = R.gen()
+        
+        roots_cache = {}
+        p_results = {}
+        
+        for v_tuple, diff_coeffs_list in chunk_items:
+            coeff_key = tuple(c % p for c in diff_coeffs_list)
+            
+            if all(c == 0 for c in coeff_key):
+                continue
+            
+            if coeff_key in roots_cache:
+                roots = roots_cache[coeff_key]
+            else:
+                poly = R(list(coeff_key))
+                raw_roots = poly.roots(multiplicities=False)
+                roots = [int(r) for r in raw_roots]
+                roots_cache[coeff_key] = roots
+            
+            if not roots:
+                continue
+            
+            x_res_to_sols = {}
+            for m_root in roots:
+                x_val = (-m_root + const_val_int) % p
+                
+                sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int)
+                
+                verified_sols = []
+                for sol in sols:
+                    s, p_val, v0, v1 = sol
+                    if verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
+                        verified_sols.append(sol)
+                
+                if verified_sols:
+                    x_res_to_sols[x_val] = verified_sols
+            
+            if x_res_to_sols:
+                p_results[v_tuple] = x_res_to_sols
+        
+        return p, p_results
+        
+    except Exception:
+        sys.stderr.write(f"\nCRITICAL ERROR IN MUMFORD WORKER (p={p}):\n")
+        traceback.print_exc(file=sys.stderr)
+        return p, {}
+
+
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                                          rhs_modp_list, vecs_list, num_workers=20, debug=False):
     """
-    Parallel residue computation with timing.
-    Optimized to chunk vectors for better parallelism in single-prime/FINITE_FIELD mode.
+    Parallel residue computation. In FINITE_FIELD mode, extract polynomial coefficients
+    in main process (cheap), then do root-finding in workers (expensive).
     """
     t_start = time.time()
     
     f_coeffs = eqs_dict['f_coeffs']
     f_coeffs_ints = [int(c) for c in f_coeffs]
     
-    # Safe constant conversion (handles both QQ rationals and GF elements)
     try:
         if hasattr(eqs_dict['const'], 'parent'):
-            # It's a Sage element (Integer, Rational, or GF element)
             const_val_int = int(eqs_dict['const'])
         else:
-            # Fallback for strings/floats/other
             const_val_int = int(QQ(eqs_dict['const']))
     except Exception:
         const_val_int = 0
-        raise
         
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
@@ -448,9 +468,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     t0 = time.time()
     tasks = []
     
-    # Heuristic: If we have few primes (e.g., FINITE_FIELD mode), we must chunk the vectors
-    # to utilize all workers. If we have many primes, one task per prime is sufficient.
-    force_chunking = (len(prime_list) < num_workers * 2)
+    use_worker_roots = bool(FINITE_FIELD)
     
     for p in prime_list:
         if p not in Ep_dict:
@@ -466,78 +484,125 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
             m_var = R_m.gen()
             rhs_poly = -m_var + Fp(const_val_int)
         except Exception:
-            raise
             continue
 
-        x_residues_map = {}
         p_mults = mult_lll.get(p, {})
         
-        # Pre-compute x-residues (this is fast relative to the solving step)
-        for v_idx, v_tuple in enumerate(vecs_list):
-            if not v_tuple:
-                continue
+        if use_worker_roots:
+            # Extract polynomial coefficients in main process
+            # This is the ONLY heavy operation we do here
+            items = []
             
-            Pm = Ep(0)
-            valid_vec = True
-            v_coeffs = p_vecs[v_idx]
+            for v_idx, v_tuple in enumerate(vecs_list):
+                if not v_tuple:
+                    continue
+                
+                Pm = Ep(0)
+                valid_vec = True
+                v_coeffs = p_vecs[v_idx]
 
-            for i, c in enumerate(v_coeffs):
-                k = int(c)
-                if k == 0:
+                for i, c in enumerate(v_coeffs):
+                    k = int(c)
+                    if k == 0:
+                        continue
+                    
+                    try:
+                        mults_for_sec = p_mults[i]
+                        if k in mults_for_sec:
+                            Pm += mults_for_sec[k]
+                        else:
+                            valid_vec = False
+                            break
+                    except (IndexError, KeyError, TypeError):
+                        valid_vec = False
+                        break
+                
+                if not valid_vec or Pm.is_zero() or Pm[2] == 0:
                     continue
                 
                 try:
-                    mults_for_sec = p_mults[i]
-                    if k in mults_for_sec:
-                        Pm += mults_for_sec[k]
-                    else:
+                    diff = Pm[0] - Pm[2] * rhs_poly
+                    diff_num = diff.numerator()
+                    
+                    if diff_num.is_zero():
+                        continue
+                    
+                    # ONLY extract coefficients - this should be fast
+                    coeffs = diff_num.list()
+                    # Convert to plain Python ints immediately
+                    coeffs_ints = [int(c) for c in coeffs]
+                    
+                    items.append((v_tuple, coeffs_ints))
+                    
+                except Exception:
+                    continue
+            
+            if not items:
+                continue
+            
+            # Chunk items for workers
+            num_workers_actual = min(num_workers, len(items))
+            target_chunks = max(1, num_workers_actual * 3)
+            n_items = len(items)
+            chunk_size = max(1, (n_items + target_chunks - 1) // target_chunks)
+            
+            for i in range(0, n_items, chunk_size):
+                chunk = items[i:i + chunk_size]
+                tasks.append((p, f_coeffs_ints, chunk, const_val_int))
+        
+        else:
+            # Original non-FINITE_FIELD path
+            x_residues_map = {}
+            
+            for v_idx, v_tuple in enumerate(vecs_list):
+                if not v_tuple:
+                    continue
+                
+                Pm = Ep(0)
+                valid_vec = True
+                v_coeffs = p_vecs[v_idx]
+
+                for i, c in enumerate(v_coeffs):
+                    k = int(c)
+                    if k == 0:
+                        continue
+                    
+                    try:
+                        mults_for_sec = p_mults[i]
+                        if k in mults_for_sec:
+                            Pm += mults_for_sec[k]
+                        else:
+                            valid_vec = False
+                            break
+                    except (IndexError, KeyError, TypeError):
                         valid_vec = False
                         break
-                except (IndexError, KeyError, TypeError):
-                    valid_vec = False
-                    raise
-                    break
-            
-            if not valid_vec or Pm.is_zero() or Pm[2] == 0:
-                continue
-            
-            try:
-                diff = Pm[0] - Pm[2] * rhs_poly
-                diff_num = diff.numerator()
                 
-                if diff_num.is_zero():
+                if not valid_vec or Pm.is_zero() or Pm[2] == 0:
                     continue
-                    
-                roots = diff_num.roots(multiplicities=False)
                 
-                if roots:
-                    valid_residues = []
-                    for m_root in roots:
-                        m_val = int(m_root)
-                        x_val = (-m_val + const_val_int) % p
-                        valid_residues.append(x_val)
+                try:
+                    diff = Pm[0] - Pm[2] * rhs_poly
+                    diff_num = diff.numerator()
                     
-                    if valid_residues:
-                        x_residues_map[v_tuple] = valid_residues
-            except Exception:
-                raise
-                continue
+                    if diff_num.is_zero():
+                        continue
+                        
+                    roots = diff_num.roots(multiplicities=False)
+                    
+                    if roots:
+                        valid_residues = []
+                        for m_root in roots:
+                            m_val = int(m_root)
+                            x_val = (-m_val + const_val_int) % p
+                            valid_residues.append(x_val)
+                        
+                        if valid_residues:
+                            x_residues_map[v_tuple] = valid_residues
+                except Exception:
+                    continue
             
-        if x_residues_map:
-            # Chunking Logic to enable parallelism for single-prime cases
-            if force_chunking:
-                n_vecs = len(x_residues_map)
-                # Aim for multiple tasks per worker to ensure good load balancing
-                target_chunks = num_workers * 4
-                # Ceil division without importing math
-                chunk_size = (n_vecs + target_chunks - 1) // target_chunks
-                chunk_size = max(1, chunk_size)
-                
-                items = list(x_residues_map.items())
-                for i in range(0, n_vecs, chunk_size):
-                    chunk = dict(items[i:i+chunk_size])
-                    tasks.append((p, f_coeffs_ints, chunk, const_val_int))
-            else:
+            if x_residues_map:
                 tasks.append((p, f_coeffs_ints, x_residues_map, const_val_int))
 
     mumford_timer_add("task_generation", time.time() - t0)
@@ -553,7 +618,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
     except Exception:
         pool_obj = multiprocessing.Pool(num_workers, initializer=_init_worker)
-        raise
 
     results_dict = {}
     with pool_obj as pool:
@@ -561,7 +625,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                                   total=len(tasks), desc="Solving Mumford Mod P"):
             if p not in results_dict:
                 results_dict[p] = {}
-            # Update is necessary because we may have split one prime into multiple tasks
             results_dict[p].update(result_map)
     
     mumford_timer_add("parallel_solving", time.time() - t0)
@@ -571,3 +634,127 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
             
     return results_dict
+
+
+import csv
+from collections import defaultdict, OrderedDict
+
+def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for_p, prime):
+    """
+    results_dict: output of mumford_precompute_residues_parallel (for many primes)
+    vecs_generated_list: list of all canonical vectors generated (e.g., length 80)
+    vecs_list_for_p: the vecs_list used for this prime (order must match how you built 'items')
+    prime: the prime p to analyze (int)
+    """
+    # results for the prime (None if not present)
+    pmap = results_dict.get(prime, {})
+    # flatten mapping: v_tuple -> {x_res: [sols,...], ...}
+    # pmap keys are tuples of v_tuple values (if you used tuple(v_tuple))
+    
+    # bookkeeping
+    gen_set = [tuple(v) if isinstance(v, (list, tuple)) else (v,) for v in vecs_generated_list]
+    available_vectors = set(pmap.keys())            # vectors we actually solved for
+    all_generated = gen_set                         # canonical ordering of generated vectors
+    active_vectors = set(k for k,v in pmap.items() if any(v.values()))
+    
+    # per-vector stats
+    per_vec = {}
+    seen_supports = set()
+    cumulative_supports = []
+    cum_count = 0
+    
+    # We'll iterate in the order of vecs_list_for_p (the order you attempted)
+    order_list = [tuple(v) for v in vecs_list_for_p]
+    
+    for idx, v in enumerate(order_list):
+        vkey = tuple(v)
+        entry = {'index': idx,
+                 'available': vkey in available_vectors,
+                 'active': False,
+                 'raw_solution_count': 0,
+                 'verified_solution_count': 0,
+                 'unique_supports_count': 0,
+                 'new_supports_count': 0,
+                 'hot_xs': [],
+                 'new_supports': []}
+        
+        if vkey in pmap:
+            xmap = pmap[vkey]   # x_res -> [sols]
+            raw_count = 0
+            verified_count = 0
+            supports_this_vec = set()
+            for x_res, sols in xmap.items():
+                # each 'sol' for your pipeline is a tuple (s,p_val,v0,v1); derive support id
+                # we need a support identifier. We'll use (x_res, sorted(some parts of sol)) OR just x_res if supports are indexed by x
+                raw_count += len(sols)
+                # treat each sol as contributing one support identified by (x_res, maybe p_val).
+                # For simplicity we'll use x_res as support id (you can refine to include more)
+                supports_this_vec.add(int(x_res))
+                verified_count += len(sols)
+            entry['raw_solution_count'] = raw_count
+            entry['verified_solution_count'] = verified_count
+            entry['unique_supports_count'] = len(supports_this_vec)
+            # new supports
+            new = [s for s in supports_this_vec if s not in seen_supports]
+            entry['new_supports_count'] = len(new)
+            entry['new_supports'] = new
+            entry['hot_xs'] = sorted(list(supports_this_vec), key=lambda a: -list(supports_this_vec).count(a))[:5]
+            if new:
+                entry['active'] = True
+            # update global seen_supports and cumulative
+            for s in new:
+                seen_supports.add(s)
+                cum_count += 1
+        else:
+            # unavailable vector
+            pass
+        
+        cumulative_supports.append(cum_count)
+        per_vec[vkey] = entry
+    
+    # global stats
+    generated_count = len(all_generated)
+    available_count = sum(1 for v in order_list if tuple(v) in available_vectors)
+    active_count = sum(1 for v in order_list if per_vec.get(tuple(v), {}).get('active', False))
+    raw_solutions_total = sum(per_vec[v]['raw_solution_count'] for v in per_vec)
+    unique_supports_total = len(seen_supports)
+    duplicates = raw_solutions_total - unique_supports_total
+    
+    summary = {
+        'prime': prime,
+        'generated_count': generated_count,
+        'available_count': available_count,
+        'active_count': active_count,
+        'raw_solutions_processed': raw_solutions_total,
+        'unique_supports': unique_supports_total,
+        'duplicates_rejected': duplicates,
+        'availability_rate': available_count / float(generated_count) if generated_count>0 else 0.0,
+        'activation_rate': active_count / float(available_count) if available_count>0 else 0.0,
+    }
+    
+    # Print a short report
+    print("PRIME:", prime)
+    print("generated:", generated_count, "available:", available_count, "active:", active_count)
+    print("raw_solutions:", raw_solutions_total, "unique_supports:", unique_supports_total, "duplicates:", duplicates)
+    print("availability_rate:", summary['availability_rate'], "activation_rate:", summary['activation_rate'])
+    
+    # Write per-vector CSV
+    fieldnames = ['vector', 'index', 'available', 'active',
+                  'raw_solution_count', 'verified_solution_count',
+                  'unique_supports_count', 'new_supports_count', 'new_supports']
+    with open(f'vector_activity_p{prime}.csv', 'w', newline='') as cf:
+        w = csv.DictWriter(cf, fieldnames=fieldnames)
+        w.writeheader()
+        for vkey in order_list:
+            vtuple = tuple(vkey)
+            row = per_vec.get(vtuple, {'index': order_list.index(vtuple), 'available': False, 'active': False,
+                                      'raw_solution_count':0, 'verified_solution_count':0,
+                                      'unique_supports_count':0, 'new_supports_count':0, 'new_supports':[]})
+            row_out = {'vector': vtuple, 'index': row['index'], 'available': row['available'], 'active': row['active'],
+                       'raw_solution_count': row['raw_solution_count'], 'verified_solution_count': row['verified_solution_count'],
+                       'unique_supports_count': row['unique_supports_count'], 'new_supports_count': row['new_supports_count'],
+                       'new_supports': ";".join(map(str, row['new_supports']))}
+            w.writerow(row_out)
+    
+    # Return the summary, per_vec mapping, and cumulative list for plotting
+    return summary, per_vec, cumulative_supports

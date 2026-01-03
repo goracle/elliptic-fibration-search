@@ -304,7 +304,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
     
     # Use the SCALED height bound here!
     if FINITE_FIELD:
-        fib_specific_vecs = generate_ff_search_vectors(len(current_sections), max_coeff=20, num_vecs=5000)
+        fib_specific_vecs = generate_ff_search_vectors(len(current_sections))
     else:
         fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
 
@@ -660,7 +660,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
 
         if FINITE_FIELD:
-            vecs = generate_ff_search_vectors(len(current_sections), num_vecs=5000)
+            vecs = generate_ff_search_vectors(len(current_sections))
         else:
             vecs = compute_search_vectors(H, height_bound)
         vecs = canonicalize_by_sign(vecs)

@@ -67,11 +67,7 @@ from .mumford_reconstruction import (
 )
 
 # Parallel processing
-from .mumford_parallel import (
-    mumford_precompute_residues_parallel,
-    mumford_precompute_residues_sequential,
-)
-
+from .mumford_parallel import *
 # Timing
 from .mumford_timing import (
     mumford_timer_add,
