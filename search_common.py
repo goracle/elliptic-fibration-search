@@ -374,6 +374,17 @@ COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 11
 
+# attack curve, i guess
+#y² = 8x⁵ + 16x⁴ - 60x³ + 69x² - 36x + 8
+COEFFS_GENUS2 = [QQ(8), QQ(16), QQ(-60), QQ(69), QQ(-36), QQ(8)]
+DATA_PTS_GENUS2 = [QQ(1)/QQ(2)] # just the x values lol
+TERMINATE_WHEN_6 = 2
+
+# claude generated this curve, not in the lmfdb as of Jan 3 2026
+# y² = -3x⁶ + 11x⁵ + 6x⁴ - 9x³ + 2x² + x + 25
+COEFFS_GENUS2 = [QQ(-3), QQ(11), QQ(6), QQ(-9), QQ(2), QQ(1), QQ(25)]
+DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 2
 
 ##### END TEST CURVES ######
 
@@ -389,7 +400,7 @@ HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 FINITE_FIELD = None
-FINITE_FIELD = next_prime(2**23+50)
+FINITE_FIELD = next_prime(2**250)
 MAXN = 10
 
 if FINITE_FIELD:

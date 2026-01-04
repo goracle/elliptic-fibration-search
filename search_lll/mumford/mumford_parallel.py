@@ -540,7 +540,7 @@ def _solve_worker_wrapper(args):
         for m_root in roots:
             x_val = (-m_root + const_val_int) % p
             
-            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=1000)
+            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=500)
             
             verified_sols = []
             for sol in sols:
@@ -711,5 +711,4 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
             
     return results_dict
-
 

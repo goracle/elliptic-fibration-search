@@ -405,17 +405,18 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         stats.incr('rational_points_unique', n=len(found_xs))
         print(stats.summary_string())
 
-        # === NEW: SELMER UPPER BOUND COMPARISON ===
-        rank_analysis = analyze_genus2_rank(
-            f_coeffs=coeffs_genus2,
-            mumford_divisors=mumford_divisors,
-            bad_primes=prime_pool[:20], 
-            verbose=True
-        )
+        if not FINITE_FIELD:
+            # === NEW: SELMER UPPER BOUND COMPARISON === (only for Q, not F_p)
+            rank_analysis = analyze_genus2_rank(
+                f_coeffs=coeffs_genus2,
+                mumford_divisors=mumford_divisors,
+                bad_primes=prime_pool[:20], 
+                verbose=True
+            )
 
-        stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
-        stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
-        stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
+            stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
+            stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
+            stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
 
         return found_xs, [], mumford_residues, stats
 

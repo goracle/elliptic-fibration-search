@@ -147,8 +147,9 @@ def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_sol
         # Discriminant check
         disc = s_val * s_val - 4 * p_val
         disc_int = int(disc)
-        if disc_int not in sqrt_map:
-            continue
+        if sqrt_map is not None:
+            if disc_int not in sqrt_map:
+                continue
         
         # Compute f(x) mod u(x) using Sage's fast polynomial division
         u_poly = x**2 - s_val*x + p_val
@@ -175,11 +176,12 @@ def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_sol
         else:
             disc_q = b_q * b_q - 4 * a_q * c_q
             disc_q_int = int(disc_q)
-            if disc_q_int in sqrt_map:
-                inv_2a = 1 / (2 * a_q)
-                for sq_root_int in sqrt_map[disc_q_int]:
-                    sq_root = Fp(sq_root_int)
-                    Z_roots.append((-b_q + sq_root) * inv_2a)
+            if sqrt_map is not None:
+                if disc_q_int in sqrt_map:
+                    inv_2a = 1 / (2 * a_q)
+                    for sq_root_int in sqrt_map[disc_q_int]:
+                        sq_root = Fp(sq_root_int)
+                        Z_roots.append((-b_q + sq_root) * inv_2a)
         
         # For each Z = v1^2, find v1
         for Z in set(Z_roots):
@@ -212,6 +214,10 @@ def get_sqrt_data_sage(p):
     if p is None:
         return {}
     
+    # For large primes, return None to signal "use on-demand sqrt()"
+    if p > 1048576:  # 2^20
+        return None
+
     key = p
     if key in get_sqrt_data_sage.cache:
         return get_sqrt_data_sage.cache[key]
@@ -248,14 +254,14 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
     
     # Precompute sqrt map once
     sqrt_map = get_sqrt_data_sage(p)
-    
+   
     all_solutions = {}
     
     for x_residue in x_residues_list:
         solutions = []
         x_res = Fp(x_residue)
         x_sq = x_res * x_res
-        
+
         for s_int in range(min(p, max_solutions * 2)):  # Early cutoff
             if len(solutions) >= max_solutions:
                 break
@@ -265,9 +271,14 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
             
             disc = s_val * s_val - 4 * p_val
             disc_int = int(disc)
-            if disc_int not in sqrt_map:
+            if sqrt_map is None:
+                # Large prime: use on-demand sqrt
+                if not Fp(disc_int).is_square():
+                    continue
+                sqrt_disc = Fp(disc_int).sqrt()
+                # Handle both roots: +/- sqrt
+            elif disc_int not in sqrt_map:
                 continue
-            
             u_poly = x**2 - s_val*x + p_val
             remainder = f_poly % u_poly
             
@@ -288,11 +299,12 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
             else:
                 disc_q = b_q * b_q - 4 * a_q * c_q
                 disc_q_int = int(disc_q)
-                if disc_q_int in sqrt_map:
-                    inv_2a = 1 / (2 * a_q)
-                    for sq_root_int in sqrt_map[disc_q_int]:
-                        sq_root = Fp(sq_root_int)
-                        Z_roots.append((-b_q + sq_root) * inv_2a)
+                if sqrt_map is not None:
+                    if disc_q_int in sqrt_map:
+                        inv_2a = 1 / (2 * a_q)
+                        for sq_root_int in sqrt_map[disc_q_int]:
+                            sq_root = Fp(sq_root_int)
+                            Z_roots.append((-b_q + sq_root) * inv_2a)
             
             for Z in set(Z_roots):
                 Z_int = int(Z)
@@ -325,3 +337,175 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
         return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
     else:
         return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
+
+
+
+
+def get_sqrt_data_sage(p):
+    """
+    Precomputes square root map using Sage's native quadratic residue checking.
+    MEMORY FIX: Only cache for small primes (p < 2^20).
+    """
+    if p is None:
+        return {}
+    
+    # For large primes, return None to signal "use on-demand sqrt()"
+    if p > 1048576:  # 2^20
+        return None
+
+    key = p
+    if key in get_sqrt_data_sage.cache:
+        return get_sqrt_data_sage.cache[key]
+    
+    Fp = GF(p)
+    sqrt_map = {}
+    
+    # Sage has built-in square root for finite fields
+    for i in range((p // 2) + 1):
+        sq = int(Fp(i)**2)
+        if sq not in sqrt_map:
+            sqrt_map[sq] = []
+        sqrt_map[sq].append(i)
+        if i != 0 and (p - i) != i:
+            sqrt_map[sq].append(p - i)
+    
+    get_sqrt_data_sage.cache[key] = sqrt_map
+    return sqrt_map
+
+get_sqrt_data_sage.cache = {}
+# Don't pre-cache at module load - let it cache lazily
+# get_sqrt_data_sage(FINITE_FIELD)  # DELETE THIS LINE
+
+
+def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
+    """
+    Sage-native Mumford solver using polynomial rings directly.
+    Handles both small primes (cached sqrt) and large primes (on-demand sqrt).
+    """
+    Fp = GF(p)
+    R = PolynomialRing(Fp, 'x')
+    x = R.gen()
+    
+    # Build f(x) polynomial once
+    f_poly = R([Fp(c) for c in reversed(f_coeffs)])
+    
+    x_res = Fp(x_residue)
+    x_sq = x_res * x_res
+    
+    solutions = []
+    
+    # Get sqrt map (None for large primes)
+    sqrt_map = get_sqrt_data_sage(p)
+    use_cached = (sqrt_map is not None)
+    
+    # Random sampling for large p
+    if p > 100000:
+        from random import sample
+        #s_range = sample(range(p), min(10000, p))
+
+        # Replace line 406 with:
+        from random import randrange
+        sample_size = min(10000, p)
+        s_range = [randrange(p) for _ in range(sample_size)]
+
+        #import numpy as np
+        #s_range = np.random.randint(0, p, size=min(10000, p), dtype=object)
+    else:
+        s_range = range(p)
+    
+    # Iterate over s values
+    for s_int in s_range:
+        if len(solutions) >= max_solutions:
+            break
+        
+        s_val = Fp(s_int)
+        p_val = x_res * s_val - x_sq
+        
+        # Discriminant check
+        disc = s_val * s_val - 4 * p_val
+        disc_int = int(disc)
+        
+        if use_cached:
+            if disc_int not in sqrt_map:
+                continue
+        else:
+            # Large prime: on-demand check
+            if not Fp(disc_int).is_square():
+                continue
+        
+        # Compute f(x) mod u(x)
+        u_poly = x**2 - s_val*x + p_val
+        remainder = f_poly % u_poly
+        
+        rem_coeffs = remainder.list()
+        B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
+        A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
+        
+        # Solve quadratic for Z = v1^2
+        a_q = disc
+        b_q = -2 * (A * s_val + 2 * B)
+        c_q = A * A
+        
+        Z_roots = []
+        if a_q == 0:
+            if b_q != 0:
+                Z_roots.append(-c_q / b_q)
+            elif c_q == 0:
+                Z_roots.append(Fp(0))
+        else:
+            disc_q = b_q * b_q - 4 * a_q * c_q
+            disc_q_int = int(disc_q)
+            
+            if use_cached:
+                if disc_q_int in sqrt_map:
+                    inv_2a = 1 / (2 * a_q)
+                    for sq_root_int in sqrt_map[disc_q_int]:
+                        sq_root = Fp(sq_root_int)
+                        Z_roots.append((-b_q + sq_root) * inv_2a)
+            else:
+                # Large prime: on-demand sqrt
+                if Fp(disc_q_int).is_square():
+                    sqrt_disc_q = Fp(disc_q_int).sqrt()
+                    inv_2a = 1 / (2 * a_q)
+                    Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
+                    Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
+        
+        # For each Z = v1^2, find v1
+        for Z in set(Z_roots):
+            Z_int = int(Z)
+            
+            if use_cached:
+                if Z_int in sqrt_map:
+                    for v1_int in sqrt_map[Z_int]:
+                        v1_val = Fp(v1_int)
+                        
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                        else:
+                            # v1 = 0: requires A = 0 and v0^2 = B
+                            if A == 0 and Z_int == 0 and int(B) in sqrt_map:
+                                for r in sqrt_map[int(B)]:
+                                    solutions.append((int(s_val), int(p_val), r, 0))
+            else:
+                # Large prime: on-demand sqrt for v1
+                if Fp(Z_int).is_square():
+                    sqrt_Z = Fp(Z_int).sqrt()
+                    
+                    for v1_val in [sqrt_Z, -sqrt_Z]:
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                else:
+                    # v1 = 0: requires A = 0 and v0^2 = B
+                    if A == 0 and Z_int == 0:
+                        if Fp(int(B)).is_square():
+                            sqrt_B = Fp(int(B)).sqrt()
+                            for v0_val in [sqrt_B, -sqrt_B]:
+                                solutions.append((int(s_val), int(p_val), int(v0_val), 0))
+    
+    return list(set(solutions))
