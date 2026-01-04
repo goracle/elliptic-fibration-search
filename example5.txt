@@ -1,24 +1,22 @@
 
 --- Searching for y=0 points ---
-hyper elliptic curve: y^2 = -3*x^6 + 11*x^5 + 6*x^4 - 9*x^3 + 2*x^2 + x + 25
+hyper elliptic curve: y^2 = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
 No rational points found where y=0
-known_pts start: {(0, 5)}
+known_pts start: {(0, 2)}
 
 ========================================================
-Constructing new fibration using: ((0, 5),)
-known pts so far: [(0, 5)]
-found 1 / 2
+Constructing new fibration using: ((0, 2),)
+known pts so far: [(0, 2)]
+found 1 / 3
 ========================================================
 
 
 SHIFT = 1
 
-shifted G poly1: -3*x^6 + 29*x^5 - 94*x^4 + 137*x^3 - 90*x^2 + 19*x + 27
---- Building 2 Step Fibration Tower (deg 6 -> 4) ---
---- Tower Step 1: Building fibration for degree 6 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=15.3)
---- Tower Step 2: Building fibration for degree 5 curve (Best-of-10) ---
-  [Step 2] Selected best geometry (Score=14.3)
+shifted G poly1: x^5 - 5*x^4 + 13*x^3 - 17*x^2 + 15*x - 3
+--- Building 1 Step Fibration Tower (deg 5 -> 4) ---
+--- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
+  [Step 1] Selected best geometry (Score=13.7)
 r_m -m + 1
 --- Running 1-point Fibration (Primary Geometry) ---
 --- Entering buildcd ---
@@ -26,40 +24,42 @@ r_m -m + 1
 
 --- Identifying Globally Bad Primes ---
 Identified 0 globally bad prime(s) from the pool: []
->>> Diagnostic: [m^12 + 22/3*m^11 + 121/6*m^10 + 3104021/101250*m^9 + 38078249/810000*m^8 + 11269927/151875*m^7 + 2154586547/10935000*m^6 + 616332977/607500*m^5 + 47686078669/21870000*m^4 + 3765980303/5467500*m^3 - 3083451631/2187000*m^2 + 501437167/1093500*m - 289353019/7290000] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [m^8 - 1241/108*m^6 + 167/9*m^5 - 2504/27*m^4 + 10847/54*m^3 + 16063/54*m^2 + 7649/54*m + 407/6] I1: v=(0,0,1) -> (0,0,1), target vΔ=1. Already minimal.
+>>> Diagnostic: [∞] IV: v=(-2,-4,-8) -> (2,2,4), target vΔ=4. Extra blow UP by k=1 (u=t^-1)
 
 Place analysis (finite algebraic places):
 factor g(m)                               mult   v_c4   v_c6    v_D      n   v4_min   v6_min   vD_min      Kodaira
 --------------------------------------------------------------------------------------------------------------------------
-m^12 + 22/3*m^11 + 121/6*m^10 + 3104021      1      0      0      1      1        0        0        1      12 x I1
-Infinity: v_c4 = -3, v_c6 = -6, v_D = -12 -> I0
+m^8 - 1241/108*m^6 + 167/9*m^5 - 2504/2      1      0      0      1      1        0        0        1       8 x I1
+Infinity: v_c4 = -2, v_c6 = -4, v_D = -8 -> IV
 
 Summary of fibers (per-center):
-  I1 at m^12 + 22/3*m^11 + 121/6*m^10 + 3104021/ (deg 12) contrib=0
-  I0 at inf (deg 1) contrib=0
+  I1 at m^8 - 1241/108*m^6 + 167/9*m^5 - 2504/27 (deg 8) contrib=0
+  IV at inf (deg 1) contrib=2
 
 Total Euler characteristic: 12
-Sum of fiber contributions (Σ(m_v - 1)): 0
+Sum of fiber contributions (Σ(m_v - 1)): 2
 
 --- Exiting buildcd ---
 
 --- Geometric Validation ---
-Delta: -349920000*m^12 - 2566080000*m^11 - 7056720000*m^10 - 10727496576*m^9 - 16449803568*m^8 - 25965911808*m^7 - 68946769504*m^6 - 355007794752*m^5 - 762977258704*m^4 - 241022739392*m^3 + 493352260960*m^2 - 160459893440*m + 13888944912
-  Effective Discriminant Degree: 12
+Delta: -6912*m^8 + 79424*m^6 - 128256*m^5 + 641024*m^4 - 1388416*m^3 - 2056064*m^2 - 979072*m - 468864
+  Effective Discriminant Degree: 8
   Weierstrass scaling exponent (n) used: 0
-  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
 --------------------------
 
 === Auto-configuring search parameters for this fibration ===
 [auto_cfg] Building height estimation from 1 known x-coords.
 [auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
 [auto_cfg] Height Bound: 473 (derived from h_can=log(2) + 1.5)
-[residue_counts] Using split_poly degree=12
+[residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.13s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 8)]
-[residue_counts] sample: [(1809251394333065553493296640760748560207343510400633813116524750123642650649, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0}
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=0, patterns_sample=[(8,)]
+[residue_counts] sample: [(170141183460469231731687303715884105727, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 0.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
 [auto_cfg] Applied adaptive parameters:
@@ -71,30 +71,31 @@ Delta: -349920000*m^12 - 2566080000*m^11 - 7056720000*m^10 - 10727496576*m^9 - 1
 [auto_cfg summary] height_bound=473, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
 [bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
 [bounds] Starting with prime pool size: 1
-[bounds] mod 1809251394333065553493296640760748560207343510400633813116524750123642650649 factorization: [1, 1, 1, 1, 2, 3, 3] -> pattern (1, 1, 1, 1, 2, 3, 3)
-[bounds] Unique patterns from 1 primes: [(1, 1, 1, 1, 2, 3, 3)]
-[bounds] Estimated splitting field degree: 6
+[bounds] mod 170141183460469231731687303715884105727 factorization: [1, 2, 5] -> pattern (1, 2, 5)
+[bounds] Unique patterns from 1 primes: [(1, 2, 5)]
+[bounds] Estimated splitting field degree: 10
 
-DEBUG: RET: {'splitting_field_degree_est': 6, 'unique_patterns': [(1, 1, 1, 1, 2, 3, 3)], 'num_primes_tested': 1}
+DEBUG: RET: {'splitting_field_degree_est': 10, 'unique_patterns': [(1, 2, 5)], 'num_primes_tested': 1}
 
-[bounds] Diagnostics: {'discriminant': -135718314752478897104468440582129958453918306160879804975419379348607411003379839726965549688953931140973798362171913287957492177503787352859526194155932273632258922969046068326485153980710470681710951919071560138288173958286571528768618593317446861868079513600000000, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[prime_pool] Final pool has 1 primes up to 1809251394333065553493296640760748560207343510400633813116524750123642650649
+[bounds] Diagnostics: {'discriminant': -1102183422404750987039656083428942284948987874226688928733854680580502371358478609452504088560682401792, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
+[prime_pool] Final pool has 1 primes up to 170141183460469231731687303715884105727
 === Fibration Summary ===
-Data points: ((0, 5),)
-Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (9*m^2 + 22*m - 6)*x^4 + (6*m^3 - 25*m^2 - 88*m + 33)*x^3 + (-18*m^3 + 21*m^2 + 132*m - 65)*x^2 + y^2 + (18*m^3 - 3*m^2 - 88*m + 54)*x + (-6*m^3 - 2*m^2 + 22*m - 41)
-Defining polynomial f: (9*m^2 + 22*m - 6)*x^4 + (6*m^3 - 25*m^2 - 88*m + 33)*x^3 + (-18*m^3 + 21*m^2 + 132*m - 65)*x^2 + y^2 + (18*m^3 - 3*m^2 - 88*m + 54)*x + (-6*m^3 - 2*m^2 + 22*m - 41)
-Discriminant of f: (-36*m^2 - 88*m + 24)*x^4 + (-24*m^3 + 100*m^2 + 352*m - 132)*x^3 + (72*m^3 - 84*m^2 - 528*m + 260)*x^2 + (-72*m^3 + 12*m^2 + 352*m - 216)*x + (24*m^3 + 8*m^2 - 88*m + 164)
-Weierstrass discriminant: -349920000*m^12 - 2566080000*m^11 - 7056720000*m^10 - 10727496576*m^9 - 16449803568*m^8 - 25965911808*m^7 - 68946769504*m^6 - 355007794752*m^5 - 762977258704*m^4 - 241022739392*m^3 + 493352260960*m^2 - 160459893440*m + 13888944912
+Data points: ((0, 2),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Rational Field defined by (2*m)*x^4 + (m^2 - 8*m - 3)*x^3 + (-3*m^2 + 12*m + 7)*x^2 + y^2 + (3*m^2 - 8*m - 10)*x + (-m^2 + 2*m + 2)
+Defining polynomial f: (2*m)*x^4 + (m^2 - 8*m - 3)*x^3 + (-3*m^2 + 12*m + 7)*x^2 + y^2 + (3*m^2 - 8*m - 10)*x + (-m^2 + 2*m + 2)
+Discriminant of f: (-8*m)*x^4 + (-4*m^2 + 32*m + 12)*x^3 + (12*m^2 - 48*m - 28)*x^2 + (-12*m^2 + 32*m + 40)*x + (4*m^2 - 8*m - 8)
+Weierstrass discriminant: -6912*m^8 + 79424*m^6 - 128256*m^5 + 641024*m^4 - 1388416*m^3 - 2056064*m^2 - 979072*m - 468864
 Weierstrass model coefficients:
-  a4(m): -6*m^3 + 889*m^2 + 2200*m - 1831/3
-  a6(m): 900*m^6 + 3300*m^5 + 3025*m^4 + 2704*m^3 + 18445/3*m^2 + 8734/3*m + 33415/27
-P1: (1, 5)
+  a4(m): -5*m^2 + 32*m + 41/3
+  a6(m): 4*m^4 - 62/3*m^2 - 22/3*m + 718/27
+P1: (1, 2)
 
 --- Geometric Validation ---
-Delta: -349920000*m^12 - 2566080000*m^11 - 7056720000*m^10 - 10727496576*m^9 - 16449803568*m^8 - 25965911808*m^7 - 68946769504*m^6 - 355007794752*m^5 - 762977258704*m^4 - 241022739392*m^3 + 493352260960*m^2 - 160459893440*m + 13888944912
-  Effective Discriminant Degree: 12
+Delta: -6912*m^8 + 79424*m^6 - 128256*m^5 + 641024*m^4 - 1388416*m^3 - 2056064*m^2 - 979072*m - 468864
+  Effective Discriminant Degree: 8
   Weierstrass scaling exponent (n) used: 0
-  ✅ PASS: Discriminant degree is 12. Standard geometric checks should apply.
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
 --------------------------
 =========================
 
@@ -104,36 +105,36 @@ Delta: -349920000*m^12 - 2566080000*m^11 - 7056720000*m^10 - 10727496576*m^9 - 1
 Testing special m-values from fibers: set()
 
 --- DEBUGGING POINT CONSTRUCTION ---
-Attempting to create point for (x,y) = (1, 5)
-Curve: Elliptic Curve defined by y^2 = x^3 + (-6*m^3+889*m^2+2200*m-1831/3)*x + (900*m^6+3300*m^5+3025*m^4+2704*m^3+18445/3*m^2+8734/3*m+33415/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
+Attempting to create point for (x,y) = (1, 2)
+Curve: Elliptic Curve defined by y^2 = x^3 + (-5*m^2+32*m+41/3)*x + (4*m^4-62/3*m^2-22/3*m+718/27) over Fraction Field of Univariate Polynomial Ring in m over Rational Field
 
 Point Coordinates (X_aff, Y_aff, Z_aff):
-X_aff: -1985/12
-Y_aff: (-30000*m^3 - 55000*m^2 - 45199)/8
-Z_aff: 125
+X_aff: 11/6
+Y_aff: (-128*m^2 + 349)/8
+Z_aff: 8
 
 Equation Check:
-LHS (Y^2*Z): (112500000000*m^6 + 412500000000*m^5 + 378125000000*m^4 + 338992500000*m^3 + 621486250000*m^2 + 255368700125)/64
-RHS (X^3 + a4*X*Z^2 + a6*Z^3): (112500000000*m^6 + 412500000000*m^5 + 378125000000*m^4 + 338992500000*m^3 + 621486250000*m^2 + 255368700125)/64
+LHS (Y^2*Z): (16384*m^4 - 89344*m^2 + 121801)/8
+RHS (X^3 + a4*X*Z^2 + a6*Z^3): (16384*m^4 - 89344*m^2 + 121801)/8
 
 Difference (LHS - RHS): 0
 ✅ Algebraic identity holds.
 --- END DEBUGGING ---
-section weierstrass coordinates: (-397/300 : -30*m^3 - 55*m^2 - 45199/1000 : 1)
-Canonical height pairing matrix determinant = 2
+section weierstrass coordinates: (11/48 : -2*m^2 + 349/64 : 1)
+Canonical height pairing matrix determinant = 3/2
 Sections are independent.
 
 --- Search Iteration 0 with 1 sections ---
-Canonical height pairing matrix determinant = 2
+Canonical height pairing matrix determinant = 3/2
 Sections are independent.
 Height Pairing Matrix H:
- [2]
-[residue_counts] Using split_poly degree=12
+ [3/2]
+[residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.02s, info=Transitive group number 301 of degree 12
-[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 8)]
-[residue_counts] sample: [(1809251394333065553493296640760748560207343510400633813116524750123642650649, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 301 of degree 12', 'galois_group_order': 479001600, 'avg_roots': 1.0}
+[galois] poly.galois_group() took 0.00s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=0, patterns_sample=[(8,)]
+[residue_counts] sample: [(170141183460469231731687303715884105727, 0)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 0.0}
 [FF vectors] Generated 10 canonical vectors
   Sample: [(4,), (2,), (5,), (8,), (1,), (7,), (10,), (9,), (3,), (6,)]
 Searching 10 vectors up to height 473...
@@ -144,91 +145,93 @@ Searching for (s,p,v_0,v_1) instead of rational m
 ======================================================================
 
 Building 5-equation Mumford system from fibration...
-[FF MODE] Forcing search to single prime: 1809251394333065553493296640760748560207343510400633813116524750123642650649
-Warning: EllipticCurve construction failed for p=1809251394333065553493296640760748560207343510400633813116524750123642650649 (Python int too large to convert to C long). using LargePrimeMockCurve.
+[FF MODE] Forcing search to single prime: 170141183460469231731687303715884105727
+Warning: EllipticCurve construction failed for p=170141183460469231731687303715884105727 (Python int too large to convert to C long). using LargePrimeMockCurve.
 
 [prepare_modular_data_lll] Rejected 0 primes:
 [mumford] NOTICE: Reducing workers from 20 to 6 to prevent memory exhaustion.
 [mumford] Generating tasks for 1 primes...
-[mumford] Task degrees: min=1, max=1585, median=289
+[mumford] Task degrees: min=1, max=1057, median=193
 [mumford] Generated 10 tasks for 6 workers (1.7 tasks per worker)
-[mumford] Residue computation took 6.01s
-PRIME: 1809251394333065553493296640760748560207343510400633813116524750123642650649
+[mumford] Residue computation took 3.40s
+PRIME: 170141183460469231731687303715884105727
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
 availability_rate: 0.0 activation_rate: 0.0
-{'prime': 1809251394333065553493296640760748560207343510400633813116524750123642650649, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+{'prime': 170141183460469231731687303715884105727, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
 
-=== MUMFORD SEARCH (FINITE FIELD GF(1809251394333065553493296640760748560207343510400633813116524750123642650649)) ===
+=== MUMFORD SEARCH (FINITE FIELD GF(170141183460469231731687303715884105727)) ===
   Genus: 2
   Target factor base size: 800
   MAX_TOTAL_RELATIONS: 2000
   Batch size: 50
-  Mixing Strategy: Generating relations for 6 vector anchors...
-  ✓ Strategy Report: 5 mixing, 1 doubling relations added.
+  Mixing Strategy: Generating relations for 10 vector anchors...
+  ✓ Strategy Report: 7 mixing, 1 doubling relations added.
   Serial processing (no multiprocessing for single prime)
-  Raw solutions processed: 300
+
+  [EARLY STOP] Full rank achieved: 306/306
+  Raw solutions processed: 500
   Algebraic rejects: 0
-  Duplicate supports rejected: 36
-  Quota rejections: 84
-  Relations added: Mixing=5, Doubling=1
-  Unique supports kept: 186
-  Factor base size: 185
-  Final rank: 185/185
+  Duplicate supports rejected: 64
+  Quota rejections: 136
+  Relations added: Mixing=7, Doubling=1
+  Unique supports kept: 308
+  Factor base size: 306
+  Final rank: 306/306
   Points found in base field: 0
 
-  Vectors contributing: 6/6
+  Vectors contributing: 10/10
   ✓ FULL RANK: Index calculus attack is feasible!
 
-Mumford search reconstructed 186 divisors
-  186 divisors had rational roots in u(x)
+Mumford search reconstructed 308 divisors
+  308 divisors had rational roots in u(x)
 
 ======================================================================
 INDEX CALCULUS FEASIBILITY ANALYSIS
 ======================================================================
-Field: GF(1809251394333065553493296640760748560207343510400633813116524750123642650649)
+Field: GF(170141183460469231731687303715884105727)
 Genus: 2
-Divisors collected: 186
+Divisors collected: 308
 
 [Factor Base - Support Deduplicated]
-  Unique supports: 186
-  Distinct x-coordinates: 185
-  Total x-instances (after dedup): 372
-  Original factored divisors: 186
-  Kept after support dedup: 186
+  Unique supports: 308
+  Distinct x-coordinates: 306
+  Total x-instances (after dedup): 616
+  Original factored divisors: 308
+  Kept after support dedup: 308
   Average multiplicity per support: 1.0
   Top 5 most duplicated supports:
-    (26671636299990695845307700053498083217679573021776226644225760848411593866, 1493044053823557393060429424055038409881464647917871331357155042807090396833): 1 duplicates (kept 1)
-    (899321564407557747921212673886948442969463670135294513126339088820259580748, 1493044053823557393060429424055038409881464647917871331357155042807090396833): 1 duplicates (kept 1)
-    (647302891797012953580569384828213618140804308490946304055931757339348079576, 899321564407557747921212673886948442969463670135294513126339088820259580748): 1 duplicates (kept 1)
-    (647302891797012953580569384828213618140804308490946304055931757339348079576, 1342913869841933511300509908963141592884270724392753799641627917193328417354): 1 duplicates (kept 1)
-    (26671636299990695845307700053498083217679573021776226644225760848411593866, 1342913869841933511300509908963141592884270724392753799641627917193328417354): 1 duplicates (kept 1)
+    (13949388716483326076965373235751644680, 152418143516670353426303209578812844714): 1 duplicates (kept 1)
+    (13949388716483326076965373235751644680, 101017636241379429844895441318076457482): 1 duplicates (kept 1)
+    (6477344489931523345169671637677417181, 13949388716483326076965373235751644680): 1 duplicates (kept 1)
+    (6477344489931523345169671637677417181, 136203916113413719343021218877922787379): 1 duplicates (kept 1)
+    (13949388716483326076965373235751644680, 136203916113413719343021218877922787379): 1 duplicates (kept 1)
   Top 5 most frequent x-coordinates (after dedup):
-    x=647302891797012953580569384828213618140804308490946304055931757339348079576: appears 62 times
-    x=26671636299990695845307700053498083217679573021776226644225760848411593866: appears 34 times
-    x=1493044053823557393060429424055038409881464647917871331357155042807090396833: appears 32 times
-    x=899321564407557747921212673886948442969463670135294513126339088820259580748: appears 32 times
-    x=1342913869841933511300509908963141592884270724392753799641627917193328417354: appears 32 times
+    x=13949388716483326076965373235751644680: appears 155 times
+    x=152418143516670353426303209578812844714: appears 34 times
+    x=6477344489931523345169671637677417181: appears 32 times
+    x=136203916113413719343021218877922787379: appears 32 times
+    x=56137692582558650966113107857844137228: appears 32 times
 
 [Smoothness Distribution]
-  Smooth divisors: 186/186 (100.0%)
-  Non-smooth: 0/186 (0.0%)
+  Smooth divisors: 308/308 (100.0%)
+  Non-smooth: 0/308 (0.0%)
   Smoothness by search vector:
-    Vector (8,): 30/30 (100.0%)
+    Vector (7,): 30/30 (100.0%)
     Vector (6,): 30/30 (100.0%)
+    Vector (5,): 30/30 (100.0%)
+    Vector (3,): 30/30 (100.0%)
+    Vector (1,): 30/30 (100.0%)
+    Vector (8,): 30/30 (100.0%)
+    Vector (9,): 30/30 (100.0%)
     Vector (4,): 30/30 (100.0%)
     Vector (2,): 30/30 (100.0%)
     Vector (10,): 30/30 (100.0%)
-    Vector (9,): 30/30 (100.0%)
-    Vector (2, 4): 1/1 (100.0%)
-    Vector (4, 6): 1/1 (100.0%)
-    Vector (6, 8): 1/1 (100.0%)
-    Vector (9, 10): 1/1 (100.0%)
 
 [Relation Matrix]
-  Dimensions: 186 relations × 185 factor base elements
+  Dimensions: 308 relations × 306 factor base elements
   (After support deduplication)
-  Rank: 185
+  Rank: 306
   Nullity: 0
   Over-determined: True
   ✓ Sufficient relations for linear algebra attack!
@@ -237,25 +240,25 @@ Divisors collected: 186
     Min: 1, Max: 2
 
 [Linear Algebra Attack Feasibility]
-  Factor base size: 185
-  Relations collected: 186
-  Matrix rank: 185
-  Estimated #J(GF(1809251394333065553493296640760748560207343510400633813116524750123642650649)): ~3.27e+150
-  Factor base coverage: 18500/3273390607896141870013189696827599152216642046043064789483291368096133796495137124599923370000568989188924112137927246529248947201711630559510660121201%
+  Factor base size: 306
+  Relations collected: 308
+  Matrix rank: 306
+  Estimated #J(GF(170141183460469231731687303715884105727)): ~2.89e+76
+  Factor base coverage: 1.05706703114356e-72%
   ✓ ATTACK FEASIBLE: Matrix is full-rank and over-determined
     Next step: Solve linear system mod #J to express arbitrary divisors
 
 [DLP Complexity Estimate]
-  Theoretical (genus 2): O(p^1.5) ≈ 7.695704335233297e+112 ops
+  Theoretical (genus 2): O(p^1.5) ≈ 2.219290601644884e+57 ops
   Practical with B=7:
-    Relation collection: 1302 ops (DONE)
+    Relation collection: 2156 ops (DONE)
     Linear algebra (dense): 343 ops
     Linear algebra (sparse): 49 ops
     Individual DLP: 7 ops
-  Total (dense): 1652 ops
-  Total (sparse): 1358 ops
-  Generic baby-step-giant-step: O(p^1) ≈ 1809251394333065553493296640760748560207343510400633813116524750123642650649 ops
-  ✓ Index calculus is faster by ~1809251394333065553493296640760748560207343510400633813116524750123642650649/1358x
+  Total (dense): 2506 ops
+  Total (sparse): 2212 ops
+  Generic baby-step-giant-step: O(p^1) ≈ 170141183460469231731687303715884105727 ops
+  ✓ Index calculus is faster by ~170141183460469231731687303715884105727/2212x
 ======================================================================
 
 
@@ -263,10 +266,10 @@ Divisors collected: 186
 SUMMARY & RECOMMENDATIONS
 ======================================================================
 ✓ INDEX CALCULUS ATTACK IS FEASIBLE
-  - Factor base size: 185
-  - Relations collected: 186
+  - Factor base size: 306
+  - Relations collected: 308
   - Matrix is full-rank and over-determined
-  - Estimated complexity: 1358 operations
+  - Estimated complexity: 2212 operations
 
 Next steps:
   1. Solve linear system to express factor base in terms of relations
@@ -275,13 +278,13 @@ Next steps:
 ======================================================================
 
 Mumford search found 0 rational points
-Total time: 6.31s
+Total time: 3.67s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 6.01s
-  prep_mod_data            : 0.19s
-  mumford_reconstruction   : 0.09s
+  mumford_residues         : 3.40s
+  prep_mod_data            : 0.12s
+  mumford_reconstruction   : 0.10s
   mumford_setup            : 0.00s
 
 Counters:
@@ -337,7 +340,7 @@ No prime_subsets available to check.
 SEARCH SUMMARY
 ======================================================================
 Total points found: 1
-Total time: 8.7s
+Total time: 5.4s
 CRT candidates tested: 0
 Rationality tests: 0
 Hit rate: 0.00%
@@ -365,7 +368,7 @@ Estimated detection probability p = 0.000
 ⚠️  Could not compute posterior probabilities (p_visibility likely 0).
     Search may have been starved of valid primes.
 
-✓ Fiber collision detection validated: set() ⊆ ramification locus {17, 2, 3, 5}
+✓ Fiber collision detection validated: set() ⊆ ramification locus {2, 3, 677, 144037, 233, 271, 10763183, 17, 59}
 
 --- Automorphism Search ---
 No scaling automorphisms found.
@@ -377,29 +380,31 @@ No non-trivial automorphisms found for the NS lattice.
 --- Torsion Analysis ---
 Got 40 good specializations for torsion check.
 Fast method candidate torsion order (GCD of specializations): 1
-Fiber component counts: [1, 1]  -> lcm bound: 1
+Fiber component counts: [1, 3]  -> lcm bound: 3
 Base section 0 does not appear to be small order torsion.
 
 --- Running Saturation Diagnostics ---
+⚠️ p=170141183460469231731687303715884105727 saturation uncertain. Searching for evidence of p-division...
+  -> No evidence found for p=170141183460469231731687303715884105727 division. The lattice may be p-saturated.
 
 --- Running Picard-Van Luijk Analysis ---
-Using 1 good prime candidates for reduction: [1809251394333065553493296640760748560207343510400633813116524750123642650649]
-[char 0] Using mw_rank = 1. Σ(m_v-1) = 0
-[char 0] ST lower bound: rho >= 3
+Using 1 good prime candidates for reduction: [170141183460469231731687303715884105727]
+[char 0] Using mw_rank = 1. Σ(m_v-1) = 2
+[char 0] ST lower bound: rho >= 5
 [rank_over_fq(t)] independent reduced sections: 1
-[mod 1809251394333065553493296640760748560207343510400633813116524750123642650649] sum fiber contrib = 0, rank>= 1 => rho_upper <= 3
-[summary] lower >= 3, best upper <= 3 at ell=1809251394333065553493296640760748560207343510400633813116524750123642650649
+[mod 170141183460469231731687303715884105727] sum fiber contrib = 2, rank>= 1 => rho_upper <= 5
+[summary] lower >= 5, best upper <= 5 at ell=170141183460469231731687303715884105727
 
 === Picard Report ===
-Lower bound (char 0): 3
+Lower bound (char 0): 5
 Upper bounds from reductions:
-  ell=1809251394333065553493296640760748560207343510400633813116524750123642650649: rho <= 3    (rank_lb=1, Σ=0)
-*** Concluded Picard number: ρ = 3 ***
+  ell=170141183460469231731687303715884105727: rho <= 5    (rank_lb=1, Σ=2)
+*** Concluded Picard number: ρ = 5 ***
 
 --- Shioda-Tate Diagnostics ---
-Shioda-Tate Rank Estimate (assuming rho=3): 1
+Shioda-Tate Rank Estimate (assuming rho=5): 1
 Total Euler Characteristic: 12
-Sum of Fiber Contributions (Σ(m_v - 1)): 0
+Sum of Fiber Contributions (Σ(m_v - 1)): 2
 
 ======================================================================
 2-SELMER RANK BOUNDS
@@ -411,18 +416,18 @@ Tamagawa product: 1
 Rank bounds:
   1 ≤ rank(S²) ≤ 3
 
-known_pts {(0, 5)}
+known_pts {(0, 2)}
 found {0}
 only trying one fibration for Mumford basis search, for now.
 
 --- Cumulative Run Statistics ---
-Total time: 8.92s
+Total time: 5.51s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 6.01s
-  prep_mod_data            : 0.19s
-  mumford_reconstruction   : 0.09s
+  mumford_residues         : 3.40s
+  prep_mod_data            : 0.12s
+  mumford_reconstruction   : 0.10s
   mumford_setup            : 0.00s
 
 Counters:
@@ -451,4 +456,4 @@ Discard Reasons (Top 5):
 --------------------------------
 
 --- Final Results ---
-Final list of known points: [(0, 5)]
+Final list of known points: [(0, 2)]

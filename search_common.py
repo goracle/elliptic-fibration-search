@@ -386,6 +386,16 @@ COEFFS_GENUS2 = [QQ(-3), QQ(11), QQ(6), QQ(-9), QQ(2), QQ(1), QQ(25)]
 DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
+# $$y^2 = x^5 + x + 2$$
+COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
+DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
+TERMINATE_WHEN_6 = 3
+
+# y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4
+COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
+DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] 
+TERMINATE_WHEN_6 = 3
+
 ##### END TEST CURVES ######
 
 
@@ -401,6 +411,7 @@ PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 sh
 
 FINITE_FIELD = None
 FINITE_FIELD = next_prime(2**250)
+FINITE_FIELD = 170141183460469231731687303715884105727 # MERSENNE
 MAXN = 10
 
 if FINITE_FIELD:
