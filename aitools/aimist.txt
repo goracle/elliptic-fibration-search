@@ -104,3 +104,4 @@ we're not looking for rational points here.  that doesn't matter at all.  we're 
 - a program crash is not a serious bug.  we should not avoid crashes if they tell us about a bad/mathematical correctness bug.  those are good crashes, because they prevent incorrect results from reaching our data logs.
 - do not hallucinate period matrix calls.  you need to ask me to see how to call that code.  just ask me!!!!
 - weierstrass points should not be height corrected.  if we find these in the support for our divisors, we need to do shifts by a shift divisor to get rid of these from the support.  some of this code has yet to be deleted, but i assure you it is disabled.
+- in FINITE_FIELD mode, there is only one prime, because we're solving from within F_p.  any loop over p is just looping over members of F_p.

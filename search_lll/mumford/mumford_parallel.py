@@ -433,6 +433,7 @@ def find_poly_roots_fp_python(coeffs, p):
         return roots
     except Exception:
         # Fallback only if Sage fails for some reason
+        raise
         return []
 
 def _brute_force_roots(coeffs, p):
@@ -540,7 +541,6 @@ def _solve_worker_wrapper(args):
             x_val = (-m_root + const_val_int) % p
             
             sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=1000)
-            #sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int)
             
             verified_sols = []
             for sol in sols:
@@ -635,6 +635,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                         break
                 except (IndexError, KeyError, TypeError):
                     valid_vec = False
+                    raise
                     break
             
             if not valid_vec or Pm[2] == 0:
@@ -664,6 +665,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                 tasks_with_metadata.append((poly_degree, task))
                 
             except Exception:
+                raise
                 continue
     
     # CRITICAL: Sort by polynomial degree (descending) for load balancing
@@ -709,3 +711,5 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
             
     return results_dict
+
+
