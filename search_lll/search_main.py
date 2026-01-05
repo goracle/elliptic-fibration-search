@@ -16,7 +16,9 @@ from .selmer_genus2 import *
 # After your Mumford search in FINITE_FIELD mode:
 from .smoothness import *
 from .smoothness import extract_factor_base
-
+from .index_calculus import *
+from sage.all import QQ, PolynomialRing
+from sage.all import PolynomialRing, SR, QQ
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -421,30 +423,26 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
 
         if FINITE_FIELD:
-            # In search_main.py or a dedicated test script:
-
-            # 2. Extract the factor base (already handled in your smoothness.py)
             p = int(FINITE_FIELD)
+            # 1. Extract the factor base
             fb = extract_factor_base(mumford_divisors, p)
 
+            # 2. Compute Jacobian Order (Now defined!)
+            L = compute_jacobian_order(coeffs_genus2, p)
+
             # 3. Setup the challenge
-            # Note: In a real attack, L is the order of the Jacobian mod p.
-            # You can compute this via point counting (Schoof-Pila) or use a known curve.
-            L = compute_jacobian_order(f_coeffs, p)
-            G, Q, true_d = generate_test_keypair(PolynomialRing(GF(p), 'x')(f_coeffs), p)
+            f_poly = PolynomialRing(GF(p), 'x')(coeffs_genus2)
+            G, Q, true_d = generate_test_keypair(f_poly, p)
 
-            # 4. Solve the system
+            # 4. Solve the system using perform_dlp_attack
             try:
-                log_v = solve_dlp_index_calculus(mumford_divisors, fb, L, G, Q)
-
-                # Find smooth relations for G and Q (the 'Individual Log' step)
-                # This usually involves computing [k]G + [m]Q until it's smooth.
-                # For now, we use the divisors that are already smooth.
-                print(f"Success! Relation matrix solved over GF({L})")
+                log_v = perform_dlp_attack(G, Q, mumford_divisors, p, coeffs_genus2, L, verbose=True)
+                print(f"✓ Confirmed Discrete Log: {log_v}")
             except Exception as e:
                 print(f"Attack failed: {e}")
                 raise
 
+            
         return found_xs, [], mumford_residues, stats
 
     # === UNPACK: SCONF ===
@@ -607,7 +605,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(f"[brauer] Monte Carlo blocked fraction ≈ {mc['monte_carlo']['blocked_fraction_est']:.6f}")
 
     # optional diagnostic: test a representative m from the search range
-    from sage.all import QQ
     some_m = QQ(1)  # or any rational under study
     allowed, details = m_is_locally_allowed(some_m, precomputed_residues, PRIME_POOL)
     print(f"[brauer] example m={some_m} locally allowed? {allowed}")
@@ -672,7 +669,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
 
     # In search_main.py, before analyze_unused_residue_orders
-    from sage.all import PolynomialRing, SR, QQ
     PR_m = PolynomialRing(QQ, 'm')
     Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
     if hasattr(Delta_poly, 'numerator'):
@@ -680,7 +676,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     Delta_pr = PR_m(SR(Delta_poly))
 
     # Get Delta polynomial from cd
-    from sage.all import PolynomialRing, SR, QQ
     PR_m = PolynomialRing(QQ, 'm')
     try:
         # cd.discriminant or cd.Delta should exist

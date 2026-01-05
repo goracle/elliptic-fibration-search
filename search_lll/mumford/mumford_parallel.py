@@ -539,9 +539,16 @@ def _solve_worker_wrapper(args):
         
         for m_root in roots:
             x_val = (-m_root + const_val_int) % p
-            
-            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=500)
-            
+
+            # Then around line 403, change to:
+            if FINITE_FIELD:
+                max_sols = 10000  # Need more solutions in FF mode for index calculus
+            else:
+                max_sols = 500    # Standard mode doesn't need as many
+
+            max_sols = 500    # Standard mode doesn't need as many
+            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols)
+
             verified_sols = []
             for sol in sols:
                 s, p_val, v0, v1 = sol

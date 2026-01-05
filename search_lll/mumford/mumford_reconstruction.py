@@ -962,6 +962,7 @@ def _ff_worker_verify_batch(args):
     return verified, stats
 
 
+import math
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
     Streaming reconstruction WITHOUT multiprocessing for single-prime finite field mode.
@@ -976,6 +977,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
     
+    debug = True
     p0 = int(FINITE_FIELD)
     
     if p0 not in residues:
@@ -990,12 +992,22 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     vector_list = list(res_p.keys())
     num_vectors = max(1, len(vector_list))
     
-    B_heuristic = int(math.ceil(p ** (1.0 / max(1, genus))))
-    B_target = min(800, B_heuristic, 2 * num_vectors * genus * 50)
-    
+    # Use subexponential heuristic: B ~ exp(sqrt(log(p) * log(log(p))))
+    log_p = math.log(p)
+    log_log_p = math.log(log_p)
+    B_subexp = int(math.exp(math.sqrt(log_p * log_log_p)))
+    B_min_genus2 = int(p ** 0.25)
+
+    B_target = max(B_subexp, B_min_genus2, 2 * num_vectors * genus * 50)
+    B_target = min(B_target, 50000)  # Cap to prevent OOM
+
     # MEMORY CAPS
-    MAX_RELATIONS_PER_VECTOR = 30
-    MAX_TOTAL_RELATIONS = min(2000, B_target * 3)  # Hard cap on total relations
+    #MAX_RELATIONS_PER_VECTOR = min(300, B_target // num_vectors + 50)
+    #MAX_RELATIONS_PER_VECTOR = max(B_target // max(1, num_vectors - 1), 500)
+    MAX_RELATIONS_PER_VECTOR = B_target * 2  # Allow room for duplicates
+
+    MAX_TOTAL_RELATIONS = max(B_target * 4, 2000)
+
     BATCH_SIZE = 50  # Reduced from 100
     RANK_CHECK_INTERVAL = 10
     
@@ -1041,6 +1053,18 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     vector_fixed_roots = {}
     for v_tuple in vector_list:
         val = res_p[v_tuple]
+
+        # DIAGNOSTIC: Check how many solutions we have
+        if isinstance(val, list):
+            num_available = len(val)
+        elif isinstance(val, dict):
+            num_available = sum(len(sols) for sols in val.values())
+        else:
+            num_available = 1
+
+        if debug and v_tuple in list(res_p.keys())[:3]:  # Print for first 3 vectors
+            print(f"  Vector {v_tuple}: {num_available} solutions available")
+
         sols_list = val if isinstance(val, list) else (list(val.values())[0] if isinstance(val, dict) else [val])
         
         if not sols_list:
@@ -1273,26 +1297,32 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             
             batches_processed += 1
             
-            if batches_processed % RANK_CHECK_INTERVAL == 0 and len(smooth_supports_list) >= max(10, genus * 5):
+            if p < 10 ** 15 and batches_processed % RANK_CHECK_INTERVAL == 0 and len(smooth_supports_list) >= max(10, genus * 5):
                 current_rank = compute_current_rank()
                 fb_size = len(factor_base)
                 
                 if debug and batches_processed % (RANK_CHECK_INTERVAL * 5) == 0:
                     print(f"  [Batch {batches_processed}] Supports: {len(seen_supports)}, Factor base: {fb_size}, Rank: {current_rank}/{fb_size}")
-                
-                if current_rank == fb_size and fb_size >= max(20, genus * 10):
+
+                if current_rank == fb_size and fb_size >= B_target:
                     if debug:
-                        print(f"\n  [EARLY STOP] Full rank achieved: {current_rank}/{fb_size}")
+                        print(f"\n  [EARLY STOP] Full rank achieved: {current_rank}/{fb_size} at target")
                     should_stop = True
                     break
+                elif current_rank < fb_size and len(seen_supports) >= MAX_TOTAL_RELATIONS:
+                    if debug:
+                        print(f"\n  [STOP] Hit MAX_TOTAL_RELATIONS cap with rank deficit: {current_rank}/{fb_size}")
+                    should_stop = True
+                    break
+
                 
                 if current_rank > last_rank:
                     last_rank = current_rank
-                elif fb_size >= B_target and current_rank >= fb_size - 1:
-                    if debug:
-                        print(f"\n  [EARLY STOP] Near-full rank at target: {current_rank}/{fb_size}")
-                    should_stop = True
-                    break
+                #elif fb_size >= B_target and current_rank == fb_size:
+                #    if debug:
+                #        print(f"\n  [EARLY STOP] Near-full rank at target: {current_rank}/{fb_size}")
+                #    should_stop = True
+                #    break
     
     mumford_divisors = list(support_to_divisor.values())
     final_rank = compute_current_rank() if smooth_supports_list else 0

@@ -410,9 +410,8 @@ HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
 FINITE_FIELD = None
-FINITE_FIELD = next_prime(2**250)
-FINITE_FIELD = 170141183460469231731687303715884105727 # MERSENNE
-MAXN = 10
+FINITE_FIELD = next_prime(2**25)
+MAXN = 80
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"

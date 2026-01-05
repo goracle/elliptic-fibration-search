@@ -106,9 +106,6 @@ def filter_primes_avoiding_denoms(primes_list, divisors):
 filter_primes_avoiding_denoms.cache = {}
 
 
-get_sqrt_data_sage.cache = {}
-get_sqrt_data_sage(FINITE_FIELD)
-
 def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solutions=500):
     """
     Batch version that solves for multiple x_residues at once.

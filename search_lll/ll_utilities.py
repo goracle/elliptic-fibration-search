@@ -46,23 +46,6 @@ from sage.all import Zmod, Integer, QQ, var
 Enhanced prime subset generation with QC-aware biasing.
 Add this to ll_utilities.py
 """
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-
-
 # Drop-in replacement wrapper
 
 
