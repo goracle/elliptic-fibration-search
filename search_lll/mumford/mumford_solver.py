@@ -35,7 +35,6 @@ def get_sqrt_data(p):
 get_sqrt_data.cache = {}
 
 
-
 def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=False):
     """Robust modular doubling for genus-2 Mumford divisors."""
     if p == 2: return None, None
@@ -106,136 +105,6 @@ def filter_primes_avoiding_denoms(primes_list, divisors):
     return ret
 filter_primes_avoiding_denoms.cache = {}
 
-
-def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
-    """
-    Sage-native Mumford solver using polynomial rings directly.
-    Should be 10-100x faster than the Python implementation.
-    """
-    Fp = GF(p)
-    R = PolynomialRing(Fp, 'x')
-    x = R.gen()
-    
-    # Build f(x) polynomial once
-    f_poly = R([Fp(c) for c in reversed(f_coeffs)])  # coeffs are high->low
-    
-    x_res = Fp(x_residue)
-    x_sq = x_res * x_res
-    
-    solutions = []
-    
-    # Precompute square root map (keep this optimization)
-    sqrt_map = get_sqrt_data_sage(p)
-    
-    # OPTIMIZATION: Early termination strategies
-    # Strategy 1: Random sampling if p is large
-    if p > 100000:
-        # Sample 10000 random s values instead of all p
-        from random import sample
-        s_range = sample(range(p), min(10000, p))
-    else:
-        s_range = range(p)
-    
-    # Iterate over s values
-    for s_int in s_range:
-        if len(solutions) >= max_solutions:
-            break
-        
-        s_val = Fp(s_int)
-        p_val = x_res * s_val - x_sq
-        
-        # Discriminant check
-        disc = s_val * s_val - 4 * p_val
-        disc_int = int(disc)
-        if sqrt_map is not None:
-            if disc_int not in sqrt_map:
-                continue
-        
-        # Compute f(x) mod u(x) using Sage's fast polynomial division
-        u_poly = x**2 - s_val*x + p_val
-        
-        # f(x) mod u(x) = Ax + B
-        remainder = f_poly % u_poly
-        
-        # Extract coefficients (Sage stores low->high)
-        rem_coeffs = remainder.list()
-        B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
-        A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
-        
-        # Solve quadratic for Z = v1^2
-        a_q = disc
-        b_q = -2 * (A * s_val + 2 * B)
-        c_q = A * A
-        
-        Z_roots = []
-        if a_q == 0:
-            if b_q != 0:
-                Z_roots.append(-c_q / b_q)
-            elif c_q == 0:
-                Z_roots.append(Fp(0))
-        else:
-            disc_q = b_q * b_q - 4 * a_q * c_q
-            disc_q_int = int(disc_q)
-            if sqrt_map is not None:
-                if disc_q_int in sqrt_map:
-                    inv_2a = 1 / (2 * a_q)
-                    for sq_root_int in sqrt_map[disc_q_int]:
-                        sq_root = Fp(sq_root_int)
-                        Z_roots.append((-b_q + sq_root) * inv_2a)
-        
-        # For each Z = v1^2, find v1
-        for Z in set(Z_roots):
-            Z_int = int(Z)
-            if Z_int in sqrt_map:
-                for v1_int in sqrt_map[Z_int]:
-                    v1_val = Fp(v1_int)
-                    
-                    if v1_val != 0:
-                        v0_val = (A - s_val * Z) / (2 * v1_val)
-                        
-                        # Verify: v0^2 - p*v1^2 = B
-                        if v0_val * v0_val - p_val * Z == B:
-                            solutions.append((int(s_val), int(p_val), 
-                                            int(v0_val), int(v1_val)))
-                    else:
-                        # v1 = 0: requires A = 0 and v0^2 = B
-                        if A == 0 and Z_int == 0 and int(B) in sqrt_map:
-                            for r in sqrt_map[int(B)]:
-                                solutions.append((int(s_val), int(p_val), r, 0))
-    
-    return list(set(solutions))
-
-
-def get_sqrt_data_sage(p):
-    """
-    Precomputes square root map using Sage's native quadratic residue checking.
-    This is much faster than iterating all values.
-    """
-    if p is None:
-        return {}
-    
-    # For large primes, return None to signal "use on-demand sqrt()"
-    if p > 1048576:  # 2^20
-        return None
-
-    key = p
-    if key in get_sqrt_data_sage.cache:
-        return get_sqrt_data_sage.cache[key]
-    
-    Fp = GF(p)
-    sqrt_map = {}
-    
-    # Sage has built-in square root for finite fields
-    for i in range((p // 2) + 1):
-        sq = int(Fp(i)**2)
-        if sq not in sqrt_map:
-            sqrt_map[sq] = []
-        sqrt_map[sq].append(i)
-        if i != 0 and (p - i) != i:
-            sqrt_map[sq].append(p - i)
-    
-    get_sqrt_data_sage.cache[key] = sqrt_map
-    return sqrt_map
 
 get_sqrt_data_sage.cache = {}
 get_sqrt_data_sage(FINITE_FIELD)
@@ -337,8 +206,6 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
         return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
     else:
         return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
-
-
 
 
 def get_sqrt_data_sage(p):
