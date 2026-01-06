@@ -16,9 +16,9 @@ from sage.functions.other import binomial
 import random # shadows something in sage.all called random; be careful!
 from sage.all import QQ, ZZ, gcd, factor, primes, SR, PolynomialRing, Integer, cached_function
 import random, math
-
-
+from sage.all import binomial as sage_binomial
 from search_common import DEBUG, SEED_INT, PRIME_POOL
+from search_common import FINITE_FIELD
 
 
 # CONFIG: tune these to trade runtime vs accuracy
@@ -109,8 +109,10 @@ def check_fibration_step(step, prev_fx=None, layer_index=None):
     dr = s['double_root_x']
     if dr is not None:
         fx_sr = SR(fx)
-        dfx = fx_sr.derivative(x)
+        #dfx = fx_sr.derivative(x)
+        dfx = kth_derivative(fx_sr, 1, x)
         v1 = fx_sr.subs({x: dr})
+        #v2 = dfx.subs({x: dr})
         v2 = dfx.subs({x: dr})
         assert SR(v1).simplify() == 0, L + ": x0 not root. fx(x0)=%s" % repr(v1)
         assert SR(v2).simplify() == 0, L + ": x0 not double root. fx'(x0)=%s" % repr(v2)
@@ -417,13 +419,22 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
     derivative_pool = []
     
     # Precompute derivatives of f(x) and Q(x) up to the maximum order we might need
+    #max_order = degQ
+    #f_derivs = {0: f_expr_sym}
+    #Q_derivs = {0: Q_poly_sym}
+    
+    #for order in range(1, max_order + 1):
+    #    f_derivs[order] = f_derivs[order - 1].diff(x_sym)
+    #    Q_derivs[order] = Q_derivs[order - 1].diff(x_sym)
+    # Precompute k-th derivatives / Hasse derivatives of f and Q up to max_order
     max_order = degQ
     f_derivs = {0: f_expr_sym}
     Q_derivs = {0: Q_poly_sym}
-    
     for order in range(1, max_order + 1):
-        f_derivs[order] = f_derivs[order - 1].diff(x_sym)
-        Q_derivs[order] = Q_derivs[order - 1].diff(x_sym)
+        # Use kth_derivative to be safe in finite-field mode
+        f_derivs[order] = kth_derivative(f_expr_sym, order, x_sym)
+        # For Q, compute k-th derivative of the symbolic Q polynomial
+        Q_derivs[order] = kth_derivative(Q_poly_sym, order, x_sym)
 
     # Generate constraints for each point
     for xi, yi in pts_xy:
@@ -484,7 +495,6 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
 
 
 @PROFILE
-@PROFILE
 def _verify_fibration_step_properties(fx, r_expr, param):
     # fx: polynomial in x
     # r_expr: expression in m
@@ -498,7 +508,8 @@ def _verify_fibration_step_properties(fx, r_expr, param):
     fx_sr = SR(fx)
 
     # derivative wrt x
-    dfx_dx = fx_sr.derivative(x)
+    #dfx_dx = fx_sr.derivative(x)
+    dfx_dx = kth_derivative(fx_sr, 1, x)
 
     # derivative wrt m (if r_expr uses m)
     if r_expr is not None:
@@ -1443,8 +1454,15 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
     for xv in sel_points:
         tangency_counts[QQ(xv)] += 1
         current_order = tangency_counts[QQ(xv)]
-        eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
+        # Use Hasse derivative in finite-field mode, ordinary derivative in QQ-mode
+        eq_t = kth_derivative(diff_poly, current_order, xSR).subs({xSR: SR(xv)}).expand()
         eqs.append(eq_t)
+
+    #for xv in sel_points:
+    #    tangency_counts[QQ(xv)] += 1
+    #    current_order = tangency_counts[QQ(xv)]
+    #    eq_t = diff(diff_poly, xSR, current_order).subs({xSR: SR(xv)}).expand()
+    #    eqs.append(eq_t)
     
     # Add Q-Mixing Constraint
     if use_mixing:
@@ -1892,3 +1910,82 @@ def measure_poly_complexity(expr_sr):
     )
 
     return float(total_score)
+
+
+# Compute k-th Hasse derivative of an SR / polynomial-like `expr` wrt symbol `x_sym`.
+# Works by expanding coefficients in x_sym and applying binomial(i, k).
+def hasse_deriv_sr(expr, k, x_sym):
+    """
+    Return the k-th Hasse derivative of `expr` wrt `x_sym` as an SR expression.
+    Works for SR expressions and for Sage polynomials (PolynomialRing elements).
+    """
+    expr_sr = SR(expr).expand()
+    # If expr is not polynomial in x_sym, try to coerce (may raise)
+    try:
+        deg = expr_sr.degree(x_sym)
+    except Exception:
+        # Fallback: use SR polynomial extraction via coefficients method if available
+        try:
+            # coefficients returns list of (coeff, exp) in your code; handle generically
+            terms = expr_sr.coefficients(x_sym)
+            # If this succeeded, we can reconstruct via coefficients
+        except Exception:
+            raise RuntimeError(f"hasse_deriv_sr: cannot determine polynomial degree for expr={expr_sr}")
+    # Build sum_{i >= k} binom(i,k) * coeff_i * x^{i-k}
+    total = SR(0)
+    # iterate degrees 0..deg
+    for i in range(0, int(expr_sr.degree(x_sym)) + 1):
+        coeff_i = expr_sr.coefficient(x_sym, i)
+        if i >= k:
+            total += SR(sage_binomial(i, k)) * SR(coeff_i) * (x_sym ** (i - k))
+    return total.expand()
+
+# Dispatcher: return the k-th derivative-like object appropriate for the arithmetic mode.
+def kth_derivative(expr, k, x_sym):
+    """
+    If FINITE_FIELD is set (int prime), return Hasse k-derivative.
+    Else return ordinary symbolic derivative expr.diff(x_sym, k).
+    """
+    if FINITE_FIELD is not None:
+        return hasse_deriv_sr(expr, k, x_sym)
+    else:
+        # Use SR differentiation for ordinary QQ-mode
+        return SR(expr).diff(x_sym, k)
+
+# Convenience: returns SR equality constraint "kth_deriv(expr) at pt == 0"
+def jet_vanish_constraint(expr, order, x_sym, pt):
+    return kth_derivative(expr, order, x_sym).subs({x_sym: pt}) == 0
+
+
+
+def compute_implicit_derivative_constraint(order, xi_sr, yi_sr, f_derivs, Q_derivs, x_sym):
+    """
+    Return a constraint expressing matching the `order`-th jet at (xi_sr, yi_sr).
+    In QQ-mode (FINITE_FIELD is None) the old implicit differentiation
+    approach (y^(n) computed from f^(n) / (2*y) etc.) is preserved.
+    In finite-field mode (FINITE_FIELD != None) we instead require Hasse-jet
+    vanishing: kth_derivative(Q - y, order, x_sym) evaluated at xi == 0.
+    """
+    # If we are in finite-field mode, do NOT attempt to divide by 2*y: use Hasse jets.
+    if FINITE_FIELD is not None:
+        # Enforce that Q(x) - y has vanishing Hasse derivatives up to `order`.
+        # For order ≥ 1 the relevant constraint is kth_derivative(Q - y, order).
+        Q_nth_expr = Q_derivs[order].subs({x_sym: xi_sr})
+        # But more robust: require kth_derivative(Q(x) - y, order) = 0 at xi
+        # Since yi_sr is numeric, substitute y->yi_sr and evaluate
+        # (we treat Q_derivs[order] already available, so simpler:)
+        # Return (kth_derivative(Q - yi, order) at xi) == 0
+        return jet_vanish_constraint(Q_derivs[order] - yi_sr, 0, x_sym, xi_sr) if order == 0 else jet_vanish_constraint(Q_derivs[0] - yi_sr, order, x_sym, xi_sr)
+    else:
+        # QQ-mode: keep the implicit-differentiation constraint that matches the current code
+        if yi_sr == 0:
+            # when y=0 division by 2y impossible; fallback to matching lower-order jets:
+            # we can still return None to skip this order (this matches older behaviour)
+            print(f"Skipping order {order} constraint at x={xi_sr} due to y-value being 0.")
+            return None
+
+        # Use the precomputed f_derivs and the recursive implicit differentiation
+        y_derivs_at_point = compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, order, x_sym)
+        Q_nth_expr = Q_derivs[order].subs({x_sym: xi_sr})
+        expected_y_nth = y_derivs_at_point[order]
+        return (Q_nth_expr == expected_y_nth)
