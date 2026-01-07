@@ -989,50 +989,6 @@ def compute_search_vectors(H, height_bound):
     vecs = [v for sublist in vecs for v in sublist]
     return vecs
 
-@PROFILE
-def check_independence(sections, curve, cd):
-    """
-    Check linear independence of a list of sections on the Mordell-Weil group.
-    Returns (independent_bool, height_matrix_H).
-
-    For minimal models, use the canonical height calculation.
-    For non-minimal models, use the coarse sampled height matrix; if that
-    fails, fall back to naive_pairing.
-    """
-    n = len(sections)
-    if n == 0:
-        return False, matrix(QQ, 0)
-
-    H = None
-
-    if USE_MINIMAL_MODEL:
-        # canonical, exact route for minimal models
-        H = compute_canonical_height_matrix(sections, cd)
-    else:
-        # coarse sampled approximation for non-minimal models
-        print("--- Estimating non-minimal height matrix via sampling ---")
-        H = compute_coarse_height_matrix_serializable(cd, sections)
-
-        if H is None:
-            # coarse sampling failed — fall back to naive pairing (last resort)
-            print("Coarse sampling produced no valid samples. Falling back to naive pairing.")
-            H_naive = matrix(QQ, n)
-            for i in range(n):
-                for j in range(i, n):
-                    val = naive_pairing(sections[i], sections[j])
-                    H_naive[i, j] = val
-                    H_naive[j, i] = val
-            H = H_naive
-
-    if H is None or H.nrows() == 0:
-        return False, matrix(QQ, 0)
-
-    det = H.det()
-    print(f"Canonical height pairing matrix determinant = {det}")
-    independent = (det != 0)
-    print(f"Sections are {'independent' if independent else 'dependent'}.")
-    return independent, H
-
 
 @PROFILE
 def summarize_fibration_info(cd, data_pts, sections):
@@ -2646,3 +2602,324 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
             return "INF"
 
         return X_sub / Z_sub
+
+
+@PROFILE
+def check_independence(sections, curve, cd):
+    """
+    Check linear independence of a list of sections.
+
+    In characteristic 0:
+        Use canonical / sampled height pairing.
+
+    In finite field mode:
+        Check linear independence in the finite abelian group
+        via randomized relation testing.
+    """
+    n = len(sections)
+    if n == 0:
+        return False, None
+
+    ff_mode = (FINITE_FIELD is not None)
+
+    # ------------------------------------------------------------
+    # FINITE FIELD MODE: group-theoretic independence
+    # ------------------------------------------------------------
+    if ff_mode:
+        print("--- Checking independence in finite-field mode (group law) ---")
+
+        E = curve
+        O = E(0)  # identity
+
+        # Quick sanity: no section should be torsion-zero
+        for i, P in enumerate(sections):
+            assert P != O, f"Section {i} is the zero section"
+
+        # Random linear relation test
+        import random
+
+        NUM_TRIALS = 50
+        MAX_COEFF = 20
+
+        for trial in range(NUM_TRIALS):
+            coeffs = [random.randint(-MAX_COEFF, MAX_COEFF) for _ in range(n)]
+            if all(c == 0 for c in coeffs):
+                continue
+
+            S = O
+            for c, P in zip(coeffs, sections):
+                if c != 0:
+                    S += c * P
+
+            if S == O:
+                print(f"Dependent: relation found {coeffs}")
+                return False, None
+
+        print("No nontrivial relations found (probabilistic independence).")
+        return True, None
+
+    # ------------------------------------------------------------
+    # CHARACTERISTIC 0 MODE: height pairing
+    # ------------------------------------------------------------
+    H = None
+
+    if USE_MINIMAL_MODEL:
+        H = compute_canonical_height_matrix(sections, cd)
+    else:
+        print("--- Estimating non-minimal height matrix via sampling ---")
+        H = compute_coarse_height_matrix_serializable(cd, sections)
+
+        if H is None:
+            print("Coarse sampling failed. Falling back to naive pairing.")
+            H_naive = matrix(QQ, n)
+            for i in range(n):
+                for j in range(i, n):
+                    val = naive_pairing(sections[i], sections[j])
+                    H_naive[i, j] = val
+                    H_naive[j, i] = val
+            H = H_naive
+
+    if H is None or H.nrows() == 0:
+        return False, matrix(QQ, 0)
+
+    det = H.det()
+    print(f"Canonical height pairing matrix determinant = {det}")
+    independent = (det != 0)
+    print(f"Sections are {'independent' if independent else 'dependent'}.")
+
+    return independent, H
+
+
+@PROFILE
+def check_independence(sections, curve, cd):
+    """
+    Check linear independence of a list of sections.
+
+    Returns (independent_bool, height_matrix_H).
+
+    - In characteristic 0: use canonical/sample heights (existing behavior).
+    - In finite-field mode: test independence in the group by randomized
+      linear-combination testing (no heights, no SR).
+    """
+
+    n = len(sections)
+    if n == 0:
+        # no sections => not independent; return empty matrix for compatibility
+        return False, matrix(QQ, 0)
+
+    ff_mode = (FINITE_FIELD is not None)
+
+    # ----------------------
+    # Helper: robust identity test for a point object P
+    # ----------------------
+    def point_is_identity(P):
+        # Try known point methods
+        try:
+            if hasattr(P, "is_zero"):
+                return bool(P.is_zero())
+        except Exception:
+            pass
+        try:
+            if hasattr(P, "is_infinite"):
+                return bool(P.is_infinite())
+        except Exception:
+            pass
+
+        # Try equality with curve(0) only as a last resort (guarded)
+        try:
+            O = curve(0)
+            try:
+                return P == O
+            except Exception:
+                pass
+        except Exception:
+            # constructor not supported; skip
+            pass
+
+        # If the point exposes affine/projective coordinates, try heuristics
+        try:
+            if hasattr(P, "is_identity") and callable(P.is_identity):
+                return bool(P.is_identity())
+        except Exception:
+            pass
+
+        # Last-ditch: try to inspect coords (some point objects return None for infinity)
+        try:
+            coords = P.coordinates() if hasattr(P, "coordinates") else None
+            if coords is None:
+                return True
+            # coords maybe tuple of length 2 or 3; if any entry is None, treat as infinity
+            if isinstance(coords, (tuple, list)):
+                return any(c is None for c in coords)
+        except Exception:
+            pass
+
+        # Unknown; assume not identity (conservative for tests)
+        return False
+
+    # ----------------------
+    # FINITE FIELD MODE: group-law independence (probabilistic)
+    # ----------------------
+    if ff_mode:
+        print("--- Checking independence in finite-field mode (group law) ---")
+
+        # Quick sanity: ensure none of the base sections are the identity
+        for i, P in enumerate(sections):
+            if point_is_identity(P):
+                print(f"Section {i} is the identity (zero) section -> dependent")
+                return False, None
+
+        # Randomized linear-combination testing:
+        # If we find a nontrivial integer relation sum a_i * P_i = O, declare dependent.
+        # Parameters below trade speed vs confidence.
+        import random
+        NUM_TRIALS = 60         # more trials -> smaller false-positive prob
+        MAX_ABS_COEFF = 15      # coefficients sampled uniformly from [-MAX..MAX]
+
+        for trial in range(NUM_TRIALS):
+            coeffs = [random.randint(-MAX_ABS_COEFF, MAX_ABS_COEFF) for _ in range(n)]
+            if all(c == 0 for c in coeffs):
+                continue
+
+            # compute the linear combination S = sum c_i * P_i
+            # use repeated addition / scalar multiplication; rely on Sage point arithmetic
+            S = None
+            for c, P in zip(coeffs, sections):
+                if c == 0:
+                    continue
+                try:
+                    term = c * P
+                except Exception:
+                    # try P * c as alternate multiplication order
+                    term = P * c
+                if S is None:
+                    S = term
+                else:
+                    S = S + term
+
+            # If S is None (all coeffs 0) it's not interesting; otherwise test identity
+            if S is None:
+                continue
+
+            if point_is_identity(S):
+                print(f"Dependent: found relation {coeffs}")
+                return False, None
+
+        # no relation found (probabilistic evidence of independence)
+        print("No nontrivial relations found after randomized tests — treating as independent.")
+        return True, None
+
+    # ----------------------
+    # CHARACTERISTIC 0: original height-based logic unchanged
+    # ----------------------
+    H = None
+
+    if USE_MINIMAL_MODEL:
+        # canonical, exact route for minimal models
+        H = compute_canonical_height_matrix(sections, cd)
+    else:
+        # coarse sampled approximation for non-minimal models
+        print("--- Estimating non-minimal height matrix via sampling ---")
+        H = compute_coarse_height_matrix_serializable(cd, sections)
+
+        if H is None:
+            # coarse sampling failed — fall back to naive pairing (last resort)
+            print("Coarse sampling produced no valid samples. Falling back to naive pairing.")
+            H_naive = matrix(QQ, n)
+            for i in range(n):
+                for j in range(i, n):
+                    val = naive_pairing(sections[i], sections[j])
+                    H_naive[i, j] = val
+                    H_naive[j, i] = val
+            H = H_naive
+
+    if H is None or H.nrows() == 0:
+        return False, matrix(QQ, 0)
+
+    det = H.det()
+    print(f"Canonical height pairing matrix determinant = {det}")
+    independent = (det != 0)
+    print(f"Sections are {'independent' if independent else 'dependent'}.")
+    return independent, H
+
+
+@PROFILE
+def lll_reduce_mw_basis(cd, P_list):
+    """
+    Reduce a Mordell–Weil basis.
+
+    - In characteristic 0: perform true LLL reduction using the height pairing.
+    - In finite-field mode: LLL is undefined; return a cleaned, deterministic basis.
+    """
+
+    r = len(P_list)
+    if r == 0:
+        return []
+
+    ff_mode = (FINITE_FIELD is not None)
+
+    # ------------------------------------------------------------
+    # Finite field mode: NO LLL (no heights exist)
+    # ------------------------------------------------------------
+    if ff_mode:
+        print("--- Finite-field mode: skipping LLL (no height lattice) ---")
+
+        # Optional light normalization to keep things stable:
+        # 1) remove identity sections
+        # 2) remove obvious duplicates
+        cleaned = []
+        for P in P_list:
+            try:
+                if hasattr(P, "is_zero") and P.is_zero():
+                    continue
+            except Exception:
+                pass
+
+            if P not in cleaned:
+                cleaned.append(P)
+
+        return cleaned
+
+    # ------------------------------------------------------------
+    # Characteristic 0: real LLL on height lattice
+    # ------------------------------------------------------------
+    is_independent, H = check_independence(P_list, cd.E_curve, cd)
+
+    if not is_independent:
+        print("Warning: height matrix not full rank. Skipping LLL.")
+        return P_list
+
+    if H is None or H.nrows() != r:
+        print("Warning: invalid height matrix. Skipping LLL.")
+        return P_list
+
+    # Clear denominators to get an integral Gram matrix
+    try:
+        denoms = [H[i, j].denominator() for i in range(r) for j in range(r)]
+        D = lcm(denoms) if denoms else 1
+        H_int = (H * D).change_ring(ZZ)
+    except Exception as e:
+        print("Failed to clear denominators in height matrix:", e)
+        return P_list
+
+    # Perform LLL on Gram matrix
+    try:
+        U = H_int.LLL_gram()
+    except Exception as e:
+        print("Height matrix not LLL-compatible. Skipping LLL.")
+        print("Reason:", e)
+        return P_list
+
+    # Apply unimodular change of basis
+    new_Ps = []
+    for i in range(r):
+        comb = None
+        for j in range(r):
+            c = U[j, i]
+            if c == 0:
+                continue
+            term = c * P_list[j]
+            comb = term if comb is None else comb + term
+        new_Ps.append(comb)
+
+    return new_Ps

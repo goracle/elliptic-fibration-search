@@ -77,11 +77,35 @@ Found roots for a6(m)=0 (potential j=0): [-21346972]
 
 --- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
 Testing special m-values from fibers: {-9633080, -21346972}
-Canonical height pairing matrix determinant = 0
-Sections are dependent.
-Warning: height matrix not full rank. Skipping LLL.
+--- Finite-field mode: skipping LLL (no height lattice) ---
 
 --- Search Iteration 0 with 1 sections ---
-Canonical height pairing matrix determinant = 0
-Sections are dependent.
-Warning: Section basis is linearly dependent. Stopping search.
+--- Checking independence in finite-field mode (group law) ---
+No nontrivial relations found after randomized tests — treating as independent.
+Height Pairing Matrix H:
+ [1]
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 6)]
+[residue_counts] exact count failed mod 33554467: 'PolynomialQuotientRing_field_with_category.element_class' object has no attribute 'numerator'; using fallback
+[residue_counts] sample: [(33554467, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
+[FF vectors] Generated 80 canonical vectors
+  Sample: [(63,), (44,), (20,), (35,), (29,), (26,), (38,), (17,), (72,), (47,)]
+Searching 80 vectors up to height 473...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+[FF MODE] Forcing search to single prime: 33554467
+[prepare_modular_data_lll] Skipping RHS=(25165850*m^8 + 16777235*m^6 + 11184819*m^5 + 8388632*m^4 + 33554445*m^3 + 27962062*m^2 + 22369624*m + 13981027)/(m^5 + 3*m^3 + 33554465*m^2 + 5*m + 33554463): FINITE_FIELD mode: RHS decomposition disabled
+
+[prepare_modular_data_lll] Rejected 0 primes:
+[mumford] NOTICE: Reducing workers from 20 to 6 to prevent memory exhaustion.
+[mumford] Generating tasks for 1 primes...
+[mumford] Task degrees: min=1, max=8533, median=2241
+[mumford] Generated 80 tasks for 6 workers (13.3 tasks per worker)

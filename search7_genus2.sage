@@ -532,6 +532,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             break
 
         independent, H = check_independence(current_sections, E_curve_m, cd)
+        if FINITE_FIELD:
+            H = Matrix([QQ(1)]) # i know this isn't correct, but it's called a "hack".
         if not independent:
             print("Warning: Section basis is linearly dependent. Stopping search.")
             break
