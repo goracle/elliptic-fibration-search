@@ -1494,6 +1494,160 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
     }
 
 
+# Simple integration into your existing code:
+def add_y_zero_points_to_known(known_pts, sextic_coeffs):
+    """Add y=0 points to the known points set."""
+    y_zero_points = find_y_zero_points_genus2(sextic_coeffs)
+    known_pts.update(y_zero_points)
+    return known_pts
+
+
+def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
+    """
+    Find all rational points (x,0) on the genus 2 curve y^2 = G(x).
+    For y=0, we need G(x) = 0.
+    
+    - In QQ mode: Returns rational (x, 0) points
+    - In finite field mode: Returns GF(p) points where G(x) = 0
+
+    Args:
+        sextic_coeffs: List of coefficients [a6, a5, a4, a3, a2, a1, a0]
+        verbose: Print debug information
+
+    Returns:
+        Set of points (x, 0) where G(x) = 0
+    """
+    if verbose:
+        print("\n--- Searching for y=0 points ---")
+
+    if FINITE_FIELD is not None:
+        # Finite field mode
+        F = GF(FINITE_FIELD)
+        R_x = PolynomialRing(F, 'x')
+        x_var = R_x.gen()
+        G = sum(F(a) * x_var**(len(sextic_coeffs)-1-i) 
+                for i, a in enumerate(sextic_coeffs))
+        
+        if verbose:
+            print(f"hyperelliptic curve: y^2 = {G}")
+        
+        # Find all roots in F
+        roots = G.roots(multiplicities=False)
+        y_zero_points = {(F(root), F(0)) for root in roots}
+        
+        if verbose:
+            if y_zero_points:
+                print(f"Found {len(y_zero_points)} points where y=0: {sorted(list(y_zero_points))}")
+            else:
+                print("No points found where y=0")
+    
+    else:
+        # Rational (QQ) mode - original logic
+        R_x = QQ['x']
+        G = sum(a * R_x.gen()**(len(sextic_coeffs)-1-i) 
+                for i, a in enumerate(sextic_coeffs))
+
+        if verbose:
+            print(f"hyper elliptic curve: y^2 = {G}")
+
+        # Find all rational roots
+        rational_roots = G.roots(QQ, multiplicities=False)
+        y_zero_points = {(QQ(root), QQ(0)) for root in rational_roots}
+
+        if verbose:
+            if y_zero_points:
+                print(f"Found {len(y_zero_points)} points where y=0: {sorted(list(y_zero_points))}")
+            else:
+                print("No rational points found where y=0")
+
+    return y_zero_points
+
+@PROFILE
+def main_genus2():
+    """
+    Main search function for genus 2 curves.
+    
+    - In QQ mode: Uses rational points from DATA_PTS_GENUS2
+    - In finite field mode: Enumerates all points in GF(p)
+    """
+    initial_xs = DATA_PTS_GENUS2
+
+    if FINITE_FIELD is not None:
+        F = GF(FINITE_FIELD)
+        known_pts = {(F(x), get_y_unshifted_genus2(F(x))) for x in initial_xs if get_y_unshifted_genus2(F(x)) is not None}
+    else:
+        known_pts = {(QQ(x), get_y_unshifted_genus2(x)) for x in initial_xs if get_y_unshifted_genus2(x) is not None}
+    
+
+    known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
+
+    terminate_when = TERMINATE_WHEN_6
+    
+    print("known_pts start:", known_pts)
+    
+    excluded = set()
+    all_found_x = {pt[0] for pt in known_pts}
+    
+    # --- Create Cumulative Stats Object ---
+    cumulative_stats = SearchStats()
+    
+    while True:
+        if len(known_pts) >= terminate_when:
+            print(f"TERMINATE_WHEN_6 ({terminate_when}) reached.")
+            break
+        
+        data_pts = get_data_pts(known_pts, excluded)
+        if data_pts is None:
+            print("All combinations of points have been checked.")
+            break
+        
+        # y=0 skip; presents problems for this method
+        skip = False
+        for i in data_pts:
+            if not i[1]:
+                skip = True
+                excluded.add(frozenset(data_pts))
+                print("skipping:", data_pts, "due to the presence of y=0 point.")
+                break
+        if skip:
+            continue
+        
+        print("\n========================================================")
+        print(f"Constructing new fibration using: {data_pts}")
+        print(f"known pts so far: {sorted(list(known_pts))}")
+        print(f"found {len(known_pts)} / {terminate_when}")
+        print("========================================================\n")
+        
+        # --- Pass cumulative_stats to doloop ---
+        found_from_fibration, cumulative_stats = doloop_genus2(
+            data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats
+        )
+        all_found_x.update(found_from_fibration)
+        
+        excluded.add(frozenset(data_pts))
+        
+        if FINITE_FIELD is not None:
+            # In FF mode, update known_pts directly with found coordinates
+            for x_coord in found_from_fibration:
+                y_coord = get_y_unshifted_genus2(x_coord)
+                if y_coord is not None:
+                    known_pts.add((x_coord, y_coord))
+                    if y_coord != 0:
+                        known_pts.add((x_coord, -y_coord))
+        else:
+            # In QQ mode, use augment_known
+            known_pts = augment_known(known_pts, all_found_x, deg6=True)
+        
+        if MUMFORD_SEARCH:
+            print("only trying one fibration for Mumford basis search, for now.")
+            break
+    
+    print("\n--- Cumulative Run Statistics ---")
+    print(cumulative_stats.summary_string())
+    
+    print("\n--- Final Results ---")
+    print(f"Final list of known points: {sorted(list(known_pts))}")
+
 # In search7_genus2.sage
 
 if __name__ == '__main__':

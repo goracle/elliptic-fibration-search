@@ -826,35 +826,6 @@ def compute_coarse_height_matrix_serializable(cd, sections,
 
 
 @PROFILE
-def lll_reduce_mw_basis(cd, P_list):
-    r = len(P_list)
-    if r == 0:
-        return []
-    
-    # Use the same logic as check_independence to get the right height matrix
-    is_independent, H = check_independence(P_list, cd.E_curve, cd)
-
-    if not is_independent:
-        print("Warning: height matrix not full rank. Skipping LLL.")
-        return P_list
-
-    denoms = [H[i,j].denominator() for i in range(r) for j in range(r)]
-    D = lcm(denoms) if denoms else 1
-    H_int = (H * D).change_ring(ZZ)
-
-    try:
-        U = H_int.LLL_gram()
-    except ValueError:
-        print("H_int not LLL-compatible:", H_int)
-        return P_list
-
-    new_Ps = []
-    for i in range(r):
-        comb = sum(U[j,i] * P_list[j] for j in range(r))
-        new_Ps.append(comb)
-    return new_Ps
-
-@PROFILE
 def deg_height(P):
     """
     Return max(degree of num(m), degree of den(m)) for x-coordinate of P.
@@ -1187,33 +1158,6 @@ def min_order_in_m(expr, m):
 
 
 # The rationality test stays the same (cached)
-@lru_cache(maxsize=None)
-def get_y_unshifted_genus2(x):
-    """
-    Test if x gives a rational y on the genus-2 curve y^2 = G(x).
-    Returns y if rational, None otherwise.
-    """
-    x = QQ(x)
-    
-    # Evaluate G(x) = sum of coeffs * x^i
-    # Horner's method is faster than repeated exponentiation
-    rhs = COEFFS_GENUS2[0]
-    for coeff in COEFFS_GENUS2[1:]:
-        rhs = rhs * x + coeff
-    
-    # Quick checks before expensive square root test
-    num = ZZ(rhs.numerator())
-    den = ZZ(rhs.denominator())
-    
-    if num < 0 or den <= 0:
-        return None
-    
-    # Check if num and den are both perfect squares
-    # Use Sage's is_square() which is optimized
-    if not num.is_square() or not den.is_square():
-        return None
-    
-    return QQ(num.sqrt()) / QQ(den.sqrt())
 
 @PROFILE
 def compute_morphism(E_rhs):
@@ -2610,92 +2554,6 @@ def check_independence(sections, curve, cd):
     """
     Check linear independence of a list of sections.
 
-    In characteristic 0:
-        Use canonical / sampled height pairing.
-
-    In finite field mode:
-        Check linear independence in the finite abelian group
-        via randomized relation testing.
-    """
-    n = len(sections)
-    if n == 0:
-        return False, None
-
-    ff_mode = (FINITE_FIELD is not None)
-
-    # ------------------------------------------------------------
-    # FINITE FIELD MODE: group-theoretic independence
-    # ------------------------------------------------------------
-    if ff_mode:
-        print("--- Checking independence in finite-field mode (group law) ---")
-
-        E = curve
-        O = E(0)  # identity
-
-        # Quick sanity: no section should be torsion-zero
-        for i, P in enumerate(sections):
-            assert P != O, f"Section {i} is the zero section"
-
-        # Random linear relation test
-        import random
-
-        NUM_TRIALS = 50
-        MAX_COEFF = 20
-
-        for trial in range(NUM_TRIALS):
-            coeffs = [random.randint(-MAX_COEFF, MAX_COEFF) for _ in range(n)]
-            if all(c == 0 for c in coeffs):
-                continue
-
-            S = O
-            for c, P in zip(coeffs, sections):
-                if c != 0:
-                    S += c * P
-
-            if S == O:
-                print(f"Dependent: relation found {coeffs}")
-                return False, None
-
-        print("No nontrivial relations found (probabilistic independence).")
-        return True, None
-
-    # ------------------------------------------------------------
-    # CHARACTERISTIC 0 MODE: height pairing
-    # ------------------------------------------------------------
-    H = None
-
-    if USE_MINIMAL_MODEL:
-        H = compute_canonical_height_matrix(sections, cd)
-    else:
-        print("--- Estimating non-minimal height matrix via sampling ---")
-        H = compute_coarse_height_matrix_serializable(cd, sections)
-
-        if H is None:
-            print("Coarse sampling failed. Falling back to naive pairing.")
-            H_naive = matrix(QQ, n)
-            for i in range(n):
-                for j in range(i, n):
-                    val = naive_pairing(sections[i], sections[j])
-                    H_naive[i, j] = val
-                    H_naive[j, i] = val
-            H = H_naive
-
-    if H is None or H.nrows() == 0:
-        return False, matrix(QQ, 0)
-
-    det = H.det()
-    print(f"Canonical height pairing matrix determinant = {det}")
-    independent = (det != 0)
-    print(f"Sections are {'independent' if independent else 'dependent'}.")
-
-    return independent, H
-
-
-@PROFILE
-def check_independence(sections, curve, cd):
-    """
-    Check linear independence of a list of sections.
-
     Returns (independent_bool, height_matrix_H).
 
     - In characteristic 0: use canonical/sample heights (existing behavior).
@@ -2924,3 +2782,53 @@ def lll_reduce_mw_basis(cd, P_list):
         new_Ps.append(comb)
 
     return new_Ps
+
+
+# Finite-field compatible rationality test
+@lru_cache(maxsize=None)
+def get_y_unshifted_genus2(x):
+    """
+    Test if x gives a y-coordinate on the genus-2 curve y^2 = G(x).
+    
+    - In QQ mode: Returns y if rational, None otherwise.
+    - In finite field mode: Returns y in GF(p) if it exists, None otherwise.
+    """
+    if FINITE_FIELD is not None:
+        # Finite field mode
+        F = GF(FINITE_FIELD)
+        x_f = F(x)
+        
+        # Evaluate G(x) in F using Horner's method
+        rhs = F(COEFFS_GENUS2[0])
+        for coeff in COEFFS_GENUS2[1:]:
+            rhs = rhs * x_f + F(coeff)
+        
+        # Check if rhs is a perfect square in F
+        if not rhs.is_square():
+            return None
+        
+        return rhs.sqrt()
+    
+    else:
+        # Rational (QQ) mode - original logic
+        x = QQ(x)
+        
+        # Evaluate G(x) = sum of coeffs * x^i
+        # Horner's method is faster than repeated exponentiation
+        rhs = COEFFS_GENUS2[0]
+        for coeff in COEFFS_GENUS2[1:]:
+            rhs = rhs * x + coeff
+        
+        # Quick checks before expensive square root test
+        num = ZZ(rhs.numerator())
+        den = ZZ(rhs.denominator())
+        
+        if num < 0 or den <= 0:
+            return None
+        
+        # Check if num and den are both perfect squares
+        # Use Sage's is_square() which is optimized
+        if not num.is_square() or not den.is_square():
+            return None
+        
+        return QQ(num.sqrt()) / QQ(den.sqrt())

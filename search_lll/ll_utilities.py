@@ -102,55 +102,6 @@ def _scale_matrix_columns_int(M, scales):
 # =============================================================================
 
 # Robust RHS decomposition helper (works for QQ(m)/SR and for Fp(m) elements)
-def _decompose_rhs_to_PRm(rhs):
-    """
-    Return (num_PRm, den_PRm) where num_PRm/den_PRm are elements of PR_m (polynomial ring over QQ).
-    Handles:
-        - objects with .numerator()/.denominator()
-        - fraction-field-like elements
-        - polynomial elements (treated as numerator, denominator=1)
-        - field-native Fp(m) elements (coerces to string then PR_m fallback)
-    """
-    from sage.all import SR, QQ, PolynomialRing
-
-    # 1) If it exposes numerator/denominator, use them directly
-    try:
-        if hasattr(rhs, 'numerator') and hasattr(rhs, 'denominator'):
-            n = rhs.numerator()
-            d = rhs.denominator()
-            return PR_m(n), PR_m(d)
-    except Exception:
-        raise
-
-    # 2) Try coercing via QQ['m'].fraction_field (works for many rational-like objects)
-    try:
-        Fm_qq = QQ['m'].fraction_field()
-        val_qq = Fm_qq(rhs)
-        return PR_m(val_qq.numerator()), PR_m(val_qq.denominator())
-    except Exception:
-        raise
-
-    # 3) Try SR decomposition (if available) into rational function in m
-    try:
-        s = SR(rhs)
-        # if SR rational function
-        if s.operator():
-            # try numerator/denominator from SR expression (best-effort)
-            try:
-                n = SR(s).numerator()
-                d = SR(s).denominator()
-                return PR_m(n), PR_m(d)
-            except Exception:
-                raise
-    except Exception:
-        raise
-
-    # 4) Last resort: coerce the rhs to a PR_m polynomial (den=1). This will
-    #    succeed for polynomials in 'm' (or literal ints) and throw otherwise.
-    try:
-        return PR_m(rhs), PR_m(1)
-    except Exception as e:
-        raise RuntimeError(f"_decompose_rhs_to_PRm: could not decompose rhs={rhs!r}: {e}")
 
 
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
