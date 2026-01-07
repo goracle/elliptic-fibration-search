@@ -186,162 +186,6 @@ def scancd_for_special_fibers(cd, r_m, shift):
     return found_from_fibers
 
 
-@PROFILE
-def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
-    """
-    Analyzes a single fibration tower.
-    SCALES the height bound based on the discriminant degree relative to primary_deg.
-    """
-    tower = fib_data['tower'] # Extract tower
-    fib_id = fib_data.get('id', 0) # Extract id, default to 0 (non-primary)
-    seed = fib_data.get('seed', seed) # Extract seed
-    
-    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
-
-    # 1. Reconstruct SR/PR variables
-    SR_m = var('m')
-    PR_m = PolynomialRing(QQ, 'm')
-    m_poly = PR_m.gen()
-    Fm = PR_m.fraction_field()
-    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
-    xSR, mSR = SR.var('x'), SR.var('m')
-
-    # 2. Extract expressions from this tower
-    this_roots = [SR(step['r_expr']) for step in tower]
-    this_E_rhs_sym = tower[-1]['f_i']
-    this_r_m = SR(this_roots[0])
-
-    # 3. Reconstruct the curve objects (cd)
-    coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
-    coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
-    this_E_rhs_m = R_x_m(coeffs_in_Fm)
-    
-    this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
-    lastrhs = this_E_rhs_m(x=this_roots[-1])
-    last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
-    this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
-
-    # --- KEY FIX: SCALE HEIGHT BOUND ---
-    # Determine degree of this fibration's discriminant
-    try:
-        Delta = this_cd.E_weier.discriminant()
-        if hasattr(Delta, 'numerator'):
-             this_disc_deg = Delta.numerator().degree()
-        else:
-             this_disc_deg = Delta.degree()
-    except Exception:
-        this_disc_deg = primary_deg # Fallback
-        
-    # Height scales with degree AND coefficient complexity.
-    # Secondary fibrations (anchors) have much larger coeffs, requiring a looser bound.
-    is_primary = (fib_id == -1)
-    scaling_factor = float(this_disc_deg) / float(primary_deg)
-
-    if is_primary:
-        # This is the primary fibration. Do NOT scale its height bound.
-        this_height_bound = height_bound
-        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
-    else:
-        # This is a secondary fibration. Apply 4.0x multiplier.
-
-        # OLD CODE:
-        this_height_bound = int(height_bound * scaling_factor * 1.2)
-    
-        # NEW FIX: Clamp the scaling to a maximum of 1.2x the primary bound
-        # We trust the primary geometry is the "nicest" one.
-        #effective_scale = min(scaling_factor, 1.2) 
-        #this_height_bound = int(height_bound * effective_scale)
-    
-        if is_primary:
-            this_height_bound = height_bound
-        
-        if abs(scaling_factor - 1.0) > 0.1 or True:
-            print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 4.0 safety)")
-    
-    if abs(scaling_factor - 1.0) > 0.1 or True:
-        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f} * 2.0 safety)")
-
-    # 4. Re-run sconf auto-configuration for THIS geometry
-    try:
-        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
-        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
-        if not known_pts_for_height:
-            known_pts_for_height = [(QQ(0), None)]
-        
-        # Auto-config might suggest a bound, but we override with our scaled bound
-        this_sconf = bounds.auto_configure_search(
-                    this_cd, 
-                    known_pts_for_height, 
-                    height_bound=None, 
-                    run_heavy_analysis=False,  # <--- Disable expensive Galois/Adaptive steps
-                    debug=False                # <--- Reduce noise
-                )
-
-        #this_sconf = bounds.auto_configure_search(this_cd, known_pts_for_height, height_bound=None, debug=DEBUG)
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
-
-    except Exception as e:
-        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
-        this_sconf = global_sconf.copy()
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-
-    # 5. Compute fibration-specific sections
-    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
-    if not fib_specific_sections:
-        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
-        return None
-        
-    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
-    
-    # 6. Compute fibration-specific Height Matrix (H) and Search Vectors (vecs)
-    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
-    if not independent:
-        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
-        return None
-        
-    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
-    
-    # Use the SCALED height bound here!
-    if FINITE_FIELD:
-        fib_specific_vecs = generate_ff_search_vectors(len(current_sections))
-    else:
-        fib_specific_vecs = compute_search_vectors(this_H, this_height_bound) 
-
-    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
-    
-    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
-
-    # 7. Build fibration-specific RHS list
-    k_pow = this_cd.k_base_change
-    n_exp = this_cd.tate_exponent
-    blowup = this_cd.blowup_factor
-    m_sym = this_cd.a4.parent().gen()
-    total_x_scale = m_sym ** (2 * n_exp - 2 * blowup)
-    
-    this_search_rhs_list = [SR(this_cd.phi_x)]
-    
-    for root_val in this_roots[:-1]:
-        qrhs_r = SR(this_E_rhs_sym).subs({xSR: root_val})
-        phi_x_r = get_phi_x(SR(one), SR(two), SR(three), root_val, qrhs_r)
-        phi_x_r_SR = SR(phi_x_r)
-        rhs_scaled = (phi_x_r_SR.subs({m_sym: m_sym**k_pow}) if k_pow != 0 else phi_x_r_SR) / SR(str(total_x_scale))
-        this_search_rhs_list.append(rhs_scaled)
-
-    return {
-        'cd': this_cd,
-        'sections': fib_specific_sections,
-        'H': this_H,
-        'height_bound': this_height_bound,
-        'vecs': fib_specific_vecs,
-        'rhs_list': this_search_rhs_list,
-        'r_m': this_r_m,
-        'sconf': this_sconf,
-        'deg': this_disc_deg,
-        'disc_deg': this_disc_deg,
-        'name': f"fib_seed_{seed}",
-        'r_m': this_r_m
-    }
 # In doloop_genus2, replace the consensus precomputation section
 # (starting from "if USE_CONSENSUS_FILTER and fibrations:")
 # with this updated version:
@@ -353,27 +197,48 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     Main search loop adapted for the genus-2 strategy.
     Now accepts and merges into a cumulative_stats object.
     """
-    # 1. Initial Setup and Shifting
-    SR_m = var('m')
-    PR_m = PolynomialRing(QQ, 'm')
-    m_poly = PR_m.gen()
-    Fm = PR_m.fraction_field()
+    if FINITE_FIELD and MOBIUS_TRANS:
+        raise RuntimeError("Mobius transforms are disabled in finite-field mode")
 
-    R_x = PolynomialRing(QQ, 'x')
-    x = R_x.gen()
-    G = sum([a*x**(len(sextic_coeffs)-1 - i) for i, a in enumerate(sextic_coeffs)])
+    if FINITE_FIELD:
+        base_field = GF(FINITE_FIELD)
+        PR_m = PolynomialRing(base_field, 'm')
+        m_poly = PR_m.gen()
+        Fm = PR_m.fraction_field()
 
-    real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
+        R_x = PolynomialRing(base_field, 'x')
+        x = R_x.gen()
 
-    shift = QQ(0)
+        # sextic_coeffs must already be in base_field
+        G = sum(base_field(a) * x**(len(sextic_coeffs)-1-i)
+                for i, a in enumerate(sextic_coeffs))
+
+        real_pts = [(p[0], p[1]) for p in data_pts if p[0] is not None]
+
+    else:
+        SR_m = var('m')
+        PR_m = PolynomialRing(QQ, 'm')
+        m_poly = PR_m.gen()
+        Fm = PR_m.fraction_field()
+
+        R_x = PolynomialRing(QQ, 'x')
+        x = R_x.gen()
+
+        G = sum(QQ(a) * x**(len(sextic_coeffs)-1-i)
+                for i, a in enumerate(sextic_coeffs))
+
+        real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
+        base_field = QQ
+
+    shift = base_field(0)
     if not MOBIUS_TRANS: # don't use shift and a mobius trans on x, they conflict
-        while any((pt[0] + shift) == 0 for pt in real_pts):
+        while any((base_field(pt[0]) + shift) == 0 for pt in real_pts):
             shift += 1
         if shift:
             print(f"\nSHIFT = {shift}\n")
 
     shifted_G_poly = G(x - shift)
-    base_pts = [(X + shift, Y) for X, Y in real_pts]
+    base_pts = [(base_field(X) + shift, base_field(Y)) for X, Y in real_pts]
 
     print("shifted G poly1:", shifted_G_poly)
     T = None
@@ -500,21 +365,33 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     tower_for_mumford = primary_tower if MUMFORD_SEARCH else None
 
     # 3. Extract expressions from the *PRIMARY* tower
+
+    assert primary_tower, primary_tower
     roots = [i['r_expr'] for i in primary_tower]
-    E_rhs_m_symbolic = primary_tower[-1]['f_i'] # The final quartic equation
+    E_rhs_obj = primary_tower[-1]['f_i']
 
-    m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs() 
+    if FINITE_FIELD:
+        # Already field-native from iterate_tower
+        E_rhs_m = E_rhs_obj
+        r_m = roots[0]
 
-    # Convert the symbolic quartic into the required polynomial type
-    F_m = PR_m.fraction_field()
-    r_m = SR(roots[0])
-    print("r_m", r_m)
-    R_x_m, x_poly = PolynomialRing(F_m, 'x').objgen()
-    xSR, mSR = SR.var('x'), SR.var('m')
+    else:
+        # symbolic reconstruction (unchanged)
+        E_rhs_m_symbolic = E_rhs_obj
 
-    coeffs_in_m = [SR(E_rhs_m_symbolic).coefficient(xSR, i) for i in range(SR(E_rhs_m_symbolic).degree(xSR) + 1)]
-    coeffs_in_Fm = [F_m(c.subs({mSR: m_poly})) for c in coeffs_in_m]
-    E_rhs_m = R_x_m(coeffs_in_Fm)
+        m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs()
+        r_m = SR(roots[0])
+
+        R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
+        xSR, mSR = SR.var('x'), SR.var('m')
+
+        coeffs_in_m = [
+            SR(E_rhs_m_symbolic).coefficient(xSR, i)
+            for i in range(SR(E_rhs_m_symbolic).degree(xSR) + 1)
+        ]
+        coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+        E_rhs_m = R_x_m(coeffs_in_Fm)
+
 
     # 4. Main Search Logic
     fibration_type = f"{len(set(pt[0] for pt in base_pts))}-point"
@@ -569,14 +446,24 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     PR_m = cd.a4.parent()
     m_sym = PR_m.gen()
 
-    roots_SR = [SR(r) for r in roots]
+    #roots_SR = [SR(r) for r in roots]
+    if FINITE_FIELD is not None:
+        roots_clean = [r for r in roots if r is not None]
+    else:
+        roots_clean = [SR(r) for r in roots]
+    roots_SR = roots_clean
+    assert roots_clean, roots
 
     # Start the search_rhs_list with the top-level phi_x
-    try:
-        search_rhs_list = [SR(cd.phi_x)]
-    except Exception:
-        search_rhs_list = [SR(str(cd.phi_x))]
-        raise
+    if FINITE_FIELD:
+        search_rhs_list = [cd.phi_x]
+    else:
+        try:
+            search_rhs_list = [SR(cd.phi_x)]
+        except Exception:
+            search_rhs_list = [SR(str(cd.phi_x))]
+            raise
+
 
     # Build the remaining RHS for each tower-level double root
     for i in roots_SR[:-1]:
@@ -596,7 +483,8 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     euler = singfibs['euler_characteristic']
     
     # Compute base sections with re-evaluated points
-    base_sections = compute_base_sections_m(cd, base_pts)
+    #base_sections = compute_base_sections_m(cd, base_pts)
+    base_sections = compute_base_sections_m(cd, base_pts, tower=primary_tower)
     verify_morphism_on_samples(cd, base_pts)
     if not base_sections:
         print("Could not compute base sections. Skipping search.") 
@@ -1424,6 +1312,184 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         new_points_original_coords = all_newly_found_transformed_x
 
     return new_points_original_coords, cumulative_stats
+
+
+# Replace analyze_fibration_geometry with this version that avoids SR in FINITE_FIELD
+@PROFILE
+def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+    """
+    Analyze single fibration tower. In FINITE_FIELD mode this function avoids SR entirely
+    and returns field-native objects (Fm polynomials, etc).
+    """
+    tower = fib_data['tower']
+    fib_id = fib_data.get('id', 0)
+    seed = fib_data.get('seed', seed)
+
+    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
+
+    # Determine base field
+    if FINITE_FIELD:
+        base_field = GF(FINITE_FIELD)
+    else:
+        base_field = QQ
+
+    PR_m = PolynomialRing(base_field, 'm')
+    m_poly = PR_m.gen()
+    Fm = PR_m.fraction_field()
+    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
+
+    # Extract roots and final RHS polynomial from tower
+    # In FINITE_FIELD mode the tower entries should already be field-native
+    this_roots = [step['r_expr'] for step in tower]
+    this_E_rhs_obj = tower[-1]['f_i']   # expected: polynomial over Fm[x] (field-native) or symbolic for QQ
+
+    # Build field-native E_rhs_m
+    if FINITE_FIELD:
+        # If it's already an R_x_m polynomial, keep it
+        try:
+            if this_E_rhs_obj.parent() == R_x_m:
+                this_E_rhs_m = this_E_rhs_obj
+            else:
+                # Try to extract coefficient list and coerce into R_x_m
+                try:
+                    coeffs = list(this_E_rhs_obj.list())
+                except Exception:
+                    coeffs = [this_E_rhs_obj.coefficient(i) for i in range(this_E_rhs_obj.degree() + 1)]
+                coeffs_in_Fm = [Fm(c) for c in coeffs]
+                this_E_rhs_m = R_x_m(coeffs_in_Fm)
+        except Exception as e:
+            raise RuntimeError(f"analyze_fibration_geometry (FF): failed to coerce final RHS to Fm[x]: {e}")
+
+    else:
+        # QQ / symbolic branch - preserve previous behaviour (uses SR)
+        this_E_rhs_m = None  # retain existing code path below (handled in QQ mode)
+    
+    # For both modes: construct curve data and compute geometry
+    if FINITE_FIELD:
+        this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
+        # lastrhs: evaluate at last root (roots stored as field native)
+        lastrhs = this_E_rhs_m(x=this_roots[-1])
+        last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
+        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+    else:
+        # QQ / SR mode: fall back to old behaviour (unchanged)
+        # Keep SR-based reconstruction for compatibility
+        xSR, mSR = SR.var('x'), SR.var('m')
+        this_roots_sr = [SR(step['r_expr']) for step in tower]
+        this_E_rhs_sym = this_E_rhs_obj
+        coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
+        coeffs_in_Fm = [PR_m.frac_field()(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+        E_rhs_m = R_x_m(coeffs_in_Fm)
+        this_E_curve_m, one, two, three = compute_morphism(E_rhs_m)
+        lastrhs = E_rhs_m(x=this_roots_sr[-1])
+        last_phi_x = get_phi_x(one, two, three, this_roots_sr[-1], lastrhs)
+        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
+
+    # --- KEY FIX: compute discriminant degree safely ---
+    try:
+        Delta = this_cd.E_weier.discriminant()
+        if hasattr(Delta, 'numerator'):
+             this_disc_deg = Delta.numerator().degree()
+        else:
+             this_disc_deg = Delta.degree()
+    except Exception:
+        this_disc_deg = primary_deg
+
+    is_primary = (fib_id == -1)
+    scaling_factor = float(this_disc_deg) / float(primary_deg)
+
+    if is_primary:
+        this_height_bound = height_bound
+        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+    else:
+        this_height_bound = int(height_bound * scaling_factor * 1.2)
+        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f})")
+
+    # Auto-configure search params (uses this_cd)
+    try:
+        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
+        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
+        if not known_pts_for_height:
+            known_pts_for_height = [(QQ(0), None)]
+
+        this_sconf = bounds.auto_configure_search(
+                    this_cd,
+                    known_pts_for_height,
+                    height_bound=None,
+                    run_heavy_analysis=False,
+                    debug=False
+                )
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
+        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
+    except Exception as e:
+        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
+        this_sconf = global_sconf.copy()
+        this_sconf['HEIGHT_BOUND'] = this_height_bound
+
+    # 5. Compute sections and reduce
+    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
+    if not fib_specific_sections:
+        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
+        return None
+
+    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
+
+    # 6. Height matrix and vectors
+    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
+    if not independent:
+        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
+        return None
+
+    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
+
+    if FINITE_FIELD:
+        fib_specific_vecs = generate_ff_search_vectors(len(fib_specific_sections))
+    else:
+        fib_specific_vecs = compute_search_vectors(this_H, this_height_bound)
+
+    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
+    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
+
+    # 7. Build rhs_list (field-native where possible)
+    this_search_rhs_list = []
+
+    if FINITE_FIELD:
+        # In FF mode, put field-native phi_x if available; otherwise string fallback
+        try:
+            this_search_rhs_list.append(this_cd.phi_x)
+        except Exception:
+            this_search_rhs_list.append(str(this_cd.phi_x))
+        # For other roots produce phi_x evaluated objects where possible
+        for root_val in this_roots[:-1]:
+            try:
+                qrhs_r = this_E_rhs_m(x=root_val)
+                phi_x_r = get_phi_x(one, two, three, root_val, qrhs_r)
+                this_search_rhs_list.append(phi_x_r)
+            except Exception:
+                # Add string fallback - the consumer must handle non-field rhs gracefully
+                this_search_rhs_list.append(str(root_val))
+    else:
+        # symbolic branch (kept for compatibility)
+        xSR, mSR = SR.var('x'), SR.var('m')
+        this_search_rhs_list = [SR(this_cd.phi_x)]
+        for root in this_roots[:-1]:
+            qrhs_r = SR(this_E_rhs_obj).subs({xSR: SR(root)})
+            phi_x_r_SR = SR(get_phi_x(SR(one), SR(two), SR(three), SR(root), qrhs_r))
+            this_search_rhs_list.append(phi_x_r_SR)
+
+    return {
+        'cd': this_cd,
+        'sections': fib_specific_sections,
+        'H': this_H,
+        'height_bound': this_height_bound,
+        'vecs': fib_specific_vecs,
+        'rhs_list': this_search_rhs_list,
+        'r_m': this_roots[0],
+        'sconf': this_sconf,
+        'deg': this_disc_deg,
+        'disc_deg': this_disc_deg,
+        'name': f"fib_seed_{seed}",
+    }
 
 
 # In search7_genus2.sage

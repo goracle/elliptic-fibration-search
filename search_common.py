@@ -501,6 +501,7 @@ class CurveDataExt(NamedTuple):
     SR_a6: object
     SR_phi_x: object
     SR_m: object
+    base_field: object
 
 
 # --- START: Modular Reduction Helpers (centralized from picard.py) ---
@@ -1071,25 +1072,6 @@ def summarize_fibration_info(cd, data_pts, sections):
     print("=========================")
 
 
-@profile
-def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
-    """
-    Compute phi_x = X_sub / Z_sub without global simplification.
-    Assumes X_sub, Z_sub live in the same parent (symbolic or rational function field).
-    Raises on Z_sub == 0 to avoid silent garbage.
-    """
-    Z_sub = three.subs(x=x_coord_func, y=sqrt(quartic_rhs))
-
-    if Z_sub == 0:
-        raise ZeroDivisionError("get_phi_x: Z_sub is zero")
-    X_sub = one.subs(x=x_coord_func, y=sqrt(quartic_rhs))
-
-    phi_x = X_sub / Z_sub
-    phi_x = phi_x.simplify_rational()
-
-    return phi_x
-
-
 @PROFILE
 def effective_degree(rational_expr, m):
     """
@@ -1216,186 +1198,6 @@ def get_primes_from_poly(ff):
 
 
 # ---- buildcd replacement ----
-@PROFILE
-def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
-            verify=True, compute_minimal=USE_MINIMAL_MODEL):
-    """
-    Builds the CurveDataExt object for the fibration.
-
-    If compute_minimal is True, it computes the minimal Weierstrass model and applies
-    the necessary transformations to the coordinate maps.
-
-    If compute_minimal is False, it uses the raw, non-minimal model directly from the
-    Jacobian, which is often faster for searching.
-    """
-    print("--- Entering buildcd ---")
-    E_weier_raw = Jacobian(E_curve)
-    a4_raw = E_weier_raw.a4()
-    a6_raw = E_weier_raw.a6()
-    Fm = a4_raw.parent()
-    m = Fm.gen()
-    y = var('y'); x = var('x')
-
-    # Initialize variables
-    one_s, two_s, three_s = None, None, None
-    one, two, three = morph_triplet
-
-    if compute_minimal:
-        print("--- Computing Minimal Model ---")
-        a4_final, a6_final = a4_raw, a6_raw
-        phi_x_final = phi_x
-        blowup_factor = 0
-        blowdown_0 = 0
-
-        # Step 1: Handle poles at m=0 (blow-up)
-        v4 = min_order_in_m(a4_raw, m)
-        v6 = min_order_in_m(a6_raw, m)
-        if v4 < 0 or v6 < 0:
-            k_for_a4 = ceil(-v4 / 4)
-            k_for_a6 = ceil(-v6 / 6)
-            blowup_factor = int(max(k_for_a4, k_for_a6))
-            if blowup_factor > 0:
-                print(f"Applying blow-up with k={blowup_factor} to handle poles at m=0")
-                a4_final = a4_raw * m**(4 * blowup_factor)
-                a6_final = a6_raw * m**(6 * blowup_factor)
-                phi_x_final = phi_x / (m**(2 * blowup_factor))
-
-        # Step 2: Handle common zeros at m=0 (blow-down)
-        while True:
-            v4_0 = min_order_in_m(a4_final, m)
-            v6_0 = min_order_in_m(a6_final, m)
-            k0 = int(min(v4_0 // 4, v6_0 // 6)) if (v4_0 > 0 and v6_0 > 0) else 0
-
-            if k0 <= 0:
-                break
-            print(f"Applying blow-down with k={k0} to handle zeros at m=0")
-            a4_final = a4_final / (m**(4 * k0))
-            a6_final = a6_final / (m**(6 * k0))
-            phi_x_final = phi_x_final * (m**(2 * k0))
-            blowdown_0 += k0
-
-        E_weier_final = EllipticCurve(Fm, [0,0,0, a4_final, a6_final])
-
-        # Step 3: Apply net scaling transformation to morphisms
-        net_k = int(blowup_factor - blowdown_0)
-        x_morphism_scale = m**(2 * net_k)
-        y_morphism_scale = m**(3 * net_k)
-
-        one_s = MorphismWrapper(one, 1, x_morphism_scale, a4_final)
-        two_s = MorphismWrapper(two, 1, y_morphism_scale, a4_final)
-        three_s = MorphismWrapper(three, 1, 1, a4_final) # Z is unscaled
-
-    else: # Use the raw, non-minimal model
-        print("--- Using non-minimal model, skipping all rescaling ---")
-        a4_final = a4_raw
-        a6_final = a6_raw
-        phi_x_final = phi_x
-        blowup_factor = 0
-        E_weier_final = E_weier_raw
-
-        # Morphisms are used without any scaling
-        one_s = MorphismWrapper(one, 1, 1, a4_final)
-        two_s = MorphismWrapper(two, 1, 1, a4_final)
-        three_s = MorphismWrapper(three, 1, 1, a4_final)
-
-    # --- FORCE canonical SR forms for diagnostics & downstream substitution ---
-    # canonical symbolic var for substitutions
-    SR_m = var('m')
-
-    # try to coerce the key returned objects into SR for consistent .subs({SR_m: ...})
-    try:
-        SR_a4 = SR(a4_final)
-        SR_a6 = SR(a6_final)
-        SR_phi_x = SR(phi_x_final)
-    except Exception:
-        raise AssertionError("buildcd: failed to coerce a4/a6/phi_x to SR; check types.")
-
-    # quick consistency check: ensure same symbolic var name appears where expected
-    try:
-        a4_vars = [str(v) for v in SR_a4.variables()]
-        phi_vars = [str(v) for v in SR_phi_x.variables()]
-    except Exception:
-        a4_vars = []
-        phi_vars = []
-
-    # record SR objects on CurveDataExt for downstream use
-    cd_extra = {}
-    cd_extra['SR_a4'] = SR_a4
-    cd_extra['SR_a6'] = SR_a6
-    cd_extra['SR_phi_x'] = SR_phi_x
-    cd_extra['SR_m'] = SR_m
-
-    # attach to cd later (after cd constructed)
-
-
-    # --- Common logic for both models ---
-
-    # Compute global bad primes
-    print("\n--- Identifying Globally Bad Primes ---")
-    class TempCD:
-        def __init__(self, a4, a6): self.a4, self.a6 = a4, a6
-    temp_cd = TempCD(a4_final, a6_final)
-    bad_primes = [p for p in PRIME_POOL if not is_good_prime_for_surface(temp_cd, p)]
-    print(f"Identified {len(bad_primes)} globally bad prime(s) from the pool: {sorted(bad_primes)}")
-
-    try:
-        E_rhs_final = y**2 - x**3 - a4_final * x - a6_final
-    except Exception:
-        E_rhs_final = E_rhs
-
-    # Get singular fiber info for diagnostics
-    singfibs = find_singular_fibers(a4=a4_final, a6=a6_final, verbose=True)
-
-    # --- Package and return the final data ---
-
-    # Promote to symbolic ring for consistency
-    SR_a4 = SR(a4_final)
-    SR_a6 = SR(a6_final)
-    SR_phi_x = SR(phi_x_final)
-    SR_m = SR(m)
-
-    cd = CurveDataExt(
-        E_curve=E_curve,
-        E_weier=E_weier_final,
-        E_rhs=E_rhs_final,
-        a4=a4_final,
-        a6=a6_final,
-        phi_x=phi_x_final,
-        quartic_rhs=quartic_rhs,
-        tate_exponent=0,     # legacy, kept for compatibility
-        k_base_change=1,
-        bad_primes=bad_primes,
-        morphs=(one_s, two_s, three_s),
-        use_minimal=compute_minimal,
-        blowup_factor=int(blowup_factor),
-        singfibs=singfibs,
-        SR_a4=SR_a4,
-        SR_a6=SR_a6,
-        SR_phi_x=SR_phi_x,
-        SR_m=SR_m,
-    )
-
-    cd = try_scale_out_power_of_two(cd)
-
-    # attach SR copies for downstream code to use
-    assert cd.SR_a4 == cd_extra['SR_a4']
-    assert cd.SR_a6 == cd_extra['SR_a6']
-    assert cd.SR_phi_x == cd_extra['SR_phi_x']
-    assert cd.SR_m == cd_extra['SR_m']
-
-    # Strict sanity: phi_x should mention the parameter SR_m (unless degenerate)
-    try:
-        phi_vars = [str(v) for v in SR(cd.SR_phi_x).variables()]
-    except Exception:
-        phi_vars = []
-    assert (phi_vars == [] or str(cd.SR_m) in phi_vars), "buildcd: phi_x seems not to contain 'm' (vars=%s). This will break symbolic substitution." % (repr(phi_vars))
-
-    print("--- Exiting buildcd ---")
-    if verify and DEBUG:
-        validate_fibration_geometry(cd)
-        if cd.E_weier.discriminant().is_zero():
-            raise ValueError("buildcd: Resulting discriminant is identically zero.")
-    return cd
 
 def to_rational(c):
     if c == 0:
@@ -1630,74 +1432,6 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
 
 # pseudo-code sketch (raise on unexpected failure)
 from sage.all import valuation, gcd
-
-
-@PROFILE
-def compute_base_sections_m(cd, base_pts):
-    """
-    Compute base sections for the fibration.
-    This function uses the morphisms stored in the CurveData object.
-    """
-    one_use, two_use, three_use = cd.morphs
-
-    ret = []
-    seen = set()
-    for xi, yi in base_pts:
-        if (xi, yi) in seen or xi is None:
-            continue
-
-        X_aff = one_use(x=xi, y=yi)
-        Y_aff = two_use(x=xi, y=yi)
-        Z_aff = three_use(x=xi, y=yi)
-
-        if DEBUG:
-            print("\n--- DEBUGGING POINT CONSTRUCTION ---")
-            print(f"Attempting to create point for (x,y) = ({xi}, {yi})")
-            print("Curve:", cd.E_weier)
-            print("\nPoint Coordinates (X_aff, Y_aff, Z_aff):")
-            print("X_aff:", X_aff)
-            print("Y_aff:", Y_aff)
-            print("Z_aff:", Z_aff)
-            try:
-                LHS = Y_aff**2 * Z_aff
-                RHS = X_aff**3 + cd.a4 * X_aff * Z_aff**2 + cd.a6 * Z_aff**3
-                print("\nEquation Check:")
-                print("LHS (Y^2*Z):", LHS)
-                print("RHS (X^3 + a4*X*Z^2 + a6*Z^3):", RHS)
-
-                diff = (LHS - RHS)
-                print("\nDifference (LHS - RHS):", diff)
-                if diff.is_zero():
-                    print("✅ Algebraic identity holds.")
-                else:
-                    print("❌ Algebraic identity DOES NOT hold.")
-            except Exception as e:
-                print(f"An error occurred during manual check: {e}")
-            print("--- END DEBUGGING ---")
-
-        P = cd.E_weier([X_aff, Y_aff, Z_aff])
-        print("section weierstrass coordinates:", P)
-        ret.append(P)
-        seen.add((xi, yi))
-    return ret
-
-@PROFILE
-def verify_morphism_on_samples(cd, base_pts):
-    """
-    Verify images of base_pts under cd.morphs lie on cd.E_weier.
-    """
-    one_s, two_s, three_s = cd.morphs
-    E_min = cd.E_weier
-    for xi, yi in base_pts:
-        try:
-            X = one_s(x=xi, y=yi)
-            Y = two_s(x=xi, y=yi)
-            Z = three_s(x=xi, y=yi)
-            P = E_min([X, Y, Z])
-        except Exception as e:
-            print(f"Error verifying morphism on sample point ({xi}, {yi}): {e}")
-            raise
-    return True
 
 
 @PROFILE
@@ -2370,3 +2104,545 @@ def try_scale_out_power_of_two(cd, max_t=2, debug=False):
 
     # If reached, scaling didn't remove the mod-2 collapse up to max_t
     raise RuntimeError(f"Failed to remove 2-adic global factor up to u=2^{max_t}.")
+
+
+# ---------------------------
+# Finite-field aware section helpers
+# ---------------------------
+
+
+@PROFILE
+def verify_morphism_on_samples(cd, base_pts):
+    """
+    Verify images of base_pts under cd.morphs lie on cd.E_weier.
+
+    Accepts the same base_pts format as compute_base_sections_m and will coerce
+    coordinates into cd.base_field when present.
+    """
+    one_s, two_s, three_s = cd.morphs
+    E_min = cd.E_weier
+    base_field = getattr(cd, 'base_field', None)
+
+    for xi, yi in base_pts:
+        try:
+            if base_field is not None:
+                F = base_field
+                xi_f = F(xi)
+                yi_f = F(yi)
+                X = one_s(x=xi_f, y=yi_f)
+                Y = two_s(x=xi_f, y=yi_f)
+                Z = three_s(x=xi_f, y=yi_f)
+                P = E_min([X, Y, Z])
+            else:
+                X = one_s(x=xi, y=yi)
+                Y = two_s(x=xi, y=yi)
+                Z = three_s(x=xi, y=yi)
+                P = E_min([X, Y, Z])
+        except Exception as e:
+            print(f"Error verifying morphism on sample point ({xi}, {yi}): {e}")
+            raise
+    return True
+
+
+def compute_base_sections_m_direct(cd, quartic_pts):
+    """Apply Weierstrass morphism to points already on the quartic."""
+    one_use, two_use, three_use = cd.morphs
+    ret = []
+    seen = set()
+    base_field = getattr(cd, 'base_field', None)
+    
+    for xi, yi in quartic_pts:
+        if (xi, yi) in seen or xi is None:
+            continue
+            
+        if base_field is not None:
+            F = base_field
+            xi_f = F(xi)
+            yi_f = F(yi)
+            X_aff = one_use(x=xi_f, y=yi_f)
+            Y_aff = two_use(x=xi_f, y=yi_f)
+            Z_aff = three_use(x=xi_f, y=yi_f)
+            P = cd.E_weier([X_aff, Y_aff, Z_aff])
+        else:
+            X_aff = one_use(x=xi, y=yi)
+            Y_aff = two_use(x=xi, y=yi)
+            Z_aff = three_use(x=xi, y=yi)
+            
+            if DEBUG:
+                print(f"\n--- DEBUGGING POINT CONSTRUCTION ---")
+                print(f"Quartic point: ({xi}, {yi})")
+                print(f"Weierstrass coords: X={X_aff}, Y={Y_aff}, Z={Z_aff}")
+                try:
+                    LHS = Y_aff**2 * Z_aff
+                    RHS = X_aff**3 + cd.a4 * X_aff * Z_aff**2 + cd.a6 * Z_aff**3
+                    print(f"LHS - RHS = {(LHS - RHS).simplify_rational()}")
+                except Exception as e:
+                    print(f"Verification failed: {e}")
+            
+            P = cd.E_weier([X_aff, Y_aff, Z_aff])
+        
+        ret.append(P)
+        seen.add((xi, yi))
+    
+    return ret
+
+
+@PROFILE
+def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
+            verify=True, compute_minimal=USE_MINIMAL_MODEL):
+    """
+    Builds the CurveDataExt object for the fibration.
+
+    If compute_minimal is True, it computes the minimal Weierstrass model and applies
+    the necessary transformations to the coordinate maps.
+
+    If compute_minimal is False, it uses the raw, non-minimal model directly from the
+    Jacobian, which is often faster for searching.
+    
+    If FINITE_FIELD is set, builds everything over GF(FINITE_FIELD) instead of QQ.
+    """
+    print("--- Entering buildcd ---")
+    
+    # Determine base field
+    # Determine base field and function field
+    if FINITE_FIELD:
+        base_field = GF(FINITE_FIELD)
+        print(f"Building over finite field GF({FINITE_FIELD})")
+        # Explicitly construct the function field over GF(p)
+        Pm_base = PolynomialRing(base_field, 'm')
+        Fm = FractionField(Pm_base)
+        m = Fm.gen()
+    else:
+        base_field = QQ
+        print("Building over QQ")
+        Fm = a4_raw.parent()
+        m = Fm.gen()
+
+    E_weier_raw = Jacobian(E_curve)
+    a4_raw = E_weier_raw.a4()
+    a6_raw = E_weier_raw.a6()
+    # Now coerce a4_raw and a6_raw into this field
+    a4_raw = Fm(a4_raw)
+    a6_raw = Fm(a6_raw)
+    
+    # Get the parent ring - over finite field or QQ
+    Fm = a4_raw.parent()
+    m = Fm.gen()
+    y = var('y'); x = var('x')
+
+    # Initialize variables
+    one_s, two_s, three_s = None, None, None
+    one, two, three = morph_triplet
+
+    if compute_minimal:
+        print("--- Computing Minimal Model ---")
+        a4_final, a6_final = a4_raw, a6_raw
+        phi_x_final = phi_x
+        blowup_factor = 0
+        blowdown_0 = 0
+
+        # Step 1: Handle poles at m=0 (blow-up)
+        v4 = min_order_in_m(a4_raw, m)
+        v6 = min_order_in_m(a6_raw, m)
+        if v4 < 0 or v6 < 0:
+            k_for_a4 = ceil(-v4 / 4)
+            k_for_a6 = ceil(-v6 / 6)
+            blowup_factor = int(max(k_for_a4, k_for_a6))
+            if blowup_factor > 0:
+                print(f"Applying blow-up with k={blowup_factor} to handle poles at m=0")
+                a4_final = a4_raw * m**(4 * blowup_factor)
+                a6_final = a6_raw * m**(6 * blowup_factor)
+                phi_x_final = phi_x / (m**(2 * blowup_factor))
+
+        # Step 2: Handle common zeros at m=0 (blow-down)
+        while True:
+            v4_0 = min_order_in_m(a4_final, m)
+            v6_0 = min_order_in_m(a6_final, m)
+            k0 = int(min(v4_0 // 4, v6_0 // 6)) if (v4_0 > 0 and v6_0 > 0) else 0
+
+            if k0 <= 0:
+                break
+            print(f"Applying blow-down with k={k0} to handle zeros at m=0")
+            a4_final = a4_final / (m**(4 * k0))
+            a6_final = a6_final / (m**(6 * k0))
+            phi_x_final = phi_x_final * (m**(2 * k0))
+            blowdown_0 += k0
+
+        # Build Weierstrass model over appropriate base field
+        if FINITE_FIELD:
+            # For finite fields, build curve over function field GF(p)(m)
+            E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
+        else:
+            E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
+
+        # Step 3: Apply net scaling transformation to morphisms
+        net_k = int(blowup_factor - blowdown_0)
+        x_morphism_scale = m**(2 * net_k)
+        y_morphism_scale = m**(3 * net_k)
+
+        one_s = MorphismWrapper(one, 1, x_morphism_scale, a4_final)
+        two_s = MorphismWrapper(two, 1, y_morphism_scale, a4_final)
+        three_s = MorphismWrapper(three, 1, 1, a4_final)
+
+    else:
+        print("--- Using non-minimal model, skipping all rescaling ---")
+        a4_final = a4_raw
+        a6_final = a6_raw
+        phi_x_final = phi_x
+        blowup_factor = 0
+        
+        if FINITE_FIELD:
+            E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
+        else:
+            E_weier_final = E_weier_raw
+
+        one_s = MorphismWrapper(one, 1, 1, a4_final)
+        two_s = MorphismWrapper(two, 1, 1, a4_final)
+        three_s = MorphismWrapper(three, 1, 1, a4_final)
+
+    # --- Handle SR coercion based on field ---
+    if FINITE_FIELD:
+        # Over finite fields, do NOT coerce to SR
+        SR_a4 = a4_final
+        SR_a6 = a6_final
+        SR_phi_x = phi_x_final
+        SR_m = m  # Keep as finite field generator
+    else:
+        # Over QQ, coerce to SR for symbolic substitution
+        SR_m = var('m')
+        try:
+            SR_a4 = SR(a4_final)
+            SR_a6 = SR(a6_final)
+            SR_phi_x = SR(phi_x_final)
+        except Exception:
+            raise AssertionError("buildcd: failed to coerce a4/a6/phi_x to SR; check types.")
+
+    # --- Common logic for both models ---
+
+    # Compute global bad primes
+    print("\n--- Identifying Globally Bad Primes ---")
+    class TempCD:
+        def __init__(self, a4, a6): 
+            self.a4, self.a6 = a4, a6
+    
+    temp_cd = TempCD(a4_final, a6_final)
+    
+    if FINITE_FIELD:
+        # In finite field mode, only the characteristic is bad
+        bad_primes = [FINITE_FIELD]
+        print(f"Finite field mode: characteristic {FINITE_FIELD} is the only bad prime")
+    else:
+        bad_primes = [p for p in PRIME_POOL if not is_good_prime_for_surface(temp_cd, p)]
+        print(f"Identified {len(bad_primes)} globally bad prime(s) from the pool: {sorted(bad_primes)}")
+
+    try:
+        if FINITE_FIELD:
+            E_rhs_final = E_rhs  # Keep original for finite field
+        else:
+            E_rhs_final = y**2 - x**3 - a4_final * x - a6_final
+    except Exception:
+        E_rhs_final = E_rhs
+
+    # Get singular fiber info for diagnostics
+    if FINITE_FIELD:
+        # Skip singular fiber analysis over finite fields (needs QQ)
+        singfibs = {'fibers': [], 'euler_characteristic': 0, 'sigma_sum': 0}
+        print("Skipping singular fiber analysis over finite field")
+    else:
+        singfibs = find_singular_fibers(a4=a4_final, a6=a6_final, verbose=True)
+
+    # --- Package and return the final data ---
+    cd = CurveDataExt(
+        E_curve=E_curve,
+        E_weier=E_weier_final,
+        E_rhs=E_rhs_final,
+        a4=a4_final,
+        a6=a6_final,
+        phi_x=phi_x_final,
+        quartic_rhs=quartic_rhs,
+        tate_exponent=0,
+        k_base_change=1,
+        bad_primes=bad_primes,
+        morphs=(one_s, two_s, three_s),
+        use_minimal=compute_minimal,
+        blowup_factor=int(blowup_factor),
+        singfibs=singfibs,
+        SR_a4=SR_a4,
+        SR_a6=SR_a6,
+        SR_phi_x=SR_phi_x,
+        SR_m=SR_m,
+        base_field=base_field if FINITE_FIELD else None
+    )
+
+    if not FINITE_FIELD:
+        cd = try_scale_out_power_of_two(cd)
+
+    print("--- Exiting buildcd ---")
+    if verify and DEBUG and not FINITE_FIELD:
+        validate_fibration_geometry(cd)
+        if cd.E_weier.discriminant().is_zero():
+            raise ValueError("buildcd: Resulting discriminant is identically zero.")
+    
+    return cd
+
+
+def compute_base_sections_m(cd, base_pts, tower=None):
+    """
+    Maps points from the hyperelliptic curve to sections on the Weierstrass fibration E_m.
+    Ensures that for index calculus, evaluation stays within GF(p)(m).
+    """
+    if not base_pts:
+        return []
+    one_use, two_use, three_use = cd.morphs
+
+    # In Finite Field mode, we must ensure the morphism polynomials are mapped to GF(p)(m)
+    if FINITE_FIELD is not None:
+        Fp = GF(FINITE_FIELD)
+        Pm_p = PolynomialRing(Fp, 'm')
+        Km_p = FractionField(Pm_p)
+        
+        # Helper to map QQ(m) polynomials to Fp(m) polynomials
+        def map_to_fp(poly):
+            new_parent = PolynomialRing(Km_p, poly.parent().variable_names())
+            d = poly.dict()
+            new_d = {}
+            for mon, coeff in d.items():
+                # coeff is in QQ(m), map num/den to Fp(m)
+                num_p = Pm_p(coeff.numerator())
+                den_p = Pm_p(coeff.denominator())
+                new_d[mon] = Km_p(num_p) / Km_p(den_p)
+            return new_parent(new_d)
+
+        # Extract the underlying polynomials from the MorphismWrappers
+        one_poly = one_use.callable_obj
+        two_poly = two_use.callable_obj
+        three_poly = three_use.callable_obj
+        
+        # Map them to Fp(m)
+        one_mapped = map_to_fp(one_poly)
+        two_mapped = map_to_fp(two_poly)
+        three_mapped = map_to_fp(three_poly)
+        
+        # Create new MorphismWrappers with the mapped polynomials
+        # Need to map the scaling factors too
+        m_new = Km_p.gen()
+        
+        def map_scale(scale_expr):
+            """Map a scaling expression from QQ(m) to Fp(m)"""
+            if scale_expr == 1:
+                return Km_p(1)
+            # scale_expr is likely a power of m
+            num = Pm_p(scale_expr.numerator())
+            den = Pm_p(scale_expr.denominator())
+            return Km_p(num) / Km_p(den)
+        
+        one_scale = map_scale(one_use.scale)
+        two_scale = map_scale(two_use.scale)
+        three_scale = map_scale(three_use.scale)
+        
+        # Create new wrappers over Fp(m)
+        one_use = MorphismWrapper(one_mapped, one_use.k, one_scale, Pm_p(cd.a4))
+        two_use = MorphismWrapper(two_mapped, two_use.k, two_scale, Pm_p(cd.a4))
+        three_use = MorphismWrapper(three_mapped, three_use.k, three_scale, Pm_p(cd.a4))
+        
+        # Ensure the Weierstrass model itself is over the finite field
+        if hasattr(cd, 'E_weier') and cd.E_weier.base_ring() != Km_p:
+            cd.E_weier = cd.E_weier.change_ring(Km_p)
+
+    ret = []
+    seen = set()
+
+    for pt in base_pts:
+        xi_raw, yi_raw = pt[0], pt[1]
+        
+        # In index calculus mode, we treat these as native elements of Fp
+        if FINITE_FIELD is not None:
+            Fp = GF(FINITE_FIELD)
+            xi = Fp(xi_raw)
+            yi = Fp(yi_raw)
+        else:
+            xi, yi = xi_raw, yi_raw
+
+        if (xi, yi) in seen:
+            continue
+
+        try:
+            # Now evaluation happens entirely within Fp(m)
+            X_aff = one_use(x=xi, y=yi)
+            Y_aff = two_use(x=xi, y=yi)
+            Z_aff = three_use(x=xi, y=yi)
+            
+            P = cd.E_weier([X_aff, Y_aff, Z_aff])
+            ret.append(P)
+            seen.add((xi, yi))
+        except Exception as e:
+            raise RuntimeError(f"Morphism evaluation failed for point ({xi}, {yi}) mod {FINITE_FIELD}: {e}")
+
+    return ret
+
+
+def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
+    """
+    Compute phi_x = X_sub / Z_sub without global simplification.
+    Supports QQ/SR mode and finite-field mode (GF(p)).
+
+    This version fixes the coercion errors by substituting x first,
+    coercing into the fraction field in 'm', then handling sqrt / rationalization.
+    """
+    ff_mode = FINITE_FIELD is not None
+
+    if ff_mode:
+        F = GF(FINITE_FIELD)
+        PR_m = PolynomialRing(F, 'm')
+        K = PR_m.fraction_field()
+
+        # --- Coerce x_coord_func into K (or accept it if already a K-like element) ---
+        try:
+            xK = K(x_coord_func)
+        except Exception:
+            # If x_coord_func is e.g. a PR_m element or a fraction-field element, try a few fallbacks:
+            try:
+                # if it's already a polynomial/rational function in m (PR_m or its fraction field),
+                # coercion via the element constructor (without calling K(...)) often works:
+                if hasattr(x_coord_func, 'parent') and x_coord_func.parent() is PR_m:
+                    xK = K(x_coord_func)   # convert polynomial -> fraction field
+                else:
+                    # final fallback: try SR-style string coercion (may succeed)
+                    xK = K( QQ(str(x_coord_func)) )  # may still fail; keep inside try/except
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: cannot coerce x_coord_func to fraction field in m: {e}")
+
+        # --- Substitute x := xK into quartic_rhs so the result is an element in K (or PR_m) ---
+        try:
+            # Try the common .subs API first
+            quartic_at_x = quartic_rhs.subs(x=xK)
+        except Exception:
+            try:
+                quartic_at_x = quartic_rhs(x=xK)   # other possible call form
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to substitute x into quartic_rhs: {e}")
+
+        # Now coerce quartic_at_x into the fraction field K (it should be a polynomial/rational function in m)
+        try:
+            y_poly = K(quartric := quartic_at_x)
+        except Exception:
+            # If direct coercion fails, try forcing via PR_m then K
+            try:
+                y_poly = PR_m(quartic_at_x)
+                y_poly = K(y_poly)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to coerce quartic_at_x into fraction field K: {e}")
+
+        # --- Now attempt to get y_val_sqrt inside K when possible ---
+        y_val_sqrt = None
+        try:
+            # constant-case (very cheap)
+            if y_poly.is_constant():
+                # constant in K: compute field sqrt in F (if possible)
+                const = F(int(y_poly))
+                try:
+                    y_val_sqrt = const.sqrt()
+                except Exception:
+                    # no sqrt in base field -> leave None (we'll try rationalization)
+                    y_val_sqrt = None
+            else:
+                # non-constant rational function in m: check if perfect square in K
+                if y_poly.is_square():
+                    y_val_sqrt = y_poly.sqrt()
+                else:
+                    y_val_sqrt = None
+        except Exception:
+            # conservative fallback
+            y_val_sqrt = None
+
+        # --- If we found a sqrt inside K, just substitute and return phi_x ---
+        if y_val_sqrt is not None:
+            try:
+                Z_sub = three.subs(x=xK, y=y_val_sqrt)
+                X_sub = one.subs(x=xK, y=y_val_sqrt)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to substitute into X/Z with y_val_sqrt: {e}")
+
+            if Z_sub == 0:
+                return "INF"
+            return X_sub / Z_sub
+
+        # --- Otherwise, attempt to rationalize phi = X_sub/Z_sub without constructing sqrt ---
+        # This tries to write X_sub and Z_sub as a0 + a1*y and b0 + b1*y (reduce y^2 -> y_poly),
+        # then compute phi = (N0 + N1*y) / D0 where D0 in K; if N1 == 0, phi is in K and we can return it.
+        try:
+            # create a polynomial ring in a fresh 'Y' over K to represent polynomials in y
+            PR_Y = PolynomialRing(K, 'Y')
+            Y = PR_Y.gen()
+
+            # Evaluate X and Z but keep y symbolic (substitute y -> Y)
+            X_as_poly = PR_Y(one.subs(x=xK, y=Y))
+            Z_as_poly = PR_Y(three.subs(x=xK, y=Y))
+
+            # reduce any powers Y^n with n>=2 using relation Y^2 = y_poly
+            # we only need coefficients of Y^0 and Y^1 because higher powers reduce to a0 + a1*Y
+            a0 = X_as_poly.coefficient(Y, 0)
+            a1 = X_as_poly.coefficient(Y, 1)
+            b0 = Z_as_poly.coefficient(Y, 0)
+            b1 = Z_as_poly.coefficient(Y, 1)
+
+            # Rationalize: multiply by conjugate (b0 - b1*Y) and use Y^2 = y_poly
+            # numerator = (a0 + a1 Y)*(b0 - b1 Y) = a0*b0 - a0*b1 Y + a1*b0 Y - a1*b1 Y^2
+            # replace Y^2 with y_poly (which lies in K)
+            numerator_0 = a0 * b0 - a1 * b1 * y_poly   # coefficient of 1
+            numerator_1 = (a1 * b0 - a0 * b1)          # coefficient of Y
+            denominator = b0 * b0 - b1 * b1 * y_poly   # scalar in K
+
+            # if denominator == 0 -> Z vanishes after rationalizing; treat as infinity/singular
+            if denominator == 0:
+                return "INF"
+
+            # If numerator_1 == 0 then numerator is in K and phi is in K:
+            if numerator_1 == 0:
+                phiK = K(numerator_0) / K(denominator)
+                return phiK
+
+            # Otherwise phi truly needs a quadratic extension; fall through to extension branch.
+        except Exception:
+            # If anything here fails, we'll attempt the extension approach below.
+            pass
+
+        # --- Last resort: construct quadratic extension K[y] / (Y^2 - y_poly) so sqrt exists ---
+        try:
+            # build polynomial T^2 - y_poly in PR_m[T] (T over K)
+            T = PolynomialRing(K, 'T').gen()
+            minimal = T**2 - K(y_poly)
+            L = K.extension(minimal, 'Y')   # quadratic extension where Y^2 = y_poly
+            Y_L = L.gen()
+
+            # substitute x=xK and y=Y_L into one, three (coerce into L)
+            X_sub_L = L(one.subs(x=xK, y=Y_L))
+            Z_sub_L = L(three.subs(x=xK, y=Y_L))
+
+            if Z_sub_L == 0:
+                return "INF"
+
+            phiL = X_sub_L / Z_sub_L
+
+            # if phiL actually lies in the base K, try to coerce back:
+            try:
+                # attempt to coerce to K (this succeeds iff phiL is Galois-fixed)
+                phi_in_K = K(phiL)
+                return phi_in_K
+            except Exception:
+                # return phi in the quadratic extension (caller must handle L-elements)
+                return phiL
+
+        except Exception as e:
+            raise RuntimeError(f"get_phi_x: failed to construct quadratic extension or compute phi: {e}")
+
+    else:
+        # Non-finite-field (QQ/SR) behaviour unchanged
+        y_val_sqrt = sqrt(quartic_rhs)
+        Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
+        X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
+
+        if Z_sub == 0:
+            return "INF"
+
+        return X_sub / Z_sub

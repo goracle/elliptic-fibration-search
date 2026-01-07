@@ -55,13 +55,13 @@ def _pick_field(step, names):
                 try:
                     return getattr(step, n)
                 except Exception:
-                    raise
+                    pass
         # sequence fallback common positions
         if hasattr(step, '__len__') and not hasattr(step, 'get'):
             if len(step) > 0:
                 return step[0]
     except Exception:
-        raise
+        pass
     return None
 
 def normalize_step(step):
@@ -73,6 +73,62 @@ def normalize_step(step):
     return {'fx': fx, 'r_expr': r_expr, 'param': param,
             'double_root_x': double_root_x, 'raw': step}
 
+def check_fibration_step(step, prev_fx=None, layer_index=None):
+    L = "Layer[%s]" % (layer_index if layer_index is not None else "unknown")
+    s = normalize_step(step)
+    fx = s['fx']
+    assert fx is not None, L + ": missing f_i in step. repr(step)=" + repr(s['raw'])
+    r_expr = s['r_expr']
+    x = var('x')
+    m = var('m')
+
+    # r_expr sanity
+    if r_expr is not None:
+        rv = [str(v) for v in SR(r_expr).variables()]
+        assert 'x' not in rv, L + ": r_expr depends on x. r_expr=" + repr(r_expr)
+        if len(rv) > 0:
+            assert 'm' in rv, L + ": r_expr vars " + repr(rv) + " missing 'm'"
+
+    # degree drop
+    if prev_fx is not None:
+        try:
+            dprev = SR(prev_fx).degree(x)
+        except Exception:
+            dprev = None
+        try:
+            dcur = SR(fx).degree(x)
+        except Exception:
+            dcur = None
+        if dprev is not None and dcur is not None:
+            assert dcur <= dprev - 1, (
+                L + ": degree drop failed prev=%s cur=%s" %
+                (repr(dprev), repr(dcur))
+            )
+
+    # optional double root check
+    dr = s['double_root_x']
+    if dr is not None:
+        fx_sr = SR(fx)
+        #dfx = fx_sr.derivative(x)
+        dfx = kth_derivative(fx_sr, 1, x)
+        v1 = fx_sr.subs({x: dr})
+        #v2 = dfx.subs({x: dr})
+        v2 = dfx.subs({x: dr})
+        assert SR(v1).simplify() == 0, L + ": x0 not root. fx(x0)=%s" % repr(v1)
+        assert SR(v2).simplify() == 0, L + ": x0 not double root. fx'(x0)=%s" % repr(v2)
+
+    return True
+
+def verify_tower_consistency(tower):
+    # All steps should use param m consistently
+    for i, step in enumerate(tower):
+        s = normalize_step(step)
+        r = s['r_expr']
+        if r is not None:
+            rv = [str(v) for v in SR(r).variables()]
+            assert 'x' not in rv, "verify_tower_consistency: step[%d] r_expr depends on x: %s" % (i, repr(r))
+            assert 'm' in rv or rv == [], "verify_tower_consistency: step[%d] r_expr vars %s missing 'm'" % (i, rv)
+    return True
 
 # Helpers for robust assertions in tower.sage
 
@@ -92,7 +148,7 @@ def ensure_symbol(obj, name_hint):
         _ = SR(obj)
         # if obj is a string, SR('m') is not what we want — make explicit var
     except Exception:
-        raise
+        pass
 
     if obj is None:
         raise AssertionError("ensure_symbol: received None for symbol (hint: %s)" % name_hint)
@@ -105,7 +161,7 @@ def ensure_symbol(obj, name_hint):
         if nm:
             return var(str(nm))
     except Exception:
-        raise
+        pass
 
     # If it's already a SymbolicVariable-like (e.g., m from var('m')), ensure SR.var(...)
     try:
@@ -135,9 +191,7 @@ def expr_variables(expr):
         except Exception:
             # last resort: text parsing (not ideal but won't silently pass)
             txt = str(expr)
-            raise
             return set()
-        raise
 
 
 # -----------------------
@@ -168,10 +222,8 @@ def pick_solution_by_degree(solutions, target_var, prefer_max_degree=True):
                 except Exception:
                     # fallback: count appearance
                     deg = max(deg, str(sval).count(str(v)))
-                    raise
         except Exception:
             deg = 0
-            raise
         scored.append((deg, sol))
     # pick solution by degree
     if prefer_max_degree:
@@ -338,7 +390,6 @@ def _verify_fibration_step_properties(fx, r_expr, param):
         m = var(str(param))
     except Exception:
         m = var('m')
-        raise
 
     fx_sr = SR(fx)
 
@@ -461,7 +512,7 @@ def jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0):
                             new_free_vars = val_vars - unknown_names - {'m'}
                             if new_free_vars:
                                 free_params.append(f"{str(u)}→{','.join(new_free_vars)}")
-                        except Exception:
+                        except:
                             raise
 
                 
@@ -509,7 +560,6 @@ def jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0):
                 'obstructed': True,
                 'reason': str(e)
             })
-            raise
     
     print("\n" + "="*70)
     print("TOWER JET SUMMARY")
@@ -557,7 +607,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
     except TypeError as e:
         print(f" [JET] Substitution failed: {e}")
         print(f" [JET] F_sr variables: {proto.variables()}")
-        raise
         return
 
     # Expand the substituted expression
@@ -570,7 +619,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
         c2 = (expr.diff(t, 2).subs({t: 0}) / 2).simplify()
     except Exception as e:
         print(f" [JET] Taylor expansion failed: {e}")
-        raise
         return
 
     eqs = []
@@ -589,7 +637,6 @@ def jet_check_safe(F_sr, pts_xy, m0=0):
         sol = solve(eqs, [a2, b1, b2], solution_dict=True)
     except Exception as e:
         print(f" [JET] solve failed: {e}")
-        raise
         return
 
     if not sol:
@@ -1017,6 +1064,113 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
                 )
 
 
+@PROFILE
+def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
+    """
+    Iterates through the fibration tower construction process.
+    Now uses a "Best-of-N" strategy to minimize coefficient height and stabilize Capacity.
+    """
+    tower = []
+    
+    poly_x_gen = fx_PR.parent().gen()
+    x = SR.var(str(poly_x_gen))
+    f0 = SR(fx_PR)
+    current_fx = SR(fx_PR)
+    m_parameter = None
+
+    # --- CONFIG: STABILITY SETTINGS ---
+    # Number of random geometries to try per step. 
+    # Higher = more stable capacity, slightly slower build.
+    CANDIDATES_PER_STEP = 10
+    # ----------------------------------
+
+    for step in range(max_steps):
+        n = int(current_fx.degree(x))
+        g2 = len(pts_xy)
+        if verbose:
+            print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
+
+        best_step_result = None
+        best_score = float('inf')
+        
+        #pts_x_subset = [p[0] for p in pts_xy[:g2]]
+        # pass either x-coordinates (QQ mode) or full (x,y) pairs (finite-field mode)
+        if FINITE_FIELD is None:
+            pts_x_subset = [p[0] for p in pts_xy[:g2]]
+        else:
+            # in finite-field runs, we expect the caller to provide (x,y) pairs
+            # so pass the full tuples to downstream builders
+            pts_x_subset = pts_xy[:g2]
+
+
+        # Try multiple seeds to find the "cleanest" geometry
+        for attempt in range(CANDIDATES_PER_STEP):
+            try:
+                # Diverge the seed for each attempt
+                # We use a deterministic offset so the "best" result is reproducible
+                attempt_seed = seed_int * 1000 + step * 100 + attempt
+                
+                step_result = build_one_fibration_step(
+                    current_fx, f0,
+                    pts_x_subset,
+                    g2,
+                    seed_int=attempt_seed,
+                    verbose=False, # Silence inner prints
+                    parameter_m=m_parameter,
+                    use_anchor_points=use_anchor_points
+                )
+
+                # Validate
+                check_fibration_step(step_result, prev_fx=current_fx)
+                
+                # Verify properties (derivs, etc)
+                temp_m = m_parameter
+                if temp_m is None and has_free_variables(step_result['r_expr']):
+                     temp_m = list(step_result['r_expr'].variables())[0]
+                
+                _verify_fibration_step_properties(current_fx, step_result['r_expr'], temp_m)
+
+                # Score it
+                score = measure_poly_complexity(step_result['f_i'])
+                
+                if score < best_score:
+                    best_score = score
+                    best_step_result = step_result
+                    # If we set parameter_m for the first time, keep it consistent
+                    if m_parameter is None:
+                        m_parameter = temp_m
+
+            except RuntimeError:
+                raise
+                continue # Skip failed attempts
+        
+        if best_step_result is None:
+            raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts")
+
+        if verbose:
+            print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
+
+        tower.append(best_step_result)
+        
+        # Create the full curve equation y^2 = f_i(x,m)
+        y = SR.var('y')
+        full_equation = y**2 - best_step_result['f_i']
+        #jet_check_safe(full_equation, pts_xy) # only for debugging
+
+        current_fx = best_step_result['f_i']
+
+    verify_tower_consistency(tower)
+    verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1/2)]) 
+    
+    if False: # only for debugging
+        print("\n" + "="*70)
+        print("DEEP JET ANALYSIS ACROSS TOWER")
+        print("="*70)
+        jet_results = jet_check_tower_deep(tower, pts_xy, max_order=5, m0=0)
+    
+    return tower
+
+
 # Replace measure_poly_complexity with this more robust geometry scorer.
 # Uses Sage objects but written in plain Python style.
 
@@ -1034,6 +1188,260 @@ from sage.rings.rational_field import QQ
 
 
 from sage.all import Integer, PolynomialRing, GF, inverse_mod, ZZ
+
+def measure_poly_complexity(expr_sr):
+    """
+    Improved scoring: lower is better. Raises exceptions on unexpected failure.
+    Input: expr_sr is an SR polynomial-like object representing f_i(x,m).
+    This version avoids heavy QQ(...) conversions in the inner loops and
+    reuses per-prime rings. If a coefficient cannot be cheaply reduced to
+    numerator/denominator integers we treat that (p,m) check as failing
+    (counts as a bad prime / collision as configured).
+    """
+    if expr_sr is None:
+        raise ValueError("measure_poly_complexity: expr_sr is None")
+
+    fx_sr = SR(expr_sr)
+    x_var = SR.var('x')
+
+    # 1. Coefficient extraction (best-effort, fall back to whole expr)
+    try:
+        raw_coeffs = fx_sr.coefficients(x_var)  # list of (coeff_expr, exponent)
+    except Exception as e:
+        # If coefficient extraction itself fails, escalate (this should be rare).
+        raise RuntimeError(f"Failed to extract coefficients: {e}")
+
+    if not raw_coeffs:
+        # treat as constant
+        raw_coeffs = [(fx_sr, 0)]
+
+    # Helper: cheap conversion of a coefficient expression (after m-substitution)
+    def _cheap_num_den_from_sr(val_sr):
+        """
+        Try to obtain (num, den) as plain Python ints from val_sr without triggering
+        heavy symbolic evaluation. Returns (num, den) or raises ValueError if not possible.
+        """
+        # Fast path: already a Sage Integer or Python int
+        if isinstance(val_sr, Integer) or isinstance(val_sr, int):
+            return int(val_sr), 1
+
+        # Some SR results expose numerator()/denominator() cheaply
+        try:
+            num_obj = val_sr.numerator()
+            den_obj = val_sr.denominator()
+            # if these are Sage ints or Python ints, convert without QQ()
+            if (isinstance(num_obj, Integer) or isinstance(num_obj, int)) and \
+               (isinstance(den_obj, Integer) or isinstance(den_obj, int)):
+                return int(num_obj), int(den_obj)
+        except Exception:
+            # numerator/denominator might call Maxima for complicated SR; bail out
+            raise ValueError("Cannot cheaply extract numerator/denominator")
+
+        # Last-chance cheap rationalization: some SR objects support .is_rational() -> then cast
+        try:
+            # do not use QQ(val_sr) here (heavy). Instead try int() promotion if it is exact
+            if hasattr(val_sr, 'is_integer') and val_sr.is_integer():
+                return int(val_sr), 1
+        except Exception:
+            pass
+
+        raise ValueError("Cannot cheaply extract numerator/denominator (fallback)")
+
+    # Helper: produce modular integer 0..p-1 for a coefficient after substituting m
+    def _coeff_mod_p(c_expr, m_var, mval, p):
+        """
+        Return integer in [0, p-1] representing c_expr(m:=mval) mod p.
+        If the denominator is divisible by p (bad prime), raise ZeroDivisionError.
+        If coefficient cannot be cheaply reduced, raise ValueError.
+        """
+        # Substitute m value if present; keep this substitution minimal
+        if m_var is not None:
+            try:
+                val_sr = c_expr.subs({m_var: Integer(mval)})
+            except Exception:
+                # heavy substitution triggered; treat as non-evaluable cheaply
+                raise ValueError("Substitution too heavy")
+        else:
+            val_sr = c_expr
+
+        # Try to get numerator/denominator without QQ(...)
+        num, den = _cheap_num_den_from_sr(val_sr)
+
+        den_mod_p = int(den) % p
+        if den_mod_p == 0:
+            # denominator zero mod p => bad prime for this coefficient
+            raise ZeroDivisionError("denominator divisible by p")
+
+        # compute modular integer without constructing GF(p) element
+        inv = inverse_mod(den_mod_p, p)
+        val_mod = (int(num) % p) * inv % p
+        return int(val_mod)
+
+    # 1. Height score (keeps your original heuristic but cheaper on symbolic coeffs)
+    height_score = 0.0
+    for c_expr, _ in raw_coeffs:
+        try:
+            # cheap numeric check first
+            if isinstance(c_expr, (Integer, int)):
+                h = abs(int(c_expr))
+                height_score += _int_log(h + 1)
+                continue
+            # try to extract numerator/denominator cheaply
+            num, den = _cheap_num_den_from_sr(c_expr)
+            h = max(abs(int(num)), abs(int(den)))
+            height_score += _int_log(h + 1)
+        except ValueError:
+            # symbolic / complex coefficient: use operand count proxy
+            try:
+                n = c_expr.nops()
+            except Exception:
+                n = 1
+            height_score += 1.0 + 0.1 * n
+        except Exception as e:
+            # unexpected problem: escalate
+            raise RuntimeError(f"Unexpected error when computing height score: {e}")
+
+    # 2. Degree info
+    try:
+        vars_list = fx_sr.variables()
+        m_var = None
+        for v in vars_list:
+            if str(v) == 'm':
+                m_var = v
+                break
+
+        try:
+            deg_x = int(fx_sr.degree(x_var))
+        except Exception:
+            deg_x = 0
+
+        if m_var is not None:
+            try:
+                deg_m = int(fx_sr.degree(m_var))
+            except Exception:
+                deg_m = 0
+        else:
+            deg_m = 0
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract degree info: {e}")
+
+    degree_penalty = _int_log(1 + deg_x) * 0.7 + _int_log(1 + deg_m) * 0.5
+
+    # 3. Discriminant / size proxy (cheap)
+    try:
+        disc_score = 0.1 * fx_sr.nops()
+    except Exception:
+        disc_score = 1.0
+
+    # 4. Bad prime / collision checks (optimized)
+    bad_prime_count = 0
+    collision_count = 0
+
+    # Pre-generate m samples once
+    sample_m_list = list(_SAMPLE_M_VALUES) + [random.randint(-17, 17) for _ in range(_NUM_RANDOM_M)]
+
+    # Cache PolynomialRing per p
+    ring_cache = {}
+
+    # For each small prime -- try a limited number of (m) checks; cheap-fail if coefficients cannot be reduced
+    for p in _SMALL_PRIMES:
+        try:
+            if p not in ring_cache:
+                GFp = GF(p)
+                R_p = PolynomialRing(GFp, 'x')
+                ring_cache[p] = (GFp, R_p)
+            else:
+                GFp, R_p = ring_cache[p]
+        except Exception as e:
+            # If a prime fails to build (shouldn't happen), count as bad and continue
+            bad_prime_count += 1
+            continue
+
+        p_bad = False
+        collision_for_this_p = False
+
+        # For each sampled m value, try to build fast integer-list coefficients mod p
+        for mval in sample_m_list:
+            # Build dense coefficient list as integers modulo p (fast Python ints)
+            try:
+                # determine maximum exponent to allocate list
+                max_expon = max(int(exp) for (_, exp) in raw_coeffs)
+            except Exception:
+                max_expon = 0
+
+            # initialize dense list of zeros
+            coeffs_modp = [0] * (max_expon + 1)
+            any_nonzero = False
+
+            try:
+                for c_expr, expon in raw_coeffs:
+                    try:
+                        val_mod = _coeff_mod_p(c_expr, m_var, mval, p)
+                    except ZeroDivisionError:
+                        # denominator divisible by p => prime is bad for this polynomial
+                        p_bad = True
+                        break
+                    except ValueError:
+                        # this coefficient couldn't be cheaply reduced -> treat this (p,m) check as uninterpretable
+                        # Mark prime as bad-ish and break (cheap fallback). This avoids heavy QQ calls.
+                        p_bad = True
+                        break
+
+                    if val_mod != 0:
+                        any_nonzero = True
+                        coeffs_modp[int(expon)] = int(val_mod)
+
+                if p_bad:
+                    break  # stop m-loop for this prime
+
+                if not any_nonzero:
+                    # zero polynomial mod p for this mval -> treat as collision/bad
+                    collision_for_this_p = True
+                    break
+
+                # Construct polynomial in GF(p) ring (we pass list of coefficients)
+                poly_x = R_p(coeffs_modp)
+
+                # If polynomial degree 0 or negative, skip
+                if poly_x.degree() <= 0:
+                    # no nontrivial polynomial -> treat as no collision for this mval and continue
+                    continue
+
+                # gcd with derivative: use ring's gcd (cheap)
+                try:
+                    gcd_poly = poly_x.gcd(poly_x.derivative())
+                    if gcd_poly.degree() > 0:
+                        collision_for_this_p = True
+                        break
+                except Exception as e:
+                    # if gcd computation fails unexpectedly, mark prime as bad and continue
+                    p_bad = True
+                    break
+
+            except Exception as e:
+                # Any unexpected problem in inner loop: escalate
+                raise RuntimeError(f"Unexpected error during collision check for p={p}, m={mval}: {e}")
+
+        if p_bad:
+            bad_prime_count += 1
+            continue
+
+        if collision_for_this_p:
+            collision_count += 1
+            # continue to next prime
+
+    max_checks = len(_SMALL_PRIMES) * max(1, len(sample_m_list))
+    collision_frac = float(collision_count) / max(1, max_checks)
+
+    total_score = (
+        _WEIGHT_HEIGHT * height_score +
+        _WEIGHT_DEG * degree_penalty +
+        _WEIGHT_DISC * disc_score +
+        _WEIGHT_BADPRIME * bad_prime_count +
+        _WEIGHT_COLLISION * collision_frac * 10.0
+    )
+
+    return float(total_score)
 
 
 # Compute k-th Hasse derivative of an SR / polynomial-like `expr` wrt symbol `x_sym`.
@@ -1102,16 +1510,437 @@ def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_const
             else:
                 # Fallback to symbolic if p-adic lifting or complex radicals are present
                 solved_coeffs.append(v)
-            raise
+            rais
     
     try:
         Qx = R(solved_coeffs)
     except (TypeError, ValueError):
         # Fallback to Symbolic Ring if the target field is too restrictive for the solution
         Qx = sum(SR(solved_coeffs[i]) * x_sym**i for i in range(len(solved_coeffs)))
-        raise
 
     return Qx, sol
+
+
+@PROFILE
+def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
+                             verbose=False, forced_tangency_seq=None,
+                             forced_Qpoly=None, force_Q_constraint_indices=None,
+                             parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
+    """
+    Modified version: Returns polynomials over the correct base field (GF(p) or QQ).
+    
+    When FINITE_FIELD is set:
+    - Constructs all polynomials over GF(p)(m) instead of QQ(m)
+    - Returns field-native objects, not symbolic expressions
+    
+    When FINITE_FIELD is None:
+    - Uses QQ(m) as before
+    - Returns symbolic expressions for backward compatibility
+    """
+    random.seed(int(seed_int))
+    
+    # ========================================================================
+    # STEP 1: Determine base field and set up polynomial rings
+    # ========================================================================
+    if FINITE_FIELD is not None:
+        base_field = GF(FINITE_FIELD)
+        PR_m = PolynomialRing(base_field, 'm')
+        m_poly = PR_m.gen()
+        Fm = PR_m.fraction_field()
+        
+        # Create polynomial ring for x over Fm
+        R_xm = PolynomialRing(Fm, 'x')
+        x_var = R_xm.gen()
+        
+        # We'll still use SR for intermediate symbolic computations,
+        # but will convert to field-native at the end
+        xSR = SR.var('x')
+        m_sym = SR.var('m')
+        
+        if verbose:
+            print(f"[build_step] Working over GF({FINITE_FIELD})(m)")
+    else:
+        base_field = QQ
+        PR_m = PolynomialRing(QQ, 'm')
+        m_poly = PR_m.gen()
+        Fm = PR_m.fraction_field()
+        
+        R_xm = PolynomialRing(Fm, 'x')
+        x_var = R_xm.gen()
+        
+        xSR = SR.var('x')
+        m_sym = SR.var('m')
+        
+        if verbose:
+            print("[build_step] Working over QQ(m)")
+    
+    # ========================================================================
+    # STEP 2: Process input points and determine degrees
+    # ========================================================================
+    n = int(fx_SR.degree(xSR))
+    
+    # Handle finite field mode where pts_x might be (x,y) pairs
+    if FINITE_FIELD is not None:
+        # In FF mode, we expect (x,y) pairs already in GF(p)
+        xs_chosen = []
+        for item in pts_x:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                xs_chosen.append(base_field(item[0]))
+            else:
+                xs_chosen.append(base_field(item))
+    else:
+        # QQ mode: just x-coordinates
+        xs_chosen = [QQ(xv) for xv in pts_x]
+    
+    if len(xs_chosen) == 0:
+        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one point.")
+    
+    x1 = xs_chosen[0]
+    
+    # Degree drop constraint
+    max_degQ = (n - 1) // 2
+    initial_degQ = choose_degQ(n)
+    degQ = min(initial_degQ, max_degQ)
+    
+    if forced_Qpoly is not None:
+        try:
+            forced_Q_SR = SR(forced_Qpoly)
+            forced_deg = int(forced_Q_SR.degree(xSR))
+        except Exception:
+            try:
+                Rtmp = PolynomialRing(base_field, str(xSR))
+                forced_deg = int(Rtmp(forced_Qpoly).degree())
+            except Exception:
+                raise RuntimeError("Could not determine degree of forced_Qpoly")
+        if forced_deg > max_degQ:
+            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
+        degQ = forced_deg
+    
+    # ========================================================================
+    # STEP 3: Build Q polynomial (over correct field)
+    # ========================================================================
+    if forced_Qpoly is not None:
+        try:
+            R_field = PolynomialRing(base_field, str(xSR))
+            Qpoly_field = R_field(forced_Qpoly)
+        except Exception:
+            Qpoly_field = SR(forced_Qpoly)
+    else:
+        # Build base points for interpolation
+        if FINITE_FIELD is not None:
+            # Use the (x,y) pairs directly
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for item in pts_x:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    xv, yv = item
+                    chosen_pts_xy.append((base_field(xv), base_field(yv)))
+                else:
+                    raise RuntimeError("Finite-field mode requires (x,y) pairs in pts_x")
+        else:
+            # QQ mode: compute y from f0
+            chosen_pts_xy = []
+            f0_SR = SR(f0)
+            for xv in xs_chosen:
+                y_val_expr = f0_SR.subs({xSR: SR(xv)})
+                try:
+                    yi = sqrt(QQ(y_val_expr))
+                except Exception:
+                    yi = SR(sqrt(y_val_expr))
+                chosen_pts_xy.append((QQ(xv), yi))
+        
+        # Use anchor points or tangency
+        if use_anchor_points:
+            total_needed = degQ + 1
+            base_pts_count = 1
+            remaining_dof = total_needed - base_pts_count
+            num_anchors_needed = min(NUM_ANCHOR_POINTS, remaining_dof)
+            
+            # Generate anchor points
+            if FINITE_FIELD is not None:
+                # For FF mode, generate random points on the curve
+                anchor_pts = []
+                for _ in range(num_anchors_needed):
+                    # Simple random point generation (you may want something smarter)
+                    x_anchor = base_field.random_element()
+                    y_val = f0_SR.subs({xSR: x_anchor})
+                    try:
+                        y_anchor = base_field(y_val).sqrt()
+                        anchor_pts.append((x_anchor, y_anchor))
+                    except:
+                        # Try again with different x
+                        continue
+                
+                if len(anchor_pts) < num_anchors_needed:
+                    raise RuntimeError(f"Could not generate {num_anchors_needed} anchor points in GF({FINITE_FIELD})")
+            else:
+                # QQ mode: use existing generator
+                base_x_coords = [QQ(xv) for xv in xs_chosen]
+                anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=base_x_coords)
+            
+            if verbose:
+                print(f"[ANCHOR MODE] Using {len(anchor_pts)} anchor points: {anchor_pts}")
+            
+            num_tangency_needed = remaining_dof - num_anchors_needed
+            
+            if num_tangency_needed == 0:
+                # Pure anchor mode
+                Qpoly_field = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
+            else:
+                raise RuntimeError("Hybrid anchor+tangency mode not yet implemented.")
+        else:
+            # Original tangency-based mode
+            Qpoly_field = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR,
+                                                seed_int=seed_int,
+                                                force_constraint_indices=force_Q_constraint_indices)
+    
+    # Convert Q to symbolic for intermediate computations
+    #Q_SR = SR(Qpoly_field)
+    # Convert Q to symbolic for intermediate computations.
+    # In FINITE_FIELD mode we may get a GF(p) polynomial; SR(...) on that
+    # raises a TypeError. Try SR(...) and fall back to constructing an
+    # SR polynomial from integer representatives of the coefficients.
+    if FINITE_FIELD is None:
+        Q_SR = SR(Qpoly_field)
+    else:
+        try:
+            # preferred: if Qpoly_field is coercible to SR this will succeed
+            Q_SR = SR(Qpoly_field)
+        except TypeError:
+            # Fallback: extract coefficients and build an SR polynomial from plain ints.
+            # This avoids feeding GF(p) objects directly to the symbolic ring.
+            try:
+                coeffs = list(Qpoly_field.list())  # coefficients from deg 0 upward
+            except Exception:
+                # If Qpoly_field isn't a FLINT polynomial object for some reason,
+                # try iterating degrees.
+                coeffs = [Qpoly_field.coefficient(i) for i in range(Qpoly_field.degree() + 1)]
+
+            # convert coefficients to plain Python ints (safe for SR)
+            coeffs_int = [int(c) for c in coeffs]
+
+            # build an SR polynomial with integer coefficients
+            Q_SR = sum(SR(coeffs_int[i]) * xSR**i for i in range(len(coeffs_int)))
+
+
+    
+    # ========================================================================
+    # STEP 4: Build fibration equation symbolically (for solving)
+    # ========================================================================
+    prod1 = poly_prod_numeric(xs_chosen, xSR)
+    deg_prod = int(prod1.degree(xSR))
+    rest_deg = int(n - 1 - deg_prod)
+    
+    if rest_deg < 0:
+        raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
+    
+    rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
+    rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
+    rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
+    
+    fibration_SR = (SR(Q_SR)**2).expand() + (SR(prod1) * rest_poly_SR).expand()
+    diff_poly = (SR(fx_SR) - fibration_SR).expand()
+    
+    # ========================================================================
+    # STEP 5: Set up root constraint and solve
+    # ========================================================================
+    if parameter_m is None:
+        m = SR.var('m')
+    else:
+        m = SR(parameter_m)
+    
+    r_expr = SR(x1) - m
+    
+    eqs = []
+    # 1. Root condition: f(r) = f0(r)
+    eqs.append(diff_poly.subs({xSR: r_expr}))
+    # 2. Derivative condition at r
+    eqs.append(kth_derivative(diff_poly, 1, xSR).subs({xSR: r_expr}))
+    
+    unknowns = rest_coeff_syms[:]
+    
+    # Tangency equations
+    num_tangency_eqs = len(unknowns) - 2 - 1 if use_anchor_points else len(unknowns) - 2
+    
+    if num_tangency_eqs < 0 or not use_anchor_points:
+        if use_anchor_points:
+            print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
+        num_tangency_eqs = len(unknowns) - 2
+        use_mixing = False
+    else:
+        use_mixing = True
+    
+    tangency_counts = {x: 0 for x in xs_chosen}
+    
+    sel_points = []
+    if num_tangency_eqs > 0:
+        if forced_tangency_seq is not None:
+            if len(forced_tangency_seq) >= num_tangency_eqs:
+                sel_points = [x for x in forced_tangency_seq[:num_tangency_eqs]]
+            else:
+                raise RuntimeError("forced_tangency_seq too short for requested tangency count")
+        else:
+            sel_points = [random.choice(xs_chosen) for _ in range(num_tangency_eqs)]
+    
+    for xv in sel_points:
+        tangency_counts[xv] += 1
+        current_order = tangency_counts[xv]
+        eq_t = kth_derivative(diff_poly, current_order, xSR).subs({xSR: SR(xv)}).expand()
+        eqs.append(eq_t)
+    
+    # Q-Mixing Constraint
+    if use_mixing:
+        x_mix_num = 2 * int(x1) + 3
+        x_mix_den = 2
+        x_mix = base_field(x_mix_num) / base_field(x_mix_den) if FINITE_FIELD else QQ(x_mix_num) / QQ(x_mix_den)
+        
+        val_Q = Q_SR.subs({xSR: x_mix})
+        val_R = rest_poly_SR.subs({xSR: x_mix})
+        eq_mix = (val_R - val_Q).expand()
+        eqs.append(eq_mix)
+    
+    if len(eqs) != len(unknowns):
+        raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
+    
+    # ========================================================================
+    # STEP 6: Solve linear system over Fm (fast)
+    # ========================================================================
+    m_name = 'm'
+    if parameter_m is not None:
+        m_name = str(parameter_m)
+    
+    def to_Fm(expr):
+        try:
+            return Fm(expr)
+        except:
+            try:
+                ex_sr = SR(expr)
+                numer = ex_sr.numerator()
+                denom = ex_sr.denominator()
+                return PR_m(SR(numer)) / PR_m(SR(denom))
+            except Exception:
+                raise ValueError(f"Cannot coerce {expr} to Fm")
+    
+    zero_sub = {u: 0 for u in unknowns}
+    rhs_vec = []
+    rows = []
+    
+    for eq in eqs:
+        c_term = eq.subs(zero_sub)
+        rhs_vec.append(-c_term)
+        
+        row = []
+        for u in unknowns:
+            row.append(eq.coefficient(u))
+        rows.append(row)
+    
+    try:
+        rows_Fm = []
+        rhs_Fm = []
+        for r_idx, row in enumerate(rows):
+            rows_Fm.append([to_Fm(c) for c in row])
+            rhs_Fm.append(to_Fm(rhs_vec[r_idx]))
+        
+        M_Fm = matrix(Fm, rows_Fm)
+        b_vec_Fm = vector(Fm, rhs_Fm)
+        sol_vec = M_Fm.solve_right(b_vec_Fm)
+        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
+    except Exception as e:
+        if verbose:
+            print(f"Matrix Fm solve failed ({e}), falling back to SR (slow)...")
+        M = matrix(SR, rows)
+        b_vec = vector(SR, rhs_vec)
+        sol_vec = M.solve_right(b_vec)
+        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
+    
+    # ========================================================================
+    # STEP 7: Build rest polynomial and final fibration over correct field
+    # ========================================================================
+    solved_map = {}
+    for symb in unknowns:
+        val = sol[symb]
+        solved_map[symb] = val
+    
+    # Build rest polynomial in Fm[x]
+    rest_coeffs_Fm = [Fm(solved_map[s]) for s in rest_coeff_syms]
+    rest_poly_Fm = R_xm(rest_coeffs_Fm)
+    
+    # Build Q polynomial in Fm[x]
+    if FINITE_FIELD is not None:
+        # Reconstruct Q over GF(p)[x]
+        R_field = PolynomialRing(base_field, 'x')
+        Q_coeffs = [base_field(c) for c in Qpoly_field.list()]
+        Q_poly_Fm = R_xm([Fm(c) for c in Q_coeffs])
+    else:
+        Q_poly_Fm = R_xm(Qpoly_field)
+    
+    # Build prod polynomial in Fm[x]
+    prod_Fm = R_xm(1)
+    for xi in xs_chosen:
+        prod_Fm *= (x_var - Fm(xi))
+    
+    # Final fibration: Q^2 + prod * rest
+    fibration_Fm = Q_poly_Fm**2 + prod_Fm * rest_poly_Fm
+    
+    # Clear denominators
+    if FINITE_FIELD is None:
+        # Only in QQ mode do we need to clear denominators
+        all_denoms = []
+        for coeff in fibration_Fm.list():
+            try:
+                if coeff != 0:
+                    all_denoms.append(QQ(coeff).denominator())
+            except:
+                pass
+        
+        if all_denoms:
+            from sage.arith.misc import lcm as sage_lcm
+            denom_lcm = sage_lcm(all_denoms)
+            fibration_Fm = fibration_Fm * denom_lcm
+            if verbose:
+                print(f"[denom_clear] Cleared denominators by multiplying by {denom_lcm}")
+    
+    # ========================================================================
+    # STEP 8: Verify degree drop and return field-native objects
+    # ========================================================================
+    deg_fib = fibration_Fm.degree()
+    target_deg = n - 1
+    
+    if deg_fib != target_deg:
+        raise RuntimeError(f"Degree drop failed: expected {target_deg}, got {deg_fib}")
+    
+    # For backward compatibility with symbolic mode, also store SR versions
+    if FINITE_FIELD is None:
+        # Convert back to SR for compatibility
+        fibration_SR_final = SR(fibration_Fm)
+        Q_SR_final = SR(Q_poly_Fm)
+        rest_SR_final = SR(rest_poly_Fm)
+    else:
+        # In FF mode, keep field-native but also provide SR for display
+        fibration_SR_final = sum(SR(fibration_Fm[i]) * xSR**i for i in range(fibration_Fm.degree()+1))
+        Q_SR_final = Q_SR
+        rest_SR_final = sum(SR(rest_poly_Fm[i]) * xSR**i for i in range(rest_poly_Fm.degree()+1))
+    
+    return {
+        # Field-native polynomials (GF(p)[m][x] or QQ[m][x])
+        'f_i': fibration_Fm,           # Main output: polynomial over Fm
+        'Q_i': Q_poly_Fm,              # Q polynomial over Fm
+        'rest_poly': rest_poly_Fm,     # Rest polynomial over Fm
+        
+        # Symbolic versions (for display/debugging)
+        'f_i_SR': fibration_SR_final,
+        'Q_SR': Q_SR_final,
+        'rest_SR': rest_SR_final,
+        
+        # Other data
+        'r_expr': SR(r_expr),
+        'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing} field={base_field}",
+        
+        # Metadata
+        'base_field': base_field,
+        'Fm': Fm,
+        'R_xm': R_xm,
+    }
 
 
 # Compute k-th Hasse derivative of an SR / polynomial-like `expr` wrt symbol `x_sym`.
@@ -1139,12 +1968,10 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
         except Exception:
             # if already a field element this will still work
             xi_f = xi_val
-            raise
         try:
             yi_f = F(yi_val)
         except Exception:
             yi_f = yi_val
-            raise
 
         # Order 0 constraint should be handled by caller as mandatory.
         if order == 0:
@@ -1156,7 +1983,6 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
             except Exception:
                 # fallback to subs-like interface
                 q_at_xi = Q0.subs({x_sym: xi_f})
-                raise
             return (q_at_xi == yi_f)
 
         # For order >= 1: require Hasse k-th derivative of Q to vanish at xi
@@ -1165,7 +1991,6 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
             qk_at_xi = Qk(xi_f)
         except Exception:
             qk_at_xi = Qk.subs({x_sym: xi_f})
-            raise
         return (qk_at_xi == 0)
 
     # ---------- QQ / SR mode: original implicit-diff approach ----------
@@ -1216,7 +2041,6 @@ def hasse_deriv_sr(expr, k, x_sym):
             # fallback method for weird inputs
             coeffs = expr_sr.coefficients(x_sym)
             deg = max(p[1] for p in coeffs) if coeffs else 0
-            raise
 
         out = SR(0)
         for i in range(deg + 1):
@@ -1399,1059 +2223,3 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
 
     # Return just the polynomial (matches your existing call sites)
     return Qx
-
-
-def _interpolate_Q_finite_field(curve_poly, pts, deg_Q, p):
-    """
-    Interpolates Q(x) of degree deg_Q over GF(p) such that Q(x_i) = y_i,
-    using derivative constraints from the curve y^2 = f(x).
-    """
-    F = GF(p)
-    R_ff = PolynomialRing(F, 'x')
-    
-    # Innovative purge: ensure curve_poly is in the finite field ring
-    # This prevents SR from sneaking into the matrix or derivative calls.
-    try:
-        f_poly = R_ff(curve_poly)
-    except Exception:
-        # Fallback if SR is being particularly stubborn about coefficients
-        x_sym = var('x')
-        d = int(curve_poly.degree(x_sym))
-        coeffs = [F(curve_poly.coefficient(x_sym, i)) for i in range(d + 1)]
-        f_poly = R_ff(coeffs)
-        raise
-
-    ncoeff = deg_Q + 1
-    rows = []
-    rhs = []
-
-    # Value constraints: Q(xi) = yi
-    for xi, yi in pts:
-        xi_f, yi_f = F(xi), F(yi)
-        rows.append([xi_f**i for i in range(ncoeff)])
-        rhs.append(yi_f)
-
-    # Derivative constraints: 2 * yi * Q'(xi) = f'(xi)
-    f_deriv = f_poly.derivative()
-    deriv_rows = []
-    for xi, yi in pts:
-        xi_f, yi_f = F(xi), F(yi)
-        coeff_2yi = 2 * yi_f
-        # Row for Q'(x) coefficients: [0, 1, 2*x, 3*x^2, ...]
-        row = [F(0)] + [coeff_2yi * i * (xi_f**(i-1)) for i in range(1, ncoeff)]
-        deriv_rows.append(row)
-
-    num_needed = ncoeff - len(rows)
-    if num_needed > 0:
-        if len(deriv_rows) < num_needed:
-            raise RuntimeError(f"Underdetermined system: need {ncoeff} constraints, have {len(rows) + len(deriv_rows)}.")
-        for i in range(num_needed):
-            rows.append(deriv_rows[i])
-            # Match the derivative constraint to the corresponding point's f'(xi)
-            rhs.append(f_deriv(F(pts[i][0])))
-
-    A = Matrix(F, rows)
-    b = Matrix(F, [[r] for r in rhs])
-
-    # Ensure square system for the solver
-    if A.nrows() > ncoeff:
-        A, b = A[:ncoeff, :], b[:ncoeff, :]
-
-    try:
-        sol_vec = A.solve_right(b)
-    except Exception as e:
-        raise RuntimeError(f"Finite-field interpolation linear solve failed: {e}")
-
-    # Build Qx using the ring constructor directly to avoid symbolic sum dispatch
-    coeffs = [sol_vec[i, 0] for i in range(ncoeff)]
-    return R_ff(coeffs)
-
-
-def lift_coeff(c):
-    """
-    Convert a coefficient in Frac(GF(p)[m]) to a symbolic expression in m.
-    Scalars lift normally; nonconstant rational functions are mapped
-    numerator/denominator -> SR.
-    """
-    # Finite field scalar
-    if hasattr(c, "lift") and not hasattr(c, "numerator"):
-        return c.lift()
-
-    # Fraction field element in m
-    if hasattr(c, "numerator") and hasattr(c, "denominator"):
-        num = c.numerator()
-        den = c.denominator()
-        return SR(num) / SR(den)
-
-    # Integer-like
-    return SR(c)
-
-
-# Replace iterate_tower with this bimodal version
-@PROFILE
-def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
-    """
-    Iterates through the fibration tower construction process.
-    Best-of-N geometry selection.  Bimodal: symbolic (FINITE_FIELD is None)
-    vs finite-field (FINITE_FIELD != None).  No SR use in FINITE_FIELD mode.
-    """
-    tower = []
-
-    CANDIDATES_PER_STEP = 10
-
-    # -----------------------
-    # Symbolic / QQ mode
-    # -----------------------
-    if FINITE_FIELD is None:
-        poly_x_gen = fx_PR.parent().gen()
-        x = SR.var(str(poly_x_gen))
-        f0 = SR(fx_PR)
-        current_fx = SR(fx_PR)
-        m_parameter = None
-
-        for step in range(max_steps):
-            n = int(current_fx.degree(x))
-            g2 = len(pts_xy)
-            if verbose:
-                print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
-
-            best_step_result = None
-            best_score = float('inf')
-            pts_x_subset = [p[0] for p in pts_xy[:g2]]
-
-            for attempt in range(CANDIDATES_PER_STEP):
-                attempt_seed = seed_int * 1000 + step * 100 + attempt
-
-                step_result = build_one_fibration_step(
-                    current_fx, f0,
-                    pts_x_subset,
-                    g2,
-                    seed_int=attempt_seed,
-                    verbose=False,
-                    parameter_m=m_parameter,
-                    use_anchor_points=use_anchor_points
-                )
-
-                check_fibration_step(step_result, prev_fx=current_fx)
-
-                temp_m = m_parameter
-                if temp_m is None and has_free_variables(step_result['r_expr']):
-                    temp_m = list(step_result['r_expr'].variables())[0]
-
-                _verify_fibration_step_properties(current_fx, step_result['r_expr'], temp_m)
-
-                score = measure_poly_complexity(step_result['f_i'])
-
-                if score < best_score:
-                    best_score = score
-                    best_step_result = step_result
-                    if m_parameter is None:
-                        m_parameter = temp_m
-
-            if best_step_result is None:
-                raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts")
-
-            if verbose:
-                print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
-
-            tower.append(best_step_result)
-            current_fx = best_step_result['f_i']
-
-        verify_tower_consistency(tower)
-        verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1)/QQ(2)])
-        return tower
-
-    # -----------------------
-    # Finite-field mode
-    # -----------------------
-    else:
-        # Expect fx_PR to be a polynomial over QQ or Fm; but do not coerce to SR anywhere.
-        current_fx = fx_PR
-        f0 = fx_PR
-        m_parameter = None
-
-        for step in range(max_steps):
-            # degree() returns integer for polynomial objects
-            try:
-                n = int(current_fx.degree())
-            except Exception:
-                raise RuntimeError("iterate_tower (FF): could not determine degree of current_fx")
-
-            g2 = len(pts_xy)
-            if verbose:
-                print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
-
-            best_step_result = None
-            best_score = float('inf')
-
-            # in finite-field runs we pass (x,y) pairs
-            pts_subset = pts_xy[:g2]
-
-            for attempt in range(CANDIDATES_PER_STEP):
-                attempt_seed = seed_int * 1000 + step * 100 + attempt
-
-                step_result = build_one_fibration_step(
-                    current_fx, f0,
-                    pts_subset,
-                    g2,
-                    seed_int=attempt_seed,
-                    verbose=False,
-                    parameter_m=m_parameter,
-                    use_anchor_points=use_anchor_points
-                )
-
-                check_fibration_step(step_result, prev_fx=current_fx)
-
-                # No symbolic verification in FF mode; only field-native checks
-                # ensure returned objects are field-native
-                if 'f_i' not in step_result or 'Q_i' not in step_result or 'rest_poly' not in step_result:
-                    raise RuntimeError("iterate_tower (FF): build_one_fibration_step returned incomplete step_result")
-
-                # Score is field-native version
-                score = measure_poly_complexity(step_result['f_i'])
-
-                if score < best_score:
-                    best_score = score
-                    best_step_result = step_result
-
-            if best_step_result is None:
-                raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts (FF)")
-
-            if verbose:
-                print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
-
-            tower.append(best_step_result)
-            current_fx = best_step_result['f_i']
-
-        verify_tower_consistency(tower)
-        return tower
-
-
-# Replace measure_poly_complexity with this FINITE_FIELD-oriented function.
-# Use this version only for FINITE_FIELD (field-native polynomials); it raises on misuse.
-def measure_poly_complexity(expr_ff):
-    """
-    FINITE_FIELD-oriented complexity score. Lower is better.
-    Input: expr_ff is a polynomial in x over Fm = Frac(GF(p)[m]) or over GF(p).
-    This function raises on unexpected conditions (no silent fallbacks).
-    """
-    if expr_ff is None:
-        raise ValueError("measure_poly_complexity: expr_ff is None")
-
-    if FINITE_FIELD is None:
-        raise RuntimeError("measure_poly_complexity: called finite-field scorer while FINITE_FIELD is None")
-
-    # Ensure we have a polynomial-like object
-    if not hasattr(expr_ff, "parent"):
-        raise TypeError("measure_poly_complexity: expr_ff must be a polynomial over a finite-field-like parent")
-
-    R = expr_ff.parent()
-    base = R.base_ring()
-
-    # Extract coefficients (dense list)
-    try:
-        coeffs = expr_ff.coefficients(sparse=False)
-    except Exception:
-        # Some polynomial implementations support .list()
-        try:
-            coeffs = list(expr_ff.list())
-        except Exception as e:
-            raise RuntimeError(f"measure_poly_complexity: failed to extract coefficients: {e}")
-        raise
-
-    if not coeffs:
-        coeffs = [base.zero()]
-
-    # Height proxy: complexity of numerator/denominator in m (if present)
-    height_score = 0.0
-    for c in coeffs:
-        if c == 0:
-            continue
-        # For fraction-field coefficients
-        if hasattr(c, "numerator") and hasattr(c, "denominator"):
-            num = c.numerator()
-            den = c.denominator()
-            deg_num = num.degree() if hasattr(num, "degree") else 0
-            deg_den = den.degree() if hasattr(den, "degree") else 0
-            height_score += 1.0 + 0.3 * (deg_num + deg_den)
-        else:
-            # scalar in GF(p)
-            height_score += 0.5
-
-    # Degree penalty in x
-    try:
-        deg_x = expr_ff.degree()
-    except Exception as e:
-        raise RuntimeError(f"measure_poly_complexity: failed to compute degree: {e}")
-
-    degree_penalty = _int_log(1 + int(deg_x))
-
-    # Collision penalty: check gcd with derivative in the same ring
-    collision_penalty = 0.0
-    try:
-        if deg_x > 1:
-            deriv = expr_ff.derivative()
-            if not deriv.is_zero():
-                g = expr_ff.gcd(deriv)
-                if g.degree() > 0:
-                    collision_penalty += 1.0
-    except Exception as e:
-        raise RuntimeError(f"measure_poly_complexity: gcd/derivative check failed: {e}")
-
-    # Bad-denominator penalty: if coefficient denominators vanish (sanity check)
-    bad_denominator_penalty = 0.0
-    for c in coeffs:
-        if hasattr(c, "denominator"):
-            den = c.denominator()
-            # If denominator is the zero polynomial in the coefficient ring -> bad
-            try:
-                if hasattr(den, "is_zero") and den.is_zero():
-                    bad_denominator_penalty += 1.0
-            except Exception:
-                raise RuntimeError("measure_poly_complexity: failed inspecting denominator")
-
-    total = (
-        _WEIGHT_HEIGHT * height_score +
-        _WEIGHT_DEG * degree_penalty +
-        _WEIGHT_COLLISION * collision_penalty +
-        _WEIGHT_BADPRIME * bad_denominator_penalty
-    )
-
-    return float(total)
-
-
-@PROFILE
-def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
-                             verbose=False, forced_tangency_seq=None,
-                             forced_Qpoly=None, force_Q_constraint_indices=None,
-                             parameter_m=None, use_anchor_points=USE_ANCHOR_POINTS):
-    """
-    Field-aware version that avoids SR in finite-field mode.
-
-    Returns field-native polynomials (over Fm = GF(p)(m) or QQ(m)) and
-    symbolic SR copies only when FINITE_FIELD is None.
-
-    NOTE: helper functions used by the original (choose_degQ, interpolate_*, etc.)
-    are expected to behave sensibly in both modes or to return field-native polynomials.
-    """
-    random.seed(int(seed_int))
-
-    # ========================================================================
-    # STEP 1: Determine base field and set up polynomial rings
-    # ========================================================================
-    if FINITE_FIELD is not None:
-        base_field = GF(FINITE_FIELD)
-        PR_m = PolynomialRing(base_field, 'm')
-        m_poly = PR_m.gen()
-        Fm = PR_m.fraction_field()
-
-        # polynomial ring in x with coefficients in Fm
-        R_xm = PolynomialRing(Fm, 'x')
-        x_var = R_xm.gen()
-
-        if verbose:
-            print(f"[build_step] Working over GF({FINITE_FIELD})(m)")
-
-        # try to extract degree from fx_SR in a robust way
-        try:
-            # fx_SR might already be a sage polynomial over base_field or over PR_m
-            n = int(fx_SR.degree())
-        except Exception:
-            # fallback: try coefficient-list approach
-            try:
-                coeffs_fx = list(fx_SR.list())
-                # degree = len(coeffs)-1, but remove trailing zeros
-                while coeffs_fx and int(coeffs_fx[-1]) == 0:
-                    coeffs_fx.pop()
-                n = max(0, len(coeffs_fx) - 1)
-            except Exception:
-                raise RuntimeError("Cannot determine degree of fx_SR in finite-field mode")
-            raise
-    else:
-        base_field = QQ
-        PR_m = PolynomialRing(QQ, 'm')
-        m_poly = PR_m.gen()
-        Fm = PR_m.fraction_field()
-
-        R_xm = PolynomialRing(Fm, 'x')
-        x_var = R_xm.gen()
-
-        # symbolic variables kept for QQ mode compatibility
-        xSR = SR.var('x')
-        m_sym = SR.var('m')
-
-        if verbose:
-            print("[build_step] Working over QQ(m)")
-
-        # degree extraction for symbolic fx_SR
-        try:
-            n = int(fx_SR.degree(xSR))
-        except Exception:
-            try:
-                n = int(fx_SR.degree())
-            except Exception:
-                raise RuntimeError("Cannot determine degree of fx_SR in QQ mode")
-            raise
-
-    # ========================================================================
-    # STEP 2: Process input points and determine degrees
-    # ========================================================================
-    if FINITE_FIELD is not None:
-        # Expect pts_x to contain (x,y) pairs
-        xs_chosen = []
-        for item in pts_x:
-            if isinstance(item, (list, tuple)) and len(item) == 2:
-                xs_chosen.append(base_field(item[0]))
-            else:
-                # might be a single x-coordinate already in base_field
-                xs_chosen.append(base_field(item))
-    else:
-        xs_chosen = [QQ(xv) for xv in pts_x]
-
-    if len(xs_chosen) == 0:
-        raise RuntimeError("build_one_fibration_step: pts_x must contain at least one point.")
-
-    x1 = xs_chosen[0]
-
-    max_degQ = (n - 1) // 2
-    initial_degQ = choose_degQ(n)
-    degQ = min(initial_degQ, max_degQ)
-
-    # forced_Qpoly degree check (finite-field-safe)
-    if forced_Qpoly is not None:
-        forced_deg = None
-        if FINITE_FIELD is not None:
-            try:
-                Rtmp = PolynomialRing(base_field, 'x')
-                forced_deg = int(Rtmp(forced_Qpoly).degree())
-            except Exception:
-                raise RuntimeError("Could not coerce forced_Qpoly into base_field polynomial in finite-field mode")
-        else:
-            try:
-                forced_Q_SR = SR(forced_Qpoly)
-                forced_deg = int(forced_Q_SR.degree(xSR))
-            except Exception:
-                try:
-                    Rtmp = PolynomialRing(base_field, str(xSR))
-                    forced_deg = int(Rtmp(forced_Qpoly).degree())
-                except Exception:
-                    raise RuntimeError("Could not determine degree of forced_Qpoly")
-        if forced_deg > max_degQ:
-            raise RuntimeError(f"forced_Qpoly has degree {forced_deg} > allowed max {max_degQ}")
-        degQ = forced_deg
-
-    # ========================================================================
-    # STEP 3: Build Q polynomial (over correct field) and f0 as field polynomial
-    # ========================================================================
-    # Coerce f0 to a polynomial over the appropriate coefficient ring
-    if FINITE_FIELD is not None:
-        # Build f0_field in R_xm's coefficient field (Fm) or simpler: in base_field[x] then lift
-        R_base_x = PolynomialRing(base_field, 'x')
-        try:
-            # if f0 already has .list() (coeff list)
-            coeffs_f0 = list(f0.list())
-            coeffs_f0_mapped = [base_field(int(c)) for c in coeffs_f0]
-            f0_base = R_base_x(coeffs_f0_mapped)
-        except Exception:
-            # try coefficient(i) fallback
-            try:
-                deg_f0 = int(f0.degree())
-                coeffs_f0 = [f0.coefficient(i) for i in range(deg_f0 + 1)]
-                coeffs_f0_mapped = [base_field(int(c)) for c in coeffs_f0]
-                f0_base = R_base_x(coeffs_f0_mapped)
-            except Exception:
-                raise RuntimeError("Cannot coerce f0 into a polynomial over GF(p)")
-        # lift to Fm[x] (coeffs in Fm)
-        coeffs_f0_Fm = [Fm(base_field(c)) for c in f0_base.list()]
-        f0_field = PolynomialRing(Fm, 'x')(coeffs_f0_Fm)
-    else:
-        # QQ mode: build a QQ polynomial for safe evaluation
-        try:
-            R_QQ = PolynomialRing(QQ, str(xSR))
-            coeffs_f0 = list(f0.list())
-            f0_QQ = R_QQ(coeffs_f0)
-        except Exception:
-            # fallback to SR-based evaluation in QQ
-            f0_QQ = None
-            raise
-
-    # Build/interpolate Q over base_field (or QQ)
-    if forced_Qpoly is not None:
-        if FINITE_FIELD is not None:
-            try:
-                R_field = PolynomialRing(base_field, 'x')
-                Qpoly_field_base = R_field(forced_Qpoly)
-            except Exception:
-                raise RuntimeError("Cannot coerce forced_Qpoly into base_field polynomial in finite-field mode")
-            # lift coefficients to Fm
-            Q_coeffs_base = list(Qpoly_field_base.list())
-            Q_coeffs_Fm = [Fm(base_field(int(c))) for c in Q_coeffs_base]
-            Qpoly_field = PolynomialRing(Fm, 'x')(Q_coeffs_Fm)
-        else:
-            try:
-                Qpoly_field = SR(forced_Qpoly)
-            except Exception:
-                R_field = PolynomialRing(QQ, 'x')
-                Qpoly_field = R_field(forced_Qpoly)
-                raise
-    else:
-        # Need to build chosen_pts_xy and call interpolation helpers
-        chosen_pts_xy = []
-        if FINITE_FIELD is not None:
-            for item in pts_x:
-                if isinstance(item, (list, tuple)) and len(item) == 2:
-                    xv, yv = item
-                    chosen_pts_xy.append((base_field(xv), base_field(yv)))
-                else:
-                    raise RuntimeError("Finite-field mode requires (x,y) pairs in pts_x")
-
-            # Choose anchor points or tangency-based interpolation over base_field
-            if use_anchor_points:
-                total_needed = degQ + 1
-                base_pts_count = 1
-                remaining_dof = total_needed - base_pts_count
-                num_anchors_needed = min(NUM_ANCHOR_POINTS, max(0, remaining_dof))
-
-                # Generate anchor points on the curve f0_field: try random x until sqrt exists
-                anchor_pts = []
-                tries = 0
-                while len(anchor_pts) < num_anchors_needed and tries < num_anchors_needed * 30:
-                    tries += 1
-                    x_anchor = base_field.random_element()
-                    y_val = f0_field(x_anchor)
-                    # y_val is in base_field; attempt to take square root
-                    try:
-                        y_anchor = y_val.sqrt()
-                        anchor_pts.append((x_anchor, y_anchor))
-                    except Exception:
-                        # not a square; continue
-                        continue
-
-                if len(anchor_pts) < num_anchors_needed:
-                    raise RuntimeError(f"Could not generate {num_anchors_needed} anchor points in GF({FINITE_FIELD})")
-            else:
-                anchor_pts = []
-
-            # Call interpolation helper adapted to finite field (must return base_field-polynomial)
-            Qpoly_base = interpolate_Q_with_anchors(chosen_pts_xy, degQ, 'x', anchor_pts, seed_int=seed_int) if use_anchor_points else interpolate_Q_general(chosen_pts_xy, f0, degQ, 'x', seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
-            # Coerce returned polynomial to base_field[x] if needed, then lift to Fm[x]
-            try:
-                R_base_x = PolynomialRing(base_field, 'x')
-                Qpoly_field_base = R_base_x(Qpoly_base)
-            except Exception:
-                # If interpolation returned coefficient list or R_xm polynomial, try to extract coeffs
-                try:
-                    Q_coeffs = list(Qpoly_base.list())
-                    Q_coeffs_base = [base_field(int(c)) for c in Q_coeffs]
-                    Qpoly_field_base = PolynomialRing(base_field, 'x')(Q_coeffs_base)
-                except Exception:
-                    raise RuntimeError("Interpolation returned something that could not be coerced to base_field[x]")
-                raise
-
-            # lift to Fm[x]
-            Q_coeffs_base = list(Qpoly_field_base.list())
-            Q_coeffs_Fm = [Fm(base_field(int(c))) for c in Q_coeffs_base]
-            Qpoly_field = PolynomialRing(Fm, 'x')(Q_coeffs_Fm)
-
-        else:
-            # QQ mode interpolation (leave possibly symbolic)
-            chosen_pts_xy = []
-            for xv in xs_chosen:
-                y_val_expr = f0_QQ(xv) if f0_QQ is not None else SR(f0).subs({xSR: SR(xv)})
-                try:
-                    yi = sqrt(QQ(y_val_expr))
-                except Exception:
-                    yi = SR(sqrt(y_val_expr))
-                    raise
-                chosen_pts_xy.append((QQ(xv), yi))
-
-            if use_anchor_points:
-                total_needed = degQ + 1
-                base_pts_count = 1
-                remaining_dof = total_needed - base_pts_count
-                num_anchors_needed = min(NUM_ANCHOR_POINTS, max(0, remaining_dof))
-                anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=[QQ(xv) for xv in xs_chosen])
-                Qpoly_field = interpolate_Q_with_anchors(chosen_pts_xy, degQ, xSR, anchor_pts, seed_int=seed_int)
-            else:
-                Qpoly_field = interpolate_Q_general(chosen_pts_xy, f0, degQ, xSR, seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
-
-    # At this point we have:
-    # - In finite-field mode: Qpoly_field is in R_xm's coefficient field Fm (PolynomialRing(Fm,'x'))
-    # - In QQ mode: Qpoly_field may be symbolic or QQ polynomial
-
-    # ========================================================================
-    # STEP 4: Build fibration equation (field-aware) and linear system WITHOUT SR (finite-field)
-    # ========================================================================
-    if FINITE_FIELD is not None:
-        # Coerce fx_SR (incoming) into R_xm (coeffs in Fm)
-        try:
-            fx_field = R_xm(fx_SR)  # works if fx_SR is coercible
-        except Exception:
-            try:
-                coeffs_fx = list(fx_SR.list())
-                coeffs_fx_Fm = [Fm(base_field(int(c))) for c in coeffs_fx]
-                fx_field = R_xm(coeffs_fx_Fm)
-            except Exception:
-                raise RuntimeError("Could not coerce fx_SR into R_xm polynomial in finite-field mode")
-            raise
-
-        # Ensure Qpoly_field is a polynomial over Fm[x] (if earlier is base_field[x], lift)
-        try:
-            Q_poly_Fm = R_xm(list(Qpoly_field.list()))
-        except Exception:
-            try:
-                # maybe Qpoly_field already in R_xm
-                Q_poly_Fm = R_xm(Qpoly_field)
-            except Exception:
-                raise RuntimeError("Could not coerce Qpoly_field into R_xm")
-            raise
-
-        # Build prod_Fm = prod (x - xi) using xs_chosen (xi are base_field elems, embed in Fm)
-        prod_Fm = R_xm(1)
-        for xi in xs_chosen:
-            prod_Fm *= (x_var - Fm(base_field(xi)))
-
-        deg_prod = int(prod_Fm.degree())
-        rest_deg = int(n - 1 - deg_prod)
-        if rest_deg < 0:
-            raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
-
-        # Unknown rest coefficients b_0..b_rest (these are unknown elements of Fm)
-        num_unknowns = rest_deg + 1
-        # Build the T_i = prod_Fm * x^i objects (these are known polynomials in R_xm)
-        T_list = [ (prod_Fm * x_var**i) for i in range(num_unknowns) ]
-        Q2 = (Q_poly_Fm**2)
-
-        # Build the list of linear equations over Fm
-        # We'll produce each equation as: sum_i (coef_ij * b_i) = rhs_j
-        rows = []
-        rhs = []
-
-        # Build root and derivative constraints:
-        # Parameter m enters via Fm's 'm' variable (m_poly)
-        if parameter_m is None:
-            m_symbol = m_poly
-        else:
-            # if parameter_m is string or polynomial, try to use PR_m(m_name)
-            if isinstance(parameter_m, str):
-                m_symbol = PR_m(parameter_m).gen()
-            else:
-                m_symbol = parameter_m
-
-        # r_expr = x1 - m  (x1 is base_field element embedded into Fm)
-        r_expr = Fm(base_field(x1)) - m_symbol
-
-        # Helper: evaluate any R_xm poly at an Fm point (xpoint), returning Fm value
-        def eval_poly_at(poly_Rxm, xpoint):
-            # poly_Rxm is polynomial in x_var over Fm (R_xm)
-            # we can evaluate by substituting x_var -> xpoint using .subs or calling poly_Rxm(xpoint)
-            try:
-                return poly_Rxm(xpoint)
-            except Exception:
-                # fallback to coefficients
-                deg = int(poly_Rxm.degree())
-                s = Fm(0)
-                for i in range(deg+1):
-                    s += Fm(int(poly_Rxm.coefficient(i))) * (xpoint ** i)
-                return s
-
-        # Build diff_base polynomial as fx_field - Q2 - sum b_i*T_i
-        # We don't create a single symbolic diff; we will form linear constraints by evaluating contributions.
-
-        # Root condition: evaluate at x = r_expr
-        fx_at_r = eval_poly_at(fx_field, r_expr)
-        q2_at_r = eval_poly_at(Q2, r_expr)
-        T_at_r = [ eval_poly_at(Ti, r_expr) for Ti in T_list ]
-        # Equation: sum_i b_i * T_at_r[i] = fx_at_r - q2_at_r
-        rows.append([ T_at_r[i] for i in range(num_unknowns) ])
-        rhs.append( fx_at_r - q2_at_r )
-
-        # Derivative condition at r: first derivative
-        # compute derivative polynomials dT_i = d/dx T_i, dQ2 = d/dx Q2, dfx = d/dx fx_field
-        dT_at_r = [ eval_poly_at(Ti.derivative(x_var), r_expr) for Ti in T_list ]
-        dQ2_at_r = eval_poly_at(Q2.derivative(x_var), r_expr)
-        dfx_at_r = eval_poly_at(fx_field.derivative(x_var), r_expr)
-        rows.append([ dT_at_r[i] for i in range(num_unknowns) ])
-        rhs.append( dfx_at_r - dQ2_at_r )
-
-        # Additional tangency equations: choose sel_points and construct derivative orders
-        unknowns_order = num_unknowns
-        # The original code computes num_tangency_eqs depending on mixing/anchor; replicate logic
-        # Build list of unknown symbols conceptually: len = num_unknowns
-        if use_anchor_points:
-            num_tangency_eqs = unknowns_order - 2 - 1
-        else:
-            num_tangency_eqs = unknowns_order - 2
-        if num_tangency_eqs < 0 or not use_anchor_points:
-            if use_anchor_points:
-                if verbose:
-                    print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
-            num_tangency_eqs = unknowns_order - 2
-            use_mixing = False
-        else:
-            use_mixing = True
-
-        if num_tangency_eqs < 0:
-            num_tangency_eqs = 0
-
-        # choose points for tangency (field elements)
-        sel_points = []
-        if num_tangency_eqs > 0:
-            if forced_tangency_seq is not None:
-                if len(forced_tangency_seq) >= num_tangency_eqs:
-                    sel_points = [ base_field(x) for x in forced_tangency_seq[:num_tangency_eqs] ]
-                else:
-                    raise RuntimeError("forced_tangency_seq too short for requested tangency count")
-            else:
-                sel_points = [ random.choice(xs_chosen) for _ in range(num_tangency_eqs) ]
-
-        # For each chosen tangency point, add derivative condition of the appropriate order
-        tangency_counts = {x:0 for x in xs_chosen}
-        for xv in sel_points:
-            tangency_counts[xv] += 1
-            order = tangency_counts[xv]
-            xpoint = Fm(base_field(xv))
-            # derivative of order 'order'
-            # Note: polynomial derivative repeated
-            Ti_derivs_at_x = [ eval_poly_at(Ti.derivative(x_var, order), xpoint) for Ti in T_list ]
-            q2_deriv_at_x = eval_poly_at(Q2.derivative(x_var, order), xpoint)
-            fx_deriv_at_x = eval_poly_at(fx_field.derivative(x_var, order), xpoint)
-            rows.append([ Ti_derivs_at_x[i] for i in range(num_unknowns) ])
-            rhs.append( fx_deriv_at_x - q2_deriv_at_x )
-
-        # Q-mixing constraint if use_mixing
-        if use_mixing:
-            # choose mixing point as rational-like combination, converted into Fm
-            x1_int = int(base_field(x1))
-            x_mix_num = 2 * x1_int + 3
-            # represent as element in Fm; divide by 2 (requires char != 2)
-            inv2 = Fm(1) / Fm(2)
-            x_mix = Fm(base_field(x_mix_num)) * inv2
-            # evaluate rest_poly at x_mix and compare to Qpoly at x_mix
-            T_at_mix = [ eval_poly_at(Ti, x_mix) for Ti in T_list ]  # these are contributions to rest*prod; but rest itself is unknown sum(b_i * x^i)
-            # we want rest(x_mix) - Q(x_mix) = 0
-            # rest(x_mix) = sum b_i * x_mix^i
-            xmix_pows = [ x_mix**i for i in range(num_unknowns) ]
-            Q_at_mix = eval_poly_at(Q_poly_Fm, x_mix)
-            # Build row: coefficients are xmix_pows, RHS is Q_at_mix
-            rows.append([ xmix_pows[i] for i in range(num_unknowns) ])
-            rhs.append( Q_at_mix )
-
-        # Now ensure number of equations equals number of unknowns
-        if len(rows) != num_unknowns:
-            raise RuntimeError(f"Equation/unknown mismatch: {len(rows)} equations vs {num_unknowns} unknowns")
-
-        # Solve linear system over Fm
-        try:
-            M = matrix(Fm, rows)
-            b = vector(Fm, rhs)
-            sol_vec = M.solve_right(b)
-        except Exception as e:
-            raise RuntimeError(f"Linear solve over Fm failed: {e}")
-
-        # Collect solution for rest coefficients as elements of Fm
-        rest_coeffs_Fm = [ sol_vec[i] for i in range(num_unknowns) ]
-        rest_poly_Fm = R_xm(rest_coeffs_Fm)
-
-        # Ensure Q_poly_Fm already in R_xm
-        Q_poly_Fm = R_xm(list(Q_poly_Fm.list()))
-
-        # Final fibration: Q^2 + prod * rest
-        fibration_Fm = (Q_poly_Fm**2 + prod_Fm * rest_poly_Fm)
-
-        # Degree checks
-        deg_fib = int(fibration_Fm.degree())
-        target_deg = n - 1
-        if deg_fib != target_deg:
-            raise RuntimeError(f"Degree drop failed: expected {target_deg}, got {deg_fib}")
-
-        # No SR versions returned in finite-field mode
-        fibration_final = fibration_Fm
-        Q_final = Q_poly_Fm
-        rest_final = rest_poly_Fm
-
-        # r_expr as element of Fm (for backward compatibility return as SR only in QQ)
-        r_expr_sym = None
-
-        return {
-            'f_i': fibration_Fm,
-            'Q_i': Q_poly_Fm,
-            'rest_poly': rest_poly_Fm,
-            'f_i_SR': fibration_final,
-            'Q_SR': Q_final,
-            'rest_SR': rest_final,
-            'r_expr': r_expr,
-            'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing} field={base_field}",
-            'base_field': base_field,
-            'Fm': Fm,
-            'R_xm': R_xm,
-        }
-
-    else:
-        # ====================================================================
-        # QQ / symbolic branch (left largely intact; still uses SR for solves)
-        # ====================================================================
-        # Build prod polynomial symbolically
-        prod1 = poly_prod_numeric(xs_chosen, xSR)
-        deg_prod = int(prod1.degree(xSR))
-        rest_deg = int(n - 1 - deg_prod)
-        if rest_deg < 0:
-            raise RuntimeError(f"rest polynomial degree would be negative: rest_deg={rest_deg}")
-
-        # create symbolic unknowns
-        rest_coeff_names = [f"b_rest_{i}" for i in range(rest_deg + 1)]
-        rest_coeff_syms = [SR.var(name) for name in rest_coeff_names]
-        rest_poly_SR = sum(rest_coeff_syms[i] * xSR**i for i in range(rest_deg + 1))
-
-        # build Q and convert to SR
-        Q_SR = SR(Qpoly_field) if not isinstance(Qpoly_field, type(SR(0))) else Qpoly_field
-
-        prod1_SR = SR(prod1)
-        fibration_SR = (Q_SR**2).expand() + (prod1_SR * rest_poly_SR).expand()
-        diff_poly = (SR(fx_SR) - fibration_SR).expand()
-
-        if parameter_m is None:
-            m = SR.var('m')
-        else:
-            m = SR(parameter_m) if not isinstance(parameter_m, type(SR(parameter_m))) else parameter_m
-
-        if FINITE_FIELD is None:
-            r_expr = SR(x1) - m
-        else:
-            r_expr = SR(int(x1)) - m
-
-        eqs = []
-        eqs.append(diff_poly.subs({xSR: r_expr}))
-        eqs.append(kth_derivative(diff_poly, 1, xSR).subs({xSR: r_expr}))
-
-        unknowns = rest_coeff_syms[:]
-
-        num_tangency_eqs = len(unknowns) - 2 - 1 if use_anchor_points else len(unknowns) - 2
-        if num_tangency_eqs < 0 or not use_anchor_points:
-            if use_anchor_points:
-                print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
-            num_tangency_eqs = len(unknowns) - 2
-            use_mixing = False
-        else:
-            use_mixing = True
-
-        tangency_counts = {x: 0 for x in xs_chosen}
-        sel_points = []
-        if num_tangency_eqs > 0:
-            if forced_tangency_seq is not None:
-                if len(forced_tangency_seq) >= num_tangency_eqs:
-                    sel_points = [x for x in forced_tangency_seq[:num_tangency_eqs]]
-                else:
-                    raise RuntimeError("forced_tangency_seq too short for requested tangency count")
-            else:
-                sel_points = [random.choice(xs_chosen) for _ in range(num_tangency_eqs)]
-
-        for xv in sel_points:
-            tangency_counts[xv] += 1
-            current_order = tangency_counts[xv]
-            xv_sr = SR(xv) if FINITE_FIELD is None else SR(int(xv))
-            eq_t = kth_derivative(diff_poly, current_order, xSR).subs({xSR: xv_sr}).expand()
-            eqs.append(eq_t)
-
-        if use_mixing:
-            if FINITE_FIELD is not None:
-                x1_int = int(x1)
-                x_mix_num = 2 * x1_int + 3
-                x_mix_sr = SR(x_mix_num) / SR(2)
-            else:
-                x_mix_num = 2 * int(x1) + 3
-                x_mix = QQ(x_mix_num) / QQ(2)
-                x_mix_sr = SR(x_mix)
-
-            val_Q = Q_SR.subs({xSR: x_mix_sr})
-            val_R = rest_poly_SR.subs({xSR: x_mix_sr})
-            eq_mix = (val_R - val_Q).expand()
-            eqs.append(eq_mix)
-
-        if len(eqs) != len(unknowns):
-            raise RuntimeError(f"Equation/unknown mismatch: {len(eqs)} equations vs {len(unknowns)} unknowns")
-
-        # Build linear system in SR and solve (fallback)
-        zero_sub = {u: 0 for u in unknowns}
-        rhs_vec = []
-        rows = []
-        for eq in eqs:
-            c_term = eq.subs(zero_sub)
-            rhs_vec.append(-c_term)
-            row = []
-            for u in unknowns:
-                try:
-                    coeff_u = eq.coefficient(u)
-                except Exception:
-                    coeff_u = SR(eq).coefficient(u)
-                    raise
-                row.append(coeff_u)
-            rows.append(row)
-
-        try:
-            rows_SR = matrix(SR, rows)
-            rhs_SR = vector(SR, rhs_vec)
-            sol_vec = rows_SR.solve_right(rhs_SR)
-            sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
-        except Exception as e:
-            raise RuntimeError(f"SR linear solve failed: {e}")
-
-        # Build rest polynomial in QQ/mode as before
-        rest_coeffs_Fm = []
-        for s in rest_coeff_syms:
-            rest_coeffs_Fm.append(sol[s])
-        rest_poly_Fm = R_xm([ QQ(c) if hasattr(c,'denominator') else c for c in rest_coeffs_Fm ])
-
-        # Build final objects for QQ mode: convert to SR for compatibility
-        fibration_Fm = SR(fx_SR) - (SR(Q_SR)**2 + SR(prod1) * rest_poly_SR)  # approx; keep backward compatibility
-        fibration_final = fibration_Fm
-        Q_final = Q_SR
-        rest_final = rest_poly_SR
-        r_expr_sym = r_expr
-
-        # r_expr lives in Fm in finite-field mode
-        return {
-            'f_i': fibration_Fm,
-            'Q_i': Q_poly_Fm,
-            'rest_poly': rest_poly_Fm,
-            'f_i_SR': fibration_Fm,
-            'Q_SR': Q_poly_Fm,
-            'rest_SR': rest_poly_Fm,
-            'r_expr': r_expr,   # <-- KEEP IT
-            'info': f"n={n} degProd={deg_prod} rest_deg={rest_deg} anchor_mode={use_anchor_points} num_anchors={NUM_ANCHOR_POINTS if use_anchor_points else 0} mixed={use_mixing} field={base_field}",
-            'base_field': base_field,
-            'Fm': Fm,
-            'R_xm': R_xm,
-        }
-
-
-def check_fibration_step(step, prev_fx=None, layer_index=None):
-    L = "Layer[%s]" % (layer_index if layer_index is not None else "unknown")
-    s = normalize_step(step)
-    fx = s['fx']
-    assert fx is not None, L + ": missing f_i in step. repr(step)=" + repr(s['raw'])
-    r_expr = s['r_expr']
-
-    ff_mode = (FINITE_FIELD is not None)
-
-    # ------------------------------------------------------------
-    # r_expr sanity (NO SR in finite field mode)
-    # ------------------------------------------------------------
-    if r_expr is not None:
-        if ff_mode:
-            # r_expr must be constant or a function of m only
-            try:
-                parent = r_expr.parent()
-                gens = parent.gens() if hasattr(parent, "gens") else []
-                gen_names = [str(g) for g in gens]
-            except Exception:
-                gen_names = []
-
-            assert 'x' not in gen_names, (
-                L + ": r_expr depends on x in finite-field mode. r_expr=" + repr(r_expr)
-            )
-        else:
-            rv = [str(v) for v in SR(r_expr).variables()]
-            assert 'x' not in rv, L + ": r_expr depends on x. r_expr=" + repr(r_expr)
-            if len(rv) > 0:
-                assert 'm' in rv, L + ": r_expr vars " + repr(rv) + " missing 'm'"
-
-    # ------------------------------------------------------------
-    # degree drop check
-    # ------------------------------------------------------------
-    if prev_fx is not None:
-        if ff_mode:
-            try:
-                dprev = prev_fx.degree()
-                dcur = fx.degree()
-            except Exception:
-                raise RuntimeError(L + ": unable to compute degrees in finite-field mode")
-
-            assert dcur <= dprev - 1, (
-                L + ": degree drop failed prev=%s cur=%s" %
-                (repr(dprev), repr(dcur))
-            )
-        else:
-            x = var('x')
-            try:
-                dprev = SR(prev_fx).degree(x)
-                dcur = SR(fx).degree(x)
-            except Exception:
-                raise
-            if dprev is not None and dcur is not None:
-                assert dcur <= dprev - 1, (
-                    L + ": degree drop failed prev=%s cur=%s" %
-                    (repr(dprev), repr(dcur))
-                )
-
-    # ------------------------------------------------------------
-    # optional double root check
-    # ------------------------------------------------------------
-    dr = s['double_root_x']
-    if dr is not None:
-        if ff_mode:
-            # algebraic double root test: f(dr) = 0 and f'(dr) = 0
-            try:
-                v1 = fx(dr)
-                dfx = fx.derivative()
-                v2 = dfx(dr)
-            except Exception as e:
-                raise RuntimeError(L + ": double root check failed in finite-field mode: " + str(e))
-
-            assert v1 == 0, L + ": x0 not root. fx(x0)=%s" % repr(v1)
-            assert v2 == 0, L + ": x0 not double root. fx'(x0)=%s" % repr(v2)
-
-        else:
-            x = var('x')
-            fx_sr = SR(fx)
-            dfx = kth_derivative(fx_sr, 1, x)
-            v1 = fx_sr.subs({x: dr})
-            v2 = dfx.subs({x: dr})
-            assert SR(v1).simplify() == 0, L + ": x0 not root. fx(x0)=%s" % repr(v1)
-            assert SR(v2).simplify() == 0, L + ": x0 not double root. fx'(x0)=%s" % repr(v2)
-
-    return True
-
-
-def verify_tower_consistency(tower):
-    # All steps should use parameter m consistently
-    ff_mode = (FINITE_FIELD is not None)
-
-    for i, step in enumerate(tower):
-        s = normalize_step(step)
-        r = s['r_expr']
-        assert r is not None, (r, tower)
-
-        if ff_mode:
-            # Finite-field mode: r must not depend on x
-            try:
-                parent = r.parent()
-                gens = parent.gens() if hasattr(parent, "gens") else []
-                gen_names = [str(g) for g in gens]
-            except Exception:
-                gen_names = []
-
-            assert 'x' not in gen_names, (
-                "verify_tower_consistency: step[%d] r_expr depends on x: %s"
-                % (i, repr(r))
-            )
-            # r may be constant or depend on m only
-            if gen_names:
-                assert 'm' in gen_names, (
-                    "verify_tower_consistency: step[%d] r_expr vars %s missing 'm'"
-                    % (i, gen_names)
-                )
-
-        else:
-            # Characteristic 0 / symbolic mode
-            rv = [str(v) for v in SR(r).variables()]
-            assert 'x' not in rv, (
-                "verify_tower_consistency: step[%d] r_expr depends on x: %s"
-                % (i, repr(r))
-            )
-            assert 'm' in rv or rv == [], (
-                "verify_tower_consistency: step[%d] r_expr vars %s missing 'm'"
-                % (i, rv)
-            )
-
-    return True
