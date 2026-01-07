@@ -109,3 +109,192 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 6 workers (13.3 tasks per worker)
+[mumford] Residue computation took 100.21s
+PRIME: 33554467
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
+  Genus: 2
+  Target factor base size: 7000
+  MAX_TOTAL_RELATIONS: 28000
+  Batch size: 50
+  Vector (78,): 500 solutions available
+  Vector (79,): 500 solutions available
+  Vector (72,): 500 solutions available
+  Mixing Strategy: Generating relations for 35 vector anchors...
+  ✓ Strategy Report: 35 mixing, 1 doubling relations added.
+  Serial processing (no multiprocessing for single prime)
+  [Batch 50] Supports: 661, Factor base: 660, Rank: 660/660
+  [Batch 100] Supports: 1286, Factor base: 1286, Rank: 1285/1286
+  [Batch 150] Supports: 1911, Factor base: 1911, Rank: 1910/1911
+  [Batch 200] Supports: 2536, Factor base: 2537, Rank: 2535/2537
+  [Batch 250] Supports: 3161, Factor base: 3162, Rank: 3160/3162
+  [Batch 300] Supports: 3786, Factor base: 3788, Rank: 3785/3788
+  [Batch 350] Supports: 4411, Factor base: 4412, Rank: 4409/4412
+  Raw solutions processed: 19500
+  Algebraic rejects: 0
+  Duplicate supports rejected: 14625
+  Quota rejections: 0
+  Relations added: Mixing=35, Doubling=1
+  Unique supports kept: 4911
+  Factor base size: 4913
+  Final rank: 4909/4913
+  Points found in base field: 0
+
+  Vectors contributing: 35/35
+  ✗ Rank deficient by 4
+
+Mumford search reconstructed 4911 divisors
+  4911 divisors had rational roots in u(x)
+
+======================================================================
+INDEX CALCULUS FEASIBILITY ANALYSIS
+======================================================================
+Field: GF(33554467)
+Genus: 2
+Divisors collected: 4911
+
+[Factor Base - Support Deduplicated]
+  Unique supports: 4911
+  Distinct x-coordinates: 4913
+  Total x-instances (after dedup): 9822
+  Original factored divisors: 4911
+  Kept after support dedup: 4911
+  Average multiplicity per support: 1.0
+  Top 5 most duplicated supports:
+    (457208, 14679907): 1 duplicates (kept 1)
+    (1339647, 14679907): 1 duplicates (kept 1)
+    (1339647, 17861114): 1 duplicates (kept 1)
+    (17861114, 24347862): 1 duplicates (kept 1)
+    (24347862, 31530883): 1 duplicates (kept 1)
+  Top 5 most frequent x-coordinates (after dedup):
+    x=457208: appears 129 times
+    x=14679907: appears 127 times
+    x=1339647: appears 127 times
+    x=17861114: appears 127 times
+    x=24347862: appears 127 times
+
+[Smoothness Distribution]
+  Smooth divisors: 4911/4911 (100.0%)
+  Non-smooth: 0/4911 (0.0%)
+  Smoothness by search vector:
+    Vector (68,): 250/250 (100.0%)
+    Vector (42,): 250/250 (100.0%)
+    Vector (30,): 250/250 (100.0%)
+    Vector (6,): 250/250 (100.0%)
+    Vector (78,): 125/125 (100.0%)
+    Vector (79,): 125/125 (100.0%)
+    Vector (72,): 125/125 (100.0%)
+    Vector (73,): 125/125 (100.0%)
+    Vector (66,): 125/125 (100.0%)
+    Vector (64,): 125/125 (100.0%)
+
+[Relation Matrix]
+  Dimensions: 4911 relations × 4913 factor base elements
+  (After support deduplication)
+  Rank: 4909
+  Nullity: 4
+  Over-determined: False
+  ✗ Need 2 more UNIQUE relations
+  Row sparsity:
+    Avg non-zeros per row: 2.0
+    Min: 1, Max: 2
+
+[Linear Algebra Attack Feasibility]
+  Factor base size: 4913
+  Relations collected: 4911
+  Matrix rank: 4909
+  Estimated #J(GF(33554467)): ~1.13e+15
+  Factor base coverage: 491300/1125902255654089%
+  ✗ ATTACK NOT FEASIBLE: Need 4 more relations
+    Recommendation: Expand search vectors or use smaller factor base
+
+[DLP Complexity Estimate]
+  Theoretical (genus 2): O(p^1.5) ≈ 194368336111.03094 ops
+  Practical with B=7:
+    Relation collection: 34377 ops (DONE)
+    Linear algebra (dense): 343 ops
+    Linear algebra (sparse): 49 ops
+    Individual DLP: 7 ops
+  Total (dense): 34727 ops
+  Total (sparse): 34433 ops
+  Generic baby-step-giant-step: O(p^1) ≈ 33554467 ops
+  ✓ Index calculus is faster by ~33554467/34433x
+======================================================================
+
+
+======================================================================
+SUMMARY & RECOMMENDATIONS
+======================================================================
+✗ INDEX CALCULUS ATTACK NOT YET FEASIBLE
+  - Need 4 more relations to achieve full rank
+  - Need 4 more smooth relations
+  - Current factor base size: 4913
+
+Recommendations:
+  1. Expand search vectors (try more multiples of sections)
+  2. Use smaller factor base (B ≈ 5792)
+  3. Collect more relations with current setup
+======================================================================
+
+Total time: 238.79s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_reconstruction   : 124.98s
+  mumford_residues         : 100.21s
+  prep_mod_data            : 3.96s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+
+[Factor Base - Support Deduplicated]
+  Unique supports: 4911
+  Distinct x-coordinates: 4913
+  Total x-instances (after dedup): 9822
+  Original factored divisors: 4911
+  Kept after support dedup: 4911
+  Average multiplicity per support: 1.0
+  Top 5 most duplicated supports:
+    (457208, 14679907): 1 duplicates (kept 1)
+    (1339647, 14679907): 1 duplicates (kept 1)
+    (1339647, 17861114): 1 duplicates (kept 1)
+    (17861114, 24347862): 1 duplicates (kept 1)
+    (24347862, 31530883): 1 duplicates (kept 1)
+  Top 5 most frequent x-coordinates (after dedup):
+    x=457208: appears 129 times
+    x=14679907: appears 127 times
+    x=1339647: appears 127 times
+    x=17861114: appears 127 times
+    x=24347862: appears 127 times
+Jacobian order factors: [79, 424849]
+Targeting subgroup of prime order: 424849
+Factor base size: 4913
+Warning: Only 4911 relations for 4913 FB elements.
+Attack failed: Failed to anchor G or Q into the factor base.
