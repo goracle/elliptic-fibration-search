@@ -83,7 +83,7 @@ Height Pairing Matrix H:
  [1]
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.12s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
 [residue_counts] exact count failed mod 33554467: 'PolynomialQuotientRing_field_with_category.element_class' object has no attribute 'numerator'; using fallback
 [residue_counts] sample: [(33554467, 1)]

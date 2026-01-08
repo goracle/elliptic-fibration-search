@@ -431,7 +431,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             L = compute_jacobian_order(coeffs_genus2, p)
 
             # 3. Setup the challenge
-            f_poly = PolynomialRing(GF(p), 'x')(coeffs_genus2)
+            #f_poly = PolynomialRing(GF(p), 'x')(reversed(list(coeffs_genus2)))
+            f_poly = PolynomialRing(GF(p), 'x')(list(reversed(list(coeffs_genus2))))
+            print("f_poly:", f_poly)
             G, Q, true_d = generate_test_keypair(f_poly, p)
 
             # 4. Solve the system using perform_dlp_attack
