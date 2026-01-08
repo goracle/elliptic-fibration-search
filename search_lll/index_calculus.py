@@ -473,6 +473,71 @@ def find_smooth_decomposition_worker(seed_and_batch):
     return None
 
 
+def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int, 
+                 fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs):
+    """
+    Initializes worker process. Reconstructs Sage objects from plain Python data.
+    """
+    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ROOT_TO_IDX
+    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
+    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
+
+    _GLOBAL_ROOT_TO_IDX = root_to_idx
+    _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
+    _GLOBAL_FB_Y_CACHE = fb_y_cache
+    _GLOBAL_P = int(p_int)
+    _GLOBAL_ORDER = int(order_int)
+    _GLOBAL_WINDOW_SIZE = int(window_size)
+    
+    # Reconstruct f_poly
+    R = PolynomialRing(K, 'x')
+    _GLOBAL_F_POLY = R(f_coeffs_plain)
+    
+    # Reconstruct curve and Jacobian
+    C = HyperellipticCurve(_GLOBAL_F_POLY)
+    J = C.jacobian()
+    
+    # Reconstruct generator
+    if gen_mumford is not None:
+        gen_u_coeffs, gen_v_coeffs = gen_mumford
+        u_poly = R(gen_u_coeffs)
+        v_poly = R(gen_v_coeffs)
+        _GLOBAL_GENERATOR = J([u_poly, v_poly])
+    else:
+        _GLOBAL_GENERATOR = None
+    
+    # Reconstruct target
+    if target_mumford is not None:
+        target_u_coeffs, target_v_coeffs = target_mumford
+        u_poly = R(target_u_coeffs)
+        v_poly = R(target_v_coeffs)
+        _GLOBAL_TARGET_POINT = J([u_poly, v_poly])
+    else:
+        _GLOBAL_TARGET_POINT = None
+    
+    # Precompute baby steps in worker
+    print(f"  [Worker] Precomputing {window_size} baby steps...")
+    zero = J.zero()
+    _GLOBAL_BABY = [zero]
+    curr = zero
+    for _ in range(1, window_size):
+        curr = curr + _GLOBAL_GENERATOR
+        _GLOBAL_BABY.append(curr)
+    
+    # Reconstruct offset cache
+    _GLOBAL_OFFSET_CACHE = []
+    if offset_coeffs:
+        x = R.gen()
+        for (s, p_val, v0, v1) in offset_coeffs:
+            try:
+                u_poly = x**2 - K(int(s))*x + K(int(p_val))
+                v_poly = K(int(v1))*x + K(int(v0))
+                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly]))
+            except Exception:
+                raise
+                continue
+
+
 def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
                               max_tries=None, num_workers=None,
                               window_size=2048, sample_k=32, batch_candidates=512,
@@ -503,17 +568,26 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
     fb_root_list = list(root_to_idx.keys())
     sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
 
-    print(f"  Precomputing {window_size} baby steps...")
-    zero = generator.parent().zero()
-    baby = [zero]
-    curr = zero
-    for _ in range(1, window_size):
-        curr = curr + generator
-        baby.append(curr)
+    # Extract f_poly coefficients as plain Python ints
+    f_coeffs_plain = [int(c) for c in f_poly.list()]
+    
+    # Serialize generator and target_point as Mumford coordinates
+    gen_mumford = None
+    if generator is not None:
+        # Use bracket notation [0] and [1] to get u and v polynomials
+        gen_u = [int(c) for c in generator[0].list()]
+        gen_v = [int(c) for c in generator[1].list()]
+        gen_mumford = (gen_u, gen_v)
+    
+    target_mumford = None
+    if target_point is not None:
+        target_u = [int(c) for c in target_point[0].list()]
+        target_v = [int(c) for c in target_point[1].list()]
+        target_mumford = (target_u, target_v)
 
     initargs = (
-        generator, target_point, root_to_idx, sample_roots, baby,
-        fb_y_cache, f_poly, p_int, order_int, window_size, offset_coeffs
+        gen_mumford, target_mumford, root_to_idx, sample_roots,
+        fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs
     )
 
     if max_tries is None:
@@ -544,39 +618,3 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
             pool.terminate()
             raise
     return None, None
-
-
-def _worker_init(generator, target_point, root_to_idx, sample_roots_int, baby_table,
-                 fb_y_cache, f_poly_input, p_int, order_int, window_size, offset_coeffs):
-    """
-    Initializes worker process. Correctly reverses high-to-low coefficients.
-    """
-    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ROOT_TO_IDX
-    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
-    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
-
-    _GLOBAL_GENERATOR = generator
-    _GLOBAL_TARGET_POINT = target_point
-    _GLOBAL_ROOT_TO_IDX = root_to_idx
-    _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
-    _GLOBAL_BABY = baby_table
-    _GLOBAL_FB_Y_CACHE = fb_y_cache
-    _GLOBAL_P = int(p_int)
-    _GLOBAL_ORDER = int(order_int)
-    _GLOBAL_WINDOW_SIZE = int(window_size)
-    
-    # Create field using python int directly - GF can handle this
-    R = PolynomialRing(K, 'x')
-    
-    _GLOBAL_OFFSET_CACHE = []
-    if offset_coeffs:
-        J = generator.parent()
-        x = R.gen()
-        for (s, p_val, v0, v1) in offset_coeffs:
-            try:
-                u_poly = x**2 - K(int(s))*x + K(int(p_val))
-                v_poly = K(int(v1))*x + K(int(v0))
-                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly]))
-            except Exception:
-                raise
-                continue
