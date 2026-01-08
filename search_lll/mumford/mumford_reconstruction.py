@@ -963,391 +963,230 @@ def _ff_worker_verify_batch(args):
 
 
 import math
+
+
+from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
+import random
+from collections import defaultdict, Counter
+from search_common import FINITE_FIELD
+
+
+def get_u_roots_mod_p(s_val, p_val, F):
+    """
+    Finds roots of u(x) = x^2 - s*x + p in F.
+    Returns sorted tuple of roots or None if irreducible.
+    """
+    delta = (s_val * s_val - 4 * p_val)
+    if not delta.is_square():
+        return None
+    sqrt_delta = delta.sqrt()
+    inv_2 = F(2).inverse()
+    r1 = int((s_val + sqrt_delta) * inv_2)
+    r2 = int((s_val - sqrt_delta) * inv_2)
+    return tuple(sorted((r1, r2)))
+
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
-    Streaming reconstruction WITHOUT multiprocessing for single-prime finite field mode.
-    MEMORY FIX: Serial processing eliminates spawn overhead and list materialization.
+    Index calculus reconstruction for finite fields.
+    Collects solutions and performs random walks (addition) to fill the factor base rank.
     """
-    from collections import defaultdict
-    import math
-    import itertools
-    from sage.all import matrix, GF, ZZ
-    from search_common import FINITE_FIELD
-    
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
     
-    debug = True
-    p0 = int(FINITE_FIELD)
-    
-    if p0 not in residues:
-        if debug:
-            print(f"  No residues found for field characteristic {p0}")
-        return set(), []
-    
-    p = p0
-    res_p = residues[p]
-    genus = 2
-    
-    vector_list = list(res_p.keys())
-    num_vectors = max(1, len(vector_list))
-    
-    # Use subexponential heuristic: B ~ exp(sqrt(log(p) * log(log(p))))
-    log_p = math.log(p)
-    log_log_p = math.log(log_p)
-    B_subexp = int(math.exp(math.sqrt(log_p * log_log_p)))
-    B_min_genus2 = int(p ** 0.25)
-
-    B_target = max(B_subexp, B_min_genus2, 2 * num_vectors * genus * 50)
-    B_target = min(B_target, 50000)  # Cap to prevent OOM
-
-    # MEMORY CAPS
-    #MAX_RELATIONS_PER_VECTOR = min(300, B_target // num_vectors + 50)
-    #MAX_RELATIONS_PER_VECTOR = max(B_target // max(1, num_vectors - 1), 500)
-    MAX_RELATIONS_PER_VECTOR = B_target * 2  # Allow room for duplicates
-
-    MAX_TOTAL_RELATIONS = max(B_target * 4, 2000)
-
-    BATCH_SIZE = 50  # Reduced from 100
-    RANK_CHECK_INTERVAL = 10
-    
-    if debug:
-        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
-        print(f"  Genus: {genus}")
-        print(f"  Target factor base size: {B_target}")
-        print(f"  MAX_TOTAL_RELATIONS: {MAX_TOTAL_RELATIONS}")
-        print(f"  Batch size: {BATCH_SIZE}")
-    
-    found_xs = set()
-    seen_supports = set()
-    support_to_divisor = {}
-    vector_stats = defaultdict(lambda: {'collected': 0, 'rejected_dup': 0, 'rejected_quota': 0})
-    factor_base = set()
-    smooth_supports_list = []
-    
-    count_raw = 0
-    count_alg_fail = 0
-    count_duplicate_support = 0
-    count_quota_reject = 0
-    
+    p = int(FINITE_FIELD)
     F = GF(p)
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
     
-    def get_u_roots(s_val, p_val):
-        delta = (s_val * s_val - 4 * p_val) % p
-        delta_ele = F(delta)
-        if not delta_ele.is_square():
-            return None
-        sqrt_delta = delta_ele.sqrt()
-        inv_2 = F(2).inverse()
-        r1 = int((F(s_val) + sqrt_delta) * inv_2)
-        r2 = int((F(s_val) - sqrt_delta) * inv_2)
-        return tuple(sorted((r1, r2)))
+    # Build the Jacobian for group operations
+    f_poly = R(f_coeffs[::-1])
     
-    def eval_f(x_val):
-        val = F(0)
-        for c in f_coeffs:
-            val = val * F(x_val) + F(c)
-        return val
-    
-    # Mixing/doubling relations (keep existing code)
-    vector_fixed_roots = {}
-    for v_tuple in vector_list:
-        val = res_p[v_tuple]
+    try:
+        C = HyperellipticCurve(f_poly)
+        J = C.jacobian()
+    except Exception as e:
+        print(f"Failed to initialize Jacobian: {e}")
+        return set(), []
 
-        # DIAGNOSTIC: Check how many solutions we have
-        if isinstance(val, list):
-            num_available = len(val)
-        elif isinstance(val, dict):
-            num_available = sum(len(sols) for sols in val.values())
-        else:
-            num_available = 1
-
-        if debug and v_tuple in list(res_p.keys())[:3]:  # Print for first 3 vectors
-            print(f"  Vector {v_tuple}: {num_available} solutions available")
-
-        sols_list = val if isinstance(val, list) else (list(val.values())[0] if isinstance(val, dict) else [val])
-        
-        if not sols_list:
-            continue
-        
-        common_roots = None
-        check_limit = min(5, len(sols_list))
-        
-        for i in range(check_limit):
-            s, pv = sols_list[i][0], sols_list[i][1]
-            roots = get_u_roots(s, pv)
-            if roots:
-                if common_roots is None:
-                    common_roots = set(roots)
-                else:
-                    common_roots &= set(roots)
-        
-        if common_roots and len(common_roots) == 1:
-            vector_fixed_roots[v_tuple] = list(common_roots)[0]
-        elif common_roots and len(common_roots) > 1:
-            vector_fixed_roots[v_tuple] = min(common_roots)
-    
-    sorted_vecs = sorted(vector_fixed_roots.keys())
-    mixing_added = 0
-    
-    if len(sorted_vecs) > 1:
+    if p not in residues:
         if debug:
-            print(f"  Mixing Strategy: Generating relations for {len(sorted_vecs)} vector anchors...")
-        
-        for i in range(len(sorted_vecs)):
-            vA = sorted_vecs[i]
-            vB = sorted_vecs[(i+1) % len(sorted_vecs)]
+            print(f"  No residues found for field characteristic {p}")
+        return set(), []
+
+    res_p = residues[p]
+    
+    print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+
+    found_xs = set()
+    active_pool = []
+    seen_supports = set()
+    unique_roots_set = set() 
+    
+    # 1. Harvest Initial Solutions
+    print("  Harvesting initial solutions...")
+    count_raw = 0
+    
+    for v_tuple, val in res_p.items():
+        if isinstance(val, list):
+            sols = val
+        elif isinstance(val, dict):
+            sols = [s for sublist in val.values() for s in sublist]
+        else:
+            sols = [val]
             
-            xA = vector_fixed_roots[vA]
-            xB = vector_fixed_roots[vB]
+        for sol in sols:
+            count_raw += 1
+            s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
             
-            if xA == xB:
+            # Fast algebraic check
+            u_poly = x**2 - F(s_val)*x + F(p_val)
+            v_poly = F(v1_val)*x + F(v0_val)
+            if (v_poly**2 - f_poly) % u_poly != 0:
                 continue
+
+            div_J = J(u_poly, v_poly)
             
-            yA_sq = eval_f(xA)
-            yB_sq = eval_f(xB)
-            
-            if not yA_sq.is_square() or not yB_sq.is_square():
-                continue
-            
-            yA = yA_sq.sqrt()
-            yB = yB_sq.sqrt()
-            
-            det = F(xA - xB)
-            if det == 0:
-                continue
-            det_inv = det.inverse()
-            
-            v1_ele = (yA - yB) * det_inv
-            v0_ele = (F(xA) * yB - F(xB) * yA) * det_inv
-            
-            s_mix = (xA + xB) % p
-            p_mix = (xA * xB) % p
-            v0_mix = int(v0_ele)
-            v1_mix = int(v1_ele)
-            
-            if verify_mumford_pair(f_coeffs, s_mix, p_mix, v0_mix, v1_mix, modulus=p):
-                roots = tuple(sorted((xA, xB)))
+            # Check smoothness
+            roots = get_u_roots_mod_p(F(s_val), F(p_val), F)
+            if roots is not None:
                 if roots not in seen_supports:
                     seen_supports.add(roots)
-                    factor_base.update(roots)
-                    smooth_supports_list.append(roots)
-                    
-                    div_entry = {
-                        's': s_mix, 'p': p_mix, 'v_0': v0_mix, 'v_1': v1_mix,
-                        'vector': tuple(sorted(vA + vB)),
-                        'has_rational_roots': True,
-                        'roots': list(roots)
+                    for r in roots:
+                        unique_roots_set.add(r)
+                        
+                    div_data = {
+                        's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
+                        'vector': v_tuple,
+                        'roots': list(roots),
+                        'has_rational_roots': True
                     }
-                    support_to_divisor[roots] = div_entry
-                    mixing_added += 1
-    
-    doubling_added = 0
-    if mixing_added > 0:
-        for v_target in sorted_vecs:
-            if doubling_added > 0:
-                break
-            
-            x_target = vector_fixed_roots[v_target]
-            y_sq = eval_f(x_target)
-            
-            if not y_sq.is_square():
-                continue
-            y_target = y_sq.sqrt()
-            
-            if y_target == 0:
-                continue
-            
-            f_prime_x = F(0)
-            deg = len(f_coeffs) - 1
-            for i, c in enumerate(f_coeffs):
-                power = deg - i
-                if power > 0:
-                    f_prime_x += F(c) * power * (F(x_target) ** (power - 1))
-            
-            inv_2y = (F(2) * y_target).inverse()
-            v1_double = f_prime_x * inv_2y
-            v0_double = y_target - v1_double * F(x_target)
-            
-            s_double = (2 * x_target) % p
-            p_double = (x_target * x_target) % p
-            
-            roots_double = tuple(sorted((x_target, x_target)))
-            
-            if verify_mumford_pair(f_coeffs, s_double, p_double, int(v0_double), int(v1_double), modulus=p):
-                if roots_double not in seen_supports:
-                    seen_supports.add(roots_double)
-                    factor_base.update(roots_double)
-                    smooth_supports_list.append(roots_double)
+                    active_pool.append((div_J, div_data))
                     
-                    div_entry = {
-                        's': s_double, 'p': p_double, 'v_0': int(v0_double), 'v_1': int(v1_double),
-                        'vector': tuple(list(v_target) + ['double']),
-                        'has_rational_roots': True,
-                        'roots': list(roots_double)
-                    }
-                    support_to_divisor[roots_double] = div_entry
-                    doubling_added += 1
+                    for r in roots:
+                        x_cand = int(r) - int(shift)
+                        if x_cand not in found_xs:
+                            res = rationality_test(x_cand)
+                            if res is not None:
+                                found_xs.add(x_cand)
+
+    print(f"  Initial harvest: {len(active_pool)} unique smooth divisors from {count_raw} candidates.")
+    print(f"  Factor Base (Unique x): {len(unique_roots_set)}")
     
-    if debug and (mixing_added > 0 or doubling_added > 0):
-        print(f"  ✓ Strategy Report: {mixing_added} mixing, {doubling_added} doubling relations added.")
+    if not active_pool:
+        print("  No smooth divisors found initially. Cannot proceed with mixing.")
+        return found_xs, []
+
+    # 2. Random Walk / Mixing to fill Rank
+    # We require a significant buffer (excess relations) to guarantee full rank for sparse matrices.
     
-    def compute_current_rank():
-        if not smooth_supports_list:
-            return 0
-        root_list = sorted(factor_base)
-        root_index = {r: i for i, r in enumerate(root_list)}
-        rows = []
-        for roots in smooth_supports_list:
-            row = [0] * len(root_list)
-            for r in roots:
-                if r in root_index:
-                    row[root_index[r]] += 1
-            rows.append(row)
-        try:
-            M = matrix(ZZ, rows)
-            return M.rank()
-        except Exception:
-            return min(len(rows), len(root_list))
+    MAX_ROUNDS = 150000
+    patience = 0
+    max_patience = 30000
     
-    # SERIAL PROCESSING - Multiprocessing overhead dominates for single prime
-    if debug:
-        print(f"  Serial processing (no multiprocessing for single prime)")
+    print("  Starting structured random walk to improve Rank/FB ratio...")
     
-    batches_processed = 0
-    last_rank = 0
-    should_stop = False
+    generated_count = 0
     
-    for v_tuple in vector_list:
-        if should_stop or len(seen_supports) >= MAX_TOTAL_RELATIONS:
+    while generated_count < MAX_ROUNDS:
+        fb_size = len(unique_roots_set)
+        num_rels = len(active_pool)
+        
+        # Dynamic buffer: Require at least 15% excess or 200 relations, whichever is larger
+        target_buffer = max(200, int(fb_size * 0.15))
+        current_excess = num_rels - fb_size
+        
+        if num_rels > fb_size + target_buffer:
+            print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
             break
+            
+        if generated_count % 1000 == 0 and generated_count > 0:
+            print(f"  [Iter {generated_count}] Rel: {num_rels}, FB: {fb_size}, Excess: {current_excess}/{target_buffer}")
+
+        # Pick random pair
+        idx1 = random.randrange(len(active_pool))
+        idx2 = random.randrange(len(active_pool))
+        D1, _ = active_pool[idx1]
+        D2, _ = active_pool[idx2]
         
-        if vector_stats[v_tuple]['collected'] >= MAX_RELATIONS_PER_VECTOR:
-            continue
-        
-        val = res_p[v_tuple]
-        
-        # STREAMING: Never materialize full sols_list
-        if isinstance(val, list):
-            sols_iter = iter(val)
-        elif isinstance(val, dict):
-            # Chain iterators without building list
-            import itertools
-            sols_iter = itertools.chain.from_iterable(val.values())
+        # Try both Addition and Subtraction
+        ops = []
+        if random.random() < 0.5:
+             ops.append(D1 + D2)
         else:
-            sols_iter = iter([val])
-        
-        # Process in streaming chunks
-        while vector_stats[v_tuple]['collected'] < MAX_RELATIONS_PER_VECTOR:
-            if should_stop or len(seen_supports) >= MAX_TOTAL_RELATIONS:
-                break
+             ops.append(D1 - D2)
+             
+        for D3 in ops:
+            u3 = D3[0].monic()
+            v3 = D3[1]
+            coeffs_u = u3.list()
             
-            # Take next BATCH_SIZE solutions
-            batch = list(itertools.islice(sols_iter, BATCH_SIZE))
-            if not batch:
-                break  # Iterator exhausted
+            if len(coeffs_u) == 3:
+                s_new = -coeffs_u[1]
+                p_new = coeffs_u[0]
+            else:
+                continue 
             
-            # Process batch inline (no worker overhead)
-            for sol in batch:
-                if len(seen_supports) >= MAX_TOTAL_RELATIONS:
-                    should_stop = True
-                    break
-                
-                count_raw += 1
-                s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
-                
-                if not verify_mumford_pair(f_coeffs, s_val, p_val, v0_val, v1_val, modulus=p):
-                    count_alg_fail += 1
-                    continue
-                
-                roots = get_u_roots(s_val, p_val)
-                if roots is None:
-                    continue
-                
-                if roots in seen_supports:
-                    count_duplicate_support += 1
-                    vector_stats[v_tuple]['rejected_dup'] += 1
-                    continue
-                
-                if vector_stats[v_tuple]['collected'] >= MAX_RELATIONS_PER_VECTOR:
-                    vector_stats[v_tuple]['rejected_quota'] += 1
-                    count_quota_reject += 1
-                    continue
-                
-                seen_supports.add(roots)
-                factor_base.update(roots)
-                smooth_supports_list.append(roots)
-                vector_stats[v_tuple]['collected'] += 1
-                
-                div_entry = {
-                    's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
-                    'vector': v_tuple,
-                    'has_rational_roots': True,
-                    'roots': list(roots)
-                }
-                support_to_divisor[roots] = div_entry
-                
+            roots = get_u_roots_mod_p(s_new, p_new, F)
+            
+            if roots is not None:
+                # Calculate how many NEW roots this adds
+                new_roots_count = 0
                 for r in roots:
-                    x_cand = r - int(shift)
-                    try:
-                        if rationality_test(x_cand) is not None:
-                            found_xs.add(x_cand)
-                    except Exception:
-                        pass
-            
-            batches_processed += 1
-            
-            if p < 10 ** 15 and batches_processed % RANK_CHECK_INTERVAL == 0 and len(smooth_supports_list) >= max(10, genus * 5):
-                current_rank = compute_current_rank()
-                fb_size = len(factor_base)
+                    if r not in unique_roots_set:
+                        new_roots_count += 1
                 
-                if debug and batches_processed % (RANK_CHECK_INTERVAL * 5) == 0:
-                    print(f"  [Batch {batches_processed}] Supports: {len(seen_supports)}, Factor base: {fb_size}, Rank: {current_rank}/{fb_size}")
-
-                if current_rank == fb_size and fb_size >= B_target:
-                    if debug:
-                        print(f"\n  [EARLY STOP] Full rank achieved: {current_rank}/{fb_size} at target")
-                    should_stop = True
-                    break
-                elif current_rank < fb_size and len(seen_supports) >= MAX_TOTAL_RELATIONS:
-                    if debug:
-                        print(f"\n  [STOP] Hit MAX_TOTAL_RELATIONS cap with rank deficit: {current_rank}/{fb_size}")
-                    should_stop = True
-                    break
-
+                # Filter Logic:
+                # 0 new roots: Excellent (Pure collision). Always accept.
+                # 1 new root:  Okay (Maintains Rank/Var ratio). Accept.
+                # 2 new roots: Bad (Explodes FB). Reject.
                 
-                if current_rank > last_rank:
-                    last_rank = current_rank
-                #elif fb_size >= B_target and current_rank == fb_size:
-                #    if debug:
-                #        print(f"\n  [EARLY STOP] Near-full rank at target: {current_rank}/{fb_size}")
-                #    should_stop = True
-                #    break
+                if new_roots_count <= 1:
+                    if roots not in seen_supports:
+                        seen_supports.add(roots)
+                        for r in roots:
+                            unique_roots_set.add(r)
+                            
+                        # Extract v
+                        coeffs_v = v3.list()
+                        v1_new = coeffs_v[1] if len(coeffs_v) >= 2 else F(0)
+                        v0_new = coeffs_v[0] if len(coeffs_v) >= 1 else F(0)
+
+                        new_data = {
+                            's': int(s_new), 'p': int(p_new), 
+                            'v_0': int(v0_new), 'v_1': int(v1_new),
+                            'vector': 'mixed', 
+                            'roots': list(roots),
+                            'has_rational_roots': True
+                        }
+                        
+                        active_pool.append((D3, new_data))
+                        generated_count += 1
+                        patience = 0
+                        
+                        # Rational point check (if cheap/needed)
+                        for r in roots:
+                            x_cand = int(r) - int(shift)
+                            if x_cand not in found_xs:
+                                res = rationality_test(x_cand)
+                                if res is not None:
+                                    found_xs.add(x_cand)
+                    else:
+                        patience += 1
+                else:
+                    patience += 1
+            else:
+                patience += 1
+        
+        if patience > max_patience:
+            print("  Max patience reached (mining exhausted). Stopping.")
+            break
+
+    mumford_divisors = [d for _, d in active_pool]
     
-    mumford_divisors = list(support_to_divisor.values())
-    final_rank = compute_current_rank() if smooth_supports_list else 0
-    
-    print(f"  Raw solutions processed: {count_raw}")
-    print(f"  Algebraic rejects: {count_alg_fail}")
-    print(f"  Duplicate supports rejected: {count_duplicate_support}")
-    print(f"  Quota rejections: {count_quota_reject}")
-    print(f"  Relations added: Mixing={mixing_added}, Doubling={doubling_added}")
-    print(f"  Unique supports kept: {len(seen_supports)}")
-    print(f"  Factor base size: {len(factor_base)}")
-    print(f"  Final rank: {final_rank}/{len(factor_base)}")
-    print(f"  Points found in base field: {len(found_xs)}")
-    
-    vectors_used = sum(1 for v, s in vector_stats.items() if s['collected'] > 0)
-    print(f"\n  Vectors contributing: {vectors_used}/{num_vectors}")
-    
-    if final_rank == len(factor_base) and len(factor_base) > 0:
-        print(f"  ✓ FULL RANK: Index calculus attack is feasible!")
-    elif final_rank >= max(0, len(factor_base) - 1):
-        print(f"  ⚠️ Nearly full rank ({final_rank}/{len(factor_base)})")
-    else:
-        deficit = len(factor_base) - final_rank
-        print(f"  ✗ Rank deficient by {deficit}")
-        if vectors_used < 3:
-            print(f"     Only {vectors_used} vectors contributed - need more diversity")
+    # Final diagnostic
+    all_roots = set()
+    for d in mumford_divisors:
+        all_roots.update(d['roots'])
+    print(f"  Final Status: {len(mumford_divisors)} relations, {len(all_roots)} factor base elements.")
     
     return found_xs, mumford_divisors
