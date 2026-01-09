@@ -83,7 +83,7 @@ Height Pairing Matrix H:
  [1]
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.10s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
 [residue_counts] exact count failed mod 33554467: 'PolynomialQuotientRing_field_with_category.element_class' object has no attribute 'numerator'; using fallback
 [residue_counts] sample: [(33554467, 1)]
@@ -106,7 +106,7 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 6 workers (13.3 tasks per worker)
-[mumford] Residue computation took 99.92s
+[mumford] Residue computation took 98.48s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -118,44 +118,44 @@ availability_rate: 0.0 activation_rate: 0.0
   Initial harvest: 4750 unique smooth divisors from 19000 candidates.
   Factor Base (Unique x): 4788
   Starting structured random walk to improve Rank/FB ratio...
-  Target reached: 5529 relations > 4807 FB + 721 buffer.
-  Final Status: 5529 relations, 4807 factor base elements.
+  Target reached: 5533 relations > 4811 FB + 721 buffer.
+  Final Status: 5533 relations, 4811 factor base elements.
 
-Mumford search reconstructed 5529 divisors
-  5529 divisors had rational roots in u(x)
+Mumford search reconstructed 5533 divisors
+  5533 divisors had rational roots in u(x)
 
 ======================================================================
 INDEX CALCULUS FEASIBILITY ANALYSIS
 ======================================================================
 Field: GF(33554467)
 Genus: 2
-Divisors collected: 5529
+Divisors collected: 5533
 
 [Factor Base - Support Deduplicated]
-  Unique supports: 5529
-  Distinct x-coordinates: 4807
-  Total x-instances (after dedup): 11058
-  Original factored divisors: 5529
-  Kept after support dedup: 5529
+  Unique supports: 5533
+  Distinct x-coordinates: 4811
+  Total x-instances (after dedup): 11066
+  Original factored divisors: 5533
+  Kept after support dedup: 5533
   Average multiplicity per support: 1.0
   Top 5 most duplicated supports:
-    (22745404, 29865619): 1 duplicates (kept 1)
-    (29865619, 31033942): 1 duplicates (kept 1)
-    (5258697, 29865619): 1 duplicates (kept 1)
-    (26149387, 29865619): 1 duplicates (kept 1)
-    (17890050, 29865619): 1 duplicates (kept 1)
+    (2514086, 29865619): 1 duplicates (kept 1)
+    (29373178, 29865619): 1 duplicates (kept 1)
+    (1422147, 29865619): 1 duplicates (kept 1)
+    (10038714, 29865619): 1 duplicates (kept 1)
+    (5301635, 29865619): 1 duplicates (kept 1)
   Top 5 most frequent x-coordinates (after dedup):
-    x=20357961: appears 126 times
     x=29865619: appears 125 times
     x=20432807: appears 125 times
     x=6494674: appears 125 times
     x=22893505: appears 125 times
+    x=13450774: appears 125 times
 
 [Smoothness Distribution]
-  Smooth divisors: 5529/5529 (100.0%)
-  Non-smooth: 0/5529 (0.0%)
+  Smooth divisors: 5533/5533 (100.0%)
+  Non-smooth: 0/5533 (0.0%)
   Smoothness by search vector:
-    Vector mixed: 779/779 (100.0%)
+    Vector mixed: 783/783 (100.0%)
     Vector (56,): 250/250 (100.0%)
     Vector (41,): 250/250 (100.0%)
     Vector (35,): 250/250 (100.0%)
@@ -167,9 +167,9 @@ Divisors collected: 5529
     Vector (65,): 125/125 (100.0%)
 
 [Relation Matrix]
-  Dimensions: 5529 relations × 4807 factor base elements
+  Dimensions: 5533 relations × 4811 factor base elements
   (After support deduplication)
-  Rank: 4807
+  Rank: 4811
   Nullity: 0
   Over-determined: True
   ✓ Sufficient relations for linear algebra attack!
@@ -178,25 +178,25 @@ Divisors collected: 5529
     Min: 2, Max: 2
 
 [Linear Algebra Attack Feasibility]
-  Factor base size: 4807
-  Relations collected: 5529
-  Matrix rank: 4807
+  Factor base size: 4811
+  Relations collected: 5533
+  Matrix rank: 4811
   Estimated #J(GF(33554467)): ~1.13e+15
-  Factor base coverage: 480700/1125902255654089%
+  Factor base coverage: 481100/1125902255654089%
   ✓ ATTACK FEASIBLE: Matrix is full-rank and over-determined
     Next step: Solve linear system mod #J to express arbitrary divisors
 
 [DLP Complexity Estimate]
   Theoretical (genus 2): O(p^1.5) ≈ 194368336111.03094 ops
   Practical with B=7:
-    Relation collection: 38703 ops (DONE)
+    Relation collection: 38731 ops (DONE)
     Linear algebra (dense): 343 ops
     Linear algebra (sparse): 49 ops
     Individual DLP: 7 ops
-  Total (dense): 39053 ops
-  Total (sparse): 38759 ops
+  Total (dense): 39081 ops
+  Total (sparse): 38787 ops
   Generic baby-step-giant-step: O(p^1) ≈ 33554467 ops
-  ✓ Index calculus is faster by ~33554467/38759x
+  ✓ Index calculus is faster by ~33554467/38787x
 ======================================================================
 
 
@@ -204,10 +204,10 @@ Divisors collected: 5529
 SUMMARY & RECOMMENDATIONS
 ======================================================================
 ✓ INDEX CALCULUS ATTACK IS FEASIBLE
-  - Factor base size: 4807
-  - Relations collected: 5529
+  - Factor base size: 4811
+  - Relations collected: 5533
   - Matrix is full-rank and over-determined
-  - Estimated complexity: 38759 operations
+  - Estimated complexity: 38787 operations
 
 Next steps:
   1. Solve linear system to express factor base in terms of relations
@@ -215,13 +215,13 @@ Next steps:
   3. Express D = linear combination of known divisors
 ======================================================================
 
-Total time: 112.52s
+Total time: 111.04s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 99.93s
-  prep_mod_data            : 3.97s
-  mumford_reconstruction   : 1.58s
+  mumford_residues         : 98.48s
+  prep_mod_data            : 3.95s
+  mumford_reconstruction   : 1.65s
   mumford_setup            : 0.00s
 
 Counters:
@@ -250,12 +250,16 @@ Discard Reasons (Top 5):
 --------------------------------
 
 [Factor Base - Support Deduplicated]
-  Unique supports: 5529
-  Distinct x-coordinates: 4807
-  Kept after support dedup: 5529
-f_poly: x^5 + 3*x^3 + 2*x^2 + 5*x + 4
+  Unique supports: 5533
+  Distinct x-coordinates: 4811
+  Kept after support dedup: 5533
+  [Setup] Curve: y^2 = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
+  [Phase 0] Attempting RR-Localization for target Q...
+  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
 Jacobian order factors: [3, 5, 251, 2971]
 Targeting subgroup of prime order: 2971
 f_p = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
 Anchoring G...
-Attack failed: Error sending result: '<multiprocessing.pool.ExceptionWithTraceback object at 0x7d28b079fb00>'. Reason: 'TypeError("cannot pickle 'sage.cpython.getattr.AttributeErrorMessage' object")'
+  [Search] Targeting prime order 33557445
+  [Search] Workers: 20 | Factor Base: 4811
+  Trying... Total: 512 | Sample Hits: -25600 | Speed: 428.8 t/s  Trying... Total: 1024 | Sample Hits: -51200 | Speed: 849.0 t/s  Trying... Total: 1536 | Sample Hits: -76800 | Speed: 1273.5 t/s  Trying... Total: 2048 | Sample Hits: -102400 | Speed: 1697.6 t/s  Trying... Total: 2560 | Sample Hits: -128000 | Speed: 2104.9 t/s  Trying... Total: 3072 | Sample Hits: -153600 | Speed: 2521.6 t/s  Trying... Total: 3584 | Sample Hits: -179200 | Speed: 2927.0 t/s  Trying... Total: 4096 | Sample Hits: -204800 | Speed: 3343.1 t/s  Trying... Total: 4608 | Sample Hits: -230400 | Speed: 3753.3 t/s  Trying... Total: 5120 | Sample Hits: -256000 | Speed: 4153.1 t/s  Trying... Total: 5632 | Sample Hits: -281600 | Speed: 4469.2 t/s  Trying... Total: 6144 | Sample Hits: -307200 | Speed: 4695.7 t/s  Trying... Total: 6656 | Sample Hits: -332800 | Speed: 3697.5 t/s  Trying... Total: 7168 | Sample Hits: -358400 | Speed: 3975.7 t/s  Trying... Total: 7680 | Sample Hits: -384000 | Speed: 4258.8 t/s  Trying... Total: 8192 | Sample Hits: -409600 | Speed: 4518.0 t/s  Trying... Total: 8704 | Sample Hits: -435200 | Speed: 4800.1 t/s  Trying... Total: 9216 | Sample Hits: -460800 | Speed: 5082.2 t/s  Trying... Total: 9728 | Sample Hits: -486399 | Speed: 5275.8 t/s  Trying... Total: 10240 | Sample Hits: -511999 | Speed: 5548.3 t/s  Trying... Total: 10752 | Sample Hits: -537599 | Speed: 4749.2 t/s  Trying... Total: 11264 | Sample Hits: -563199 | Speed: 4958.8 t/s  Trying... Total: 11776 | Sample Hits: -588799 | Speed: 5151.6 t/s  Trying... Total: 12288 | Sample Hits: -614399 | Speed: 5355.4 t/s  Trying... Total: 12800 | Sample Hits: -639999 | Speed: 5570.0 t/s  Trying... Total: 13312 | Sample Hits: -665599 | Speed: 5785.7 t/s  Trying... Total: 13824 | Sample Hits: -691199 | Speed: 5967.0 t/s  Trying... Total: 14336 | Sample Hits: -716799 | Speed: 6168.3 t/s  Trying... Total: 14848 | Sample Hits: -742399 | Speed: 6388.5 t/s  Trying... Total: 15360 | Sample Hits: -767999 | Speed: 6587.7 t/s  Trying... Total: 15872 | Sample Hits: -793599 | Speed: 6747.2 t/s  Trying... Total: 16384 | Sample Hits: -819199 | Speed: 6913.7 t/s  Trying... Total: 16896 | Sample Hits: -844799 | Speed: 5063.6 t/s  Trying... Total: 17408 | Sample Hits: -870399 | Speed: 5192.2 t/s  Trying... Total: 17920 | Sample Hits: -895999 | Speed: 5333.9 t/s  Trying... Total: 18432 | Sample Hits: -921599 | Speed: 5452.6 t/s  Trying... Total: 18944 | Sample Hits: -947199 | Speed: 5581.8 t/s  Trying... Total: 19456 | Sample Hits: -972799 | Speed: 5725.5 t/s  Trying... Total: 19968 | Sample Hits: -998399 | Speed: 5812.6 t/s  Trying... Total: 20480 | Sample Hits: -1023999 | Speed: 5960.1 t/s  Trying... Total: 20992 | Sample Hits: -1049599 | Speed: 6105.5 t/s  Trying... Total: 21504 | Sample Hits: -1075199 | Speed: 6226.2 t/s  Trying... Total: 22016 | Sample Hits: -1100799 | Speed: 6361.0 t/s  Trying... Total: 22528 | Sample Hits: -1126399 | Speed: 6508.8 t/s  Trying... Total: 23040 | Sample Hits: -1151999 | Speed: 6649.3 t/s  Trying... Total: 23552 | Sample Hits: -1177599 | Speed: 6783.5 t/s  Trying... Total: 24064 | Sample Hits: -1203199 | Speed: 6928.4 t/s  Trying... Total: 24576 | Sample Hits: -1228799 | Speed: 7049.4 t/s  Trying... Total: 25088 | Sample Hits: -1254399 | Speed: 7169.3 t/s  Trying... Total: 25600 | Sample Hits: -1279999 | Speed: 7289.9 t/s  Trying... Total: 26112 | Sample Hits: -1305599 | Speed: 7423.9 t/s  Trying... Total: 26624 | Sample Hits: -1331199 | Speed: 7563.4 t/s  Trying... Total: 27136 | Sample Hits: -1356799 | Speed: 6147.8 t/s  Trying... Total: 27648 | Sample Hits: -1382399 | Speed: 6229.2 t/s  Trying... Total: 28160 | Sample Hits: -1407999 | Speed: 6336.3 t/s  Trying... Total: 28672 | Sample Hits: -1433599 | Speed: 6412.3 t/s  Trying... Total: 29184 | Sample Hits: -1459199 | Speed: 6506.1 t/s  Trying... Total: 29696 | Sample Hits: -1484799 | Speed: 6605.0 t/s  Trying... Total: 30208 | Sample Hits: -1510399 | Speed: 6640.9 t/s  Trying... Total: 30720 | Sample Hits: -1535999 | Speed: 6738.3 t/s  Trying... Total: 31232 | Sample Hits: -1561599 | Speed: 6850.6 t/s  Trying... Total: 31744 | Sample Hits: -1587199 | Speed: 6961.1 t/s  Trying... Total: 32256 | Sample Hits: -1612799 | Speed: 7050.3 t/s  Trying... Total: 32768 | Sample Hits: -1638399 | Speed: 7079.3 t/s  Trying... Total: 33280 | Sample Hits: -1663999 | Speed: 6482.3 t/s  Trying... Total: 33792 | Sample Hits: -1689599 | Speed: 6538.0 t/s  Trying... Total: 34304 | Sample Hits: -1715199 | Speed: 6618.9 t/s  Trying... Total: 34816 | Sample Hits: -1740799 | Speed: 6709.7 t/s  Trying... Total: 35328 | Sample Hits: -1766399 | Speed: 6808.3 t/s  Trying... Total: 35840 | Sample Hits: -1791999 | Speed: 6894.9 t/s  Trying... Total: 36352 | Sample Hits: -1817599 | Speed: 6981.9 t/s  Trying... Total: 36864 | Sample Hits: -1843199 | Speed: 7059.0 t/s  Trying... Total: 37376 | Sample Hits: -1868799 | Speed: 6797.9 t/s  Trying... Total: 37888 | Sample Hits: -1894398 | Speed: 6862.8 t/s  Trying... Total: 38400 | Sample Hits: -1919998 | Speed: 6940.8 t/s  Trying... Total: 38912 | Sample Hits: -1945597 | Speed: 6980.0 t/s  Trying... Total: 39424 | Sample Hits: -1971197 | Speed: 7059.2 t/s  Trying... Total: 39936 | Sample Hits: -1996797 | Speed: 7093.3 t/s  Trying... Total: 40448 | Sample Hits: -2022397 | Speed: 7156.7 t/s  Trying... Total: 40960 | Sample Hits: -2047997 | Speed: 7232.4 t/s  Trying... Total: 41472 | Sample Hits: -2073596 | Speed: 7316.4 t/s  Trying... Total: 41984 | Sample Hits: -2099196 | Speed: 7401.2 t/s  Trying... Total: 42496 | Sample Hits: -2124796 | Speed: 7425.3 t/s  Trying... Total: 43008 | Sample Hits: -2150396 | Speed: 7431.5 t/s  Trying... Total: 43520 | Sample Hits: -2175996 | Speed: 6612.4 t/s  Trying... Total: 44032 | Sample Hits: -2201596 | Speed: 6662.7 t/s  Trying... Total: 44544 | Sample Hits: -2227196 | Speed: 6717.8 t/s  Trying... Total: 45056 | Sample Hits: -2252795 | Speed: 6733.7 t/s  Trying... Total: 45568 | Sample Hits: -2278395 | Speed: 6798.0 t/s  Trying... Total: 46080 | Sample Hits: -2303995 | Speed: 6824.2 t/s  Trying... Total: 46592 | Sample Hits: -2329595 | Speed: 6889.4 t/s  Trying... Total: 47104 | Sample Hits: -2355195 | Speed: 6950.1 t/s  Trying... Total: 47616 | Sample Hits: -2380795 | Speed: 7020.7 t/s  Trying... Total: 48128 | Sample Hits: -2406395 | Speed: 7077.9 t/s  Trying... Total: 48640 | Sample Hits: -2431995 | Speed: 7116.4 t/s  Trying... Total: 49152 | Sample Hits: -2457595 | Speed: 7156.5 t/s  Trying... Total: 49664 | Sample Hits: -2483194 | Speed: 7217.5 t/s  Trying... Total: 50176 | Sample Hits: -2508794 | Speed: 7287.9 t/s  Trying... Total: 50688 | Sample Hits: -2534394 | Speed: 7354.9 t/s  Trying... Total: 51200 | Sample Hits: -2559994 | Speed: 7409.9 t/s  Trying... Total: 51712 | Sample Hits: -2585594 | Speed: 7480.6 t/s  Trying... Total: 52224 | Sample Hits: -2611194 | Speed: 7551.3 t/s  Trying... Total: 52736 | Sample Hits: -2636794 | Speed: 7598.1 t/s  Trying... Total: 53248 | Sample Hits: -2662394 | Speed: 7656.0 t/s  Trying... Total: 53760 | Sample Hits: -2687994 | Speed: 7003.2 t/s  Trying... Total: 54272 | Sample Hits: -2713594 | Speed: 7047.3 t/s  Trying... Total: 54784 | Sample Hits: -2739194 | Speed: 7083.3 t/s  Trying... Total: 55296 | Sample Hits: -2764794 | Speed: 7085.7 t/s  Trying... Total: 55808 | Sample Hits: -2790394 | Speed: 7146.2 t/s  Trying... Total: 56320 | Sample Hits: -2815994 | Speed: 7164.1 t/s  Trying... Total: 56832 | Sample Hits: -2841594 | Speed: 7198.8 t/s  Trying... Total: 57344 | Sample Hits: -2867194 | Speed: 7257.3 t/s  Trying... Total: 57856 | Sample Hits: -2892794 | Speed: 7296.7 t/s  Trying... Total: 58368 | Sample Hits: -2918394 | Speed: 7351.5 t/s  Trying... Total: 58880 | Sample Hits: -2943994 | Speed: 7353.1 t/s  Trying... Total: 59392 | Sample Hits: -2969594 | Speed: 7331.2 t/s  Trying... Total: 59904 | Sample Hits: -2995194 | Speed: 7003.7 t/s  Trying... Total: 60416 | Sample Hits: -3020794 | Speed: 7027.3 t/s  Trying... Total: 60928 | Sample Hits: -3046394 | Speed: 7076.4 t/s  Trying... Total: 61440 | Sample Hits: -3071994 | Speed: 7135.1 t/s  Trying... Total: 61952 | Sample Hits: -3097594 | Speed: 7181.5 t/s  Trying... Total: 62464 | Sample Hits: -3123194 | Speed: 7235.8 t/s  Trying... Total: 62976 | Sample Hits: -3148794 | Speed: 7292.8 t/s  Trying... Total: 63488 | Sample Hits: -3174394 | Speed: 7304.4 t/s  Trying... Total: 64000 | Sample Hits: -3199994 | Speed: 7292.9 t/s  Trying... Total: 64512 | Sample Hits: -3225594 | Speed: 7333.1 t/s  Trying... Total: 65024 | Sample Hits: -3251194 | Speed: 7358.3 t/s  Trying... Total: 65536 | Sample Hits: -3276794 | Speed: 7347.3 t/s  Trying... Total: 66048 | Sample Hits: -3302394 | Speed: 7389.5 t/s  Trying... Total: 66560 | Sample Hits: -3327994 | Speed: 7382.5 t/s  Trying... Total: 67072 | Sample Hits: -3353594 | Speed: 7438.5 t/s  Trying... Total: 67584 | Sample Hits: -3379194 | Speed: 7476.1 t/s  Trying... Total: 68096 | Sample Hits: -3404794 | Speed: 7518.9 t/s  Trying... Total: 68608 | Sample Hits: -3430394 | Speed: 7558.8 t/s  Trying... Total: 69120 | Sample Hits: -3455994 | Speed: 7553.2 t/s  Trying... Total: 69632 | Sample Hits: -3481594 | Speed: 7551.0 t/s  Trying... Total: 70144 | Sample Hits: -3507194 | Speed: 7100.8 t/s  Trying... Total: 70656 | Sample Hits: -3532794 | Speed: 7138.1 t/s  Trying... Total: 71168 | Sample Hits: -3558394 | Speed: 7153.5 t/s  Trying... Total: 71680 | Sample Hits: -3583994 | Speed: 7144.1 t/s  Trying... Total: 72192 | Sample Hits: -3609594 | Speed: 7179.2 t/s  Trying... Total: 72704 | Sample Hits: -3635194 | Speed: 7174.1 t/s  Trying... Total: 73216 | Sample Hits: -3660794 | Speed: 7215.9 t/s  Trying... Total: 73728 | Sample Hits: -3686394 | Speed: 7234.3 t/s  Trying... Total: 74240 | Sample Hits: -3711994 | Speed: 7282.5 t/s  Trying... Total: 74752 | Sample Hits: -3737594 | Speed: 7315.4 t/s  Trying... Total: 75264 | Sample Hits: -3763194 | Speed: 7317.3 t/s  Trying... Total: 75776 | Sample Hits: -3788794 | Speed: 7360.3 t/s  Trying... Total: 76288 | Sample Hits: -3814393 | Speed: 7391.5 t/s  Trying... Total: 76800 | Sample Hits: -3839993 | Speed: 7421.7 t/s  Trying... Total: 77312 | Sample Hits: -3865593 | Speed: 7471.1 t/s  Trying... Total: 77824 | Sample Hits: -3891193 | Speed: 7512.6 t/s  Trying... Total: 78336 | Sample Hits: -3916793 | Speed: 7557.4 t/s  Trying... Total: 78848 | Sample Hits: -3942393 | Speed: 7604.3 t/s  Trying... Total: 79360 | Sample Hits: -3967993 | Speed: 7651.4 t/s  Trying... Total: 79872 | Sample Hits: -3993593 | Speed: 7649.1 t/s  Trying... Total: 80384 | Sample Hits: -4019193 | Speed: 7315.8 t/s  Trying... Total: 80896 | Sample Hits: -4044793 | Speed: 7347.0 t/s  Trying... Total: 81408 | Sample Hits: -4070393 | Speed: 7354.4 t/s  Trying... Total: 81920 | Sample Hits: -4095993 | Speed: 7340.2 t/s  Trying... Total: 82432 | Sample Hits: -4121593 | Speed: 7367.0 t/s  Trying... Total: 82944 | Sample Hits: -4147193 | Speed: 7367.0 t/s  Trying... Total: 83456 | Sample Hits: -4172793 | Speed: 7393.1 t/s  Trying... Total: 83968 | Sample Hits: -4198393 | Speed: 7406.5 t/s  Trying... Total: 84480 | Sample Hits: -4223993 | Speed: 7445.2 t/s  Trying... Total: 84992 | Sample Hits: -4249593 | Speed: 7474.5 t/s  Trying... Total: 85504 | Sample Hits: -4275193 | Speed: 7466.5 t/s  Trying... Total: 86016 | Sample Hits: -4300793 | Speed: 7470.6 t/s  Trying... Total: 86528 | Sample Hits: -4326393 | Speed: 7184.8 t/s  Trying... Total: 87040 | Sample Hits: -4351993 | Speed: 7209.7 t/s  Trying... Total: 87552 | Sample Hits: -4377593 | Speed: 7236.7 t/s  Trying... Total: 88064 | Sample Hits: -4403193 | Speed: 7277.1 t/s  Trying... Total: 88576 | Sample Hits: -4428793 | Speed: 7315.1 t/s  Trying... Total: 89088 | Sample Hits: -4454393 | Speed: 7355.5 t/s  Trying... Total: 89600 | Sample Hits: -4479993 | Speed: 7388.3 t/s  Trying... Total: 90112 | Sample Hits: -4505593 | Speed: 7425.6 t/s  Trying... Total: 90624 | Sample Hits: -4531193 | Speed: 7457.7 t/s  Trying... Total: 91136 | Sample Hits: -4556793 | Speed: 7472.4 t/s  Trying... Total: 91648 | Sample Hits: -4582393 | Speed: 7495.6 t/s  Trying... Total: 92160 | Sample Hits: -4607993 | Speed: 7496.1 t/s  Trying... Total: 92672 | Sample Hits: -4633593 | Speed: 7518.8 t/s  Trying... Total: 93184 | Sample Hits: -4659193 | Speed: 7519.1 t/s  Trying... Total: 93696 | Sample Hits: -4684793 | Speed: 7532.9 t/s  Trying... Total: 94208 | Sample Hits: -4710393 | Speed: 7542.9 t/s  Trying... Total: 94720 | Sample Hits: -4735993 | Speed: 7565.2 t/s  Trying... Total: 95232 | Sample Hits: -4761593 | Speed: 7570.1 t/s  Trying... Total: 95744 | Sample Hits: -4787193 | Speed: 7593.1 t/s  Trying... Total: 96256 | Sample Hits: -4812793 | Speed: 7604.1 t/s  Trying... Total: 96768 | Sample Hits: -4838393 | Speed: 7315.0 t/s  Trying... Total: 97280 | Sample Hits: -4863993 | Speed: 7317.3 t/s  Trying... Total: 97792 | Sample Hits: -4889593 | Speed: 7347.4 t/s  Trying... Total: 98304 | Sample Hits: -4915193 | Speed: 7322.5 t/s  Trying... Total: 98816 | Sample Hits: -4940793 | Speed: 7335.0 t/s  Trying... Total: 99328 | Sample Hits: -4966393 | Speed: 7343.7 t/s  Trying... Total: 99840 | Sample Hits: -4991993 | Speed: 7351.0 t/s  Trying... Total: 100352 | Sample Hits: -5017593 | Speed: 7360.4 t/s  Trying... Total: 100864 | Sample Hits: -5043193 | Speed: 7376.0 t/s  Trying... Total: 101376 | Sample Hits: -5068793 | Speed: 7386.2 t/s  Trying... Total: 101888 | Sample Hits: -5094393 | Speed: 7405.1 t/s  Trying... Total: 102400 | Sample Hits: -5119993 | Speed: 7420.9 t/s  Trying... Total: 102912 | Sample Hits: -5145593 | Speed: 7456.3 t/s  Trying... Total: 103424 | Sample Hits: -5171193 | Speed: 7483.5 t/s  Trying... Total: 103936 | Sample Hits: -5196793 | Speed: 7503.1 t/s  Trying... Total: 104448 | Sample Hits: -5222393 | Speed: 7536.6 t/s  Trying... Total: 104960 | Sample Hits: -5247993 | Speed: 7568.8 t/s  Trying... Total: 105472 | Sample Hits: -5273593 | Speed: 7593.0 t/s  Trying... Total: 105984 | Sample Hits: -5299193 | Speed: 7626.2 t/s  Trying... Total: 106496 | Sample Hits: -5324793 | Speed: 7604.5 t/s  Trying... Total: 107008 | Sample Hits: -5350393 | Speed: 7447.2 t/s  Trying... Total: 107520 | Sample Hits: -5375992 | Speed: 7444.4 t/s  Trying... Total: 108032 | Sample Hits: -5401592 | Speed: 7472.4 t/s  Trying... Total: 108544 | Sample Hits: -5427192 | Speed: 7452.5 t/s  Trying... Total: 109056 | Sample Hits: -5452792 | Speed: 7456.1 t/s  Trying... Total: 109568 | Sample Hits: -5478392 | Speed: 7473.4 t/s  Trying... Total: 110080 | Sample Hits: -5503992 | Speed: 7470.6 t/s  Trying... Total: 110592 | Sample Hits: -5529592 | Speed: 7478.3 t/s  Trying... Total: 111104 | Sample Hits: -5555192 | Speed: 7488.6 t/s  Trying... Total: 111616 | Sample Hits: -5580792 | Speed: 7498.4 t/s  Trying... Total: 112128 | Sample Hits: -5606392 | Speed: 7515.3 t/s  Trying... Total: 112640 | Sample Hits: -5631992 | Speed: 7527.6 t/s  Trying... Total: 113152 | Sample Hits: -5657592 | Speed: 7292.1 t/s  Trying... Total: 113664 | Sample Hits: -5683191 | Speed: 7305.5 t/s  Trying... Total: 114176 | Sample Hits: -5708791 | Speed: 7327.3 t/s  Trying... Total: 114688 | Sample Hits: -5734390 | Speed: 7357.1 t/s  Trying... Total: 115200 | Sample Hits: -5759990 | Speed: 7378.8 t/s  Trying... Total: 115712 | Sample Hits: -5785590 | Speed: 7407.2 t/s  Trying... Total: 116224 | Sample Hits: -5811190 | Speed: 7438.9 t/s  Trying... Total: 116736 | Sample Hits: -5836790 | Speed: 7457.6 t/s  Trying... Total: 117248 | Sample Hits: -5862390 | Speed: 7481.1 t/s  Trying... Total: 117760 | Sample Hits: -5887990 | Speed: 7512.1 t/s  Trying... Total: 118272 | Sample Hits: -5913590 | Speed: 7527.2 t/s  Trying... Total: 118784 | Sample Hits: -5939190 | Speed: 7524.7 t/s  Trying... Total: 119296 | Sample Hits: -5964790 | Speed: 7549.1 t/s  Trying... Total: 119808 | Sample Hits: -5990390 | Speed: 7578.8 t/s  Trying... Total: 120320 | Sample Hits: -6015990 | Speed: 7571.6 t/s  Trying... Total: 120832 | Sample Hits: -6041590 | Speed: 7573.9 t/s  Trying... Total: 121344 | Sample Hits: -6067190 | Speed: 7581.3 t/s  Trying... Total: 121856 | Sample Hits: -6092790 | Speed: 7576.2 t/s  Trying... Total: 122368 | Sample Hits: -6118390 | Speed: 7592.4 t/s  Trying... Total: 122880 | Sample Hits: -6143990 | Speed: 7575.1 t/s  Trying... Total: 123392 | Sample Hits: -6169590 | Speed: 7545.3 t/s  Trying... Total: 123904 | Sample Hits: -6195190 | Speed: 7433.7 t/s  Trying... Total: 124416 | Sample Hits: -6220790 | Speed: 7431.4 t/s  Trying... Total: 124928 | Sample Hits: -6246390 | Speed: 7409.0 t/s  Trying... Total: 125440 | Sample Hits: -6271990 | Speed: 7398.4 t/s  Trying... Total: 125952 | Sample Hits: -6297590 | Speed: 7420.4 t/s  Trying... Total: 126464 | Sample Hits: -6323190 | Speed: 7414.2 t/s  Trying... Total: 126976 | Sample Hits: -6348790 | Speed: 7437.6 t/s  Trying... Total: 127488 | Sample Hits: -6374390 | Speed: 7444.3 t/s  Trying... Total: 128000 | Sample Hits: -6399990 | Speed: 7452.0 t/s  Trying... Total: 128512 | Sample Hits: -6425590 | Speed: 7449.6 t/s  Trying... Total: 129024 | Sample Hits: -6451190 | Speed: 7470.5 t/s  Trying... Total: 129536 | Sample Hits: -6476790 | Speed: 7491.8 t/s  Trying... Total: 130048 | Sample Hits: -6502390 | Speed: 7488.6 t/s  Trying... Total: 130560 | Sample Hits: -6527990 | Speed: 7505.6 t/s  Trying... Total: 131072 | Sample Hits: -6553590 | Speed: 7519.9 t/s  Trying... Total: 131584 | Sample Hits: -6579190 | Speed: 7545.0 t/s  Trying... Total: 132096 | Sample Hits: -6604790 | Speed: 7500.4 t/s  Trying... Total: 132608 | Sample Hits: -6630390 | Speed: 7505.6 t/s  Trying... Total: 133120 | Sample Hits: -6655990 | Speed: 7527.3 t/s  Trying... Total: 133632 | Sample Hits: -6681590 | Speed: 7496.5 t/s  Trying... Total: 134144 | Sample Hits: -6707190 | Speed: 7492.4 t/s  Trying... Total: 134656 | Sample Hits: -6732790 | Speed: 7473.0 t/s  Trying... Total: 135168 | Sample Hits: -6758390 | Speed: 7457.6 t/s  Trying... Total: 135680 | Sample Hits: -6783990 | Speed: 7481.6 t/s  Trying... Total: 136192 | Sample Hits: -6809590 | Speed: 7509.6 t/s  Trying... Total: 136704 | Sample Hits: -6835190 | Speed: 7502.8 t/s  Trying... Total: 137216 | Sample Hits: -6860790 | Speed: 7524.1 t/s  Trying... Total: 137728 | Sample Hits: -6886389 | Speed: 7526.4 t/s  Trying... Total: 138240 | Sample Hits: -6911989 | Speed: 7531.5 t/s  Trying... Total: 138752 | Sample Hits: -6937589 | Speed: 7530.8 t/s  Trying... Total: 139264 | Sample Hits: -6963189 | Speed: 7552.8 t/s  Trying... Total: 139776 | Sample Hits: -6988789 | Speed: 7550.4 t/s  Trying... Total: 140288 | Sample Hits: -7014389 | Speed: 7388.6 t/s  Trying... Total: 140800 | Sample Hits: -7039989 | Speed: 7384.7 t/s  Trying... Total: 141312 | Sample Hits: -7065589 | Speed: 7376.9 t/s  Trying... Total: 141824 | Sample Hits: -7091189 | Speed: 7393.7 t/s  Trying... Total: 142336 | Sample Hits: -7116789 | Speed: 7404.6 t/s  Trying... Total: 142848 | Sample Hits: -7142389 | Speed: 7427.8 t/s  Trying... Total: 143360 | Sample Hits: -7167989 | Speed: 7448.8 t/s  Trying... Total: 143872 | Sample Hits: -7193589 | Speed: 7453.2 t/s  Trying... Total: 144384 | Sample Hits: -7219189 | Speed: 7475.6 t/s  Trying... Total: 144896 | Sample Hits: -7244789 | Speed: 7473.6 t/s  Trying... Total: 145408 | Sample Hits: -7270389 | Speed: 7488.0 t/s  Trying... Total: 145920 | Sample Hits: -7295989 | Speed: 7508.8 t/s  Trying... Total: 146432 | Sample Hits: -7321589 | Speed: 7520.8 t/s  Trying... Total: 146944 | Sample Hits: -7347188 | Speed: 7543.8 t/s  Trying... Total: 147456 | Sample Hits: -7372788 | Speed: 7568.1 t/s  Trying... Total: 147968 | Sample Hits: -7398388 | Speed: 7556.3 t/s  Trying... Total: 148480 | Sample Hits: -7423988 | Speed: 7579.5 t/s  Trying... Total: 148992 | Sample Hits: -7449588 | Speed: 7592.4 t/s  Trying... Total: 149504 | Sample Hits: -7475188 | Speed: 7576.1 t/s  Trying... Total: 150016 | Sample Hits: -7500788 | Speed: 7526.0 t/s  Trying... Total: 150528 | Sample Hits: -7526388 | Speed: 7467.8 t/s  Trying... Total: 151040 | Sample Hits: -7551988 | Speed: 7464.9 t/s  Trying... Total: 151552 | Sample Hits: -7577588 | Speed: 7447.5 t/s  Trying... Total: 152064 | Sample Hits: -7603188 | Speed: 7425.9 t/s  Trying... Total: 152576 | Sample Hits: -7628788 | Speed: 7443.2 t/s  Trying... Total: 153088 | Sample Hits: -7654388 | Speed: 7447.9 t/s  Trying... Total: 153600 | Sample Hits: -7679988 | Speed: 7443.0 t/s  Trying... Total: 154112 | Sample Hits: -7705588 | Speed: 7453.3 t/s  Trying... Total: 154624 | Sample Hits: -7731188 | Speed: 7458.2 t/s  Trying... Total: 155136 | Sample Hits: -7756787 | Speed: 7469.8 t/s  Trying... Total: 155648 | Sample Hits: -7782386 | Speed: 7478.9 t/s  Trying... Total: 156160 | Sample Hits: -7807985 | Speed: 7461.5 t/s  Trying... Total: 156672 | Sample Hits: -7833585 | Speed: 7479.1 t/s  Trying... Total: 157184 | Sample Hits: -7859185 | Speed: 7479.4 t/s  Trying... Total: 157696 | Sample Hits: -7884785 | Speed: 7482.1 t/s  Trying... Total: 158208 | Sample Hits: -7910385 | Speed: 7456.2 t/s  Trying... Total: 158720 | Sample Hits: -7935985 | Speed: 7470.3 t/s  Trying... Total: 159232 | Sample Hits: -7961585 | Speed: 7456.8 t/s  Trying... Total: 159744 | Sample Hits: -7987185 | Speed: 7472.1 t/s  Trying... Total: 160256 | Sample Hits: -8012785 | Speed: 7491.7 t/s  Trying... Total: 160768 | Sample Hits: -8038385 | Speed: 7512.5 t/s  Trying... Total: 161280 | Sample Hits: -8063985 | Speed: 7524.0 t/s  Trying... Total: 161792 | Sample Hits: -8089585 | Speed: 7523.5 t/s  Trying... Total: 162304 | Sample Hits: -8115185 | Speed: 7441.7 t/s  Trying... Total: 162816 | Sample Hits: -8140785 | Speed: 7458.3 t/s  Trying... Total: 163328 | Sample Hits: -8166385 | Speed: 7461.9 t/s  Trying... Total: 163840 | Sample Hits: -8191985 | Speed: 7484.4 t/s  Trying... Total: 164352 | Sample Hits: -8217585 | Speed: 7504.4 t/s  Trying... Total: 164864 | Sample Hits: -8243185 | Speed: 7504.7 t/s  Trying... Total: 165376 | Sample Hits: -8268785 | Speed: 7490.7 t/s  Trying... Total: 165888 | Sample Hits: -8294385 | Speed: 7500.8 t/s  Trying... Total: 166400 | Sample Hits: -8319985 | Speed: 7431.2 t/s  Trying... Total: 166912 | Sample Hits: -8345585 | Speed: 7454.0 t/s  Trying... Total: 167424 | Sample Hits: -8371185 | Speed: 7425.9 t/s  Trying... Total: 167936 | Sample Hits: -8396785 | Speed: 7442.1 t/s  Trying... Total: 168448 | Sample Hits: -8422385 | Speed: 7459.5 t/s  Trying... Total: 168960 | Sample Hits: -8447985 | Speed: 7346.9 t/s  Trying... Total: 169472 | Sample Hits: -8473585 | Speed: 7361.0 t/s  Trying... Total: 169984 | Sample Hits: -8499185 | Speed: 7375.3 t/s  Trying... Total: 170496 | Sample Hits: -8524785 | Speed: 7383.9 t/s  Trying... Total: 171008 | Sample Hits: -8550385 | Speed: 7403.2 t/s  Trying... Total: 171520 | Sample Hits: -8575985 | Speed: 7417.2 t/s  Trying... Total: 172032 | Sample Hits: -8601585 | Speed: 7432.7 t/s  Trying... Total: 172544 | Sample Hits: -8627185 | Speed: 7446.7 t/s  Trying... Total: 173056 | Sample Hits: -8652785 | Speed: 7468.4 t/s  Trying... Total: 173568 | Sample Hits: -8678384 | Speed: 7475.7 t/s  Trying... Total: 174080 | Sample Hits: -8703984 | Speed: 7497.4 t/s  Trying... Total: 174592 | Sample Hits: -8729584 | Speed: 7511.8 t/s  Trying... Total: 175104 | Sample Hits: -8755184 | Speed: 7520.5 t/s  Trying... Total: 175616 | Sample Hits: -8780784 | Speed: 7534.4 t/s  Trying... Total: 176128 | Sample Hits: -8806384 | Speed: 7445.4 t/s  Trying... Total: 176640 | Sample Hits: -8831984 | Speed: 7444.1 t/s  Trying... Total: 177152 | Sample Hits: -8857584 | Speed: 7460.4 t/s  Trying... Total: 177664 | Sample Hits: -8883184 | Speed: 7469.3 t/s  Trying... Total: 178176 | Sample Hits: -8908783 | Speed: 7479.8 t/s  Trying... Total: 178688 | Sample Hits: -8934383 | Speed: 7415.7 t/s  Trying... Total: 179200 | Sample Hits: -8959983 | Speed: 7405.0 t/s  Trying... Total: 179712 | Sample Hits: -8985583 | Speed: 7396.3 t/s  Trying... Total: 180224 | Sample Hits: -9011183 | Speed: 7411.5 t/s  Trying... Total: 180736 | Sample Hits: -9036783 | Speed: 7429.1 t/s  Trying... Total: 181248 | Sample Hits: -9062383 | Speed: 7436.2 t/s  Trying... Total: 181760 | Sample Hits: -9087983 | Speed: 7452.9 t/s  Trying... Total: 182272 | Sample Hits: -9113583 | Speed: 7462.3 t/s  Trying... Total: 182784 | Sample Hits: -9139183 | Speed: 7451.7 t/s  Trying... Total: 183296 | Sample Hits: -9164783 | Speed: 7388.9 t/s  Trying... Total: 183808 | Sample Hits: -9190383 | Speed: 7390.9 t/s  Trying... Total: 184320 | Sample Hits: -9215983 | Speed: 7399.8 t/s  Trying... Total: 184832 | Sample Hits: -9241583 | Speed: 7414.3 t/s  Trying... Total: 185344 | Sample Hits: -9267183 | Speed: 7418.6 t/s  Trying... Total: 185856 | Sample Hits: -9292783 | Speed: 7437.2 t/s  Trying... Total: 186368 | Sample Hits: -9318383 | Speed: 7445.3 t/s  Trying... Total: 186880 | Sample Hits: -9343983 | Speed: 7440.2 t/s  Trying... Total: 187392 | Sample Hits: -9369583 | Speed: 7443.9 t/s  Trying... Total: 187904 | Sample Hits: -9395183 | Speed: 7430.2 t/s

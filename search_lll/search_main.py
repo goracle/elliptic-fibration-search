@@ -19,6 +19,7 @@ from .smoothness import extract_factor_base
 from .index_calculus import *
 from sage.all import QQ, PolynomialRing
 from sage.all import PolynomialRing, SR, QQ
+from .riemann_roch_localization import localize_target_via_rr
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -423,18 +424,36 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
 
         if FINITE_FIELD:
+
             p = int(FINITE_FIELD)
             # 1. Extract the factor base
             fb = extract_factor_base(mumford_divisors, p)
+            # FIX: Define the mapping to avoid NameError
+            root_to_idx = {r: i for i, r in enumerate(fb)}
+            fb_roots_set = set(root_to_idx.keys())
 
-            # 2. Compute Jacobian Order (Now defined!)
+            # 2. Compute Jacobian Order
             L = compute_jacobian_order(coeffs_genus2, p)
 
             # 3. Setup the challenge
-            #f_poly = PolynomialRing(GF(p), 'x')(reversed(list(coeffs_genus2)))
             f_poly = PolynomialRing(GF(p), 'x')(list(reversed(list(coeffs_genus2))))
-            print("f_poly:", f_poly)
+            print(f"  [Setup] Curve: y^2 = {f_poly}")
             G, Q, true_d = generate_test_keypair(f_poly, p)
+
+            # NEW: RR-Local Pre-check
+            print(f"  [Phase 0] Attempting RR-Localization for target Q...")
+            
+            # Try n_pole = 6, 7, 8 for increasing neighborhood depth
+            for n in [6, 7, 8]:
+                roots, poly_a, poly_b, vec = localize_target_via_rr(Q, fb_roots_set, f_poly, p, n_pole=n)
+                if roots is not None:
+                    print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n})!")
+                    # Convert roots to log_v directly
+                    log_v = resolve_log_from_rr_decomposition(roots, root_to_idx, poly_a, poly_b, p)
+                    print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
+                    return found_xs, [], mumford_residues, stats
+
+            print("  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.")
 
             # 4. Solve the system using perform_dlp_attack
             try:
@@ -444,7 +463,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 print(f"Attack failed: {e}")
                 raise
 
-            
         return found_xs, [], mumford_residues, stats
 
     # === UNPACK: SCONF ===

@@ -402,77 +402,6 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
 from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod
 
 
-def _worker_core_try_batch(r_val):
-    """
-    Worker core: attempts to find a relation for a specific scalar r.
-    Returns plain Python types only (no Sage objects).
-    """
-    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ROOT_TO_IDX
-    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
-    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
-
-    P_int = _GLOBAL_P
-    sample_roots = _GLOBAL_SAMPLE_ROOTS_INT
-    agg_stats = Counter()
-    agg_stats['tried'] = 1
-
-    try:
-        if _GLOBAL_TARGET_POINT is None:
-            D = r_val * _GLOBAL_GENERATOR
-        else:
-            D = r_val * _GLOBAL_GENERATOR + _GLOBAL_TARGET_POINT
-    except Exception:
-        raise
-        return ("STATS", dict(agg_stats))
-    
-    for off_idx, offset_D in enumerate([None] + _GLOBAL_OFFSET_CACHE):
-        try:
-            cand_D = D + offset_D if offset_D else D
-            cand_div = cand_D.mumford()
-        except Exception:
-            raise
-            continue
-        
-        u = cand_div[0]
-        if u.degree() != 2:
-            continue
-            
-        u0 = int(u[0])
-        u1 = int(u[1])
-
-        hit = False
-        for xr in sample_roots:
-            if (xr * xr + u1 * xr + u0) % P_int == 0:
-                hit = True
-                break
-        
-        if not hit:
-            agg_stats['sample_miss'] += 1
-            continue
-
-        row_vec = get_relation_row_cached(cand_div)
-        if row_vec is not None:
-            r_val_int = int(r_val)
-            row_vec_plain = {int(k): int(v) for k, v in row_vec.items()}
-            offset_idx = off_idx - 1
-            return ("SUCCESS", (r_val_int, row_vec_plain, offset_idx))
-            
-    return ("STATS", dict(agg_stats))
-
-
-def find_smooth_decomposition_worker(seed_and_batch):
-    seed, batch_candidates = seed_and_batch
-    set_random_seed(seed)
-    random.seed(int(seed))
-    
-    for r_val in range(batch_candidates):
-        result = _worker_core_try_batch(r_val)
-        if result[0] == "SUCCESS":
-            return result[1]
-    
-    return None
-
-
 def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int, 
                  fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs):
     """
@@ -538,43 +467,125 @@ def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int,
                 continue
 
 
+def _worker_core_try_batch(r_val):
+    """
+    Worker core: attempts to find a relation for a specific scalar r.
+    Returns plain Python types only (no Sage objects).
+    """
+    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ROOT_TO_IDX
+    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
+    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
+
+    P_int = _GLOBAL_P
+    sample_roots = _GLOBAL_SAMPLE_ROOTS_INT
+    agg_stats = Counter()
+    agg_stats['tried'] = 1
+
+    try:
+        if _GLOBAL_TARGET_POINT is None:
+            D = r_val * _GLOBAL_GENERATOR
+        else:
+            D = r_val * _GLOBAL_GENERATOR + _GLOBAL_TARGET_POINT
+    except Exception:
+        raise
+        return ("STATS", dict(agg_stats))
+    
+    for off_idx, offset_D in enumerate([None] + _GLOBAL_OFFSET_CACHE):
+        try:
+            cand_D = D + offset_D if offset_D else D
+            # Fixed: Sage Jacobian points are already iterable/indexable as (u, v)
+            cand_div = cand_D 
+        except Exception:
+            raise
+            continue
+        
+        try:
+            u = cand_div[0]
+            if u.degree() != 2:
+                continue
+                
+            u0 = int(u[0])
+            u1 = int(u[1])
+
+            hit = False
+            for xr in sample_roots:
+                if (xr * xr + u1 * xr + u0) % P_int == 0:
+                    hit = True
+                    break
+            
+            if not hit:
+                agg_stats['sample_miss'] += 1
+                continue
+
+            row_vec = get_relation_row_cached(cand_div)
+            if row_vec is not None:
+                r_val_int = int(r_val)
+                row_vec_plain = {int(k): int(v) for k, v in row_vec.items()}
+                offset_idx = off_idx - 1
+                return ("SUCCESS", (r_val_int, row_vec_plain, offset_idx))
+        except Exception:
+            raise
+            continue
+            
+    return ("STATS", dict(agg_stats))
+
+
+# ... (Previous imports and helper functions remain the same)
+
+def find_smooth_decomposition_worker(seed_and_batch):
+    seed, batch_candidates = seed_and_batch
+    set_random_seed(seed)
+    random.seed(int(seed))
+    
+    batch_stats = Counter()
+    
+    for _ in range(batch_candidates):
+        r_val = random.randint(1, _GLOBAL_ORDER - 1)
+        result = _worker_core_try_batch(r_val)
+        
+        if result[0] == "SUCCESS":
+            return result # Return the full ("SUCCESS", data) tuple
+        else:
+            # Update local batch stats with the "STATS" dict returned
+            batch_stats.update(result[1])
+    
+    return ("STATS", dict(batch_stats))
+
+
 def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
                               max_tries=None, num_workers=None,
                               window_size=2048, sample_k=32, batch_candidates=512,
-                              factor_base_freq=None, offset_coeffs=None):
+                              offset_coeffs=None):
     """
-    Parallel search for smooth divisor. Ensures f_poly is correctly oriented.
+    Parallel search for smooth divisor with restored serialization and live progress.
     """
     from multiprocessing import Pool, cpu_count
     import random
     import time
+    import sys
 
     num_workers = cpu_count() if num_workers is None else num_workers
     p_int = int(p)
     order_int = int(order)
     R = PolynomialRing(K, 'x')
 
+    # --- Setup Factor Base Cache ---
     fb_roots = sorted(list(root_to_idx.keys()))
     fb_y_cache = {}
     for x_val in fb_roots:
         y2 = int(f_poly(x_val))
-        if y2 == 0:
-            continue
+        if y2 == 0: continue
         if pow(y2, (p_int - 1) // 2, p_int) == 1:
-            from .smoothness import tonelli_shanks
             y_can = tonelli_shanks(y2, p_int)
             fb_y_cache[int(x_val)] = int(min(y_can, p_int - y_can))
 
     fb_root_list = list(root_to_idx.keys())
     sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
-
-    # Extract f_poly coefficients as plain Python ints
     f_coeffs_plain = [int(c) for c in f_poly.list()]
     
-    # Serialize generator and target_point as Mumford coordinates
+    # --- FIX: Restore Serialization of Mumford Coordinates ---
     gen_mumford = None
     if generator is not None:
-        # Use bracket notation [0] and [1] to get u and v polynomials
         gen_u = [int(c) for c in generator[0].list()]
         gen_v = [int(c) for c in generator[1].list()]
         gen_mumford = (gen_u, gen_v)
@@ -590,19 +601,29 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
         fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs
     )
 
-    if max_tries is None:
-        max_tries = 1000000
-
+    # --- Search Execution with Progress Tracking ---
+    max_tries = max_tries or 10000000
     total_batches = (max_tries + batch_candidates - 1) // batch_candidates
     tasks = [(random.randint(0, 2**31 - 1), batch_candidates) for _ in range(total_batches)]
     
+    start_time = time.time()
+    total_tried = 0
+    total_hits = 0
+
+    print(f"  [Search] Targeting prime order {order_int}")
+    print(f"  [Search] Workers: {num_workers} | Factor Base: {len(fb_roots)}")
+
     with Pool(processes=num_workers, initializer=_worker_init, initargs=initargs) as pool:
         try:
             for result in pool.imap_unordered(find_smooth_decomposition_worker, tasks):
-                if result is not None:
-                    pool.terminate()
-                    (r_val, row_vec, off_idx) = result
+                if result is None: continue
+                
+                status, data = result
+                if status == "SUCCESS":
+                    (r_val, row_vec, off_idx) = data
+                    print(f"\n  [!] SUCCESS: Anchor found in {total_tried} tries.")
                     
+                    # Finalize row with offset if needed
                     if off_idx >= 0 and offset_coeffs:
                         (s, pp, v0, v1) = offset_coeffs[off_idx]
                         u_off = R.gen()**2 - K(int(s))*R.gen() + K(int(pp))
@@ -611,9 +632,23 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
                         if off_row:
                             for idx, val in off_row.items():
                                 row_vec[idx] = row_vec.get(idx, 0) - val
-                                if row_vec[idx] == 0:
-                                    del row_vec[idx]
+                                if row_vec[idx] == 0: del row_vec[idx]
+                    
+                    pool.terminate()
                     return r_val, row_vec
+                
+                elif status == "STATS":
+                    total_tried += data.get('tried', 0)
+                    total_hits += (data.get('tried', 0) - data.get('sample_miss', 0))
+                    
+                    # Live Diagnostic Update
+                    elapsed = time.time() - start_time
+                    rate = total_tried / elapsed if elapsed > 0 else 0
+                    sys.stdout.write(
+                        f"\r  Trying... Total: {total_tried} | Sample Hits: {total_hits} | Speed: {rate:.1f} t/s"
+                    )
+                    sys.stdout.flush()
+
         except KeyboardInterrupt:
             pool.terminate()
             raise
