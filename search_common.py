@@ -617,12 +617,13 @@ def to_mod_poly(poly_q, R, debug=False):
         if poly_q.parent() is R:
             return poly_q
     except Exception:
-        pass
+        raise
     try:
         return R(poly_q)
     except Exception as e_direct:
         if debug:
             print(f"[debug to_mod_poly] direct coercion failed: {e_direct}")
+        raise
     try:
         PQ = PolynomialRing(QQ, 'm')
         poly_QQ = PQ(poly_q)
@@ -870,6 +871,7 @@ def compute_coarse_height_matrix_serializable(cd, sections,
             Xs = str(P[0])
             Ys = str(P[1])
             Zs = str(P[2])
+            raise
         sect_triples_strs.append((Xs, Ys, Zs))
 
     factor = QQ(10**decimal_places)
@@ -913,6 +915,7 @@ def compute_coarse_height_matrix_serializable(cd, sections,
                     valid_samples += 1
             except multiprocessing.TimeoutError:
                 print("Timeout computing height sample.")
+                raise
             except Exception:
                 # Show full traceback from the worker (should already have printed it)
                 print("Worker failed for one m candidate. See above trace.")
@@ -1000,6 +1003,7 @@ def compute_search_vectors(H, height_bound):
         is_pd = H_even.is_positive_definite()
     except Exception:
         is_pd = False
+        raise
 
     if not is_pd:
         det = H_even.det()
@@ -1113,7 +1117,7 @@ def effective_degree(rational_expr, m):
         try:
             return int(poly.degree())
         except Exception:
-            pass
+            raise
         try:
             fac = poly.factor()
             deg = 0
@@ -1122,16 +1126,18 @@ def effective_degree(rational_expr, m):
                     if base == m:
                         deg += int(exp)
                 except Exception:
+                    raise
                     continue
             if deg:
                 return deg
         except Exception:
-            pass
+            raise
         try:
             R = PolynomialRing(QQ, str(m))
             p = R(poly)
             return int(p.degree())
         except Exception:
+            raise
             return 0
     return _deg(num) - _deg(den)
 
@@ -1185,11 +1191,13 @@ def get_primes_from_poly(ff):
         try:
             q = QQ(c)            # try to coerce coefficient to a rational
         except Exception:
+            raise
             return
         try:
             N = Integer(q.numerator())
             D = Integer(q.denominator())
         except Exception:
+            raise
             return
         if abs(N) > 1:
             for p, _ in N.factor():
@@ -1205,6 +1213,7 @@ def get_primes_from_poly(ff):
     except Exception:
         num = ff
         den = None
+        raise
 
     # 2) For each (num, den) gather rational coefficient primes.
     for poly in (num, den):
@@ -1216,6 +1225,7 @@ def get_primes_from_poly(ff):
                 coeffs = list(poly.coefficients())
             except Exception:
                 coeffs = [poly]
+                raise
         else:
             coeffs = [poly]
 
@@ -1414,6 +1424,7 @@ def find_special_j_invariant_fibers(cd, j_invariants_to_check):
                 found_m_values.update(roots)
         except Exception as e:
             print(f"Could not solve for j(m) = {j_target}: {e}")
+            raise
 
     return found_m_values
 
@@ -1429,6 +1440,7 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
                 found.add(x)
                 print(f"Found rational point from fiber m={m_val}: (x,y) = ({x}, {y})")
         except (TypeError, ZeroDivisionError):
+            raise
             continue
     return found
 
@@ -1454,6 +1466,7 @@ def suggest_height_bound(H_ref, H_used, base_bound, safety=1.10, method='det'):
             alpha = (trace_used / trace_ref) if trace_ref != 0 else 1.0
     except Exception:
         alpha = 1.0
+        raise
 
     used_bound = int(ceil(base_bound * alpha * safety))
     return used_bound, alpha
@@ -2181,6 +2194,7 @@ def compute_base_sections_m_direct(cd, quartic_pts):
                     print(f"LHS - RHS = {(LHS - RHS).simplify_rational()}")
                 except Exception as e:
                     print(f"Verification failed: {e}")
+                    raise
             
             P = cd.E_weier([X_aff, Y_aff, Z_aff])
         
@@ -2345,6 +2359,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             E_rhs_final = y**2 - x**3 - a4_final * x - a6_final
     except Exception:
         E_rhs_final = E_rhs
+        raise
 
     # Get singular fiber info for diagnostics
     if FINITE_FIELD:
@@ -2514,6 +2529,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                     xK = K( QQ(str(x_coord_func)) )  # may still fail; keep inside try/except
             except Exception as e:
                 raise RuntimeError(f"get_phi_x: cannot coerce x_coord_func to fraction field in m: {e}")
+            raise
 
         # --- Substitute x := xK into quartic_rhs so the result is an element in K (or PR_m) ---
         try:
@@ -2524,6 +2540,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 quartic_at_x = quartic_rhs(x=xK)   # other possible call form
             except Exception as e:
                 raise RuntimeError(f"get_phi_x: failed to substitute x into quartic_rhs: {e}")
+            raise
 
         # Now coerce quartic_at_x into the fraction field K (it should be a polynomial/rational function in m)
         try:
@@ -2535,6 +2552,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 y_poly = K(y_poly)
             except Exception as e:
                 raise RuntimeError(f"get_phi_x: failed to coerce quartic_at_x into fraction field K: {e}")
+            raise
 
         # --- Now attempt to get y_val_sqrt inside K when possible ---
         y_val_sqrt = None
@@ -2548,6 +2566,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 except Exception:
                     # no sqrt in base field -> leave None (we'll try rationalization)
                     y_val_sqrt = None
+                    raise
             else:
                 # non-constant rational function in m: check if perfect square in K
                 if y_poly.is_square():
@@ -2557,6 +2576,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
         except Exception:
             # conservative fallback
             y_val_sqrt = None
+            raise
 
         # --- If we found a sqrt inside K, just substitute and return phi_x ---
         if y_val_sqrt is not None:
@@ -2608,7 +2628,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
             # Otherwise phi truly needs a quadratic extension; fall through to extension branch.
         except Exception:
             # If anything here fails, we'll attempt the extension approach below.
-            pass
+            raise
 
         # --- Last resort: construct quadratic extension K[y] / (Y^2 - y_poly) so sqrt exists ---
         try:
@@ -2679,12 +2699,12 @@ def check_independence(sections, curve, cd):
             if hasattr(P, "is_zero"):
                 return bool(P.is_zero())
         except Exception:
-            pass
+            raise
         try:
             if hasattr(P, "is_infinite"):
                 return bool(P.is_infinite())
         except Exception:
-            pass
+            raise
 
         # Try equality with curve(0) only as a last resort (guarded)
         try:
@@ -2692,17 +2712,17 @@ def check_independence(sections, curve, cd):
             try:
                 return P == O
             except Exception:
-                pass
+                raise
         except Exception:
             # constructor not supported; skip
-            pass
+            raise
 
         # If the point exposes affine/projective coordinates, try heuristics
         try:
             if hasattr(P, "is_identity") and callable(P.is_identity):
                 return bool(P.is_identity())
         except Exception:
-            pass
+            raise
 
         # Last-ditch: try to inspect coords (some point objects return None for infinity)
         try:
@@ -2713,7 +2733,7 @@ def check_independence(sections, curve, cd):
             if isinstance(coords, (tuple, list)):
                 return any(c is None for c in coords)
         except Exception:
-            pass
+            raise
 
         # Unknown; assume not identity (conservative for tests)
         return False
@@ -2753,6 +2773,7 @@ def check_independence(sections, curve, cd):
                 except Exception:
                     # try P * c as alternate multiplication order
                     term = P * c
+                    raise
                 if S is None:
                     S = term
                 else:
@@ -2834,7 +2855,7 @@ def lll_reduce_mw_basis(cd, P_list):
                 if hasattr(P, "is_zero") and P.is_zero():
                     continue
             except Exception:
-                pass
+                raise
 
             if P not in cleaned:
                 cleaned.append(P)
@@ -2861,6 +2882,7 @@ def lll_reduce_mw_basis(cd, P_list):
         H_int = (H * D).change_ring(ZZ)
     except Exception as e:
         print("Failed to clear denominators in height matrix:", e)
+        raise
         return P_list
 
     # Perform LLL on Gram matrix
@@ -2869,6 +2891,7 @@ def lll_reduce_mw_basis(cd, P_list):
     except Exception as e:
         print("Height matrix not LLL-compatible. Skipping LLL.")
         print("Reason:", e)
+        raise
         return P_list
 
     # Apply unimodular change of basis
