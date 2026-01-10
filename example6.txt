@@ -34,7 +34,13 @@ Skipping singular fiber analysis over finite field
 [auto_cfg] Building height estimation from 1 known x-coords.
 [auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
 [auto_cfg] Height Bound: 1182 (derived from h_can=log(2) + 8.016446854281241)
-[auto_cfg] Residue count error: positive characteristic not allowed in symbolic computations
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
+[residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
+[residue_counts] sample: [(33554467, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
 [auto_cfg] Applied adaptive parameters:
@@ -80,6 +86,8 @@ Found roots for a4(m)=0 (potential j=1728): [-20086357]
 
 --- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
 Testing special m-values from fibers: {-20086357, -16518291}
+Found rational point from fiber m=13468110: (x,y) = (20543565, 10298969)
+Points found from special fibers: {20543565}
 --- Finite-field mode: skipping LLL (no height lattice) ---
 
 --- Search Iteration 0 with 1 sections ---
@@ -89,9 +97,9 @@ Height Pairing Matrix H:
  [1]
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.00s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
-[residue_counts] exact count failed mod 33554467: 'PolynomialQuotientRing_field_with_category.element_class' object has no attribute 'numerator'; using fallback
+[residue_counts] exact count failed mod 33554467: 'str' object has no attribute 'numerator'; using fallback
 [residue_counts] sample: [(33554467, 1)]
 [residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
 [FF vectors] Generated 80 canonical vectors
@@ -117,179 +125,250 @@ Generated keypair:
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 286, 'split_rate': 1.0, 'preferred_histogram': {0: 283, 1: 3, 2: 0}, 'hit_rate': 0.01048951048951049}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 200, 'split_rate': 1.0, 'preferred_histogram': {0: 197, 1: 3, 2: 0}, 'hit_rate': 0.015}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 236, 'split_rate': 1.0, 'preferred_histogram': {0: 233, 1: 3, 2: 0}, 'hit_rate': 0.012711864406779662}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 255, 'split_rate': 1.0, 'preferred_histogram': {0: 252, 1: 3, 2: 0}, 'hit_rate': 0.011764705882352941}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 235, 'split_rate': 1.0, 'preferred_histogram': {0: 232, 1: 3, 2: 0}, 'hit_rate': 0.01276595744680851}
+  [Biased Solver] Found 500 unique solutions.
 Generated keypair:
   Base point x-coord: 457208
   Base divisor G: (x + 33097259, y + 24168605)
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 229, 'split_rate': 1.0, 'preferred_histogram': {0: 226, 1: 3, 2: 0}, 'hit_rate': 0.013100436681222707}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 209, 'split_rate': 1.0, 'preferred_histogram': {0: 206, 1: 3, 2: 0}, 'hit_rate': 0.014354066985645933}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 241, 'split_rate': 1.0, 'preferred_histogram': {0: 238, 1: 3, 2: 0}, 'hit_rate': 0.012448132780082987}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
 Generated keypair:
   Base point x-coord: 457208
   Base divisor G: (x + 33097259, y + 24168605)
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 250, 'split_rate': 1.0, 'preferred_histogram': {0: 247, 1: 3, 2: 0}, 'hit_rate': 0.012}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 261, 'split_rate': 1.0, 'preferred_histogram': {0: 258, 1: 3, 2: 0}, 'hit_rate': 0.011494252873563218}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 242, 'split_rate': 1.0, 'preferred_histogram': {0: 239, 1: 3, 2: 0}, 'hit_rate': 0.012396694214876033}
+  [Biased Solver] Found 500 unique solutions.
 Generated keypair:
   Base point x-coord: 457208
   Base divisor G: (x + 33097259, y + 24168605)
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 251, 'split_rate': 1.0, 'preferred_histogram': {0: 248, 1: 3, 2: 0}, 'hit_rate': 0.01195219123505976}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 261, 'split_rate': 1.0, 'preferred_histogram': {0: 258, 1: 3, 2: 0}, 'hit_rate': 0.011494252873563218}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 262, 'split_rate': 1.0, 'preferred_histogram': {0: 259, 1: 3, 2: 0}, 'hit_rate': 0.011450381679389313}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 246, 'split_rate': 1.0, 'preferred_histogram': {0: 243, 1: 3, 2: 0}, 'hit_rate': 0.012195121951219513}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 278, 'split_rate': 1.0, 'preferred_histogram': {0: 275, 1: 3, 2: 0}, 'hit_rate': 0.01079136690647482}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 233, 'split_rate': 1.0, 'preferred_histogram': {0: 230, 1: 3, 2: 0}, 'hit_rate': 0.012875536480686695}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 225, 'split_rate': 1.0, 'preferred_histogram': {0: 222, 1: 3, 2: 0}, 'hit_rate': 0.013333333333333334}
+  [Biased Solver] Found 500 unique solutions.
 Generated keypair:
   Base point x-coord: 457208
   Base divisor G: (x + 33097259, y + 24168605)
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 237, 'split_rate': 1.0, 'preferred_histogram': {0: 234, 1: 3, 2: 0}, 'hit_rate': 0.012658227848101266}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 239, 'split_rate': 1.0, 'preferred_histogram': {0: 236, 1: 3, 2: 0}, 'hit_rate': 0.012552301255230125}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 259, 'split_rate': 1.0, 'preferred_histogram': {0: 256, 1: 3, 2: 0}, 'hit_rate': 0.011583011583011582}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 274, 'split_rate': 1.0, 'preferred_histogram': {0: 271, 1: 3, 2: 0}, 'hit_rate': 0.010948905109489052}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 229, 'split_rate': 1.0, 'preferred_histogram': {0: 226, 1: 3, 2: 0}, 'hit_rate': 0.013100436681222707}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 262, 'split_rate': 1.0, 'preferred_histogram': {0: 259, 1: 3, 2: 0}, 'hit_rate': 0.011450381679389313}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
 Generated keypair:
   Base point x-coord: 457208
   Base divisor G: (x + 33097259, y + 24168605)
   Secret key d: 800
   Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
   Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-  [Biased Solver] Trying 3 priority s-values first (targeting 3 preferred x-coords)
-  [Bias Statistics] {'total': 10003, 'split': 10003, 'split_rate': 1.0, 'preferred_histogram': {0: 10000, 1: 3, 2: 0}, 'double_preferred_rate': 0.0, 'single_preferred_rate': 0.00029991002699190244, 'zero_preferred_rate': 0.9997000899730081}
-[mumford] Residue computation took 100.09s
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 289, 'split_rate': 1.0, 'preferred_histogram': {0: 286, 1: 3, 2: 0}, 'hit_rate': 0.010380622837370242}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 259, 'split_rate': 1.0, 'preferred_histogram': {0: 256, 1: 3, 2: 0}, 'hit_rate': 0.011583011583011582}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 255, 'split_rate': 1.0, 'preferred_histogram': {0: 252, 1: 3, 2: 0}, 'hit_rate': 0.011764705882352941}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 271, 'split_rate': 1.0, 'preferred_histogram': {0: 268, 1: 3, 2: 0}, 'hit_rate': 0.01107011070110701}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 230, 'split_rate': 1.0, 'preferred_histogram': {0: 227, 1: 3, 2: 0}, 'hit_rate': 0.013043478260869565}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 251, 'split_rate': 1.0, 'preferred_histogram': {0: 248, 1: 3, 2: 0}, 'hit_rate': 0.01195219123505976}
+  [Biased Solver] Found 500 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
+  [Biased Solver] Found 0 unique solutions.
+  [Biased Solver] Checking 1003 candidates (Priority: 3)...
+  [Bias Statistics] {'total': 232, 'split_rate': 1.0, 'preferred_histogram': {0: 229, 1: 3, 2: 0}, 'hit_rate': 0.01293103448275862}
+  [Biased Solver] Found 500 unique solutions.
+[mumford] Residue computation took 100.48s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -298,61 +377,61 @@ availability_rate: 0.0 activation_rate: 0.0
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
   Harvesting initial solutions...
-  Initial harvest: 114 unique smooth divisors from 456 candidates.
-  Factor Base (Unique x): 41
+  Initial harvest: 4750 unique smooth divisors from 19000 candidates.
+  Factor Base (Unique x): 4677
   Starting structured random walk to improve Rank/FB ratio...
-  Target reached: 242 relations > 41 FB + 200 buffer.
-  Final Status: 242 relations, 41 factor base elements.
+  Target reached: 5392 relations > 4688 FB + 703 buffer.
+  Final Status: 5392 relations, 4688 factor base elements.
 
-Mumford search reconstructed 242 divisors
-  242 divisors had rational roots in u(x)
+Mumford search reconstructed 5392 divisors
+  5392 divisors had rational roots in u(x)
 
 ======================================================================
 INDEX CALCULUS FEASIBILITY ANALYSIS
 ======================================================================
 Field: GF(33554467)
 Genus: 2
-Divisors collected: 242
+Divisors collected: 5392
 
 [Factor Base - Support Deduplicated]
-  Unique supports: 242
-  Distinct x-coordinates: 41
-  Total x-instances (after dedup): 484
-  Original factored divisors: 242
-  Kept after support dedup: 242
+  Unique supports: 5392
+  Distinct x-coordinates: 4688
+  Total x-instances (after dedup): 10784
+  Original factored divisors: 5392
+  Kept after support dedup: 5392
   Average multiplicity per support: 1.0
   Top 5 most duplicated supports:
-    (21724017, 29865619): 1 duplicates (kept 1)
     (457208, 29865619): 1 duplicates (kept 1)
+    (21724017, 29865619): 1 duplicates (kept 1)
     (8979329, 29865619): 1 duplicates (kept 1)
-    (8979329, 20432807): 1 duplicates (kept 1)
-    (20432807, 21724017): 1 duplicates (kept 1)
+    (696133, 29865619): 1 duplicates (kept 1)
+    (22770438, 29865619): 1 duplicates (kept 1)
   Top 5 most frequent x-coordinates (after dedup):
-    x=21724017: appears 40 times
-    x=457208: appears 40 times
-    x=8979329: appears 40 times
-    x=16944563: appears 18 times
-    x=27541757: appears 14 times
+    x=16037069: appears 129 times
+    x=27519878: appears 127 times
+    x=20432807: appears 126 times
+    x=6494674: appears 126 times
+    x=22847155: appears 126 times
 
 [Smoothness Distribution]
-  Smooth divisors: 242/242 (100.0%)
-  Non-smooth: 0/242 (0.0%)
+  Smooth divisors: 5392/5392 (100.0%)
+  Non-smooth: 0/5392 (0.0%)
   Smoothness by search vector:
-    Vector mixed: 128/128 (100.0%)
-    Vector (56,): 6/6 (100.0%)
-    Vector (41,): 6/6 (100.0%)
-    Vector (35,): 6/6 (100.0%)
-    Vector (12,): 6/6 (100.0%)
-    Vector (9,): 6/6 (100.0%)
-    Vector (76,): 3/3 (100.0%)
-    Vector (77,): 3/3 (100.0%)
-    Vector (80,): 3/3 (100.0%)
-    Vector (65,): 3/3 (100.0%)
+    Vector mixed: 642/642 (100.0%)
+    Vector (56,): 250/250 (100.0%)
+    Vector (41,): 250/250 (100.0%)
+    Vector (35,): 250/250 (100.0%)
+    Vector (12,): 250/250 (100.0%)
+    Vector (9,): 250/250 (100.0%)
+    Vector (76,): 125/125 (100.0%)
+    Vector (77,): 125/125 (100.0%)
+    Vector (80,): 125/125 (100.0%)
+    Vector (65,): 125/125 (100.0%)
 
 [Relation Matrix]
-  Dimensions: 242 relations × 41 factor base elements
+  Dimensions: 5392 relations × 4688 factor base elements
   (After support deduplication)
-  Rank: 41
+  Rank: 4688
   Nullity: 0
   Over-determined: True
   ✓ Sufficient relations for linear algebra attack!
@@ -361,25 +440,25 @@ Divisors collected: 242
     Min: 2, Max: 2
 
 [Linear Algebra Attack Feasibility]
-  Factor base size: 41
-  Relations collected: 242
-  Matrix rank: 41
+  Factor base size: 4688
+  Relations collected: 5392
+  Matrix rank: 4688
   Estimated #J(GF(33554467)): ~1.13e+15
-  Factor base coverage: 4100/1125902255654089%
+  Factor base coverage: 468800/1125902255654089%
   ✓ ATTACK FEASIBLE: Matrix is full-rank and over-determined
     Next step: Solve linear system mod #J to express arbitrary divisors
 
 [DLP Complexity Estimate]
   Theoretical (genus 2): O(p^1.5) ≈ 194368336111.03094 ops
   Practical with B=7:
-    Relation collection: 1694 ops (DONE)
+    Relation collection: 37744 ops (DONE)
     Linear algebra (dense): 343 ops
     Linear algebra (sparse): 49 ops
     Individual DLP: 7 ops
-  Total (dense): 2044 ops
-  Total (sparse): 1750 ops
+  Total (dense): 38094 ops
+  Total (sparse): 37800 ops
   Generic baby-step-giant-step: O(p^1) ≈ 33554467 ops
-  ✓ Index calculus is faster by ~33554467/1750x
+  ✓ Index calculus is faster by ~33554467/37800x
 ======================================================================
 
 
@@ -387,10 +466,10 @@ Divisors collected: 242
 SUMMARY & RECOMMENDATIONS
 ======================================================================
 ✓ INDEX CALCULUS ATTACK IS FEASIBLE
-  - Factor base size: 41
-  - Relations collected: 242
+  - Factor base size: 4688
+  - Relations collected: 5392
   - Matrix is full-rank and over-determined
-  - Estimated complexity: 1750 operations
+  - Estimated complexity: 37800 operations
 
 Next steps:
   1. Solve linear system to express factor base in terms of relations
@@ -398,13 +477,13 @@ Next steps:
   3. Express D = linear combination of known divisors
 ======================================================================
 
-Total time: 104.11s
+Total time: 112.50s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 100.10s
-  prep_mod_data            : 3.95s
-  mumford_reconstruction   : 0.05s
+  mumford_residues         : 100.48s
+  prep_mod_data            : 3.97s
+  mumford_reconstruction   : 1.36s
   mumford_setup            : 0.00s
 
 Counters:
@@ -433,9 +512,9 @@ Discard Reasons (Top 5):
 --------------------------------
 
 [Factor Base - Support Deduplicated]
-  Unique supports: 242
-  Distinct x-coordinates: 41
-  Kept after support dedup: 242
+  Unique supports: 5392
+  Distinct x-coordinates: 4688
+  Kept after support dedup: 5392
   [Setup] Curve: y^2 = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
   [Phase 0] Attempting RR-Localization for target Q...
   [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
@@ -444,5 +523,5 @@ Targeting subgroup of prime order: 2971
 f_p = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
 Anchoring G...
   [Search] Targeting prime order 33557445
-  [Search] Workers: 20 | Factor Base: 41
-  Trying... Total: 512 | Sample Hits: -25600 | Speed: 437.6 t/s  Trying... Total: 1024 | Sample Hits: -51200 | Speed: 871.3 t/s  Trying... Total: 1536 | Sample Hits: -76799 | Speed: 1302.9 t/s  Trying... Total: 2048 | Sample Hits: -102399 | Speed: 1736.0 t/s  Trying... Total: 2560 | Sample Hits: -127999 | Speed: 2165.7 t/s  Trying... Total: 3072 | Sample Hits: -153599 | Speed: 2596.1 t/s  Trying... Total: 3584 | Sample Hits: -179199 | Speed: 3020.0 t/s  Trying... Total: 4096 | Sample Hits: -204799 | Speed: 3445.5 t/s  Trying... Total: 4608 | Sample Hits: -230399 | Speed: 3849.4 t/s  Trying... Total: 5120 | Sample Hits: -255999 | Speed: 4277.0 t/s  Trying... Total: 5632 | Sample Hits: -281599 | Speed: 4633.5 t/s  Trying... Total: 6144 | Sample Hits: -307199 | Speed: 4927.5 t/s  Trying... Total: 6656 | Sample Hits: -332799 | Speed: 3665.0 t/s  Trying... Total: 7168 | Sample Hits: -358399 | Speed: 3934.6 t/s  Trying... Total: 7680 | Sample Hits: -383999 | Speed: 4207.5 t/s  Trying... Total: 8192 | Sample Hits: -409599 | Speed: 4469.9 t/s  Trying... Total: 8704 | Sample Hits: -435199 | Speed: 4728.5 t/s  Trying... Total: 9216 | Sample Hits: -460799 | Speed: 4982.1 t/s  Trying... Total: 9728 | Sample Hits: -486399 | Speed: 5194.3 t/s  Trying... Total: 10240 | Sample Hits: -511999 | Speed: 5461.5 t/s  Trying... Total: 10752 | Sample Hits: -537599 | Speed: 4796.4 t/s  Trying... Total: 11264 | Sample Hits: -563199 | Speed: 4984.2 t/s  Trying... Total: 11776 | Sample Hits: -588799 | Speed: 5204.1 t/s  Trying... Total: 12288 | Sample Hits: -614399 | Speed: 5410.0 t/s  Trying... Total: 12800 | Sample Hits: -639999 | Speed: 5613.8 t/s  Trying... Total: 13312 | Sample Hits: -665599 | Speed: 5821.7 t/s  Trying... Total: 13824 | Sample Hits: -691199 | Speed: 6028.6 t/s  Trying... Total: 14336 | Sample Hits: -716799 | Speed: 6206.8 t/s  Trying... Total: 14848 | Sample Hits: -742399 | Speed: 6404.2 t/s  Trying... Total: 15360 | Sample Hits: -767999 | Speed: 6576.6 t/s  Trying... Total: 15872 | Sample Hits: -793599 | Speed: 6780.4 t/s  Trying... Total: 16384 | Sample Hits: -819199 | Speed: 6873.7 t/s  Trying... Total: 16896 | Sample Hits: -844799 | Speed: 5220.5 t/s  Trying... Total: 17408 | Sample Hits: -870399 | Speed: 5238.4 t/s  Trying... Total: 17920 | Sample Hits: -895999 | Speed: 5360.6 t/s  Trying... Total: 18432 | Sample Hits: -921599 | Speed: 5500.5 t/s  Trying... Total: 18944 | Sample Hits: -947199 | Speed: 5623.6 t/s  Trying... Total: 19456 | Sample Hits: -972799 | Speed: 5725.5 t/s  Trying... Total: 19968 | Sample Hits: -998399 | Speed: 5876.2 t/s  Trying... Total: 20480 | Sample Hits: -1023999 | Speed: 6012.1 t/s  Trying... Total: 20992 | Sample Hits: -1049599 | Speed: 6104.3 t/s  Trying... Total: 21504 | Sample Hits: -1075199 | Speed: 6177.9 t/s  Trying... Total: 22016 | Sample Hits: -1100799 | Speed: 6324.5 t/s  Trying... Total: 22528 | Sample Hits: -1126399 | Speed: 6452.0 t/s  Trying... Total: 23040 | Sample Hits: -1151999 | Speed: 6490.8 t/s  Trying... Total: 23552 | Sample Hits: -1177599 | Speed: 6566.7 t/s  Trying... Total: 24064 | Sample Hits: -1203199 | Speed: 6707.9 t/s  Trying... Total: 24576 | Sample Hits: -1228799 | Speed: 6823.7 t/s  Trying... Total: 25088 | Sample Hits: -1254399 | Speed: 6957.0 t/s  Trying... Total: 25600 | Sample Hits: -1279999 | Speed: 7080.9 t/s  Trying... Total: 26112 | Sample Hits: -1305599 | Speed: 7153.3 t/s  Trying... Total: 26624 | Sample Hits: -1331199 | Speed: 6929.7 t/s  Trying... Total: 27136 | Sample Hits: -1356799 | Speed: 6254.8 t/s  Trying... Total: 27648 | Sample Hits: -1382399 | Speed: 6258.0 t/s  Trying... Total: 28160 | Sample Hits: -1407999 | Speed: 6353.5 t/s  Trying... Total: 28672 | Sample Hits: -1433599 | Speed: 6454.1 t/s  Trying... Total: 29184 | Sample Hits: -1459199 | Speed: 6508.0 t/s  Trying... Total: 29696 | Sample Hits: -1484799 | Speed: 6599.6 t/s  Trying... Total: 30208 | Sample Hits: -1510399 | Speed: 6705.6 t/s  Trying... Total: 30720 | Sample Hits: -1535999 | Speed: 6818.0 t/s  Trying... Total: 31232 | Sample Hits: -1561599 | Speed: 6865.1 t/s  Trying... Total: 31744 | Sample Hits: -1587199 | Speed: 6912.8 t/s  Trying... Total: 32256 | Sample Hits: -1612799 | Speed: 6991.2 t/s  Trying... Total: 32768 | Sample Hits: -1638399 | Speed: 6985.3 t/s  Trying... Total: 33280 | Sample Hits: -1663999 | Speed: 6275.1 t/s  Trying... Total: 33792 | Sample Hits: -1689599 | Speed: 6322.7 t/s  Trying... Total: 34304 | Sample Hits: -1715199 | Speed: 6416.8 t/s  Trying... Total: 34816 | Sample Hits: -1740799 | Speed: 6505.4 t/s  Trying... Total: 35328 | Sample Hits: -1766399 | Speed: 6572.3 t/s  Trying... Total: 35840 | Sample Hits: -1791999 | Speed: 6580.5 t/s  Trying... Total: 36352 | Sample Hits: -1817599 | Speed: 6661.5 t/s  Trying... Total: 36864 | Sample Hits: -1843198 | Speed: 6723.1 t/s  Trying... Total: 37376 | Sample Hits: -1868797 | Speed: 6788.7 t/s  Trying... Total: 37888 | Sample Hits: -1894397 | Speed: 6860.3 t/s  Trying... Total: 38400 | Sample Hits: -1919997 | Speed: 6938.8 t/s  Trying... Total: 38912 | Sample Hits: -1945595 | Speed: 6974.0 t/s  Trying... Total: 39424 | Sample Hits: -1971195 | Speed: 7037.1 t/s  Trying... Total: 39936 | Sample Hits: -1996795 | Speed: 7123.3 t/s  Trying... Total: 40448 | Sample Hits: -2022395 | Speed: 7210.2 t/s  Trying... Total: 40960 | Sample Hits: -2047995 | Speed: 7294.7 t/s  Trying... Total: 41472 | Sample Hits: -2073595 | Speed: 7296.1 t/s  Trying... Total: 41984 | Sample Hits: -2099195 | Speed: 7367.0 t/s  Trying... Total: 42496 | Sample Hits: -2124795 | Speed: 7399.4 t/s  Trying... Total: 43008 | Sample Hits: -2150395 | Speed: 7318.6 t/s  Trying... Total: 43520 | Sample Hits: -2175995 | Speed: 6642.2 t/s  Trying... Total: 44032 | Sample Hits: -2201595 | Speed: 6673.9 t/s  Trying... Total: 44544 | Sample Hits: -2227195 | Speed: 6733.5 t/s  Trying... Total: 45056 | Sample Hits: -2252795 | Speed: 6796.9 t/s  Trying... Total: 45568 | Sample Hits: -2278395 | Speed: 6789.6 t/s  Trying... Total: 46080 | Sample Hits: -2303995 | Speed: 6863.9 t/s  Trying... Total: 46592 | Sample Hits: -2329594 | Speed: 6934.2 t/s  Trying... Total: 47104 | Sample Hits: -2355194 | Speed: 7003.4 t/s  Trying... Total: 47616 | Sample Hits: -2380794 | Speed: 7016.1 t/s  Trying... Total: 48128 | Sample Hits: -2406394 | Speed: 7074.2 t/s  Trying... Total: 48640 | Sample Hits: -2431994 | Speed: 7101.7 t/s  Trying... Total: 49152 | Sample Hits: -2457594 | Speed: 7043.7 t/s  Trying... Total: 49664 | Sample Hits: -2483194 | Speed: 7045.4 t/s  Trying... Total: 50176 | Sample Hits: -2508793 | Speed: 7092.5 t/s  Trying... Total: 50688 | Sample Hits: -2534393 | Speed: 7146.6 t/s  Trying... Total: 51200 | Sample Hits: -2559993 | Speed: 7205.1 t/s  Trying... Total: 51712 | Sample Hits: -2585593 | Speed: 7181.0 t/s  Trying... Total: 52224 | Sample Hits: -2611193 | Speed: 7187.0 t/s  Trying... Total: 52736 | Sample Hits: -2636793 | Speed: 7199.0 t/s  Trying... Total: 53248 | Sample Hits: -2662393 | Speed: 7244.9 t/s  Trying... Total: 53760 | Sample Hits: -2687993 | Speed: 7018.1 t/s  Trying... Total: 54272 | Sample Hits: -2713593 | Speed: 7032.7 t/s  Trying... Total: 54784 | Sample Hits: -2739193 | Speed: 7088.5 t/s  Trying... Total: 55296 | Sample Hits: -2764793 | Speed: 7146.0 t/s  Trying... Total: 55808 | Sample Hits: -2790393 | Speed: 7134.3 t/s  Trying... Total: 56320 | Sample Hits: -2815993 | Speed: 7198.4 t/s  Trying... Total: 56832 | Sample Hits: -2841593 | Speed: 7246.4 t/s  Trying... Total: 57344 | Sample Hits: -2867193 | Speed: 7309.7 t/s  Trying... Total: 57856 | Sample Hits: -2892793 | Speed: 7317.0 t/s  Trying... Total: 58368 | Sample Hits: -2918391 | Speed: 7351.4 t/s  Trying... Total: 58880 | Sample Hits: -2943991 | Speed: 7288.6 t/s  Trying... Total: 59392 | Sample Hits: -2969591 | Speed: 7303.5 t/s  Trying... Total: 59904 | Sample Hits: -2995191 | Speed: 6827.4 t/s  Trying... Total: 60416 | Sample Hits: -3020791 | Speed: 6872.5 t/s  Trying... Total: 60928 | Sample Hits: -3046391 | Speed: 6896.9 t/s  Trying... Total: 61440 | Sample Hits: -3071991 | Speed: 6954.8 t/s  Trying... Total: 61952 | Sample Hits: -3097591 | Speed: 7012.7 t/s  Trying... Total: 62464 | Sample Hits: -3123191 | Speed: 7039.6 t/s  Trying... Total: 62976 | Sample Hits: -3148791 | Speed: 7078.7 t/s  Trying... Total: 63488 | Sample Hits: -3174391 | Speed: 7133.2 t/s  Trying... Total: 64000 | Sample Hits: -3199991 | Speed: 7167.2 t/s  Trying... Total: 64512 | Sample Hits: -3225591 | Speed: 7220.0 t/s  Trying... Total: 65024 | Sample Hits: -3251191 | Speed: 7276.6 t/s  Trying... Total: 65536 | Sample Hits: -3276791 | Speed: 7315.7 t/s  Trying... Total: 66048 | Sample Hits: -3302391 | Speed: 7365.6 t/s  Trying... Total: 66560 | Sample Hits: -3327991 | Speed: 7419.0 t/s  Trying... Total: 67072 | Sample Hits: -3353591 | Speed: 7426.5 t/s  Trying... Total: 67584 | Sample Hits: -3379191 | Speed: 7463.2 t/s  Trying... Total: 68096 | Sample Hits: -3404791 | Speed: 7498.1 t/s  Trying... Total: 68608 | Sample Hits: -3430391 | Speed: 7536.3 t/s  Trying... Total: 69120 | Sample Hits: -3455991 | Speed: 7582.9 t/s  Trying... Total: 69632 | Sample Hits: -3481591 | Speed: 7021.2 t/s  Trying... Total: 70144 | Sample Hits: -3507191 | Speed: 7059.0 t/s  Trying... Total: 70656 | Sample Hits: -3532791 | Speed: 7106.0 t/s  Trying... Total: 71168 | Sample Hits: -3558391 | Speed: 7139.1 t/s  Trying... Total: 71680 | Sample Hits: -3583991 | Speed: 7181.7 t/s  Trying... Total: 72192 | Sample Hits: -3609591 | Speed: 7202.3 t/s  Trying... Total: 72704 | Sample Hits: -3635191 | Speed: 7232.2 t/s  Trying... Total: 73216 | Sample Hits: -3660791 | Speed: 7280.8 t/s  Trying... Total: 73728 | Sample Hits: -3686391 | Speed: 7317.3 t/s  Trying... Total: 74240 | Sample Hits: -3711991 | Speed: 7367.2 t/s  Trying... Total: 74752 | Sample Hits: -3737591 | Speed: 7398.2 t/s  Trying... Total: 75264 | Sample Hits: -3763191 | Speed: 7397.5 t/s  Trying... Total: 75776 | Sample Hits: -3788791 | Speed: 7427.2 t/s  Trying... Total: 76288 | Sample Hits: -3814391 | Speed: 7206.0 t/s  Trying... Total: 76800 | Sample Hits: -3839991 | Speed: 7202.9 t/s  Trying... Total: 77312 | Sample Hits: -3865591 | Speed: 7249.2 t/s  Trying... Total: 77824 | Sample Hits: -3891191 | Speed: 7251.4 t/s  Trying... Total: 78336 | Sample Hits: -3916791 | Speed: 7228.2 t/s  Trying... Total: 78848 | Sample Hits: -3942391 | Speed: 7266.4 t/s  Trying... Total: 79360 | Sample Hits: -3967991 | Speed: 7302.1 t/s  Trying... Total: 79872 | Sample Hits: -3993591 | Speed: 7224.3 t/s  Trying... Total: 80384 | Sample Hits: -4019191 | Speed: 7260.7 t/s  Trying... Total: 80896 | Sample Hits: -4044791 | Speed: 7270.5 t/s  Trying... Total: 81408 | Sample Hits: -4070391 | Speed: 7294.5 t/s  Trying... Total: 81920 | Sample Hits: -4095991 | Speed: 7330.0 t/s  Trying... Total: 82432 | Sample Hits: -4121588 | Speed: 7371.6 t/s  Trying... Total: 82944 | Sample Hits: -4147188 | Speed: 7411.9 t/s  Trying... Total: 83456 | Sample Hits: -4172788 | Speed: 7450.4 t/s  Trying... Total: 83968 | Sample Hits: -4198388 | Speed: 7469.2 t/s  Trying... Total: 84480 | Sample Hits: -4223988 | Speed: 7513.3 t/s  Trying... Total: 84992 | Sample Hits: -4249588 | Speed: 7521.4 t/s  Trying... Total: 85504 | Sample Hits: -4275188 | Speed: 7532.3 t/s  Trying... Total: 86016 | Sample Hits: -4300788 | Speed: 7359.7 t/s  Trying... Total: 86528 | Sample Hits: -4326388 | Speed: 7100.0 t/s  Trying... Total: 87040 | Sample Hits: -4351988 | Speed: 7101.4 t/s  Trying... Total: 87552 | Sample Hits: -4377588 | Speed: 7139.5 t/s  Trying... Total: 88064 | Sample Hits: -4403188 | Speed: 7156.5 t/s  Trying... Total: 88576 | Sample Hits: -4428788 | Speed: 7188.7 t/s  Trying... Total: 89088 | Sample Hits: -4454388 | Speed: 7209.8 t/s  Trying... Total: 89600 | Sample Hits: -4479988 | Speed: 7247.3 t/s  Trying... Total: 90112 | Sample Hits: -4505588 | Speed: 7275.2 t/s  Trying... Total: 90624 | Sample Hits: -4531188 | Speed: 7316.0 t/s  Trying... Total: 91136 | Sample Hits: -4556787 | Speed: 7348.0 t/s  Trying... Total: 91648 | Sample Hits: -4582387 | Speed: 7371.5 t/s  Trying... Total: 92160 | Sample Hits: -4607987 | Speed: 7412.1 t/s  Trying... Total: 92672 | Sample Hits: -4633587 | Speed: 7449.0 t/s  Trying... Total: 93184 | Sample Hits: -4659187 | Speed: 7487.6 t/s  Trying... Total: 93696 | Sample Hits: -4684787 | Speed: 7502.3 t/s  Trying... Total: 94208 | Sample Hits: -4710387 | Speed: 7508.6 t/s  Trying... Total: 94720 | Sample Hits: -4735987 | Speed: 7511.8 t/s  Trying... Total: 95232 | Sample Hits: -4761587 | Speed: 7550.2 t/s  Trying... Total: 95744 | Sample Hits: -4787187 | Speed: 7579.5 t/s  Trying... Total: 96256 | Sample Hits: -4812787 | Speed: 7234.8 t/s  Trying... Total: 96768 | Sample Hits: -4838387 | Speed: 7228.6 t/s  Trying... Total: 97280 | Sample Hits: -4863987 | Speed: 7255.5 t/s  Trying... Total: 97792 | Sample Hits: -4889587 | Speed: 7280.4 t/s  Trying... Total: 98304 | Sample Hits: -4915187 | Speed: 7307.8 t/s  Trying... Total: 98816 | Sample Hits: -4940787 | Speed: 7321.4 t/s  Trying... Total: 99328 | Sample Hits: -4966387 | Speed: 7343.6 t/s  Trying... Total: 99840 | Sample Hits: -4991987 | Speed: 7374.8 t/s  Trying... Total: 100352 | Sample Hits: -5017587 | Speed: 7402.2 t/s  Trying... Total: 100864 | Sample Hits: -5043187 | Speed: 7438.4 t/s  Trying... Total: 101376 | Sample Hits: -5068787 | Speed: 7474.3 t/s  Trying... Total: 101888 | Sample Hits: -5094387 | Speed: 7484.2 t/s  Trying... Total: 102400 | Sample Hits: -5119987 | Speed: 7513.9 t/s  Trying... Total: 102912 | Sample Hits: -5145587 | Speed: 7241.8 t/s  Trying... Total: 103424 | Sample Hits: -5171187 | Speed: 7277.0 t/s  Trying... Total: 103936 | Sample Hits: -5196787 | Speed: 7288.5 t/s  Trying... Total: 104448 | Sample Hits: -5222387 | Speed: 7289.4 t/s  Trying... Total: 104960 | Sample Hits: -5247987 | Speed: 7306.8 t/s  Trying... Total: 105472 | Sample Hits: -5273587 | Speed: 7338.6 t/s  Trying... Total: 105984 | Sample Hits: -5299187 | Speed: 7359.9 t/s  Trying... Total: 106496 | Sample Hits: -5324787 | Speed: 7382.1 t/s  Trying... Total: 107008 | Sample Hits: -5350387 | Speed: 7370.5 t/s  Trying... Total: 107520 | Sample Hits: -5375987 | Speed: 7376.2 t/s  Trying... Total: 108032 | Sample Hits: -5401587 | Speed: 7404.1 t/s  Trying... Total: 108544 | Sample Hits: -5427187 | Speed: 7428.6 t/s  Trying... Total: 109056 | Sample Hits: -5452787 | Speed: 7455.3 t/s  Trying... Total: 109568 | Sample Hits: -5478387 | Speed: 7458.1 t/s  Trying... Total: 110080 | Sample Hits: -5503987 | Speed: 7491.1 t/s  Trying... Total: 110592 | Sample Hits: -5529587 | Speed: 7518.7 t/s  Trying... Total: 111104 | Sample Hits: -5555186 | Speed: 7545.8 t/s  Trying... Total: 111616 | Sample Hits: -5580786 | Speed: 7558.3 t/s  Trying... Total: 112128 | Sample Hits: -5606386 | Speed: 7568.9 t/s  Trying... Total: 112640 | Sample Hits: -5631986 | Speed: 7346.6 t/s  Trying... Total: 113152 | Sample Hits: -5657586 | Speed: 7277.0 t/s  Trying... Total: 113664 | Sample Hits: -5683186 | Speed: 7261.3 t/s  Trying... Total: 114176 | Sample Hits: -5708786 | Speed: 7259.9 t/s  Trying... Total: 114688 | Sample Hits: -5734386 | Speed: 7285.6 t/s  Trying... Total: 115200 | Sample Hits: -5759986 | Speed: 7313.4 t/s  Trying... Total: 115712 | Sample Hits: -5785586 | Speed: 7339.0 t/s  Trying... Total: 116224 | Sample Hits: -5811186 | Speed: 7325.8 t/s  Trying... Total: 116736 | Sample Hits: -5836786 | Speed: 7358.0 t/s  Trying... Total: 117248 | Sample Hits: -5862386 | Speed: 7381.1 t/s  Trying... Total: 117760 | Sample Hits: -5887986 | Speed: 7400.7 t/s  Trying... Total: 118272 | Sample Hits: -5913586 | Speed: 7432.0 t/s  Trying... Total: 118784 | Sample Hits: -5939186 | Speed: 7428.8 t/s  Trying... Total: 119296 | Sample Hits: -5964784 | Speed: 7457.8 t/s  Trying... Total: 119808 | Sample Hits: -5990384 | Speed: 7469.2 t/s  Trying... Total: 120320 | Sample Hits: -6015984 | Speed: 7487.4 t/s  Trying... Total: 120832 | Sample Hits: -6041584 | Speed: 7504.4 t/s  Trying... Total: 121344 | Sample Hits: -6067184 | Speed: 7516.8 t/s  Trying... Total: 121856 | Sample Hits: -6092784 | Speed: 7534.0 t/s  Trying... Total: 122368 | Sample Hits: -6118384 | Speed: 7542.9 t/s  Trying... Total: 122880 | Sample Hits: -6143984 | Speed: 7379.7 t/s  Trying... Total: 123392 | Sample Hits: -6169584 | Speed: 7349.1 t/s  Trying... Total: 123904 | Sample Hits: -6195184 | Speed: 7346.0 t/s  Trying... Total: 124416 | Sample Hits: -6220784 | Speed: 7370.2 t/s  Trying... Total: 124928 | Sample Hits: -6246384 | Speed: 7397.1 t/s  Trying... Total: 125440 | Sample Hits: -6271984 | Speed: 7423.1 t/s  Trying... Total: 125952 | Sample Hits: -6297584 | Speed: 7402.6 t/s  Trying... Total: 126464 | Sample Hits: -6323184 | Speed: 7430.9 t/s  Trying... Total: 126976 | Sample Hits: -6348784 | Speed: 7450.8 t/s  Trying... Total: 127488 | Sample Hits: -6374384 | Speed: 7471.6 t/s  Trying... Total: 128000 | Sample Hits: -6399984 | Speed: 7493.2 t/s  Trying... Total: 128512 | Sample Hits: -6425584 | Speed: 7512.1 t/s  Trying... Total: 129024 | Sample Hits: -6451184 | Speed: 7540.8 t/s  Trying... Total: 129536 | Sample Hits: -6476784 | Speed: 7293.0 t/s  Trying... Total: 130048 | Sample Hits: -6502384 | Speed: 7292.5 t/s  Trying... Total: 130560 | Sample Hits: -6527984 | Speed: 7310.4 t/s  Trying... Total: 131072 | Sample Hits: -6553583 | Speed: 7338.0 t/s  Trying... Total: 131584 | Sample Hits: -6579183 | Speed: 7341.4 t/s  Trying... Total: 132096 | Sample Hits: -6604783 | Speed: 7366.3 t/s  Trying... Total: 132608 | Sample Hits: -6630383 | Speed: 7372.0 t/s  Trying... Total: 133120 | Sample Hits: -6655983 | Speed: 7399.1 t/s  Trying... Total: 133632 | Sample Hits: -6681583 | Speed: 7421.1 t/s  Trying... Total: 134144 | Sample Hits: -6707183 | Speed: 7443.1 t/s  Trying... Total: 134656 | Sample Hits: -6732783 | Speed: 7470.2 t/s  Trying... Total: 135168 | Sample Hits: -6758383 | Speed: 7494.6 t/s  Trying... Total: 135680 | Sample Hits: -6783983 | Speed: 7520.9 t/s  Trying... Total: 136192 | Sample Hits: -6809583 | Speed: 7495.9 t/s  Trying... Total: 136704 | Sample Hits: -6835183 | Speed: 7515.5 t/s  Trying... Total: 137216 | Sample Hits: -6860783 | Speed: 7541.4 t/s  Trying... Total: 137728 | Sample Hits: -6886383 | Speed: 7562.3 t/s  Trying... Total: 138240 | Sample Hits: -6911983 | Speed: 7562.0 t/s  Trying... Total: 138752 | Sample Hits: -6937583 | Speed: 7515.1 t/s  Trying... Total: 139264 | Sample Hits: -6963183 | Speed: 7431.9 t/s  Trying... Total: 139776 | Sample Hits: -6988783 | Speed: 7346.7 t/s  Trying... Total: 140288 | Sample Hits: -7014383 | Speed: 7371.2 t/s  Trying... Total: 140800 | Sample Hits: -7039983 | Speed: 7389.2 t/s  Trying... Total: 141312 | Sample Hits: -7065583 | Speed: 7391.1 t/s  Trying... Total: 141824 | Sample Hits: -7091183 | Speed: 7400.5 t/s  Trying... Total: 142336 | Sample Hits: -7116783 | Speed: 7427.1 t/s  Trying... Total: 142848 | Sample Hits: -7142383 | Speed: 7395.3 t/s  Trying... Total: 143360 | Sample Hits: -7167983 | Speed: 7412.4 t/s  Trying... Total: 143872 | Sample Hits: -7193583 | Speed: 7426.6 t/s  Trying... Total: 144384 | Sample Hits: -7219183 | Speed: 7441.1 t/s  Trying... Total: 144896 | Sample Hits: -7244783 | Speed: 7448.6 t/s  Trying... Total: 145408 | Sample Hits: -7270382 | Speed: 7445.3 t/s  Trying... Total: 145920 | Sample Hits: -7295982 | Speed: 7442.3 t/s  Trying... Total: 146432 | Sample Hits: -7321582 | Speed: 7464.0 t/s  Trying... Total: 146944 | Sample Hits: -7347182 | Speed: 7451.1 t/s  Trying... Total: 147456 | Sample Hits: -7372782 | Speed: 7465.1 t/s  Trying... Total: 147968 | Sample Hits: -7398382 | Speed: 7483.6 t/s  Trying... Total: 148480 | Sample Hits: -7423981 | Speed: 7491.5 t/s  Trying... Total: 148992 | Sample Hits: -7449581 | Speed: 7480.0 t/s  Trying... Total: 149504 | Sample Hits: -7475181 | Speed: 7405.4 t/s  Trying... Total: 150016 | Sample Hits: -7500781 | Speed: 7423.3 t/s  Trying... Total: 150528 | Sample Hits: -7526381 | Speed: 7441.4 t/s  Trying... Total: 151040 | Sample Hits: -7551981 | Speed: 7465.3 t/s  Trying... Total: 151552 | Sample Hits: -7577581 | Speed: 7480.7 t/s  Trying... Total: 152064 | Sample Hits: -7603181 | Speed: 7499.8 t/s  Trying... Total: 152576 | Sample Hits: -7628781 | Speed: 7513.1 t/s  Trying... Total: 153088 | Sample Hits: -7654381 | Speed: 7470.1 t/s  Trying... Total: 153600 | Sample Hits: -7679981 | Speed: 7484.1 t/s  Trying... Total: 154112 | Sample Hits: -7705581 | Speed: 7508.6 t/s  Trying... Total: 154624 | Sample Hits: -7731181 | Speed: 7487.4 t/s  Trying... Total: 155136 | Sample Hits: -7756781 | Speed: 7508.6 t/s  Trying... Total: 155648 | Sample Hits: -7782381 | Speed: 7363.4 t/s  Trying... Total: 156160 | Sample Hits: -7807981 | Speed: 7294.4 t/s  Trying... Total: 156672 | Sample Hits: -7833581 | Speed: 7316.7 t/s  Trying... Total: 157184 | Sample Hits: -7859181 | Speed: 7336.8 t/s  Trying... Total: 157696 | Sample Hits: -7884781 | Speed: 7357.4 t/s  Trying... Total: 158208 | Sample Hits: -7910381 | Speed: 7367.7 t/s  Trying... Total: 158720 | Sample Hits: -7935981 | Speed: 7380.7 t/s  Trying... Total: 159232 | Sample Hits: -7961581 | Speed: 7400.1 t/s  Trying... Total: 159744 | Sample Hits: -7987181 | Speed: 7410.6 t/s  Trying... Total: 160256 | Sample Hits: -8012781 | Speed: 7429.4 t/s  Trying... Total: 160768 | Sample Hits: -8038381 | Speed: 7449.3 t/s  Trying... Total: 161280 | Sample Hits: -8063981 | Speed: 7464.2 t/s  Trying... Total: 161792 | Sample Hits: -8089581 | Speed: 7475.8 t/s  Trying... Total: 162304 | Sample Hits: -8115181 | Speed: 7493.4 t/s  Trying... Total: 162816 | Sample Hits: -8140781 | Speed: 7498.5 t/s  Trying... Total: 163328 | Sample Hits: -8166381 | Speed: 7510.6 t/s  Trying... Total: 163840 | Sample Hits: -8191981 | Speed: 7518.5 t/s  Trying... Total: 164352 | Sample Hits: -8217581 | Speed: 7483.8 t/s  Trying... Total: 164864 | Sample Hits: -8243181 | Speed: 7440.0 t/s  Trying... Total: 165376 | Sample Hits: -8268781 | Speed: 7377.4 t/s  Trying... Total: 165888 | Sample Hits: -8294381 | Speed: 7392.0 t/s  Trying... Total: 166400 | Sample Hits: -8319980 | Speed: 7372.7 t/s  Trying... Total: 166912 | Sample Hits: -8345580 | Speed: 7371.0 t/s  Trying... Total: 167424 | Sample Hits: -8371180 | Speed: 7385.1 t/s  Trying... Total: 167936 | Sample Hits: -8396779 | Speed: 7389.9 t/s  Trying... Total: 168448 | Sample Hits: -8422379 | Speed: 7404.9 t/s  Trying... Total: 168960 | Sample Hits: -8447979 | Speed: 7406.6 t/s  Trying... Total: 169472 | Sample Hits: -8473579 | Speed: 7377.7 t/s  Trying... Total: 169984 | Sample Hits: -8499179 | Speed: 7379.8 t/s  Trying... Total: 170496 | Sample Hits: -8524779 | Speed: 7393.0 t/s  Trying... Total: 171008 | Sample Hits: -8550379 | Speed: 7403.2 t/s  Trying... Total: 171520 | Sample Hits: -8575979 | Speed: 7376.4 t/s  Trying... Total: 172032 | Sample Hits: -8601579 | Speed: 7375.0 t/s  Trying... Total: 172544 | Sample Hits: -8627179 | Speed: 7388.6 t/s  Trying... Total: 173056 | Sample Hits: -8652779 | Speed: 7394.7 t/s  Trying... Total: 173568 | Sample Hits: -8678379 | Speed: 7416.5 t/s  Trying... Total: 174080 | Sample Hits: -8703979 | Speed: 7375.5 t/s  Trying... Total: 174592 | Sample Hits: -8729579 | Speed: 7395.9 t/s  Trying... Total: 175104 | Sample Hits: -8755179 | Speed: 7377.1 t/s
+  [Search] Workers: 20 | Factor Base: 4688
+  Trying... Total: 512 | Sample Hits: -25600 | Speed: 435.6 t/s  Trying... Total: 1024 | Sample Hits: -51200 | Speed: 865.4 t/s  Trying... Total: 1536 | Sample Hits: -76800 | Speed: 1298.0 t/s  Trying... Total: 2048 | Sample Hits: -102400 | Speed: 1730.3 t/s  Trying... Total: 2560 | Sample Hits: -128000 | Speed: 2141.6 t/s  Trying... Total: 3072 | Sample Hits: -153600 | Speed: 2567.9 t/s  Trying... Total: 3584 | Sample Hits: -179200 | Speed: 2991.8 t/s  Trying... Total: 4096 | Sample Hits: -204800 | Speed: 3383.4 t/s  Trying... Total: 4608 | Sample Hits: -230400 | Speed: 3797.7 t/s  Trying... Total: 5120 | Sample Hits: -256000 | Speed: 4213.0 t/s  Trying... Total: 5632 | Sample Hits: -281600 | Speed: 4468.5 t/s  Trying... Total: 6144 | Sample Hits: -307200 | Speed: 4801.5 t/s  Trying... Total: 6656 | Sample Hits: -332800 | Speed: 3815.9 t/s  Trying... Total: 7168 | Sample Hits: -358400 | Speed: 4088.6 t/s  Trying... Total: 7680 | Sample Hits: -384000 | Speed: 4379.2 t/s  Trying... Total: 8192 | Sample Hits: -409599 | Speed: 4565.3 t/s  Trying... Total: 8704 | Sample Hits: -435199 | Speed: 4845.8 t/s  Trying... Total: 9216 | Sample Hits: -460799 | Speed: 5102.8 t/s  Trying... Total: 9728 | Sample Hits: -486399 | Speed: 5370.3 t/s  Trying... Total: 10240 | Sample Hits: -511999 | Speed: 5635.7 t/s  Trying... Total: 10752 | Sample Hits: -537599 | Speed: 4773.7 t/s  Trying... Total: 11264 | Sample Hits: -563199 | Speed: 4990.0 t/s  Trying... Total: 11776 | Sample Hits: -588799 | Speed: 5203.0 t/s  Trying... Total: 12288 | Sample Hits: -614399 | Speed: 5358.0 t/s  Trying... Total: 12800 | Sample Hits: -639999 | Speed: 5566.6 t/s  Trying... Total: 13312 | Sample Hits: -665599 | Speed: 5780.7 t/s  Trying... Total: 13824 | Sample Hits: -691199 | Speed: 5999.7 t/s  Trying... Total: 14336 | Sample Hits: -716799 | Speed: 6207.3 t/s  Trying... Total: 14848 | Sample Hits: -742399 | Speed: 6415.0 t/s  Trying... Total: 15360 | Sample Hits: -767999 | Speed: 6582.0 t/s  Trying... Total: 15872 | Sample Hits: -793599 | Speed: 6626.1 t/s  Trying... Total: 16384 | Sample Hits: -819199 | Speed: 6434.0 t/s  Trying... Total: 16896 | Sample Hits: -844799 | Speed: 5068.1 t/s  Trying... Total: 17408 | Sample Hits: -870399 | Speed: 5216.1 t/s  Trying... Total: 17920 | Sample Hits: -895999 | Speed: 5303.2 t/s  Trying... Total: 18432 | Sample Hits: -921599 | Speed: 5423.7 t/s  Trying... Total: 18944 | Sample Hits: -947199 | Speed: 5574.2 t/s  Trying... Total: 19456 | Sample Hits: -972799 | Speed: 5724.8 t/s  Trying... Total: 19968 | Sample Hits: -998399 | Speed: 5864.4 t/s  Trying... Total: 20480 | Sample Hits: -1023999 | Speed: 6014.5 t/s  Trying... Total: 20992 | Sample Hits: -1049599 | Speed: 6153.1 t/s  Trying... Total: 21504 | Sample Hits: -1075199 | Speed: 6279.0 t/s  Trying... Total: 22016 | Sample Hits: -1100799 | Speed: 6428.1 t/s  Trying... Total: 22528 | Sample Hits: -1126399 | Speed: 6563.7 t/s  Trying... Total: 23040 | Sample Hits: -1151999 | Speed: 6709.1 t/s  Trying... Total: 23552 | Sample Hits: -1177599 | Speed: 6797.3 t/s  Trying... Total: 24064 | Sample Hits: -1203198 | Speed: 6934.3 t/s  Trying... Total: 24576 | Sample Hits: -1228798 | Speed: 7076.9 t/s  Trying... Total: 25088 | Sample Hits: -1254398 | Speed: 7186.1 t/s  Trying... Total: 25600 | Sample Hits: -1279998 | Speed: 7298.6 t/s  Trying... Total: 26112 | Sample Hits: -1305598 | Speed: 7407.7 t/s  Trying... Total: 26624 | Sample Hits: -1331198 | Speed: 6933.1 t/s  Trying... Total: 27136 | Sample Hits: -1356798 | Speed: 6132.0 t/s  Trying... Total: 27648 | Sample Hits: -1382398 | Speed: 6169.8 t/s  Trying... Total: 28160 | Sample Hits: -1407998 | Speed: 6268.4 t/s  Trying... Total: 28672 | Sample Hits: -1433598 | Speed: 6379.2 t/s  Trying... Total: 29184 | Sample Hits: -1459198 | Speed: 6466.2 t/s  Trying... Total: 29696 | Sample Hits: -1484798 | Speed: 6579.4 t/s  Trying... Total: 30208 | Sample Hits: -1510398 | Speed: 6674.4 t/s  Trying... Total: 30720 | Sample Hits: -1535998 | Speed: 6766.5 t/s  Trying... Total: 31232 | Sample Hits: -1561598 | Speed: 6745.3 t/s  Trying... Total: 31744 | Sample Hits: -1587198 | Speed: 6796.2 t/s  Trying... Total: 32256 | Sample Hits: -1612798 | Speed: 6789.5 t/s

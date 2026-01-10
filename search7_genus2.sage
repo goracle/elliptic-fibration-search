@@ -63,29 +63,6 @@ sys.stdout = SpamFilter(sys.stdout)
 # Simple integration into your existing code:
 
 
-def scancd_for_special_fibers(cd, r_m, shift):
-    """scan singular and other special fibers for m values which may give rational points"""
-    singfibs = cd.singfibs
-    fibers = singfibs['fibers']
-    euler = singfibs['euler_characteristic']
-    sigma = singfibs['sigma_sum']
-    singular_fibers_m = [f['r'] for f in fibers if (f.get('root_type') == 'rational' or f.get('root_type') == 'pole')]
-    #print("FIBERS:")
-    #for f in fibers:
-    #    print(f)
-
-    cm_fibers = find_cm_fibers(cd)
-    j_targets = [0, 1728, -12**3, -32**3, -96**3]
-    special_fibers_m = find_special_j_invariant_fibers(cd, j_targets)
-    test_fibers = {m for m in set(singular_fibers_m).union(cm_fibers).union(special_fibers_m) if m is not None}
-    print("Testing special m-values from fibers:", test_fibers)
-
-    found_from_fibers = test_y_rationality_genus2(list(test_fibers), r_m, shift)
-    if found_from_fibers:
-        print(f"Points found from special fibers: {found_from_fibers}")
-    return found_from_fibers
-
-
 # In doloop_genus2, replace the consensus precomputation section
 # (starting from "if USE_CONSENSUS_FILTER and fibrations:")
 # with this updated version:
@@ -412,6 +389,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             # 3. Test against original curve
             return get_y_unshifted_genus2(x_original)
         except Exception:
+            raise
             return None
 
     iteration = 0
@@ -546,6 +524,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                     except Exception as e:
                         print(f"  Failed to prepare modular data for fibration {fib_idx}: {e}")
                         all_precomputed_residues.append({})
+                        raise
                         continue
 
                     if not fib_Ep_dict:
@@ -578,6 +557,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                         exec_kwargs = {"max_workers": 8, "mp_context": ctx}
                     except Exception:
                         exec_kwargs = {"max_workers": 8}
+                        raise
 
                     with ProcessPoolExecutor(**exec_kwargs) as executor:
                         if TORSION_SLOPPY:
@@ -595,6 +575,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                                 fib_precomputed[p_ret] = mapping or {}
                             except Exception as e:
                                 fib_precomputed[p] = {}
+                                raise
 
                     all_precomputed_residues.append(fib_precomputed)
 
@@ -823,6 +804,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 den = abs(int(q.denominator()))
                 return float(math.log(max(num, den, 1)))
             except Exception:
+                raise
                 return 0.0
 
         if all_known_x:
@@ -854,6 +836,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         except Exception:
             k_found = 0
             raise
+        raise
 
     # try to extract bootstrap visibility p from diagnostic 'diag' if present,
     # otherwise run a small quick bootstrap (fast; adjustable).
@@ -863,6 +846,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             p_visibility = float(diag['bootstrap']['avg_fraction'])
         except Exception:
             p_visibility = None
+            raise
 
     if p_visibility is None:
         # run small quick bootstrap (keeps runtime minimal)
@@ -1208,6 +1192,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         except Exception as e:
             print(f"CRITICAL: Failed to apply inverse transform to new points: {e}")
             # Return empty set to be safe
+            raise
             return set(), cumulative_stats
     else:
         # No transform was used
@@ -1257,6 +1242,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
                     coeffs = list(this_E_rhs_obj.list())
                 except Exception:
                     coeffs = [this_E_rhs_obj.coefficient(i) for i in range(this_E_rhs_obj.degree() + 1)]
+                    raise
                 coeffs_in_Fm = [Fm(c) for c in coeffs]
                 this_E_rhs_m = R_x_m(coeffs_in_Fm)
         except Exception as e:
@@ -1296,6 +1282,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
              this_disc_deg = Delta.degree()
     except Exception:
         this_disc_deg = primary_deg
+        raise
 
     is_primary = (fib_id == -1)
     scaling_factor = float(this_disc_deg) / float(primary_deg)
@@ -1327,6 +1314,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
         print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
         this_sconf = global_sconf.copy()
         this_sconf['HEIGHT_BOUND'] = this_height_bound
+        raise
 
     # 5. Compute sections and reduce
     fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
@@ -1361,6 +1349,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
             this_search_rhs_list.append(this_cd.phi_x)
         except Exception:
             this_search_rhs_list.append(str(this_cd.phi_x))
+            raise
         # For other roots produce phi_x evaluated objects where possible
         for root_val in this_roots[:-1]:
             try:
@@ -1370,6 +1359,7 @@ def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_know
             except Exception:
                 # Add string fallback - the consumer must handle non-field rhs gracefully
                 this_search_rhs_list.append(str(root_val))
+                raise
     else:
         # symbolic branch (kept for compatibility)
         xSR, mSR = SR.var('x'), SR.var('m')
@@ -1549,6 +1539,43 @@ def main_genus2():
     print(f"Final list of known points: {sorted(list(known_pts))}")
 
 # In search7_genus2.sage
+
+def scancd_for_special_fibers(cd, r_m, shift):
+    """scan singular and other special fibers for m values which may give rational points"""
+    singfibs = cd.singfibs
+    fibers = singfibs['fibers']
+    euler = singfibs['euler_characteristic']
+    sigma = singfibs['sigma_sum']
+    singular_fibers_m = [f['r'] for f in fibers if (f.get('root_type') == 'rational' or f.get('root_type') == 'pole')]
+    #print("FIBERS:")
+    #for f in fibers:
+    #    print(f)
+
+    cm_fibers = find_cm_fibers(cd)
+    j_targets = [0, 1728, -12**3, -32**3, -96**3]
+    special_fibers_m = find_special_j_invariant_fibers(cd, j_targets)
+    test_fibers = {m for m in set(singular_fibers_m).union(cm_fibers).union(special_fibers_m) if m is not None}
+    print("Testing special m-values from fibers:", test_fibers)
+
+    # Ensure m-values are compatible with the base field of r_m
+    if FINITE_FIELD:
+        F = GF(FINITE_FIELD)
+        test_fibers_list = []
+        for val in test_fibers:
+            try:
+                test_fibers_list.append(F(val))
+            except (TypeError, ValueError, ZeroDivisionError):
+                # Skip values that cannot be coerced (e.g. poles mod p)
+                raise
+    else:
+        test_fibers_list = list(test_fibers)
+
+    found_from_fibers = test_y_rationality_genus2(test_fibers_list, r_m, shift)
+ 
+    if found_from_fibers:
+        print(f"Points found from special fibers: {found_from_fibers}")
+    return found_from_fibers
+
 
 if __name__ == '__main__':
     main_genus2()

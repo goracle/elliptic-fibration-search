@@ -2499,178 +2499,6 @@ def compute_base_sections_m(cd, base_pts, tower=None):
     return ret
 
 
-def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
-    """
-    Compute phi_x = X_sub / Z_sub without global simplification.
-    Supports QQ/SR mode and finite-field mode (GF(p)).
-
-    This version fixes the coercion errors by substituting x first,
-    coercing into the fraction field in 'm', then handling sqrt / rationalization.
-    """
-    ff_mode = FINITE_FIELD is not None
-
-    if ff_mode:
-        F = GF(FINITE_FIELD)
-        PR_m = PolynomialRing(F, 'm')
-        K = PR_m.fraction_field()
-
-        # --- Coerce x_coord_func into K (or accept it if already a K-like element) ---
-        try:
-            xK = K(x_coord_func)
-        except Exception:
-            # If x_coord_func is e.g. a PR_m element or a fraction-field element, try a few fallbacks:
-            try:
-                # if it's already a polynomial/rational function in m (PR_m or its fraction field),
-                # coercion via the element constructor (without calling K(...)) often works:
-                if hasattr(x_coord_func, 'parent') and x_coord_func.parent() is PR_m:
-                    xK = K(x_coord_func)   # convert polynomial -> fraction field
-                else:
-                    # final fallback: try SR-style string coercion (may succeed)
-                    xK = K( QQ(str(x_coord_func)) )  # may still fail; keep inside try/except
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x: cannot coerce x_coord_func to fraction field in m: {e}")
-            raise
-
-        # --- Substitute x := xK into quartic_rhs so the result is an element in K (or PR_m) ---
-        try:
-            # Try the common .subs API first
-            quartic_at_x = quartic_rhs.subs(x=xK)
-        except Exception:
-            try:
-                quartic_at_x = quartic_rhs(x=xK)   # other possible call form
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x: failed to substitute x into quartic_rhs: {e}")
-            raise
-
-        # Now coerce quartic_at_x into the fraction field K (it should be a polynomial/rational function in m)
-        try:
-            y_poly = K(quartric := quartic_at_x)
-        except Exception:
-            # If direct coercion fails, try forcing via PR_m then K
-            try:
-                y_poly = PR_m(quartic_at_x)
-                y_poly = K(y_poly)
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x: failed to coerce quartic_at_x into fraction field K: {e}")
-            raise
-
-        # --- Now attempt to get y_val_sqrt inside K when possible ---
-        y_val_sqrt = None
-        try:
-            # constant-case (very cheap)
-            if y_poly.is_constant():
-                # constant in K: compute field sqrt in F (if possible)
-                const = F(int(y_poly))
-                try:
-                    y_val_sqrt = const.sqrt()
-                except Exception:
-                    # no sqrt in base field -> leave None (we'll try rationalization)
-                    y_val_sqrt = None
-                    raise
-            else:
-                # non-constant rational function in m: check if perfect square in K
-                if y_poly.is_square():
-                    y_val_sqrt = y_poly.sqrt()
-                else:
-                    y_val_sqrt = None
-        except Exception:
-            # conservative fallback
-            y_val_sqrt = None
-            raise
-
-        # --- If we found a sqrt inside K, just substitute and return phi_x ---
-        if y_val_sqrt is not None:
-            try:
-                Z_sub = three.subs(x=xK, y=y_val_sqrt)
-                X_sub = one.subs(x=xK, y=y_val_sqrt)
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x: failed to substitute into X/Z with y_val_sqrt: {e}")
-
-            if Z_sub == 0:
-                return "INF"
-            return X_sub / Z_sub
-
-        # --- Otherwise, attempt to rationalize phi = X_sub/Z_sub without constructing sqrt ---
-        # This tries to write X_sub and Z_sub as a0 + a1*y and b0 + b1*y (reduce y^2 -> y_poly),
-        # then compute phi = (N0 + N1*y) / D0 where D0 in K; if N1 == 0, phi is in K and we can return it.
-        try:
-            # create a polynomial ring in a fresh 'Y' over K to represent polynomials in y
-            PR_Y = PolynomialRing(K, 'Y')
-            Y = PR_Y.gen()
-
-            # Evaluate X and Z but keep y symbolic (substitute y -> Y)
-            X_as_poly = PR_Y(one.subs(x=xK, y=Y))
-            Z_as_poly = PR_Y(three.subs(x=xK, y=Y))
-
-            # reduce any powers Y^n with n>=2 using relation Y^2 = y_poly
-            # we only need coefficients of Y^0 and Y^1 because higher powers reduce to a0 + a1*Y
-            a0 = X_as_poly.coefficient(Y, 0)
-            a1 = X_as_poly.coefficient(Y, 1)
-            b0 = Z_as_poly.coefficient(Y, 0)
-            b1 = Z_as_poly.coefficient(Y, 1)
-
-            # Rationalize: multiply by conjugate (b0 - b1*Y) and use Y^2 = y_poly
-            # numerator = (a0 + a1 Y)*(b0 - b1 Y) = a0*b0 - a0*b1 Y + a1*b0 Y - a1*b1 Y^2
-            # replace Y^2 with y_poly (which lies in K)
-            numerator_0 = a0 * b0 - a1 * b1 * y_poly   # coefficient of 1
-            numerator_1 = (a1 * b0 - a0 * b1)          # coefficient of Y
-            denominator = b0 * b0 - b1 * b1 * y_poly   # scalar in K
-
-            # if denominator == 0 -> Z vanishes after rationalizing; treat as infinity/singular
-            if denominator == 0:
-                return "INF"
-
-            # If numerator_1 == 0 then numerator is in K and phi is in K:
-            if numerator_1 == 0:
-                phiK = K(numerator_0) / K(denominator)
-                return phiK
-
-            # Otherwise phi truly needs a quadratic extension; fall through to extension branch.
-        except Exception:
-            # If anything here fails, we'll attempt the extension approach below.
-            raise
-
-        # --- Last resort: construct quadratic extension K[y] / (Y^2 - y_poly) so sqrt exists ---
-        try:
-            # build polynomial T^2 - y_poly in PR_m[T] (T over K)
-            T = PolynomialRing(K, 'T').gen()
-            minimal = T**2 - K(y_poly)
-            L = K.extension(minimal, 'Y')   # quadratic extension where Y^2 = y_poly
-            Y_L = L.gen()
-
-            # substitute x=xK and y=Y_L into one, three (coerce into L)
-            X_sub_L = L(one.subs(x=xK, y=Y_L))
-            Z_sub_L = L(three.subs(x=xK, y=Y_L))
-
-            if Z_sub_L == 0:
-                return "INF"
-
-            phiL = X_sub_L / Z_sub_L
-
-            # if phiL actually lies in the base K, try to coerce back:
-            try:
-                # attempt to coerce to K (this succeeds iff phiL is Galois-fixed)
-                phi_in_K = K(phiL)
-                return phi_in_K
-            except Exception:
-                # return phi in the quadratic extension (caller must handle L-elements)
-                return phiL
-
-        except Exception as e:
-            raise RuntimeError(f"get_phi_x: failed to construct quadratic extension or compute phi: {e}")
-
-    else:
-        # Non-finite-field (QQ/SR) behaviour unchanged
-        y_val_sqrt = sqrt(quartic_rhs)
-        Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
-        X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
-
-        if Z_sub == 0:
-            return "INF"
-
-        return X_sub / Z_sub
-
-
 @PROFILE
 def check_independence(sections, curve, cd):
     """
@@ -2957,3 +2785,142 @@ def get_y_unshifted_genus2(x):
             return None
         
         return QQ(num.sqrt()) / QQ(den.sqrt())
+
+
+@PROFILE
+def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
+    """
+    Compute phi_x = X_sub / Z_sub without global simplification.
+    Supports QQ/SR mode and finite-field mode (GF(p)).
+
+    This version fixes the coercion errors by substituting x first,
+    coercing into the fraction field in 'm', then handling sqrt / rationalization.
+    """
+    ff_mode = FINITE_FIELD is not None
+
+    if ff_mode:
+        F = GF(FINITE_FIELD)
+        PR_m = PolynomialRing(F, 'm')
+        K = PR_m.fraction_field()
+
+        # --- Coerce x_coord_func into K ---
+        try:
+            xK = K(x_coord_func)
+        except Exception:
+            try:
+                if hasattr(x_coord_func, 'parent') and x_coord_func.parent() is PR_m:
+                    xK = K(x_coord_func)
+                else:
+                    xK = K( QQ(str(x_coord_func)) )
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: cannot coerce x_coord_func to fraction field in m: {e}")
+
+        # --- Substitute x := xK into quartic_rhs ---
+        try:
+            quartic_at_x = quartic_rhs.subs(x=xK)
+        except Exception:
+            try:
+                quartic_at_x = quartic_rhs(x=xK)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to substitute x into quartic_rhs: {e}")
+
+        # Coerce quartic_at_x into the fraction field K
+        try:
+            y_poly = K(quartic_at_x)
+        except Exception:
+            try:
+                y_poly = PR_m(quartic_at_x)
+                y_poly = K(y_poly)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to coerce quartic_at_x into fraction field K: {e}")
+
+        # --- Attempt to get y_val_sqrt inside K ---
+        y_val_sqrt = None
+        try:
+            is_const = False
+            if hasattr(y_poly, 'is_constant'):
+                is_const = y_poly.is_constant()
+            elif hasattr(y_poly, 'numerator') and hasattr(y_poly, 'denominator'):
+                 is_const = (y_poly.numerator().degree() <= 0 and y_poly.denominator().degree() <= 0)
+            
+            if is_const:
+                const = F(y_poly)
+                if const.is_square():
+                    y_val_sqrt = const.sqrt()
+            else:
+                if y_poly.is_square():
+                    y_val_sqrt = y_poly.sqrt()
+        except Exception:
+            y_val_sqrt = None
+
+        # --- If we found a sqrt inside K ---
+        if y_val_sqrt is not None:
+            try:
+                Z_sub = three.subs(x=xK, y=y_val_sqrt)
+                X_sub = one.subs(x=xK, y=y_val_sqrt)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x: failed to substitute into X/Z with y_val_sqrt: {e}")
+
+            if Z_sub == 0:
+                return "INF"
+            return X_sub / Z_sub
+
+        # --- Rationalize phi = X_sub/Z_sub ---
+        try:
+            PR_Y = PolynomialRing(K, 'Y')
+            Y = PR_Y.gen()
+
+            X_as_poly = PR_Y(one.subs(x=xK, y=Y))
+            Z_as_poly = PR_Y(three.subs(x=xK, y=Y))
+
+            # FIX: Use .coefficient(n) for univariate polynomials in Sage
+            a0 = X_as_poly.coefficient(0)
+            a1 = X_as_poly.coefficient(1)
+            b0 = Z_as_poly.coefficient(0)
+            b1 = Z_as_poly.coefficient(1)
+
+            numerator_0 = a0 * b0 - a1 * b1 * y_poly
+            numerator_1 = (a1 * b0 - a0 * b1)
+            denominator = b0 * b0 - b1 * b1 * y_poly
+
+            if denominator == 0:
+                return "INF"
+
+            if numerator_1 == 0:
+                return K(numerator_0) / K(denominator)
+
+        except Exception:
+            pass # Fall through to extension
+
+        # --- Last resort: Quadratic extension ---
+        try:
+            T = PolynomialRing(K, 'T').gen()
+            minimal = T**2 - K(y_poly)
+            L = K.extension(minimal, 'Y')
+            Y_L = L.gen()
+
+            X_sub_L = L(one.subs(x=xK, y=Y_L))
+            Z_sub_L = L(three.subs(x=xK, y=Y_L))
+
+            if Z_sub_L == 0:
+                return "INF"
+
+            phiL = X_sub_L / Z_sub_L
+
+            try:
+                return K(phiL)
+            except Exception:
+                return phiL
+
+        except Exception as e:
+            raise RuntimeError(f"get_phi_x: failed to construct quadratic extension: {e}")
+
+    else:
+        y_val_sqrt = sqrt(quartic_rhs)
+        Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
+        X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
+
+        if Z_sub == 0:
+            return "INF"
+
+        return X_sub / Z_sub
