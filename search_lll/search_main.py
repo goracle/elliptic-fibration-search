@@ -20,6 +20,7 @@ from .index_calculus import *
 from sage.all import QQ, PolynomialRing
 from sage.all import PolynomialRing, SR, QQ
 from .riemann_roch_localization import localize_target_via_rr
+from search_common import BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -438,7 +439,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # 3. Setup the challenge
             f_poly = PolynomialRing(GF(p), 'x')(list(reversed(list(coeffs_genus2))))
             print(f"  [Setup] Curve: y^2 = {f_poly}")
-            G, Q, true_d = generate_test_keypair(f_poly, p)
+            #G, Q, true_d = generate_test_keypair(f_poly, p)
+            G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
 
             # NEW: RR-Local Pre-check
             print(f"  [Phase 0] Attempting RR-Localization for target Q...")

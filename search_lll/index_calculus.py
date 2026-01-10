@@ -1,7 +1,7 @@
 from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from .smoothness import extract_factor_base, tonelli_shanks
-from search_common import FINITE_FIELD
+from search_common import FINITE_FIELD, SECRET_KEY
 import random
 import time
 import sys
@@ -86,21 +86,8 @@ def get_relation_row(div, root_to_idx, f_poly, p):
         
     return row
 
-# ============================================================================
-# WORKER LOGIC
-# ============================================================================
 
-
-# ============================================================================
-# MAIN SEARCH FUNCTION
-# ============================================================================
-
-
-# ============================================================================
-# LINEAR ALGEBRA & ATTACK DRIVER
-# ============================================================================
-
-def generate_test_keypair(f_poly, p, target_d=None):
+def generate_random_test_keypair(f_poly, p, target_d=None):
     """
     Generates a test DLP instance (G, Q = [d]G).
     """
@@ -108,7 +95,7 @@ def generate_test_keypair(f_poly, p, target_d=None):
     f = R(f_poly)
     C = HyperellipticCurve(f)
     J = C.jacobian()
-    
+
     # Generate random point
     while True:
         x_coord = K.random_element()
@@ -122,7 +109,7 @@ def generate_test_keypair(f_poly, p, target_d=None):
 
     if target_d is None:
         target_d = ZZ.random_element(1, p**2) # Approximate order
-        
+
     Q = target_d * G
     return G, Q, Integer(target_d)
 

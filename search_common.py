@@ -13,7 +13,7 @@ from multiprocessing import TimeoutError
 from sage.all import (
     QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor,
     Curve, Jacobian, EllipticCurve, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
-    is_prime, Integer, log, next_prime
+    is_prime, Integer, log, next_prime, HyperellipticCurve
 )
 from math import gcd, log
 
@@ -410,9 +410,12 @@ HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 #PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
 PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
 
+# CRYPTOGRAPHY RELATED PARAMS
 FINITE_FIELD = None
 FINITE_FIELD = next_prime(2**25)
-MAXN = 80
+MAXN = 80 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
+SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
+BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"
@@ -472,6 +475,105 @@ USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = us
 USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
 NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
+
+def generate_random_curve_point(f_poly, p):
+    """
+    Generates a random point P on C(F_p) by finding x with f(x) a square.
+    Returns the Jacobian element J(C(x, y)).
+    """
+    R = PolynomialRing(K, 'x')
+    f = R(f_poly)
+    C = HyperellipticCurve(f)
+    J = C.jacobian()
+    
+    max_attempts = 1000
+    for _ in range(max_attempts):
+        x_coord = K.random_element()
+        y2 = f(x_coord)
+        if y2.is_square():
+            y_coord = y2.sqrt()
+            P = J(C((x_coord, y_coord)))
+            if 2 * P != J(0):
+                return P
+    
+    raise ValueError("Failed to generate random curve point after max attempts")
+
+
+def generate_keypair_from_secret(coeffs_genus2, p, secret_key):
+    """
+    Generates keypair (G, Q) where G is constructed from the first data point
+    and Q = [secret_key]G.
+    
+    Args:
+        coeffs_genus2: Coefficients of f(x) in hyperelliptic curve y^2 = f(x)
+        p: Prime field size
+        secret_key: Integer secret key from search_common.SECRET_KEY
+    
+    Returns:
+        (G, Q, preferred_x_values) where G is base divisor, Q is target divisor,
+        and preferred_x_values is a set of x-coords to bias toward
+    """
+    key = (tuple(coeffs_genus2), p, secret_key)
+    if key in generate_keypair_from_secret.cache:
+        return generate_keypair_from_secret.cache[key]
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    # Build f(x) - coeffs are highest degree first
+    f_poly = R([K(c) for c in reversed(coeffs_genus2)])
+    
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    
+    # Get base x-coordinate from our fibration data
+    x_base_qq = DATA_PTS_GENUS2[0]  # This should be a rational x-coordinate
+    x_base = K(x_base_qq)
+    
+    # Construct a divisor from this point
+    # For genus 2: D = (x_base, y_base) - ∞
+    y2_val = f_poly(x_base)
+    
+    if not y2_val.is_square():
+        raise ValueError(f"Base point x={x_base_qq} does not give a quadratic residue: f(x)={y2_val}")
+    
+    y_base = y2_val.sqrt()
+    
+    # Create point on curve
+    P_base = C((x_base, y_base))
+    
+    # Convert to Jacobian element (divisor)
+    G = J(P_base)
+    
+    # Compute target divisor
+    Q = Integer(secret_key) * G
+    
+    # Extract x-coordinates from both divisors to use as preferred values
+    preferred_x_values = set()
+    
+    # Extract from G
+    u_G = G[0]  # u(x) polynomial
+    if u_G.degree() > 0:
+        for root, _ in u_G.roots():
+            preferred_x_values.add(int(root))
+    
+    # Extract from Q
+    u_Q = Q[0]
+    if u_Q.degree() > 0:
+        for root, _ in u_Q.roots():
+            preferred_x_values.add(int(root))
+    
+    print(f"Generated keypair:")
+    print(f"  Base point x-coord: {x_base_qq}")
+    print(f"  Base divisor G: {G}")
+    print(f"  Secret key d: {secret_key}")
+    print(f"  Target Q = [d]G: {Q}")
+    print(f"  Preferred x-values for smoothness: {sorted(preferred_x_values)}")
+    ret = G, Q, preferred_x_values
+    generate_keypair_from_secret.cache[key] = ret
+    return ret
+generate_keypair_from_secret.cache = {}
+
+
+BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = generate_keypair_from_secret(COEFFS_GENUS2, FINITE_FIELD, SECRET_KEY)
 
 try:
     PROFILE = profile

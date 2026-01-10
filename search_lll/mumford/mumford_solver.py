@@ -1,9 +1,11 @@
 import time
 import sys
 from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
-from search_common import DEBUG, FINITE_FIELD
+from search_common import DEBUG, FINITE_FIELD, PREFERRED_X_COORDS
 from .mumford_core import _poly_mod_quad_fast
 from .mumford_verification import verify_mumford_pair
+
+assert PREFERRED_X_COORDS, PREFERRED_X_COORDS
 
 def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
     """Entry point for modular Mumford solving."""
@@ -199,10 +201,16 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
     For very large primes (>1M), considers parallel s-value search.
     """
     # For huge primes, split s-space across cores
-    if p > 1000000 and max_solutions < p // 10:
-        return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
+    if FINITE_FIELD:
+        if p > 1000000 and max_solutions < p // 10:
+            return solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val, max_solutions)
+        else:
+            return solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val, max_solutions)
     else:
-        return solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val, max_solutions)
+        if p > 1000000 and max_solutions < p // 10:
+            return solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val, max_solutions)
+        else:
+            return solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val, max_solutions)
 
 
 def get_sqrt_data_sage(p):
@@ -238,10 +246,9 @@ def get_sqrt_data_sage(p):
 
 get_sqrt_data_sage.cache = {}
 # Don't pre-cache at module load - let it cache lazily
-# get_sqrt_data_sage(FINITE_FIELD)  # DELETE THIS LINE
 
 
-def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
+def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
     """
     Sage-native Mumford solver using polynomial rings directly.
     Handles both small primes (cached sqrt) and large primes (on-demand sqrt).
@@ -373,3 +380,160 @@ def solve_mumford_mod_p_sage_native(f_coeffs, p, x_residue, const_val=0, max_sol
                                 solutions.append((int(s_val), int(p_val), int(v0_val), 0))
     
     return list(set(solutions))
+
+
+
+def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0, 
+                                            max_solutions=500, preferred_x_coords=PREFERRED_X_COORDS):
+    """
+    Sage-native Mumford solver with biasing toward preferred x-coordinates.
+    
+    Args:
+        preferred_x_coords: Set of x-coordinates (mod p) to prioritize in search.
+                          These come from BASE_DIVISOR and TARGET_DIVISOR supports.
+    """
+    Fp = GF(p)
+    R = PolynomialRing(Fp, 'x')
+    x = R.gen()
+    
+    f_poly = R([Fp(c) for c in reversed(f_coeffs)])
+    
+    x_res = Fp(x_residue)
+    x_sq = x_res * x_res
+    
+    solutions = []
+    sqrt_map = get_sqrt_data_sage(p)
+    use_cached = (sqrt_map is not None)
+    
+    # BIAS STRATEGY: Try preferred s-values first
+    # For u(x) = x^2 - s*x + p to have roots at preferred x-coords,
+    # we need s = r1 + r2 where r1, r2 are the roots
+    # Given one root x_res (from our fibration), we want the other root
+    # to be in preferred_x_coords when possible
+    
+    s_priority = []
+    s_regular = []
+    
+    if preferred_x_coords is not None and len(preferred_x_coords) > 0:
+        # For each preferred x-coord, compute the s-value that would pair it with x_res
+        for x_pref in preferred_x_coords:
+            x_pref_mod = int(x_pref) % p
+            # If u(x) has roots x_res and x_pref, then s = x_res + x_pref
+            s_candidate = (int(x_res) + x_pref_mod) % p
+            s_priority.append(s_candidate)
+        
+        # Remove duplicates and convert to set for fast lookup
+        s_priority_set = set(s_priority)
+        
+        # Build regular range excluding priority values
+        if p > 100000:
+            from random import randrange
+            sample_size = min(10000, p)
+            s_regular = [randrange(p) for _ in range(sample_size) 
+                        if randrange(p) not in s_priority_set]
+        else:
+            s_regular = [s for s in range(p) if s not in s_priority_set]
+        
+        # Combine: priority first, then regular
+        s_range = s_priority + s_regular
+        
+        print(f"  [Biased Solver] Trying {len(s_priority)} priority s-values first "
+              f"(targeting {len(preferred_x_coords)} preferred x-coords)")
+    else:
+        # No biasing - use standard range
+        if p > 100000:
+            from random import randrange
+            sample_size = min(10000, p)
+            s_range = [randrange(p) for _ in range(sample_size)]
+        else:
+            s_range = range(p)
+    
+    # Main solving loop (unchanged logic, just different s-value order)
+    for s_int in s_range:
+        if len(solutions) >= max_solutions:
+            break
+        
+        s_val = Fp(s_int)
+        p_val = x_res * s_val - x_sq
+        
+        disc = s_val * s_val - 4 * p_val
+        disc_int = int(disc)
+        
+        if use_cached:
+            if disc_int not in sqrt_map:
+                continue
+        else:
+            if not Fp(disc_int).is_square():
+                continue
+        
+        u_poly = x**2 - s_val*x + p_val
+        remainder = f_poly % u_poly
+        
+        rem_coeffs = remainder.list()
+        B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
+        A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
+        
+        a_q = disc
+        b_q = -2 * (A * s_val + 2 * B)
+        c_q = A * A
+        
+        Z_roots = []
+        if a_q == 0:
+            if b_q != 0:
+                Z_roots.append(-c_q / b_q)
+            elif c_q == 0:
+                Z_roots.append(Fp(0))
+        else:
+            disc_q = b_q * b_q - 4 * a_q * c_q
+            disc_q_int = int(disc_q)
+            
+            if use_cached:
+                if disc_q_int in sqrt_map:
+                    inv_2a = 1 / (2 * a_q)
+                    for sq_root_int in sqrt_map[disc_q_int]:
+                        sq_root = Fp(sq_root_int)
+                        Z_roots.append((-b_q + sq_root) * inv_2a)
+            else:
+                if Fp(disc_q_int).is_square():
+                    sqrt_disc_q = Fp(disc_q_int).sqrt()
+                    inv_2a = 1 / (2 * a_q)
+                    Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
+                    Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
+        
+        for Z in set(Z_roots):
+            Z_int = int(Z)
+            
+            if use_cached:
+                if Z_int in sqrt_map:
+                    for v1_int in sqrt_map[Z_int]:
+                        v1_val = Fp(v1_int)
+                        
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                        else:
+                            if A == 0 and Z_int == 0 and int(B) in sqrt_map:
+                                for r in sqrt_map[int(B)]:
+                                    solutions.append((int(s_val), int(p_val), r, 0))
+            else:
+                if Fp(Z_int).is_square():
+                    sqrt_Z = Fp(Z_int).sqrt()
+                    
+                    for v1_val in [sqrt_Z, -sqrt_Z]:
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                else:
+                    if A == 0 and Z_int == 0:
+                        if Fp(int(B)).is_square():
+                            sqrt_B = Fp(int(B)).sqrt()
+                            for v0_val in [sqrt_B, -sqrt_B]:
+                                solutions.append((int(s_val), int(p_val), int(v0_val), 0))
+    
+    return list(set(solutions))
+
+

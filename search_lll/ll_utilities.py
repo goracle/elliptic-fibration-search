@@ -144,6 +144,8 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
         try:
             n_pr, d_pr = _decompose_rhs_to_PRm(rhs)
             processed_rhs_list.append({'num': n_pr, 'den': d_pr})
+        except TypeError as e:
+            continue
         except Exception as e:
             print(f"[prepare_modular_data_lll] Skipping RHS={rhs}: {e}")
             continue
@@ -2128,6 +2130,6 @@ def _decompose_rhs_to_PRm(rhs):
     try:
         val_qq = Fm_qq(rhs)
     except Exception as e:
-        raise TypeError(f"Cannot coerce RHS into QQ(m): {e}")
+        raise ValueError(f"Cannot coerce RHS into QQ(m): {e}")
 
     return PR_m(val_qq.numerator()), PR_m(val_qq.denominator())
