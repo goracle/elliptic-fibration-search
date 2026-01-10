@@ -7,6 +7,8 @@ from .mumford_verification import verify_mumford_pair
 
 assert PREFERRED_X_COORDS, PREFERRED_X_COORDS
 
+
+
 def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
     """Entry point for modular Mumford solving."""
     f_coeffs = eqs_dict['f_coeffs']
@@ -43,7 +45,6 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
     try:
         Fp = GF(p)
         R_Fp = PolynomialRing(Fp, 'x')
-        # f_coeffs is highest->lowest; Sage R(list) is lowest->highest
         f_poly_Fp = R_Fp(f_coeffs[::-1])
         C_Fp = HyperellipticCurve(f_poly_Fp, 0)
         J_Fp = C_Fp.jacobian()
@@ -51,7 +52,6 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         if debug: print(f"[MOD-DBL] Init failed at p={p}: {e}")
         return None, None
 
-    # Canonicalize and double
     try:
         u_poly = R_Fp(u_coeffs[::-1]).monic()
         v_poly = R_Fp(v_coeffs[::-1]) % u_poly
@@ -94,7 +94,6 @@ def filter_primes_avoiding_denoms(primes_list, divisors):
             den = int(QQ(val).denominator())
             if den == 1: continue
             
-            # Simple factorization for small denominators
             temp_den, p = den, 2
             while p*p <= temp_den:
                 if temp_den % p == 0:
@@ -117,10 +116,8 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
     R = PolynomialRing(Fp, 'x')
     x = R.gen()
     
-    # Build f(x) once
     f_poly = R([Fp(c) for c in reversed(f_coeffs)])
     
-    # Precompute sqrt map once
     sqrt_map = get_sqrt_data_sage(p)
    
     all_solutions = {}
@@ -130,7 +127,7 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
         x_res = Fp(x_residue)
         x_sq = x_res * x_res
 
-        for s_int in range(min(p, max_solutions * 2)):  # Early cutoff
+        for s_int in range(min(p, max_solutions * 2)):
             if len(solutions) >= max_solutions:
                 break
             
@@ -140,11 +137,9 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
             disc = s_val * s_val - 4 * p_val
             disc_int = int(disc)
             if sqrt_map is None:
-                # Large prime: use on-demand sqrt
                 if not Fp(disc_int).is_square():
                     continue
                 sqrt_disc = Fp(disc_int).sqrt()
-                # Handle both roots: +/- sqrt
             elif disc_int not in sqrt_map:
                 continue
             u_poly = x**2 - s_val*x + p_val
@@ -200,7 +195,6 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
     Wrapper that uses Sage-native implementation.
     For very large primes (>1M), considers parallel s-value search.
     """
-    # For huge primes, split s-space across cores
     if FINITE_FIELD:
         if p > 1000000 and max_solutions < p // 10:
             return solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val, max_solutions)
@@ -221,8 +215,7 @@ def get_sqrt_data_sage(p):
     if p is None:
         return {}
     
-    # For large primes, return None to signal "use on-demand sqrt()"
-    if p > 1048576:  # 2^20
+    if p > 1048576:
         return None
 
     key = p
@@ -232,7 +225,6 @@ def get_sqrt_data_sage(p):
     Fp = GF(p)
     sqrt_map = {}
     
-    # Sage has built-in square root for finite fields
     for i in range((p // 2) + 1):
         sq = int(Fp(i)**2)
         if sq not in sqrt_map:
@@ -245,7 +237,6 @@ def get_sqrt_data_sage(p):
     return sqrt_map
 
 get_sqrt_data_sage.cache = {}
-# Don't pre-cache at module load - let it cache lazily
 
 
 def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
@@ -257,7 +248,6 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
     R = PolynomialRing(Fp, 'x')
     x = R.gen()
     
-    # Build f(x) polynomial once
     f_poly = R([Fp(c) for c in reversed(f_coeffs)])
     
     x_res = Fp(x_residue)
@@ -265,26 +255,16 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
     
     solutions = []
     
-    # Get sqrt map (None for large primes)
     sqrt_map = get_sqrt_data_sage(p)
     use_cached = (sqrt_map is not None)
     
-    # Random sampling for large p
     if p > 100000:
-        from random import sample
-        #s_range = sample(range(p), min(10000, p))
-
-        # Replace line 406 with:
         from random import randrange
         sample_size = min(10000, p)
         s_range = [randrange(p) for _ in range(sample_size)]
-
-        #import numpy as np
-        #s_range = np.random.randint(0, p, size=min(10000, p), dtype=object)
     else:
         s_range = range(p)
     
-    # Iterate over s values
     for s_int in s_range:
         if len(solutions) >= max_solutions:
             break
@@ -292,7 +272,6 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
         s_val = Fp(s_int)
         p_val = x_res * s_val - x_sq
         
-        # Discriminant check
         disc = s_val * s_val - 4 * p_val
         disc_int = int(disc)
         
@@ -300,11 +279,9 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
             if disc_int not in sqrt_map:
                 continue
         else:
-            # Large prime: on-demand check
             if not Fp(disc_int).is_square():
                 continue
         
-        # Compute f(x) mod u(x)
         u_poly = x**2 - s_val*x + p_val
         remainder = f_poly % u_poly
         
@@ -312,7 +289,6 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
         B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
         A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
         
-        # Solve quadratic for Z = v1^2
         a_q = disc
         b_q = -2 * (A * s_val + 2 * B)
         c_q = A * A
@@ -334,14 +310,12 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
                         sq_root = Fp(sq_root_int)
                         Z_roots.append((-b_q + sq_root) * inv_2a)
             else:
-                # Large prime: on-demand sqrt
                 if Fp(disc_q_int).is_square():
                     sqrt_disc_q = Fp(disc_q_int).sqrt()
                     inv_2a = 1 / (2 * a_q)
                     Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
                     Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
         
-        # For each Z = v1^2, find v1
         for Z in set(Z_roots):
             Z_int = int(Z)
             
@@ -356,12 +330,10 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
                                 solutions.append((int(s_val), int(p_val), 
                                                 int(v0_val), int(v1_val)))
                         else:
-                            # v1 = 0: requires A = 0 and v0^2 = B
                             if A == 0 and Z_int == 0 and int(B) in sqrt_map:
                                 for r in sqrt_map[int(B)]:
                                     solutions.append((int(s_val), int(p_val), r, 0))
             else:
-                # Large prime: on-demand sqrt for v1
                 if Fp(Z_int).is_square():
                     sqrt_Z = Fp(Z_int).sqrt()
                     
@@ -372,7 +344,6 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
                                 solutions.append((int(s_val), int(p_val), 
                                                 int(v0_val), int(v1_val)))
                 else:
-                    # v1 = 0: requires A = 0 and v0^2 = B
                     if A == 0 and Z_int == 0:
                         if Fp(int(B)).is_square():
                             sqrt_B = Fp(int(B)).sqrt()
@@ -381,6 +352,110 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
     
     return list(set(solutions))
 
+
+class BiasStatistics:
+    """
+    Collects statistics about how often the fibration-root and
+    the preferred roots (from P, Q) coincide.
+
+    This measures whether we are really sampling inside
+    overlapping Riemann-Roch charts.
+    """
+
+    def __init__(self):
+        self.total_candidates = 0
+        self.split_count = 0
+        self.double_preferred = 0
+        self.single_preferred = 0
+        self.zero_preferred = 0
+        self.preferred_histogram = {0: 0, 1: 0, 2: 0}
+
+    def record(self, roots, preferred_x_coords):
+        """
+        roots: iterable of roots of u(x) in F_p (length 0,1,2)
+        preferred_x_coords: set of preferred x values
+        """
+        self.total_candidates += 1
+
+        if len(roots) == 2:
+            self.split_count += 1
+
+        pref = 0
+        for r in roots:
+            if int(r) in preferred_x_coords:
+                pref += 1
+
+        if pref == 0:
+            self.zero_preferred += 1
+        elif pref == 1:
+            self.single_preferred += 1
+        elif pref == 2:
+            self.double_preferred += 1
+        else:
+            raise RuntimeError("Impossible number of preferred roots")
+
+        if pref not in self.preferred_histogram:
+            raise RuntimeError("Histogram corrupted")
+        self.preferred_histogram[pref] += 1
+
+    def report(self):
+        if self.total_candidates == 0:
+            raise RuntimeError("No candidates recorded")
+
+        return {
+            "total": self.total_candidates,
+            "split": self.split_count,
+            "split_rate": self.split_count / self.total_candidates,
+            "preferred_histogram": dict(self.preferred_histogram),
+            "double_preferred_rate": self.double_preferred / self.total_candidates,
+            "single_preferred_rate": self.single_preferred / self.total_candidates,
+            "zero_preferred_rate": self.zero_preferred / self.total_candidates,
+        }
+
+
+def score_and_record_candidate(u_poly, Fp, preferred_x_coords, bias_stats):
+    """
+    u_poly: monic quadratic in Fp[x]
+    Fp: the finite field
+    preferred_x_coords: iterable of preferred x values (ints or Fp)
+    bias_stats: BiasStatistics instance
+
+    Returns: (is_acceptable, roots)
+    """
+
+    if bias_stats is None:
+        raise ValueError("bias_stats must not be None")
+
+    if u_poly.degree() != 2:
+        raise ValueError("u_poly must be quadratic")
+
+    pref = set(int(x) for x in preferred_x_coords)
+
+    roots = []
+    try:
+        for r, mult in u_poly.roots(Fp):
+            for _ in range(mult):
+                roots.append(r)
+    except Exception as e:
+        raise RuntimeError("Root finding failed") from e
+
+    bias_stats.record(roots, pref)
+
+    if len(roots) != 2:
+        return False, roots
+
+    preferred_count = 0
+    for r in roots:
+        if int(r) in pref:
+            preferred_count += 1
+
+    if preferred_count not in (0, 1, 2):
+        raise RuntimeError("Invalid preferred_count")
+
+    if preferred_count >= 1:
+        return True, roots
+    else:
+        return False, roots
 
 
 def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0, 
@@ -405,27 +480,19 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0,
     sqrt_map = get_sqrt_data_sage(p)
     use_cached = (sqrt_map is not None)
     
-    # BIAS STRATEGY: Try preferred s-values first
-    # For u(x) = x^2 - s*x + p to have roots at preferred x-coords,
-    # we need s = r1 + r2 where r1, r2 are the roots
-    # Given one root x_res (from our fibration), we want the other root
-    # to be in preferred_x_coords when possible
+    bias_stats = BiasStatistics()
     
     s_priority = []
     s_regular = []
     
     if preferred_x_coords is not None and len(preferred_x_coords) > 0:
-        # For each preferred x-coord, compute the s-value that would pair it with x_res
         for x_pref in preferred_x_coords:
             x_pref_mod = int(x_pref) % p
-            # If u(x) has roots x_res and x_pref, then s = x_res + x_pref
             s_candidate = (int(x_res) + x_pref_mod) % p
             s_priority.append(s_candidate)
         
-        # Remove duplicates and convert to set for fast lookup
         s_priority_set = set(s_priority)
         
-        # Build regular range excluding priority values
         if p > 100000:
             from random import randrange
             sample_size = min(10000, p)
@@ -434,13 +501,11 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0,
         else:
             s_regular = [s for s in range(p) if s not in s_priority_set]
         
-        # Combine: priority first, then regular
         s_range = s_priority + s_regular
         
         print(f"  [Biased Solver] Trying {len(s_priority)} priority s-values first "
               f"(targeting {len(preferred_x_coords)} preferred x-coords)")
     else:
-        # No biasing - use standard range
         if p > 100000:
             from random import randrange
             sample_size = min(10000, p)
@@ -448,7 +513,6 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0,
         else:
             s_range = range(p)
     
-    # Main solving loop (unchanged logic, just different s-value order)
     for s_int in s_range:
         if len(solutions) >= max_solutions:
             break
@@ -467,6 +531,12 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0,
                 continue
         
         u_poly = x**2 - s_val*x + p_val
+        
+        ok, roots = score_and_record_candidate(u_poly, Fp, preferred_x_coords, bias_stats)
+        
+        if not ok:
+            continue
+        
         remainder = f_poly % u_poly
         
         rem_coeffs = remainder.list()
@@ -534,6 +604,7 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs, p, x_residue, const_val=0,
                             for v0_val in [sqrt_B, -sqrt_B]:
                                 solutions.append((int(s_val), int(p_val), int(v0_val), 0))
     
+    stats = bias_stats.report()
+    print(f"  [Bias Statistics] {stats}")
+    
     return list(set(solutions))
-
-
