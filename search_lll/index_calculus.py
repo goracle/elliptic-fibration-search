@@ -130,65 +130,6 @@ def compute_jacobian_order(f_coeffs, p):
     return C.count_points(1)[0]
 
 
-def extract_factor_base(divisors, p, verbose=True):
-    """
-    Extract the factor base with support-based deduplication.
-    Only keep ONE divisor per unique support to avoid linear dependence.
-    """
-    all_roots = []
-    factored_count = 0
-    
-    # Track which supports we've seen
-    seen_supports = set()
-    unique_divisors = []
-    
-    for d in divisors:
-        s = int(d['s']) % p
-        pp = int(d['p']) % p
-        disc = (s*s - 4*pp) % p
-        
-        # Check if u(x) = x² - sx + p splits over GF(p)
-        if disc == 0:
-            # Double root
-            r = (s * pow(2, -1, p)) % p
-            roots = [r, r]
-            factored_count += 1
-        elif pow(disc, (p-1)//2, p) == 1:
-            # Two distinct roots
-            sqrt_disc = tonelli_shanks(disc, p)
-            r1 = (s + sqrt_disc) * pow(2, -1, p) % p
-            r2 = (s - sqrt_disc) * pow(2, -1, p) % p
-            roots = [r1, r2]
-            factored_count += 1
-        else:
-            # Not smooth
-            continue
-        
-        # Get support key
-        support = tuple(sorted(roots))
-        
-        # Only add to factor base if this is the FIRST time we see this support
-        if support not in seen_supports:
-            seen_supports.add(support)
-            all_roots.extend(roots)
-            unique_divisors.append(d)
-    
-    unique_roots = set(all_roots)
-    
-    if verbose:
-        print(f"\n[Factor Base - Support Deduplicated]")
-        print(f"  Unique supports: {len(seen_supports)}")
-        print(f"  Distinct x-coordinates: {len(unique_roots)}")
-        print(f"  Kept after support dedup: {len(unique_divisors)}")
-    
-    return {
-        'roots': unique_roots,
-        'size': len(unique_roots),
-        'unique_divisors': unique_divisors,
-        'root_to_idx': {r: i for i, r in enumerate(sorted(list(unique_roots)))}
-    }
-
-
 # ============================================================================
 # WORKER LOGGING + BATCH STATS (REPLACEMENT FUNCTIONS)
 # ============================================================================
@@ -395,103 +336,6 @@ def find_smooth_decomposition_worker(seed_and_batch):
     return ("STATS", dict(batch_stats))
 
 
-def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=True):
-    """
-    Solves the sparse linear system modulo ell to find log_G(Q).
-
-    - valid_rows: list of dicts {idx: count} from collected relations
-    - g_anchored: (rg, row_g) where row_g is dict {idx: count} and rg is integer (anchor scalar)
-    - q_anchored: (rq, row_q) similarly for Q anchor
-    - ell: prime modulus for logs (integer)
-
-    This function constructs the linear system over Z/ellZ and solves it.
-    It raises on inconsistency or if the solve fails.
-    """
-    if ell is None or int(ell) <= 1:
-        raise ValueError("Invalid ell provided to solve_dlp_index_calculus")
-
-    # Use ring Z/ellZ
-    R = Zmod(int(ell))
-
-    rg, row_g = g_anchored
-    rq, row_q = q_anchored
-
-    if row_g is None or row_q is None:
-        raise ValueError("Anchor rows cannot be None")
-
-    # Determine number of relations and variables
-    num_rels = len(valid_rows)
-    max_idx = -1
-    for r in valid_rows:
-        if r:
-            local_max = max(r.keys())
-            if local_max > max_idx:
-                max_idx = local_max
-    if row_g:
-        local_max = max(row_g.keys())
-        if local_max > max_idx:
-            max_idx = local_max
-    if row_q:
-        local_max = max(row_q.keys())
-        if local_max > max_idx:
-            max_idx = local_max
-    if max_idx < 0:
-        raise ValueError("No variables found in relations/anchors")
-
-    num_vars = max_idx + 1
-
-    if verbose:
-        print(f"  Building sparse matrix {num_rels}x{num_vars} over Z/{ell}Z...")
-
-    # Build triples for sparse construction, reduce counts modulo ell
-    triples = []
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            if idx < 0 or idx >= num_vars:
-                raise IndexError(f"Relation index out of bounds: {idx}")
-            triples.append((i, idx, R(int(count) % int(ell))))
-
-    # Add G anchor row at index num_rels
-    for idx, count in row_g.items():
-        if idx < 0 or idx >= num_vars:
-            raise IndexError(f"G-anchor index out of bounds: {idx}")
-        triples.append((num_rels, idx, R(int(count) % int(ell))))
-
-    # Construct matrix over Z/ellZ
-    M_sys = matrix(R, num_rels + 1, num_vars, triples)
-
-    # Construct RHS vector: zeros for relation rows, rg for the anchor row
-    targets = [R(0)] * num_rels + [R(int(rg) % int(ell))]
-    V = vector(R, targets)
-
-    if verbose:
-        print(f"  Solving system size {M_sys.nrows()}x{M_sys.ncols()} over Z/{ell}Z...")
-
-    # Solve
-    try:
-        logs_vec = M_sys.solve_right(V)
-    except ValueError as e:
-        # propagate with context
-        raise ValueError(f"Linear solve failed (possibly inconsistent/under-determined) over Z/{ell}Z: {e}")
-
-    # logs_vec is a vector over R of length num_vars (or raises earlier)
-    # Compute log(Q) = <row_q, logs> - rq  (mod ell)
-    sum_logs = R(0)
-    for idx, count in row_q.items():
-        if idx < 0 or idx >= num_vars:
-            raise IndexError(f"Q-anchor index out of bounds: {idx}")
-        # If logs_vec shorter (shouldn't be), treat missing as 0
-        if idx < len(logs_vec):
-            sum_logs += R(int(count) % int(ell)) * logs_vec[idx]
-        else:
-            # Shouldn't happen, but explicitly fail loud
-            raise IndexError(f"Log vector shorter than expected: idx {idx}")
-
-    log_q = R(sum_logs - R(int(rq) % int(ell)))
-    # Normalize to Python int and return Sage Integer
-    return Integer(int(log_q))
-
-
 def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
                               max_tries=None, num_workers=None,
                               window_size=2048, sample_k=32, batch_candidates=512,
@@ -646,18 +490,253 @@ def dlp_bsgs(G, Q, order):
     raise ValueError("No discrete log found in subgroup")
 
 
-def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
+def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
+    """
+    Check if a divisor is already expressible over the factor base.
+    Returns (scalar, row_dict) if smooth, else (None, None).
+    """
+    try:
+        u_poly, v_poly = divisor[0], divisor[1]
+        if u_poly.degree() != 2:
+            return None, None
+        
+        # Get relation row (same logic as get_relation_row_cached)
+        K = GF(p)
+        roots_data = u_poly.roots(K)
+        if sum(m for _, m in roots_data) != 2:
+            return None, None
+        
+        row = {}
+        for x_elem, mult in roots_data:
+            x_int = int(x_elem)
+            if x_int not in root_to_idx:
+                return None, None  # Not in factor base
+            
+            # Compute canonical y (same as in worker code)
+            y_val = int(v_poly(x_elem))
+            y2 = int(f_poly(x_elem))
+            
+            if pow(y2, (p-1)//2, p) != 1:
+                return None, None
+            
+            y_can = tonelli_shanks(y2, p)
+            y_can = min(y_can, p - y_can)
+            
+            idx = root_to_idx[x_int]
+            if y_val == y_can:
+                row[idx] = row.get(idx, 0) + int(mult)
+            elif (p - y_val) % p == y_can:
+                row[idx] = row.get(idx, 0) - int(mult)
+            else:
+                return None, None
+        
+        # Successfully decomposed! scalar is 1 (identity multiple)
+        return 1, row
+    except Exception:
+        raise
+        return None, None
+
+
+# In index_calculus.py, replace the extract_factor_base function:
+
+
+def extract_factor_base(divisors, p, verbose=True):
+    """
+    Extract the factor base with support-based deduplication.
+    Only keep ONE divisor per unique support to avoid linear dependence.
+    """
+    all_roots = []
+    factored_count = 0
+    
+    # Track which supports we've seen
+    seen_supports = set()
+    unique_divisors = []
+    
+    for d in divisors:
+        s = int(d['s']) % p
+        pp = int(d['p']) % p
+        disc = (s*s - 4*pp) % p
+        
+        # Check if u(x) = x² - sx + p splits over GF(p)
+        if disc == 0:
+            # Double root
+            r = (s * pow(2, -1, p)) % p
+            roots = [r, r]
+            factored_count += 1
+        elif pow(disc, (p-1)//2, p) == 1:
+            # Two distinct roots
+            sqrt_disc = tonelli_shanks(disc, p)
+            r1 = (s + sqrt_disc) * pow(2, -1, p) % p
+            r2 = (s - sqrt_disc) * pow(2, -1, p) % p
+            roots = [r1, r2]
+            factored_count += 1
+        else:
+            # Not smooth
+            continue
+        
+        # Get support key
+        support = tuple(sorted(roots))
+        
+        # Only add to factor base if this is the FIRST time we see this support
+        if support not in seen_supports:
+            seen_supports.add(support)
+            all_roots.extend(roots)
+            unique_divisors.append(d)
+    
+    unique_roots = set(all_roots)
+    
+    if verbose:
+        print(f"\n[Factor Base - Support Deduplicated]")
+        print(f"  Unique supports: {len(seen_supports)}")
+        print(f"  Distinct x-coordinates: {len(unique_roots)}")
+        print(f"  Kept after support dedup: {len(unique_divisors)}")
+    
+    return {
+        'roots': unique_roots,
+        'size': len(unique_roots),
+        'unique_divisors': unique_divisors,
+        'root_to_idx': {r: i for i, r in enumerate(sorted(list(unique_roots)))}
+    }
+
+
+def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=True):
+    """
+    Solves the sparse linear system modulo ell to find log_G(Q).
+    Optimized to use GF(ell) for fast LinBox/IML sparse solver dispatch.
+    """
+    if ell is None or int(ell) <= 1:
+        raise ValueError("Invalid ell provided to solve_dlp_index_calculus")
+
+    # CRITICAL FIX: Use GF(ell) instead of Zmod(ell). 
+    # Sage's sparse solve_right for Zmod is often significantly slower because it
+    # may not trigger optimized LinBox routines even if ell is prime.
+    try:
+        R = GF(int(ell))
+    except (ValueError, TypeError):
+        # Fallback if ell is not prime (though prime_factors ensures it is)
+        R = Zmod(int(ell))
+
+    rg, row_g = g_anchored
+    rq, row_q = q_anchored
+
+    if row_g is None or row_q is None:
+        raise ValueError("Anchor rows (G or Q) cannot be None")
+
+    # Determine number of variables by finding the maximum index across all relations
+    num_rels = len(valid_rows)
+    max_idx = -1
+    for r in valid_rows:
+        if r:
+            local_max = max(r.keys())
+            if local_max > max_idx:
+                max_idx = local_max
+    if row_g:
+        max_idx = max(max_idx, max(row_g.keys()))
+    if row_q:
+        max_idx = max(max_idx, max(row_q.keys()))
+    
+    if max_idx < 0:
+        raise ValueError("No variables found in relations or anchors")
+
+    num_vars = max_idx + 1
+
+    if verbose:
+        print(f"  Building matrix {num_rels+1}x{num_vars} over {R}...")
+
+    # Build matrix entries
+    entries = {}
+    for i, rel in enumerate(valid_rows):
+        for idx, count in rel.items():
+            entries[(i, idx)] = R(int(count) % int(ell))
+
+    # Add G anchor row at the end
+    for idx, count in row_g.items():
+        entries[(num_rels, idx)] = R(int(count) % int(ell))
+
+    # Construct matrix
+    M_sys = matrix(R, num_rels + 1, num_vars, entries, sparse=True)
+
+    # Construct RHS vector: zeros for relation rows, rg for the G-anchor row
+    targets = [R(0)] * num_rels + [R(int(rg) % int(ell))]
+    V = vector(R, targets)
+
+    if verbose:
+        print(f"  Solving system via solve_right...")
+        sys.stdout.flush()
+
+    try:
+        # If sparse still feels slow, one can try: logs_vec = M_sys.dense_matrix().solve_right(V)
+        # But with GF(ell), sparse solve_right should take < 1 second.
+        logs_vec = M_sys.solve_right(V)
+    except Exception as e:
+        raise RuntimeError(f"Linear solve failed over {R}: {e}")
+
+    # Compute log(Q) = <row_q, logs> - rq  (mod ell)
+    sum_logs = R(0)
+    for idx, count in row_q.items():
+        if idx >= len(logs_vec):
+             raise IndexError(f"Q-anchor index {idx} exceeds log vector length {len(logs_vec)}")
+        sum_logs += R(int(count) % int(ell)) * logs_vec[idx]
+
+    log_q = R(sum_logs - R(int(rq) % int(ell)))
+    
+    if verbose:
+        print(f"  Linear algebra complete. Log(Q) mod {ell} = {log_q}")
+        
+    return Integer(int(log_q))
+
+
+def canonicalize_divisor_to_factor_base(divisor, r_to_idx, f_p, p):
+    """
+    Re-express a divisor using canonical y-coordinates matching the factor base.
+    
+    Returns:
+        dict mapping idx -> multiplicity (with correct signs)
+        None if divisor is not smooth over the factor base
+    """
+    u_poly = divisor[0]
+    v_poly = divisor[1]
+    
+    if u_poly.degree() != 2:
+        return None
+    
+    K = GF(p)
+    roots_data = u_poly.roots(K)
+    if sum(m for _, m in roots_data) != 2:
+        return None
+    
+    row = {}
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        if x_int not in r_to_idx:
+            return None  # Not in factor base
+        
+        # Compute canonical y (same as in factor base construction)
+        y_val = int(v_poly(x_elem))
+        y2 = int(f_p(x_elem))
+        
+        if pow(y2, (p-1)//2, p) != 1:
+            return None
+        
+        y_can = tonelli_shanks(y2, p)
+        y_can = min(y_can, p - y_can)
+        
+        idx = r_to_idx[x_int]
+        
+        # Sign-aware encoding
+        if y_val == y_can:
+            row[idx] = row.get(idx, 0) + int(mult)
+        elif (p - y_val) % p == y_can:
+            row[idx] = row.get(idx, 0) - int(mult)
+        else:
+            return None  # Should never happen for smooth divisor
+    
+    return row
+
+
+def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
     """
     Main entry point for DLP.
-
-    Steps:
-      1. Factor |J| and choose largest prime ell
-      2. Project G,Q into ell-torsion
-      3. If ell is small (< 10^6), use BSGS directly
-      4. Otherwise, build factor base + relations and use index calculus
-      5. Verify d*G_ell = Q_ell
-
-    Raises on any failure.
     """
 
     # ----------------------------
@@ -704,16 +783,15 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
     # ----------------------------
     # CRITICAL DECISION POINT: BSGS vs Index Calculus
     # ----------------------------
-    BSGS_THRESHOLD = 10**6  # Use BSGS for subgroups smaller than 1 million
+    BSGS_THRESHOLD = 10**6
 
-    if ell < BSGS_THRESHOLD:
+    if ell < BSGS_THRESHOLD and not force_index_calculus:
         if verbose:
             print(f"\n[Strategy] Subgroup size {ell} < {BSGS_THRESHOLD}")
             print(f"[Strategy] Using BSGS (expected ~{int(2*ell**0.5)} group ops)")
         
         d_log = dlp_bsgs(G_ell, Q_ell, ell)
         
-        # Verify
         if Integer(d_log) * G_ell != Q_ell:
             raise RuntimeError("BSGS discrete log failed verification")
         
@@ -723,10 +801,13 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
         return Integer(d_log)
     
     # ----------------------------
-    # For large ell: Index Calculus path
+    # For large ell OR forced IC: Index Calculus path
     # ----------------------------
     if verbose:
-        print(f"\n[Strategy] Subgroup size {ell} >= {BSGS_THRESHOLD}")
+        if force_index_calculus:
+            print(f"\n[Strategy] FORCING Index Calculus (testing factor base)")
+        else:
+            print(f"\n[Strategy] Subgroup size {ell} >= {BSGS_THRESHOLD}")
         print(f"[Strategy] Using Index Calculus")
 
     # ----------------------------
@@ -740,9 +821,50 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
         print("f_p =", f_p)
 
     # ----------------------------
-    # Factor base
+    # NEW: Add G and Q to smooth_divs if they're smooth
     # ----------------------------
-    fb_data = extract_factor_base(smooth_divs, p, verbose=False)
+    def divisor_to_dict(div_J):
+        """Convert Jacobian divisor to dict format"""
+        u_poly = div_J[0]
+        v_poly = div_J[1]
+        
+        if u_poly.degree() != 2:
+            return None
+            
+        coeffs_u = u_poly.list()
+        s_val = -coeffs_u[1] if len(coeffs_u) >= 2 else K(0)
+        p_val = coeffs_u[0] if len(coeffs_u) >= 1 else K(0)
+        
+        coeffs_v = v_poly.list()
+        v1_val = coeffs_v[1] if len(coeffs_v) >= 2 else K(0)
+        v0_val = coeffs_v[0] if len(coeffs_v) >= 1 else K(0)
+        
+        # Check if smooth (splits over GF(p))
+        disc = (s_val * s_val - 4 * p_val) % p
+        if disc != 0 and pow(int(disc), (p-1)//2, p) != 1:
+            return None  # Not smooth
+            
+        return {
+            's': int(s_val),
+            'p': int(p_val),
+            'v_0': int(v0_val),
+            'v_1': int(v1_val),
+            'origin': 'keypair'
+        }
+    
+    # Try to add G and Q to smooth_divs
+    extended_divs = list(smooth_divs)
+    for div, name in [(G_ell, 'G'), (Q_ell, 'Q')]:
+        div_dict = divisor_to_dict(div)
+        if div_dict:
+            extended_divs.append(div_dict)
+            if verbose:
+                print(f"  Added {name} to smooth divisor list (it's B-smooth!)")
+    
+    # ----------------------------
+    # Factor base (use extended list)
+    # ----------------------------
+    fb_data = extract_factor_base(extended_divs, p, verbose=False)
     roots = sorted(list(fb_data['roots']))
     if not roots:
         raise RuntimeError("Empty factor base")
@@ -750,10 +872,10 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
     r_to_idx = {r: i for i, r in enumerate(roots)}
 
     # ----------------------------
-    # Relation matrix
+    # Relation matrix (use extended list)
     # ----------------------------
     valid_rows = []
-    for d in smooth_divs:
+    for d in extended_divs:
         u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
         v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
         row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
@@ -767,34 +889,62 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
         print(f"Loaded {len(valid_rows)} factor base relations")
 
     # ----------------------------
-    # Offsets for anchoring
-    # ----------------------------
-    offset_coeffs = [
-        (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
-        for d in smooth_divs[:50]
-    ]
-
-    # ----------------------------
-    # Anchor G_ell
+    # FIXED: Canonicalize G and Q to match factor base
     # ----------------------------
     if verbose:
-        print("Anchoring G_ell...")
-    rg, row_g = find_smooth_decomposition(
-        None, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
-    )
-    if row_g is None:
-        raise RuntimeError("Failed to anchor G_ell")
+        print("\n[Canonical Check] Canonicalizing G and Q to match factor base...")
+    
+    row_g_canon = canonicalize_divisor_to_factor_base(G_ell, r_to_idx, f_p, p)
+    row_q_canon = canonicalize_divisor_to_factor_base(Q_ell, r_to_idx, f_p, p)
+    
+    if row_g_canon is not None and row_q_canon is not None:
+        if verbose:
+            print("[Canonical Check] ✓ Both G and Q canonicalized successfully!")
+            print("[Canonical Check] Using canonical rows directly (no anchoring needed).")
+        rg, row_g = 1, row_g_canon
+        rq, row_q = 1, row_q_canon
+    else:
+        # ----------------------------
+        # Fallback: Offsets for anchoring (original expensive path)
+        # ----------------------------
+        if verbose:
+            if row_g_canon is None:
+                print("[Canonical Check] G not directly in factor base, will search...")
+            if row_q_canon is None:
+                print("[Canonical Check] Q not directly in factor base, will search...")
+        
+        offset_coeffs = [
+            (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
+            for d in extended_divs[:50]
+        ]
 
-    # ----------------------------
-    # Anchor Q_ell
-    # ----------------------------
-    if verbose:
-        print("Anchoring Q_ell...")
-    rq, row_q = find_smooth_decomposition(
-        Q_ell, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
-    )
-    if row_q is None:
-        raise RuntimeError("Failed to anchor Q_ell")
+        # Anchor G_ell
+        if row_g_canon is not None:
+            rg, row_g = 1, row_g_canon
+            if verbose:
+                print("Using canonical decomposition for G")
+        else:
+            if verbose:
+                print("Anchoring G_ell...")
+            rg, row_g = find_smooth_decomposition(
+                None, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
+            )
+            if row_g is None:
+                raise RuntimeError("Failed to anchor G_ell")
+
+        # Anchor Q_ell
+        if row_q_canon is not None:
+            rq, row_q = 1, row_q_canon
+            if verbose:
+                print("Using canonical decomposition for Q")
+        else:
+            if verbose:
+                print("Anchoring Q_ell...")
+            rq, row_q = find_smooth_decomposition(
+                Q_ell, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
+            )
+            if row_q is None:
+                raise RuntimeError("Failed to anchor Q_ell")
 
     # ----------------------------
     # Solve DLP

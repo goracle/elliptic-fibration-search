@@ -457,41 +457,6 @@ def index_calculus_factor_base_analysis(divisors, p, f_coeffs, verbose=True):
 
 from search_common import FINITE_FIELD, COEFFS_GENUS2, PREFERRED_X_COORDS
 
-def extract_factor_base(divisors, p=None, verbose=False):
-    """
-    Extracts unique x-coordinates from divisors.
-    Works for both Rational (Q) and Finite Field (Fp) modes.
-    """
-    unique_roots = set()
-    for d in divisors:
-        # Use pre-computed roots from the Mumford solver if they exist
-        if 'roots' in d and d['roots']:
-            for r in d['roots']:
-                unique_roots.add(int(r))
-            continue
-
-        # Otherwise, manually solve u(x) = x^2 - sx + p = 0
-        s, pp = int(d['s']), int(d['p'])
-        if p: # Finite Field Mode
-            disc = (s*s - 4*pp) % p
-            if disc == 0:
-                unique_roots.add((s * pow(2, -1, p)) % p)
-            elif pow(disc, (p-1)//2, p) == 1:
-                delta = GF(p)(disc).sqrt()
-                inv2 = pow(2, -1, p)
-                unique_roots.add(int((s + delta) * inv2))
-                unique_roots.add(int((s - delta) * inv2))
-        else: # Rational Mode
-            disc = QQ(s)**2 - 4*QQ(pp)
-            if disc >= 0 and disc.is_square():
-                rt = disc.sqrt()
-                unique_roots.add((s + rt) / 2)
-                unique_roots.add((s - rt) / 2)
-            
-    sorted_roots = sorted(list(unique_roots))
-    if verbose:
-        print(f"  [Factor Base] Extracted {len(sorted_roots)} unique x-coordinates.")
-    return sorted_roots
 
 def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
     """
@@ -617,3 +582,62 @@ def diagnose_finite_field_search(divisors, verbose=True):
         'matrix': res['matrix'],
         'rank': rank
     }
+
+
+def extract_factor_base(divisors, p=None, verbose=False, ensure_divisors=None):
+    """
+    Extracts unique x-coordinates from divisors.
+    
+    Args:
+        divisors: List of Mumford divisor dicts
+        p: Prime (for finite field mode)
+        verbose: Print diagnostics
+        ensure_divisors: List of divisors (as Jacobian elements) to ensure are included
+    
+    Returns:
+        List of unique x-coordinates (sorted)
+    """
+    unique_roots = set()
+    
+    # Extract roots from all divisors
+    for d in divisors:
+        # Use pre-computed roots if available
+        if 'roots' in d and d['roots']:
+            for r in d['roots']:
+                unique_roots.add(int(r))
+            continue
+
+        # Otherwise, manually solve u(x) = x^2 - sx + p = 0
+        s, pp = int(d['s']), int(d['p'])
+        if p:  # Finite Field Mode
+            disc = (s*s - 4*pp) % p
+            if disc == 0:
+                unique_roots.add((s * pow(2, -1, p)) % p)
+            elif pow(disc, (p-1)//2, p) == 1:
+                delta = GF(p)(disc).sqrt()
+                inv2 = pow(2, -1, p)
+                unique_roots.add(int((s + delta) * inv2))
+                unique_roots.add(int((s - delta) * inv2))
+        else:  # Rational Mode
+            disc = QQ(s)**2 - 4*QQ(pp)
+            if disc >= 0 and disc.is_square():
+                rt = disc.sqrt()
+                unique_roots.add((s + rt) / 2)
+                unique_roots.add((s - rt) / 2)
+    
+    # Ensure specified divisors' roots are included
+    if ensure_divisors and p:
+        for div in ensure_divisors:
+            u_poly = div[0]
+            if u_poly.degree() == 2:
+                roots_data = u_poly.roots(GF(p))
+                for r_val, _ in roots_data:
+                    unique_roots.add(int(r_val))
+    
+    sorted_roots = sorted(list(unique_roots))
+    if verbose:
+        print(f"  [Factor Base] Extracted {len(sorted_roots)} unique x-coordinates.")
+        if ensure_divisors:
+            print(f"  [Factor Base] Ensured {len(ensure_divisors)} critical divisors included.")
+    
+    return sorted_roots

@@ -17,6 +17,28 @@ from sage.all import (
 )
 from math import gcd, log
 
+def get_random_x_on_hyperelliptic(coeffs, p):
+    """
+    Finds a random x-coordinate such that f(x) is a quadratic residue mod p.
+    Assumes coeffs are [a_n, ..., a_0].
+    """
+    Fp = GF(p)
+    # We use a loop with a high safety limit
+    for _ in range(1000):
+        try_x = Fp.random_element()
+        
+        # Manually evaluate the polynomial to avoid symbolic overhead
+        # f(x) = sum(a_i * x^(deg-i))
+        val = Fp(0)
+        deg = len(coeffs) - 1
+        for i, c in enumerate(coeffs):
+            val += Fp(c) * (try_x**(deg - i))
+        
+        if val.is_square() and val:
+            return QQ(int(try_x))
+            
+    raise ValueError(f"Failed to find a valid point on the curve after 1000 random attempts mod {p}.")
+
 def parse_hyperelliptic_db_entry(db_string):
     """
     Parse a hyperelliptic curve entry from the MIT database and extract coefficients.
@@ -386,15 +408,17 @@ COEFFS_GENUS2 = [QQ(-3), QQ(11), QQ(6), QQ(-9), QQ(2), QQ(1), QQ(25)]
 DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
-# $$y^2 = x^5 + x + 2$$
-COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
-DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
 # y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4
 COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
 DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] 
 DATA_PTS_GENUS2 = [457208] 
+TERMINATE_WHEN_6 = 3
+
+# $$y^2 = x^5 + x + 2$$
+COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
+#DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
+DATA_PTS_GENUS2 = None # placeholder for random.
+DATA_PTS_GENUS2 = [QQ(12630360)]
 TERMINATE_WHEN_6 = 3
 
 ##### END TEST CURVES ######
@@ -416,6 +440,13 @@ FINITE_FIELD = next_prime(2**25)
 MAXN = 80 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
 SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
 BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
+
+# 1) Generate the random point if requested
+if DATA_PTS_GENUS2 is None:
+    # Ensure we use the prime currently active in your pool
+    _p_init = FINITE_FIELD
+    DATA_PTS_GENUS2 = [get_random_x_on_hyperelliptic(COEFFS_GENUS2, _p_init)]
+
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"
@@ -572,8 +603,25 @@ def generate_keypair_from_secret(coeffs_genus2, p, secret_key):
     return ret
 generate_keypair_from_secret.cache = {}
 
+# Initialize PREFERRED_X_COORDS for finite field mode
+# This must happen at module import time, not just in main
+if FINITE_FIELD is not None:
+    try:
+        BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = generate_keypair_from_secret(
+            COEFFS_GENUS2, 
+            FINITE_FIELD, 
+            SECRET_KEY
+        )
+        print(f"Initialized PREFERRED_X_COORDS: {PREFERRED_X_COORDS}")
+    except Exception as e:
+        print(f"Warning: Keypair generation failed: {e}")
+        # Fallback: use the base point x-coordinate
+        PREFERRED_X_COORDS = [DATA_PTS_GENUS2[0]] if DATA_PTS_GENUS2 else [0]
+        BASE_DIVISOR, TARGET_DIVISOR = None, None
+else:
+    # Not in finite field mode - these aren't needed
+    BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None
 
-BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = generate_keypair_from_secret(COEFFS_GENUS2, FINITE_FIELD, SECRET_KEY)
 
 try:
     PROFILE = profile

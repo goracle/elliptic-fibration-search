@@ -459,11 +459,16 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             # 4. Solve the system using perform_dlp_attack
             try:
-                log_v = perform_dlp_attack(G, Q, mumford_divisors, p, coeffs_genus2, L, verbose=True)
+                log_v = perform_dlp_attack(
+                    G, Q, mumford_divisors, p, coeffs_genus2, L, 
+                    verbose=True,
+                    force_index_calculus=True  # <-- to test factor base
+                )
                 print(f"✓ Confirmed Discrete Log: {log_v}")
             except Exception as e:
                 print(f"Attack failed: {e}")
                 raise
+
 
         return found_xs, [], mumford_residues, stats
 

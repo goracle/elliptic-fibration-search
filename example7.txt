@@ -1,0 +1,112 @@
+Generated keypair:
+  Base point x-coord: 12630360
+  Base divisor G: (x + 20924107, y + 26553848)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 20994511*x + 30215898, y + 13863282*x + 11360251)
+  Preferred x-values for smoothness: [12630360]
+Initialized PREFERRED_X_COORDS: {12630360}
+
+======================================================================
+FINITE FIELD MODE: GF(33554467)
+Goal: Solve HECC DLP via index calculus on Jacobian
+======================================================================
+
+
+--- Searching for y=0 points ---
+hyperelliptic curve: y^2 = x^5 + x + 2
+Found 1 points where y=0: [(33554466, 0)]
+known_pts start: {(12630360, 7000619), (33554466, 0)}
+
+======================================================================
+Constructing new fibration using: ((12630360, 7000619),)
+Known pts so far: [(12630360, 7000619), (33554466, 0)]
+======================================================================
+
+shifted G poly1: x^5 + x + 2
+--- Building 1 Step Fibration Tower (deg 5 -> 4) ---
+--- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
+  [Step 1] Selected best geometry (Score=9.6)
+--- Running 1-point Fibration (Primary Geometry) ---
+--- Entering buildcd ---
+Building over finite field GF(33554467)
+--- Computing Minimal Model ---
+
+--- Identifying Globally Bad Primes ---
+Finite field mode: characteristic 33554467 is the only bad prime
+Skipping singular fiber analysis over finite field
+--- Exiting buildcd ---
+
+=== Auto-configuring search parameters for this fibration ===
+[auto_cfg] Building height estimation from 2 known x-coords.
+[auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
+[auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 5)]
+[residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
+[residue_counts] sample: [(33554467, 2)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 2.0}
+[auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
+
+[auto_cfg] Applied adaptive parameters:
+  HEIGHT_BOUND: 1809
+  TMAX: 500
+  NUM_PRIME_SUBSETS: 1
+  PRIME_POOL size: 1
+
+[auto_cfg summary] height_bound=1809, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
+[prime_pool] Final pool has 1 primes up to 33554467
+=== Fibration Summary ===
+Data points: ((12630360, 7000619),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 3957134)*x^4 + (m^2 - 379479*m + 11840733)*x^3 + (-4336613*m^2 - 12634694*m + 8727658)*x^2 + y^2 + (13618560*m^2 + 271233*m + 4018094)*x + (-12549021*m^2 + 1607238*m - 5886611)
+Defining polynomial f: (2*m + 3957134)*x^4 + (m^2 - 379479*m + 11840733)*x^3 + (-4336613*m^2 - 12634694*m + 8727658)*x^2 + y^2 + (13618560*m^2 + 271233*m + 4018094)*x + (-12549021*m^2 + 1607238*m - 5886611)
+Discriminant of f: (-8*m - 15828536)*x^4 + (-4*m^2 + 1517916*m - 13808465)*x^3 + (-16208015*m^2 - 16570158*m - 1356165)*x^2 + (12634694*m^2 - 1084932*m - 16072376)*x + (16641617*m^2 - 6428952*m - 10008023)
+Weierstrass discriminant: 28330483*m^8 + 26641401*m^6 + 27313779*m^5 + 22708064*m^4 + 11702955*m^3 + 21807310*m^2 + 1782287*m + 14311244
+Weierstrass model coefficients:
+  a4(m): 29536371*m^2 + 13917900*m + 10247539
+  a6(m): 18516971*m^4 + 8365663*m^2 + 14664343*m + 1996339
+P1: (12630360, 7000619)
+
+--- Geometric Validation ---
+Delta: 28330483*m^8 + 26641401*m^6 + 27313779*m^5 + 22708064*m^4 + 11702955*m^3 + 21807310*m^2 + 1782287*m + 14311244
+  Effective Discriminant Degree: 8
+  Weierstrass scaling exponent (n) used: 0
+  ⚠ NOTICE: Discriminant degree is 8, not 12.
+    This fibration may be non-minimal or use a different base parameterization.
+--------------------------
+=========================
+
+--- Searching for CM Fibers ---
+Found roots for a4(m)=0 (potential j=1728): [-13909149]
+Found roots for a4(m)=0 (potential j=1728): [-19817442]
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-13909149, -19817442}
+Found rational point from fiber m=13737025: (x,y) = (32447802, 16766722)
+Found rational point from fiber m=19645318: (x,y) = (26539509, 15714349)
+Points found from special fibers: {32447802, 26539509}
+--- Finite-field mode: skipping LLL (no height lattice) ---
+
+--- Search Iteration 0 with 1 sections ---
+--- Checking independence in finite-field mode (group law) ---
+No nontrivial relations found after randomized tests — treating as independent.
+Height Pairing Matrix H:
+ [1]
+[FF vectors] Generated 80 canonical vectors
+  Sample: [(63,), (44,), (20,), (35,), (29,), (26,), (38,), (17,), (72,), (47,)]
+Searching 80 vectors up to height 1809...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+[FF MODE] Forcing search to single prime: 33554467
+
+[prepare_modular_data_lll] Rejected 0 primes:
+[mumford] NOTICE: Reducing workers from 20 to 6 to prevent memory exhaustion.
+[mumford] Generating tasks for 1 primes...
+[mumford] Task degrees: min=1, max=8533, median=2241
+[mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
