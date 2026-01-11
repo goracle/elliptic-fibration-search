@@ -1,527 +1,0 @@
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-
---- Searching for y=0 points ---
-hyperelliptic curve: y^2 = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
-No points found where y=0
-known_pts start: {(457208, 9385862)}
-
-========================================================
-Constructing new fibration using: ((457208, 9385862),)
-known pts so far: [(457208, 9385862)]
-found 1 / 3
-========================================================
-
-shifted G poly1: x^5 + 3*x^3 + 2*x^2 + 5*x + 4
---- Building 1 Step Fibration Tower (deg 5 -> 4) ---
---- Tower Step 1: Building fibration for degree 5 curve (Best-of-10) ---
-  [Step 1] Selected best geometry (Score=9.6)
---- Running 1-point Fibration (Primary Geometry) ---
---- Entering buildcd ---
-Building over finite field GF(33554467)
---- Computing Minimal Model ---
-
---- Identifying Globally Bad Primes ---
-Finite field mode: characteristic 33554467 is the only bad prime
-Skipping singular fiber analysis over finite field
---- Exiting buildcd ---
-
-=== Auto-configuring search parameters for this fibration ===
-[auto_cfg] Building height estimation from 1 known x-coords.
-[auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
-[auto_cfg] Height Bound: 1182 (derived from h_can=log(2) + 8.016446854281241)
-[residue_counts] Using split_poly degree=8
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
-[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
-[residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
-[residue_counts] sample: [(33554467, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
-[auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
-
-[auto_cfg] Applied adaptive parameters:
-  HEIGHT_BOUND: 1182
-  TMAX: 500
-  NUM_PRIME_SUBSETS: 1
-  PRIME_POOL size: 1
-
-[auto_cfg summary] height_bound=1182, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
-[bounds] modulus_needed_from_canonical_height: capping at max_modulus=1000000000
-[bounds] Starting with prime pool size: 1
-[bounds] mod 33554467 factorization: [2, 3, 3] -> pattern (2, 3, 3)
-[bounds] Unique patterns from 1 primes: [(2, 3, 3)]
-[bounds] Estimated splitting field degree: 6
-
-DEBUG: RET: {'splitting_field_degree_est': 6, 'unique_patterns': [(2, 3, 3)], 'num_primes_tested': 1}
-
-[bounds] Diagnostics: {'discriminant': 19735632431705712610033797312939796560622804298994948442350607109644165482818011190377365571614445957541363634281305588038738145617664183706810349912304819743368723339101166742388023667099777102448649485558360119689449232239405824635336552418489711781314908479705294513896009523896289736687353856, 'splitting_field_degree': None, 'splitting_field_discriminant': None}
-[prime_pool] Final pool has 1 primes up to 33554467
-=== Fibration Summary ===
-Data points: ((457208, 9385862),)
-Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m - 2286040)*x^4 + (m^2 - 3657664*m + 15367471)*x^3 + (-1371624*m^2 + 5019182*m + 5564871)*x^2 + y^2 + (-15522438*m^2 - 2258995*m - 1719926)*x + (3911934*m^2 + 6022925*m + 9252174)
-Defining polynomial f: (2*m - 2286040)*x^4 + (m^2 - 3657664*m + 15367471)*x^3 + (-1371624*m^2 + 5019182*m + 5564871)*x^2 + y^2 + (-15522438*m^2 - 2258995*m - 1719926)*x + (3911934*m^2 + 6022925*m + 9252174)
-Discriminant of f: (-8*m + 9144160)*x^4 + (-4*m^2 + 14630656*m + 5639050)*x^3 + (5486496*m^2 + 13477739*m + 11294983)*x^2 + (-5019182*m^2 + 9035980*m + 6879704)*x + (-15647736*m^2 + 9462767*m - 3454229)
-Weierstrass discriminant: 29276013*m^8 + 3842116*m^6 + 12171069*m^5 + 14262144*m^4 + 31371756*m^3 + 2797612*m^2 + 6780125*m + 13325467
-Weierstrass model coefficients:
-  a4(m): 12903931*m^2 + 2479445*m + 5712802
-  a6(m): 4504239*m^4 + 24873845*m^2 + 13924533*m + 2074735
-P1: (457208, 9385862)
-
---- Geometric Validation ---
-Delta: 29276013*m^8 + 3842116*m^6 + 12171069*m^5 + 14262144*m^4 + 31371756*m^3 + 2797612*m^2 + 6780125*m + 13325467
-  Effective Discriminant Degree: 8
-  Weierstrass scaling exponent (n) used: 0
-  ⚠ NOTICE: Discriminant degree is 8, not 12.
-    This fibration may be non-minimal or use a different base parameterization.
---------------------------
-=========================
-
---- Searching for CM Fibers ---
-Found roots for a4(m)=0 (potential j=1728): [-16518291]
-Found roots for a4(m)=0 (potential j=1728): [-20086357]
-
---- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
-Testing special m-values from fibers: {-20086357, -16518291}
-Found rational point from fiber m=13468110: (x,y) = (20543565, 10298969)
-Points found from special fibers: {20543565}
---- Finite-field mode: skipping LLL (no height lattice) ---
-
---- Search Iteration 0 with 1 sections ---
---- Checking independence in finite-field mode (group law) ---
-No nontrivial relations found after randomized tests — treating as independent.
-Height Pairing Matrix H:
- [1]
-[residue_counts] Using split_poly degree=8
-[galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.00s, info=Transitive group number 50 of degree 8
-[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 7)]
-[residue_counts] exact count failed mod 33554467: 'str' object has no attribute 'numerator'; using fallback
-[residue_counts] sample: [(33554467, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
-[FF vectors] Generated 80 canonical vectors
-  Sample: [(63,), (44,), (20,), (35,), (29,), (26,), (38,), (17,), (72,), (47,)]
-Searching 80 vectors up to height 1182...
-
-======================================================================
-MUMFORD JACOBIAN ELEMENT SEARCH MODE
-Searching for (s,p,v_0,v_1) instead of rational m
-======================================================================
-
-Building 5-equation Mumford system from fibration...
-[FF MODE] Forcing search to single prime: 33554467
-
-[prepare_modular_data_lll] Rejected 0 primes:
-[mumford] NOTICE: Reducing workers from 20 to 6 to prevent memory exhaustion.
-[mumford] Generating tasks for 1 primes...
-[mumford] Task degrees: min=1, max=8533, median=2241
-[mumford] Generated 80 tasks for 6 workers (13.3 tasks per worker)
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 286, 'split_rate': 1.0, 'preferred_histogram': {0: 283, 1: 3, 2: 0}, 'hit_rate': 0.01048951048951049}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 200, 'split_rate': 1.0, 'preferred_histogram': {0: 197, 1: 3, 2: 0}, 'hit_rate': 0.015}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 236, 'split_rate': 1.0, 'preferred_histogram': {0: 233, 1: 3, 2: 0}, 'hit_rate': 0.012711864406779662}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 255, 'split_rate': 1.0, 'preferred_histogram': {0: 252, 1: 3, 2: 0}, 'hit_rate': 0.011764705882352941}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 235, 'split_rate': 1.0, 'preferred_histogram': {0: 232, 1: 3, 2: 0}, 'hit_rate': 0.01276595744680851}
-  [Biased Solver] Found 500 unique solutions.
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 229, 'split_rate': 1.0, 'preferred_histogram': {0: 226, 1: 3, 2: 0}, 'hit_rate': 0.013100436681222707}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 209, 'split_rate': 1.0, 'preferred_histogram': {0: 206, 1: 3, 2: 0}, 'hit_rate': 0.014354066985645933}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 241, 'split_rate': 1.0, 'preferred_histogram': {0: 238, 1: 3, 2: 0}, 'hit_rate': 0.012448132780082987}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 250, 'split_rate': 1.0, 'preferred_histogram': {0: 247, 1: 3, 2: 0}, 'hit_rate': 0.012}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 261, 'split_rate': 1.0, 'preferred_histogram': {0: 258, 1: 3, 2: 0}, 'hit_rate': 0.011494252873563218}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 242, 'split_rate': 1.0, 'preferred_histogram': {0: 239, 1: 3, 2: 0}, 'hit_rate': 0.012396694214876033}
-  [Biased Solver] Found 500 unique solutions.
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 251, 'split_rate': 1.0, 'preferred_histogram': {0: 248, 1: 3, 2: 0}, 'hit_rate': 0.01195219123505976}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 261, 'split_rate': 1.0, 'preferred_histogram': {0: 258, 1: 3, 2: 0}, 'hit_rate': 0.011494252873563218}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 262, 'split_rate': 1.0, 'preferred_histogram': {0: 259, 1: 3, 2: 0}, 'hit_rate': 0.011450381679389313}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 246, 'split_rate': 1.0, 'preferred_histogram': {0: 243, 1: 3, 2: 0}, 'hit_rate': 0.012195121951219513}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 278, 'split_rate': 1.0, 'preferred_histogram': {0: 275, 1: 3, 2: 0}, 'hit_rate': 0.01079136690647482}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 233, 'split_rate': 1.0, 'preferred_histogram': {0: 230, 1: 3, 2: 0}, 'hit_rate': 0.012875536480686695}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 225, 'split_rate': 1.0, 'preferred_histogram': {0: 222, 1: 3, 2: 0}, 'hit_rate': 0.013333333333333334}
-  [Biased Solver] Found 500 unique solutions.
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 237, 'split_rate': 1.0, 'preferred_histogram': {0: 234, 1: 3, 2: 0}, 'hit_rate': 0.012658227848101266}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 239, 'split_rate': 1.0, 'preferred_histogram': {0: 236, 1: 3, 2: 0}, 'hit_rate': 0.012552301255230125}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 259, 'split_rate': 1.0, 'preferred_histogram': {0: 256, 1: 3, 2: 0}, 'hit_rate': 0.011583011583011582}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 274, 'split_rate': 1.0, 'preferred_histogram': {0: 271, 1: 3, 2: 0}, 'hit_rate': 0.010948905109489052}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 229, 'split_rate': 1.0, 'preferred_histogram': {0: 226, 1: 3, 2: 0}, 'hit_rate': 0.013100436681222707}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 262, 'split_rate': 1.0, 'preferred_histogram': {0: 259, 1: 3, 2: 0}, 'hit_rate': 0.011450381679389313}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-Generated keypair:
-  Base point x-coord: 457208
-  Base divisor G: (x + 33097259, y + 24168605)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 2851121*x + 13881311, y + 13513329*x + 31506789)
-  Preferred x-values for smoothness: [457208, 8979329, 21724017]
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 289, 'split_rate': 1.0, 'preferred_histogram': {0: 286, 1: 3, 2: 0}, 'hit_rate': 0.010380622837370242}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 259, 'split_rate': 1.0, 'preferred_histogram': {0: 256, 1: 3, 2: 0}, 'hit_rate': 0.011583011583011582}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 255, 'split_rate': 1.0, 'preferred_histogram': {0: 252, 1: 3, 2: 0}, 'hit_rate': 0.011764705882352941}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 271, 'split_rate': 1.0, 'preferred_histogram': {0: 268, 1: 3, 2: 0}, 'hit_rate': 0.01107011070110701}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 258, 'split_rate': 1.0, 'preferred_histogram': {0: 255, 1: 3, 2: 0}, 'hit_rate': 0.011627906976744186}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 230, 'split_rate': 1.0, 'preferred_histogram': {0: 227, 1: 3, 2: 0}, 'hit_rate': 0.013043478260869565}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 249, 'split_rate': 1.0, 'preferred_histogram': {0: 246, 1: 3, 2: 0}, 'hit_rate': 0.012048192771084338}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 251, 'split_rate': 1.0, 'preferred_histogram': {0: 248, 1: 3, 2: 0}, 'hit_rate': 0.01195219123505976}
-  [Biased Solver] Found 500 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 1003, 'split_rate': 1.0, 'preferred_histogram': {0: 1000, 1: 3, 2: 0}, 'hit_rate': 0.0029910269192422734}
-  [Biased Solver] Found 0 unique solutions.
-  [Biased Solver] Checking 1003 candidates (Priority: 3)...
-  [Bias Statistics] {'total': 232, 'split_rate': 1.0, 'preferred_histogram': {0: 229, 1: 3, 2: 0}, 'hit_rate': 0.01293103448275862}
-  [Biased Solver] Found 500 unique solutions.
-[mumford] Residue computation took 100.48s
-PRIME: 33554467
-generated: 1 available: 0 active: 0
-raw_solutions: 0 unique_supports: 0 duplicates: 0
-availability_rate: 0.0 activation_rate: 0.0
-{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
-
-=== MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
-  Harvesting initial solutions...
-  Initial harvest: 4750 unique smooth divisors from 19000 candidates.
-  Factor Base (Unique x): 4677
-  Starting structured random walk to improve Rank/FB ratio...
-  Target reached: 5392 relations > 4688 FB + 703 buffer.
-  Final Status: 5392 relations, 4688 factor base elements.
-
-Mumford search reconstructed 5392 divisors
-  5392 divisors had rational roots in u(x)
-
-======================================================================
-INDEX CALCULUS FEASIBILITY ANALYSIS
-======================================================================
-Field: GF(33554467)
-Genus: 2
-Divisors collected: 5392
-
-[Factor Base - Support Deduplicated]
-  Unique supports: 5392
-  Distinct x-coordinates: 4688
-  Total x-instances (after dedup): 10784
-  Original factored divisors: 5392
-  Kept after support dedup: 5392
-  Average multiplicity per support: 1.0
-  Top 5 most duplicated supports:
-    (457208, 29865619): 1 duplicates (kept 1)
-    (21724017, 29865619): 1 duplicates (kept 1)
-    (8979329, 29865619): 1 duplicates (kept 1)
-    (696133, 29865619): 1 duplicates (kept 1)
-    (22770438, 29865619): 1 duplicates (kept 1)
-  Top 5 most frequent x-coordinates (after dedup):
-    x=16037069: appears 129 times
-    x=27519878: appears 127 times
-    x=20432807: appears 126 times
-    x=6494674: appears 126 times
-    x=22847155: appears 126 times
-
-[Smoothness Distribution]
-  Smooth divisors: 5392/5392 (100.0%)
-  Non-smooth: 0/5392 (0.0%)
-  Smoothness by search vector:
-    Vector mixed: 642/642 (100.0%)
-    Vector (56,): 250/250 (100.0%)
-    Vector (41,): 250/250 (100.0%)
-    Vector (35,): 250/250 (100.0%)
-    Vector (12,): 250/250 (100.0%)
-    Vector (9,): 250/250 (100.0%)
-    Vector (76,): 125/125 (100.0%)
-    Vector (77,): 125/125 (100.0%)
-    Vector (80,): 125/125 (100.0%)
-    Vector (65,): 125/125 (100.0%)
-
-[Relation Matrix]
-  Dimensions: 5392 relations × 4688 factor base elements
-  (After support deduplication)
-  Rank: 4688
-  Nullity: 0
-  Over-determined: True
-  ✓ Sufficient relations for linear algebra attack!
-  Row sparsity:
-    Avg non-zeros per row: 2.0
-    Min: 2, Max: 2
-
-[Linear Algebra Attack Feasibility]
-  Factor base size: 4688
-  Relations collected: 5392
-  Matrix rank: 4688
-  Estimated #J(GF(33554467)): ~1.13e+15
-  Factor base coverage: 468800/1125902255654089%
-  ✓ ATTACK FEASIBLE: Matrix is full-rank and over-determined
-    Next step: Solve linear system mod #J to express arbitrary divisors
-
-[DLP Complexity Estimate]
-  Theoretical (genus 2): O(p^1.5) ≈ 194368336111.03094 ops
-  Practical with B=7:
-    Relation collection: 37744 ops (DONE)
-    Linear algebra (dense): 343 ops
-    Linear algebra (sparse): 49 ops
-    Individual DLP: 7 ops
-  Total (dense): 38094 ops
-  Total (sparse): 37800 ops
-  Generic baby-step-giant-step: O(p^1) ≈ 33554467 ops
-  ✓ Index calculus is faster by ~33554467/37800x
-======================================================================
-
-
-======================================================================
-SUMMARY & RECOMMENDATIONS
-======================================================================
-✓ INDEX CALCULUS ATTACK IS FEASIBLE
-  - Factor base size: 4688
-  - Relations collected: 5392
-  - Matrix is full-rank and over-determined
-  - Estimated complexity: 37800 operations
-
-Next steps:
-  1. Solve linear system to express factor base in terms of relations
-  2. For target divisor D, decompose D over factor base
-  3. Express D = linear combination of known divisors
-======================================================================
-
-Total time: 112.50s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  mumford_residues         : 100.48s
-  prep_mod_data            : 3.97s
-  mumford_reconstruction   : 1.36s
-  mumford_setup            : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 79
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-
-[Factor Base - Support Deduplicated]
-  Unique supports: 5392
-  Distinct x-coordinates: 4688
-  Kept after support dedup: 5392
-  [Setup] Curve: y^2 = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
-  [Phase 0] Attempting RR-Localization for target Q...
-  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
-Jacobian order factors: [3, 5, 251, 2971]
-Targeting subgroup of prime order: 2971
-f_p = x^5 + 3*x^3 + 2*x^2 + 5*x + 4
-Anchoring G...
-  [Search] Targeting prime order 33557445
-  [Search] Workers: 20 | Factor Base: 4688
-  Trying... Total: 512 | Sample Hits: -25600 | Speed: 435.6 t/s  Trying... Total: 1024 | Sample Hits: -51200 | Speed: 865.4 t/s  Trying... Total: 1536 | Sample Hits: -76800 | Speed: 1298.0 t/s  Trying... Total: 2048 | Sample Hits: -102400 | Speed: 1730.3 t/s  Trying... Total: 2560 | Sample Hits: -128000 | Speed: 2141.6 t/s  Trying... Total: 3072 | Sample Hits: -153600 | Speed: 2567.9 t/s  Trying... Total: 3584 | Sample Hits: -179200 | Speed: 2991.8 t/s  Trying... Total: 4096 | Sample Hits: -204800 | Speed: 3383.4 t/s  Trying... Total: 4608 | Sample Hits: -230400 | Speed: 3797.7 t/s  Trying... Total: 5120 | Sample Hits: -256000 | Speed: 4213.0 t/s  Trying... Total: 5632 | Sample Hits: -281600 | Speed: 4468.5 t/s  Trying... Total: 6144 | Sample Hits: -307200 | Speed: 4801.5 t/s  Trying... Total: 6656 | Sample Hits: -332800 | Speed: 3815.9 t/s  Trying... Total: 7168 | Sample Hits: -358400 | Speed: 4088.6 t/s  Trying... Total: 7680 | Sample Hits: -384000 | Speed: 4379.2 t/s  Trying... Total: 8192 | Sample Hits: -409599 | Speed: 4565.3 t/s  Trying... Total: 8704 | Sample Hits: -435199 | Speed: 4845.8 t/s  Trying... Total: 9216 | Sample Hits: -460799 | Speed: 5102.8 t/s  Trying... Total: 9728 | Sample Hits: -486399 | Speed: 5370.3 t/s  Trying... Total: 10240 | Sample Hits: -511999 | Speed: 5635.7 t/s  Trying... Total: 10752 | Sample Hits: -537599 | Speed: 4773.7 t/s  Trying... Total: 11264 | Sample Hits: -563199 | Speed: 4990.0 t/s  Trying... Total: 11776 | Sample Hits: -588799 | Speed: 5203.0 t/s  Trying... Total: 12288 | Sample Hits: -614399 | Speed: 5358.0 t/s  Trying... Total: 12800 | Sample Hits: -639999 | Speed: 5566.6 t/s  Trying... Total: 13312 | Sample Hits: -665599 | Speed: 5780.7 t/s  Trying... Total: 13824 | Sample Hits: -691199 | Speed: 5999.7 t/s  Trying... Total: 14336 | Sample Hits: -716799 | Speed: 6207.3 t/s  Trying... Total: 14848 | Sample Hits: -742399 | Speed: 6415.0 t/s  Trying... Total: 15360 | Sample Hits: -767999 | Speed: 6582.0 t/s  Trying... Total: 15872 | Sample Hits: -793599 | Speed: 6626.1 t/s  Trying... Total: 16384 | Sample Hits: -819199 | Speed: 6434.0 t/s  Trying... Total: 16896 | Sample Hits: -844799 | Speed: 5068.1 t/s  Trying... Total: 17408 | Sample Hits: -870399 | Speed: 5216.1 t/s  Trying... Total: 17920 | Sample Hits: -895999 | Speed: 5303.2 t/s  Trying... Total: 18432 | Sample Hits: -921599 | Speed: 5423.7 t/s  Trying... Total: 18944 | Sample Hits: -947199 | Speed: 5574.2 t/s  Trying... Total: 19456 | Sample Hits: -972799 | Speed: 5724.8 t/s  Trying... Total: 19968 | Sample Hits: -998399 | Speed: 5864.4 t/s  Trying... Total: 20480 | Sample Hits: -1023999 | Speed: 6014.5 t/s  Trying... Total: 20992 | Sample Hits: -1049599 | Speed: 6153.1 t/s  Trying... Total: 21504 | Sample Hits: -1075199 | Speed: 6279.0 t/s  Trying... Total: 22016 | Sample Hits: -1100799 | Speed: 6428.1 t/s  Trying... Total: 22528 | Sample Hits: -1126399 | Speed: 6563.7 t/s  Trying... Total: 23040 | Sample Hits: -1151999 | Speed: 6709.1 t/s  Trying... Total: 23552 | Sample Hits: -1177599 | Speed: 6797.3 t/s  Trying... Total: 24064 | Sample Hits: -1203198 | Speed: 6934.3 t/s  Trying... Total: 24576 | Sample Hits: -1228798 | Speed: 7076.9 t/s  Trying... Total: 25088 | Sample Hits: -1254398 | Speed: 7186.1 t/s  Trying... Total: 25600 | Sample Hits: -1279998 | Speed: 7298.6 t/s  Trying... Total: 26112 | Sample Hits: -1305598 | Speed: 7407.7 t/s  Trying... Total: 26624 | Sample Hits: -1331198 | Speed: 6933.1 t/s  Trying... Total: 27136 | Sample Hits: -1356798 | Speed: 6132.0 t/s  Trying... Total: 27648 | Sample Hits: -1382398 | Speed: 6169.8 t/s  Trying... Total: 28160 | Sample Hits: -1407998 | Speed: 6268.4 t/s  Trying... Total: 28672 | Sample Hits: -1433598 | Speed: 6379.2 t/s  Trying... Total: 29184 | Sample Hits: -1459198 | Speed: 6466.2 t/s  Trying... Total: 29696 | Sample Hits: -1484798 | Speed: 6579.4 t/s  Trying... Total: 30208 | Sample Hits: -1510398 | Speed: 6674.4 t/s  Trying... Total: 30720 | Sample Hits: -1535998 | Speed: 6766.5 t/s  Trying... Total: 31232 | Sample Hits: -1561598 | Speed: 6745.3 t/s  Trying... Total: 31744 | Sample Hits: -1587198 | Speed: 6796.2 t/s  Trying... Total: 32256 | Sample Hits: -1612798 | Speed: 6789.5 t/s

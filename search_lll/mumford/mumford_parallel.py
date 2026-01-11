@@ -45,285 +45,6 @@ def _reconstruct_worker_parallel(args):
     """Legacy entry point (placeholder)."""
     return args[0], {} 
 
-def _reconstruct_worker_parallel_v2(args):
-    """Optimized worker with robust error handling for modular inverses."""
-    combo_batch, primes, M_in, f_coeffs, max_height, v_tuple = args
-    
-    # Setup fast CRT constants once per batch
-    M, weights = setup_crt_constants(primes)
-    
-    results = []
-    stats = {
-        'attempted': len(combo_batch),
-        'height_reject': 0,
-        'consistency_reject': 0,
-        'algebraic_reject': 0,
-        'success': 0
-    }
-    
-    # Pre-calculate prime integers to avoid sage overhead in loop
-    primes_int = [int(p) for p in primes]
-    range_primes = range(len(primes))
-    
-    for sol_combo in combo_batch:
-        # 1. Reconstruct 's' (index 0)
-        crt_s = 0
-        for i in range_primes:
-            crt_s += sol_combo[i][0] * weights[i]
-        crt_s %= M
-        
-        success_s, num_s, den_s = fast_rational_reconstruct_check(crt_s, M, max_height)
-        if not success_s:
-            stats['height_reject'] += 1
-            continue
-            
-        # 2. Reconstruct 'p' (index 1)
-        crt_p = 0
-        for i in range_primes:
-            crt_p += sol_combo[i][1] * weights[i]
-        crt_p %= M
-        
-        success_p, num_p, den_p = fast_rational_reconstruct_check(crt_p, M, max_height)
-        if not success_p:
-            stats['height_reject'] += 1
-            continue
-
-        # 3. Reconstruct v0 (index 2)
-        crt_v0 = 0
-        for i in range_primes:
-            crt_v0 += sol_combo[i][2] * weights[i]
-        crt_v0 %= M
-        
-        success_v0, num_v0, den_v0 = fast_rational_reconstruct_check(crt_v0, M, max_height)
-        if not success_v0:
-            stats['height_reject'] += 1
-            continue
-            
-        # 4. Reconstruct v1 (index 3)
-        crt_v1 = 0
-        for i in range_primes:
-            crt_v1 += sol_combo[i][3] * weights[i]
-        crt_v1 %= M
-        
-        success_v1, num_v1, den_v1 = fast_rational_reconstruct_check(crt_v1, M, max_height)
-        if not success_v1:
-            stats['height_reject'] += 1
-            continue
-
-        # 5. Consistency Check (Mod P)
-        reconstruction_ok = True
-        
-        # We work with python ints to avoid Sage ZeroDivisionErrors on mod invert
-        for i in range_primes:
-            p_int = primes_int[i]
-            expected = sol_combo[i]
-            
-            try:
-                # Use pow(val, -1, mod) which raises ValueError on failure
-                
-                # Check s
-                if (num_s * pow(den_s, -1, p_int)) % p_int != expected[0]:
-                    reconstruction_ok = False; break
-                
-                # Check p
-                if (num_p * pow(den_p, -1, p_int)) % p_int != expected[1]:
-                    reconstruction_ok = False; break
-                    
-                # Check v0
-                if (num_v0 * pow(den_v0, -1, p_int)) % p_int != expected[2]:
-                    reconstruction_ok = False; break
-                    
-                # Check v1
-                if (num_v1 * pow(den_v1, -1, p_int)) % p_int != expected[3]:
-                    reconstruction_ok = False; break
-
-            except (ValueError, ZeroDivisionError):
-                # Denominator divisible by prime -> reconstruction failed
-                reconstruction_ok = False
-                break
-        
-        if not reconstruction_ok:
-            stats['consistency_reject'] += 1
-            continue
-
-        # 6. Convert to Sage types for algebraic verification
-        s_qq = QQ(num_s) / QQ(den_s)
-        p_qq = QQ(num_p) / QQ(den_p)
-        v0_qq = QQ(num_v0) / QQ(den_v0)
-        v1_qq = QQ(num_v1) / QQ(den_v1)
-
-        # 7. Algebraic Verification
-        if not verify_mumford_pair(f_coeffs, s_qq, p_qq, v0_qq, v1_qq, modulus=None, debug_first_failure=False):
-            stats['algebraic_reject'] += 1
-            continue
-
-        if not discriminant_has_nonqr_s_p(s_qq, p_qq, PRIMES_NR):
-            stats['algebraic_reject'] += 1
-            continue
-
-        # Attach the vector here so it survives the return trip
-        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq, 'vector': v_tuple})
-        stats['success'] += 1
-    
-    return results, stats
-
-def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=20, debug=False):
-    """
-    Parallel CRT reconstruction with batching.
-    """
-    M = 1
-    for p in primes:
-        M *= p
-    
-    max_height = max(100000, int(M ** 0.35))
-    
-    # Generate all combinations (up to limit)
-    all_combos = list(islice(product(*sol_lists), adaptive_limit))
-    
-    if debug:
-        print(f"[parallel_crt] Processing {len(all_combos)} combinations with {num_workers} workers")
-    
-    # Batch combinations for workers
-    batch_size = max(100, len(all_combos) // (num_workers * 4))
-    batches = []
-    for i in range(0, len(all_combos), batch_size):
-        batch = all_combos[i:i+batch_size]
-        batches.append((batch, primes, M, f_coeffs, max_height))
-    
-    # Process in parallel
-    try:
-        ctx = multiprocessing.get_context("fork")
-        pool = ctx.Pool(num_workers)
-    except Exception:
-        pool = multiprocessing.Pool(num_workers)
-        raise
-    
-    all_results = []
-    try:
-        for batch_results in pool.imap_unordered(reconstruct_worker_wrapper, batches):
-            all_results.extend(batch_results)
-        pool.close()
-        pool.join()
-    except KeyboardInterrupt:
-        pool.terminate()
-        pool.join()
-        raise
-    
-    return all_results
-
-def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit, 
-                                       check_interval=10000, target_divisors=10, debug=False):
-    """
-    Process combinations with early stopping if we're finding enough divisors.
-    """
-    M = 1
-    for p in primes:
-        M *= p
-    
-    max_height = max(100000, int(M ** 0.35))
-    
-    results = []
-    checked = 0
-    last_check_count = 0
-    
-    for sol_combo in islice(product(*sol_lists), base_limit):
-        checked += 1
-        
-        try:
-            rec_vals = []
-            for idx in range(4):
-                vals = tuple(sol[idx] for sol in sol_combo)
-                crt_val = crt_cached(vals, tuple(primes))
-                num, den = rational_reconstruct_with_height_check(crt_val, M, max_height)
-                rec_vals.append(QQ(num)/QQ(den))
-            
-            s, p_val, v0, v1 = rec_vals
-            
-            # Quick consistency check (just first prime)
-            if len(primes) > 0:
-                p0 = primes[0]
-                expected = sol_combo[0]
-                try:
-                    s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, p0)) % p0
-                    if s_mod != expected[0] % p0:
-                        continue
-                except ZeroDivisionError:
-                    raise
-                    continue
-            
-            # Full verification
-            if verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
-                results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
-        
-        except RationalReconstructionError:
-            raise
-            continue
-        except Exception:
-            raise
-            continue
-        
-        # Early stopping check
-        if checked % check_interval == 0:
-            new_found = len(results) - last_check_count
-            success_rate = new_found / check_interval
-            
-            if debug and checked % (check_interval * 5) == 0:
-                print(f"[adaptive] Checked {checked}/{base_limit}, found {len(results)} total, recent rate: {success_rate:.6f}")
-            
-            # Stop if we have enough and success rate is very low
-            if len(results) >= target_divisors and success_rate < 1e-5:
-                if debug:
-                    print(f"[adaptive] Early stop: found {len(results)} divisors, success rate dropped to {success_rate:.6f}")
-                break
-            
-            last_check_count = len(results)
-    
-    return results, checked
-
-def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
-    """
-    Consistency check with cached modular inverses.
-    """
-    for i, prime in enumerate(primes):
-        expected_sol = sol_combo[i]
-        
-        # Get modular inverses with caching
-        s_inv = inv_cache.inv(s.denominator(), prime)
-        p_inv = inv_cache.inv(p_val.denominator(), prime)
-        v0_inv = inv_cache.inv(v0.denominator(), prime)
-        v1_inv = inv_cache.inv(v1.denominator(), prime)
-        
-        if None in (s_inv, p_inv, v0_inv, v1_inv):
-            return False
-        
-        s_mod = (int(s.numerator()) * s_inv) % prime
-        p_mod = (int(p_val.numerator()) * p_inv) % prime
-        v0_mod = (int(v0.numerator()) * v0_inv) % prime
-        v1_mod = (int(v1.numerator()) * v1_inv) % prime
-        
-        if (s_mod != expected_sol[0] % prime or
-            p_mod != expected_sol[1] % prime or
-            v0_mod != expected_sol[2] % prime or
-            v1_mod != expected_sol[3] % prime):
-            return False
-    
-    return True
-
-class ModInverseCache:
-    """Cache for modular inverses."""
-    def __init__(self):
-        self.cache = {}
-    
-    def inv(self, a, p):
-        key = (a % p, p)
-        if key not in self.cache:
-            try:
-                self.cache[key] = pow(int(a), -1, p)
-            except (ValueError, ZeroDivisionError):
-                raise
-                return None
-        return self.cache[key]
-
 
 def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for_p, prime):
     """
@@ -503,83 +224,9 @@ def _tonelli_shanks(n, p):
         r = (r * b) % p
     return r
 
-def _solve_worker_wrapper(args):
-    """Worker with detailed timing diagnostics."""
-    p, f_coeffs_ints, chunk_items, const_val_int = args
-    
-    roots_cache = {}
-    p_results = {}
-    
-    chunk_start = time.time()
-    
-    for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
-        item_start = time.time()
-        
-        coeff_key = tuple(c % p for c in diff_coeffs_list)
-        
-        if all(c == 0 for c in coeff_key):
-            continue
-        
-        # Time: Root finding
-        t0 = time.time()
-        if coeff_key not in roots_cache:
-            # Replaced Python solver with Sage wrapper
-            roots = find_poly_roots_fp_python(coeff_key, p)
-            roots_cache[coeff_key] = roots
-        else:
-            roots = roots_cache[coeff_key]
-        root_time = time.time() - t0
-        
-        if not roots:
-            continue
-        
-        # Time: Mumford solving per root
-        t0 = time.time()
-        x_res_to_sols = {}
-        
-        for m_root in roots:
-            x_val = (-m_root + const_val_int) % p
-
-            # Then around line 403, change to:
-            if FINITE_FIELD:
-                max_sols = 10000  # Need more solutions in FF mode for index calculus
-            else:
-                max_sols = 500    # Standard mode doesn't need as many
-
-            max_sols = 500    # Standard mode doesn't need as many
-            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols)
-
-            verified_sols = []
-            for sol in sols:
-                s, p_val, v0, v1 = sol
-                if verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
-                    verified_sols.append(sol)
-            
-            if verified_sols:
-                x_res_to_sols[x_val] = verified_sols
-        
-        mumford_time = time.time() - t0
-        item_time = time.time() - item_start
-        
-        # Print diagnostics for slow items
-        if item_time > 0.5:  # More than 500ms
-            sys.stderr.write(f"[Worker p={p}] Vector {v_tuple}: "
-                           f"deg={len(coeff_key)-1}, roots={len(roots)}, "
-                           f"root_time={root_time:.3f}s, mumford_time={mumford_time:.3f}s, "
-                           f"total={item_time:.3f}s\n")
-        
-        if x_res_to_sols:
-            p_results[v_tuple] = x_res_to_sols
-    
-    chunk_time = time.time() - chunk_start
-    if chunk_time > 1.0:
-        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
-    
-    return p, p_results
-
 
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=6, debug=False):
+                                         rhs_modp_list, vecs_list, num_workers=16, debug=False):
     """
     Generates tasks with a safety clamp on worker count and polynomial degree.
     """
@@ -589,7 +236,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     # Even if called with 20 workers, we force it down to 6 to prevent OOM
     if num_workers > 6:
         print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 6 to prevent memory exhaustion.")
-        num_workers = 6
+        num_workers = 16
     # --------------------
 
     f_coeffs = eqs_dict['f_coeffs']
@@ -719,3 +366,372 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
             
     return results_dict
 
+def _reconstruct_worker_parallel_v2(args):
+    """
+    Batch CRT reconstruct + algebraic verification worker.
+
+    args = (combo_batch, primes, M_in, f_coeffs, max_height)
+    Returns: (results_list, stats_dict)
+    """
+    combo_batch, primes, M_in, f_coeffs, max_height = args
+
+    # Setup CRT constants (weights, M) if M_in is not provided
+    if M_in is None:
+        M, weights = setup_crt_constants(primes)
+    else:
+        M = M_in
+        _, weights = setup_crt_constants(primes)  # This will compute weights matching M
+    if M <= 0:
+        raise ValueError("Invalid CRT modulus M")
+
+    primes_int = [int(p) for p in primes]
+    range_primes = range(len(primes_int))
+
+    results = []
+    stats = {
+        'attempted': len(combo_batch),
+        'height_reject': 0,
+        'consistency_reject': 0,
+        'algebraic_reject': 0,
+        'success': 0
+    }
+
+    for sol_combo in combo_batch:
+        # Reconstruct each coordinate by CRT
+        try:
+            # s
+            crt_s = 0
+            for i in range_primes:
+                crt_s += int(sol_combo[i][0]) * int(weights[i])
+            crt_s %= M
+            ok_s, num_s, den_s = fast_rational_reconstruct_check(crt_s, M, max_height)
+            if not ok_s:
+                stats['height_reject'] += 1
+                continue
+
+            # p
+            crt_p = 0
+            for i in range_primes:
+                crt_p += int(sol_combo[i][1]) * int(weights[i])
+            crt_p %= M
+            ok_p, num_p, den_p = fast_rational_reconstruct_check(crt_p, M, max_height)
+            if not ok_p:
+                stats['height_reject'] += 1
+                continue
+
+            # v0
+            crt_v0 = 0
+            for i in range_primes:
+                crt_v0 += int(sol_combo[i][2]) * int(weights[i])
+            crt_v0 %= M
+            ok_v0, num_v0, den_v0 = fast_rational_reconstruct_check(crt_v0, M, max_height)
+            if not ok_v0:
+                stats['height_reject'] += 1
+                continue
+
+            # v1
+            crt_v1 = 0
+            for i in range_primes:
+                crt_v1 += int(sol_combo[i][3]) * int(weights[i])
+            crt_v1 %= M
+            ok_v1, num_v1, den_v1 = fast_rational_reconstruct_check(crt_v1, M, max_height)
+            if not ok_v1:
+                stats['height_reject'] += 1
+                continue
+
+        except Exception:
+            # bubble up helpful info
+            raise
+
+        # Consistency check mod each prime (use python ints)
+        reconstruction_ok = True
+        for i, p_int in enumerate(primes_int):
+            expected = sol_combo[i]
+            try:
+                if (num_s * pow(den_s, -1, p_int)) % p_int != expected[0]:
+                    reconstruction_ok = False; break
+                if (num_p * pow(den_p, -1, p_int)) % p_int != expected[1]:
+                    reconstruction_ok = False; break
+                if (num_v0 * pow(den_v0, -1, p_int)) % p_int != expected[2]:
+                    reconstruction_ok = False; break
+                if (num_v1 * pow(den_v1, -1, p_int)) % p_int != expected[3]:
+                    reconstruction_ok = False; break
+            except (ValueError, ZeroDivisionError) as e:
+                # denominator divisible by prime -> fail consistency
+                reconstruction_ok = False
+                break
+
+        if not reconstruction_ok:
+            stats['consistency_reject'] += 1
+            continue
+
+        # Convert to QQ
+        s_qq = QQ(num_s) / QQ(den_s)
+        p_qq = QQ(num_p) / QQ(den_p)
+        v0_qq = QQ(num_v0) / QQ(den_v0)
+        v1_qq = QQ(num_v1) / QQ(den_v1)
+
+        # Algebraic verification
+        try:
+            ok_alg = verify_mumford_pair(f_coeffs, s_qq, p_qq, v0_qq, v1_qq, modulus=None, debug_first_failure=False)
+            if not ok_alg:
+                stats['algebraic_reject'] += 1
+                continue
+
+            # Try to call discriminant_has_nonqr_s_p conservatively:
+            try:
+                ok_disc = discriminant_has_nonqr_s_p(s_qq, p_qq, primes)
+            except TypeError:
+                # fallback: if the function expected a number, pass the length
+                ok_disc = discriminant_has_nonqr_s_p(s_qq, p_qq, len(primes))
+            if not ok_disc:
+                stats['algebraic_reject'] += 1
+                continue
+
+        except Exception:
+            stats['algebraic_reject'] += 1
+            continue
+
+        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq})
+        stats['success'] += 1
+
+    return results, stats
+
+
+def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=20, debug=False):
+    """
+    Parallel CRT reconstruction with batching.
+    Each worker returns (results_list, stats), we aggregate both.
+    """
+    # Precompute full modulus M
+    M = 1
+    for p in primes:
+        M *= int(p)
+
+    max_height = max(100000, int(M ** 0.35))
+
+    # Generate combos up to adaptive_limit
+    all_combos = list(islice(product(*sol_lists), adaptive_limit))
+
+    if debug:
+        print(f"[parallel_crt] Processing {len(all_combos)} combinations with {num_workers} workers")
+
+    # Split into batches
+    batch_size = max(100, max(1, len(all_combos) // (max(1, num_workers) * 4)))
+    batches = []
+    for i in range(0, len(all_combos), batch_size):
+        batch = all_combos[i:i+batch_size]
+        batches.append((batch, primes, M, f_coeffs, max_height))
+
+    # Create pool (try spawn to be safe)
+    try:
+        ctx = multiprocessing.get_context("spawn")
+        pool = ctx.Pool(num_workers)
+    except Exception:
+        # fallback to default context, but don't raise here
+        pool = multiprocessing.Pool(num_workers)
+
+    all_results = []
+    aggregated_stats = defaultdict(int)
+
+    try:
+        # Use the corrected worker name
+        for worker_out in pool.imap_unordered(_reconstruct_worker_parallel_v2, batches):
+            if not worker_out:
+                continue
+            batch_results, batch_stats = worker_out
+            # extend results
+            all_results.extend(batch_results)
+            # aggregate stats
+            for k, v in batch_stats.items():
+                aggregated_stats[k] += v
+        pool.close()
+        pool.join()
+    except KeyboardInterrupt:
+        pool.terminate()
+        pool.join()
+        raise
+
+    if debug:
+        print(f"[parallel_crt] Done. totals: {dict(aggregated_stats)}")
+
+    return all_results
+
+
+def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
+                                       check_interval=10000, target_divisors=10, debug=False):
+    """
+    Sequential adaptive reconstruction using CRT constants + fast rational reconstruct.
+    """
+    M, weights = setup_crt_constants(primes)
+    max_height = max(100000, int(M ** 0.35))
+
+    results = []
+    checked = 0
+    last_check_count = 0
+
+    for sol_combo in islice(product(*sol_lists), base_limit):
+        checked += 1
+        try:
+            # Reconstruct with weights
+            rec_vals = []
+            for idx_coord in range(4):
+                crt_val = 0
+                for i, p in enumerate(primes):
+                    crt_val += int(sol_combo[i][idx_coord]) * int(weights[i])
+                crt_val %= M
+                ok, num, den = fast_rational_reconstruct_check(crt_val, M, max_height)
+                if not ok:
+                    raise RationalReconstructionError("height check failed")
+                rec_vals.append(QQ(num) / QQ(den))
+
+            s, p_val, v0, v1 = rec_vals
+
+            # Quick consistency check modulo first prime
+            if len(primes) > 0:
+                p0 = int(primes[0])
+                expected = sol_combo[0]
+                try:
+                    s_mod = (int(s.numerator()) * pow(int(s.denominator()), -1, p0)) % p0
+                    if s_mod != expected[0] % p0:
+                        continue
+                except ZeroDivisionError:
+                    raise
+
+            # Full algebraic verification
+            if verify_mumford_pair(f_coeffs, s, p_val, v0, v1, modulus=None, debug_first_failure=False):
+                results.append({'s': s, 'p': p_val, 'v_0': v0, 'v_1': v1})
+
+        except RationalReconstructionError:
+            # let it raise to blow up if you want; user wanted loud failures
+            raise
+        except Exception:
+            # propagate everything (so you get a traceback)
+            raise
+
+        # early-stop check
+        if checked % check_interval == 0:
+            new_found = len(results) - last_check_count
+            success_rate = new_found / float(check_interval)
+            if debug and checked % (check_interval * 5) == 0:
+                print(f"[adaptive] Checked {checked}/{base_limit}, found {len(results)} total, recent rate: {success_rate:.6e}")
+            if len(results) >= target_divisors and success_rate < 1e-5:
+                if debug:
+                    print(f"[adaptive] Early stop: found {len(results)} divisors, recent rate {success_rate:.6e}")
+                break
+            last_check_count = len(results)
+
+    return results, checked
+
+
+def _solve_worker_wrapper(args):
+    """
+    Worker with detailed timing diagnostics.
+    args = (p, f_coeffs_ints, chunk_items, const_val_int)
+    """
+    p, f_coeffs_ints, chunk_items, const_val_int = args
+
+    roots_cache = {}
+    p_results = {}
+
+    chunk_start = time.time()
+
+    for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
+        item_start = time.time()
+
+        coeff_key = tuple(c % p for c in diff_coeffs_list)
+
+        if all(c == 0 for c in coeff_key):
+            continue
+
+        t0 = time.time()
+        if coeff_key not in roots_cache:
+            roots = find_poly_roots_fp_python(coeff_key, p)
+            roots_cache[coeff_key] = roots
+        else:
+            roots = roots_cache[coeff_key]
+        root_time = time.time() - t0
+
+        if not roots:
+            continue
+
+        t0 = time.time()
+        x_res_to_sols = {}
+
+        for m_root in roots:
+            x_val = (-m_root + const_val_int) % p
+
+            # Respect FINITE_FIELD flag properly
+            if FINITE_FIELD:
+                max_sols = 10000
+            else:
+                max_sols = 500
+
+            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols)
+
+            verified_sols = []
+            for sol in sols:
+                s, p_val, v0, v1 = sol
+                # verify with modulus p
+                if verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
+                    verified_sols.append(sol)
+
+            if verified_sols:
+                x_res_to_sols[x_val] = verified_sols
+
+        mumford_time = time.time() - t0
+        item_time = time.time() - item_start
+
+        if item_time > 0.5:
+            sys.stderr.write(f"[Worker p={p}] Vector {v_tuple}: deg={len(coeff_key)-1}, roots={len(roots)}, "
+                             f"root_time={root_time:.3f}s, mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n")
+
+        if x_res_to_sols:
+            p_results[v_tuple] = x_res_to_sols
+
+    chunk_time = time.time() - chunk_start
+    if chunk_time > 1.0:
+        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
+
+    return p, p_results
+
+
+class ModInverseCache:
+    """Cache for modular inverses."""
+    def __init__(self):
+        self.cache = {}
+
+    def inv(self, a, p):
+        key = (int(a) % int(p), int(p))
+        if key not in self.cache:
+            # pow(..., -1, p) will raise ValueError if not invertible
+            self.cache[key] = pow(int(a), -1, int(p))
+        return self.cache[key]
+
+
+def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
+    """
+    Consistency check; raises on modular inverse failure.
+    Returns True if consistent, False otherwise.
+    """
+    for i, prime in enumerate(primes):
+        expected_sol = sol_combo[i]
+
+        # This will raise if denominator not invertible; let it propagate
+        s_inv = inv_cache.inv(s.denominator(), prime)
+        p_inv = inv_cache.inv(p_val.denominator(), prime)
+        v0_inv = inv_cache.inv(v0.denominator(), prime)
+        v1_inv = inv_cache.inv(v1.denominator(), prime)
+
+        s_mod = (int(s.numerator()) * s_inv) % prime
+        p_mod = (int(p_val.numerator()) * p_inv) % prime
+        v0_mod = (int(v0.numerator()) * v0_inv) % prime
+        v1_mod = (int(v1.numerator()) * v1_inv) % prime
+
+        if (s_mod != expected_sol[0] % prime or
+            p_mod != expected_sol[1] % prime or
+            v0_mod != expected_sol[2] % prime or
+            v1_mod != expected_sol[3] % prime):
+            return False
+
+    return True

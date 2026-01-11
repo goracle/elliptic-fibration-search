@@ -110,102 +110,6 @@ def compose_map_symbolic(m_map1, x_map1, y_map1, m_map2, x_map2, y_map2, m_sym):
 # -------------------------
 # Main Automorphism Functions
 # -------------------------
-def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
-    """
-    Main entry point to compute automorphisms preserving the elliptic fibration.
-    Returns a dictionary with various types of automorphisms found.
-    """
-    if m_sym is None:
-        m_sym = _coerce_m_symbol(cd)
-        
-    try:
-        # Assumes find_singular_fibers is available from diagnostics2
-        sing = find_singular_fibers(cd, verbose=False)
-    except NameError:
-        raise RuntimeError(
-            "compute_auts_preserving_fibration: find_singular_fibers(cd) not found"
-        )
-
-    centers = [f.get('r') for f in sing.get('fibers', []) if f.get('r') is not None]
-    
-    mobius_cands = find_mobius_candidates(centers, m_sym)
-    
-    scaling_autos = []
-    for mob in mobius_cands:
-        u = test_constant_scaling(cd, mob, m_sym)
-        if u is not None:
-            scaling_autos.append({'mobius': mob, 'u': u})
-    
-    translation_autos = []
-    if base_sections:
-        for i, sec in enumerate(base_sections):
-            x3, y3 = translation_map_section(sec, m_sym)
-            translation_autos.append({
-                'section_index': i,
-                'symbolic_map': (x3, y3),
-                'section_coords': sec,
-            })
-            
-    return {
-        'mobius_candidates': mobius_cands,
-        'scaling_autos': scaling_autos,
-        'translation_autos': translation_autos,
-        'singular_centers': centers,
-        'm_sym': m_sym,
-    }
-
-
-def compute_ns_auts(singfibs, sections):
-    """
-    Computes lattice automorphisms of the NS Gram matrix that preserve the
-    effective cone.
-    Returns a list of matrices (Matrix(ZZ)) and the basis 'names'.
-    """
-    # Assumes build_ns_gram is available from diagnostics2
-    G, names = build_ns_gram(singfibs, sections)
-    
-    # Use the robust search function for automorphisms
-    auts_raw, names = compute_ns_auts_via_search(
-        G, names, bound=1, max_solutions=20, time_limit=30
-    )
-    
-    auts = []
-    n = G.nrows()
-    E = [vector(ZZ, [1 if i == j else 0 for i in range(n)]) for j in range(n)]
-
-    for A in auts_raw:
-        try:
-            M = Matrix(ZZ, A)
-        except (TypeError, ValueError):
-            M = Matrix(ZZ, len(A), len(A[0]), lambda i, j: A[i][j])
-            
-        # Check that the image of the fiber class has self-intersection 0
-        vF_idx = names.index('F')
-        vF = E[vF_idx]
-        imgF = M * vF
-        
-        # Fiber class must map to a vector with self-intersection 0
-        if (imgF * G * imgF) != 0:
-            continue
-            
-        # Basic integrality check
-        if not all(x in ZZ for x in imgF):
-            continue
-            
-        # Heuristic cone preservation check: map of O+sum(sections) should have positive self-pairing
-        amp = vector(ZZ, [0] * n)
-        amp[names.index('O')] = 1
-        amp[names.index('F')] = 1
-        for i in range(len(sections)):
-            amp[names.index(f"S{i}")] += 1
-        img_amp = M * amp
-        
-        if (img_amp * G * img_amp) <= 0:
-            continue
-            
-        auts.append(M)
-        
-    return auts, names
 
 
 def classify_auts(auts, names):
@@ -406,90 +310,6 @@ def compute_ns_auts_via_search(G, names, try_perm_sign=True, bound=1, max_soluti
             
     return uniq_auts, names
 
-
-def build_ns_gram(singfibs, sections):
-    """
-    Build NS Gram matrix and basis names from your find_singular_fibers output.
-    Basis order: ['F','O','S0',...,'Comp0_0',...]
-    Uses fib['symbol'] when available, else fib['m_v'] numeric fallback.
-    """
-    if 'fibers' not in singfibs:
-        raise RuntimeError("build_ns_gram: singfibs must contain key 'fibers'")
-
-    names = []
-    names.append('F')
-    names.append('O')
-
-    # add section slots
-    for i in range(len(sections)):
-        names.append(f"S{i}")
-
-    # collect component counts per fiber using robust extraction
-    comp_counts = []
-    for j, fib in enumerate(singfibs['fibers']):
-        # prefer explicit symbol
-        rank = 0
-        if 'symbol' in fib and fib['symbol'] is not None:
-            try:
-                rank = fiber_rank_from_symbol(fib['symbol'])
-            except Exception:
-                rank = 0
-        elif 'm_v' in fib and fib['m_v'] is not None:
-            # m_v is component count (unmultiplied) per your function doc
-            try:
-                mv = int(fib['m_v'])
-                rank = max(0, mv - 1)
-            except Exception:
-                rank = 0
-        elif 'n' in fib and fib['n'] is not None:
-            try:
-                nval = int(fib['n'])
-                # sometimes n stores vD_min; fallback: treat n as component-like
-                rank = max(0, nval - 1)
-            except Exception:
-                rank = 0
-        else:
-            # last resort: treat deg>1 fibers as having no extra components here
-            rank = 0
-        comp_counts.append(rank)
-        for k in range(rank):
-            names.append(f"Comp{j}_{k}")
-
-    n = len(names)
-    if n == 0:
-        raise RuntimeError("build_ns_gram: empty basis")
-
-    G = Matrix(ZZ, n)
-    # zero-init
-    for i in range(n):
-        for j in range(n):
-            G[i, j] = Integer(0)
-
-    idx = {name: i for i, name in enumerate(names)}
-
-    # canonical intersections
-    G[idx['F'], idx['F']] = Integer(0)
-    G[idx['O'], idx['O']] = Integer(-2)
-    G[idx['O'], idx['F']] = Integer(1)
-    G[idx['F'], idx['O']] = Integer(1)
-
-    # sections placeholders
-    for i in range(len(sections)):
-        sname = f"S{i}"
-        si = idx[sname]
-        G[si, si] = Integer(-2)
-        G[si, idx['F']] = Integer(1)
-        G[idx['F'], si] = Integer(1)
-        # O·S left as 0; Shioda height can refine if you want
-
-    # fiber components: diagonal -2
-    for name in names:
-        if name.startswith("Comp"):
-            i = idx[name]
-            G[i, i] = Integer(-2)
-            # adjacency left as zero here
-
-    return G, names
 
 # --- robust mobius and candidate finder ---
 def mobius_from_3points(p1, p2, p3, q1, q2, q3):
@@ -802,3 +622,255 @@ def test_constant_scaling(cd, mobius_tuple, m_sym, sample_vals=None):
 
     return None
 
+
+# Add this near the top of automorph.py, after imports:
+
+def _detect_base_field(cd):
+    """
+    Detect whether cd is over QQ or a finite field.
+    Returns (base_field, is_finite_field, prime_or_None)
+    """
+    try:
+        parent = cd.a4.parent()
+        if hasattr(parent, 'base_ring'):
+            br = parent.base_ring()
+            if hasattr(br, 'characteristic'):
+                p = br.characteristic()
+                if p > 0:
+                    from sage.all import GF
+                    return GF(p), True, p
+        return QQ, False, None
+    except Exception:
+        return QQ, False, None
+
+
+# REPLACE the entire compute_auts_preserving_fibration function with:
+
+def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
+    """
+    Main entry point to compute automorphisms preserving the elliptic fibration.
+    Returns a dictionary with various types of automorphisms found.
+    
+    In FINITE_FIELD mode: Only computes translation automorphisms (section additions).
+    Möbius transformations require symbolic m which doesn't exist over F_p.
+    """
+    if m_sym is None:
+        m_sym = _coerce_m_symbol(cd)
+    
+    base_field, is_ff, p = _detect_base_field(cd)
+    
+    if is_ff:
+        print(f"[automorph] FINITE_FIELD mode detected (F_{p})")
+        print(f"[automorph] Möbius automorphisms not applicable over finite fields")
+        print(f"[automorph] Computing translation automorphisms only")
+        
+        translation_autos = []
+        if base_sections:
+            for i, sec in enumerate(base_sections):
+                # In FF mode, sections are already field elements, no SR needed
+                translation_autos.append({
+                    'section_index': i,
+                    'section_coords': sec,
+                    'note': 'Translation by section (field-native)'
+                })
+        
+        return {
+            'mobius_candidates': [],
+            'scaling_autos': [],
+            'translation_autos': translation_autos,
+            'singular_centers': [],
+            'm_sym': m_sym,
+            'mode': 'FINITE_FIELD',
+            'prime': p,
+            'note': 'Möbius transformations not computed in finite field mode'
+        }
+    
+    # QQ mode - original logic
+    try:
+        sing = find_singular_fibers(cd, verbose=False)
+    except NameError:
+        raise RuntimeError(
+            "compute_auts_preserving_fibration: find_singular_fibers(cd) not found"
+        )
+
+    centers = [f.get('r') for f in sing.get('fibers', []) if f.get('r') is not None]
+    
+    mobius_cands = find_mobius_candidates(centers, m_sym)
+    
+    scaling_autos = []
+    for mob in mobius_cands:
+        u = test_constant_scaling(cd, mob, m_sym)
+        if u is not None:
+            scaling_autos.append({'mobius': mob, 'u': u})
+    
+    translation_autos = []
+    if base_sections:
+        for i, sec in enumerate(base_sections):
+            x3, y3 = translation_map_section(sec, m_sym)
+            translation_autos.append({
+                'section_index': i,
+                'symbolic_map': (x3, y3),
+                'section_coords': sec,
+            })
+            
+    return {
+        'mobius_candidates': mobius_cands,
+        'scaling_autos': scaling_autos,
+        'translation_autos': translation_autos,
+        'singular_centers': centers,
+        'm_sym': m_sym,
+        'mode': 'QQ'
+    }
+
+
+# REPLACE compute_ns_auts function with:
+
+def compute_ns_auts(singfibs, sections):
+    """
+    Computes lattice automorphisms of the NS Gram matrix that preserve the
+    effective cone.
+    Returns a list of matrices (Matrix(ZZ)) and the basis 'names'.
+    
+    Note: Works over ZZ regardless of base field, since NS lattice is always integral.
+    """
+    # Check if we're in a degenerate case
+    if not singfibs.get('fibers'):
+        print("[automorph] Warning: No singular fibers to build NS lattice from")
+        return [], []
+    
+    try:
+        G, names = build_ns_gram(singfibs, sections)
+    except Exception as e:
+        print(f"[automorph] Failed to build NS Gram matrix: {e}")
+        raise
+        return [], []
+    
+    # NS lattice automorphisms work over ZZ regardless of base field
+    auts_raw, names = compute_ns_auts_via_search(
+        G, names, bound=1, max_solutions=20, time_limit=30
+    )
+    
+    auts = []
+    n = G.nrows()
+    E = [vector(ZZ, [1 if i == j else 0 for i in range(n)]) for j in range(n)]
+
+    for A in auts_raw:
+        try:
+            M = Matrix(ZZ, A)
+        except (TypeError, ValueError):
+            M = Matrix(ZZ, len(A), len(A[0]), lambda i, j: A[i][j])
+            
+        # Check that the image of the fiber class has self-intersection 0
+        if 'F' not in names:
+            continue
+        vF_idx = names.index('F')
+        vF = E[vF_idx]
+        imgF = M * vF
+        
+        # Fiber class must map to a vector with self-intersection 0
+        if (imgF * G * imgF) != 0:
+            continue
+            
+        # Basic integrality check
+        if not all(x in ZZ for x in imgF):
+            continue
+            
+        # Heuristic cone preservation check
+        amp = vector(ZZ, [0] * n)
+        if 'O' in names:
+            amp[names.index('O')] = 1
+        amp[names.index('F')] = 1
+        for i in range(len(sections)):
+            si = f"S{i}"
+            if si in names:
+                amp[names.index(si)] += 1
+        img_amp = M * amp
+        
+        if (img_amp * G * img_amp) <= 0:
+            continue
+            
+        auts.append(M)
+        
+    return auts, names
+
+
+# REPLACE build_ns_gram function with:
+
+def build_ns_gram(singfibs, sections):
+    """
+    Build NS Gram matrix and basis names from your find_singular_fibers output.
+    Basis order: ['F','O','S0',...,'Comp0_0',...]
+    
+    Works over ZZ regardless of whether the curve is over QQ or F_p.
+    """
+    if 'fibers' not in singfibs:
+        raise RuntimeError("build_ns_gram: singfibs must contain key 'fibers'")
+
+    names = []
+    names.append('F')
+    names.append('O')
+
+    # add section slots
+    for i in range(len(sections)):
+        names.append(f"S{i}")
+
+    # collect component counts per fiber
+    comp_counts = []
+    for j, fib in enumerate(singfibs['fibers']):
+        rank = 0
+        if 'symbol' in fib and fib['symbol'] is not None:
+            try:
+                rank = fiber_rank_from_symbol(fib['symbol'])
+            except Exception:
+                rank = 0
+        elif 'm_v' in fib and fib['m_v'] is not None:
+            try:
+                mv = int(fib['m_v'])
+                rank = max(0, mv - 1)
+            except Exception:
+                rank = 0
+        elif 'n' in fib and fib['n'] is not None:
+            try:
+                nval = int(fib['n'])
+                rank = max(0, nval - 1)
+            except Exception:
+                rank = 0
+        else:
+            rank = 0
+        comp_counts.append(rank)
+        for k in range(rank):
+            names.append(f"Comp{j}_{k}")
+
+    n = len(names)
+    if n == 0:
+        raise RuntimeError("build_ns_gram: empty basis")
+
+    G = Matrix(ZZ, n)
+    for i in range(n):
+        for j in range(n):
+            G[i, j] = Integer(0)
+
+    idx = {name: i for i, name in enumerate(names)}
+
+    # canonical intersections
+    G[idx['F'], idx['F']] = Integer(0)
+    G[idx['O'], idx['O']] = Integer(-2)
+    G[idx['O'], idx['F']] = Integer(1)
+    G[idx['F'], idx['O']] = Integer(1)
+
+    # sections
+    for i in range(len(sections)):
+        sname = f"S{i}"
+        if sname in idx:
+            si = idx[sname]
+            G[si, si] = Integer(-2)
+            G[si, idx['F']] = Integer(1)
+            G[idx['F'], si] = Integer(1)
+
+    # fiber components: diagonal -2
+    for name in names:
+        if name.startswith("Comp"):
+            i = idx[name]
+            G[i, i] = Integer(-2)
+
+    return G, names

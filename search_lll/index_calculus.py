@@ -114,102 +114,6 @@ def generate_random_test_keypair(f_poly, p, target_d=None):
     return G, Q, Integer(target_d)
 
 
-def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=True):
-    """
-    Solves the sparse linear system mod ell to find log_G(Q).
-    """
-    rg, row_g = g_anchored
-    rq, row_q = q_anchored
-    
-    # System: M * x = 0 (relations from factor base search)
-    # Augment with G anchor: Sum(row_g_i * x_i) = rg
-    # Augment with Q anchor: Sum(row_q_i * x_i) = rq + log(Q) 
-    # Wait, anchoring G gives: [rg]G = Smooth => rg = Sum(row_g * x_i)
-    # Anchoring Q gives: Q + [rq]G = Smooth => log(Q) + rq = Sum(row_q * x_i)
-    
-    # We construct a matrix to solve for x_i (logs of factor base elements)
-    # Matrix rows: The collected smooth relations.
-    # Target vector: Since collected relations are [0] = Smooth, 
-    # if relations are just smooth divisors summing to 0 (principal divisors),
-    # then M * x = 0.
-    
-    # NOTE: The relations collected in `valid_rows` (from `index_calculus_factor_base_analysis`) 
-    # are linear dependencies among factor base elements that sum to PRINCIPAL divisors.
-    # So M * x = 0 (mod ell).
-    
-    # We need to solve for x relative to one base. 
-    # Usually we fix one x_k = 1 or use the G-anchor.
-    # G-anchor equation: Sum(row_g * x) = rg (mod ell).
-    
-    
-    # 1. Build Sparse Matrix M from relations
-    # valid_rows is a list of dicts {idx: count}
-    num_rels = len(valid_rows)
-    # Find max index to determine FB size
-    max_idx = 0
-    for r in valid_rows:
-        if r: max_idx = max(max_idx, max(r.keys()))
-    if row_g: max_idx = max(max_idx, max(row_g.keys()))
-    if row_q: max_idx = max(max_idx, max(row_q.keys()))
-    
-    num_vars = max_idx + 1
-    
-    if verbose:
-        print(f"  Building sparse matrix {num_rels}x{num_vars}...")
-        
-    M = matrix(K, num_rels, num_vars, sparse=True)
-    
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            M[i, idx] = count
-            
-    # 2. Add the G-anchor row: Sum(row_g * x) = rg
-    # We add this as a row to the system with target value rg.
-    # But sage's solve_right expects M*x = v.
-    # The existing M rows correspond to principal divisors, so target is 0.
-    
-    # Append G row
-    M_aug = matrix(K, num_rels + 1, num_vars, sparse=True)
-    # Copy M (inefficient if dense, but M is sparse)
-    # Better: Construct list of triples for sparse matrix
-    triples = []
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            triples.append((i, idx, count))
-            
-    # Add G row at index num_rels
-    for idx, count in row_g.items():
-        triples.append((num_rels, idx, count))
-        
-    M_sys = matrix(K, num_rels + 1, num_vars, triples)
-    
-    # Target vector
-    targets = [0] * num_rels + [rg]
-    V = vector(K, targets)
-    
-    if verbose:
-        print(f"  Solving system size {M_sys.nrows()}x{M_sys.ncols()}...")
-        
-    try:
-        # Solve for logarithms of factor base
-        logs = M_sys.solve_right(V)
-    except ValueError:
-        print("  System is inconsistent or under-determined.")
-        raise
-        return None
-        
-    # 3. Compute log(Q)
-    # log(Q) = Sum(row_q * x) - rq
-    
-    sum_logs = 0
-    for idx, count in row_q.items():
-        if idx < len(logs):
-            sum_logs += count * logs[idx]
-            
-    log_q = sum_logs - rq
-    return Integer(log_q)
-
-
 def compute_jacobian_order(f_coeffs, p):
     """
     Computes approximate Jacobian order using Hasse-Weil bound for large primes.
@@ -336,54 +240,6 @@ def get_relation_row_cached(divisor):
         else:
             return None
     return row
-
-
-def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
-    """
-    Main entry point for DLP. Ensures coefficients are reversed for Sage.
-    """
-    factors = prime_factors(order)
-    ell = max(factors)
-    
-    if verbose:
-        print(f"Jacobian order factors: {factors}")
-        print(f"Targeting subgroup of prime order: {ell}")
-    
-    R = PolynomialRing(K, 'x')
-    # Sage expects coefficients in low-to-high order
-    f_p = R(f_coeffs[::-1])
-    print("f_p =", f_p)
-    
-    fb_data = extract_factor_base(smooth_divs, p, verbose=False)
-    r_to_idx = {r: i for i, r in enumerate(sorted(list(fb_data['roots'])))}
-    
-    valid_rows = []
-    for d in smooth_divs:
-        try:
-            # Reconstruction matching: u = x^2 - sx + p
-            u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-            v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
-            if row: valid_rows.append(row)
-        except Exception:
-            raise
-            continue
-
-    offset_coeffs = [(int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])) for d in smooth_divs[:50]]
-
-    print(f"Anchoring G...")
-    rg, row_g = find_smooth_decomposition(None, G, r_to_idx, f_p, p, order, offset_coeffs=offset_coeffs)
-    if row_g is None: raise ValueError("Failed to anchor G")
-    
-    print(f"Anchoring Q...")
-    rq, row_q = find_smooth_decomposition(Q, G, r_to_idx, f_p, p, order, offset_coeffs=offset_coeffs)
-    if row_q is None: raise ValueError("Failed to anchor Q")
-    
-    d_log = solve_dlp_index_calculus(valid_rows, (rg, row_g), (rq, row_q), ell, verbose=verbose)
-    if d_log and (d_log * (order // ell) * G) == ((order // ell) * Q):
-        print(f"✓ Key verified: {d_log}")
-        return d_log
-    return None
 
 
 from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod
@@ -539,13 +395,115 @@ def find_smooth_decomposition_worker(seed_and_batch):
     return ("STATS", dict(batch_stats))
 
 
+def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=True):
+    """
+    Solves the sparse linear system modulo ell to find log_G(Q).
+
+    - valid_rows: list of dicts {idx: count} from collected relations
+    - g_anchored: (rg, row_g) where row_g is dict {idx: count} and rg is integer (anchor scalar)
+    - q_anchored: (rq, row_q) similarly for Q anchor
+    - ell: prime modulus for logs (integer)
+
+    This function constructs the linear system over Z/ellZ and solves it.
+    It raises on inconsistency or if the solve fails.
+    """
+    if ell is None or int(ell) <= 1:
+        raise ValueError("Invalid ell provided to solve_dlp_index_calculus")
+
+    # Use ring Z/ellZ
+    R = Zmod(int(ell))
+
+    rg, row_g = g_anchored
+    rq, row_q = q_anchored
+
+    if row_g is None or row_q is None:
+        raise ValueError("Anchor rows cannot be None")
+
+    # Determine number of relations and variables
+    num_rels = len(valid_rows)
+    max_idx = -1
+    for r in valid_rows:
+        if r:
+            local_max = max(r.keys())
+            if local_max > max_idx:
+                max_idx = local_max
+    if row_g:
+        local_max = max(row_g.keys())
+        if local_max > max_idx:
+            max_idx = local_max
+    if row_q:
+        local_max = max(row_q.keys())
+        if local_max > max_idx:
+            max_idx = local_max
+    if max_idx < 0:
+        raise ValueError("No variables found in relations/anchors")
+
+    num_vars = max_idx + 1
+
+    if verbose:
+        print(f"  Building sparse matrix {num_rels}x{num_vars} over Z/{ell}Z...")
+
+    # Build triples for sparse construction, reduce counts modulo ell
+    triples = []
+    for i, rel in enumerate(valid_rows):
+        for idx, count in rel.items():
+            if idx < 0 or idx >= num_vars:
+                raise IndexError(f"Relation index out of bounds: {idx}")
+            triples.append((i, idx, R(int(count) % int(ell))))
+
+    # Add G anchor row at index num_rels
+    for idx, count in row_g.items():
+        if idx < 0 or idx >= num_vars:
+            raise IndexError(f"G-anchor index out of bounds: {idx}")
+        triples.append((num_rels, idx, R(int(count) % int(ell))))
+
+    # Construct matrix over Z/ellZ
+    M_sys = matrix(R, num_rels + 1, num_vars, triples)
+
+    # Construct RHS vector: zeros for relation rows, rg for the anchor row
+    targets = [R(0)] * num_rels + [R(int(rg) % int(ell))]
+    V = vector(R, targets)
+
+    if verbose:
+        print(f"  Solving system size {M_sys.nrows()}x{M_sys.ncols()} over Z/{ell}Z...")
+
+    # Solve
+    try:
+        logs_vec = M_sys.solve_right(V)
+    except ValueError as e:
+        # propagate with context
+        raise ValueError(f"Linear solve failed (possibly inconsistent/under-determined) over Z/{ell}Z: {e}")
+
+    # logs_vec is a vector over R of length num_vars (or raises earlier)
+    # Compute log(Q) = <row_q, logs> - rq  (mod ell)
+    sum_logs = R(0)
+    for idx, count in row_q.items():
+        if idx < 0 or idx >= num_vars:
+            raise IndexError(f"Q-anchor index out of bounds: {idx}")
+        # If logs_vec shorter (shouldn't be), treat missing as 0
+        if idx < len(logs_vec):
+            sum_logs += R(int(count) % int(ell)) * logs_vec[idx]
+        else:
+            # Shouldn't happen, but explicitly fail loud
+            raise IndexError(f"Log vector shorter than expected: idx {idx}")
+
+    log_q = R(sum_logs - R(int(rq) % int(ell)))
+    # Normalize to Python int and return Sage Integer
+    return Integer(int(log_q))
+
+
 def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
                               max_tries=None, num_workers=None,
                               window_size=2048, sample_k=32, batch_candidates=512,
                               offset_coeffs=None):
     """
     Parallel search for smooth divisor with restored serialization and live progress.
+
+    NOTE: This function now RAISES if no decomposition found (instead of returning (None, None)),
+    to follow the "loud failure" policy you requested.
     """
+
+    # (existing body left mostly intact) -- we only change end behavior to raise
     from multiprocessing import Pool, cpu_count
     import random
     import time
@@ -561,22 +519,26 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
     fb_y_cache = {}
     for x_val in fb_roots:
         y2 = int(f_poly(x_val))
-        if y2 == 0: continue
+        if y2 == 0:
+            continue
         if pow(y2, (p_int - 1) // 2, p_int) == 1:
             y_can = tonelli_shanks(y2, p_int)
             fb_y_cache[int(x_val)] = int(min(y_can, p_int - y_can))
 
     fb_root_list = list(root_to_idx.keys())
+    if len(fb_root_list) == 0:
+        raise ValueError("Empty factor base provided to find_smooth_decomposition")
+
     sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
     f_coeffs_plain = [int(c) for c in f_poly.list()]
-    
+
     # --- FIX: Restore Serialization of Mumford Coordinates ---
     gen_mumford = None
     if generator is not None:
         gen_u = [int(c) for c in generator[0].list()]
         gen_v = [int(c) for c in generator[1].list()]
         gen_mumford = (gen_u, gen_v)
-    
+
     target_mumford = None
     if target_point is not None:
         target_u = [int(c) for c in target_point[0].list()]
@@ -592,7 +554,7 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
     max_tries = max_tries or 10000000
     total_batches = (max_tries + batch_candidates - 1) // batch_candidates
     tasks = [(random.randint(0, 2**31 - 1), batch_candidates) for _ in range(total_batches)]
-    
+
     start_time = time.time()
     total_tried = 0
     total_hits = 0
@@ -603,13 +565,14 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
     with Pool(processes=num_workers, initializer=_worker_init, initargs=initargs) as pool:
         try:
             for result in pool.imap_unordered(find_smooth_decomposition_worker, tasks):
-                if result is None: continue
-                
+                if result is None:
+                    continue
+
                 status, data = result
                 if status == "SUCCESS":
                     (r_val, row_vec, off_idx) = data
                     print(f"\n  [!] SUCCESS: Anchor found in {total_tried} tries.")
-                    
+
                     # Finalize row with offset if needed
                     if off_idx >= 0 and offset_coeffs:
                         (s, pp, v0, v1) = offset_coeffs[off_idx]
@@ -619,24 +582,240 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
                         if off_row:
                             for idx, val in off_row.items():
                                 row_vec[idx] = row_vec.get(idx, 0) - val
-                                if row_vec[idx] == 0: del row_vec[idx]
-                    
+                                if row_vec[idx] == 0:
+                                    del row_vec[idx]
+
                     pool.terminate()
-                    return r_val, row_vec
-                
+                    # return anchor scalar and anchor row
+                    return r_val, {int(k): int(v) for k, v in row_vec.items()}
+
                 elif status == "STATS":
                     total_tried += data.get('tried', 0)
                     total_hits += (data.get('tried', 0) - data.get('sample_miss', 0))
-                    
+
                     # Live Diagnostic Update
                     elapsed = time.time() - start_time
                     rate = total_tried / elapsed if elapsed > 0 else 0
-                    sys.stdout.write(
-                        f"\r  Trying... Total: {total_tried} | Sample Hits: {total_hits} | Speed: {rate:.1f} t/s"
-                    )
-                    sys.stdout.flush()
+                    if not total_hits % 100000:
+                        sys.stdout.write(
+                            f"\r  Trying... Total: {total_tried} | Sample Hits: {total_hits} | Speed: {rate:.1f} t/s"
+                        )
+                        sys.stdout.flush()
 
         except KeyboardInterrupt:
             pool.terminate()
             raise
-    return None, None
+
+    # If we exit the loop without success, raise loudly (you asked code to explode)
+    raise RuntimeError("find_smooth_decomposition: exhausted search without finding a smooth decomposition")
+
+
+def dlp_bsgs(G, Q, order):
+    """
+    Solve Q = k*G in a cyclic group of given order using BSGS.
+    Raises ValueError if no solution exists.
+    """
+    import math
+
+    m = int(math.ceil(math.sqrt(order)))
+
+    def divisor_to_key(D):
+        """Convert Jacobian divisor to hashable tuple of Mumford coords."""
+        if D.is_zero():
+            return (0,)
+        u_coeffs = tuple(int(c) for c in D[0].list())
+        v_coeffs = tuple(int(c) for c in D[1].list())
+        return (u_coeffs, v_coeffs)
+
+    # baby steps
+    table = {}
+    R = G.parent()(0)  # identity in Jacobian
+    for j in range(m):
+        table[divisor_to_key(R)] = j
+        R = R + G
+
+    # giant steps: Q - i*m*G
+    mG = m * G
+    S = Q
+    for i in range(m):
+        key = divisor_to_key(S)
+        if key in table:
+            return (i * m + table[key]) % order
+        S = S - mG
+
+    raise ValueError("No discrete log found in subgroup")
+
+
+def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True):
+    """
+    Main entry point for DLP.
+
+    Steps:
+      1. Factor |J| and choose largest prime ell
+      2. Project G,Q into ell-torsion
+      3. If ell is small (< 10^6), use BSGS directly
+      4. Otherwise, build factor base + relations and use index calculus
+      5. Verify d*G_ell = Q_ell
+
+    Raises on any failure.
+    """
+
+    # ----------------------------
+    # Input validation
+    # ----------------------------
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    # ----------------------------
+    # Pick ell
+    # ----------------------------
+    factors = prime_factors(order)
+    if not factors:
+        raise ValueError("Failed to factor Jacobian order")
+
+    ell = max(factors)
+    if ell <= 1:
+        raise ValueError("No non-trivial prime factor found")
+
+    if verbose:
+        print(f"Jacobian order factors: {factors}")
+        print(f"Targeting subgroup of prime order ell = {ell}")
+
+    # ----------------------------
+    # Project to ell-torsion
+    # ----------------------------
+    cofactor = Integer(order) // Integer(ell)
+    if cofactor == 0:
+        raise ValueError("Computed cofactor is zero")
+
+    G_ell = cofactor * G
+    Q_ell = cofactor * Q
+
+    J0 = G.parent().zero()
+    if G_ell == J0:
+        raise ValueError("G projects to identity in ell-torsion")
+
+    if verbose:
+        print("Projected to ell-torsion")
+
+    # ----------------------------
+    # CRITICAL DECISION POINT: BSGS vs Index Calculus
+    # ----------------------------
+    BSGS_THRESHOLD = 10**6  # Use BSGS for subgroups smaller than 1 million
+
+    if ell < BSGS_THRESHOLD:
+        if verbose:
+            print(f"\n[Strategy] Subgroup size {ell} < {BSGS_THRESHOLD}")
+            print(f"[Strategy] Using BSGS (expected ~{int(2*ell**0.5)} group ops)")
+        
+        d_log = dlp_bsgs(G_ell, Q_ell, ell)
+        
+        # Verify
+        if Integer(d_log) * G_ell != Q_ell:
+            raise RuntimeError("BSGS discrete log failed verification")
+        
+        if verbose:
+            print(f"✓ Discrete log found via BSGS: {d_log}")
+        
+        return Integer(d_log)
+    
+    # ----------------------------
+    # For large ell: Index Calculus path
+    # ----------------------------
+    if verbose:
+        print(f"\n[Strategy] Subgroup size {ell} >= {BSGS_THRESHOLD}")
+        print(f"[Strategy] Using Index Calculus")
+
+    # ----------------------------
+    # Polynomial
+    # ----------------------------
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = R(f_coeffs[::-1])
+
+    if verbose:
+        print("f_p =", f_p)
+
+    # ----------------------------
+    # Factor base
+    # ----------------------------
+    fb_data = extract_factor_base(smooth_divs, p, verbose=False)
+    roots = sorted(list(fb_data['roots']))
+    if not roots:
+        raise RuntimeError("Empty factor base")
+
+    r_to_idx = {r: i for i, r in enumerate(roots)}
+
+    # ----------------------------
+    # Relation matrix
+    # ----------------------------
+    valid_rows = []
+    for d in smooth_divs:
+        u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+        v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+        if row:
+            valid_rows.append({int(k): int(v) for k, v in row.items()})
+
+    if not valid_rows:
+        raise RuntimeError("No valid relations from smooth_divs")
+
+    if verbose:
+        print(f"Loaded {len(valid_rows)} factor base relations")
+
+    # ----------------------------
+    # Offsets for anchoring
+    # ----------------------------
+    offset_coeffs = [
+        (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
+        for d in smooth_divs[:50]
+    ]
+
+    # ----------------------------
+    # Anchor G_ell
+    # ----------------------------
+    if verbose:
+        print("Anchoring G_ell...")
+    rg, row_g = find_smooth_decomposition(
+        None, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
+    )
+    if row_g is None:
+        raise RuntimeError("Failed to anchor G_ell")
+
+    # ----------------------------
+    # Anchor Q_ell
+    # ----------------------------
+    if verbose:
+        print("Anchoring Q_ell...")
+    rq, row_q = find_smooth_decomposition(
+        Q_ell, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
+    )
+    if row_q is None:
+        raise RuntimeError("Failed to anchor Q_ell")
+
+    # ----------------------------
+    # Solve DLP
+    # ----------------------------
+    d_log = solve_dlp_index_calculus(
+        valid_rows,
+        (int(rg) % ell, {int(k): int(v) for k, v in row_g.items()}),
+        (int(rq) % ell, {int(k): int(v) for k, v in row_q.items()}),
+        ell,
+        verbose=verbose
+    )
+
+    d_log = int(d_log) % int(ell)
+
+    # ----------------------------
+    # Verify in ell-torsion
+    # ----------------------------
+    if Integer(d_log) * G_ell != Q_ell:
+        raise RuntimeError("Discrete log failed verification in ell-subgroup")
+
+    if verbose:
+        print(f"✓ Discrete log found via Index Calculus: {d_log}")
+
+    return Integer(d_log)
