@@ -1266,14 +1266,39 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         specs = good_specializations(cd, m_sym, max_try=min(40, FINITE_FIELD // 2))
     else:
         specs = good_specializations(cd, m_sym, max_try=40)
-    
+
     print("Got", len(specs), "good specializations for torsion check.")
     orders = []
     for m0, E in specs:
-        tors = E.torsion_subgroup()
-        orders.append(tors.order())
-    candidate_torsion_order = gcd(orders) if orders else 1
-    print("Fast method candidate torsion order (GCD of specializations):", candidate_torsion_order)
+        if FINITE_FIELD:
+            # Over finite fields, use abelian_group() instead of torsion_subgroup()
+            try:
+                ab_grp = E.abelian_group()
+                orders.append(ab_grp.order())
+            except Exception:
+                # Fallback: count points directly
+                orders.append(E.cardinality())
+        else:
+            # Over QQ, use torsion_subgroup()
+            tors = E.torsion_subgroup()
+            orders.append(tors.order())
+
+    if FINITE_FIELD:
+        # In FF mode, GCD of group orders doesn't give torsion bound the same way
+        # Just report what we found
+        if orders:
+            from math import gcd
+            from functools import reduce
+            candidate_torsion_order = reduce(gcd, orders)
+            print("GCD of specialized curve orders (informational only):", candidate_torsion_order)
+        else:
+            print("No valid specializations for torsion analysis")
+    else:
+        # QQ mode - original logic
+        from math import gcd
+        from functools import reduce
+        candidate_torsion_order = reduce(gcd, orders) if orders else 1
+        print("Fast method candidate torsion order (GCD of specializations):", candidate_torsion_order)
 
     fiber_counts, lcm_bound = compute_fiber_lcm(cd)
     print("Fiber component counts:", fiber_counts, " -> lcm bound:", lcm_bound)
@@ -1287,7 +1312,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
                 assert not is_torsion, base_sections
                 break
         if not is_torsion:
-            print(f"Base section {i} does not appear to be small order torsion.") 
+            print(f"Base section {i} does not appear to be small order torsion.")
 
     if not FINITE_FIELD:
         print("\n--- Saturation Diagnostics ---")

@@ -10,7 +10,6 @@ assert PREFERRED_X_COORDS, PREFERRED_X_COORDS
 
 from sage.all import GF, PolynomialRing
 from random import randrange
-from search_common import PREFERRED_X_COORDS, DEBUG
 
 
 assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
