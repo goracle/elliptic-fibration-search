@@ -17,6 +17,7 @@ from sage.all import (
 )
 from math import gcd, log
 
+
 def get_random_x_on_hyperelliptic(coeffs, p):
     """
     Finds a random x-coordinate such that f(x) is a quadratic residue mod p.
@@ -417,8 +418,9 @@ TERMINATE_WHEN_6 = 3
 # $$y^2 = x^5 + x + 2$$
 COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
 #DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
+DATA_PTS_GENUS2 = [QQ(1)]
 DATA_PTS_GENUS2 = None # placeholder for random.
-DATA_PTS_GENUS2 = [QQ(12630360)]
+DATA_PTS_GENUS2 = [QQ(10598399)]
 TERMINATE_WHEN_6 = 3
 
 ##### END TEST CURVES ######
@@ -1323,7 +1325,10 @@ def min_order_in_m(expr, m):
 def compute_morphism(E_rhs):
     # E_rhs_serialized should be a reproducible string key for E_rhs, e.g. str(E_rhs)
     #E_rhs = parse_E_rhs_from_string(E_rhs_serialized)  # adapt to your environment
-    R = PolynomialRing(E_rhs.base_ring(), 2, names=('x', 'y'))
+    #R = PolynomialRing(E_rhs.base_ring(), 2, names=('x', 'y'))
+    #R = PolynomialRing(E_rhs.base_ring(), 2, names=('x','y'), implementation='generic')
+    R = PolynomialRing(E_rhs.base_ring(), ['x','y'], order='lex', implementation='generic')
+
     x, y = R.gens()
     E_curve = Curve(R(y**2 - E_rhs))
     try:
@@ -2972,3 +2977,28 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
             return "INF"
 
         return X_sub / Z_sub
+
+
+# -------------------------
+# Helper: canonical Sage polynomial from user coeff list
+# -------------------------
+def sage_poly_from_coeffs(coeffs, R):
+    """
+    Build a polynomial in PolynomialRing R from `coeffs`,
+    where coeffs[-1] is the constant term and coeffs[0] the leading coeff.
+
+    Args:
+        coeffs: iterable of coefficients in user order [a_n, ..., a_0]
+        R: a Sage PolynomialRing instance, e.g. PolynomialRing(GF(p), 'x')
+    Returns:
+        polynomial in R (exact type of R)
+    """
+    x = R.gen()
+    deg = len(coeffs) - 1
+    # Construct explicitly to avoid ambiguity about list ordering
+    poly = R(0)
+    for i, c in enumerate(coeffs):
+        coeff = R(int(c))
+        power = deg - i
+        poly += coeff * x**power
+    return poly

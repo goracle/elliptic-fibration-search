@@ -1,7 +1,7 @@
 from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from .smoothness import extract_factor_base, tonelli_shanks
-from search_common import FINITE_FIELD, SECRET_KEY
+from search_common import *
 import random
 import time
 import sys
@@ -21,6 +21,7 @@ _GLOBAL_P = None
 _GLOBAL_ORDER = None
 _GLOBAL_WINDOW_SIZE = None
 _GLOBAL_FB_Y_CACHE = None
+global _GLOBAL_F_POLY # can't create this under multiprocessing, segfault
 _GLOBAL_F_POLY = None
 _GLOBAL_OFFSET_CACHE = None
 K = GF(FINITE_FIELD)
@@ -38,53 +39,6 @@ def get_canonical_y_cached(x_int):
     if _GLOBAL_FB_Y_CACHE is None:
         return None
     return _GLOBAL_FB_Y_CACHE.get(int(x_int), None)
-
-
-def get_relation_row(div, root_to_idx, f_poly, p):
-    """
-    Main process relation builder (non-cached).
-    """
-    u = div[0]
-    v = div[1]
-    
-    if u.degree() != 2:
-        return None
-
-    try:
-        roots = u.roots(K)
-    except Exception:
-        raise
-        return None
-
-    if sum(mult for r, mult in roots) != 2:
-        return None
-
-    row = {}
-    for r_val, mult in roots:
-        r_int = int(r_val)
-        if r_int not in root_to_idx:
-            return None
-            
-        # Canonical Y check
-        y_val = int(v(r_val))
-        y2 = int(f_poly(r_val))
-        
-        if pow(y2, (p-1)//2, p) != 1:
-            return None
-            
-        y_can = tonelli_shanks(y2, p)
-        y_can = min(y_can, p - y_can)
-        
-        idx = root_to_idx[r_int]
-        
-        if y_val == y_can:
-            row[idx] = row.get(idx, 0) + mult
-        elif (p - y_val) % p == y_can:
-            row[idx] = row.get(idx, 0) - mult
-        else:
-            return None
-        
-    return row
 
 
 def generate_random_test_keypair(f_poly, p, target_d=None):
@@ -120,8 +74,8 @@ def compute_jacobian_order(f_coeffs, p):
     For p > 2^64, returns approximate value suitable for probabilistic algorithms.
     """
     P_x = PolynomialRing(K, 'x')
-    f = P_x(list(reversed(list(f_coeffs))))
-    
+    f = sage_poly_from_coeffs(f_coeffs, P_x)
+
     # For genus 2: Hasse-Weil gives |#J - (p^2+1)| <= 4*sqrt(p^3)
     if p > 2**64:
         return Integer(p**2 + 1)
@@ -129,65 +83,8 @@ def compute_jacobian_order(f_coeffs, p):
     C = HyperellipticCurve(f)
     return C.count_points(1)[0]
 
-
-# ============================================================================
-# WORKER LOGGING + BATCH STATS (REPLACEMENT FUNCTIONS)
-# ============================================================================
-
-
-# ============================================================================
-# WORKER GLOBALS & INITIALIZATION
-# ============================================================================
-
-def get_relation_row_cached(divisor):
-    """
-    Checks if a divisor is smooth over the factor base and returns its relation vector.
-    """
-    global _GLOBAL_ROOT_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE
-    u_poly, v_poly = divisor[0], divisor[1]
-
-    if u_poly.degree() != 2:
-        return None
-
-    # u(x) = x^2 + a*x + b
-    a, b = int(u_poly[1]), int(u_poly[0])
-    disc = (a*a - 4*b) % _GLOBAL_P
-    
-    # Quick filter for splitting
-    if pow(disc, (_GLOBAL_P-1)//2, _GLOBAL_P) != 1 and disc != 0:
-        return None
-
-    roots_data = u_poly.roots(K)
-    if sum(m for _, m in roots_data) != 2:
-        return None
-
-    row = {}
-    for x_elem, mult in roots_data:
-        x_int = int(x_elem)
-        if x_int not in _GLOBAL_ROOT_TO_IDX:
-            return None
-
-        y_val = int(v_poly(x_elem))
-        y_can = _GLOBAL_FB_Y_CACHE.get(x_int)
-        
-        if y_can is None:
-            return None
-
-        idx = _GLOBAL_ROOT_TO_IDX[x_int]
-        if y_val == y_can:
-            row[idx] = row.get(idx, 0) + int(mult)
-        elif (_GLOBAL_P - y_val) % _GLOBAL_P == y_can:
-            row[idx] = row.get(idx, 0) - int(mult)
-        else:
-            return None
-    return row
-
-
-from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod
-
-
 def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int, 
-                 fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs):
+                 fb_y_cache, p_int, order_int, window_size, offset_coeffs):
     """
     Initializes worker process. Reconstructs Sage objects from plain Python data.
     """
@@ -204,8 +101,7 @@ def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int,
     
     # Reconstruct f_poly
     R = PolynomialRing(K, 'x')
-    _GLOBAL_F_POLY = R(f_coeffs_plain)
-    
+
     # Reconstruct curve and Jacobian
     C = HyperellipticCurve(_GLOBAL_F_POLY)
     J = C.jacobian()
@@ -245,7 +141,7 @@ def _worker_init(gen_mumford, target_mumford, root_to_idx, sample_roots_int,
             try:
                 u_poly = x**2 - K(int(s))*x + K(int(p_val))
                 v_poly = K(int(v1))*x + K(int(v0))
-                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly]))
+                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly])) # this line is broken, the u_poly and v_poly aren't valid for some reason
             except Exception:
                 raise
                 continue
@@ -374,7 +270,8 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
         raise ValueError("Empty factor base provided to find_smooth_decomposition")
 
     sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
-    f_coeffs_plain = [int(c) for c in f_poly.list()]
+    coeffs_genus2 = [int(c) for c in f_poly.list()]
+    coeffs_genus2.reverse()
 
     # --- FIX: Restore Serialization of Mumford Coordinates ---
     gen_mumford = None
@@ -391,7 +288,7 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
 
     initargs = (
         gen_mumford, target_mumford, root_to_idx, sample_roots,
-        fb_y_cache, f_coeffs_plain, p_int, order_int, window_size, offset_coeffs
+        fb_y_cache, p_int, order_int, window_size, offset_coeffs
     )
 
     # --- Search Execution with Progress Tracking ---
@@ -405,6 +302,12 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
 
     print(f"  [Search] Targeting prime order {order_int}")
     print(f"  [Search] Workers: {num_workers} | Factor Base: {len(fb_roots)}")
+
+    GLOBAL_FIELD = GF(p)
+    GLOBAL_RING = PolynomialRing(GLOBAL_FIELD, 'x')
+    global _GLOBAL_F_POLY
+    _GLOBAL_F_POLY = f_poly_from_coeffs(coeffs_genus2, p)  # uses GLOBAL_FIELD internally
+    print("_GLOBAL_F_POLY", _GLOBAL_F_POLY)
 
     with Pool(processes=num_workers, initializer=_worker_init, initargs=initargs) as pool:
         try:
@@ -490,113 +393,7 @@ def dlp_bsgs(G, Q, order):
     raise ValueError("No discrete log found in subgroup")
 
 
-def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
-    """
-    Check if a divisor is already expressible over the factor base.
-    Returns (scalar, row_dict) if smooth, else (None, None).
-    """
-    try:
-        u_poly, v_poly = divisor[0], divisor[1]
-        if u_poly.degree() != 2:
-            return None, None
-        
-        # Get relation row (same logic as get_relation_row_cached)
-        K = GF(p)
-        roots_data = u_poly.roots(K)
-        if sum(m for _, m in roots_data) != 2:
-            return None, None
-        
-        row = {}
-        for x_elem, mult in roots_data:
-            x_int = int(x_elem)
-            if x_int not in root_to_idx:
-                return None, None  # Not in factor base
-            
-            # Compute canonical y (same as in worker code)
-            y_val = int(v_poly(x_elem))
-            y2 = int(f_poly(x_elem))
-            
-            if pow(y2, (p-1)//2, p) != 1:
-                return None, None
-            
-            y_can = tonelli_shanks(y2, p)
-            y_can = min(y_can, p - y_can)
-            
-            idx = root_to_idx[x_int]
-            if y_val == y_can:
-                row[idx] = row.get(idx, 0) + int(mult)
-            elif (p - y_val) % p == y_can:
-                row[idx] = row.get(idx, 0) - int(mult)
-            else:
-                return None, None
-        
-        # Successfully decomposed! scalar is 1 (identity multiple)
-        return 1, row
-    except Exception:
-        raise
-        return None, None
-
-
 # In index_calculus.py, replace the extract_factor_base function:
-
-
-def extract_factor_base(divisors, p, verbose=True):
-    """
-    Extract the factor base with support-based deduplication.
-    Only keep ONE divisor per unique support to avoid linear dependence.
-    """
-    all_roots = []
-    factored_count = 0
-    
-    # Track which supports we've seen
-    seen_supports = set()
-    unique_divisors = []
-    
-    for d in divisors:
-        s = int(d['s']) % p
-        pp = int(d['p']) % p
-        disc = (s*s - 4*pp) % p
-        
-        # Check if u(x) = x² - sx + p splits over GF(p)
-        if disc == 0:
-            # Double root
-            r = (s * pow(2, -1, p)) % p
-            roots = [r, r]
-            factored_count += 1
-        elif pow(disc, (p-1)//2, p) == 1:
-            # Two distinct roots
-            sqrt_disc = tonelli_shanks(disc, p)
-            r1 = (s + sqrt_disc) * pow(2, -1, p) % p
-            r2 = (s - sqrt_disc) * pow(2, -1, p) % p
-            roots = [r1, r2]
-            factored_count += 1
-        else:
-            # Not smooth
-            continue
-        
-        # Get support key
-        support = tuple(sorted(roots))
-        
-        # Only add to factor base if this is the FIRST time we see this support
-        if support not in seen_supports:
-            seen_supports.add(support)
-            all_roots.extend(roots)
-            unique_divisors.append(d)
-    
-    unique_roots = set(all_roots)
-    
-    if verbose:
-        print(f"\n[Factor Base - Support Deduplicated]")
-        print(f"  Unique supports: {len(seen_supports)}")
-        print(f"  Distinct x-coordinates: {len(unique_roots)}")
-        print(f"  Kept after support dedup: {len(unique_divisors)}")
-    
-    return {
-        'roots': unique_roots,
-        'size': len(unique_roots),
-        'unique_divisors': unique_divisors,
-        'root_to_idx': {r: i for i, r in enumerate(sorted(list(unique_roots)))}
-    }
 
 
 def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=True):
@@ -686,32 +483,220 @@ def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=Tr
     return Integer(int(log_q))
 
 
+# ============================================================================
+# COMBINED FIX: Degree-1 Support + Protected G/Q Injection
+# ============================================================================
+
+def get_relation_row(div, root_to_idx, f_poly, p):
+    """
+    Main process relation builder (non-cached).
+    Updated to handle degree-1 (weight 1) divisors for G/Q anchoring.
+    """
+    u = div[0]
+    v = div[1]
+    
+    # Allow degree 1 or 2 (Weight 1 or 2 divisors)
+    if u.degree() not in [1, 2]:
+        return None
+
+    try:
+        roots = u.roots(K)
+    except Exception:
+        raise
+
+    # Sum of multiplicities must match degree (full splitting)
+    if sum(mult for r, mult in roots) != u.degree():
+        return None
+
+    row = {}
+    for r_val, mult in roots:
+        r_int = int(r_val)
+        if r_int not in root_to_idx:
+            return None
+            
+        # Canonical Y check
+        y_val = int(v(r_val))
+        y2 = int(f_poly(r_val))
+        
+        if pow(y2, (p-1)//2, p) != 1:
+            return None
+            
+        y_can = tonelli_shanks(y2, p)
+        y_can = min(y_can, p - y_can)
+        
+        idx = root_to_idx[r_int]
+        
+        if y_val == y_can:
+            row[idx] = row.get(idx, 0) + mult
+        elif (p - y_val) % p == y_can:
+            row[idx] = row.get(idx, 0) - mult
+        else:
+            return None
+        
+    return row
+
+
+def get_relation_row_cached(divisor):
+    """
+    Checks if a divisor is smooth over the factor base and returns its relation vector.
+    Updated to handle degree-1 divisors.
+    """
+    global _GLOBAL_ROOT_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE
+    u_poly, v_poly = divisor[0], divisor[1]
+
+    # Allow degree 1 or 2
+    if u_poly.degree() not in [1, 2]:
+        return None
+
+    roots_data = u_poly.roots(K)
+    if sum(m for _, m in roots_data) != u_poly.degree():
+        return None
+
+    row = {}
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        if x_int not in _GLOBAL_ROOT_TO_IDX:
+            return None
+
+        y_val = int(v_poly(x_elem))
+        y_can = _GLOBAL_FB_Y_CACHE.get(x_int)
+        
+        if y_can is None:
+            return None
+
+        idx = _GLOBAL_ROOT_TO_IDX[x_int]
+        if y_val == y_can:
+            row[idx] = row.get(idx, 0) + int(mult)
+        elif (_GLOBAL_P - y_val) % _GLOBAL_P == y_can:
+            row[idx] = row.get(idx, 0) - int(mult)
+        else:
+            return None
+    return row
+
+
+def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
+    """
+    Check if a divisor is already expressible over the factor base.
+    Returns (scalar, row_dict) if smooth, else (None, None).
+    Updated to handle degree-1 divisors.
+    """
+    try:
+        u_poly, v_poly = divisor[0], divisor[1]
+        if u_poly.degree() not in [1, 2]:
+            return None, None
+        
+        K = GF(p)
+        roots_data = u_poly.roots(K)
+        if sum(m for _, m in roots_data) != u_poly.degree():
+            return None, None
+        
+        row = {}
+        for x_elem, mult in roots_data:
+            x_int = int(x_elem)
+            if x_int not in root_to_idx:
+                return None, None
+            
+            y_val = int(v_poly(x_elem))
+            y2 = int(f_poly(x_elem))
+            
+            if pow(y2, (p-1)//2, p) != 1:
+                return None, None
+            
+            y_can = tonelli_shanks(y2, p)
+            y_can = min(y_can, p - y_can)
+            
+            idx = root_to_idx[x_int]
+            if y_val == y_can:
+                row[idx] = row.get(idx, 0) + int(mult)
+            elif (p - y_val) % p == y_can:
+                row[idx] = row.get(idx, 0) - int(mult)
+            else:
+                return None, None
+        
+        return 1, row
+    except Exception:
+        raise
+
+
+def extract_factor_base(divisors, p, verbose=True):
+    """
+    Extract the factor base without support-based deduplication.
+    Updated to handle explicit 'roots' lists from forced G/Q injection.
+    """
+    all_roots = []
+    unique_divisors = []
+    seen_divs = set() 
+    
+    for d in divisors:
+        # Create hashable key - support both formats
+        if 'u_coeffs' in d:
+            key = (tuple(d['u_coeffs']), tuple(d['v_coeffs']))
+        else:
+            key = (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
+        
+        if key in seen_divs:
+            continue
+        seen_divs.add(key)
+        
+        roots = []
+        if 'roots' in d:
+            roots = d['roots']
+        else:
+            # Standard quadratic reconstruction
+            s = int(d['s']) % p
+            pp = int(d['p']) % p
+            disc = (s*s - 4*pp) % p
+            
+            if disc == 0:
+                r = (s * pow(2, -1, p)) % p
+                roots = [r, r]
+            elif pow(disc, (p-1)//2, p) == 1:
+                sqrt_disc = tonelli_shanks(disc, p)
+                r1 = (s + sqrt_disc) * pow(2, -1, p) % p
+                r2 = (s - sqrt_disc) * pow(2, -1, p) % p
+                roots = [r1, r2]
+        
+        if roots:
+            all_roots.extend(roots)
+            unique_divisors.append(d)
+    
+    unique_roots = sorted(list(set(all_roots)))
+    
+    if verbose:
+        print(f"\n[Factor Base Extraction]")
+        print(f"  Total unique divisors: {len(unique_divisors)}")
+        print(f"  Distinct x-coordinates: {len(unique_roots)}")
+    
+    return {
+        'roots': unique_roots,
+        'size': len(unique_roots),
+        'unique_divisors': unique_divisors,
+        'root_to_idx': {r: i for i, r in enumerate(unique_roots)}
+    }
+
+
 def canonicalize_divisor_to_factor_base(divisor, r_to_idx, f_p, p):
     """
     Re-express a divisor using canonical y-coordinates matching the factor base.
-    
-    Returns:
-        dict mapping idx -> multiplicity (with correct signs)
-        None if divisor is not smooth over the factor base
+    Updated to handle degree-1 divisors.
     """
     u_poly = divisor[0]
     v_poly = divisor[1]
     
-    if u_poly.degree() != 2:
+    if u_poly.degree() not in [1, 2]:
         return None
     
     K = GF(p)
     roots_data = u_poly.roots(K)
-    if sum(m for _, m in roots_data) != 2:
+    if sum(m for _, m in roots_data) != u_poly.degree():
         return None
     
     row = {}
     for x_elem, mult in roots_data:
         x_int = int(x_elem)
         if x_int not in r_to_idx:
-            return None  # Not in factor base
+            return None
         
-        # Compute canonical y (same as in factor base construction)
         y_val = int(v_poly(x_elem))
         y2 = int(f_p(x_elem))
         
@@ -723,38 +708,179 @@ def canonicalize_divisor_to_factor_base(divisor, r_to_idx, f_p, p):
         
         idx = r_to_idx[x_int]
         
-        # Sign-aware encoding
         if y_val == y_can:
             row[idx] = row.get(idx, 0) + int(mult)
         elif (p - y_val) % p == y_can:
             row[idx] = row.get(idx, 0) - int(mult)
         else:
-            return None  # Should never happen for smooth divisor
+            return None
     
     return row
 
 
+def divisor_to_dict(div_J, p):
+    """
+    Convert Jacobian divisor to dict format.
+    Supports degree 1 & 2 divisors.
+    """
+    u_poly = div_J[0]
+    v_poly = div_J[1]
+    deg = u_poly.degree()
+    
+    if deg not in [1, 2]:
+        return None
+        
+    roots_data = u_poly.roots(GF(p))
+    if sum(m for _, m in roots_data) != deg:
+        return None  # Not smooth
+        
+    roots_list = []
+    for r, m in roots_data:
+        roots_list.extend([int(r)] * m)
+
+    res = {
+        'roots': roots_list,
+        'u_coeffs': [int(c) for c in u_poly.list()],
+        'v_coeffs': [int(c) for c in v_poly.list()],
+        'origin': 'keypair'
+    }
+
+    # Add standard keys for compatibility
+    if deg == 2:
+        coeffs_u = u_poly.list()
+        res['s'] = int(-coeffs_u[1]) if len(coeffs_u) > 1 else 0
+        res['p'] = int(coeffs_u[0]) if len(coeffs_u) > 0 else 0
+        coeffs_v = v_poly.list()
+        res['v_1'] = int(coeffs_v[1]) if len(coeffs_v) > 1 else 0
+        res['v_0'] = int(coeffs_v[0]) if len(coeffs_v) > 0 else 0
+    else:
+        # Degree 1: use sentinel values
+        res['s'] = 0
+        res['p'] = 0
+        res['v_1'] = 0
+        res['v_0'] = 0
+         
+    return res
+
+
+# ============================================================================
+# MAIN DLP ATTACK - COMBINED FIX
+# ============================================================================
+
+
+def f_poly_from_coeffs(coeffs, p):
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    return sage_poly_from_coeffs(coeffs, R)
+
+
+def u_poly_roots_in_fp(div, p):
+    """
+    Return list of integer x-roots of the u-polynomial of a Mumford divisor,
+    or None if it does not split completely over GF(p).
+    """
+    K = GF(p)
+    u_poly = div[0]
+
+    try:
+        roots = u_poly.roots(K)
+    except Exception:
+        return None
+
+    # Check complete split
+    total_mult = sum(m for _, m in roots)
+    if total_mult != u_poly.degree():
+        return None
+
+    return [int(r) for r, _ in roots]
+
+
+def _u_poly_roots_in_fp(div, p):
+    """
+    Return list of integer x-roots of the u-polynomial of a Mumford divisor,
+    or None if it does not split completely over GF(p).
+    """
+    K = GF(p)
+    u_poly = div[0]
+    try:
+        roots = u_poly.roots(K)
+    except Exception:
+        return None
+    total_mult = sum(m for _, m in roots)
+    if total_mult != u_poly.degree():
+        return None
+    return [int(r) for r, _ in roots]
+
+
+def _build_signed_row_from_divisor(div, r_to_idx, f_p, p):
+    """
+    Given a Mumford divisor (u,v), build the signed row dict {col_idx: count}
+    using the same Min(y, p-y) convention used across the codebase.
+    Returns None if any root isn't in r_to_idx or sign resolution fails.
+    """
+    u_poly, v_poly = div[0], div[1]
+    K = GF(p)
+    x = K(0)  # placeholder, we evaluate with elements
+    roots_data = u_poly.roots(K)
+    if sum(m for _, m in roots_data) != u_poly.degree():
+        return None
+
+    row = {}
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        if x_int not in r_to_idx:
+            return None
+
+        # value of v at x_elem (in GF(p) then int)
+        y_val = int(v_poly(x_elem))
+        # compute canonical y (min of sqrt, p - sqrt)
+        y2 = int(f_p(x_elem))
+        if pow(y2, (p-1)//2, p) != 1:
+            return None
+        y_can = tonelli_shanks(y2, p)
+        y_can = min(y_can, p - y_can)
+
+        idx = r_to_idx[x_int]
+        if y_val == y_can:
+            row[idx] = row.get(idx, 0) + int(mult)
+        elif (_GLOBAL_P if False else (p - y_val) % p) == y_can:
+            # note: using pure ints avoids accidental GF element comparison issues
+            row[idx] = row.get(idx, 0) - int(mult)
+        else:
+            # v(x) doesn't match expected square root canonicalization
+            return None
+    return row
+
+
+def is_divisor_fb_smooth_by_u(div, fb_roots_set, p):
+    """
+    True iff all roots of div.u split into degree-1 factors and lie in fb_roots_set.
+    """
+    roots = _u_poly_roots_in_fp(div, p)
+    if roots is None:
+        return False
+    return all(r in fb_roots_set for r in roots)
+
+
 def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
     """
-    Main entry point for DLP.
-    """
+    Index-calculus + BSGS dispatcher with correct genus-2 Q-smooth predicate.
 
-    # ----------------------------
+    Important behavior changes from previous versions:
+      - Q is considered FB-smooth iff all roots of its u(x) split linearly
+        and each x-root appears in the factor base. If Q is not FB-smooth
+        we raise immediately (anchoring/random self-reduction is disabled).
+      - G must also be FB-smooth (we refuse to attempt expensive anchoring).
+    """
     # Input validation
-    # ----------------------------
     if G is None or Q is None:
         raise ValueError("Generator G and target Q must be provided")
-
     if order is None or int(order) <= 0:
         raise ValueError("Invalid Jacobian order provided")
 
-    # ----------------------------
-    # Pick ell
-    # ----------------------------
     factors = prime_factors(order)
     if not factors:
         raise ValueError("Failed to factor Jacobian order")
-
     ell = max(factors)
     if ell <= 1:
         raise ValueError("No non-trivial prime factor found")
@@ -763,46 +889,32 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         print(f"Jacobian order factors: {factors}")
         print(f"Targeting subgroup of prime order ell = {ell}")
 
-    # ----------------------------
     # Project to ell-torsion
-    # ----------------------------
     cofactor = Integer(order) // Integer(ell)
     if cofactor == 0:
         raise ValueError("Computed cofactor is zero")
-
     G_ell = cofactor * G
     Q_ell = cofactor * Q
-
     J0 = G.parent().zero()
     if G_ell == J0:
         raise ValueError("G projects to identity in ell-torsion")
-
     if verbose:
         print("Projected to ell-torsion")
 
-    # ----------------------------
-    # CRITICAL DECISION POINT: BSGS vs Index Calculus
-    # ----------------------------
+    # BSGS fallback for small ell
     BSGS_THRESHOLD = 10**6
-
     if ell < BSGS_THRESHOLD and not force_index_calculus:
         if verbose:
             print(f"\n[Strategy] Subgroup size {ell} < {BSGS_THRESHOLD}")
-            print(f"[Strategy] Using BSGS (expected ~{int(2*ell**0.5)} group ops)")
-        
+            print(f"[Strategy] Using BSGS")
         d_log = dlp_bsgs(G_ell, Q_ell, ell)
-        
         if Integer(d_log) * G_ell != Q_ell:
             raise RuntimeError("BSGS discrete log failed verification")
-        
         if verbose:
             print(f"✓ Discrete log found via BSGS: {d_log}")
-        
         return Integer(d_log)
-    
-    # ----------------------------
-    # For large ell OR forced IC: Index Calculus path
-    # ----------------------------
+
+    # Index Calculus path
     if verbose:
         if force_index_calculus:
             print(f"\n[Strategy] FORCING Index Calculus (testing factor base)")
@@ -810,145 +922,220 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
             print(f"\n[Strategy] Subgroup size {ell} >= {BSGS_THRESHOLD}")
         print(f"[Strategy] Using Index Calculus")
 
-    # ----------------------------
-    # Polynomial
-    # ----------------------------
+    # Build polynomial f_p (main process)
     K = GF(p)
     R = PolynomialRing(K, 'x')
-    f_p = R(f_coeffs[::-1])
-
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
     if verbose:
         print("f_p =", f_p)
 
-    # ----------------------------
-    # NEW: Add G and Q to smooth_divs if they're smooth
-    # ----------------------------
-    def divisor_to_dict(div_J):
-        """Convert Jacobian divisor to dict format"""
-        u_poly = div_J[0]
-        v_poly = div_J[1]
-        
-        if u_poly.degree() != 2:
-            return None
-            
-        coeffs_u = u_poly.list()
-        s_val = -coeffs_u[1] if len(coeffs_u) >= 2 else K(0)
-        p_val = coeffs_u[0] if len(coeffs_u) >= 1 else K(0)
-        
-        coeffs_v = v_poly.list()
-        v1_val = coeffs_v[1] if len(coeffs_v) >= 2 else K(0)
-        v0_val = coeffs_v[0] if len(coeffs_v) >= 1 else K(0)
-        
-        # Check if smooth (splits over GF(p))
-        disc = (s_val * s_val - 4 * p_val) % p
-        if disc != 0 and pow(int(disc), (p-1)//2, p) != 1:
-            return None  # Not smooth
-            
-        return {
-            's': int(s_val),
-            'p': int(p_val),
-            'v_0': int(v0_val),
-            'v_1': int(v1_val),
-            'origin': 'keypair'
-        }
-    
-    # Try to add G and Q to smooth_divs
-    extended_divs = list(smooth_divs)
-    for div, name in [(G_ell, 'G'), (Q_ell, 'Q')]:
-        div_dict = divisor_to_dict(div)
+    # Extract protected roots from G and Q (their u-polynomial roots)
+    protected_roots = set()
+    for div, name in [(G, 'G'), (Q, 'Q')]:
+        roots = _u_poly_roots_in_fp(div, p)
+        if roots is None:
+            if verbose:
+                print(f"  WARNING: {name}.u(x) does not split completely over GF({p})")
+            # We choose to fail hard here (no anchoring)
+            raise RuntimeError(f"{name} is not split into linear factors over GF({p})")
+        protected_roots.update(roots)
+    if verbose:
+        print(f"  Protected roots from G/Q: {sorted(list(protected_roots))}")
+
+    # Prepare extended divisor list: prefer to include G and Q (as dicts) first
+    extended_divs = []
+    for div, name in [(G, 'G'), (Q, 'Q')]:
+        div_dict = divisor_to_dict(div, p)
         if div_dict:
             extended_divs.append(div_dict)
             if verbose:
-                print(f"  Added {name} to smooth divisor list (it's B-smooth!)")
-    
-    # ----------------------------
-    # Factor base (use extended list)
-    # ----------------------------
+                print(f"  Added {name} to smooth divisor list (B-smooth!)")
+        else:
+            # divisor_to_dict failed (shouldn't happen because we already checked u splits)
+            raise RuntimeError(f"Failed to convert {name} to dict representation")
+
+    extended_divs.extend(smooth_divs)
+
+    # Extract factor base and root->index mapping
     fb_data = extract_factor_base(extended_divs, p, verbose=False)
-    roots = sorted(list(fb_data['roots']))
+    roots = fb_data['roots']
+    r_to_idx = fb_data['root_to_idx']
+    unique_divs = fb_data.get('unique_divisors', [])
     if not roots:
         raise RuntimeError("Empty factor base")
+    if verbose:
+        print(f"  [Factor Base] size: {len(roots)}")
 
-    r_to_idx = {r: i for i, r in enumerate(roots)}
+    # Ensure protected roots are in the factor base
+    missing_protected = protected_roots - set(roots)
+    if missing_protected:
+        raise RuntimeError(f"Protected roots missing from FB: {sorted(list(missing_protected))}")
+    if verbose:
+        print(f"  ✓ Protected roots in factor base: {len(protected_roots & set(roots))}/{len(protected_roots)}")
 
-    # ----------------------------
-    # Relation matrix (use extended list)
-    # ----------------------------
+    # Build relation rows from unique_divs
     valid_rows = []
-    for d in extended_divs:
-        u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-        v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+    for d in unique_divs:
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        else:
+            u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+            v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
         row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
         if row:
             valid_rows.append({int(k): int(v) for k, v in row.items()})
-
     if not valid_rows:
         raise RuntimeError("No valid relations from smooth_divs")
-
     if verbose:
         print(f"Loaded {len(valid_rows)} factor base relations")
 
-    # ----------------------------
-    # FIXED: Canonicalize G and Q to match factor base
-    # ----------------------------
+    # Prune factor base preserving protected indices (Phase 1 + Phase 2 same as before)
+    protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
     if verbose:
-        print("\n[Canonical Check] Canonicalizing G and Q to match factor base...")
-    
-    row_g_canon = canonicalize_divisor_to_factor_base(G_ell, r_to_idx, f_p, p)
-    row_q_canon = canonicalize_divisor_to_factor_base(Q_ell, r_to_idx, f_p, p)
-    
-    if row_g_canon is not None and row_q_canon is not None:
+        print(f"  Protected indices (locked): {sorted(list(protected_indices))}")
+
+    # Phase 1: remove unused
+    used_indices = set(protected_indices)
+    for row in valid_rows:
+        used_indices.update(row.keys())
+    if len(used_indices) < len(roots):
         if verbose:
-            print("[Canonical Check] ✓ Both G and Q canonicalized successfully!")
-            print("[Canonical Check] Using canonical rows directly (no anchoring needed).")
-        rg, row_g = 1, row_g_canon
-        rq, row_q = 1, row_q_canon
+            print(f"  [Pruning Phase 1] {len(roots) - len(used_indices)} unused elements")
+            print(f"    Keeping {len(protected_indices)} protected")
+        used_roots = sorted([roots[i] for i in used_indices])
+        r_to_idx = {r: i for i, r in enumerate(used_roots)}
+        roots = used_roots
+        protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
+        # rebuild valid_rows
+        new_valid_rows = []
+        for d in unique_divs:
+            if 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            else:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+            if row:
+                new_valid_rows.append({int(k): int(v) for k, v in row.items()})
+        valid_rows = new_valid_rows
+        if verbose:
+            print(f"  [Phase 1] Factor base: {len(roots)} elements")
+
+    # Phase 2: rank-based pruning
+    entries = {}
+    for i, row in enumerate(valid_rows):
+        for idx, _ in row.items():
+            entries[(i, idx)] = 1
+    M_test = matrix(GF(2), len(valid_rows), len(roots), entries, sparse=True)
+    actual_rank = M_test.rank()
+    if actual_rank < len(roots):
+        if verbose:
+            print(f"  [Pruning Phase 2] Rank {actual_rank} < {len(roots)} cols")
+            print(f"    Protecting {len(protected_indices)} indices")
+        M_rref = M_test.rref()
+        pivot_cols = set()
+        for i in range(M_rref.nrows()):
+            for j in range(M_rref.ncols()):
+                if M_rref[i, j] == 1:
+                    pivot_cols.add(j)
+                    break
+        kept_indices_set = pivot_cols.union(protected_indices)
+        kept_indices = sorted(list(kept_indices_set))
+        if verbose:
+            only_protected = protected_indices - pivot_cols
+            if only_protected:
+                print(f"    Kept {len(only_protected)} protected non-pivots")
+        kept_roots = [roots[i] for i in kept_indices]
+        r_to_idx = {r: i for i, r in enumerate(kept_roots)}
+        roots = kept_roots
+        # rebuild rows
+        new_valid_rows = []
+        for d in unique_divs:
+            if 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            else:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+            if row:
+                new_valid_rows.append({int(k): int(v) for k, v in row.items()})
+        valid_rows = new_valid_rows
+        if verbose:
+            print(f"  [Phase 2] Factor base: {len(roots)} elements (Pivot + Protected)")
+
+    # Final protected check
+    final_protected = protected_roots & set(roots)
+    if len(final_protected) != len(protected_roots):
+        missing = protected_roots - final_protected
+        raise RuntimeError(f"Pruning removed protected roots: {sorted(list(missing))}")
+    if verbose:
+        print(f"  ✓ All {len(protected_roots)} protected roots survived")
+
+    # Diagnostics
+    if verbose:
+        print(f"\n[Matrix Diagnostics]")
+        print(f"  Relations (rows): {len(valid_rows)}")
+        print(f"  Factor base (cols): {len(roots)}")
+        col_counts = [0] * len(roots)
+        for row in valid_rows:
+            for idx in row.keys():
+                col_counts[idx] += 1
+        empty_cols = [i for i, c in enumerate(col_counts) if c == 0]
+        if empty_cols:
+            print(f"  WARNING: {len(empty_cols)} empty columns!")
+        else:
+            print(f"  All columns have entries")
+        total_entries = sum(len(row) for row in valid_rows)
+        density = total_entries / (len(valid_rows) * len(roots))
+        print(f"  Matrix density: {density:.4f}")
+        print(f"  Avg entries per row: {total_entries / len(valid_rows):.2f}")
+
+    # -----------------------------
+    # PROPER Q-SMOOTH CHECK (GENUS 2)
+    # -----------------------------
+    fb_roots_set = set(roots)
+    if not is_divisor_fb_smooth_by_u(Q, fb_roots_set, p):
+        raise RuntimeError("Q is not FB-smooth: u(x) has factors outside the factor base")
+    if not is_divisor_fb_smooth_by_u(G, fb_roots_set, p):
+        raise RuntimeError("G is not FB-smooth: u(x) has factors outside the factor base")
+    if verbose:
+        print(f"  ✓ Q and G pass FB-smooth test (u(x) roots in factor base)")
+
+    # -----------------------------
+    # Build canonical/signed rows for G and Q
+    # -----------------------------
+    # G: canonicalize preferred
+    row_g_canon = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p)
+    if row_g_canon is None:
+        # try to build directly from u-roots (should succeed because we tested smoothness)
+        row_g = _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
+        if row_g is None:
+            raise RuntimeError("Failed to canonicalize or build signed row for G")
+        rg = 1
     else:
-        # ----------------------------
-        # Fallback: Offsets for anchoring (original expensive path)
-        # ----------------------------
-        if verbose:
-            if row_g_canon is None:
-                print("[Canonical Check] G not directly in factor base, will search...")
-            if row_q_canon is None:
-                print("[Canonical Check] Q not directly in factor base, will search...")
-        
-        offset_coeffs = [
-            (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
-            for d in extended_divs[:50]
-        ]
+        rg = 1
+        row_g = {int(k): int(v) for k, v in row_g_canon.items()}
 
-        # Anchor G_ell
-        if row_g_canon is not None:
-            rg, row_g = 1, row_g_canon
-            if verbose:
-                print("Using canonical decomposition for G")
-        else:
-            if verbose:
-                print("Anchoring G_ell...")
-            rg, row_g = find_smooth_decomposition(
-                None, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
-            )
-            if row_g is None:
-                raise RuntimeError("Failed to anchor G_ell")
+    # Q: prefer canonical, otherwise expand from u-roots
+    row_q_canon = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p)
+    if row_q_canon is None:
+        row_q = _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
+        if row_q is None:
+            raise RuntimeError("Failed to canonicalize or build signed row for Q")
+        rq = 1
+    else:
+        rq = 1
+        row_q = {int(k): int(v) for k, v in row_q_canon.items()}
 
-        # Anchor Q_ell
-        if row_q_canon is not None:
-            rq, row_q = 1, row_q_canon
-            if verbose:
-                print("Using canonical decomposition for Q")
-        else:
-            if verbose:
-                print("Anchoring Q_ell...")
-            rq, row_q = find_smooth_decomposition(
-                Q_ell, G_ell, r_to_idx, f_p, p, ell, offset_coeffs=offset_coeffs
-            )
-            if row_q is None:
-                raise RuntimeError("Failed to anchor Q_ell")
+    if verbose:
+        print(f"\n[Canonical Check] Built anchor rows:")
+        print(f"  G row entries: {len(row_g)}")
+        print(f"  Q row entries: {len(row_q)}")
 
-    # ----------------------------
-    # Solve DLP
-    # ----------------------------
+    # Solve DLP via index-calculus linear algebra
     d_log = solve_dlp_index_calculus(
         valid_rows,
         (int(rg) % ell, {int(k): int(v) for k, v in row_g.items()}),
@@ -959,9 +1146,7 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
 
     d_log = int(d_log) % int(ell)
 
-    # ----------------------------
-    # Verify in ell-torsion
-    # ----------------------------
+    # Verify in ell-subgroup
     if Integer(d_log) * G_ell != Q_ell:
         raise RuntimeError("Discrete log failed verification in ell-subgroup")
 
@@ -969,3 +1154,57 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         print(f"✓ Discrete log found via Index Calculus: {d_log}")
 
     return Integer(d_log)
+
+
+def is_divisor_fb_smooth(div, r_to_idx, f_p, p):
+    """
+    Check if a divisor is actually expressible over the factor base.
+    
+    For genus-2, this requires THREE conditions:
+    1. u(x) splits completely into linear factors over GF(p)
+    2. All x-roots lie in the factor base
+    3. The y-coordinates are compatible (can build valid signed row)
+    
+    Returns True only if ALL three conditions hold.
+    """
+    K = GF(p)
+    u_poly = div[0]
+    v_poly = div[1]
+    
+    # Condition 1: u(x) must split completely
+    if u_poly.degree() not in [1, 2]:
+        return False
+    
+    try:
+        roots_data = u_poly.roots(K)
+    except Exception:
+        return False
+    
+    if sum(m for _, m in roots_data) != u_poly.degree():
+        return False
+    
+    # Condition 2: All x-roots must be in factor base
+    for x_elem, _ in roots_data:
+        x_int = int(x_elem)
+        if x_int not in r_to_idx:
+            return False
+    
+    # Condition 3: y-coordinates must be compatible
+    # This is the critical check that your old version was missing
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        
+        y_val = int(v_poly(x_elem))
+        y2 = int(f_p(x_elem))
+        
+        if pow(y2, (p-1)//2, p) != 1:
+            return False
+        
+        y_can = tonelli_shanks(y2, p)
+        y_can = min(y_can, p - y_can)
+        
+        # Check if v(x) matches canonical square root (with sign)
+        if y_val != y_can and (p - y_val) % p != y_can:
+            return False
+    
+    return True

@@ -3,11 +3,12 @@ from collections import Counter
 from sage.all import matrix, GF, vector
 from collections import Counter, defaultdict
 from sage.all import matrix, GF, vector, Integer, gcd, factor, ZZ, sqrt as sage_sqrt
-from search_common import FINITE_FIELD, COEFFS_GENUS2
+from search_common import *
 
 # ============================================================================
 # ORIGINAL DIAGNOSTICS (kept for Q mode)
 # ============================================================================
+
 
 def diagnostic_section_collapse(divisors, tag_fn=lambda d: d.get('origin',None)):
     """
@@ -319,11 +320,6 @@ def diagnose_vector_diversity(divisors, verbose=True):
     }
 
 
-from sage.all import matrix, GF, vector, Integer, gcd, factor, ZZ, QQ, sqrt as sage_sqrt
-
-
-from sage.all import QQ, ZZ, GF, sqrt as sage_sqrt, log
-
 def estimate_dlp_complexity(fb_size, rel_count, p, g, verbose=False):
     """
     Estimates the complexity of a DLP attack using Index Calculus.
@@ -422,8 +418,8 @@ def index_calculus_factor_base_analysis(divisors, p, f_coeffs, verbose=True):
     
     try:
         R = PolynomialRing(SageGF(p), 'x')
+        f_poly = sage_poly_from_coeffs(f_coeffs, R)
         x = R.gen()
-        f_poly = sum(SageGF(p)(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
         C = HyperellipticCurve(f_poly)
         g = C.genus()
     except Exception:
@@ -455,33 +451,31 @@ def index_calculus_factor_base_analysis(divisors, p, f_coeffs, verbose=True):
     }
 
 
-from search_common import FINITE_FIELD, COEFFS_GENUS2, PREFERRED_X_COORDS
-
-
 def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
     """
     Builds the sign-aware relation matrix for the Index Calculus attack.
+    Synchronized with index_calculus.py to use strict Min(y, p-y) convention.
     """
     root_to_idx = {root: i for i, root in enumerate(factor_base)}
-    canonical_y = {}
     matrix_rows = []
     seen = set()
 
     for d in divisors:
-        # Extract components and dedup
-        s, pp, v0, v1 = d['s'], d['p'], d['v_0'], d['v_1']
+        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
         if (s, pp, v0, v1) in seen: continue
         seen.add((s, pp, v0, v1))
 
-        # Get roots of u(x)
+        # Get roots
         roots = d.get('roots', [])
         if not roots and p:
-            # Re-solve if roots weren't passed in
-            disc = (int(s)**2 - 4*int(pp)) % p
-            if pow(disc, (p-1)//2, p) == 1:
-                delta = GF(p)(disc).sqrt()
-                roots = [int((int(s)+delta)*pow(2,-1,p)), int((int(s)-delta)*pow(2,-1,p))]
-        
+             disc = (s*s - 4*pp) % p
+             if pow(disc, (p-1)//2, p) == 1:
+                 delta = tonelli_shanks(disc, p)
+                 inv2 = pow(2, -1, p)
+                 r1 = (s + delta) * inv2 % p
+                 r2 = (s - delta) * inv2 % p
+                 roots = [r1, r2]
+
         if not roots: continue
 
         row = [0] * len(factor_base)
@@ -489,16 +483,25 @@ def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
             if r not in root_to_idx: continue
             idx = root_to_idx[r]
             
-            # y = v(x) = v1*x + v0
-            y = (int(v1)*int(r) + int(v0)) % p if p else (QQ(v1)*r + QQ(v0))
+            # y = v(r)
+            y_val = (v1 * r + v0) % p if p else (QQ(v1)*r + QQ(v0))
             
-            if r not in canonical_y: canonical_y[r] = y
-            
-            # Handle sign in Jacobian: [P] + [-P] = 0
-            if y == canonical_y[r]:
-                row[idx] += 1
+            # STRICT SIGN CONVENTION
+            # We assume y_val is a square root of f(x)
+            if p:
+                # Calculate y^2 = f(r) using the v-poly evaluation
+                y_sq = (y_val * y_val) % p
+                y_ref = tonelli_shanks(y_sq, p)
+                y_can = min(y_ref, p - y_ref)
+                
+                if y_val == y_can:
+                    row[idx] += 1
+                else:
+                    row[idx] -= 1
             else:
-                row[idx] -= 1
+                # Rational case - just use y
+                row[idx] += 1
+                
         matrix_rows.append(row)
 
     M = matrix(ZZ, matrix_rows) if matrix_rows else matrix(ZZ, 0, len(factor_base))

@@ -1,10 +1,10 @@
 Generated keypair:
-  Base point x-coord: 12630360
-  Base divisor G: (x + 20924107, y + 26553848)
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
   Secret key d: 800
-  Target Q = [d]G: (x^2 + 20994511*x + 30215898, y + 13863282*x + 11360251)
-  Preferred x-values for smoothness: [12630360]
-Initialized PREFERRED_X_COORDS: {12630360}
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
 
 ======================================================================
 FINITE FIELD MODE: GF(33554467)
@@ -15,11 +15,11 @@ Goal: Solve HECC DLP via index calculus on Jacobian
 --- Searching for y=0 points ---
 hyperelliptic curve: y^2 = x^5 + x + 2
 Found 1 points where y=0: [(33554466, 0)]
-known_pts start: {(12630360, 7000619), (33554466, 0)}
+known_pts start: {(10598399, 5026551), (33554466, 0)}
 
 ======================================================================
-Constructing new fibration using: ((12630360, 7000619),)
-Known pts so far: [(12630360, 7000619), (33554466, 0)]
+Constructing new fibration using: ((10598399, 5026551),)
+Known pts so far: [(10598399, 5026551), (33554466, 0)]
 ======================================================================
 
 shifted G poly1: x^5 + x + 2
@@ -43,10 +43,10 @@ Skipping singular fiber analysis over finite field
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
 [galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
-[galois/empirical] Tested 1 primes -> avg_roots=2, patterns_sample=[(1, 1, 5)]
+[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 6)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
-[residue_counts] sample: [(33554467, 2)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 2.0}
+[residue_counts] sample: [(33554467, 1)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
 [auto_cfg] Applied adaptive parameters:
@@ -58,18 +58,18 @@ Skipping singular fiber analysis over finite field
 [auto_cfg summary] height_bound=1809, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
 [prime_pool] Final pool has 1 primes up to 33554467
 === Fibration Summary ===
-Data points: ((12630360, 7000619),)
-Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 3957134)*x^4 + (m^2 - 379479*m + 11840733)*x^3 + (-4336613*m^2 - 12634694*m + 8727658)*x^2 + y^2 + (13618560*m^2 + 271233*m + 4018094)*x + (-12549021*m^2 + 1607238*m - 5886611)
-Defining polynomial f: (2*m + 3957134)*x^4 + (m^2 - 379479*m + 11840733)*x^3 + (-4336613*m^2 - 12634694*m + 8727658)*x^2 + y^2 + (13618560*m^2 + 271233*m + 4018094)*x + (-12549021*m^2 + 1607238*m - 5886611)
-Discriminant of f: (-8*m - 15828536)*x^4 + (-4*m^2 + 1517916*m - 13808465)*x^3 + (-16208015*m^2 - 16570158*m - 1356165)*x^2 + (12634694*m^2 - 1084932*m - 16072376)*x + (16641617*m^2 - 6428952*m - 10008023)
-Weierstrass discriminant: 28330483*m^8 + 26641401*m^6 + 27313779*m^5 + 22708064*m^4 + 11702955*m^3 + 21807310*m^2 + 1782287*m + 14311244
+Data points: ((10598399, 5026551),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 14116939)*x^4 + (m^2 + 15876209*m + 501430)*x^3 + (1759270*m^2 + 601716*m + 1272890)*x^2 + (150429*m^2 + 1018312*m + 22231586)*x + y^2 + 127289*m^2 + 29025315*m + 7303595
+Defining polynomial f: (2*m + 14116939)*x^4 + (m^2 + 15876209*m + 501430)*x^3 + (1759270*m^2 + 601716*m + 1272890)*x^2 + (150429*m^2 + 1018312*m + 22231586)*x + y^2 + 127289*m^2 + 29025315*m + 7303595
+Discriminant of f: (33554459*m + 10641178)*x^4 + (33554463*m^2 + 3604098*m + 31548747)*x^3 + (26517387*m^2 + 31147603*m + 28462907)*x^2 + (32952751*m^2 + 29481219*m + 11737057)*x + 33045311*m^2 + 18116608*m + 4340087
+Weierstrass discriminant: 1968993*m^8 + 7463187*m^6 + 20360233*m^5 + 23692928*m^4 + 6961674*m^3 + 24135973*m^2 + 9955696*m + 16836313
 Weierstrass model coefficients:
-  a4(m): 29536371*m^2 + 13917900*m + 10247539
-  a6(m): 18516971*m^4 + 8365663*m^2 + 14664343*m + 1996339
-P1: (12630360, 7000619)
+  a4(m): 11322879*m^2 + 26358432*m + 3794503
+  a6(m): 3294804*m^4 + 13784562*m^2 + 25401320*m + 20549852
+P1: (10598399, 5026551)
 
 --- Geometric Validation ---
-Delta: 28330483*m^8 + 26641401*m^6 + 27313779*m^5 + 22708064*m^4 + 11702955*m^3 + 21807310*m^2 + 1782287*m + 14311244
+Delta: 1968993*m^8 + 7463187*m^6 + 20360233*m^5 + 23692928*m^4 + 6961674*m^3 + 24135973*m^2 + 9955696*m + 16836313
   Effective Discriminant Degree: 8
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 8, not 12.
@@ -78,14 +78,12 @@ Delta: 28330483*m^8 + 26641401*m^6 + 27313779*m^5 + 22708064*m^4 + 11702955*m^3 
 =========================
 
 --- Searching for CM Fibers ---
-Found roots for a4(m)=0 (potential j=1728): [-13909149]
-Found roots for a4(m)=0 (potential j=1728): [-19817442]
+Found roots for a6(m)=0 (potential j=0): [-18489545]
 
 --- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
-Testing special m-values from fibers: {-13909149, -19817442}
-Found rational point from fiber m=13737025: (x,y) = (32447802, 16766722)
-Found rational point from fiber m=19645318: (x,y) = (26539509, 15714349)
-Points found from special fibers: {32447802, 26539509}
+Testing special m-values from fibers: {-18489545}
+Found rational point from fiber m=15064922: (x,y) = (29087944, 9702574)
+Points found from special fibers: {29087944}
 --- Finite-field mode: skipping LLL (no height lattice) ---
 
 --- Search Iteration 0 with 1 sections ---
