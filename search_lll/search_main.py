@@ -427,17 +427,24 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         if FINITE_FIELD:
 
             p = int(FINITE_FIELD)
+            f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
             # 1. Extract the factor base
-            fb = extract_factor_base(mumford_divisors, p)
-            # FIX: Define the mapping to avoid NameError
-            root_to_idx = {r: i for i, r in enumerate(fb)}
+            fb_ret = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
+            # fb_ret in projected mode is a dict; in compat mode is a list
+            if isinstance(fb_ret, dict):
+                fb_roots = fb_ret['roots']
+                root_to_idx = fb_ret['root_to_idx']
+                fb_y_cache = fb_ret.get('fb_y_cache', {})
+            else:
+                fb_roots = fb_ret
+                root_to_idx = {r: i for i, r in enumerate(fb_roots)}
+                fb_y_cache = {}
             fb_roots_set = set(root_to_idx.keys())
 
             # 2. Compute Jacobian Order
             L = compute_jacobian_order(coeffs_genus2, p)
 
             # 3. Setup the challenge
-            f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
             print(f"  [Setup] Curve: y^2 = {f_poly}")
             #G, Q, true_d = generate_test_keypair(f_poly, p)
             G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY

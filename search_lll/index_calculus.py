@@ -1,6 +1,7 @@
 from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
-from .smoothness import extract_factor_base, tonelli_shanks
+from .smoothness import tonelli_shanks
+from .smoothness import extract_factor_base  # replace local duplicate
 from search_common import *
 import random
 import time
@@ -757,355 +758,6 @@ def is_divisor_fb_smooth_by_u(div, fb_roots_set, p):
     return all(r in fb_roots_set for r in roots)
 
 
-def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
-    """
-    Index-calculus + BSGS dispatcher with correct genus-2 Q-smooth predicate.
-
-    Important behavior changes from previous versions:
-      - Q is considered FB-smooth iff all roots of its u(x) split linearly
-        and each x-root appears in the factor base. If Q is not FB-smooth
-        we raise immediately (anchoring/random self-reduction is disabled).
-      - G must also be FB-smooth (we refuse to attempt expensive anchoring).
-    """
-    # ----------------------------
-    # Input validation
-    # ----------------------------
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
-
-    # ----------------------------
-    # Pick ell
-    # ----------------------------
-    factors = prime_factors(order)
-    if not factors:
-        raise ValueError("Failed to factor Jacobian order")
-
-    ell = max(factors)
-    if ell <= 1:
-        raise ValueError("No non-trivial prime factor found")
-
-    if verbose:
-        print(f"Jacobian order factors: {factors}")
-        print(f"Targeting subgroup of prime order ell = {ell}")
-
-    # ----------------------------
-    # Polynomial and curve objects
-    # ----------------------------
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-
-    # Reconstruct curve and Jacobian for projection operations
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
-    J0 = J.zero()
-
-    # ----------------------------
-    # Project to ell-torsion (cofactor)
-    # ----------------------------
-    cofactor = Integer(order) // Integer(ell)
-    if cofactor == 0:
-        raise ValueError("Computed cofactor is zero")
-
-    # Project the provided generator/target into ell-torsion
-    try:
-        G_ell = cofactor * G
-        Q_ell = cofactor * Q
-    except Exception as e:
-        raise RuntimeError(f"Failed to project G/Q to ell-torsion: {e}")
-
-    if G_ell == J0:
-        raise ValueError("G projects to identity in ell-torsion")
-
-    if verbose:
-        print("Projected G and Q to ell-torsion")
-
-    # ----------------------------
-    # Build helper to project arbitrary smooth-div dicts
-    # ----------------------------
-    def _project_div_dict_to_ell(div_dict):
-        """
-        Take a divisor dict (from worker), rebuild Jacobian element, multiply by cofactor,
-        and return a new dict representing the projected divisor.
-        """
-        try:
-            J_elem = _dict_to_jacobian(div_dict, J, R, p)
-        except Exception as e:
-            raise RuntimeError(f"_project_div_dict_to_ell: failed to reconstruct Jacobian element: {e}")
-
-        try:
-            J_proj = cofactor * J_elem
-        except Exception as e:
-            raise RuntimeError(f"_project_div_dict_to_ell: failed to multiply divisor by cofactor: {e}")
-
-        if J_proj == J0:
-            # Projection collapsed to identity: not usable as FB element
-            # Caller can choose to drop it; here we raise so the caller can handle it explicitly
-            raise RuntimeError("Projected divisor collapsed to identity in ell-torsion")
-
-        return _jacobian_to_dict(J_proj, p)
-
-    # ----------------------------
-    # Build extended_divs: include projected G,Q first, then project every smooth_div
-    # ----------------------------
-    extended_divs = []
-    try:
-        extended_divs.append(_jacobian_to_dict(G_ell, p))
-        extended_divs.append(_jacobian_to_dict(Q_ell, p))
-    except Exception as e:
-        raise RuntimeError(f"Failed to convert projected G/Q to dicts: {e}")
-
-    # Project every worker-supplied smooth_div into ell-torsion
-    for d in smooth_divs:
-        try:
-            d_proj = _project_div_dict_to_ell(d)
-            extended_divs.append(d_proj)
-        except RuntimeError:
-            # If a particular divisor fails to project (e.g. becomes identity),
-            # we skip it but continue — don't silently swallow other errors.
-            # In practice projection-to-identity is rare; but if it happens often,
-            # you'll see fewer relations and should increase sampling.
-            continue
-
-    # ----------------------------
-    # Factor base (use projected divisors)
-    # ----------------------------
-    #fb_data = extract_factor_base(extended_divs, p, verbose=False)
-    fb_data = extract_factor_base(extended_divs, p, f_p, verbose=False)
-    roots = fb_data['roots']
-    r_to_idx = fb_data['root_to_idx']
-    fb_y_cache = fb_data['fb_y_cache']
-    unique_divs = fb_data.get('unique_divisors', extended_divs)
-
-    #roots = sorted(list(fb_data['roots']))
-    if not roots:
-        raise RuntimeError("Empty factor base after projection")
-
-    #r_to_idx = {r: i for i, r in enumerate(roots)}
-    #unique_divs = fb_data.get('unique_divisors', extended_divs)
-
-    # -------------------------------------------------
-    # Recompute protected roots from projected G and Q
-    # -------------------------------------------------
-    def _roots_from_div_dict(d):
-        if 'u_coeffs' not in d:
-            return []
-        try:
-            u = R(d['u_coeffs'])
-            return [int(r) for r, _ in u.roots(K)]
-        except Exception:
-            return []
-
-    protected_roots = set()
-    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(G_ell, p)))
-    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(Q_ell, p)))
-
-    if verbose:
-        print(f"  Protected roots from projected G/Q: {sorted(protected_roots)}")
-
-
-    if verbose:
-        print(f"  [Factor Base] size: {len(roots)} (projected into J[ell])")
-
-    # ----------------------------
-    # Relation matrix (use deduplicated, projected divisors only)
-    # ----------------------------
-    valid_rows = []
-    for d in unique_divs:
-        # Reconstruct polynomials for the (projected) divisor dict
-        if 'u_coeffs' in d and 'v_coeffs' in d:
-            try:
-                u_poly = R(d['u_coeffs'])
-                v_poly = R(d['v_coeffs'])
-            except Exception as e:
-                # Skip malformed projected divisor
-                continue
-        else:
-            # Fallback (shouldn't happen for projected dicts we just wrote)
-            u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-            v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-
-        #row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        if row:
-            valid_rows.append({int(k): int(v) for k, v in row.items()})
-
-    if not valid_rows:
-        raise RuntimeError("No valid relations from projected smooth_divs")
-
-    if verbose:
-        print(f"Loaded {len(valid_rows)} factor base relations (projected)")
-
-
-    # Prune factor base preserving protected indices (Phase 1 + Phase 2 same as before)
-    protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
-    if verbose:
-        print(f"  Protected indices (locked): {sorted(list(protected_indices))}")
-
-    # Phase 1: remove unused
-    used_indices = set(protected_indices)
-    for row in valid_rows:
-        used_indices.update(row.keys())
-    if len(used_indices) < len(roots):
-        if verbose:
-            print(f"  [Pruning Phase 1] {len(roots) - len(used_indices)} unused elements")
-            print(f"    Keeping {len(protected_indices)} protected")
-        used_roots = sorted([roots[i] for i in used_indices])
-        r_to_idx = {r: i for i, r in enumerate(used_roots)}
-        roots = used_roots
-        protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
-        # rebuild valid_rows
-        new_valid_rows = []
-        for d in unique_divs:
-            if 'u_coeffs' in d:
-                u_poly = R(d['u_coeffs'])
-                v_poly = R(d['v_coeffs'])
-            else:
-                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-            if row:
-                new_valid_rows.append({int(k): int(v) for k, v in row.items()})
-        valid_rows = new_valid_rows
-        if verbose:
-            print(f"  [Phase 1] Factor base: {len(roots)} elements")
-
-    # Phase 2: rank-based pruning
-    entries = {}
-    for i, row in enumerate(valid_rows):
-        for idx, _ in row.items():
-            entries[(i, idx)] = 1
-    M_test = matrix(GF(2), len(valid_rows), len(roots), entries, sparse=True)
-    actual_rank = M_test.rank()
-    if actual_rank < len(roots):
-        if verbose:
-            print(f"  [Pruning Phase 2] Rank {actual_rank} < {len(roots)} cols")
-            print(f"    Protecting {len(protected_indices)} indices")
-        M_rref = M_test.rref()
-        pivot_cols = set()
-        for i in range(M_rref.nrows()):
-            for j in range(M_rref.ncols()):
-                if M_rref[i, j] == 1:
-                    pivot_cols.add(j)
-                    break
-        kept_indices_set = pivot_cols.union(protected_indices)
-        kept_indices = sorted(list(kept_indices_set))
-        if verbose:
-            only_protected = protected_indices - pivot_cols
-            if only_protected:
-                print(f"    Kept {len(only_protected)} protected non-pivots")
-        kept_roots = [roots[i] for i in kept_indices]
-        r_to_idx = {r: i for i, r in enumerate(kept_roots)}
-        roots = kept_roots
-        # rebuild rows
-        new_valid_rows = []
-        for d in unique_divs:
-            if 'u_coeffs' in d:
-                u_poly = R(d['u_coeffs'])
-                v_poly = R(d['v_coeffs'])
-            else:
-                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-            if row:
-                new_valid_rows.append({int(k): int(v) for k, v in row.items()})
-        valid_rows = new_valid_rows
-        if verbose:
-            print(f"  [Phase 2] Factor base: {len(roots)} elements (Pivot + Protected)")
-
-    # Final protected check
-    final_protected = protected_roots & set(roots)
-    if len(final_protected) != len(protected_roots):
-        missing = protected_roots - final_protected
-        raise RuntimeError(f"Pruning removed protected roots: {sorted(list(missing))}")
-    if verbose:
-        print(f"  ✓ All {len(protected_roots)} protected roots survived")
-
-    # Diagnostics
-    if verbose:
-        print(f"\n[Matrix Diagnostics]")
-        print(f"  Relations (rows): {len(valid_rows)}")
-        print(f"  Factor base (cols): {len(roots)}")
-        col_counts = [0] * len(roots)
-        for row in valid_rows:
-            for idx in row.keys():
-                col_counts[idx] += 1
-        empty_cols = [i for i, c in enumerate(col_counts) if c == 0]
-        if empty_cols:
-            print(f"  WARNING: {len(empty_cols)} empty columns!")
-        else:
-            print(f"  All columns have entries")
-        total_entries = sum(len(row) for row in valid_rows)
-        density = total_entries / (len(valid_rows) * len(roots))
-        print(f"  Matrix density: {density:.4f}")
-        print(f"  Avg entries per row: {total_entries / len(valid_rows):.2f}")
-
-    # -----------------------------
-    # PROPER Q-SMOOTH CHECK (GENUS 2)
-    # -----------------------------
-    fb_roots_set = set(roots)
-    if not is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        raise RuntimeError("Q is not FB-smooth: u(x) has factors outside the factor base")
-    if not is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        raise RuntimeError("G is not FB-smooth: u(x) has factors outside the factor base")
-    if verbose:
-        print(f"  ✓ Q and G pass FB-smooth test (u(x) roots in factor base)")
-
-    # -----------------------------
-    # Build canonical/signed rows for G and Q
-    # -----------------------------
-    # G: canonicalize preferred
-    row_g_canon = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p)
-    if row_g_canon is None:
-        # try to build directly from u-roots (should succeed because we tested smoothness)
-        row_g = _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
-        if row_g is None:
-            raise RuntimeError("Failed to canonicalize or build signed row for G")
-        rg = 1
-    else:
-        rg = 1
-        row_g = {int(k): int(v) for k, v in row_g_canon.items()}
-
-    # Q: prefer canonical, otherwise expand from u-roots
-    row_q_canon = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p)
-    if row_q_canon is None:
-        row_q = _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
-        if row_q is None:
-            raise RuntimeError("Failed to canonicalize or build signed row for Q")
-        rq = 1
-    else:
-        rq = 1
-        row_q = {int(k): int(v) for k, v in row_q_canon.items()}
-
-    if verbose:
-        print(f"\n[Canonical Check] Built anchor rows:")
-        print(f"  G row entries: {len(row_g)}")
-        print(f"  Q row entries: {len(row_q)}")
-
-    # Solve DLP via index-calculus linear algebra
-    d_log = solve_dlp_index_calculus(
-        valid_rows,
-        (int(rg) % ell, {int(k): int(v) for k, v in row_g.items()}),
-        (int(rq) % ell, {int(k): int(v) for k, v in row_q.items()}),
-        ell,
-        verbose=verbose
-    )
-
-    d_log = int(d_log) % int(ell)
-
-    # Verify in ell-subgroup
-    if Integer(d_log) * G_ell != Q_ell:
-        raise RuntimeError("Discrete log failed verification in ell-subgroup")
-
-    if verbose:
-        print(f"✓ Discrete log found via Index Calculus: {d_log}")
-
-    return Integer(d_log)
-
-
 # --- helpers for converting between dict <-> Jacobian element and projecting ---
 def _dict_to_jacobian(d, J, R, p):
     """
@@ -1189,124 +841,6 @@ def _jacobian_to_dict(J_elem, p):
         pass
 
     return res
-
-
-def extract_factor_base(divisors, p, f_p, verbose=False, ensure_divisors=None):
-    """
-    Build a factor base from *projected* divisors (i.e. divisors already moved into J[ell]).
-    Returns a dict:
-      {
-        'roots': sorted list of distinct x-roots (ints),
-        'root_to_idx': { x_int -> column index },
-        'unique_divisors': list of one-divisor-per-support (input-format dicts),
-        'fb_y_cache': { x_int -> canonical_y_int }
-      }
-
-    NOTE: requires f_p to compute canonical sqrt(f(x)) for sign handling.
-    """
-    if f_p is None:
-        raise ValueError("extract_factor_base requires f_p polynomial (sage polynomial over GF(p))")
-
-    K = GF(p)
-    R = f_p.parent()        # polynomial ring
-    roots_set = set()
-    unique_supports = set()
-    unique_divisors = []
-
-    # Helper to extract integer roots from a divisor dict or (u,v) pair
-    def _roots_from_div_dict(d):
-        # prefer explicit u_coeffs if present
-        try:
-            if 'u_coeffs' in d:
-                u_poly = R(d['u_coeffs'])
-            else:
-                # fallback to s/p style
-                s = int(d['s'])
-                pp = int(d['p'])
-                x = R.gen()
-                u_poly = x**2 - K(int(s))*x + K(int(pp))
-        except Exception as e:
-            raise RuntimeError(f"extract_factor_base: failed to rebuild u_poly: {e}")
-
-        try:
-            roots_data = u_poly.roots(K)
-        except Exception:
-            return None
-
-        # require complete split for counting roots
-        if sum(m for _, m in roots_data) != u_poly.degree():
-            return None
-
-        return [int(r) for r, _ in roots_data]
-
-    # Collect roots and build unique divisor list (one per support)
-    for d in divisors:
-        try:
-            roots = _roots_from_div_dict(d)
-        except Exception:
-            # skip malformed entries
-            continue
-
-        if not roots:
-            continue
-
-        support = tuple(sorted(roots))
-        if support in unique_supports:
-            continue
-        unique_supports.add(support)
-        unique_divisors.append(d)
-
-        for r in roots:
-            roots_set.add(int(r))
-
-    # Optionally ensure some divisors are present (e.g., G/Q projected)
-    if ensure_divisors:
-        for div in ensure_divisors:
-            try:
-                roots = _roots_from_div_dict(div)
-            except Exception:
-                roots = None
-            if not roots:
-                continue
-            for r in roots:
-                roots_set.add(int(r))
-
-    # Build canonical y-cache for each root using f_p
-    fb_y_cache = {}
-    for x_int in sorted(list(roots_set)):
-        try:
-            xk = K(x_int)
-            y2 = int(f_p(xk))
-        except Exception:
-            # Shouldn't happen; skip this root
-            continue
-
-        if y2 == 0:
-            # We can record 0; canonicalization will treat this specially
-            fb_y_cache[x_int] = 0
-            continue
-
-        # Must be a quadratic residue for valid FB (otherwise root shouldn't be here)
-        if pow(y2, (p-1)//2, p) != 1:
-            # skip root that does not give square f(x)
-            continue
-
-        y_can = tonelli_shanks(y2, p)
-        fb_y_cache[x_int] = int(min(y_can, p - y_can))
-
-    roots_list = sorted(list(fb_y_cache.keys()))
-
-    root_to_idx = {r: i for i, r in enumerate(roots_list)}
-
-    if verbose:
-        print(f"  [Factor Base] Extracted {len(roots_list)} unique x-coordinates (from projected divisors).")
-
-    return {
-        'roots': roots_list,
-        'root_to_idx': root_to_idx,
-        'unique_divisors': unique_divisors,
-        'fb_y_cache': fb_y_cache
-    }
 
 
 def get_relation_row(div, root_to_idx, f_poly, p, fb_y_cache=None):
@@ -1434,3 +968,287 @@ def is_divisor_fb_smooth(div, r_to_idx, f_p, p, fb_y_cache=None):
             return False
 
     return True
+
+
+def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
+    """
+    Index-calculus + BSGS dispatcher with correct genus-2 Q-smooth predicate.
+    """
+    # ----------------------------
+    # Input validation
+    # ----------------------------
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    # ----------------------------
+    # Pick ell
+    # ----------------------------
+    factors = prime_factors(order)
+    if not factors:
+        raise ValueError("Failed to factor Jacobian order")
+
+    ell = max(factors)
+    if ell <= 1:
+        raise ValueError("No non-trivial prime factor found")
+
+    if verbose:
+        print(f"Jacobian order factors: {factors}")
+        print(f"Targeting subgroup of prime order ell = {ell}")
+
+    # ----------------------------
+    # Polynomial and curve objects
+    # ----------------------------
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+
+    # Reconstruct curve and Jacobian for projection operations
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+    J0 = J.zero()
+
+    # ----------------------------
+    # Project to ell-torsion (cofactor)
+    # ----------------------------
+    cofactor = Integer(order) // Integer(ell)
+    if cofactor == 0:
+        raise ValueError("Computed cofactor is zero")
+
+    # Project the provided generator/target into ell-torsion
+    try:
+        G_ell = cofactor * G
+        Q_ell = cofactor * Q
+    except Exception as e:
+        raise RuntimeError(f"Failed to project G/Q to ell-torsion: {e}")
+
+    if G_ell == J0:
+        raise ValueError("G projects to identity in ell-torsion")
+
+    if verbose:
+        print("Projected G and Q to ell-torsion")
+
+    # ----------------------------
+    # Build helper to project arbitrary smooth-div dicts
+    # ----------------------------
+    def _project_div_dict_to_ell(div_dict):
+        """
+        Take a divisor dict (from worker), rebuild Jacobian element, multiply by cofactor,
+        and return a new dict representing the projected divisor.
+        """
+        try:
+            J_elem = _dict_to_jacobian(div_dict, J, R, p)
+        except Exception as e:
+            raise RuntimeError(f"_project_div_dict_to_ell: failed to reconstruct Jacobian element: {e}")
+
+        try:
+            J_proj = cofactor * J_elem
+        except Exception as e:
+            raise RuntimeError(f"_project_div_dict_to_ell: failed to multiply divisor by cofactor: {e}")
+
+        if J_proj == J0:
+            raise RuntimeError("Projected divisor collapsed to identity in ell-torsion")
+
+        return _jacobian_to_dict(J_proj, p)
+
+    # ----------------------------
+    # Build extended_divs: include projected G,Q first, then project every smooth_div
+    # ----------------------------
+    extended_divs = []
+    try:
+        extended_divs.append(_jacobian_to_dict(G_ell, p))
+        extended_divs.append(_jacobian_to_dict(Q_ell, p))
+    except Exception as e:
+        raise RuntimeError(f"Failed to convert projected G/Q to dicts: {e}")
+
+    # Project every worker-supplied smooth_div into ell-torsion
+    for d in smooth_divs:
+        try:
+            d_proj = _project_div_dict_to_ell(d)
+            extended_divs.append(d_proj)
+        except RuntimeError:
+            continue
+
+    # ----------------------------
+    # Factor base (use projected divisors)
+    # ----------------------------
+    fb_data = extract_factor_base(extended_divs, p, f_p, verbose=False)
+    roots = fb_data['roots']
+    r_to_idx = fb_data['root_to_idx']
+    fb_y_cache = fb_data['fb_y_cache']
+    unique_divs = fb_data.get('unique_divisors', extended_divs)
+
+    if not roots:
+        raise RuntimeError("Empty factor base after projection")
+
+    # -------------------------------------------------
+    # Recompute protected roots from projected G and Q
+    # -------------------------------------------------
+    def _roots_from_div_dict(d):
+        if 'u_coeffs' not in d:
+            return []
+        try:
+            u = R(d['u_coeffs'])
+            return [int(r) for r, _ in u.roots(K)]
+        except Exception:
+            return []
+
+    protected_roots = set()
+    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(G_ell, p)))
+    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(Q_ell, p)))
+
+    if verbose:
+        print(f"  Protected roots from projected G/Q: {sorted(protected_roots)}")
+
+    if verbose:
+        print(f"  [Factor Base] size: {len(roots)} (projected into J[ell])")
+
+    # ----------------------------
+    # Relation matrix (use deduplicated, projected divisors only)
+    # ----------------------------
+    valid_rows = []
+    for d in unique_divs:
+        if 'u_coeffs' in d and 'v_coeffs' in d:
+            try:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            except Exception:
+                continue
+        else:
+            u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+            v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        if row:
+            valid_rows.append({int(k): int(v) for k, v in row.items()})
+
+    if not valid_rows:
+        raise RuntimeError("No valid relations from projected smooth_divs")
+
+    if verbose:
+        print(f"Loaded {len(valid_rows)} factor base relations (projected)")
+
+    # Prune factor base preserving protected indices
+    protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
+    if verbose:
+        print(f"  Protected indices (locked): {sorted(list(protected_indices))}")
+
+    # Phase 1: remove unused columns
+    used_indices = set(protected_indices)
+    for row in valid_rows:
+        used_indices.update(row.keys())
+        
+    if len(used_indices) < len(roots):
+        if verbose:
+            print(f"  [Pruning Phase 1] {len(roots) - len(used_indices)} unused elements")
+            print(f"    Keeping {len(protected_indices)} protected")
+        used_roots = sorted([roots[i] for i in used_indices])
+        r_to_idx = {r: i for i, r in enumerate(used_roots)}
+        roots = used_roots
+        protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
+        # rebuild valid_rows with new indices
+        new_valid_rows = []
+        for d in unique_divs:
+            if 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            else:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+            if row:
+                new_valid_rows.append({int(k): int(v) for k, v in row.items()})
+        valid_rows = new_valid_rows
+        if verbose:
+            print(f"  [Phase 1] Factor base: {len(roots)} elements")
+
+    # Final protected check
+    final_protected = protected_roots & set(roots)
+    if len(final_protected) != len(protected_roots):
+        missing = protected_roots - final_protected
+        raise RuntimeError(f"Pruning removed protected roots: {sorted(list(missing))}")
+    if verbose:
+        print(f"  ✓ All {len(protected_roots)} protected roots survived")
+
+    # Diagnostics
+    if verbose:
+        print(f"\n[Matrix Diagnostics]")
+        print(f"  Relations (rows): {len(valid_rows)}")
+        print(f"  Factor base (cols): {len(roots)}")
+        col_counts = [0] * len(roots)
+        for row in valid_rows:
+            for idx in row.keys():
+                col_counts[idx] += 1
+        empty_cols = [i for i, c in enumerate(col_counts) if c == 0]
+        if empty_cols:
+            print(f"  WARNING: {len(empty_cols)} empty columns!")
+        else:
+            print(f"  All columns have entries")
+        total_entries = sum(len(row) for row in valid_rows)
+        density = total_entries / (len(valid_rows) * max(1, len(roots)))
+        print(f"  Matrix density: {density:.4f}")
+        print(f"  Avg entries per row: {total_entries / max(1, len(valid_rows)):.2f}")
+
+    # -----------------------------
+    # PROPER Q-SMOOTH CHECK (GENUS 2) — IN J[ell]
+    # -----------------------------
+    # CRITICAL FIX: Pass G_ell and Q_ell (Jacobian points) directly
+    if not is_divisor_fb_smooth(Q_ell, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        raise RuntimeError("Q_ell is not FB-smooth in projected factor base")
+
+    if not is_divisor_fb_smooth(G_ell, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        raise RuntimeError("G_ell is not FB-smooth in projected factor base")
+
+    if verbose:
+        print(f"  ✓ G_ell and Q_ell pass FB-smooth test in J[ell]")
+
+    # -----------------------------
+    # Build canonical/signed rows for G_ell and Q_ell
+    # -----------------------------
+    # CRITICAL FIX: Pass G_ell and Q_ell (Jacobian points) directly
+    row_g_canon = canonicalize_divisor_to_factor_base(G_ell, r_to_idx, f_p, p)
+    if row_g_canon is None:
+        row_g = _build_signed_row_from_divisor(G_ell, r_to_idx, f_p, p)
+        if row_g is None:
+            raise RuntimeError("Failed to build signed row for G_ell")
+        rg = 1
+    else:
+        rg = 1
+        row_g = {int(k): int(v) for k, v in row_g_canon.items()}
+
+    row_q_canon = canonicalize_divisor_to_factor_base(Q_ell, r_to_idx, f_p, p)
+    if row_q_canon is None:
+        row_q = _build_signed_row_from_divisor(Q_ell, r_to_idx, f_p, p)
+        if row_q is None:
+            raise RuntimeError("Failed to build signed row for Q_ell")
+        rq = 1
+    else:
+        rq = 1
+        row_q = {int(k): int(v) for k, v in row_q_canon.items()}
+
+    if verbose:
+        print(f"\n[Canonical Check] Built anchor rows:")
+        print(f"  G_ell row entries: {len(row_g)}")
+        print(f"  Q_ell row entries: {len(row_q)}")
+
+    # Solve DLP via index-calculus linear algebra
+    d_log = solve_dlp_index_calculus(
+        valid_rows,
+        (int(rg) % ell, {int(k): int(v) for k, v in row_g.items()}),
+        (int(rq) % ell, {int(k): int(v) for k, v in row_q.items()}),
+        ell,
+        verbose=verbose
+    )
+
+    d_log = int(d_log) % int(ell)
+
+    # Verify in ell-subgroup
+    if Integer(d_log) * G_ell != Q_ell:
+        raise RuntimeError("Discrete log failed verification in ell-subgroup")
+
+    if verbose:
+        print(f"✓ Discrete log found via Index Calculus: {d_log}")
+
+    return Integer(d_log)

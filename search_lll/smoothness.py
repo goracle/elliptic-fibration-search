@@ -587,60 +587,170 @@ def diagnose_finite_field_search(divisors, verbose=True):
     }
 
 
-def extract_factor_base(divisors, p=None, verbose=False, ensure_divisors=None):
+# unified extract_factor_base: backward-compatible
+def extract_factor_base(divisors, p=None, f_p=None, verbose=False, ensure_divisors=None):
     """
-    Extracts unique x-coordinates from divisors.
-    
-    Args:
-        divisors: List of Mumford divisor dicts
-        p: Prime (for finite field mode)
-        verbose: Print diagnostics
-        ensure_divisors: List of divisors (as Jacobian elements) to ensure are included
-    
-    Returns:
-        List of unique x-coordinates (sorted)
-    """
-    unique_roots = set()
-    
-    # Extract roots from all divisors
-    for d in divisors:
-        # Use pre-computed roots if available
-        if 'roots' in d and d['roots']:
-            for r in d['roots']:
-                unique_roots.add(int(r))
-            continue
+    Backwards-compatible factor base extractor.
 
-        # Otherwise, manually solve u(x) = x^2 - sx + p = 0
-        s, pp = int(d['s']), int(d['p'])
-        if p:  # Finite Field Mode
-            disc = (s*s - 4*pp) % p
-            if disc == 0:
-                unique_roots.add((s * pow(2, -1, p)) % p)
-            elif pow(disc, (p-1)//2, p) == 1:
-                delta = GF(p)(disc).sqrt()
-                inv2 = pow(2, -1, p)
-                unique_roots.add(int((s + delta) * inv2))
-                unique_roots.add(int((s - delta) * inv2))
-        else:  # Rational Mode
-            disc = QQ(s)**2 - 4*QQ(pp)
-            if disc >= 0 and disc.is_square():
-                rt = disc.sqrt()
-                unique_roots.add((s + rt) / 2)
-                unique_roots.add((s - rt) / 2)
-    
-    # Ensure specified divisors' roots are included
-    if ensure_divisors and p:
+    Two modes:
+      1) Old compatibility mode: call with (divisors, p) or (divisors, p, f_p=None)
+         -> returns sorted list of unique x-coordinates (ints).
+
+      2) Projected / canonical mode: call with (divisors, p, f_p=<sage poly>)
+         -> returns dict:
+            {
+              'roots': sorted list of ints (x-coords),
+              'root_to_idx': {x_int -> col idx},
+              'unique_divisors': [one dict per support],
+              'fb_y_cache': {x_int -> canonical_y_int}
+            }
+
+    ensure_divisors: optional iterable of divisors (dict or (u,v) pairs)
+                     whose roots should be forced into the factor base.
+    """
+    # --- simple compatibility mode (no f_p supplied) ---
+    if f_p is None:
+        unique_roots = set()
+
+        for d in divisors:
+            # use cached roots if present
+            if isinstance(d, dict) and d.get('roots'):
+                for r in d['roots']:
+                    unique_roots.add(int(r))
+                continue
+
+            # fallback to s/p style degree-2 u(x) = x^2 - s*x + p
+            try:
+                s = int(d.get('s', 0)) if isinstance(d, dict) else int(d[0].list()[1]) if d[0].degree()==2 else None
+                pp = int(d.get('p', 0)) if isinstance(d, dict) else int(d[0].list()[0]) if d[0].degree()==2 else None
+            except Exception:
+                continue
+
+            if p:
+                disc = (s*s - 4*pp) % p
+                if disc == 0:
+                    unique_roots.add((s * pow(2, -1, p)) % p)
+                elif pow(disc, (p-1)//2, p) == 1:
+                    delta = GF(p)(disc).sqrt()
+                    inv2 = pow(2, -1, p)
+                    unique_roots.add(int((s + delta) * inv2))
+                    unique_roots.add(int((s - delta) * inv2))
+            else:
+                disc = QQ(s)**2 - 4*QQ(pp)
+                if disc >= 0 and disc.is_square():
+                    rt = disc.sqrt()
+                    unique_roots.add((s + rt) / 2)
+                    unique_roots.add((s - rt) / 2)
+
+        # ensure divisors
+        if ensure_divisors and p:
+            for div in ensure_divisors:
+                try:
+                    u_poly = div[0]
+                    if u_poly.degree() == 2:
+                        roots_data = u_poly.roots(GF(p))
+                        for r_val, _ in roots_data:
+                            unique_roots.add(int(r_val))
+                except Exception:
+                    continue
+
+        sorted_roots = sorted(list(unique_roots))
+        if verbose:
+            print(f"  [Factor Base] Extracted {len(sorted_roots)} unique x-coordinates (compat mode).")
+            if ensure_divisors:
+                print(f"  [Factor Base] Ensured {len(ensure_divisors)} critical divisors included.")
+        return sorted_roots
+
+    # --- canonical / projected mode (f_p provided) ---
+    # f_p must be a Sage polynomial over GF(p)
+    if f_p is None:
+        raise ValueError("f_p must be provided in canonical/projected mode")
+
+    K = GF(p)
+    R = f_p.parent()
+    roots_set = set()
+    unique_supports = set()
+    unique_divisors = []
+
+    def _roots_from_div_dict_or_pair(d):
+        """Return list of integer roots or None if malformed / not fully split."""
+        try:
+            if isinstance(d, dict) and 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+            elif isinstance(d, (list, tuple)) and len(d) >= 1:
+                u_poly = d[0]
+            else:
+                s = int(d.get('s', 0))
+                pp = int(d.get('p', 0))
+                x = R.gen()
+                u_poly = x**2 - K(int(s))*x + K(int(pp))
+        except Exception:
+            return None
+
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            return None
+
+        if sum(m for _, m in roots_data) != u_poly.degree():
+            return None
+
+        return [int(r) for r, _ in roots_data]
+
+    # collect supports and unique divisors (one per support)
+    for d in divisors:
+        try:
+            roots = _roots_from_div_dict_or_pair(d)
+        except Exception:
+            roots = None
+        if not roots:
+            continue
+        support = tuple(sorted(roots))
+        if support in unique_supports:
+            continue
+        unique_supports.add(support)
+        unique_divisors.append(d)
+        for r in roots:
+            roots_set.add(int(r))
+
+    # ensure given divisors (e.g., projected G/Q)
+    if ensure_divisors:
         for div in ensure_divisors:
-            u_poly = div[0]
-            if u_poly.degree() == 2:
-                roots_data = u_poly.roots(GF(p))
-                for r_val, _ in roots_data:
-                    unique_roots.add(int(r_val))
-    
-    sorted_roots = sorted(list(unique_roots))
+            try:
+                roots = _roots_from_div_dict_or_pair(div)
+            except Exception:
+                roots = None
+            if not roots:
+                continue
+            for r in roots:
+                roots_set.add(int(r))
+
+    # build canonical y cache
+    fb_y_cache = {}
+    for x_int in sorted(list(roots_set)):
+        try:
+            xk = K(x_int)
+            y2 = int(f_p(xk))
+        except Exception:
+            continue
+        if y2 == 0:
+            fb_y_cache[x_int] = 0
+            continue
+        if pow(y2, (p-1)//2, p) != 1:
+            # skip non-residue roots
+            continue
+        y_can = tonelli_shanks(y2, p)
+        fb_y_cache[x_int] = int(min(y_can, p - y_can))
+
+    roots_list = sorted(list(fb_y_cache.keys()))
+    root_to_idx = {r: i for i, r in enumerate(roots_list)}
+
     if verbose:
-        print(f"  [Factor Base] Extracted {len(sorted_roots)} unique x-coordinates.")
-        if ensure_divisors:
-            print(f"  [Factor Base] Ensured {len(ensure_divisors)} critical divisors included.")
-    
-    return sorted_roots
+        print(f"  [Factor Base] Extracted {len(roots_list)} unique x-coordinates (projected mode).")
+
+    return {
+        'roots': roots_list,
+        'root_to_idx': root_to_idx,
+        'unique_divisors': unique_divisors,
+        'fb_y_cache': fb_y_cache
+    }

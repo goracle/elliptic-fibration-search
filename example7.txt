@@ -108,3 +108,202 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Generated keypair:
+  Base point x-coord: 10598399
+  Base divisor G: (x + 22956068, y + 28527916)
+  Secret key d: 800
+  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
+  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
+Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+[mumford] Residue computation took 79.74s
+PRIME: 33554467
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
+  Harvesting initial solutions (capped)...
+  Initial harvest: 18009 unique smooth divisors from 460000 candidates.
+  Factor Base (Unique x): 6000
+  Starting structured random walk to improve Rank/FB ratio (capped mixing)...
+  Target reached: 18009 relations > 6000 FB + 480 buffer.
+  Final Status: 18009 relations, 4503 factor base elements.
+
+Mumford search reconstructed 18009 divisors
+  18009 divisors had rational roots in u(x)
+
+[Preferred Coordinates Hit Rate]
+  Target coordinates: 3
+  Found in Factor Base: 3 / 3 (100.0%)
+  Divisors containing target: 24 / 18009 (0.1%)
+
+============================================================
+ INDEX CALCULUS ATTACK DIAGNOSTIC
+============================================================
+ Target Field: GF(33554467)
+ Relations:    18009
+ Factor Base:  4503
+ Matrix Rank:  4503
+------------------------------------------------------------
+ SUCCESS: Matrix is full rank. Ready for Linear Algebra.
+============================================================
+
+Total time: 113.09s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 79.74s
+  mumford_reconstruction   : 5.40s
+  prep_mod_data            : 3.99s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+  [Factor Base] Extracted 4503 unique x-coordinates (projected mode).
+  [Setup] Curve: y^2 = x^5 + x + 2
+  [Phase 0] Attempting RR-Localization for target Q...
+  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
+Jacobian order factors: [2, 3, 466087]
+Targeting subgroup of prime order ell = 466087
+Projected G and Q to ell-torsion
+  Protected roots from projected G/Q: [4696581, 5322256]
+  [Factor Base] size: 9086 (projected into J[ell])
+Loaded 4544 factor base relations (projected)
+  Protected indices (locked): [1218, 1386]
+  ✓ All 2 protected roots survived
+
+[Matrix Diagnostics]
+  Relations (rows): 4544
+  Factor base (cols): 9086
+  All columns have entries
+  Matrix density: 0.0002
+  Avg entries per row: 2.00
+Attack failed: Q_ell is not FB-smooth in projected factor base
