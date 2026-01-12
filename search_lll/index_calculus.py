@@ -487,54 +487,6 @@ def solve_dlp_index_calculus(valid_rows, g_anchored, q_anchored, ell, verbose=Tr
 # COMBINED FIX: Degree-1 Support + Protected G/Q Injection
 # ============================================================================
 
-def get_relation_row(div, root_to_idx, f_poly, p):
-    """
-    Main process relation builder (non-cached).
-    Updated to handle degree-1 (weight 1) divisors for G/Q anchoring.
-    """
-    u = div[0]
-    v = div[1]
-    
-    # Allow degree 1 or 2 (Weight 1 or 2 divisors)
-    if u.degree() not in [1, 2]:
-        return None
-
-    try:
-        roots = u.roots(K)
-    except Exception:
-        raise
-
-    # Sum of multiplicities must match degree (full splitting)
-    if sum(mult for r, mult in roots) != u.degree():
-        return None
-
-    row = {}
-    for r_val, mult in roots:
-        r_int = int(r_val)
-        if r_int not in root_to_idx:
-            return None
-            
-        # Canonical Y check
-        y_val = int(v(r_val))
-        y2 = int(f_poly(r_val))
-        
-        if pow(y2, (p-1)//2, p) != 1:
-            return None
-            
-        y_can = tonelli_shanks(y2, p)
-        y_can = min(y_can, p - y_can)
-        
-        idx = root_to_idx[r_int]
-        
-        if y_val == y_can:
-            row[idx] = row.get(idx, 0) + mult
-        elif (p - y_val) % p == y_can:
-            row[idx] = row.get(idx, 0) - mult
-        else:
-            return None
-        
-    return row
-
 
 def get_relation_row_cached(divisor):
     """
@@ -616,63 +568,6 @@ def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
         return 1, row
     except Exception:
         raise
-
-
-def extract_factor_base(divisors, p, verbose=True):
-    """
-    Extract the factor base without support-based deduplication.
-    Updated to handle explicit 'roots' lists from forced G/Q injection.
-    """
-    all_roots = []
-    unique_divisors = []
-    seen_divs = set() 
-    
-    for d in divisors:
-        # Create hashable key - support both formats
-        if 'u_coeffs' in d:
-            key = (tuple(d['u_coeffs']), tuple(d['v_coeffs']))
-        else:
-            key = (int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1']))
-        
-        if key in seen_divs:
-            continue
-        seen_divs.add(key)
-        
-        roots = []
-        if 'roots' in d:
-            roots = d['roots']
-        else:
-            # Standard quadratic reconstruction
-            s = int(d['s']) % p
-            pp = int(d['p']) % p
-            disc = (s*s - 4*pp) % p
-            
-            if disc == 0:
-                r = (s * pow(2, -1, p)) % p
-                roots = [r, r]
-            elif pow(disc, (p-1)//2, p) == 1:
-                sqrt_disc = tonelli_shanks(disc, p)
-                r1 = (s + sqrt_disc) * pow(2, -1, p) % p
-                r2 = (s - sqrt_disc) * pow(2, -1, p) % p
-                roots = [r1, r2]
-        
-        if roots:
-            all_roots.extend(roots)
-            unique_divisors.append(d)
-    
-    unique_roots = sorted(list(set(all_roots)))
-    
-    if verbose:
-        print(f"\n[Factor Base Extraction]")
-        print(f"  Total unique divisors: {len(unique_divisors)}")
-        print(f"  Distinct x-coordinates: {len(unique_roots)}")
-    
-    return {
-        'roots': unique_roots,
-        'size': len(unique_roots),
-        'unique_divisors': unique_divisors,
-        'root_to_idx': {r: i for i, r in enumerate(unique_roots)}
-    }
 
 
 def canonicalize_divisor_to_factor_base(divisor, r_to_idx, f_p, p):
@@ -872,15 +767,22 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         we raise immediately (anchoring/random self-reduction is disabled).
       - G must also be FB-smooth (we refuse to attempt expensive anchoring).
     """
+    # ----------------------------
     # Input validation
+    # ----------------------------
     if G is None or Q is None:
         raise ValueError("Generator G and target Q must be provided")
+
     if order is None or int(order) <= 0:
         raise ValueError("Invalid Jacobian order provided")
 
+    # ----------------------------
+    # Pick ell
+    # ----------------------------
     factors = prime_factors(order)
     if not factors:
         raise ValueError("Failed to factor Jacobian order")
+
     ell = max(factors)
     if ell <= 1:
         raise ValueError("No non-trivial prime factor found")
@@ -889,106 +791,154 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         print(f"Jacobian order factors: {factors}")
         print(f"Targeting subgroup of prime order ell = {ell}")
 
-    # Project to ell-torsion
-    cofactor = Integer(order) // Integer(ell)
-    if cofactor == 0:
-        raise ValueError("Computed cofactor is zero")
-    G_ell = cofactor * G
-    Q_ell = cofactor * Q
-    J0 = G.parent().zero()
-    if G_ell == J0:
-        raise ValueError("G projects to identity in ell-torsion")
-    if verbose:
-        print("Projected to ell-torsion")
-
-    # BSGS fallback for small ell
-    BSGS_THRESHOLD = 10**6
-    if ell < BSGS_THRESHOLD and not force_index_calculus:
-        if verbose:
-            print(f"\n[Strategy] Subgroup size {ell} < {BSGS_THRESHOLD}")
-            print(f"[Strategy] Using BSGS")
-        d_log = dlp_bsgs(G_ell, Q_ell, ell)
-        if Integer(d_log) * G_ell != Q_ell:
-            raise RuntimeError("BSGS discrete log failed verification")
-        if verbose:
-            print(f"✓ Discrete log found via BSGS: {d_log}")
-        return Integer(d_log)
-
-    # Index Calculus path
-    if verbose:
-        if force_index_calculus:
-            print(f"\n[Strategy] FORCING Index Calculus (testing factor base)")
-        else:
-            print(f"\n[Strategy] Subgroup size {ell} >= {BSGS_THRESHOLD}")
-        print(f"[Strategy] Using Index Calculus")
-
-    # Build polynomial f_p (main process)
+    # ----------------------------
+    # Polynomial and curve objects
+    # ----------------------------
     K = GF(p)
     R = PolynomialRing(K, 'x')
     f_p = sage_poly_from_coeffs(f_coeffs, R)
-    if verbose:
-        print("f_p =", f_p)
 
-    # Extract protected roots from G and Q (their u-polynomial roots)
-    protected_roots = set()
-    for div, name in [(G, 'G'), (Q, 'Q')]:
-        roots = _u_poly_roots_in_fp(div, p)
-        if roots is None:
-            if verbose:
-                print(f"  WARNING: {name}.u(x) does not split completely over GF({p})")
-            # We choose to fail hard here (no anchoring)
-            raise RuntimeError(f"{name} is not split into linear factors over GF({p})")
-        protected_roots.update(roots)
-    if verbose:
-        print(f"  Protected roots from G/Q: {sorted(list(protected_roots))}")
+    # Reconstruct curve and Jacobian for projection operations
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+    J0 = J.zero()
 
-    # Prepare extended divisor list: prefer to include G and Q (as dicts) first
+    # ----------------------------
+    # Project to ell-torsion (cofactor)
+    # ----------------------------
+    cofactor = Integer(order) // Integer(ell)
+    if cofactor == 0:
+        raise ValueError("Computed cofactor is zero")
+
+    # Project the provided generator/target into ell-torsion
+    try:
+        G_ell = cofactor * G
+        Q_ell = cofactor * Q
+    except Exception as e:
+        raise RuntimeError(f"Failed to project G/Q to ell-torsion: {e}")
+
+    if G_ell == J0:
+        raise ValueError("G projects to identity in ell-torsion")
+
+    if verbose:
+        print("Projected G and Q to ell-torsion")
+
+    # ----------------------------
+    # Build helper to project arbitrary smooth-div dicts
+    # ----------------------------
+    def _project_div_dict_to_ell(div_dict):
+        """
+        Take a divisor dict (from worker), rebuild Jacobian element, multiply by cofactor,
+        and return a new dict representing the projected divisor.
+        """
+        try:
+            J_elem = _dict_to_jacobian(div_dict, J, R, p)
+        except Exception as e:
+            raise RuntimeError(f"_project_div_dict_to_ell: failed to reconstruct Jacobian element: {e}")
+
+        try:
+            J_proj = cofactor * J_elem
+        except Exception as e:
+            raise RuntimeError(f"_project_div_dict_to_ell: failed to multiply divisor by cofactor: {e}")
+
+        if J_proj == J0:
+            # Projection collapsed to identity: not usable as FB element
+            # Caller can choose to drop it; here we raise so the caller can handle it explicitly
+            raise RuntimeError("Projected divisor collapsed to identity in ell-torsion")
+
+        return _jacobian_to_dict(J_proj, p)
+
+    # ----------------------------
+    # Build extended_divs: include projected G,Q first, then project every smooth_div
+    # ----------------------------
     extended_divs = []
-    for div, name in [(G, 'G'), (Q, 'Q')]:
-        div_dict = divisor_to_dict(div, p)
-        if div_dict:
-            extended_divs.append(div_dict)
-            if verbose:
-                print(f"  Added {name} to smooth divisor list (B-smooth!)")
-        else:
-            # divisor_to_dict failed (shouldn't happen because we already checked u splits)
-            raise RuntimeError(f"Failed to convert {name} to dict representation")
+    try:
+        extended_divs.append(_jacobian_to_dict(G_ell, p))
+        extended_divs.append(_jacobian_to_dict(Q_ell, p))
+    except Exception as e:
+        raise RuntimeError(f"Failed to convert projected G/Q to dicts: {e}")
 
-    extended_divs.extend(smooth_divs)
+    # Project every worker-supplied smooth_div into ell-torsion
+    for d in smooth_divs:
+        try:
+            d_proj = _project_div_dict_to_ell(d)
+            extended_divs.append(d_proj)
+        except RuntimeError:
+            # If a particular divisor fails to project (e.g. becomes identity),
+            # we skip it but continue — don't silently swallow other errors.
+            # In practice projection-to-identity is rare; but if it happens often,
+            # you'll see fewer relations and should increase sampling.
+            continue
 
-    # Extract factor base and root->index mapping
-    fb_data = extract_factor_base(extended_divs, p, verbose=False)
+    # ----------------------------
+    # Factor base (use projected divisors)
+    # ----------------------------
+    #fb_data = extract_factor_base(extended_divs, p, verbose=False)
+    fb_data = extract_factor_base(extended_divs, p, f_p, verbose=False)
     roots = fb_data['roots']
     r_to_idx = fb_data['root_to_idx']
-    unique_divs = fb_data.get('unique_divisors', [])
+    fb_y_cache = fb_data['fb_y_cache']
+    unique_divs = fb_data.get('unique_divisors', extended_divs)
+
+    #roots = sorted(list(fb_data['roots']))
     if not roots:
-        raise RuntimeError("Empty factor base")
-    if verbose:
-        print(f"  [Factor Base] size: {len(roots)}")
+        raise RuntimeError("Empty factor base after projection")
 
-    # Ensure protected roots are in the factor base
-    missing_protected = protected_roots - set(roots)
-    if missing_protected:
-        raise RuntimeError(f"Protected roots missing from FB: {sorted(list(missing_protected))}")
-    if verbose:
-        print(f"  ✓ Protected roots in factor base: {len(protected_roots & set(roots))}/{len(protected_roots)}")
+    #r_to_idx = {r: i for i, r in enumerate(roots)}
+    #unique_divs = fb_data.get('unique_divisors', extended_divs)
 
-    # Build relation rows from unique_divs
+    # -------------------------------------------------
+    # Recompute protected roots from projected G and Q
+    # -------------------------------------------------
+    def _roots_from_div_dict(d):
+        if 'u_coeffs' not in d:
+            return []
+        try:
+            u = R(d['u_coeffs'])
+            return [int(r) for r, _ in u.roots(K)]
+        except Exception:
+            return []
+
+    protected_roots = set()
+    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(G_ell, p)))
+    protected_roots.update(_roots_from_div_dict(_jacobian_to_dict(Q_ell, p)))
+
+    if verbose:
+        print(f"  Protected roots from projected G/Q: {sorted(protected_roots)}")
+
+
+    if verbose:
+        print(f"  [Factor Base] size: {len(roots)} (projected into J[ell])")
+
+    # ----------------------------
+    # Relation matrix (use deduplicated, projected divisors only)
+    # ----------------------------
     valid_rows = []
     for d in unique_divs:
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
+        # Reconstruct polynomials for the (projected) divisor dict
+        if 'u_coeffs' in d and 'v_coeffs' in d:
+            try:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            except Exception as e:
+                # Skip malformed projected divisor
+                continue
         else:
+            # Fallback (shouldn't happen for projected dicts we just wrote)
             u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
             v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+
+        #row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
         if row:
             valid_rows.append({int(k): int(v) for k, v in row.items()})
+
     if not valid_rows:
-        raise RuntimeError("No valid relations from smooth_divs")
+        raise RuntimeError("No valid relations from projected smooth_divs")
+
     if verbose:
-        print(f"Loaded {len(valid_rows)} factor base relations")
+        print(f"Loaded {len(valid_rows)} factor base relations (projected)")
+
 
     # Prune factor base preserving protected indices (Phase 1 + Phase 2 same as before)
     protected_indices = {r_to_idx[r] for r in protected_roots if r in r_to_idx}
@@ -1016,7 +966,7 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
             else:
                 u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
                 v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
             if row:
                 new_valid_rows.append({int(k): int(v) for k, v in row.items()})
         valid_rows = new_valid_rows
@@ -1059,7 +1009,7 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
             else:
                 u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
                 v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p)
+            row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
             if row:
                 new_valid_rows.append({int(k): int(v) for k, v in row.items()})
         valid_rows = new_valid_rows
@@ -1097,9 +1047,9 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
     # PROPER Q-SMOOTH CHECK (GENUS 2)
     # -----------------------------
     fb_roots_set = set(roots)
-    if not is_divisor_fb_smooth_by_u(Q, fb_roots_set, p):
+    if not is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
         raise RuntimeError("Q is not FB-smooth: u(x) has factors outside the factor base")
-    if not is_divisor_fb_smooth_by_u(G, fb_roots_set, p):
+    if not is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
         raise RuntimeError("G is not FB-smooth: u(x) has factors outside the factor base")
     if verbose:
         print(f"  ✓ Q and G pass FB-smooth test (u(x) roots in factor base)")
@@ -1156,55 +1106,331 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
     return Integer(d_log)
 
 
-def is_divisor_fb_smooth(div, r_to_idx, f_p, p):
+# --- helpers for converting between dict <-> Jacobian element and projecting ---
+def _dict_to_jacobian(d, J, R, p):
     """
-    Check if a divisor is actually expressible over the factor base.
-    
-    For genus-2, this requires THREE conditions:
-    1. u(x) splits completely into linear factors over GF(p)
-    2. All x-roots lie in the factor base
-    3. The y-coordinates are compatible (can build valid signed row)
-    
-    Returns True only if ALL three conditions hold.
+    Build a Jacobian point J_elem = J([u_poly, v_poly]) from a divisor dict `d`.
+    Accepts dicts produced by the worker or by keypair serialization.
+    Raises on malformed input.
+    """
+    K = GF(p)
+    x = R.gen()
+
+    # Prefer explicit coefficients if present
+    if 'u_coeffs' in d and 'v_coeffs' in d:
+        try:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        except Exception as e:
+            raise RuntimeError(f"_dict_to_jacobian: failed to build polys from coeffs: {e}")
+    else:
+        # Fallback to (s,p,v0,v1) entries for degree-2
+        try:
+            s = int(d['s'])
+            pp = int(d['p'])
+            v0 = int(d.get('v_0', 0))
+            v1 = int(d.get('v_1', 0))
+        except Exception as e:
+            raise RuntimeError(f"_dict_to_jacobian: missing keys in divisor dict: {e}")
+
+        # Build u(x) = x^2 - s*x + p  (Mumford convention used elsewhere)
+        u_poly = x**2 - K(int(s)) * x + K(int(pp))
+        v_poly = K(int(v1)) * x + K(int(v0))
+
+    try:
+        J_elem = J([u_poly, v_poly])
+    except Exception as e:
+        raise RuntimeError(f"_dict_to_jacobian: failed to create Jacobian element: {e}")
+
+    return J_elem
+
+
+def _jacobian_to_dict(J_elem, p):
+    """
+    Convert a Jacobian point J_elem to the standard dict format used by the rest of the pipeline.
+    This includes 'u_coeffs', 'v_coeffs' and canonical s,p,v_0,v_1 for degree-2.
+    """
+    u_poly = J_elem[0]
+    v_poly = J_elem[1]
+
+    u_coeffs = [int(c) for c in u_poly.list()]
+    v_coeffs = [int(c) for c in v_poly.list()]
+
+    deg = u_poly.degree()
+    res = {
+        'u_coeffs': u_coeffs,
+        'v_coeffs': v_coeffs,
+        'origin': 'projected'  # helpful diagnostics
+    }
+
+    if deg == 2:
+        # Mumford u = x^2 - s*x + p  -> s = -coeff[1], p = coeff[0]
+        coeffs_u = u_coeffs
+        res['s'] = int(-coeffs_u[1]) if len(coeffs_u) > 1 else 0
+        res['p'] = int(coeffs_u[0]) if len(coeffs_u) > 0 else 0
+        coeffs_v = v_coeffs
+        res['v_1'] = int(coeffs_v[1]) if len(coeffs_v) > 1 else 0
+        res['v_0'] = int(coeffs_v[0]) if len(coeffs_v) > 0 else 0
+    else:
+        # degree 1 or 0: put sentinel values to keep compatibility
+        res['s'] = 0
+        res['p'] = 0
+        res['v_1'] = 0
+        res['v_0'] = 0
+
+    # Optionally compute and store explicit roots if convenient (not required)
+    try:
+        K = GF(p)
+        roots_data = u_poly.roots(K)
+        if sum(m for _, m in roots_data) == u_poly.degree():
+            res['roots'] = [int(r) for r, _ in roots_data]
+    except Exception:
+        # If root extraction fails, that's fine — caller can still use u_coeffs/v_coeffs
+        pass
+
+    return res
+
+
+def extract_factor_base(divisors, p, f_p, verbose=False, ensure_divisors=None):
+    """
+    Build a factor base from *projected* divisors (i.e. divisors already moved into J[ell]).
+    Returns a dict:
+      {
+        'roots': sorted list of distinct x-roots (ints),
+        'root_to_idx': { x_int -> column index },
+        'unique_divisors': list of one-divisor-per-support (input-format dicts),
+        'fb_y_cache': { x_int -> canonical_y_int }
+      }
+
+    NOTE: requires f_p to compute canonical sqrt(f(x)) for sign handling.
+    """
+    if f_p is None:
+        raise ValueError("extract_factor_base requires f_p polynomial (sage polynomial over GF(p))")
+
+    K = GF(p)
+    R = f_p.parent()        # polynomial ring
+    roots_set = set()
+    unique_supports = set()
+    unique_divisors = []
+
+    # Helper to extract integer roots from a divisor dict or (u,v) pair
+    def _roots_from_div_dict(d):
+        # prefer explicit u_coeffs if present
+        try:
+            if 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+            else:
+                # fallback to s/p style
+                s = int(d['s'])
+                pp = int(d['p'])
+                x = R.gen()
+                u_poly = x**2 - K(int(s))*x + K(int(pp))
+        except Exception as e:
+            raise RuntimeError(f"extract_factor_base: failed to rebuild u_poly: {e}")
+
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            return None
+
+        # require complete split for counting roots
+        if sum(m for _, m in roots_data) != u_poly.degree():
+            return None
+
+        return [int(r) for r, _ in roots_data]
+
+    # Collect roots and build unique divisor list (one per support)
+    for d in divisors:
+        try:
+            roots = _roots_from_div_dict(d)
+        except Exception:
+            # skip malformed entries
+            continue
+
+        if not roots:
+            continue
+
+        support = tuple(sorted(roots))
+        if support in unique_supports:
+            continue
+        unique_supports.add(support)
+        unique_divisors.append(d)
+
+        for r in roots:
+            roots_set.add(int(r))
+
+    # Optionally ensure some divisors are present (e.g., G/Q projected)
+    if ensure_divisors:
+        for div in ensure_divisors:
+            try:
+                roots = _roots_from_div_dict(div)
+            except Exception:
+                roots = None
+            if not roots:
+                continue
+            for r in roots:
+                roots_set.add(int(r))
+
+    # Build canonical y-cache for each root using f_p
+    fb_y_cache = {}
+    for x_int in sorted(list(roots_set)):
+        try:
+            xk = K(x_int)
+            y2 = int(f_p(xk))
+        except Exception:
+            # Shouldn't happen; skip this root
+            continue
+
+        if y2 == 0:
+            # We can record 0; canonicalization will treat this specially
+            fb_y_cache[x_int] = 0
+            continue
+
+        # Must be a quadratic residue for valid FB (otherwise root shouldn't be here)
+        if pow(y2, (p-1)//2, p) != 1:
+            # skip root that does not give square f(x)
+            continue
+
+        y_can = tonelli_shanks(y2, p)
+        fb_y_cache[x_int] = int(min(y_can, p - y_can))
+
+    roots_list = sorted(list(fb_y_cache.keys()))
+
+    root_to_idx = {r: i for i, r in enumerate(roots_list)}
+
+    if verbose:
+        print(f"  [Factor Base] Extracted {len(roots_list)} unique x-coordinates (from projected divisors).")
+
+    return {
+        'roots': roots_list,
+        'root_to_idx': root_to_idx,
+        'unique_divisors': unique_divisors,
+        'fb_y_cache': fb_y_cache
+    }
+
+
+def get_relation_row(div, root_to_idx, f_poly, p, fb_y_cache=None):
+    """
+    Given a Mumford divisor (u,v) in projected form (already in J[ell]), return
+    a signed row dict mapping factor base column -> multiplicity (signed).
+    Returns None if divisor is not smooth over the provided factor base.
+
+    Arguments:
+      div         : tuple/list-like [u_poly, v_poly] (sage polynomials over GF(p))
+      root_to_idx : mapping x_int -> column index (from extract_factor_base)
+      f_poly      : polynomial f(x) over GF(p) used to compute canonical sqrt
+      p           : prime modulus (int)
+      fb_y_cache  : optional dict x_int -> canonical_y to speed sign checks
+    """
+    K = GF(p)
+    R = f_poly.parent()
+    u_poly, v_poly = div[0], div[1]
+
+    # Only degree 1 or 2 allowed for relations
+    if u_poly.degree() not in (1, 2):
+        return None
+
+    try:
+        roots_data = u_poly.roots(K)
+    except Exception:
+        return None
+
+    if sum(m for _, m in roots_data) != u_poly.degree():
+        return None
+
+    row = {}
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        if x_int not in root_to_idx:
+            return None
+
+        # evaluate v(x) at the root (gives an integer mod p)
+        try:
+            y_val = int(v_poly(x_elem))
+        except Exception:
+            return None
+
+        # compute canonical sqrt of f(x)
+        if fb_y_cache is not None and x_int in fb_y_cache:
+            y_can = fb_y_cache[x_int]
+            # fb_y_cache may contain 0 for y^2 == 0
+            if y_can == 0:
+                # special-case: if y2==0 then y_val must be 0
+                if y_val != 0:
+                    return None
+                # multiplicity sign irrelevant: treat as +mult
+                row[root_to_idx[x_int]] = row.get(root_to_idx[x_int], 0) + int(mult)
+                continue
+        else:
+            y2 = int(f_poly(x_elem))
+            if pow(y2, (p-1)//2, p) != 1:
+                return None
+            y_can = tonelli_shanks(y2, p)
+            y_can = int(min(y_can, p - y_can))
+
+        idx = root_to_idx[x_int]
+
+        # compare v(x) against canonical root with sign
+        if y_val == y_can:
+            row[idx] = row.get(idx, 0) + int(mult)
+        elif (p - y_val) % p == y_can:
+            row[idx] = row.get(idx, 0) - int(mult)
+        else:
+            # y-value doesn't match expected square root (incompatible)
+            return None
+
+    return row
+
+
+def is_divisor_fb_smooth(div, r_to_idx, f_p, p, fb_y_cache=None):
+    """
+    True iff `div` (Mumford (u,v) over GF(p)) splits into degree-1 factors
+    and each root is present in r_to_idx and has compatible y sign.
     """
     K = GF(p)
     u_poly = div[0]
     v_poly = div[1]
-    
-    # Condition 1: u(x) must split completely
-    if u_poly.degree() not in [1, 2]:
+
+    # degree check
+    if u_poly.degree() not in (1, 2):
         return False
-    
+
     try:
         roots_data = u_poly.roots(K)
     except Exception:
         return False
-    
+
     if sum(m for _, m in roots_data) != u_poly.degree():
         return False
-    
-    # Condition 2: All x-roots must be in factor base
-    for x_elem, _ in roots_data:
+
+    # check presence in FB and sign compatibility
+    for x_elem, mult in roots_data:
         x_int = int(x_elem)
         if x_int not in r_to_idx:
             return False
-    
-    # Condition 3: y-coordinates must be compatible
-    # This is the critical check that your old version was missing
-    for x_elem, mult in roots_data:
-        x_int = int(x_elem)
-        
-        y_val = int(v_poly(x_elem))
-        y2 = int(f_p(x_elem))
-        
-        if pow(y2, (p-1)//2, p) != 1:
+
+        # evaluate v(x)
+        try:
+            y_val = int(v_poly(x_elem))
+        except Exception:
             return False
-        
-        y_can = tonelli_shanks(y2, p)
-        y_can = min(y_can, p - y_can)
-        
-        # Check if v(x) matches canonical square root (with sign)
+
+        # canonical sqrt
+        if fb_y_cache is not None and x_int in fb_y_cache:
+            y_can = fb_y_cache[x_int]
+            if y_can == 0:
+                if y_val != 0:
+                    return False
+                else:
+                    continue
+        else:
+            y2 = int(f_p(x_elem))
+            if pow(y2, (p-1)//2, p) != 1:
+                return False
+            y_can = tonelli_shanks(y2, p)
+            y_can = int(min(y_can, p - y_can))
+
         if y_val != y_can and (p - y_val) % p != y_can:
             return False
-    
+
     return True
