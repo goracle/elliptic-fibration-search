@@ -234,8 +234,8 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     
     # --- SAFETY CLAMP ---
     # Even if called with 20 workers, we force it down to 6 to prevent OOM
-    if num_workers > 6:
-        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 6 to prevent memory exhaustion.")
+    if num_workers > 16:
+        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
         num_workers = 16
     # --------------------
 

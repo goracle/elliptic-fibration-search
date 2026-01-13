@@ -11,54 +11,9 @@ import multiprocessing, time, traceback
 from functools import lru_cache
 from functools import reduce
 from operator import mul
-
-
-import search_common
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
 from search_common import MAX_MODULUS, PRIME_POOL, USE_CONSENSUS_FILTER
-
-# ==============================================================================
-# === High-Level Integration Function ==========================================
-# ==============================================================================
-
-
-# ==============================================================================
-# === Core Heuristics ==========================================================
-# ==============================================================================
-
-
-# ==============================================================================
-# === Utility and Helper Functions =============================================
-# ==============================================================================
-
-
-# ---- paste this into bounds.py, replacing the old functions ----
-# ---- end replacement ----
-
-
-# Add these functions to bounds.py or search_lll.py
-
-
-# Add these functions to bounds.py or search_lll.py
-
-
-# ==== safe subprocess-based splitting-field helper ====
-
-
-# === Replace recommend_and_update_prime_pool ===
-
-
-# === Better canonical-height estimate from x-height ===
-
-
-# === Automatic choice of small primes for Galois signature testing ===
-
-
-# === Dynamic estimate for tmax ===
-
-
-# === Recommend subset strategy but do not pick magic numbers ===
 
 
 def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
@@ -1680,7 +1635,7 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
     if hasattr(search_common, 'is_good_prime_for_surface'):
         for p in filtered_pool:
             try:
-                if search_common.is_good_prime_for_surface(cd, p):
+                if is_good_prime_for_surface(cd, p):
                     final_pool.append(p)
                 elif debug:
                     print(f"[bounds] is_good_prime_for_surface rejected {p}")
@@ -1694,7 +1649,7 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
     new_pool = sorted(list(set(final_pool)))
     if update_search_common:
-        search_common.PRIME_POOL = new_pool
+        pass
         if debug:
             print("[bounds] Updated search_common.PRIME_POOL (explicit).")
 

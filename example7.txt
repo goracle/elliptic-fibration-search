@@ -1,10 +1,7 @@
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
 
 ======================================================================
 FINITE FIELD MODE: GF(33554467)
@@ -15,11 +12,11 @@ Goal: Solve HECC DLP via index calculus on Jacobian
 --- Searching for y=0 points ---
 hyperelliptic curve: y^2 = x^5 + x + 2
 Found 1 points where y=0: [(33554466, 0)]
-known_pts start: {(10598399, 5026551), (33554466, 0)}
+known_pts start: {(3831755, 15121190), (33554466, 0)}
 
 ======================================================================
-Constructing new fibration using: ((10598399, 5026551),)
-Known pts so far: [(10598399, 5026551), (33554466, 0)]
+Constructing new fibration using: ((3831755, 15121190),)
+Known pts so far: [(3831755, 15121190), (33554466, 0)]
 ======================================================================
 
 shifted G poly1: x^5 + x + 2
@@ -39,14 +36,15 @@ Skipping singular fiber analysis over finite field
 === Auto-configuring search parameters for this fibration ===
 [auto_cfg] Building height estimation from 2 known x-coords.
 [auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
+[auto_cfg] Pool recommendation error: name 'search_common' is not defined
 [auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
-[galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 6)]
+[galois] poly.galois_group() took 0.12s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=3, patterns_sample=[(1, 1, 1, 3)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
-[residue_counts] sample: [(33554467, 1)]
-[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 1.0}
+[residue_counts] sample: [(33554467, 3)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 3.0}
 [auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
 
 [auto_cfg] Applied adaptive parameters:
@@ -58,18 +56,18 @@ Skipping singular fiber analysis over finite field
 [auto_cfg summary] height_bound=1809, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
 [prime_pool] Final pool has 1 primes up to 33554467
 === Fibration Summary ===
-Data points: ((10598399, 5026551),)
-Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 14116939)*x^4 + (m^2 + 15876209*m + 501430)*x^3 + (1759270*m^2 + 601716*m + 1272890)*x^2 + (150429*m^2 + 1018312*m + 22231586)*x + y^2 + 127289*m^2 + 29025315*m + 7303595
-Defining polynomial f: (2*m + 14116939)*x^4 + (m^2 + 15876209*m + 501430)*x^3 + (1759270*m^2 + 601716*m + 1272890)*x^2 + (150429*m^2 + 1018312*m + 22231586)*x + y^2 + 127289*m^2 + 29025315*m + 7303595
-Discriminant of f: (33554459*m + 10641178)*x^4 + (33554463*m^2 + 3604098*m + 31548747)*x^3 + (26517387*m^2 + 31147603*m + 28462907)*x^2 + (32952751*m^2 + 29481219*m + 11737057)*x + 33045311*m^2 + 18116608*m + 4340087
-Weierstrass discriminant: 1968993*m^8 + 7463187*m^6 + 20360233*m^5 + 23692928*m^4 + 6961674*m^3 + 24135973*m^2 + 9955696*m + 16836313
+Data points: ((3831755, 15121190),)
+Genus 1 quartic: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 14395692)*x^4 + (m^2 + 2900427*m + 21410025)*x^3 + (22059202*m^2 + 25692030*m + 17113765)*x^2 + (23200241*m^2 + 13691012*m + 21120363)*x + y^2 + 18488610*m^2 + 15159039*m + 22620557
+Defining polynomial f: (2*m + 14395692)*x^4 + (m^2 + 2900427*m + 21410025)*x^3 + (22059202*m^2 + 25692030*m + 17113765)*x^2 + (23200241*m^2 + 13691012*m + 21120363)*x + y^2 + 18488610*m^2 + 15159039*m + 22620557
+Discriminant of f: (33554459*m + 9526166)*x^4 + (33554463*m^2 + 21952759*m + 15023301)*x^3 + (12426593*m^2 + 31449748*m + 32208341)*x^2 + (7862437*m^2 + 12344886*m + 16181949)*x + 26708961*m^2 + 6472778*m + 10181173
+Weierstrass discriminant: 28583162*m^8 + 24602989*m^6 + 11297833*m^5 + 1822379*m^4 + 28259185*m^3 + 20975355*m^2 + 9607126*m + 8134267
 Weierstrass model coefficients:
-  a4(m): 11322879*m^2 + 26358432*m + 3794503
-  a6(m): 3294804*m^4 + 13784562*m^2 + 25401320*m + 20549852
-P1: (10598399, 5026551)
+  a4(m): 12434102*m^2 + 17461919*m + 28366442
+  a6(m): 14765665*m^4 + 25170873*m^2 + 6976749*m + 26267569
+P1: (3831755, 15121190)
 
 --- Geometric Validation ---
-Delta: 1968993*m^8 + 7463187*m^6 + 20360233*m^5 + 23692928*m^4 + 6961674*m^3 + 24135973*m^2 + 9955696*m + 16836313
+Delta: 28583162*m^8 + 24602989*m^6 + 11297833*m^5 + 1822379*m^4 + 28259185*m^3 + 20975355*m^2 + 9607126*m + 8134267
   Effective Discriminant Degree: 8
   Weierstrass scaling exponent (n) used: 0
   ⚠ NOTICE: Discriminant degree is 8, not 12.
@@ -78,12 +76,11 @@ Delta: 1968993*m^8 + 7463187*m^6 + 20360233*m^5 + 23692928*m^4 + 6961674*m^3 + 2
 =========================
 
 --- Searching for CM Fibers ---
-Found roots for a6(m)=0 (potential j=0): [-18489545]
+Found roots for a4(m)=0 (potential j=1728): [-3778567]
+Found roots for a4(m)=0 (potential j=1728): [-12021678]
 
 --- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
-Testing special m-values from fibers: {-18489545}
-Found rational point from fiber m=15064922: (x,y) = (29087944, 9702574)
-Points found from special fibers: {29087944}
+Testing special m-values from fibers: {-3778567, -12021678}
 --- Finite-field mode: skipping LLL (no height lattice) ---
 
 --- Search Iteration 0 with 1 sections ---
@@ -104,123 +101,75 @@ Building 5-equation Mumford system from fibration...
 [FF MODE] Forcing search to single prime: 33554467
 
 [prepare_modular_data_lll] Rejected 0 primes:
-[mumford] NOTICE: Reducing workers from 20 to 6 to prevent memory exhaustion.
+[mumford] NOTICE: Reducing workers from 20 to 16 to prevent memory exhaustion.
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-Generated keypair:
-  Base point x-coord: 10598399
-  Base divisor G: (x + 22956068, y + 28527916)
-  Secret key d: 800
-  Target Q = [d]G: (x^2 + 3542942*x + 33070069, y + 1388631*x + 14627005)
-  Preferred x-values for smoothness: [10598399, 11176552, 18834973]
-Initialized PREFERRED_X_COORDS: {11176552, 18834973, 10598399}
-[mumford] Residue computation took 79.74s
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+[mumford] Residue computation took 72.83s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -229,38 +178,42 @@ availability_rate: 0.0 activation_rate: 0.0
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
   Harvesting initial solutions (capped)...
-  Initial harvest: 18009 unique smooth divisors from 460000 candidates.
+  Initial harvest: 18021 unique smooth divisors from 350000 candidates.
   Factor Base (Unique x): 6000
   Starting structured random walk to improve Rank/FB ratio (capped mixing)...
-  Target reached: 18009 relations > 6000 FB + 480 buffer.
-  Final Status: 18009 relations, 4503 factor base elements.
+  Target reached: 18021 relations > 6000 FB + 480 buffer.
+  Final Status: 18021 relations, 4505 factor base elements.
 
-Mumford search reconstructed 18009 divisors
-  18009 divisors had rational roots in u(x)
+Mumford search reconstructed 18021 divisors
+  18021 divisors had rational roots in u(x)
 
 [Preferred Coordinates Hit Rate]
-  Target coordinates: 3
-  Found in Factor Base: 3 / 3 (100.0%)
-  Divisors containing target: 24 / 18009 (0.1%)
+  Target coordinates: 4
+  Found in Factor Base: 4 / 4 (100.0%)
+  Divisors containing target: 32 / 18021 (0.2%)
 
 ============================================================
  INDEX CALCULUS ATTACK DIAGNOSTIC
 ============================================================
  Target Field: GF(33554467)
- Relations:    18009
- Factor Base:  4503
- Matrix Rank:  4503
+ Relations:    18021
+ Factor Base:  4505
+ Matrix Rank:  4505
+------------------------------------------------------------
+ [OK] Generator G is smooth over factor base
+ [OK] Target Q is smooth over factor base
 ------------------------------------------------------------
  SUCCESS: Matrix is full rank. Ready for Linear Algebra.
+          Both G and Q are expressible over factor base.
 ============================================================
 
-Total time: 113.09s
+Total time: 105.32s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 79.74s
-  mumford_reconstruction   : 5.40s
-  prep_mod_data            : 3.99s
+  mumford_residues         : 72.83s
+  mumford_reconstruction   : 4.21s
+  prep_mod_data            : 3.96s
   mumford_setup            : 0.00s
 
 Counters:
@@ -287,23 +240,15 @@ Successes: 0, Failures: 0
 Discard Reasons (Top 5):
   (None)
 --------------------------------
-  [Factor Base] Extracted 4503 unique x-coordinates (projected mode).
+  [Factor Base] Extracted 4505 unique x-coordinates (projected mode).
   [Setup] Curve: y^2 = x^5 + x + 2
   [Phase 0] Attempting RR-Localization for target Q...
   [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
-Jacobian order factors: [2, 3, 466087]
-Targeting subgroup of prime order ell = 466087
-Projected G and Q to ell-torsion
-  Protected roots from projected G/Q: [4696581, 5322256]
-  [Factor Base] size: 9086 (projected into J[ell])
-Loaded 4544 factor base relations (projected)
-  Protected indices (locked): [1218, 1386]
-  ✓ All 2 protected roots survived
-
-[Matrix Diagnostics]
-  Relations (rows): 4544
-  Factor base (cols): 9086
-  All columns have entries
-  Matrix density: 0.0002
-  Avg entries per row: 2.00
-Attack failed: Q_ell is not FB-smooth in projected factor base
+  Factor base size: 4505
+Loaded 18021 relation rows with scalars.
+  [Smoothing] Generator G_ell is already smooth.
+  [Smoothing] Target Q_ell is already smooth.
+  [Matrix] System size: 18022 rows x 4505 cols
+  [Solver] Modulus: 972045913
+  [Solver] Using Hensel lifting for p^k = 972045913^1
+    [Hensel] Step 1/1 (mod 972045913^1)

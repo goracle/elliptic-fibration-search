@@ -942,7 +942,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
         all_known_x.update(newly_found_x)
 
-        if len(all_known_x) >= TERMINATE_WHEN_6 or FINITE_FIELD:
+        if len(all_known_x) >= TERMINATE_WHEN_6 and not FINITE_FIELD:
             break
 
         if not new_sections:

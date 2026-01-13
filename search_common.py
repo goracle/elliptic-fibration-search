@@ -3,137 +3,27 @@ import sys
 import os
 import subprocess
 import warnings
-#from collections import namedtuple
 from typing import NamedTuple
 from functools import lru_cache
 import itertools
 import multiprocessing
 from multiprocessing import TimeoutError
-# Sage imports (explicit, minimal)
 from sage.all import (
     QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor,
-    Curve, Jacobian, EllipticCurve, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
-    is_prime, Integer, log, next_prime, HyperellipticCurve
+    Curve, Jacobian, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
+    is_prime, Integer, log, next_prime, HyperellipticCurve, sage_eval,
+    PolynomialRing, EllipticCurve, set_random_seed
 )
 from math import gcd, log
-
-
-def get_random_x_on_hyperelliptic(coeffs, p):
-    """
-    Finds a random x-coordinate such that f(x) is a quadratic residue mod p.
-    Assumes coeffs are [a_n, ..., a_0].
-    """
-    Fp = GF(p)
-    # We use a loop with a high safety limit
-    for _ in range(1000):
-        try_x = Fp.random_element()
-        
-        # Manually evaluate the polynomial to avoid symbolic overhead
-        # f(x) = sum(a_i * x^(deg-i))
-        val = Fp(0)
-        deg = len(coeffs) - 1
-        for i, c in enumerate(coeffs):
-            val += Fp(c) * (try_x**(deg - i))
-        
-        if val.is_square() and val:
-            return QQ(int(try_x))
-            
-    raise ValueError(f"Failed to find a valid point on the curve after 1000 random attempts mod {p}.")
-
-def parse_hyperelliptic_db_entry(db_string):
-    """
-    Parse a hyperelliptic curve entry from the MIT database and extract coefficients.
-    https://math.mit.edu/~drew/gce_genus3_hyperelliptic.txt    
-    Input format: D:N:[f(x),h(x)]
-    where the curve is: y^2 + h(x)*y = f(x)
-    
-    We transform this to: Y^2 = h(x)^2 + 4*f(x)
-    where Y = 2*y + h(x)
-    
-    Returns a coefficient vector [c_0, c_1, ..., c_n] where
-    the right-hand side polynomial is c_0 + c_1*x + c_2*x^2 + ...
-    
-    Args:
-        db_string: String like "10000000:2000000:[-5*x^7-4*x^6-3*x^5-2*x^4,x^3+x^2+x+1]"
-    
-    Returns:
-        list of QQ coefficients (low to high degree)
-    """
-    
-    # Parse the database format: D:N:[f(x),h(x)]
-    # Extract the part inside the brackets
-    match = re.search(r'\[(.*?)\]$', db_string)
-    if not match:
-        raise ValueError(f"Could not parse database string: {db_string}")
-    
-    poly_part = match.group(1)
-    
-    # Split by comma at the top level (not inside nested parens)
-    parts = []
-    depth = 0
-    current = ""
-    for char in poly_part:
-        if char == '(':
-            depth += 1
-        elif char == ')':
-            depth -= 1
-        elif char == ',' and depth == 0:
-            parts.append(current.strip())
-            current = ""
-            continue
-        current += char
-    if current.strip():
-        parts.append(current.strip())
-    
-    if len(parts) != 2:
-        raise ValueError(f"Expected 2 polynomials (f and h), got {len(parts)}: {parts}")
-    
-    f_str, h_str = parts
-    
-    # Create polynomial ring for parsing
-    PR = PolynomialRing(QQ, 'x')
-    x = PR.gen()
-    
-    # Replace ^ with ** for Python exponentiation
-    f_str = f_str.replace('^', '**')
-    h_str = h_str.replace('^', '**')
-    
-    # Create a safe namespace with the polynomial variable
-    namespace = {'x': x}
-    
-    # Parse polynomials
-    try:
-        f = eval(f_str, {"__builtins__": {}}, namespace)
-        h = eval(h_str, {"__builtins__": {}}, namespace)
-    except Exception as e:
-        raise ValueError(f"Could not parse polynomials: f={f_str}, h={h_str}. Error: {e}")
-    
-    # Compute the transformed RHS: h(x)^2 + 4*f(x)
-    rhs_poly = h**2 + 4*f
-    
-    # Polynomials in Sage's FLINT ring are already expanded, no need to call .expand()
-    
-    # Extract coefficients (low to high degree)
-    coeffs = rhs_poly.coefficients(sparse=False)
-    
-    # Convert to QQ-wrapped integers
-    coeffs = [QQ(int(c)) for c in coeffs]
-    
-    return coeffs
-
-
-# Add these with your other Sage imports
-#from sage.libs.pari.pari_error import PariError
 from cysignals.signals import SignalError
 import random
-
-from sage.all import sage_eval, SR, PolynomialRing, QQ, EllipticCurve, RR
 import traceback
 import math
 
-# Local modules
+# local modules
+from prime_subgroup_projection import *
+from parse_genus3 import *
 from tate import *
-
 
 #### BEGIN USER CONFIG
 
@@ -509,121 +399,28 @@ USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
 NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
 
-def generate_random_curve_point(f_poly, p):
-    """
-    Generates a random point P on C(F_p) by finding x with f(x) a square.
-    Returns the Jacobian element J(C(x, y)).
-    """
-    R = PolynomialRing(K, 'x')
-    f = R(f_poly)
-    C = HyperellipticCurve(f)
-    J = C.jacobian()
-    
-    max_attempts = 1000
-    for _ in range(max_attempts):
-        x_coord = K.random_element()
-        y2 = f(x_coord)
-        if y2.is_square():
-            y_coord = y2.sqrt()
-            P = J(C((x_coord, y_coord)))
-            if 2 * P != J(0):
-                return P
-    
-    raise ValueError("Failed to generate random curve point after max attempts")
-
-
-def generate_keypair_from_secret(coeffs_genus2, p, secret_key):
-    """
-    Generates keypair (G, Q) where G is constructed from the first data point
-    and Q = [secret_key]G.
-    
-    Args:
-        coeffs_genus2: Coefficients of f(x) in hyperelliptic curve y^2 = f(x)
-        p: Prime field size
-        secret_key: Integer secret key from search_common.SECRET_KEY
-    
-    Returns:
-        (G, Q, preferred_x_values) where G is base divisor, Q is target divisor,
-        and preferred_x_values is a set of x-coords to bias toward
-    """
-    key = (tuple(coeffs_genus2), p, secret_key)
-    if key in generate_keypair_from_secret.cache:
-        return generate_keypair_from_secret.cache[key]
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    # Build f(x) - coeffs are highest degree first
-    f_poly = R([K(c) for c in reversed(coeffs_genus2)])
-    
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()
-    
-    # Get base x-coordinate from our fibration data
-    x_base_qq = DATA_PTS_GENUS2[0]  # This should be a rational x-coordinate
-    x_base = K(x_base_qq)
-    
-    # Construct a divisor from this point
-    # For genus 2: D = (x_base, y_base) - ∞
-    y2_val = f_poly(x_base)
-    
-    if not y2_val.is_square():
-        raise ValueError(f"Base point x={x_base_qq} does not give a quadratic residue: f(x)={y2_val}")
-    
-    y_base = y2_val.sqrt()
-    
-    # Create point on curve
-    P_base = C((x_base, y_base))
-    
-    # Convert to Jacobian element (divisor)
-    G = J(P_base)
-    
-    # Compute target divisor
-    Q = Integer(secret_key) * G
-    
-    # Extract x-coordinates from both divisors to use as preferred values
-    preferred_x_values = set()
-    
-    # Extract from G
-    u_G = G[0]  # u(x) polynomial
-    if u_G.degree() > 0:
-        for root, _ in u_G.roots():
-            preferred_x_values.add(int(root))
-    
-    # Extract from Q
-    u_Q = Q[0]
-    if u_Q.degree() > 0:
-        for root, _ in u_Q.roots():
-            preferred_x_values.add(int(root))
-    
-    print(f"Generated keypair:")
-    print(f"  Base point x-coord: {x_base_qq}")
-    print(f"  Base divisor G: {G}")
-    print(f"  Secret key d: {secret_key}")
-    print(f"  Target Q = [d]G: {Q}")
-    print(f"  Preferred x-values for smoothness: {sorted(preferred_x_values)}")
-    ret = G, Q, preferred_x_values
-    generate_keypair_from_secret.cache[key] = ret
-    return ret
-generate_keypair_from_secret.cache = {}
-
-# Initialize PREFERRED_X_COORDS for finite field mode
-# This must happen at module import time, not just in main
+# project into mod ell subgroup to remove torsion/cofactor complications
+# project into mod ell subgroup to remove torsion/cofactor complications
 if FINITE_FIELD is not None:
-    try:
-        BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = generate_keypair_from_secret(
-            COEFFS_GENUS2, 
-            FINITE_FIELD, 
+    
+    # Fix: Force deterministic generation of the cryptosystem parameters (G, Q)
+    # so they are identical across all worker processes.
+    set_random_seed(12345)
+
+    GROUP_MODULUS, DATA_PTS_GENUS2, BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS, SECRET_KEY = \
+        setup_prime_subgroup_cryptosystem(
+            FINITE_FIELD,
+            COEFFS_GENUS2,
+            DATA_PTS_GENUS2,
             SECRET_KEY
         )
-        print(f"Initialized PREFERRED_X_COORDS: {PREFERRED_X_COORDS}")
-    except Exception as e:
-        print(f"Warning: Keypair generation failed: {e}")
-        # Fallback: use the base point x-coordinate
-        PREFERRED_X_COORDS = [DATA_PTS_GENUS2[0]] if DATA_PTS_GENUS2 else [0]
-        BASE_DIVISOR, TARGET_DIVISOR = None, None
-else:
-    # Not in finite field mode - these aren't needed
-    BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None
 
+    # Re-randomize the seed so that subsequent operations (like random walks in workers)
+    # are not identical across processes.
+    
+    set_random_seed()
+else:
+    BASE_DIVISOR = TARGET_DIVISOR = PREFERRED_X_COORDS = None
 
 try:
     PROFILE = profile
@@ -2979,26 +2776,3 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
         return X_sub / Z_sub
 
 
-# -------------------------
-# Helper: canonical Sage polynomial from user coeff list
-# -------------------------
-def sage_poly_from_coeffs(coeffs, R):
-    """
-    Build a polynomial in PolynomialRing R from `coeffs`,
-    where coeffs[-1] is the constant term and coeffs[0] the leading coeff.
-
-    Args:
-        coeffs: iterable of coefficients in user order [a_n, ..., a_0]
-        R: a Sage PolynomialRing instance, e.g. PolynomialRing(GF(p), 'x')
-    Returns:
-        polynomial in R (exact type of R)
-    """
-    x = R.gen()
-    deg = len(coeffs) - 1
-    # Construct explicitly to avoid ambiguity about list ordering
-    poly = R(0)
-    for i, c in enumerate(coeffs):
-        coeff = R(int(c))
-        power = deg - i
-        poly += coeff * x**power
-    return poly

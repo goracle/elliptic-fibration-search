@@ -1,21 +1,17 @@
 import time
 import sys
 from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
+from sage.all import Integer
 from search_common import DEBUG, FINITE_FIELD, PREFERRED_X_COORDS
 from .mumford_core import _poly_mod_quad_fast
 from .mumford_verification import verify_mumford_pair
-
-assert PREFERRED_X_COORDS, PREFERRED_X_COORDS
-
-
 from sage.all import GF, PolynomialRing
 from random import randrange
+from sage.all import GF, PolynomialRing, HyperellipticCurve, Integer
+from prime_subgroup_projection import *
 
 
 assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
-
-
-from sage.all import GF, Integer
 
 
 def get_sqrt_data_sage(p):
@@ -48,120 +44,6 @@ def get_sqrt_data_sage(p):
     return sqrt_map
 
 get_sqrt_data_sage.cache = {}
-
-
-def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
-    """
-    Sage-native Mumford solver using polynomial rings directly.
-    Handles both small primes (cached sqrt) and large primes (on-demand sqrt).
-    """
-    Fp = GF(p)
-    R = PolynomialRing(Fp, 'x')
-    x = R.gen()
-    
-    f_poly = R([Fp(c) for c in reversed(f_coeffs)])
-    
-    x_res = Fp(x_residue)
-    x_sq = x_res * x_res
-    
-    solutions = []
-    
-    sqrt_map = get_sqrt_data_sage(p)
-    use_cached = (sqrt_map is not None)
-    
-    if p > 100000:
-        from random import randrange
-        sample_size = min(10000, p)
-        s_range = [randrange(p) for _ in range(sample_size)]
-    else:
-        s_range = range(p)
-    
-    for s_int in s_range:
-        if len(solutions) >= max_solutions:
-            break
-        
-        s_val = Fp(s_int)
-        p_val = x_res * s_val - x_sq
-        
-        disc = s_val * s_val - 4 * p_val
-        disc_int = int(disc)
-        
-        if use_cached:
-            if disc_int not in sqrt_map:
-                continue
-        else:
-            if not Fp(disc_int).is_square():
-                continue
-        
-        u_poly = x**2 - s_val*x + p_val
-        remainder = f_poly % u_poly
-        
-        rem_coeffs = remainder.list()
-        B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
-        A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
-        
-        a_q = disc
-        b_q = -2 * (A * s_val + 2 * B)
-        c_q = A * A
-        
-        Z_roots = []
-        if a_q == 0:
-            if b_q != 0:
-                Z_roots.append(-c_q / b_q)
-            elif c_q == 0:
-                Z_roots.append(Fp(0))
-        else:
-            disc_q = b_q * b_q - 4 * a_q * c_q
-            disc_q_int = int(disc_q)
-            
-            if use_cached:
-                if disc_q_int in sqrt_map:
-                    inv_2a = 1 / (2 * a_q)
-                    for sq_root_int in sqrt_map[disc_q_int]:
-                        sq_root = Fp(sq_root_int)
-                        Z_roots.append((-b_q + sq_root) * inv_2a)
-            else:
-                if Fp(disc_q_int).is_square():
-                    sqrt_disc_q = Fp(disc_q_int).sqrt()
-                    inv_2a = 1 / (2 * a_q)
-                    Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
-                    Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
-        
-        for Z in set(Z_roots):
-            Z_int = int(Z)
-            
-            if use_cached:
-                if Z_int in sqrt_map:
-                    for v1_int in sqrt_map[Z_int]:
-                        v1_val = Fp(v1_int)
-                        
-                        if v1_val != 0:
-                            v0_val = (A - s_val * Z) / (2 * v1_val)
-                            if v0_val * v0_val - p_val * Z == B:
-                                solutions.append((int(s_val), int(p_val), 
-                                                int(v0_val), int(v1_val)))
-                        else:
-                            if A == 0 and Z_int == 0 and int(B) in sqrt_map:
-                                for r in sqrt_map[int(B)]:
-                                    solutions.append((int(s_val), int(p_val), r, 0))
-            else:
-                if Fp(Z_int).is_square():
-                    sqrt_Z = Fp(Z_int).sqrt()
-                    
-                    for v1_val in [sqrt_Z, -sqrt_Z]:
-                        if v1_val != 0:
-                            v0_val = (A - s_val * Z) / (2 * v1_val)
-                            if v0_val * v0_val - p_val * Z == B:
-                                solutions.append((int(s_val), int(p_val), 
-                                                int(v0_val), int(v1_val)))
-                else:
-                    if A == 0 and Z_int == 0:
-                        if Fp(int(B)).is_square():
-                            sqrt_B = Fp(int(B)).sqrt()
-                            for v0_val in [sqrt_B, -sqrt_B]:
-                                solutions.append((int(s_val), int(p_val), int(v0_val), 0))
-    
-    return list(set(solutions))
 
 
 def score_and_record_candidate(u_poly, Fp, preferred_x_coords, bias_stats):
@@ -234,6 +116,7 @@ class BiasStatistics:
                 # Handle Sage field elements, numpy types, strings, etc.
                 current_roots_ints.append(int(r)) 
             except (ValueError, TypeError):
+                raise
                 continue
 
         if len(current_roots_ints) == 2:
@@ -527,14 +410,243 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
         )
 
 
+"""
+CRITICAL FIXES for mumford_solver.py
+
+Add these changes to project divisors into J[ℓ] immediately after generation.
+"""
+
+# ============================================================
+# 1. UPDATE IMPORTS AT TOP OF FILE
+# ============================================================
+
+# ... keep existing imports ...
+
+
+# ============================================================
+# 2. ADD PROJECTION HELPER FUNCTIONS
+# ============================================================
+
+_PROJECTION_CACHE = {}
+
+def get_projection_params(p, f_coeffs):
+    """
+    Get or compute projection parameters for J[ℓ].
+    Uses GROUP_MODULUS from search_common.
+    
+    Returns:
+        (C, J, h) where h is the cofactor, or None if no projection needed.
+    """
+    if GROUP_MODULUS is None:
+        return None
+    
+    cache_key = (p, tuple(f_coeffs))
+    if cache_key in _PROJECTION_CACHE:
+        return _PROJECTION_CACHE[cache_key]
+    
+    F = GF(p)
+    R = PolynomialRing(F, 'x')
+    f_poly = R([F(c) for c in reversed(f_coeffs)])
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    
+    J_order = compute_jacobian_order(f_coeffs, p)
+    h = int(J_order // GROUP_MODULUS)
+    
+    result = (C, J, h)
+    _PROJECTION_CACHE[cache_key] = result
+    return result
+
+
+def project_and_extract_mumford(u_poly, v_poly, C, J, h):
+    """
+    Project divisor into J[ℓ] and extract Mumford representation.
+    
+    Args:
+        u_poly: u polynomial (degree 2, monic)
+        v_poly: v polynomial
+        C: HyperellipticCurve
+        J: Jacobian
+        h: cofactor for projection
+    
+    Returns:
+        (s, p, v0, v1) tuple as ints, or None if projection kills the divisor
+    """
+    # Create Jacobian element
+    try:
+        div_J = J([u_poly, v_poly])
+    except Exception:
+        raise
+        return None
+    
+    # Project: multiply by cofactor
+    div_projected = Integer(h) * div_J
+    
+    # Check if killed (sent to identity)
+    if div_projected.is_zero():
+        return None
+    
+    # Extract projected polynomials
+    u_proj = div_projected[0]
+    v_proj = div_projected[1]
+    
+    # Must be degree 2
+    if u_proj.degree() != 2:
+        return None
+    
+    # Extract Mumford coefficients from projected divisor
+    # u(x) = x^2 - s*x + p (monic)
+    coeffs_u = u_proj.list()
+    if len(coeffs_u) < 3:
+        return None
+    
+    s_val = -coeffs_u[1]
+    p_val = coeffs_u[0]
+    
+    # v(x) = v1*x + v0
+    coeffs_v = v_proj.list()
+    v0_val = coeffs_v[0] if len(coeffs_v) >= 1 else 0
+    v1_val = coeffs_v[1] if len(coeffs_v) >= 2 else 0
+    
+    return (int(s_val), int(p_val), int(v0_val), int(v1_val))
+
+
+# ============================================================
+# 3. MODIFY solve_mumford_mod_p_sage_native_BIASED
+# ============================================================
+
+
+# ============================================================
+# 4. MODIFY solve_mumford_mod_p_sage_native_RANDOM (for QQ mode)
+# ============================================================
+
+def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
+    """
+    Sage-native Mumford solver (RANDOM mode, no projection in QQ mode).
+    """
+    # This function stays the same for QQ mode - no projection needed
+    # Just keep existing implementation
+    
+    Fp = GF(p)
+    R = PolynomialRing(Fp, 'x')
+    x = R.gen()
+    
+    f_poly = R([Fp(c) for c in reversed(f_coeffs)])
+    
+    x_res = Fp(x_residue)
+    x_sq = x_res * x_res
+    
+    solutions = []
+    
+    sqrt_map = get_sqrt_data_sage(p)
+    use_cached = (sqrt_map is not None)
+    
+    if p > 100000:
+        from random import randrange
+        sample_size = min(10000, p)
+        s_range = [randrange(p) for _ in range(sample_size)]
+    else:
+        s_range = range(p)
+    
+    for s_int in s_range:
+        if len(solutions) >= max_solutions:
+            break
+        
+        s_val = Fp(s_int)
+        p_val = x_res * s_val - x_sq
+        
+        disc = s_val * s_val - 4 * p_val
+        disc_int = int(disc)
+        
+        if use_cached:
+            if disc_int not in sqrt_map:
+                continue
+        else:
+            if not Fp(disc_int).is_square():
+                continue
+        
+        u_poly = x**2 - s_val*x + p_val
+        remainder = f_poly % u_poly
+        
+        rem_coeffs = remainder.list()
+        B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
+        A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
+        
+        a_q = disc
+        b_q = -2 * (A * s_val + 2 * B)
+        c_q = A * A
+        
+        Z_roots = []
+        if a_q == 0:
+            if b_q != 0:
+                Z_roots.append(-c_q / b_q)
+            elif c_q == 0:
+                Z_roots.append(Fp(0))
+        else:
+            disc_q = b_q * b_q - 4 * a_q * c_q
+            disc_q_int = int(disc_q)
+            
+            if use_cached:
+                if disc_q_int in sqrt_map:
+                    inv_2a = 1 / (2 * a_q)
+                    for sq_root_int in sqrt_map[disc_q_int]:
+                        sq_root = Fp(sq_root_int)
+                        Z_roots.append((-b_q + sq_root) * inv_2a)
+            else:
+                if Fp(disc_q_int).is_square():
+                    sqrt_disc_q = Fp(disc_q_int).sqrt()
+                    inv_2a = 1 / (2 * a_q)
+                    Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
+                    Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
+        
+        for Z in set(Z_roots):
+            Z_int = int(Z)
+            
+            if use_cached:
+                if Z_int in sqrt_map:
+                    for v1_int in sqrt_map[Z_int]:
+                        v1_val = Fp(v1_int)
+                        
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                        else:
+                            if A == 0 and Z_int == 0 and int(B) in sqrt_map:
+                                for r in sqrt_map[int(B)]:
+                                    solutions.append((int(s_val), int(p_val), r, 0))
+            else:
+                if Fp(Z_int).is_square():
+                    sqrt_Z = Fp(Z_int).sqrt()
+                    
+                    for v1_val in [sqrt_Z, -sqrt_Z]:
+                        if v1_val != 0:
+                            v0_val = (A - s_val * Z) / (2 * v1_val)
+                            if v0_val * v0_val - p_val * Z == B:
+                                solutions.append((int(s_val), int(p_val), 
+                                                int(v0_val), int(v1_val)))
+                else:
+                    if A == 0 and Z_int == 0:
+                        if Fp(int(B)).is_square():
+                            sqrt_B = Fp(int(B)).sqrt()
+                            for v0_val in [sqrt_B, -sqrt_B]:
+                                solutions.append((int(s_val), int(p_val), int(v0_val), 0))
+    
+    return list(set(solutions))
+
+
 def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_ints, max_solutions=500):
     """
-    Optimized Mumford solver that handles pref_ints as either a list or a single integer.
+    Optimized Mumford solver (Biased).
+    
+    FIX: Removed J[l] projection. We must find relations in the full Jacobian J(F_p)
+    that contain the target coordinates. Projecting (multiplying by h) scrambles
+    the support coordinates, destroying the bias we just intentionally created.
     """
     if pref_ints is None:
         pref_ints = []
     
-    # Ensure we are working with an iterable list of target x-coordinates
     if isinstance(pref_ints, (int, Integer)):
         targets = [pref_ints]
     elif isinstance(pref_ints, (list, tuple, set)):
@@ -545,7 +657,7 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
     Fp = GF(p)
     x_res = Fp(x_res_int)
     
-    # Precompute y_1 = sqrt(f(x_res)) using Horner's method
+    # Precompute y_1 = sqrt(f(x_res))
     y1_sq = Fp(0)
     for c in f_coeffs_ints:
         y1_sq = y1_sq * x_res + Fp(c)
@@ -558,14 +670,15 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
     solutions = []
     seen_solutions = set()
     
+    # Build polynomial ring for manual verification if needed, or just standard arithmetic
+    # (Not strictly needed for the generation logic below which uses arithmetic directly)
+    
     def s_candidate_generator():
-        # First priority: the specifically requested targets
-        # Note: s = x1 + x2. If x1 = x_res, we want x2 in targets.
-        # So s = x_res + target
+        # Priority 1: targets (these are the coordinates we WANT in the support)
         for x_pref in targets:
             yield int(x_res + Fp(x_pref))
         
-        # Second priority: general search (randomized)
+        # Priority 2: random search
         import random
         for _ in range(10000):
             yield random.randint(0, p - 1)
@@ -586,9 +699,10 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
         y2_roots = [y2_val, -y2_val]
         
         if s_val == 2 * x_res:
-            if y1_sq == 0: continue 
+            if y1_sq == 0:
+                continue 
             
-            # Derivative evaluation for the double-root case
+            # Derivative evaluation for double-root case
             f_prime_x = Fp(0)
             deg = len(f_coeffs_ints) - 1
             for i, c in enumerate(f_coeffs_ints[:-1]):
@@ -597,18 +711,22 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
             for y1 in y1_roots:
                 v1 = f_prime_x / (2 * y1)
                 v0 = y1 - v1 * x_res
+                
                 sol = (int(s_val), int(x_res * r2), int(v0), int(v1))
+                
                 if sol not in seen_solutions:
                     solutions.append(sol)
                     seen_solutions.add(sol)
         else:
-            # Standard interpolation for the Mumford v-polynomial
+            # Standard interpolation
             inv_denom = (x_res - r2)**-1
             for y1 in y1_roots:
                 for y2 in y2_roots:
                     v1 = (y1 - y2) * inv_denom
                     v0 = y1 - v1 * x_res
+                    
                     sol = (int(s_val), int(x_res * r2), int(v0), int(v1))
+                    
                     if sol not in seen_solutions:
                         solutions.append(sol)
                         seen_solutions.add(sol)

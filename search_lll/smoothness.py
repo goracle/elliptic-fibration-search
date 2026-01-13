@@ -548,45 +548,6 @@ def analyze_preferred_hit_rate(divisors, preferred_set, p=None):
     print(f"  Divisors containing target: {divisors_with_hit} / {len(divisors)} ({100.0*divisors_with_hit/max(1, len(divisors)):.1f}%)")
 
 
-def diagnose_finite_field_search(divisors, verbose=True):
-    """
-    Clean, high-level summary of the attack status.
-    """
-    p = FINITE_FIELD
-    fb = extract_factor_base(divisors, p=p)
-    res = build_relation_matrix(divisors, fb, p=p)
-    
-    rank = res['rank']
-    needed = len(fb)
-    
-    # NEW: Run the preferred hit rate analysis
-    if PREFERRED_X_COORDS:
-        analyze_preferred_hit_rate(divisors, PREFERRED_X_COORDS, p=p)
-
-    print("\n" + "="*60)
-    print(" INDEX CALCULUS ATTACK DIAGNOSTIC")
-    print("="*60)
-    print(f" Target Field: GF({p})")
-    print(f" Relations:    {len(divisors)}")
-    print(f" Factor Base:  {len(fb)}")
-    print(f" Matrix Rank:  {rank}")
-    print("-"*60)
-    
-    if rank >= needed and len(divisors) >= needed:
-        print(" SUCCESS: Matrix is full rank. Ready for Linear Algebra.")
-    else:
-        print(f" FAILURE: Deficit of {needed - rank} independent relations.")
-        print(" Suggestion: Increase TMAX or add more search vectors.")
-    print("="*60 + "\n")
-    
-    # Return basic report dict for upstream
-    return {
-        'factor_base': fb,
-        'matrix': res['matrix'],
-        'rank': rank
-    }
-
-
 # unified extract_factor_base: backward-compatible
 def extract_factor_base(divisors, p=None, f_p=None, verbose=False, ensure_divisors=None):
     """
@@ -753,4 +714,103 @@ def extract_factor_base(divisors, p=None, f_p=None, verbose=False, ensure_diviso
         'root_to_idx': root_to_idx,
         'unique_divisors': unique_divisors,
         'fb_y_cache': fb_y_cache
+    }
+
+
+def diagnose_finite_field_search(divisors, verbose=True):
+    """
+    Clean, high-level summary of the attack status.
+    NOW INCLUDES: Verification that G and Q are both FB-smooth.
+    """
+    p = FINITE_FIELD
+    
+    # Extract factor base from all divisors
+    fb = extract_factor_base(divisors, p=p)
+    
+    # Build relation matrix from divisors
+    res = build_relation_matrix(divisors, fb, p=p)
+    
+    rank = res['rank']
+    needed = len(fb)
+    
+    # NEW: Check if G and Q are actually in the factor base
+    
+    G, Q, preferred_coords = BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS
+    
+    # Check G smoothness
+    u_G = G[0]
+    G_roots = set()
+    G_is_smooth = (sum(mult for _, mult in u_G.roots(GF(p))) == u_G.degree())  # Fully split?
+    if u_G.degree() > 0:
+        for root, _ in u_G.roots(GF(p)):
+            x_int = int(root)
+            G_roots.add(x_int)
+            if x_int not in fb:
+                G_is_smooth = False
+                if verbose:
+                    print(f"  WARNING: Generator G has root x={x_int} NOT in factor base")
+    
+    # Check Q smoothness
+    u_Q = Q[0]
+    Q_roots = set()
+    Q_is_smooth = (sum(mult for _, mult in u_Q.roots(GF(p))) == u_Q.degree())  # Fully split?
+    if u_Q.degree() > 0:
+        for root, _ in u_Q.roots(GF(p)):
+            x_int = int(root)
+            Q_roots.add(x_int)
+            if x_int not in fb:
+                Q_is_smooth = False
+                if verbose:
+                    print(f"  WARNING: Target Q has root x={x_int} NOT in factor base")
+    
+    # Analyze preferred coordinates hit rate
+    analyze_preferred_hit_rate(divisors, preferred_coords, p=p)
+
+    print("\n" + "="*60)
+    print(" INDEX CALCULUS ATTACK DIAGNOSTIC")
+    print("="*60)
+    print(f" Target Field: GF({p})")
+    print(f" Relations:    {len(divisors)}")
+    print(f" Factor Base:  {len(fb)}")
+    print(f" Matrix Rank:  {rank}")
+    print("-"*60)
+    
+    # Check if both G and Q are smooth
+    if not G_is_smooth:
+        print(" [X] CRITICAL: Generator G is NOT smooth over factor base")
+        print(f"    G roots: {sorted(G_roots)}")
+        print(f"    Missing from FB: {sorted(G_roots - set(fb))}")
+    else:
+        print(" [OK] Generator G is smooth over factor base")
+    
+    if not Q_is_smooth:
+        print(" [X] CRITICAL: Target Q is NOT smooth over factor base")
+        print(f"    Q roots: {sorted(Q_roots)}")
+        print(f"    Missing from FB: {sorted(Q_roots - set(fb))}")
+    else:
+        print(" [OK] Target Q is smooth over factor base")
+    
+    print("-"*60)
+    
+    # Overall verdict
+    if rank >= needed and len(divisors) >= needed and G_is_smooth and Q_is_smooth:
+        print(" SUCCESS: Matrix is full rank. Ready for Linear Algebra.")
+        print("          Both G and Q are expressible over factor base.")
+    else:
+        if rank < needed:
+            print(f" FAILURE: Deficit of {needed - rank} independent relations.")
+        if not G_is_smooth or not Q_is_smooth:
+            print(f" FAILURE: Keypair not smooth over current factor base.")
+        print(" Suggestion: Increase TMAX or add more search vectors.")
+    print("="*60 + "\n")
+    
+    # Return basic report dict for upstream
+    return {
+        'factor_base': fb,
+        'matrix': res['matrix'],
+        'rank': rank,
+        'G_is_smooth': G_is_smooth,
+        'Q_is_smooth': Q_is_smooth,
+        'G_roots': G_roots,
+        'Q_roots': Q_roots
     }
