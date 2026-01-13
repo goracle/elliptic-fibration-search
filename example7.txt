@@ -40,7 +40,7 @@ Skipping singular fiber analysis over finite field
 [auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.12s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.10s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=3, patterns_sample=[(1, 1, 1, 3)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
 [residue_counts] sample: [(33554467, 3)]
@@ -165,11 +165,7 @@ Jacobian order: 1126029650170156
 Factorization: 2^2 * 289603 * 972045913
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
-Jacobian order: 1126029650170156
-Factorization: 2^2 * 289603 * 972045913
-Largest prime ℓ: 972045913
-Cofactor h: 1158412
-[mumford] Residue computation took 72.83s
+[mumford] Residue computation took 74.31s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -178,27 +174,27 @@ availability_rate: 0.0 activation_rate: 0.0
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
   Harvesting initial solutions (capped)...
-  Initial harvest: 18021 unique smooth divisors from 350000 candidates.
+  Initial harvest: 18025 unique smooth divisors from 350000 candidates.
   Factor Base (Unique x): 6000
   Starting structured random walk to improve Rank/FB ratio (capped mixing)...
-  Target reached: 18021 relations > 6000 FB + 480 buffer.
-  Final Status: 18021 relations, 4505 factor base elements.
+  Target reached: 18025 relations > 6000 FB + 480 buffer.
+  Final Status: 18025 relations, 4504 factor base elements.
 
-Mumford search reconstructed 18021 divisors
-  18021 divisors had rational roots in u(x)
+Mumford search reconstructed 18025 divisors
+  18025 divisors had rational roots in u(x)
 
 [Preferred Coordinates Hit Rate]
   Target coordinates: 4
   Found in Factor Base: 4 / 4 (100.0%)
-  Divisors containing target: 32 / 18021 (0.2%)
+  Divisors containing target: 32 / 18025 (0.2%)
 
 ============================================================
  INDEX CALCULUS ATTACK DIAGNOSTIC
 ============================================================
  Target Field: GF(33554467)
- Relations:    18021
- Factor Base:  4505
- Matrix Rank:  4505
+ Relations:    18025
+ Factor Base:  4504
+ Matrix Rank:  4504
 ------------------------------------------------------------
  [OK] Generator G is smooth over factor base
  [OK] Target Q is smooth over factor base
@@ -207,12 +203,12 @@ Mumford search reconstructed 18021 divisors
           Both G and Q are expressible over factor base.
 ============================================================
 
-Total time: 105.32s
+Total time: 106.85s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 72.83s
-  mumford_reconstruction   : 4.21s
+  mumford_residues         : 74.31s
+  mumford_reconstruction   : 4.29s
   prep_mod_data            : 3.96s
   mumford_setup            : 0.00s
 
@@ -240,15 +236,15 @@ Successes: 0, Failures: 0
 Discard Reasons (Top 5):
   (None)
 --------------------------------
-  [Factor Base] Extracted 4505 unique x-coordinates (projected mode).
+  [Factor Base] Extracted 4504 unique x-coordinates (projected mode).
   [Setup] Curve: y^2 = x^5 + x + 2
   [Phase 0] Attempting RR-Localization for target Q...
   [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
-  Factor base size: 4505
-Loaded 18021 relation rows with scalars.
+  Factor base size: 4504
+Loaded 18025 relation rows with scalars.
   [Smoothing] Generator G_ell is already smooth.
   [Smoothing] Target Q_ell is already smooth.
-  [Matrix] System size: 18022 rows x 4505 cols
+  [Matrix] System size: 18026 rows x 4504 cols
   [Solver] Modulus: 972045913
   [Solver] Using Hensel lifting for p^k = 972045913^1
     [Hensel] Step 1/1 (mod 972045913^1)

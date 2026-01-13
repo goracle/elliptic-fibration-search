@@ -949,11 +949,59 @@ def get_u_roots_mod_p(s_val, p_val, F):
     return tuple(sorted((r1, r2)))
 
 
+from sage.all import QQ, ZZ, gcd, PolynomialRing
+from .mumford_verification import verify_mumford_pair
+
+def rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass=False):
+    """
+    Reconstructs rational from CRT value. 
+    Bypasses height limits for Weierstrass points per aimist.txt.
+    """
+    # Use standard bound for the reconstruction algorithm itself
+    max_den = floor(sqrt(M / QQ(2)))
+    num, den = rational_reconstruct(crt_val, M, max_den=max_den)
+    
+    if not is_weierstrass:
+        if abs(num) > max_height or abs(den) > max_height:
+            raise RationalReconstructionError("Height too large for non-Weierstrass point")
+    
+    return num, den
+
+def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None):
+    """
+    Fast reconstruction with Weierstrass-aware height bypass.
+    """
+    rec_vals = []
+    
+    # Heuristic detection of Weierstrass divisor mod p before reconstruction
+    # A divisor contains a Weierstrass point if gcd(u(x), f(x)) != 1
+    is_weierstrass = False
+    if f_poly is not None:
+        p0 = primes[0]
+        s_mod, p_mod = sol_combo[0][0], sol_combo[0][1]
+        R = f_poly.parent()
+        x = R.gen()
+        u_mod = x^2 - s_mod*x + p_mod
+        if gcd(u_mod, f_poly) != 1:
+            is_weierstrass = True
+
+    for idx in range(4):
+        vals = tuple(sol[idx] for sol in sol_combo)
+        crt_val = crt_cached(vals, tuple(primes))
+        
+        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass)
+        rec_vals.append(QQ(num) / QQ(den))
+    
+    return rec_vals
+
+
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
     Index calculus reconstruction for finite fields (patched).
     Enforces caps on factor base and active pool to avoid OOM and
     to restore the 'small-FB' behavior.
+    
+    FIX: Now correctly tracks vector scalars during random walk mixing.
     """
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
@@ -1089,7 +1137,6 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         fb_size = len(unique_roots_set)
         num_rels = len(active_pool)
         target_buffer = max(TARGET_BUFFER_MIN, int(fb_size * TARGET_BUFFER_FRAC))
-        current_excess = num_rels - fb_size
         
         # If we have reached a reasonable target buffer *or* we've hit FB cap, stop.
         if num_rels > fb_size + target_buffer:
@@ -1109,16 +1156,16 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         
         idx1 = random.randrange(len(active_pool))
         idx2 = random.randrange(len(active_pool))
-        D1, _ = active_pool[idx1]
-        D2, _ = active_pool[idx2]
+        D1, data1 = active_pool[idx1]
+        D2, data2 = active_pool[idx2]
         
         # Try either addition or subtraction, but keep at most one result (conservative)
         if random.random() < 0.5:
-            candidates = [D1 + D2]
+            candidates = [(D1 + D2, 1)] # 1 for addition
         else:
-            candidates = [D1 - D2]
+            candidates = [(D1 - D2, -1)] # -1 for subtraction
         
-        for D3 in candidates:
+        for D3, sign_op in candidates:
             u3 = D3[0].monic()
             v3 = D3[1]
             coeffs_u = u3.list()
@@ -1153,6 +1200,28 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             # - Accept only if new_roots_count <= 1 (never accept an operation that would add 2 brand new roots).
             # - Also ensure acceptance won't push FB above cap.
             if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
+                
+                # --- FIX: TRACK VECTOR SCALARS ---
+                # We must propagate the linear combination of the vectors (scalars)
+                # D3 = D1 +/- D2  =>  v3 = v1 +/- v2
+                vec1 = data1['vector']
+                vec2 = data2['vector']
+                
+                # Ensure vectors are tuples (they should be from initial harvest)
+                if not isinstance(vec1, tuple): vec1 = tuple(vec1) if hasattr(vec1, '__iter__') else (vec1,)
+                if not isinstance(vec2, tuple): vec2 = tuple(vec2) if hasattr(vec2, '__iter__') else (vec2,)
+                
+                try:
+                    if sign_op == 1:
+                        v_new = tuple(a + b for a, b in zip(vec1, vec2))
+                    else:
+                        v_new = tuple(a - b for a, b in zip(vec1, vec2))
+                except Exception:
+                    # If vectors have mismatching dimensions or types, skip
+                    patience += 1
+                    continue
+                # ----------------------------------
+
                 # Accept candidate
                 if div_key not in seen_divisors:
                     seen_divisors.add(div_key)
@@ -1162,7 +1231,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                     new_data = {
                         's': int(s_new), 'p': int(p_new), 
                         'v_0': int(v0_new), 'v_1': int(v1_new),
-                        'vector': 'mixed', 
+                        'vector': v_new,  # Using computed vector instead of 'mixed'
                         'roots': list(roots),
                         'has_rational_roots': True
                     }
@@ -1189,7 +1258,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                         new_data = {
                             's': int(s_new), 'p': int(p_new), 
                             'v_0': int(v0_new), 'v_1': int(v1_new),
-                            'vector': 'mixed', 
+                            'vector': v_new, # Using computed vector
                             'roots': list(roots),
                             'has_rational_roots': True
                         }
@@ -1218,49 +1287,3 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     if debug:
         print(f"  Final Status: {len(mumford_divisors)} relations, {len(all_roots)} factor base elements.")
     return found_xs, mumford_divisors
-
-
-from sage.all import QQ, ZZ, gcd, PolynomialRing
-from .mumford_verification import verify_mumford_pair
-
-def rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass=False):
-    """
-    Reconstructs rational from CRT value. 
-    Bypasses height limits for Weierstrass points per aimist.txt.
-    """
-    # Use standard bound for the reconstruction algorithm itself
-    max_den = floor(sqrt(M / QQ(2)))
-    num, den = rational_reconstruct(crt_val, M, max_den=max_den)
-    
-    if not is_weierstrass:
-        if abs(num) > max_height or abs(den) > max_height:
-            raise RationalReconstructionError("Height too large for non-Weierstrass point")
-    
-    return num, den
-
-def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None):
-    """
-    Fast reconstruction with Weierstrass-aware height bypass.
-    """
-    rec_vals = []
-    
-    # Heuristic detection of Weierstrass divisor mod p before reconstruction
-    # A divisor contains a Weierstrass point if gcd(u(x), f(x)) != 1
-    is_weierstrass = False
-    if f_poly is not None:
-        p0 = primes[0]
-        s_mod, p_mod = sol_combo[0][0], sol_combo[0][1]
-        R = f_poly.parent()
-        x = R.gen()
-        u_mod = x^2 - s_mod*x + p_mod
-        if gcd(u_mod, f_poly) != 1:
-            is_weierstrass = True
-
-    for idx in range(4):
-        vals = tuple(sol[idx] for sol in sol_combo)
-        crt_val = crt_cached(vals, tuple(primes))
-        
-        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass)
-        rec_vals.append(QQ(num) / QQ(den))
-    
-    return rec_vals
