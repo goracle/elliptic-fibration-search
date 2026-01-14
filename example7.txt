@@ -40,7 +40,7 @@ Skipping singular fiber analysis over finite field
 [auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.10s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=3, patterns_sample=[(1, 1, 1, 3)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
 [residue_counts] sample: [(33554467, 3)]

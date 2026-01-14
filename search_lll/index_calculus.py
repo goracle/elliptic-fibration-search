@@ -696,7 +696,7 @@ def _dict_to_jacobian(d, J, R, p):
     return J_elem
 
 
-def _jacobian_to_dict(J_elem, p):
+def jacobian_to_dict(J_elem, p):
     """
     Convert a Jacobian point J_elem to the standard dict format used by the rest of the pipeline.
     This includes 'u_coeffs', 'v_coeffs' and canonical s,p,v_0,v_1 for degree-2.
@@ -974,239 +974,6 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
         raise RuntimeError("No preferred coordinates extracted")
     
     return ell, base_pts_x, G, Q, preferred_x_coords, final_secret  # ← RETURN NEW SECRET
-
-
-def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbose=True):
-    """
-    Solves the sparse linear system modulo `modulus` where Ax = b.
-    valid_rows: list of dicts (rows of A)
-    rhs_values: list of ints (elements of b)
-    q_anchored: (beta, row_q) for the target
-    """
-    if modulus is None or int(modulus) <= 1:
-        raise ValueError("Invalid modulus provided")
-
-    N = Integer(modulus)
-    rq, row_q = q_anchored
-
-    # Determine number of variables (max column index)
-    num_rels = len(valid_rows)
-    max_idx = -1
-    for r in valid_rows:
-        if r:
-            max_idx = max(max_idx, max(r.keys()))
-    if row_q:
-        max_idx = max(max_idx, max(row_q.keys()))
-    
-    num_vars = max_idx + 1
-
-    if verbose:
-        print(f"  [Matrix] System size: {num_rels} rows x {num_vars} cols")
-        print(f"  [Solver] Modulus: {N}")
-
-    factors = list(factor(N))
-    
-    # Case 1 & 2: Prime or Prime Power (Hensel)
-    if len(factors) == 1:
-        p, exp = factors[0]
-        if verbose:
-            print(f"  [Solver] Using Hensel lifting for p^k = {p}^{exp}")
-        
-        return solve_linear_system_hensel_lift(
-            valid_rows, rhs_values, row_q, rq,
-            int(p), int(exp), num_vars, verbose=verbose
-        )
-    
-    # Case 3: Composite (Direct Z/NZ)
-    if verbose:
-        print(f"  [Solver] Solving directly over Z/{N}Z")
-    
-    from sage.all import Zmod
-    K = Zmod(N)
-    
-    entries = {}
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            val = K(int(count))
-            if val != 0:
-                entries[(i, idx)] = val
-    
-    A_mod_N = matrix(K, num_rels, num_vars, entries, sparse=True)
-    b_vec = vector(K, [K(int(v)) for v in rhs_values])
-    sys.stdout.flush()
-    
-    try:
-        sol = A_mod_N.solve_right(b_vec)
-    except ValueError as e:
-        raise RuntimeError(f"Direct solve failed: {e}")
-    
-    sum_logs = K(0)
-    for idx, count in row_q.items():
-        if idx < len(sol):
-            sum_logs += K(int(count)) * sol[idx]
-    
-    log_val = (sum_logs - K(int(rq)))
-    return Integer(log_val)
-
-
-def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
-    """
-    Solves DLP using relations found by the search.
-    Treats smooth divisors D as D = r*G, creating equations log(D) = r.
-    """
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
-
-    # ----------------------------
-    # Setup
-    # ----------------------------
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
-    J0 = J.zero()
-
-    factors = prime_factors(order)
-    ell = max(factors)
-    G_ell = G
-    Q_ell = Q
-    
-    if G_ell == J0:
-        raise RuntimeError("G is the identity element")
-
-    # ----------------------------
-    # Prepare Factor Base and Relations
-    # ----------------------------
-    extended_divs = []
-    # Add G and Q to factor base pool
-    extended_divs.append(_jacobian_to_dict(G_ell, p))
-    extended_divs.append(_jacobian_to_dict(Q_ell, p))
-    # Add all smooth divisors found
-    for d in smooth_divs:
-        extended_divs.append(d)
-
-    # Extract Factor Base
-    fb_data = extract_factor_base(extended_divs, p, f_p, verbose=False)
-    roots = fb_data['roots']
-    r_to_idx = fb_data['root_to_idx']
-    fb_y_cache = fb_data['fb_y_cache']
-    
-    if verbose:
-        print(f"  Factor base size: {len(roots)}")
-
-    # Build Matrix Rows and RHS
-    # CRITICAL: smooth_divs are NOT scalar multiples of G!
-    # They're just arbitrary smooth divisors giving us FB dependencies.
-    preferred_x_coords = set()
-    for D in [G_ell, Q_ell]:
-        u = D[0]
-        for root, _ in u.roots():
-            preferred_x_coords.add(int(root))
-    
-    valid_rows, rhs_values = build_anchored_relations_homogeneous(
-        smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
-        preferred_x_coords=preferred_x_coords,
-        verbose=verbose
-    )
-    
-    if not valid_rows:
-        raise RuntimeError("No valid homogeneous relations found in collected divisors")
-    
-    if verbose:
-        print(f"Loaded {len(valid_rows)} homogeneous relation rows (all RHS=0).")
-
-
-    # ----------------------------
-    # Smoothing Strategy (Generates anchor relations)
-    # ----------------------------
-    
-    # 1. Smooth Generator: G_smooth = (1 + alpha) * G
-    #    Equation: log(G_smooth) = 1 + alpha
-    row_g = None
-    alpha_g = 0
-    max_smoothing_tries = 2000
-
-    if is_divisor_fb_smooth(G_ell, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = canonicalize_divisor_to_factor_base(G_ell, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(G_ell, r_to_idx, f_p, p)
-        if verbose: print("  [Smoothing] Generator G_ell is already smooth.")
-    
-    if row_g is None:
-        if verbose: print(f"  [Smoothing] Generator G_ell not smooth. Attempting random smoothing...")
-        for i in range(1, max_smoothing_tries + 1):
-            r = ZZ.random_element(1, int(ell))
-            cand_G = (1 + r) * G_ell
-            
-            if is_divisor_fb_smooth(cand_G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = canonicalize_divisor_to_factor_base(cand_G, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_G, r_to_idx, f_p, p)
-                if row_g:
-                    alpha_g = r
-                    if verbose: print(f"  [Smoothing] Found smooth generator G' at iter {i}")
-                    break
-    
-    if row_g is None:
-        raise RuntimeError("Failed to smooth Generator G_ell")
-
-    # Add G relation to the system: row_g * logs = 1 + alpha_g
-    valid_rows.append({int(k): int(v) for k, v in row_g.items()})
-    rhs_values.append(1 + alpha_g)
-
-
-    # 2. Smooth Target: Q_smooth = Q + beta * G
-    #    We solve for logs, then use this to find log(Q)
-    row_q = None
-    beta_q = 0
-    
-    if is_divisor_fb_smooth(Q_ell, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = canonicalize_divisor_to_factor_base(Q_ell, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(Q_ell, r_to_idx, f_p, p)
-        if verbose: print("  [Smoothing] Target Q_ell is already smooth.")
-
-    if row_q is None:
-        if verbose: print(f"  [Smoothing] Target Q_ell not smooth. Attempting random smoothing...")
-        for i in range(1, max_smoothing_tries + 1):
-            r = ZZ.random_element(1, int(ell))
-            cand_Q = Q_ell + r * G_ell
-            
-            if is_divisor_fb_smooth(cand_Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = canonicalize_divisor_to_factor_base(cand_Q, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_Q, r_to_idx, f_p, p)
-                if row_q:
-                    beta_q = r
-                    if verbose: print(f"  [Smoothing] Found smooth target Q' at iter {i}")
-                    break
-
-    if row_q is None:
-        raise RuntimeError("Failed to smooth Target Q_ell")
-
-    # ----------------------------
-    # Solve Linear System
-    # ----------------------------
-    # Solve M * y = r  (where y are FB logs, r are scalars)
-    # Then log(Q) = (row_q * y) - beta_q
-    
-    d_log_val = solve_dlp_index_calculus(
-        valid_rows,
-        rhs_values,
-        (beta_q, {int(k): int(v) for k, v in row_q.items()}),
-        ell,
-        verbose=verbose
-    )
-
-    # ----------------------------
-    # Verify
-    # ----------------------------
-    if Integer(d_log_val) * G_ell == Q_ell:
-        if verbose:
-            print(f"✓ Discrete log verified in ell-torsion: {d_log_val}")
-        return Integer(d_log_val)
-    else:
-        raise RuntimeError("Discrete log found did not verify in ell-torsion.")
 
 
 """
@@ -1513,14 +1280,222 @@ def build_anchored_relations_homogeneous(smooth_divs, r_to_idx, f_p, p, fb_y_cac
     return valid_rows, rhs_values
 
 
+def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, force_index_calculus=False):
+    """
+    Solves DLP in the FULL Jacobian group using Index Calculus.
+    
+    FIXED: Now builds the correct inhomogeneous system modulo |J|.
+    The system is: A * lambda = (row_q - x*row_g) where x is the discrete log.
+    We add G and Q as actual matrix rows to make the system inhomogeneous.
+    """
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+    J0 = J.zero()
+    
+    full_order = Integer(order)
+    
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
+        print(f"{'='*70}")
+        print(f"Full Jacobian order |J|: {full_order}")
+        print(f"Factorization: {factor(full_order)}")
+
+    if G == J0:
+        raise RuntimeError("G is the identity element")
+
+    extended_divs = []
+    extended_divs.append(jacobian_to_dict(G, p))
+    extended_divs.append(jacobian_to_dict(Q, p))
+    for d in smooth_divs:
+        extended_divs.append(d)
+
+    fb_data = extract_factor_base(extended_divs, p, f_p, verbose=False)
+    roots = fb_data['roots']
+    r_to_idx = fb_data['root_to_idx']
+    fb_y_cache = fb_data['fb_y_cache']
+    
+    if verbose:
+        print(f"Factor base size: {len(roots)}")
+
+    preferred_x_coords = set()
+    for D in [G, Q]:
+        u = D[0]
+        for root, _ in u.roots():
+            preferred_x_coords.add(int(root))
+    
+    valid_rows, rhs_values = build_anchored_relations_homogeneous(
+        smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
+        preferred_x_coords=preferred_x_coords,
+        verbose=verbose
+    )
+    
+    if not valid_rows:
+        raise RuntimeError("No valid homogeneous relations found in collected divisors")
+    
+    if verbose:
+        print(f"Loaded {len(valid_rows)} homogeneous relations (RHS=0).")
+
+    max_smoothing_tries = 2000
+    
+    row_g = None
+    alpha_g = 0
+
+    if is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Generator G is already smooth.")
+    
+    if row_g is None:
+        if verbose:
+            print(f"  [Smoothing] Generator not smooth. Attempting random smoothing...")
+        for i in range(1, max_smoothing_tries + 1):
+            r = ZZ.random_element(1, int(full_order))
+            cand_G = (1 + r) * G
+            
+            if is_divisor_fb_smooth(cand_G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = canonicalize_divisor_to_factor_base(cand_G, r_to_idx, f_p, p) or \
+                        _build_signed_row_from_divisor(cand_G, r_to_idx, f_p, p)
+                if row_g:
+                    alpha_g = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth generator at iter {i}")
+                    break
+    
+    if row_g is None:
+        raise RuntimeError("Failed to smooth Generator G")
+
+    valid_rows.append({int(k): int(v) for k, v in row_g.items()})
+    rhs_values.append(1 + alpha_g)
+
+    row_q = None
+    beta_q = 0
+    
+    if is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Target Q is already smooth.")
+
+    if row_q is None:
+        if verbose:
+            print(f"  [Smoothing] Target not smooth. Attempting random smoothing...")
+        for i in range(1, max_smoothing_tries + 1):
+            r = ZZ.random_element(1, int(full_order))
+            cand_Q = Q + r * G
+            
+            if is_divisor_fb_smooth(cand_Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_q = canonicalize_divisor_to_factor_base(cand_Q, r_to_idx, f_p, p) or \
+                        _build_signed_row_from_divisor(cand_Q, r_to_idx, f_p, p)
+                if row_q:
+                    beta_q = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth target at iter {i}")
+                    break
+
+    if row_q is None:
+        raise RuntimeError("Failed to smooth Target Q")
+
+    d_log_val = solve_dlp_index_calculus(
+        valid_rows,
+        rhs_values,
+        (beta_q, {int(k): int(v) for k, v in row_q.items()}),
+        full_order,
+        verbose=verbose
+    )
+
+    if Integer(d_log_val) * G == Q:
+        if verbose:
+            print(f"✓ Discrete log verified in full group: {d_log_val}")
+        return Integer(d_log_val)
+    else:
+        raise RuntimeError("Discrete log found did not verify in full group.")
+
+
+def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbose=True):
+    """
+    Solves the sparse linear system modulo `modulus` where Ax = b.
+    """
+    if modulus is None or int(modulus) <= 1:
+        raise ValueError("Invalid modulus provided")
+
+    N = Integer(modulus)
+    rq, row_q = q_anchored
+
+    num_rels = len(valid_rows)
+    max_idx = -1
+    for r in valid_rows:
+        if r:
+            max_idx = max(max_idx, max(r.keys()))
+    if row_q:
+        max_idx = max(max_idx, max(row_q.keys()))
+    
+    num_vars = max_idx + 1
+
+    if verbose:
+        print(f"  [Matrix] System size: {num_rels} rows x {num_vars} cols")
+        print(f"  [Solver] Modulus: {N}")
+
+    factors = list(factor(N))
+    
+    if len(factors) == 1:
+        p, exp = factors[0]
+        if verbose:
+            print(f"  [Solver] Using Hensel lifting for p^k = {p}^{exp}")
+        
+        return solve_linear_system_hensel_lift(
+            valid_rows, rhs_values, row_q, rq,
+            int(p), int(exp), num_vars, verbose=verbose
+        )
+    
+    if verbose:
+        print(f"  [Solver] Solving directly over Z/{N}Z")
+    
+    from sage.all import Zmod
+    K = Zmod(N)
+    
+    entries = {}
+    for i, rel in enumerate(valid_rows):
+        for idx, count in rel.items():
+            val = K(int(count))
+            if val != 0:
+                entries[(i, idx)] = val
+    
+    A_mod_N = matrix(K, num_rels, num_vars, entries, sparse=True)
+    b_vec = vector(K, [K(int(v)) for v in rhs_values])
+    sys.stdout.flush()
+    
+    try:
+        sol = A_mod_N.solve_right(b_vec)
+    except ValueError as e:
+        raise RuntimeError(f"Direct solve failed: {e}")
+    
+    sum_logs = K(0)
+    for idx, count in row_q.items():
+        if idx < len(sol):
+            sum_logs += K(int(count)) * sol[idx]
+    
+    log_val = (sum_logs - K(int(rq)))
+    return Integer(log_val)
+
+
 def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, p, exponent, num_vars, verbose=True):
     """
-    Enhanced solver with inconsistency diagnostics.
+    Hensel lifting solver without slow diagnostics.
     """
     num_rels = len(valid_rows)
     K = GF(p)
     
-    # 1. Build Sparse Matrix A and Vector b over GF(p)
     entries = {}
     for i, rel in enumerate(valid_rows):
         for idx, count in rel.items():
@@ -1531,54 +1506,6 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, p, expone
     A_mod_p = matrix(K, num_rels, num_vars, entries, sparse=True)
     b_vec_p = vector(K, [K(val) for val in rhs_values])
 
-    if verbose:
-        print(f"\n============================================================")
-        print(f" LINEAR SYSTEM DIAGNOSTIC (mod {p})")
-        print(f"============================================================")
-        
-        sys.stdout.flush()
-        # Rank Diagnostics
-        rank_A = A_mod_p.rank()
-        # Augmented matrix [A | b]
-        A_aug = A_mod_p.augment(b_vec_p.column())
-        rank_aug = A_aug.rank()
-        
-        print(f"  [Matrix] Rows: {num_rels}, Cols: {num_vars}")
-        print(f"  [Matrix] Rank A: {rank_A}")
-        print(f"  [Matrix] Rank [A|b]: {rank_aug}")
-        
-        if rank_aug > rank_A:
-            print(f"  [!] INCONSISTENCY DETECTED: Target vector b is NOT in the column space.")
-            print(f"      This means the relation equations are mathematically impossible.")
-
-        # Weight Diagnostic: Check if rows sum to 0 (Principal Divisor Property)
-        # In HECC, a relation D ~ 0 implies sum(coefficients) = 0 mod ell (relative to infinity)
-        weights = [sum(row.values()) for row in valid_rows]
-        bad_weights = [(i, w) for i, w in enumerate(weights) if w != 0]
-        
-        if bad_weights:
-            print(f"  [Weight] Found {len(bad_weights)} rows with non-zero coefficient sums.")
-            print(f"           Example bad row indices: {[x[0] for x in bad_weights[:5]]}")
-            print(f"           (Non-zero weight usually means a relation isn't a principal divisor)")
-
-        # Inconsistency Search: Find the first row that breaks the system
-        # (This helps identify if it's the homogeneous relations or the G/Q injection)
-        if rank_aug > rank_A and num_rels < 20000:
-            print(f"  [Search] Searching for the first inconsistent row...")
-            # We check the first few thousand or the last few (where G/Q are added)
-            # Typically, G/Q are at the end.
-            check_indices = list(range(min(1000, num_rels))) + list(range(num_rels-5, num_rels))
-            for i in sorted(list(set(check_indices))):
-                sub_A = A_mod_p[:i+1]
-                sub_b = b_vec_p[:i+1].column()
-                if sub_A.augment(sub_b).rank() > sub_A.rank():
-                    print(f"  [!] System becomes inconsistent at row {i}")
-                    print(f"      Row Data: {valid_rows[i]}")
-                    print(f"      RHS Value: {rhs_values[i]}")
-                    break
-        print(f"============================================================\n")
-
-    # Standard Hensel Lifting Logic
     def sparse_mat_vec_mult_int(vec_int):
         res = [0] * num_rels
         for i, rel in enumerate(valid_rows):
@@ -1609,7 +1536,7 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, p, expone
         try:
             sol_p = A_mod_p.solve_right(target_vec_p)
         except ValueError as e:
-             raise RuntimeError(f"System inconsistent at Hensel step {k+1} (mod {p}). Matrix rank: {A_mod_p.rank()}. Error: {e}")
+            raise RuntimeError(f"System inconsistent at Hensel step {k+1} (mod {p}). Error: {e}")
         
         sol_int = [int(x) for x in sol_p]
         for i in range(len(sol_int)):

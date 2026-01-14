@@ -176,6 +176,7 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             print("Failed to compute numeric r_m at m=", m_q)
                         raise
                         continue
+                    raise
                     # We cannot easily compute rhs numeric without r_m; but if lhs_q is defined,
                     # we can proceed to rationality test as before.
                     rhs_q = None
@@ -395,7 +396,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             rational_roots_count = sum(1 for div in mumford_divisors 
                                       if 'has_rational_roots' in div and div.get('has_rational_roots'))
             print(f"  {rational_roots_count} divisors had rational roots in u(x)")
-            
+
             # Note: diagnose_finite_field_search expects a single prime for matrix analysis.
             # If we are in multi-prime mode, that analysis is less relevant (or needs refactoring).
             # For now, we skip detailed matrix diagnostics if multiple primes are used.
