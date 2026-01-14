@@ -976,91 +976,6 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     return ell, base_pts_x, G, Q, preferred_x_coords, final_secret  # ← RETURN NEW SECRET
 
 
-def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, p, exponent, num_vars, verbose=True):
-    """
-    Solves Ax = b mod p^k using Hensel Lifting.
-    A is built from valid_rows.
-    b is built from rhs_values.
-    
-    After solving for the logs x, computes log(Q) = row_q . x - rq.
-    """
-    num_rels = len(valid_rows)
-    K = GF(p)
-    
-    # 1. Build Sparse Matrix A and Vector b over GF(p)
-    entries = {}
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            val = K(int(count))
-            if val != 0:
-                entries[(i, idx)] = val
-            
-    # Create Sage sparse matrix
-    A_mod_p = matrix(K, num_rels, num_vars, entries, sparse=True)
-
-    # 2. Prepare integer sparse multiplication for residual calculation
-    def sparse_mat_vec_mult_int(vec_int):
-        res = [0] * num_rels
-        for i, rel in enumerate(valid_rows):
-            acc = 0
-            for idx, count in rel.items():
-                if idx < len(vec_int):
-                    acc += int(count) * vec_int[idx]
-            res[i] = acc
-        return res
-
-    # Initial RHS (b) from the relation scalars
-    b_int = [int(val) for val in rhs_values]
-    
-    # Initialize solution x = 0
-    x_accum = [0] * num_vars
-    p_pow = 1
-    
-    for k in range(exponent):
-        if verbose:
-            print(f"    [Hensel] Step {k+1}/{exponent} (mod {p}^{k+1})")
-        
-        # Calculate target residue: target = (b - A * x_accum) / p^k
-        if k == 0:
-            target_int = list(b_int)
-        else:
-            Ax = sparse_mat_vec_mult_int(x_accum)
-            target_int = [(b_val - ax_val) // p_pow for b_val, ax_val in zip(b_int, Ax)]
-        
-        # Convert target to GF(p) vector
-        target_vec_p = vector(K, [K(val) for val in target_int])
-        sys.stdout.flush()
-        
-        # Solve A * sol = target over GF(p)
-        try:
-            # solve_right works for rectangular matrices (least squares or consistent system)
-            # We assume the system is over-determined and consistent.
-            sol_p = A_mod_p.solve_right(target_vec_p)
-        except ValueError as e:
-             raise RuntimeError(f"System inconsistent at Hensel step {k+1} (mod {p}). Matrix rank: {A_mod_p.rank()}. Error: {e}")
-        
-        # Update accumulator
-        sol_int = [int(x) for x in sol_p]
-        for i in range(len(sol_int)):
-            x_accum[i] += sol_int[i] * p_pow
-            
-        p_pow *= p
-
-    # Final result vector x_accum contains discrete logs of FB elements
-    # Compute log(Q) = (sum(row_q[i] * log(P_i)) - beta)
-    sum_logs = 0
-    for idx, count in row_q.items():
-        if idx < len(x_accum):
-            sum_logs += int(count) * x_accum[idx]
-            
-    final_mod = p**exponent
-    # Q_smooth = Q + beta*G => log(Q_smooth) = log(Q) + beta
-    # log(Q) = log(Q_smooth) - beta
-    # where log(Q_smooth) is the sum_logs computed from FB logs
-    log_val = (sum_logs - int(rq)) % final_mod
-    return Integer(log_val)
-
-
 def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbose=True):
     """
     Solves the sparse linear system modulo `modulus` where Ax = b.
@@ -1118,6 +1033,7 @@ def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbos
     
     A_mod_N = matrix(K, num_rels, num_vars, entries, sparse=True)
     b_vec = vector(K, [K(int(v)) for v in rhs_values])
+    sys.stdout.flush()
     
     try:
         sol = A_mod_N.solve_right(b_vec)
@@ -1183,41 +1099,26 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         print(f"  Factor base size: {len(roots)}")
 
     # Build Matrix Rows and RHS
-    valid_rows = []
-    rhs_values = []
+    # CRITICAL: smooth_divs are NOT scalar multiples of G!
+    # They're just arbitrary smooth divisors giving us FB dependencies.
+    preferred_x_coords = set()
+    for D in [G_ell, Q_ell]:
+        u = D[0]
+        for root, _ in u.roots():
+            preferred_x_coords.add(int(root))
     
-    # 1. Process collected smooth divisors as relations D = r*G
-    for d in smooth_divs:
-        # Extract the scalar 'r' from the vector
-        # The search stores the linear combination in 'vector'.
-        # We assume vector[0] is the coefficient for G.
-        vec = d.get('vector', None)
-        if vec is None:
-            continue
-        
-        # Assuming single-section search where S_0 = G, so D = vec[0]*G
-        r_val = int(vec[0])
-        
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        else:
-            try:
-                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            except Exception:
-                continue
-
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        if row:
-            valid_rows.append({int(k): int(v) for k, v in row.items()})
-            rhs_values.append(r_val)
-
+    valid_rows, rhs_values = build_anchored_relations_homogeneous(
+        smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
+        preferred_x_coords=preferred_x_coords,
+        verbose=verbose
+    )
+    
     if not valid_rows:
-        raise RuntimeError("No valid relations found in collected divisors")
-
+        raise RuntimeError("No valid homogeneous relations found in collected divisors")
+    
     if verbose:
-        print(f"Loaded {len(valid_rows)} relation rows with scalars.")
+        print(f"Loaded {len(valid_rows)} homogeneous relation rows (all RHS=0).")
+
 
     # ----------------------------
     # Smoothing Strategy (Generates anchor relations)
@@ -1306,3 +1207,420 @@ def perform_dlp_attack(G, Q, smooth_divs, p, f_coeffs, order, verbose=True, forc
         return Integer(d_log_val)
     else:
         raise RuntimeError("Discrete log found did not verify in ell-torsion.")
+
+
+"""
+Anchoring fix for inconsistent linear system in perform_dlp_attack.
+
+Key insight: Relations built from divisors with different x-coordinate anchors
+are not directly comparable. We need to rebase them all to a single canonical
+anchor point.
+
+This patch adds:
+1. single_point_row() - builds degree-1 divisor row for a single (x,y) point
+2. Rebasing logic in perform_dlp_attack to normalize all relations
+"""
+
+from sage.all import GF, PolynomialRing
+
+
+# ============================================================================
+# PATCH FOR perform_dlp_attack
+# ============================================================================
+# Insert this logic where valid_rows are being built from smooth_divs
+
+def build_anchored_relations(smooth_divs, r_to_idx, f_p, p, fb_y_cache, preferred_x_coords=PREFERRED_X_COORDS, verbose=True):
+    """
+    Build relation rows with consistent anchoring.
+    
+    All relations are rebased to a single canonical anchor point chosen from
+    preferred_x_coords. This ensures the linear system is mathematically consistent.
+    
+    Returns:
+        (valid_rows, rhs_values) where all rows are anchored to the same base point
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    # Choose base anchor (first preferred x-coord in factor base)
+    base_anchor_x = None
+    for x in sorted(preferred_x_coords):
+        if int(x) in r_to_idx:
+            base_anchor_x = int(x)
+            break
+    
+    if base_anchor_x is None:
+        raise RuntimeError("No preferred x-coordinate found in factor base for anchoring")
+    
+    if verbose:
+        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
+    
+    # Precompute base anchor row (we'll need this many times)
+    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    if base_row is None:
+        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_anchor = 0
+    skipped_rebase_fail = 0
+    
+    for d in smooth_divs:
+        # Extract scalar r from the vector (assumes vector[0] is coefficient for G)
+        vec = d.get('vector', None)
+        if vec is None:
+            continue
+        r_val = int(vec[0])
+        
+        # Build divisor polynomials
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        else:
+            try:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            except Exception:
+                continue
+        
+        # Get relation row
+        from .index_calculus import get_relation_row
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        if not row:
+            continue
+        
+        # Find anchor point in this divisor (any root in factor base)
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            continue
+        
+        current_anchor_x = None
+        for r, _ in roots_data:
+            r_int = int(r)
+            if r_int in r_to_idx:
+                current_anchor_x = r_int
+                break
+        
+        if current_anchor_x is None:
+            skipped_no_anchor += 1
+            continue
+        
+        # Rebase to canonical anchor
+        rebased_row = rebase_relation_row(
+            row, current_anchor_x, base_anchor_x,
+            r_to_idx, f_p, p, fb_y_cache
+        )
+        
+        if rebased_row is None:
+            skipped_rebase_fail += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
+        rhs_values.append(r_val)
+    
+    if verbose:
+        print(f"  [Anchoring] Built {len(valid_rows)} anchored relations")
+        if skipped_no_anchor > 0:
+            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
+        if skipped_rebase_fail > 0:
+            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
+    
+    return valid_rows, rhs_values
+
+
+# ============================================================================
+# USAGE IN perform_dlp_attack
+# ============================================================================
+# Replace the section that builds valid_rows from smooth_divs with:
+#
+# valid_rows, rhs_values = build_anchored_relations(
+#     smooth_divs, r_to_idx, f_p, p, fb_y_cache, preferred_x_coords, verbose=verbose
+# )
+#
+# Then proceed with smoothing G and Q as before.
+
+
+"""
+CORRECTED anchoring fix - handles the fact that smooth_divs are NOT scalar multiples of G.
+
+The smooth divisors from Mumford search are just arbitrary smooth divisors over the FB.
+They give us LINEAR DEPENDENCIES among FB elements, NOT scalar equations.
+
+Only G and Q (after smoothing) give us actual scalar equations.
+"""
+
+from sage.all import GF, PolynomialRing, ZZ, Integer
+
+
+def single_point_row(x_int, r_to_idx, f_p, p, fb_y_cache=None):
+    """
+    Build factor-base row for degree-1 divisor at point (x_int, y_canonical).
+    
+    Returns:
+        dict {col_idx: 1} if x_int is in factor base and has canonical y
+        None otherwise
+    """
+    x_int = int(x_int)
+    
+    if x_int not in r_to_idx:
+        return None
+    
+    # Get canonical y-coordinate
+    if fb_y_cache is not None and x_int in fb_y_cache:
+        y_can = fb_y_cache[x_int]
+    else:
+        K = GF(p)
+        y2 = int(f_p(K(x_int)))
+        
+        if y2 == 0:
+            y_can = 0
+        elif pow(y2, (p - 1) // 2, p) != 1:
+            return None
+        else:
+            y_can = tonelli_shanks(y2, p)
+            y_can = int(min(y_can, p - y_can))
+    
+    idx = r_to_idx[x_int]
+    return {idx: 1}
+
+
+def rebase_relation_row(row, current_anchor_x, base_anchor_x, r_to_idx, f_p, p, fb_y_cache=None):
+    """
+    Rebase a relation row from current_anchor to base_anchor.
+    
+    Mathematically: D' = D - (current_anchor) + (base_anchor)
+    """
+    if current_anchor_x == base_anchor_x:
+        return dict(row)
+    
+    current_row = single_point_row(current_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    
+    if current_row is None or base_row is None:
+        return None
+    
+    new_row = dict(row)
+    
+    # Subtract current anchor
+    for col, val in current_row.items():
+        new_row[col] = new_row.get(col, 0) - val
+        if new_row[col] == 0:
+            del new_row[col]
+    
+    # Add base anchor
+    for col, val in base_row.items():
+        new_row[col] = new_row.get(col, 0) + val
+    
+    return new_row
+
+
+def build_anchored_relations_homogeneous(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
+                                        preferred_x_coords=None, verbose=True):
+    """
+    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
+    
+    These divisors are NOT scalar multiples of G - they're just arbitrary smooth divisors.
+    They give us dependencies among FB elements: ∏ P_i^{e_i} = 0 in the Jacobian.
+    
+    All relations are rebased to a single canonical anchor point for consistency.
+    
+    Returns:
+        (valid_rows, rhs_values) where rhs_values are all 0
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    # Choose base anchor
+    base_anchor_x = None
+    if preferred_x_coords:
+        for x in sorted(preferred_x_coords):
+            if int(x) in r_to_idx:
+                base_anchor_x = int(x)
+                break
+    
+    if base_anchor_x is None:
+        # Fallback: use first element in factor base
+        base_anchor_x = min(r_to_idx.keys())
+    
+    if verbose:
+        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
+    
+    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    if base_row is None:
+        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_anchor = 0
+    skipped_rebase_fail = 0
+    
+    for d in smooth_divs:
+        # Build divisor polynomials
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        else:
+            try:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            except Exception:
+                continue
+        
+        # Get relation row
+        from .index_calculus import get_relation_row
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        if not row:
+            continue
+        
+        # Find anchor point in this divisor
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            continue
+        
+        current_anchor_x = None
+        for r, _ in roots_data:
+            r_int = int(r)
+            if r_int in r_to_idx:
+                current_anchor_x = r_int
+                break
+        
+        if current_anchor_x is None:
+            skipped_no_anchor += 1
+            continue
+        
+        # Rebase to canonical anchor
+        rebased_row = rebase_relation_row(
+            row, current_anchor_x, base_anchor_x,
+            r_to_idx, f_p, p, fb_y_cache
+        )
+        
+        if rebased_row is None:
+            skipped_rebase_fail += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
+        rhs_values.append(0)  # HOMOGENEOUS: all smooth divisor relations have RHS = 0
+    
+    if verbose:
+        print(f"  [Anchoring] Built {len(valid_rows)} homogeneous relations (RHS=0)")
+        if skipped_no_anchor > 0:
+            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
+        if skipped_rebase_fail > 0:
+            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
+    
+    return valid_rows, rhs_values
+
+
+def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, p, exponent, num_vars, verbose=True):
+    """
+    Enhanced solver with inconsistency diagnostics.
+    """
+    num_rels = len(valid_rows)
+    K = GF(p)
+    
+    # 1. Build Sparse Matrix A and Vector b over GF(p)
+    entries = {}
+    for i, rel in enumerate(valid_rows):
+        for idx, count in rel.items():
+            val = K(int(count))
+            if val != 0:
+                entries[(i, idx)] = val
+            
+    A_mod_p = matrix(K, num_rels, num_vars, entries, sparse=True)
+    b_vec_p = vector(K, [K(val) for val in rhs_values])
+
+    if verbose:
+        print(f"\n============================================================")
+        print(f" LINEAR SYSTEM DIAGNOSTIC (mod {p})")
+        print(f"============================================================")
+        
+        sys.stdout.flush()
+        # Rank Diagnostics
+        rank_A = A_mod_p.rank()
+        # Augmented matrix [A | b]
+        A_aug = A_mod_p.augment(b_vec_p.column())
+        rank_aug = A_aug.rank()
+        
+        print(f"  [Matrix] Rows: {num_rels}, Cols: {num_vars}")
+        print(f"  [Matrix] Rank A: {rank_A}")
+        print(f"  [Matrix] Rank [A|b]: {rank_aug}")
+        
+        if rank_aug > rank_A:
+            print(f"  [!] INCONSISTENCY DETECTED: Target vector b is NOT in the column space.")
+            print(f"      This means the relation equations are mathematically impossible.")
+
+        # Weight Diagnostic: Check if rows sum to 0 (Principal Divisor Property)
+        # In HECC, a relation D ~ 0 implies sum(coefficients) = 0 mod ell (relative to infinity)
+        weights = [sum(row.values()) for row in valid_rows]
+        bad_weights = [(i, w) for i, w in enumerate(weights) if w != 0]
+        
+        if bad_weights:
+            print(f"  [Weight] Found {len(bad_weights)} rows with non-zero coefficient sums.")
+            print(f"           Example bad row indices: {[x[0] for x in bad_weights[:5]]}")
+            print(f"           (Non-zero weight usually means a relation isn't a principal divisor)")
+
+        # Inconsistency Search: Find the first row that breaks the system
+        # (This helps identify if it's the homogeneous relations or the G/Q injection)
+        if rank_aug > rank_A and num_rels < 20000:
+            print(f"  [Search] Searching for the first inconsistent row...")
+            # We check the first few thousand or the last few (where G/Q are added)
+            # Typically, G/Q are at the end.
+            check_indices = list(range(min(1000, num_rels))) + list(range(num_rels-5, num_rels))
+            for i in sorted(list(set(check_indices))):
+                sub_A = A_mod_p[:i+1]
+                sub_b = b_vec_p[:i+1].column()
+                if sub_A.augment(sub_b).rank() > sub_A.rank():
+                    print(f"  [!] System becomes inconsistent at row {i}")
+                    print(f"      Row Data: {valid_rows[i]}")
+                    print(f"      RHS Value: {rhs_values[i]}")
+                    break
+        print(f"============================================================\n")
+
+    # Standard Hensel Lifting Logic
+    def sparse_mat_vec_mult_int(vec_int):
+        res = [0] * num_rels
+        for i, rel in enumerate(valid_rows):
+            acc = 0
+            for idx, count in rel.items():
+                if idx < len(vec_int):
+                    acc += int(count) * vec_int[idx]
+            res[i] = acc
+        return res
+
+    b_int = [int(val) for val in rhs_values]
+    x_accum = [0] * num_vars
+    p_pow = 1
+    
+    for k in range(exponent):
+        if verbose:
+            print(f"    [Hensel] Step {k+1}/{exponent} (mod {p}^{k+1})")
+        
+        if k == 0:
+            target_int = list(b_int)
+        else:
+            Ax = sparse_mat_vec_mult_int(x_accum)
+            target_int = [(b_val - ax_val) // p_pow for b_val, ax_val in zip(b_int, Ax)]
+        
+        target_vec_p = vector(K, [K(val) for val in target_int])
+        sys.stdout.flush()
+        
+        try:
+            sol_p = A_mod_p.solve_right(target_vec_p)
+        except ValueError as e:
+             raise RuntimeError(f"System inconsistent at Hensel step {k+1} (mod {p}). Matrix rank: {A_mod_p.rank()}. Error: {e}")
+        
+        sol_int = [int(x) for x in sol_p]
+        for i in range(len(sol_int)):
+            x_accum[i] += sol_int[i] * p_pow
+        p_pow *= p
+
+    sum_logs = 0
+    for idx, count in row_q.items():
+        if idx < len(x_accum):
+            sum_logs += int(count) * x_accum[idx]
+            
+    final_mod = p**exponent
+    log_val = (sum_logs - int(rq)) % final_mod
+    return Integer(log_val)

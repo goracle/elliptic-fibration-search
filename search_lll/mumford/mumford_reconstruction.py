@@ -1,5 +1,5 @@
 from functools import lru_cache
-from sage.all import QQ, ZZ
+from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from .mumford_verification import *
@@ -8,11 +8,18 @@ from .mumford_timing import *
 from .mumford_basis import *
 from search_lll.smoothness import *
 import multiprocessing
-
 import itertools
 import time
 import traceback
-from search_common import DATA_PTS_GENUS2
+import math
+import random
+from collections import defaultdict, Counter
+from sage.all import QQ, ZZ, gcd, PolynomialRing
+from .mumford_verification import verify_mumford_pair
+from search_common import DATA_PTS_GENUS2, FINITE_FIELD
+
+
+#from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 
 
 def rational_reconstruct_fast(c, N, max_den=None, max_num=None):
@@ -350,10 +357,6 @@ def quick_dependence_check(div1, div2):
 
 
 # Add to mumford_reconstruction.py, after the CRT reconstruction loop
-
-
-from search_common import DATA_PTS_GENUS2, FINITE_FIELD
-from sage.all import GF
 
 
 def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
@@ -925,15 +928,6 @@ def _ff_worker_verify_batch(args):
     return verified, stats
 
 
-import math
-
-
-from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
-import random
-from collections import defaultdict, Counter
-from search_common import FINITE_FIELD
-
-
 def get_u_roots_mod_p(s_val, p_val, F):
     """
     Finds roots of u(x) = x^2 - s*x + p in F.
@@ -948,9 +942,6 @@ def get_u_roots_mod_p(s_val, p_val, F):
     r2 = int((s_val - sqrt_delta) * inv_2)
     return tuple(sorted((r1, r2)))
 
-
-from sage.all import QQ, ZZ, gcd, PolynomialRing
-from .mumford_verification import verify_mumford_pair
 
 def rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass=False):
     """
@@ -1002,6 +993,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     to restore the 'small-FB' behavior.
     
     FIX: Now correctly tracks vector scalars during random walk mixing.
+    FIX: Discards duplicate divisors to avoid inconsistent linear algebra relations.
     """
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
@@ -1252,21 +1244,13 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                         trim_to = int(MAX_ACTIVE_POOL * 0.9)
                         active_pool = active_pool[-trim_to:]
                 else:
-                    # duplicate divisor (same u AND v) – good collision, we accept (it doesn't grow FB)
-                    # only append the divisor if we have room
-                    if len(active_pool) < MAX_ACTIVE_POOL:
-                        new_data = {
-                            's': int(s_new), 'p': int(p_new), 
-                            'v_0': int(v0_new), 'v_1': int(v1_new),
-                            'vector': v_new, # Using computed vector
-                            'roots': list(roots),
-                            'has_rational_roots': True
-                        }
-                        active_pool.append((D3, new_data))
-                        generated_count += 1
-                    else:
-                        # if pool full, prefer to drop this duplicate (we already have it)
-                        pass
+                    # Duplicate divisor found.
+                    # CRITICAL FIX: DO NOT ADD duplicates to active_pool.
+                    # Adding a duplicate divisor with a *different* vector (scalar) creates
+                    # conflicting linear equations (Row*x = r1 AND Row*x = r2 where r1 != r2).
+                    # This causes inconsistent linear algebra. We simply discard it.
+                    patience += 1
+                    pass
             else:
                 # reject candidate that would grow FB by 2 or overflow cap
                 patience += 1
