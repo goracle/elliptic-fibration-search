@@ -27,236 +27,157 @@ from stats import SearchStats # <-- Make sure stats is imported
 from sage.misc.verbose import set_verbose
 set_verbose(0)
 import warnings
+import sys
 
 # Suppress the specific "ambiguous form" warning from Sage's Monsky-Washnitzer code
 warnings.filterwarnings("ignore", message=".*Returning ambiguous form of degree genus+1.*")
 
-import sys
 
-class SpamFilter:
-    def __init__(self, stream):
-        self.stream = stream
-        self._buffer = ""
-
-    def write(self, data):
-        self._buffer += data
-        while "\n" in self._buffer:
-            line, self._buffer = self._buffer.split("\n", 1)
-            if "Returning ambiguous form of degree genus+1." not in line:
-                self.stream.write(line + "\n")
-
-    def flush(self):
-        if self._buffer:
-            if "Returning ambiguous form of degree genus+1." not in self._buffer:
-                self.stream.write(self._buffer)
-            self._buffer = ""
-        self.stream.flush()
-
-sys.stdout = SpamFilter(sys.stdout)
-
-# -------------------------
-# Tower builder adapter for search (lightweight, deterministic, no tests)
-# -------------------------
-# --- Helper Functions ---
-
-
-# Simple integration into your existing code:
-
-
-# In doloop_genus2, replace the consensus precomputation section
-# (starting from "if USE_CONSENSUS_FILTER and fibrations:")
-# with this updated version:
-
-
-# Replace analyze_fibration_geometry with this version that avoids SR in FINITE_FIELD
 @PROFILE
-def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+def main_genus2():
     """
-    Analyze single fibration tower. In FINITE_FIELD mode this function avoids SR entirely
-    and returns field-native objects (Fm polynomials, etc).
-    """
-    tower = fib_data['tower']
-    fib_id = fib_data.get('id', 0)
-    seed = fib_data.get('seed', seed)
-
-    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
-
-    # Determine base field
-    if FINITE_FIELD:
-        base_field = GF(FINITE_FIELD)
-    else:
-        base_field = QQ
-
-    PR_m = PolynomialRing(base_field, 'm')
-    m_poly = PR_m.gen()
-    Fm = PR_m.fraction_field()
-    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
-
-    # Extract roots and final RHS polynomial from tower
-    # In FINITE_FIELD mode the tower entries should already be field-native
-    this_roots = [step['r_expr'] for step in tower]
-    this_E_rhs_obj = tower[-1]['f_i']   # expected: polynomial over Fm[x] (field-native) or symbolic for QQ
-
-    # Build field-native E_rhs_m
-    if FINITE_FIELD:
-        # If it's already an R_x_m polynomial, keep it
-        try:
-            if this_E_rhs_obj.parent() == R_x_m:
-                this_E_rhs_m = this_E_rhs_obj
-            else:
-                # Try to extract coefficient list and coerce into R_x_m
-                try:
-                    coeffs = list(this_E_rhs_obj.list())
-                except Exception:
-                    coeffs = [this_E_rhs_obj.coefficient(i) for i in range(this_E_rhs_obj.degree() + 1)]
-                    raise
-                coeffs_in_Fm = [Fm(c) for c in coeffs]
-                this_E_rhs_m = R_x_m(coeffs_in_Fm)
-        except Exception as e:
-            raise RuntimeError(f"analyze_fibration_geometry (FF): failed to coerce final RHS to Fm[x]: {e}")
-
-    else:
-        # QQ / symbolic branch - preserve previous behaviour (uses SR)
-        this_E_rhs_m = None  # retain existing code path below (handled in QQ mode)
+    Main search function for genus 2 curves.
     
-    # For both modes: construct curve data and compute geometry
-    if FINITE_FIELD:
-        this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
-        # lastrhs: evaluate at last root (roots stored as field native)
-        lastrhs = this_E_rhs_m(x=this_roots[-1])
-        last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
-        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+    Two modes:
+    - QQ mode (FINITE_FIELD=None): Exhaustive rational point search
+    - Finite field mode (FINITE_FIELD=p): HECC DLP attack via index calculus
+    """
+    
+    # ========================================================================
+    # Mode Detection and Initial Setup
+    # ========================================================================
+    
+    if FINITE_FIELD is not None:
+        print(f"\n{'='*70}")
+        print(f"FINITE FIELD MODE: GF({FINITE_FIELD})")
+        print(f"Goal: Solve HECC DLP via index calculus on Jacobian")
+        print(f"{'='*70}\n")
     else:
-        # QQ / SR mode: fall back to old behaviour (unchanged)
-        # Keep SR-based reconstruction for compatibility
-        xSR, mSR = SR.var('x'), SR.var('m')
-        this_roots_sr = [SR(step['r_expr']) for step in tower]
-        this_E_rhs_sym = this_E_rhs_obj
-        coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
-        coeffs_in_Fm = [PR_m.frac_field()(c.subs({mSR: m_poly})) for c in coeffs_in_m]
-        E_rhs_m = R_x_m(coeffs_in_Fm)
-        this_E_curve_m, one, two, three = compute_morphism(E_rhs_m)
-        lastrhs = E_rhs_m(x=this_roots_sr[-1])
-        last_phi_x = get_phi_x(one, two, three, this_roots_sr[-1], lastrhs)
-        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
+        print(f"\n{'='*70}")
+        print(f"RATIONAL POINT SEARCH MODE (QQ)")
+        print(f"Goal: Find all rational points up to termination threshold")
+        print(f"{'='*70}\n")
+    
+    initial_xs = DATA_PTS_GENUS2
 
-    # --- KEY FIX: compute discriminant degree safely ---
-    try:
-        Delta = this_cd.E_weier.discriminant()
-        if hasattr(Delta, 'numerator'):
-             this_disc_deg = Delta.numerator().degree()
+    if FINITE_FIELD is not None:
+        F = GF(FINITE_FIELD)
+        known_pts = {(F(x), get_y_unshifted_genus2(F(x))) 
+                     for x in initial_xs 
+                     if get_y_unshifted_genus2(F(x)) is not None}
+    else:
+        known_pts = {(QQ(x), get_y_unshifted_genus2(x)) 
+                     for x in initial_xs 
+                     if get_y_unshifted_genus2(x) is not None}
+
+    known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
+
+    terminate_when = TERMINATE_WHEN_6
+    
+    print("known_pts start:", known_pts)
+    
+    excluded = set()
+    all_found_x = {pt[0] for pt in known_pts}
+    
+    cumulative_stats = SearchStats()
+    
+    # ========================================================================
+    # Main Fibration Loop
+    # ========================================================================
+    
+    while True:
+        # Check termination conditions
+        if not FINITE_FIELD and len(known_pts) >= terminate_when:
+            print(f"\nTERMINATE_WHEN_6 ({terminate_when}) reached.")
+            break
+        
+        # Get next fibration data points
+        data_pts = get_data_pts(known_pts, excluded)
+        if data_pts is None:
+            print("\nAll combinations of points have been checked.")
+            break
+        
+        # Skip fibrations containing y=0 points (presents problems for this method)
+        skip = False
+        for i in data_pts:
+            if not i[1]:
+                skip = True
+                excluded.add(frozenset(data_pts))
+                print("Skipping:", data_pts, "due to the presence of y=0 point.")
+                break
+        if skip:
+            continue
+        
+        print("\n" + "="*70)
+        print(f"Constructing new fibration using: {data_pts}")
+        print(f"Known pts so far: {sorted(list(known_pts))}")
+        if not FINITE_FIELD:
+            print(f"Found {len(known_pts)} / {terminate_when}")
+        print("="*70 + "\n")
+        
+        # Run search for this fibration
+        found_from_fibration, cumulative_stats = doloop_genus2(
+            data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats
+        )
+        
+        all_found_x.update(found_from_fibration)
+        excluded.add(frozenset(data_pts))
+        
+        # Update known points based on mode
+        if FINITE_FIELD is not None:
+            # In FF mode, update known_pts directly with found coordinates
+            for x_coord in found_from_fibration:
+                y_coord = get_y_unshifted_genus2(x_coord)
+                if y_coord is not None:
+                    known_pts.add((x_coord, y_coord))
+                    if y_coord != 0:
+                        known_pts.add((x_coord, -y_coord))
         else:
-             this_disc_deg = Delta.degree()
-    except Exception:
-        this_disc_deg = primary_deg
-        raise
-
-    is_primary = (fib_id == -1)
-    scaling_factor = float(this_disc_deg) / float(primary_deg)
-
-    if is_primary:
-        this_height_bound = height_bound
-        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+            # In QQ mode, use augment_known
+            known_pts = augment_known(known_pts, all_found_x, deg6=True)
+        
+        # FINITE_FIELD mode: Single fibration for DLP attack
+        if FINITE_FIELD:
+            print("\n" + "="*70)
+            print("FINITE FIELD MODE: Completed DLP attack on single fibration")
+            print("="*70)
+            break
+        
+        # MUMFORD_SEARCH mode: Single fibration for basis search
+        if MUMFORD_SEARCH:
+            print("\nMUMFORD_SEARCH mode: Only trying one fibration for basis search")
+            break
+    
+    # ========================================================================
+    # Final Summary
+    # ========================================================================
+    
+    print("\n" + "="*70)
+    print("FINAL SUMMARY")
+    print("="*70)
+    
+    print("\n--- Cumulative Run Statistics ---")
+    print(cumulative_stats.summary_string())
+    
+    if FINITE_FIELD is not None:
+        print("\n--- Finite Field Results ---")
+        print(f"Field: GF({FINITE_FIELD})")
+        print(f"Factor base size: {len(all_found_x)}")
+        print(f"Total Jacobian elements processed: {len(known_pts)}")
+        print("\nNote: In FINITE_FIELD mode, the 'found points' are factor base elements")
+        print("used for the index calculus attack, not rational points over Q.")
     else:
-        this_height_bound = int(height_bound * scaling_factor * 1.2)
-        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f})")
-
-    # Auto-configure search params (uses this_cd)
-    try:
-        known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
-        known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
-        if not known_pts_for_height:
-            known_pts_for_height = [(QQ(0), None)]
-
-        this_sconf = bounds.auto_configure_search(
-                    this_cd,
-                    known_pts_for_height,
-                    height_bound=None,
-                    run_heavy_analysis=False,
-                    debug=False
-                )
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-        print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
-    except Exception as e:
-        print(f"  [analyze_fibration] WARNING: could not auto-configure, falling back to global sconf. Error: {e}")
-        this_sconf = global_sconf.copy()
-        this_sconf['HEIGHT_BOUND'] = this_height_bound
-        raise
-
-    # 5. Compute sections and reduce
-    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
-    if not fib_specific_sections:
-        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
-        return None
-
-    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
-
-    # 6. Height matrix and vectors
-    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
-    if not independent:
-        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
-        return None
-
-    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
-
-    if FINITE_FIELD:
-        fib_specific_vecs = generate_ff_search_vectors(len(fib_specific_sections))
-    else:
-        fib_specific_vecs = compute_search_vectors(this_H, this_height_bound)
-
-    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
-    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
-
-    # 7. Build rhs_list (field-native where possible)
-    this_search_rhs_list = []
-
-    if FINITE_FIELD:
-        # In FF mode, put field-native phi_x if available; otherwise string fallback
-        try:
-            this_search_rhs_list.append(this_cd.phi_x)
-        except Exception:
-            this_search_rhs_list.append(str(this_cd.phi_x))
-            raise
-        # For other roots produce phi_x evaluated objects where possible
-        for root_val in this_roots[:-1]:
-            try:
-                qrhs_r = this_E_rhs_m(x=root_val)
-                phi_x_r = get_phi_x(one, two, three, root_val, qrhs_r)
-                this_search_rhs_list.append(phi_x_r)
-            except Exception:
-                # Add string fallback - the consumer must handle non-field rhs gracefully
-                this_search_rhs_list.append(str(root_val))
-                raise
-    else:
-        # symbolic branch (kept for compatibility)
-        xSR, mSR = SR.var('x'), SR.var('m')
-        this_search_rhs_list = [SR(this_cd.phi_x)]
-        for root in this_roots[:-1]:
-            qrhs_r = SR(this_E_rhs_obj).subs({xSR: SR(root)})
-            phi_x_r_SR = SR(get_phi_x(SR(one), SR(two), SR(three), SR(root), qrhs_r))
-            this_search_rhs_list.append(phi_x_r_SR)
-
-    return {
-        'cd': this_cd,
-        'sections': fib_specific_sections,
-        'H': this_H,
-        'height_bound': this_height_bound,
-        'vecs': fib_specific_vecs,
-        'rhs_list': this_search_rhs_list,
-        'r_m': this_roots[0],
-        'sconf': this_sconf,
-        'deg': this_disc_deg,
-        'disc_deg': this_disc_deg,
-        'name': f"fib_seed_{seed}",
-    }
-
-
-# Simple integration into your existing code:
-def add_y_zero_points_to_known(known_pts, sextic_coeffs):
-    """Add y=0 points to the known points set."""
-    y_zero_points = find_y_zero_points_genus2(sextic_coeffs)
-    known_pts.update(y_zero_points)
-    return known_pts
+        print("\n--- Rational Point Search Results ---")
+        print(f"Final list of known points ({len(known_pts)} total):")
+        for pt in sorted(list(known_pts)):
+            print(f"  {pt}")
+        
+        if len(known_pts) >= terminate_when:
+            print(f"\n✓ Reached termination threshold ({terminate_when} points)")
+        else:
+            print(f"\n⚠️  Did not reach termination threshold ({len(known_pts)}/{terminate_when})")
+    
+    print("="*70)
 
 
 def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
@@ -305,7 +226,7 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
                 for i, a in enumerate(sextic_coeffs))
 
         if verbose:
-            print(f"hyper elliptic curve: y^2 = {G}")
+            print(f"hyperelliptic curve: y^2 = {G}")
 
         # Find all rational roots
         rational_roots = G.roots(QQ, multiplicities=False)
@@ -320,7 +241,160 @@ def find_y_zero_points_genus2(sextic_coeffs, verbose=True):
     return y_zero_points
 
 
-# In search7_genus2.sage
+@PROFILE
+def analyze_fibration_geometry(fib_data, base_pts, height_bound, shift, all_known_x, global_sconf, seed=None, primary_deg=12):
+    """
+    Analyze single fibration tower. In FINITE_FIELD mode this function avoids SR entirely
+    and returns field-native objects (Fm polynomials, etc).
+    """
+    tower = fib_data['tower']
+    fib_id = fib_data.get('id', 0)
+    seed = fib_data.get('seed', seed)
+
+    print(f"  [analyze_fibration] Analyzing geometry for tower (seed={seed}, id={fib_id})...")
+
+    # Determine base field
+    if FINITE_FIELD:
+        base_field = GF(FINITE_FIELD)
+    else:
+        base_field = QQ
+
+    PR_m = PolynomialRing(base_field, 'm')
+    m_poly = PR_m.gen()
+    Fm = PR_m.fraction_field()
+    R_x_m, x_poly = PolynomialRing(Fm, 'x').objgen()
+
+    # Extract roots and final RHS polynomial from tower
+    # In FINITE_FIELD mode the tower entries should already be field-native
+    this_roots = [step['r_expr'] for step in tower]
+    this_E_rhs_obj = tower[-1]['f_i']   # expected: polynomial over Fm[x] (field-native) or symbolic for QQ
+
+    # Build field-native E_rhs_m
+    if FINITE_FIELD:
+        # If it's already an R_x_m polynomial, keep it
+        if this_E_rhs_obj.parent() == R_x_m:
+            this_E_rhs_m = this_E_rhs_obj
+        else:
+            # Try to extract coefficient list and coerce into R_x_m
+            coeffs = list(this_E_rhs_obj.list())
+            coeffs_in_Fm = [Fm(c) for c in coeffs]
+            this_E_rhs_m = R_x_m(coeffs_in_Fm)
+
+    else:
+        # QQ / symbolic branch - preserve previous behaviour (uses SR)
+        this_E_rhs_m = None  # retain existing code path below (handled in QQ mode)
+    
+    # For both modes: construct curve data and compute geometry
+    if FINITE_FIELD:
+        this_E_curve_m, one, two, three = compute_morphism(this_E_rhs_m)
+        # lastrhs: evaluate at last root (roots stored as field native)
+        lastrhs = this_E_rhs_m(x=this_roots[-1])
+        last_phi_x = get_phi_x(one, two, three, this_roots[-1], lastrhs)
+        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, this_E_rhs_m, (one, two, three))
+    else:
+        # QQ / SR mode: fall back to old behaviour (unchanged)
+        # Keep SR-based reconstruction for compatibility
+        xSR, mSR = SR.var('x'), SR.var('m')
+        this_roots_sr = [SR(step['r_expr']) for step in tower]
+        this_E_rhs_sym = this_E_rhs_obj
+        coeffs_in_m = [SR(this_E_rhs_sym).coefficient(xSR, i) for i in range(SR(this_E_rhs_sym).degree(xSR) + 1)]
+        coeffs_in_Fm = [PR_m.frac_field()(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+        E_rhs_m = R_x_m(coeffs_in_Fm)
+        this_E_curve_m, one, two, three = compute_morphism(E_rhs_m)
+        lastrhs = E_rhs_m(x=this_roots_sr[-1])
+        last_phi_x = get_phi_x(one, two, three, this_roots_sr[-1], lastrhs)
+        this_cd = buildcd(this_E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
+
+    # --- KEY FIX: compute discriminant degree safely ---
+    Delta = this_cd.E_weier.discriminant()
+    if hasattr(Delta, 'numerator'):
+         this_disc_deg = Delta.numerator().degree()
+    else:
+         this_disc_deg = Delta.degree()
+
+    is_primary = (fib_id == -1)
+    scaling_factor = float(this_disc_deg) / float(primary_deg)
+
+    if is_primary:
+        this_height_bound = height_bound
+        print(f"  [analyze_fibration] Using PRIMARY height bound: {this_height_bound}")
+    else:
+        this_height_bound = int(height_bound * scaling_factor * 1.2)
+        print(f"  [analyze_fibration] Scaling height bound: {height_bound} -> {this_height_bound} (deg ratio {scaling_factor:.2f})")
+
+    # Auto-configure search params (uses this_cd)
+    known_pts_for_height = [(QQ(x), None) for x in all_known_x if x is not None]
+    known_pts_for_height.extend([(QQ(pt[0]), QQ(pt[1])) for pt in base_pts if pt[0] is not None])
+    if not known_pts_for_height:
+        known_pts_for_height = [(QQ(0), None)]
+
+    this_sconf = bounds.auto_configure_search(
+                this_cd,
+                known_pts_for_height,
+                height_bound=None,
+                run_heavy_analysis=False,
+                debug=False
+            )
+    this_sconf['HEIGHT_BOUND'] = this_height_bound
+    print(f"  [analyze_fibration] Configured with H_bound={this_height_bound}")
+
+    # 5. Compute sections and reduce
+    fib_specific_sections = compute_base_sections_m(this_cd, base_pts)
+    if not fib_specific_sections:
+        print(f"  [analyze_fibration] ERROR: Could not compute base sections.")
+        return None
+
+    fib_specific_sections = lll_reduce_mw_basis(this_cd, fib_specific_sections)
+
+    # 6. Height matrix and vectors
+    independent, this_H = check_independence(fib_specific_sections, this_E_curve_m, this_cd)
+    if not independent:
+        print(f"  [analyze_fibration] ERROR: Section basis is linearly dependent.")
+        return None
+
+    print(f"  [analyze_fibration] Fibration H:\n{this_H}")
+
+    if FINITE_FIELD:
+        fib_specific_vecs = generate_ff_search_vectors(len(fib_specific_sections))
+    else:
+        fib_specific_vecs = compute_search_vectors(this_H, this_height_bound)
+
+    fib_specific_vecs = canonicalize_by_sign(fib_specific_vecs)
+    print(f"  [analyze_fibration] Found {len(fib_specific_vecs)} search vectors (H={this_height_bound}).")
+
+    # 7. Build rhs_list (field-native where possible)
+    this_search_rhs_list = []
+
+    if FINITE_FIELD:
+        # In FF mode, put field-native phi_x if available; otherwise string fallback
+        this_search_rhs_list.append(this_cd.phi_x)
+        # For other roots produce phi_x evaluated objects where possible
+        for root_val in this_roots[:-1]:
+            qrhs_r = this_E_rhs_m(x=root_val)
+            phi_x_r = get_phi_x(one, two, three, root_val, qrhs_r)
+            this_search_rhs_list.append(phi_x_r)
+    else:
+        # symbolic branch (kept for compatibility)
+        xSR, mSR = SR.var('x'), SR.var('m')
+        this_search_rhs_list = [SR(this_cd.phi_x)]
+        for root in this_roots[:-1]:
+            qrhs_r = SR(this_E_rhs_obj).subs({xSR: SR(root)})
+            phi_x_r_SR = SR(get_phi_x(SR(one), SR(two), SR(three), SR(root), qrhs_r))
+            this_search_rhs_list.append(phi_x_r_SR)
+
+    return {
+        'cd': this_cd,
+        'sections': fib_specific_sections,
+        'H': this_H,
+        'height_bound': this_height_bound,
+        'vecs': fib_specific_vecs,
+        'rhs_list': this_search_rhs_list,
+        'r_m': this_roots[0],
+        'sconf': this_sconf,
+        'deg': this_disc_deg,
+        'disc_deg': this_disc_deg,
+        'name': f"fib_seed_{seed}",
+    }
 
 def scancd_for_special_fibers(cd, r_m, shift):
     """scan singular and other special fibers for m values which may give rational points"""
@@ -329,15 +403,13 @@ def scancd_for_special_fibers(cd, r_m, shift):
     euler = singfibs['euler_characteristic']
     sigma = singfibs['sigma_sum']
     singular_fibers_m = [f['r'] for f in fibers if (f.get('root_type') == 'rational' or f.get('root_type') == 'pole')]
-    #print("FIBERS:")
-    #for f in fibers:
-    #    print(f)
 
     cm_fibers = find_cm_fibers(cd)
     j_targets = [0, 1728, -12**3, -32**3, -96**3]
     special_fibers_m = find_special_j_invariant_fibers(cd, j_targets)
     test_fibers = {m for m in set(singular_fibers_m).union(cm_fibers).union(special_fibers_m) if m is not None}
     print("Testing special m-values from fibers:", test_fibers)
+    sys.stdout.flush()
 
     # Ensure m-values are compatible with the base field of r_m
     if FINITE_FIELD:
@@ -348,7 +420,7 @@ def scancd_for_special_fibers(cd, r_m, shift):
                 test_fibers_list.append(F(val))
             except (TypeError, ValueError, ZeroDivisionError):
                 # Skip values that cannot be coerced (e.g. poles mod p)
-                raise
+                continue
     else:
         test_fibers_list = list(test_fibers)
 
@@ -356,7 +428,67 @@ def scancd_for_special_fibers(cd, r_m, shift):
  
     if found_from_fibers:
         print(f"Points found from special fibers: {found_from_fibers}")
+    sys.stdout.flush()
     return found_from_fibers
+
+
+# search7_genus2.sage
+# This file was *autogenerated* from the file search7_genus2.sage
+# application modules
+load('tower.sage')
+set_verbose(0)
+
+# Suppress the specific "ambiguous form" warning from Sage's Monsky-Washnitzer code
+warnings.filterwarnings("ignore", message=".*Returning ambiguous form of degree genus+1.*")
+
+
+class SpamFilter:
+    def __init__(self, stream):
+        self.stream = stream
+        self._buffer = ""
+
+    def write(self, data):
+        self._buffer += data
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if "Returning ambiguous form of degree genus+1." not in line:
+                self.stream.write(line + "\n")
+
+    def flush(self):
+        if self._buffer:
+            if "Returning ambiguous form of degree genus+1." not in self._buffer:
+                self.stream.write(self._buffer)
+            self._buffer = ""
+        self.stream.flush()
+
+sys.stdout = SpamFilter(sys.stdout)
+
+# -------------------------
+# Tower builder adapter for search (lightweight, deterministic, no tests)
+# -------------------------
+# --- Helper Functions ---
+
+
+# Simple integration into your existing code:
+
+
+# In doloop_genus2, replace the consensus precomputation section
+# (starting from "if USE_CONSENSUS_FILTER and fibrations:")
+# with this updated version:
+
+
+# Replace analyze_fibration_geometry with this version that avoids SR in FINITE_FIELD
+
+
+# Simple integration into your existing code:
+def add_y_zero_points_to_known(known_pts, sextic_coeffs):
+    """Add y=0 points to the known points set."""
+    y_zero_points = find_y_zero_points_genus2(sextic_coeffs)
+    known_pts.update(y_zero_points)
+    return known_pts
+
+
+# In search7_genus2.sage
 
 
 @PROFILE
@@ -1436,154 +1568,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     return new_points_original_coords, cumulative_stats
 
 
-@PROFILE
-def main_genus2():
-    """
-    Main search function for genus 2 curves.
-    
-    Two modes:
-    - QQ mode (FINITE_FIELD=None): Exhaustive rational point search
-    - Finite field mode (FINITE_FIELD=p): HECC DLP attack via index calculus
-    """
-    
-    # ========================================================================
-    # Mode Detection and Initial Setup
-    # ========================================================================
-    
-    if FINITE_FIELD is not None:
-        print(f"\n{'='*70}")
-        print(f"FINITE FIELD MODE: GF({FINITE_FIELD})")
-        print(f"Goal: Solve HECC DLP via index calculus on Jacobian")
-        print(f"{'='*70}\n")
-    else:
-        print(f"\n{'='*70}")
-        print(f"RATIONAL POINT SEARCH MODE (QQ)")
-        print(f"Goal: Find all rational points up to termination threshold")
-        print(f"{'='*70}\n")
-    
-    initial_xs = DATA_PTS_GENUS2
-
-    if FINITE_FIELD is not None:
-        F = GF(FINITE_FIELD)
-        known_pts = {(F(x), get_y_unshifted_genus2(F(x))) 
-                     for x in initial_xs 
-                     if get_y_unshifted_genus2(F(x)) is not None}
-    else:
-        known_pts = {(QQ(x), get_y_unshifted_genus2(x)) 
-                     for x in initial_xs 
-                     if get_y_unshifted_genus2(x) is not None}
-
-    known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
-
-    terminate_when = TERMINATE_WHEN_6
-    
-    print("known_pts start:", known_pts)
-    
-    excluded = set()
-    all_found_x = {pt[0] for pt in known_pts}
-    
-    cumulative_stats = SearchStats()
-    
-    # ========================================================================
-    # Main Fibration Loop
-    # ========================================================================
-    
-    while True:
-        # Check termination conditions
-        if not FINITE_FIELD and len(known_pts) >= terminate_when:
-            print(f"\nTERMINATE_WHEN_6 ({terminate_when}) reached.")
-            break
-        
-        # Get next fibration data points
-        data_pts = get_data_pts(known_pts, excluded)
-        if data_pts is None:
-            print("\nAll combinations of points have been checked.")
-            break
-        
-        # Skip fibrations containing y=0 points (presents problems for this method)
-        skip = False
-        for i in data_pts:
-            if not i[1]:
-                skip = True
-                excluded.add(frozenset(data_pts))
-                print("Skipping:", data_pts, "due to the presence of y=0 point.")
-                break
-        if skip:
-            continue
-        
-        print("\n" + "="*70)
-        print(f"Constructing new fibration using: {data_pts}")
-        print(f"Known pts so far: {sorted(list(known_pts))}")
-        if not FINITE_FIELD:
-            print(f"Found {len(known_pts)} / {terminate_when}")
-        print("="*70 + "\n")
-        
-        # Run search for this fibration
-        found_from_fibration, cumulative_stats = doloop_genus2(
-            data_pts, COEFFS_GENUS2, all_found_x, cumulative_stats
-        )
-        
-        all_found_x.update(found_from_fibration)
-        excluded.add(frozenset(data_pts))
-        
-        # Update known points based on mode
-        if FINITE_FIELD is not None:
-            # In FF mode, update known_pts directly with found coordinates
-            for x_coord in found_from_fibration:
-                y_coord = get_y_unshifted_genus2(x_coord)
-                if y_coord is not None:
-                    known_pts.add((x_coord, y_coord))
-                    if y_coord != 0:
-                        known_pts.add((x_coord, -y_coord))
-        else:
-            # In QQ mode, use augment_known
-            known_pts = augment_known(known_pts, all_found_x, deg6=True)
-        
-        # FINITE_FIELD mode: Single fibration for DLP attack
-        if FINITE_FIELD:
-            print("\n" + "="*70)
-            print("FINITE FIELD MODE: Completed DLP attack on single fibration")
-            print("="*70)
-            break
-        
-        # MUMFORD_SEARCH mode: Single fibration for basis search
-        if MUMFORD_SEARCH:
-            print("\nMUMFORD_SEARCH mode: Only trying one fibration for basis search")
-            break
-    
-    # ========================================================================
-    # Final Summary
-    # ========================================================================
-    
-    print("\n" + "="*70)
-    print("FINAL SUMMARY")
-    print("="*70)
-    
-    print("\n--- Cumulative Run Statistics ---")
-    print(cumulative_stats.summary_string())
-    
-    if FINITE_FIELD is not None:
-        print("\n--- Finite Field Results ---")
-        print(f"Field: GF({FINITE_FIELD})")
-        print(f"Factor base size: {len(all_found_x)}")
-        print(f"Total Jacobian elements processed: {len(known_pts)}")
-        print("\nNote: In FINITE_FIELD mode, the 'found points' are factor base elements")
-        print("used for the index calculus attack, not rational points over Q.")
-    else:
-        print("\n--- Rational Point Search Results ---")
-        print(f"Final list of known points ({len(known_pts)} total):")
-        for pt in sorted(list(known_pts)):
-            print(f"  {pt}")
-        
-        if len(known_pts) >= terminate_when:
-            print(f"\n✓ Reached termination threshold ({terminate_when} points)")
-        else:
-            print(f"\n⚠️  Did not reach termination threshold ({len(known_pts)}/{terminate_when})")
-    
-    print("="*70)
-
-
 if __name__ == '__main__':
     main_genus2()
-
 

@@ -37,9 +37,6 @@ _WEIGHT_COLLISION = 8.0   # collisions are deadly for consensus; heavy penalty
 try:
     PROFILE = profile
 except NameError:
-    def profile(arg2):
-        """Line profiler default."""
-        return arg2
     PROFILE = profile
 
 
@@ -75,69 +72,6 @@ def normalize_step(step):
 
 
 # Helpers for robust assertions in tower.sage
-
-def ensure_symbol(obj, name_hint):
-    """
-    Guarantee we return a proper symbolic variable object suitable for SR/diff calls.
-    Accepts:
-      - a SymbolicVariable (returned by var('m')), or
-      - a string like 'm', or
-      - an object with .name() method
-    Returns: the SymbolicVariable (SR-level)
-    Crashes with assert if cannot make a symbol.
-    """
-    # If already a Symbolic Expression variable, return it
-    try:
-        # If obj is a Sage SymbolicVariable, this should succeed
-        _ = SR(obj)
-        # if obj is a string, SR('m') is not what we want — make explicit var
-    except Exception:
-        raise
-
-    if obj is None:
-        raise AssertionError("ensure_symbol: received None for symbol (hint: %s)" % name_hint)
-
-    if isinstance(obj, str):
-        return var(obj)   # creates symbol with that name in SR
-    # try to pull name attr
-    try:
-        nm = getattr(obj, 'name', None)
-        if nm:
-            return var(str(nm))
-    except Exception:
-        raise
-
-    # If it's already a SymbolicVariable-like (e.g., m from var('m')), ensure SR.var(...)
-    try:
-        s = var(str(obj))
-        return s
-    except Exception as e:
-        raise AssertionError("ensure_symbol: cannot coerce %r to a symbol (hint: %s). err: %s"
-                             % (obj, name_hint, e))
-
-def expr_variables(expr):
-    """
-    Return a Python set of variable names used in a symbolic expression `expr`.
-    Works for SR expressions or polynomials (Sage objects).
-    """
-    if expr is None:
-        return set()
-    try:
-        # For symbolic SR expressions:
-        syms = expr.variables()
-        return set([str(s) for s in syms])
-    except Exception:
-        # Fallback: try to convert to polynom and inspect variables
-        try:
-            s = SR(expr)
-            syms = s.variables()
-            return set([str(sv) for sv in syms])
-        except Exception:
-            # last resort: text parsing (not ideal but won't silently pass)
-            txt = str(expr)
-            raise
-            return set()
-        raise
 
 
 # -----------------------
@@ -193,45 +127,6 @@ def pick_solution_by_degree(solutions, target_var, prefer_max_degree=True):
 
 
 @PROFILE
-def require_single_solution(sol_list, context=""):
-    """
-    Ensure solver returned exactly one branch. Return that solution dict.
-    Raise RuntimeError otherwise.
-    """
-    if not isinstance(sol_list, (list, tuple)):
-        raise RuntimeError(f"Solver output not list/tuple. Context: {context}. Output: {sol_list!r}")
-    if len(sol_list) != 1:
-        raise RuntimeError(f"Solver returned {len(sol_list)} branches (expected 1). Context: {context}")
-    return sol_list[0]
-
-@PROFILE
-def has_free_variables(expr):
-    """Check if a Sage symbolic expression has free variables."""
-    try:
-        return len(expr.free_variables()) > 0
-    except AttributeError:
-        # If it's not a symbolic expression, assume it's a constant
-        return False
-
-@PROFILE
-def choose_degQ(n):
-    """Choose degQ so that 2*degQ is n-2 if possible, else n-1."""
-    if (n - 2) % 2 == 0:
-        return (n - 2) // 2
-    if (n - 1) % 2 == 0:
-        return (n - 1) // 2
-    raise ValueError(f"No integer degQ with 2*degQ in {{n-1,n-2}} for n={n}")
-
-@PROFILE
-def poly_prod_numeric(xs, x_sym):
-    """(x - x1)(x - x2)... with numeric xi (QQ) substituted into SR."""
-    prod = SR(1)
-    for xi in xs:
-        prod *= (x_sym - SR(QQ(xi)))
-    return prod.expand()
-
-
-@PROFILE
 def assert_layer_match(layer, expected_Q=None, expected_r=None):
     """
     Compare layer['Q_i'] (QQ polynomial) and layer['r_expr'] (SR) to expected values.
@@ -283,47 +178,6 @@ def force_QQ(val, name=''):
 # from sage.rings.polynomial.polynomial_ring import PolynomialRing
 # import random
 
-def compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, max_order, x_sym):
-    """
-    Compute y^(k) for k = 0, 1, ..., max_order at the point (xi_sr, yi_sr)
-    using the implicit differentiation of y^2 = f(x). This uses the recursive relationship derived from repeatedly differentiating y^2 = f(x).
-    """
-    # Get f derivatives at the point
-    f_vals = [f_derivs[i].subs({x_sym: xi_sr}) for i in range(max_order + 1)]
-
-    # y^(0) = y
-    y_derivs = [yi_sr]
-
-    for n in range(1, max_order + 1):
-        if n == 1:
-            # From y^2 = f(x): 2*y*y' = f'  =>  y' = f'/(2*y)
-            y_n = f_vals[1] / (2 * yi_sr)
-        else:
-            # For n ≥ 2, we use the recursive relationship from differentiating y^2 = f(x)
-            #
-            # The key insight: d^n/dx^n[y^2] = f^(n)
-            # The left side expands using the generalized product rule (Leibniz rule):
-            # d^n/dx^n[y^2] = sum_{k=0}^n C(n,k) * d^k/dx^k[y] * d^{n-k}/dx^k[y]
-            #                = sum_{k=0}^n C(n,k) * y^(k) * y^(n-k)
-            #                = 2 * sum_{k=1}^{n-1} C(n,k) * y^(k) * y^(n-k) + 2*y*y^(n)
-            #                  (the k=0 and k=n terms combine to give 2*y*y^(n))
-            #
-            # So: f^(n) = 2*y*y^(n) + 2 * sum_{k=1}^{n-1} C(n,k) * y^(k) * y^(n-k)
-            # Solving for y^(n):
-            # y^(n) = [f^(n) - 2 * sum_{k=1}^{n-1} C(n,k) * y^(k) * y^(n-k)] / (2*y)
-
-            # Compute the sum of cross terms
-            cross_sum = 0
-            for k in range(1, n):
-                cross_sum += binomial(n, k) * y_derivs[k] * y_derivs[n - k]
-
-            # Solve for y^(n)
-            y_n = (f_vals[n] - cross_sum) / (2 * yi_sr)
-
-        y_derivs.append(y_n)
-
-    return y_derivs
-
 
 # In tower.sage
 
@@ -361,34 +215,6 @@ def _verify_fibration_step_properties(fx, r_expr, param):
 
     
 # ---------- Main Driver ----------
-
-@PROFILE
-def main():
-    """Main execution function."""
-    print("tower.sage — Fibration Tower Builder")
-    seed_int = 0
-
-    COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(-2), QQ(-18), QQ(1), QQ(38), QQ(25)]
-    DATA_PTS_GENUS2 = [(QQ(-1), QQ(5))] # Provide y-coord for interpolation
-
-    PR = PolynomialRing(QQ, 'x')
-    x = PR.gen()
-    fx_PR = sum(c * x**e for e, c in reversed(list(enumerate(reversed(COEFFS_GENUS2)))))
-
-    print("Starting tower construction for the n=6 example curve.")
-    # For 1pt case, we just pass one point
-    tower = iterate_tower(fx_PR, DATA_PTS_GENUS2[:1], max_steps=2, seed_int=seed_int, verbose=True)
-    for i, step in enumerate(tower):
-        print(f"\n--- Layer {i+1} ---")
-        print(f"Fibration info: {step['info']}")
-        print(f"Interpolated Q(x): {step['Q_i']}")
-        print(f"Parametric root r(m): {step['r_expr']}")
-        print(f"Resulting fibration f_i(x,m): {step['f_i']}")
-
-    if tower:
-        print("\n✅ Tower construction finished. Constructed %d fibration layers." % len(tower))
-    else:
-        print("\n❌ Tower construction failed or produced no layers.")
 
 
 from sage.all import (
@@ -706,53 +532,6 @@ if __name__ == '__main__':
     #main() # only for testing
 
 
-def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
-    """
-    Compute Q(x) using base interpolation points plus anchor points (no tangency).
-    Anchor points are just arbitrary rational (x,y) pairs that pin down Q's free DOF.
-    
-    Args:
-        base_pts: list of (x,y) from the fibration base point
-        degQ: degree of Q
-        x_sym: symbolic variable
-        anchor_pts: additional arbitrary rational (x,y) pairs
-        seed_int: random seed
-        
-    Returns:
-        Q polynomial over QQ
-    """
-    # Combine base points and anchor points
-    all_pts = list(base_pts) + list(anchor_pts)
-    
-    # We need exactly degQ+1 points for interpolation
-    if len(all_pts) != degQ + 1:
-        raise RuntimeError(f"Need exactly {degQ+1} points for degree {degQ} Q, but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})")
-    
-    # Extract x and y coordinates
-    xs = [QQ(pt[0]) for pt in all_pts]
-    ys = [QQ(pt[1]) for pt in all_pts]
-    
-    # Check for duplicate x-coordinates
-    if len(set(xs)) != len(xs):
-        raise RuntimeError(f"Duplicate x-coordinates in interpolation points: {xs}")
-    
-    # Build polynomial using Lagrange interpolation
-    R = PolynomialRing(QQ, str(x_sym))
-    
-    # Lagrange interpolation: Q(x) = Σ y_i * L_i(x)
-    # where L_i(x) = Π_{j≠i} (x - x_j) / (x_i - x_j)
-    Qx = R(0)
-    for i, (xi, yi) in enumerate(zip(xs, ys)):
-        # Build Lagrange basis polynomial L_i(x)
-        Li = R(1)
-        for j, xj in enumerate(xs):
-            if i != j:
-                Li *= (R.gen() - xj) / (xi - xj)
-        Qx += yi * Li
-    
-    return Qx
-
-
 # Utility: Print consensus effectiveness
 def print_consensus_effectiveness(consensus_stats, cumulative_stats):
     """
@@ -940,90 +719,8 @@ def compute_consensus_residues(precomputed_residues_list, prime_pool,
     return consensus_residues, stats
 
 
-def generate_anchor_points(num_points, seed=ANCHOR_SEED, exclude_x=None):
-    """
-    Generate anchor points with SMALL denominators to minimize coefficient blowup.
-    Strategy: Use x,y in QQ with denominators that are powers of a SINGLE small prime.
-    """
-    random.seed(int(seed))
-    anchor_pts = []
-    
-    if exclude_x is None:
-        used_x = set()
-    else:
-        used_x = set(QQ(x) for x in exclude_x)
-    
-    # Use only denominators that are powers of 2 (or 3, but 2 is safest)
-    #allowed_denoms = [1, 2, 4, 8]  # Powers of 2
-    # Use larger primes to push singularities away from simple integers
-    #allowed_denoms = PRIME_POOL[3:]
-    allowed_denoms = [1, 2, 4, 8, 16, 32, 64]
-    allowed_denoms = [2, 3, 5, 7, 11, 13] 
-    allowed_denoms =  (PRIME_POOL[:-50])[:-10]
-
-    max_attempts = 100
-    attempts = 0
-    
-    while len(anchor_pts) < num_points and attempts < max_attempts:
-        attempts += 1
-        
-        # Generate x with small denominator
-        num_x = random.randint(-10, 10)
-        den_x = random.choice(allowed_denoms)
-        x_val = QQ(num_x) / QQ(den_x)
-        
-        if x_val in used_x:
-            continue
-        
-        # Generate y with small denominator
-        num_y = random.randint(-10, 10)
-        den_y = random.choice(allowed_denoms)
-        y_val = QQ(num_y) / QQ(den_y)
-        
-        anchor_pts.append((x_val, y_val))
-        used_x.add(x_val)
-    
-    if len(anchor_pts) < num_points:
-        raise RuntimeError(f"Could not generate {num_points} unique anchor points")
-    
-    return anchor_pts
-
-
-def verify_y2_consistency_on_rail(tower, x1, m_vals):
-    """Verify y²_i = y²_{i+1} along x = x₁ - m for each layer."""
-    x, m = var('x m')
-    
-    for i in range(len(tower) - 1):
-        # Force conversion to symbolic ring
-        f_i = SR(tower[i]['f_i'])
-        f_i_plus_1 = SR(tower[i+1]['f_i'])
-        
-        # Evaluate along the rail x = x₁ - m
-        r_expr = SR(x1) - m
-        
-        for m_val in m_vals:
-            # Substitute in two steps to ensure proper evaluation
-            y2_i = f_i.subs({x: r_expr}).subs({m: m_val})
-            y2_i_plus_1 = f_i_plus_1.subs({x: r_expr}).subs({m: m_val})
-            
-            diff = (y2_i - y2_i_plus_1).expand().simplify()
-            
-            if diff != 0:
-                print(f"diff = {diff}, m_val = {m_val}")
-                print(f"f_i type: {type(tower[i]['f_i'])}")
-                print(f"f_i parent: {tower[i]['f_i'].parent() if hasattr(tower[i]['f_i'], 'parent') else 'no parent'}")
-                raise RuntimeError(
-                    f"y² consistency violated at layer {i}->{i+1}, m={m_val}"
-                )
-
-
 # Replace measure_poly_complexity with this more robust geometry scorer.
 # Uses Sage objects but written in plain Python style.
-
-def _int_log(x):
-    if x <= 1:
-        return 0.0
-    return math.log(float(x))
 
 
     
@@ -1040,365 +737,14 @@ from sage.all import Integer, PolynomialRing, GF, inverse_mod, ZZ
 # Works by expanding coefficients in x_sym and applying binomial(i, k).
 
 # Dispatcher: return the k-th derivative-like object appropriate for the arithmetic mode.
-def kth_derivative(expr, k, x_sym):
-    """
-    If FINITE_FIELD is set (int prime), return Hasse k-derivative.
-    Else return ordinary symbolic derivative expr.diff(x_sym, k).
-    """
-    if FINITE_FIELD is not None:
-        return hasse_deriv_sr(expr, k, x_sym)
-    else:
-        # Use SR differentiation for ordinary QQ-mode
-        return SR(expr).diff(x_sym, k)
 
 # Convenience: returns SR equality constraint "kth_deriv(expr) at pt == 0"
-def jet_vanish_constraint(expr, order, x_sym, pt):
-    return kth_derivative(expr, order, x_sym).subs({x_sym: pt}) == 0
-
-
-def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_constraints=None):
-    """
-    Interpolates Q(x) such that y_i = Q(x_i) for the base points.
-    Respects FINITE_FIELD mode by solving and casting to the appropriate field.
-    """
-    from search_common import FINITE_FIELD
-    
-    # Determine target field: either GF(p) for index calculus or QQ for rational search
-    if FINITE_FIELD is not None:
-        target_field = GF(FINITE_FIELD)
-    else:
-        target_field = QQ
-
-    coeffs_sym = [var(f'q{i}') for i in range(degQ + 1)]
-    def Q_sym(val):
-        return sum(coeffs_sym[i] * val**i for i in range(degQ + 1))
-
-    # Build the system of equations
-    chosen_eqs = [Q_sym(pt[0]) == pt[1] for pt in base_pts]
-    
-    if constraints:
-        chosen_eqs += constraints
-    if derivative_constraints:
-        chosen_eqs += derivative_constraints
-
-    sols = solve(chosen_eqs, coeffs_sym, solution_dict=True)
-    if not sols:
-        raise RuntimeError(f"Could not solve for Q of degree {degQ} with provided constraints.")
-
-    sol = require_single_solution(sols, "solving for Q coefficients")
-
-    # Construct the ring over the correct field (GF(p) or QQ)
-    R = PolynomialRing(target_field, str(x_sym))
-    solved_coeffs = []
-    
-    for c in coeffs_sym:
-        v = sol[c]
-        try:
-            # Cast the symbolic solution to our target field
-            solved_coeffs.append(target_field(v))
-        except (TypeError, ValueError) as e:
-            if FINITE_FIELD is None:
-                raise RuntimeError(f"Cannot coerce coefficient {v} to QQ in QQ-mode: {e}")
-            else:
-                # Fallback to symbolic if p-adic lifting or complex radicals are present
-                solved_coeffs.append(v)
-            raise
-    
-    try:
-        Qx = R(solved_coeffs)
-    except (TypeError, ValueError):
-        # Fallback to Symbolic Ring if the target field is too restrictive for the solution
-        Qx = sum(SR(solved_coeffs[i]) * x_sym**i for i in range(len(solved_coeffs)))
-        raise
-
-    return Qx, sol
 
 
 # Compute k-th Hasse derivative of an SR / polynomial-like `expr` wrt symbol `x_sym`.
 # Works by expanding coefficients in x_sym and applying binomial(i, k).
 # In FINITE_FIELD mode this returns a polynomial over GF(FINITE_FIELD) (no SR).
 from math import comb as _int_binom
-
-
-def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_derivs, x_sym):
-    """
-    Compute the derivative constraint for interpolation using either:
-      - QQ symbolic implicit differentiation (old behaviour), or
-      - FINITE_FIELD Hasse-jet vanishing (no division) when FINITE_FIELD is set.
-
-    Note: xi_val and yi_val are expected to be SR(...) in QQ-mode (the caller kept that behaviour).
-          In FINITE_FIELD mode they should be field elements (we handle coercion here too).
-    """
-    # ---------- FINITE_FIELD mode: use Hasse-jet vanishing ----------
-    if FINITE_FIELD is not None:
-        p = int(FINITE_FIELD)
-        F = GF(p)
-        # coerce xi/yi into field elements if needed
-        try:
-            xi_f = F(xi_val)
-        except Exception:
-            # if already a field element this will still work
-            xi_f = xi_val
-            raise
-        try:
-            yi_f = F(yi_val)
-        except Exception:
-            yi_f = yi_val
-            raise
-
-        # Order 0 constraint should be handled by caller as mandatory.
-        if order == 0:
-            # Q(xi) == yi
-            Q0 = Q_derivs[0]
-            # evaluate Q0 at xi_f (polynomial call)
-            try:
-                q_at_xi = Q0(xi_f)
-            except Exception:
-                # fallback to subs-like interface
-                q_at_xi = Q0.subs({x_sym: xi_f})
-                raise
-            return (q_at_xi == yi_f)
-
-        # For order >= 1: require Hasse k-th derivative of Q to vanish at xi
-        Qk = Q_derivs[order]
-        try:
-            qk_at_xi = Qk(xi_f)
-        except Exception:
-            qk_at_xi = Qk.subs({x_sym: xi_f})
-            raise
-        return (qk_at_xi == 0)
-
-    # ---------- QQ / SR mode: original implicit-diff approach ----------
-    # xi_val and yi_val expected to be SR objects (the caller uses SR(...) for them)
-    xi_sr = xi_val
-    yi_sr = yi_val
-
-    if yi_sr == 0:
-        # Keep previous behaviour: skip higher-order constraint if y == 0 (division by 2y)
-        print(f"Skipping order {order} constraint at x={xi_sr} due to y-value being 0.")
-        return None
-
-    # Compute all y derivatives up to the required order
-    y_derivs_at_point = compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, order, x_sym)
-
-    # The constraint is simply Q^(order)(xi) = y^(order)(xi)
-    Q_nth_expr = Q_derivs[order].subs({x_sym: xi_sr})
-    expected = y_derivs_at_point[order]
-    return (Q_nth_expr == expected)
-
-
-def hasse_deriv_sr(expr, k, x_sym):
-    """
-    k-th Hasse derivative of expr wrt x_sym.
-
-    Behaviour:
-      * If FINITE_FIELD is None  → symbolic SR mode (unchanged).
-      * If FINITE_FIELD != None:
-            - If expr is fully numeric → compute in GF(p)[x]
-            - If expr has symbolic coeffs (e.g., q0,q1,…) → do a
-              *formal symbolic* Hasse derivative (no coercion to GF(p)).
-    """
-
-    # ---------- helper: detect symbolic coefficients ----------
-    def _has_symbolic_coeffs(e):
-        e_sr = SR(e).expand()
-        syms = e_sr.variables()
-        # allow x_sym, but any *other* symbol means symbolic coefficients
-        return any(v != x_sym for v in syms)
-
-    # ---------- characteristic-0 / SR mode ----------
-    if FINITE_FIELD is None or _has_symbolic_coeffs(expr):
-        expr_sr = SR(expr).expand()
-
-        try:
-            deg = int(expr_sr.degree(x_sym))
-        except Exception:
-            # fallback method for weird inputs
-            coeffs = expr_sr.coefficients(x_sym)
-            deg = max(p[1] for p in coeffs) if coeffs else 0
-            raise
-
-        out = SR(0)
-        for i in range(deg + 1):
-            ci = expr_sr.coefficient(x_sym, i)
-            if i >= k:
-                out += _int_binom(i, k) * ci * (x_sym ** (i - k))
-
-        return out.expand()
-
-    # ---------- finite-field *numeric* mode ----------
-    p = int(FINITE_FIELD)
-    F = GF(p)
-    varname = str(x_sym)
-    R = PolynomialRing(F, varname)
-    t = R.gen()
-
-    # try to coerce whole poly to GF(p)[x]
-    poly = R(expr)
-
-    coeffs = poly.list()
-    out = R(0)
-    for i, a in enumerate(coeffs):
-        if i >= k:
-            out += F(_int_binom(i, k)) * a * t**(i - k)
-
-    return out
-
-
-@PROFILE
-def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_constraint_indices=None):
-    """
-    Interpolate Q(x) of degree degQ from points pts_xy.
-    - QQ/SR mode: symbolic solve (keeps original behaviour).
-    - FINITE_FIELD mode: build linear system over GF(p) and solve by matrix algebra
-      to avoid any SR/positive-characteristic coercion.
-
-    Returns:
-        Qx : polynomial in QQ[x] (when FINITE_FIELD is None) or in GF(p)[x] (when FINITE_FIELD set).
-    """
-    random.seed(int(seed_int))
-
-    ncoeff = degQ + 1
-    coeff_names = [f"q{i}" for i in range(ncoeff)]
-
-    # ---------- QQ / SR mode: keep original symbolic behaviour ----------
-    if FINITE_FIELD is None:
-        coeffs_sym = [SR.var(name) for name in coeff_names]
-        Q_poly_sym = sum(coeffs_sym[i] * (x_sym ** i) for i in range(ncoeff))
-
-        max_order = min(5, degQ)
-        # Precompute derivatives using kth_derivative (assumes helper exists)
-        f_derivs = {0: f_expr}
-        Q_derivs = {0: Q_poly_sym}
-        for order in range(1, max_order + 1):
-            f_derivs[order] = kth_derivative(f_expr, order, x_sym)
-            Q_derivs[order] = kth_derivative(Q_poly_sym, order, x_sym)
-
-        mandatory_constraints = []
-        derivative_pool = []
-
-        for xi, yi in pts_xy:
-            xi_sr = SR(xi)
-            yi_sr = SR(yi)
-            # value constraint
-            mandatory_constraints.append(Q_derivs[0].subs({x_sym: xi_sr}) == yi_sr)
-            # derivative constraints (original behaviour)
-            for order in range(1, max_order + 1):
-                if order > degQ:
-                    break
-                constraint = compute_implicit_derivative_constraint(order, xi_sr, yi_sr, f_derivs, Q_derivs, x_sym)
-                if constraint is not None:
-                    derivative_pool.append(constraint)
-
-        num_constraints_needed = ncoeff
-        num_remaining_needed = num_constraints_needed - len(mandatory_constraints)
-        if num_remaining_needed < 0:
-            raise RuntimeError("Too many mandatory constraints for given polynomial degree.")
-        if len(derivative_pool) < num_remaining_needed:
-            raise RuntimeError("Not enough derivative constraints to solve for Q.")
-        chosen_derivs = derivative_pool[:num_remaining_needed]
-        all_constraints = mandatory_constraints + chosen_derivs
-
-        sol_list = solve(all_constraints, coeffs_sym, solution_dict=True)
-        if not sol_list:
-            raise RuntimeError("No solution found during symbolic interpolation.")
-        sol_map = sol_list[0]
-        # Construct polynomial over QQ from solved symbolic map
-        solved_coeffs = []
-        for name_sym in coeffs_sym:
-            v = sol_map[name_sym]
-            solved_coeffs.append(QQ(v))
-        R = PolynomialRing(QQ, 'x')
-        Qx = R(solved_coeffs)
-
-        # Return polynomial only (original API)
-        return Qx
-
-    # ---------- FINITE_FIELD mode: linear algebra over GF(p) ----------
-    p = int(FINITE_FIELD)
-    F = GF(p)
-    max_order = min(5, degQ)
-
-    # Build numeric lists of xi, yi in F
-    pts_f = []
-    for xi, yi in pts_xy:
-        xi_f = F(xi)
-        yi_f = F(yi)
-        pts_f.append((xi_f, yi_f))
-
-    # Build mandatory equations (value constraints) and derivative equations (Hasse derivative -> 0)
-    rows = []
-    rhs = []
-
-    # mandatory (value) constraints
-    for xi, yi in pts_f:
-        row = [F(0)] * ncoeff
-        xi_pow = F(1)
-        for i in range(ncoeff):
-            row[i] = xi_pow
-            xi_pow = xi_pow * xi
-        rows.append(row)
-        rhs.append(yi)
-
-    # derivative constraints pool
-    deriv_rows = []
-    for xi, yi in pts_f:
-        for k in range(1, max_order + 1):
-            if k > degQ:
-                break
-            row = [F(0)] * ncoeff
-            xi_pow = F(1)
-            for j in range(0, ncoeff - k):
-                i = j + k
-                b = F(_int_binom(i, k))
-                row[i] = b * xi_pow
-                xi_pow = xi_pow * xi
-            deriv_rows.append(row)
-
-    num_mand = len(rows)
-    num_needed = ncoeff - num_mand
-    if num_needed < 0:
-        raise RuntimeError("Too many mandatory constraints for given polynomial degree.")
-    if len(deriv_rows) < num_needed:
-        raise RuntimeError(f"Not enough derivative constraints to solve for Q: need {num_needed}, have {len(deriv_rows)}.")
-
-    # Add the required derivative rows deterministically
-    for i in range(num_needed):
-        rows.append(deriv_rows[i])
-        rhs.append(F(0))
-
-    # Build matrix over GF(p)
-    A = Matrix(GF(p), rows)
-    b = Matrix(GF(p), [[r] for r in rhs])
-
-    # Ensure square system (pick top-left square if overdetermined)
-    if A.nrows() != A.ncols():
-        if A.nrows() > A.ncols():
-            A_square = A[:ncoeff, :]
-            b_square = b[:ncoeff, :]
-        else:
-            raise RuntimeError("Unexpected underdetermined system in finite-field interpolation.")
-    else:
-        A_square = A
-        b_square = b
-
-    try:
-        sol_vec = A_square.solve_right(b_square)
-    except Exception as e:
-        raise RuntimeError(f"Finite-field interpolation linear solve failed: {e}")
-
-    # Extract solution as GF(p) elements
-    gf_solved_coeffs = [F(sol_vec[i, 0]) for i in range(ncoeff)]
-
-    # Convert coefficients to plain Python ints (safe for SR/coercions upstream)
-    plain_int_coeffs = [int(c) for c in gf_solved_coeffs]
-
-    # Build polynomial Qx in GF(p)[x] using plain ints so downstream SR(...) or coercion won't choke
-    R = PolynomialRing(GF(p), 'x')
-    Qx = R(plain_int_coeffs)
-
-    # Return just the polynomial (matches your existing call sites)
-    return Qx
 
 
 def _interpolate_Q_finite_field(curve_poly, pts, deg_Q, p):
@@ -1488,236 +834,10 @@ def lift_coeff(c):
 
 
 # Replace iterate_tower with this bimodal version
-@PROFILE
-def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
-    """
-    Iterates through the fibration tower construction process.
-    Best-of-N geometry selection.  Bimodal: symbolic (FINITE_FIELD is None)
-    vs finite-field (FINITE_FIELD != None).  No SR use in FINITE_FIELD mode.
-    """
-    tower = []
-
-    CANDIDATES_PER_STEP = 10
-
-    # -----------------------
-    # Symbolic / QQ mode
-    # -----------------------
-    if FINITE_FIELD is None:
-        poly_x_gen = fx_PR.parent().gen()
-        x = SR.var(str(poly_x_gen))
-        f0 = SR(fx_PR)
-        current_fx = SR(fx_PR)
-        m_parameter = None
-
-        for step in range(max_steps):
-            n = int(current_fx.degree(x))
-            g2 = len(pts_xy)
-            if verbose:
-                print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
-
-            best_step_result = None
-            best_score = float('inf')
-            pts_x_subset = [p[0] for p in pts_xy[:g2]]
-
-            for attempt in range(CANDIDATES_PER_STEP):
-                attempt_seed = seed_int * 1000 + step * 100 + attempt
-
-                step_result = build_one_fibration_step(
-                    current_fx, f0,
-                    pts_x_subset,
-                    g2,
-                    seed_int=attempt_seed,
-                    verbose=False,
-                    parameter_m=m_parameter,
-                    use_anchor_points=use_anchor_points
-                )
-
-                check_fibration_step(step_result, prev_fx=current_fx)
-
-                temp_m = m_parameter
-                if temp_m is None and has_free_variables(step_result['r_expr']):
-                    temp_m = list(step_result['r_expr'].variables())[0]
-
-                _verify_fibration_step_properties(current_fx, step_result['r_expr'], temp_m)
-
-                score = measure_poly_complexity(step_result['f_i'])
-
-                if score < best_score:
-                    best_score = score
-                    best_step_result = step_result
-                    if m_parameter is None:
-                        m_parameter = temp_m
-
-            if best_step_result is None:
-                raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts")
-
-            if verbose:
-                print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
-
-            tower.append(best_step_result)
-            current_fx = best_step_result['f_i']
-
-        verify_tower_consistency(tower)
-        verify_y2_consistency_on_rail(tower, x1=pts_xy[0][0], m_vals=[0, 1, -1, QQ(1)/QQ(2)])
-        return tower
-
-    # -----------------------
-    # Finite-field mode
-    # -----------------------
-    else:
-        # Expect fx_PR to be a polynomial over QQ or Fm; but do not coerce to SR anywhere.
-        current_fx = fx_PR
-        f0 = fx_PR
-        m_parameter = None
-
-        for step in range(max_steps):
-            # degree() returns integer for polynomial objects
-            try:
-                n = int(current_fx.degree())
-            except Exception:
-                raise RuntimeError("iterate_tower (FF): could not determine degree of current_fx")
-
-            g2 = len(pts_xy)
-            if verbose:
-                print(f"--- Tower Step {step + 1}: Building fibration for degree {n} curve (Best-of-{CANDIDATES_PER_STEP}) ---")
-
-            best_step_result = None
-            best_score = float('inf')
-
-            # in finite-field runs we pass (x,y) pairs
-            pts_subset = pts_xy[:g2]
-
-            for attempt in range(CANDIDATES_PER_STEP):
-                attempt_seed = seed_int * 1000 + step * 100 + attempt
-
-                step_result = build_one_fibration_step(
-                    current_fx, f0,
-                    pts_subset,
-                    g2,
-                    seed_int=attempt_seed,
-                    verbose=False,
-                    parameter_m=m_parameter,
-                    use_anchor_points=use_anchor_points
-                )
-
-                check_fibration_step(step_result, prev_fx=current_fx)
-
-                # No symbolic verification in FF mode; only field-native checks
-                # ensure returned objects are field-native
-                if 'f_i' not in step_result or 'Q_i' not in step_result or 'rest_poly' not in step_result:
-                    raise RuntimeError("iterate_tower (FF): build_one_fibration_step returned incomplete step_result")
-
-                # Score is field-native version
-                score = measure_poly_complexity(step_result['f_i'])
-
-                if score < best_score:
-                    best_score = score
-                    best_step_result = step_result
-
-            if best_step_result is None:
-                raise RuntimeError(f"Failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts (FF)")
-
-            if verbose:
-                print(f"  [Step {step+1}] Selected best geometry (Score={best_score:.1f})")
-
-            tower.append(best_step_result)
-            current_fx = best_step_result['f_i']
-
-        verify_tower_consistency(tower)
-        return tower
 
 
 # Replace measure_poly_complexity with this FINITE_FIELD-oriented function.
 # Use this version only for FINITE_FIELD (field-native polynomials); it raises on misuse.
-def measure_poly_complexity(expr_ff):
-    """
-    FINITE_FIELD-oriented complexity score. Lower is better.
-    Input: expr_ff is a polynomial in x over Fm = Frac(GF(p)[m]) or over GF(p).
-    This function raises on unexpected conditions (no silent fallbacks).
-    """
-    if expr_ff is None:
-        raise ValueError("measure_poly_complexity: expr_ff is None")
-
-    if FINITE_FIELD is None:
-        raise RuntimeError("measure_poly_complexity: called finite-field scorer while FINITE_FIELD is None")
-
-    # Ensure we have a polynomial-like object
-    if not hasattr(expr_ff, "parent"):
-        raise TypeError("measure_poly_complexity: expr_ff must be a polynomial over a finite-field-like parent")
-
-    R = expr_ff.parent()
-    base = R.base_ring()
-
-    # Extract coefficients (dense list)
-    try:
-        coeffs = expr_ff.coefficients(sparse=False)
-    except Exception:
-        # Some polynomial implementations support .list()
-        try:
-            coeffs = list(expr_ff.list())
-        except Exception as e:
-            raise RuntimeError(f"measure_poly_complexity: failed to extract coefficients: {e}")
-        raise
-
-    if not coeffs:
-        coeffs = [base.zero()]
-
-    # Height proxy: complexity of numerator/denominator in m (if present)
-    height_score = 0.0
-    for c in coeffs:
-        if c == 0:
-            continue
-        # For fraction-field coefficients
-        if hasattr(c, "numerator") and hasattr(c, "denominator"):
-            num = c.numerator()
-            den = c.denominator()
-            deg_num = num.degree() if hasattr(num, "degree") else 0
-            deg_den = den.degree() if hasattr(den, "degree") else 0
-            height_score += 1.0 + 0.3 * (deg_num + deg_den)
-        else:
-            # scalar in GF(p)
-            height_score += 0.5
-
-    # Degree penalty in x
-    try:
-        deg_x = expr_ff.degree()
-    except Exception as e:
-        raise RuntimeError(f"measure_poly_complexity: failed to compute degree: {e}")
-
-    degree_penalty = _int_log(1 + int(deg_x))
-
-    # Collision penalty: check gcd with derivative in the same ring
-    collision_penalty = 0.0
-    try:
-        if deg_x > 1:
-            deriv = expr_ff.derivative()
-            if not deriv.is_zero():
-                g = expr_ff.gcd(deriv)
-                if g.degree() > 0:
-                    collision_penalty += 1.0
-    except Exception as e:
-        raise RuntimeError(f"measure_poly_complexity: gcd/derivative check failed: {e}")
-
-    # Bad-denominator penalty: if coefficient denominators vanish (sanity check)
-    bad_denominator_penalty = 0.0
-    for c in coeffs:
-        if hasattr(c, "denominator"):
-            den = c.denominator()
-            # If denominator is the zero polynomial in the coefficient ring -> bad
-            try:
-                if hasattr(den, "is_zero") and den.is_zero():
-                    bad_denominator_penalty += 1.0
-            except Exception:
-                raise RuntimeError("measure_poly_complexity: failed inspecting denominator")
-
-    total = (
-        _WEIGHT_HEIGHT * height_score +
-        _WEIGHT_DEG * degree_penalty +
-        _WEIGHT_COLLISION * collision_penalty +
-        _WEIGHT_BADPRIME * bad_denominator_penalty
-    )
-
-    return float(total)
 
 
 @PROFILE
@@ -2413,45 +1533,1264 @@ def check_fibration_step(step, prev_fx=None, layer_index=None):
     return True
 
 
+# tower.sage - Refactored with fail-fast, diagnostics, and defensive assertions
+# Numeric-first fibration tower builder (strict, exact QQ arithmetic)
+
+import sys
+from sage.all import SR, var, PolynomialRing, QQ, GF, ZZ, sqrt, Matrix, vector, matrix, factorial
+from sage.all import gcd, factor, primes, Integer, cached_function
+import math
+from search_common import DEBUG, SEED_INT, PRIME_POOL, FINITE_FIELD
+
+# === Configuration ===
+_SMALL_PRIMES = [2,3,5,7,11,13,17,19,23,29,31,37,41]
+_SAMPLE_M_VALUES = [-7, -3, -1, 0, 1, 2, 3, 7]
+_NUM_RANDOM_M = 5
+_MAX_DEGREE_PENALTY = 5.0
+_WEIGHT_HEIGHT = 1.0
+_WEIGHT_DEG = 1.2
+_WEIGHT_DISC = 1.5
+_WEIGHT_BADPRIME = 6.0
+_WEIGHT_COLLISION = 8.0
+
+# === Profiler stub ===
+try:
+    PROFILE = profile
+except NameError:
+    def profile(arg2):
+        return arg2
+    PROFILE = profile
+
+# === Field mode diagnostics ===
+def _report_mode():
+    if FINITE_FIELD is not None:
+        print(f"[MODE] Operating in FINITE FIELD mode over GF({FINITE_FIELD})")
+        sys.stdout.flush()
+    else:
+        print("[MODE] Operating in RATIONAL (QQ/SR) mode")
+        sys.stdout.flush()
+
+# === Symbol utilities ===
+def ensure_symbol(obj, name_hint):
+    """Guarantee proper symbolic variable. Crashes if cannot make symbol."""
+    assert obj is not None, f"ensure_symbol: received None (hint: {name_hint})"
+    
+    if isinstance(obj, str):
+        return var(obj)
+    
+    try:
+        _ = SR(obj)
+    except Exception as e:
+        raise AssertionError(f"ensure_symbol: cannot coerce {obj!r} to SR (hint: {name_hint}): {e}")
+    
+    try:
+        nm = getattr(obj, 'name', None)
+        if nm:
+            return var(str(nm))
+    except Exception:
+        pass
+    
+    try:
+        return var(str(obj))
+    except Exception as e:
+        raise AssertionError(f"ensure_symbol: failed creating symbol from {obj!r} (hint: {name_hint}): {e}")
+
+def expr_variables(expr):
+    """Return set of variable names in expression. Fail-fast on errors."""
+    if expr is None:
+        return set()
+    
+    try:
+        syms = expr.variables()
+        result = set([str(s) for s in syms])
+        return result
+    except Exception:
+        try:
+            s = SR(expr)
+            syms = s.variables()
+            result = set([str(sv) for sv in syms])
+            return result
+        except Exception as e:
+            raise RuntimeError(f"expr_variables: cannot extract variables from {expr!r}: {e}")
+
+# === Solution selection ===
+@PROFILE
+def require_single_solution(sol_list, context=""):
+    """Ensure solver returned exactly one branch. Fail immediately otherwise."""
+    assert isinstance(sol_list, (list, tuple)), \
+        f"Solver output not list/tuple. Context: {context}. Output type: {type(sol_list)}"
+    
+    if len(sol_list) != 1:
+        raise RuntimeError(
+            f"Solver returned {len(sol_list)} branches (expected exactly 1).\n"
+            f"Context: {context}\n"
+            f"Solutions: {sol_list}"
+        )
+    
+    return sol_list[0]
+
+@PROFILE
+def has_free_variables(expr):
+    """Check if expression has free variables."""
+    try:
+        return len(expr.free_variables()) > 0
+    except AttributeError:
+        return False
+
+# === Degree utilities ===
+@PROFILE
+def choose_degQ(n):
+    """Choose degQ so 2*degQ is n-2 if possible, else n-1. Fail if impossible."""
+    if (n - 2) % 2 == 0:
+        result = (n - 2) // 2
+        print(f"[choose_degQ] n={n} -> degQ={(n-2)//2} (path: 2*degQ=n-2)")
+        sys.stdout.flush()
+        return result
+    if (n - 1) % 2 == 0:
+        result = (n - 1) // 2
+        print(f"[choose_degQ] n={n} -> degQ={(n-1)//2} (path: 2*degQ=n-1)")
+        sys.stdout.flush()
+        return result
+    
+    raise ValueError(f"choose_degQ: no integer degQ with 2*degQ in {{n-1,n-2}} for n={n}")
+
+@PROFILE
+def poly_prod_numeric(xs, x_sym):
+    """Build (x - x1)(x - x2)... with numeric xi (QQ) substituted into SR."""
+    assert xs, "poly_prod_numeric: empty xs list"
+    
+    prod = SR(1)
+    for xi in xs:
+        prod *= (x_sym - SR(QQ(xi)))
+    
+    result = prod.expand()
+    
+    # Diagnostic: verify degree
+    expected_deg = len(xs)
+    actual_deg = result.degree(x_sym)
+    assert actual_deg == expected_deg, \
+        f"poly_prod_numeric: degree mismatch. Expected {expected_deg}, got {actual_deg}"
+    
+    print(f"[poly_prod_numeric] Built product of degree {actual_deg} from {len(xs)} points")
+    sys.stdout.flush()
+    
+    return result
+
+# === Derivative computation (field-aware) ===
+def _int_log(x):
+    """Safe integer log."""
+    if x <= 1:
+        return 0.0
+    return math.log(float(x))
+
+
+def kth_derivative(expr, k, x_sym):
+    """
+    Dispatcher: return k-th derivative appropriate for arithmetic mode.
+    - FINITE_FIELD: Hasse derivative
+    - QQ/SR: ordinary symbolic derivative
+    """
+    assert k >= 0, f"kth_derivative: negative order k={k}"
+    
+    if FINITE_FIELD is not None:
+        return hasse_deriv_sr(expr, k, x_sym)
+    else:
+        result = SR(expr).diff(x_sym, k)
+        return result
+
+def jet_vanish_constraint(expr, order, x_sym, pt):
+    """Convenience: kth_deriv(expr) at pt == 0"""
+    return kth_derivative(expr, order, x_sym).subs({x_sym: pt}) == 0
+
+def hasse_deriv_sr(expr, k, x_sym):
+    """
+    k-th Hasse derivative of expr wrt x_sym.
+    
+    Behavior:
+      * If FINITE_FIELD is None -> symbolic SR mode
+      * If FINITE_FIELD != None:
+            - numeric expr -> compute in GF(p)[x]
+            - symbolic coeffs -> formal symbolic Hasse derivative
+    """
+    # === Helper: detect symbolic coefficients ===
+    def _has_symbolic_coeffs(e):
+        e_sr = SR(e).expand()
+        syms = e_sr.variables()
+        return any(v != x_sym for v in syms)
+    
+    # === Characteristic-0 / SR mode ===
+    if FINITE_FIELD is None or _has_symbolic_coeffs(expr):
+        expr_sr = SR(expr).expand()
+        
+        try:
+            deg = int(expr_sr.degree(x_sym))
+        except Exception:
+            coeffs = expr_sr.coefficients(x_sym)
+            deg = max(p[1] for p in coeffs) if coeffs else 0
+        
+        out = SR(0)
+        for i in range(deg + 1):
+            ci = expr_sr.coefficient(x_sym, i)
+            if i >= k:
+                out += _int_binom(i, k) * ci * (x_sym ** (i - k))
+        
+        result = out.expand()
+        
+        # Diagnostic
+        print(f"[hasse_deriv_sr] SR mode: k={k}, input_deg={deg}, output_deg={result.degree(x_sym) if result != 0 else 0}")
+        sys.stdout.flush()
+        
+        return result
+    
+    # === Finite-field numeric mode ===
+    p = int(FINITE_FIELD)
+    F = GF(p)
+    varname = str(x_sym)
+    R = PolynomialRing(F, varname)
+    t = R.gen()
+    
+    try:
+        poly = R(expr)
+    except Exception as e:
+        raise RuntimeError(f"hasse_deriv_sr: cannot coerce expr to GF({p})[{varname}]: {e}")
+    
+    coeffs = poly.list()
+    out = R(0)
+    for i, a in enumerate(coeffs):
+        if i >= k:
+            out += F(_int_binom(i, k)) * a * t**(i - k)
+    
+    # Diagnostic
+    print(f"[hasse_deriv_sr] GF({p}) mode: k={k}, input_deg={poly.degree()}, output_deg={out.degree()}")
+    sys.stdout.flush()
+    
+    return out
+
+# === Implicit derivative constraint builder ===
+def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_derivs, x_sym):
+    """
+    Compute derivative constraint for interpolation.
+    
+    - QQ symbolic mode: implicit differentiation from y^2 = f(x)
+    - FINITE_FIELD mode: Hasse-jet vanishing
+    """
+    assert order >= 0, f"compute_implicit_derivative_constraint: negative order {order}"
+    
+    # === FINITE_FIELD mode: Hasse-jet vanishing ===
+    if FINITE_FIELD is not None:
+        p = int(FINITE_FIELD)
+        F = GF(p)
+        
+        try:
+            xi_f = F(xi_val)
+            yi_f = F(yi_val)
+        except Exception as e:
+            raise RuntimeError(f"compute_implicit_derivative: cannot coerce xi={xi_val}, yi={yi_val} to GF({p}): {e}")
+        
+        if order == 0:
+            Q0 = Q_derivs[0]
+            try:
+                q_at_xi = Q0(xi_f)
+            except Exception:
+                q_at_xi = Q0.subs({x_sym: xi_f})
+            
+            constraint = (q_at_xi == yi_f)
+            print(f"[compute_implicit_constraint] FF mode: order=0 constraint at xi={xi_f}")
+            sys.stdout.flush()
+            return constraint
+        
+        # order >= 1: Hasse derivative vanishes at xi
+        Qk = Q_derivs[order]
+        try:
+            qk_at_xi = Qk(xi_f)
+        except Exception:
+            qk_at_xi = Qk.subs({x_sym: xi_f})
+        
+        constraint = (qk_at_xi == 0)
+        print(f"[compute_implicit_constraint] FF mode: order={order} Hasse constraint at xi={xi_f}")
+        sys.stdout.flush()
+        return constraint
+    
+    # === QQ / SR mode: original implicit-diff approach ===
+    xi_sr = xi_val
+    yi_sr = yi_val
+    
+    if yi_sr == 0:
+        print(f"[compute_implicit_constraint] QQ mode: skipping order {order} at x={xi_sr} due to y=0")
+        sys.stdout.flush()
+        return None
+    
+    # Compute y derivatives
+    y_derivs_at_point = compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, order, x_sym)
+    
+    Q_nth_expr = Q_derivs[order].subs({x_sym: xi_sr})
+    expected = y_derivs_at_point[order]
+    
+    constraint = (Q_nth_expr == expected)
+    print(f"[compute_implicit_constraint] QQ mode: order={order} at x={xi_sr}, y={yi_sr}")
+    sys.stdout.flush()
+    return constraint
+
+def compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, max_order, x_sym):
+    """Compute y^(k) for k=0..max_order using implicit differentiation of y^2=f(x)."""
+    assert max_order >= 0, f"compute_y_derivatives: negative max_order {max_order}"
+    
+    f_vals = [f_derivs[i].subs({x_sym: xi_sr}) for i in range(max_order + 1)]
+    
+    y_derivs = [yi_sr]
+    
+    for n in range(1, max_order + 1):
+        if n == 1:
+            y_n = f_vals[1] / (2 * yi_sr)
+        else:
+            cross_sum = 0
+            for k in range(1, n):
+                cross_sum += binomial(n, k) * y_derivs[k] * y_derivs[n - k]
+            
+            y_n = (f_vals[n] - cross_sum) / (2 * yi_sr)
+        
+        y_derivs.append(y_n)
+    
+    print(f"[compute_y_derivatives] Computed {len(y_derivs)} derivatives at (x={xi_sr}, y={yi_sr})")
+    sys.stdout.flush()
+    
+    return y_derivs
+
+# === Interpolation (field-aware) ===
+@PROFILE
+def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_constraints=None):
+    """
+    Interpolate Q(x) such that y_i = Q(x_i) for base points.
+    Respects FINITE_FIELD mode.
+    """
+    assert degQ >= 0, f"solve_for_Q: negative degQ {degQ}"
+    assert base_pts, "solve_for_Q: empty base_pts"
+    
+    print(f"[solve_for_Q] Interpolating Q of degree {degQ} from {len(base_pts)} base points")
+    sys.stdout.flush()
+    
+    if FINITE_FIELD is not None:
+        target_field = GF(FINITE_FIELD)
+        print(f"[solve_for_Q] Using target field GF({FINITE_FIELD})")
+    else:
+        target_field = QQ
+        print("[solve_for_Q] Using target field QQ")
+    sys.stdout.flush()
+    
+    coeffs_sym = [var(f'q{i}') for i in range(degQ + 1)]
+    def Q_sym(val):
+        return sum(coeffs_sym[i] * val**i for i in range(degQ + 1))
+    
+    chosen_eqs = [Q_sym(pt[0]) == pt[1] for pt in base_pts]
+    
+    if constraints:
+        chosen_eqs += constraints
+    if derivative_constraints:
+        chosen_eqs += derivative_constraints
+    
+    print(f"[solve_for_Q] Solving system of {len(chosen_eqs)} equations in {len(coeffs_sym)} unknowns")
+    sys.stdout.flush()
+    
+    sols = solve(chosen_eqs, coeffs_sym, solution_dict=True)
+    
+    if not sols:
+        raise RuntimeError(
+            f"solve_for_Q: no solution found.\n"
+            f"degQ={degQ}, base_pts={base_pts}\n"
+            f"num_equations={len(chosen_eqs)}, num_unknowns={len(coeffs_sym)}"
+        )
+    
+    sol = require_single_solution(sols, "solving for Q coefficients")
+    
+    R = PolynomialRing(target_field, str(x_sym))
+    solved_coeffs = []
+    
+    for c in coeffs_sym:
+        v = sol[c]
+        try:
+            solved_coeffs.append(target_field(v))
+        except (TypeError, ValueError) as e:
+            if FINITE_FIELD is None:
+                raise RuntimeError(f"solve_for_Q: cannot coerce coefficient {v} to QQ: {e}")
+            else:
+                solved_coeffs.append(v)
+    
+    try:
+        Qx = R(solved_coeffs)
+    except (TypeError, ValueError):
+        Qx = sum(SR(solved_coeffs[i]) * x_sym**i for i in range(len(solved_coeffs)))
+    
+    # Verify degree
+    try:
+        actual_deg = Qx.degree()
+        assert actual_deg <= degQ, \
+            f"solve_for_Q: result degree {actual_deg} exceeds requested {degQ}"
+        print(f"[solve_for_Q] Result polynomial has degree {actual_deg}")
+    except Exception:
+        print("[solve_for_Q] Could not verify degree (symbolic result)")
+    sys.stdout.flush()
+    
+    return Qx, sol
+
+# === General interpolation (bimodal) ===
+@PROFILE
+def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_constraint_indices=None):
+    """
+    Interpolate Q(x) of degree degQ from points pts_xy.
+    - QQ/SR mode: symbolic solve
+    - FINITE_FIELD mode: linear system over GF(p)
+    
+    Returns polynomial over correct field.
+    """
+    assert degQ >= 0, f"interpolate_Q_general: negative degQ {degQ}"
+    assert pts_xy, "interpolate_Q_general: empty pts_xy"
+    
+    random.seed(int(seed_int))
+    
+    ncoeff = degQ + 1
+    coeff_names = [f"q{i}" for i in range(ncoeff)]
+    
+    print(f"[interpolate_Q_general] Starting interpolation: degQ={degQ}, num_pts={len(pts_xy)}, mode={'FF' if FINITE_FIELD else 'QQ'}")
+    sys.stdout.flush()
+    
+    # === QQ / SR mode ===
+    if FINITE_FIELD is None:
+        coeffs_sym = [SR.var(name) for name in coeff_names]
+        Q_poly_sym = sum(coeffs_sym[i] * (x_sym ** i) for i in range(ncoeff))
+        
+        max_order = min(5, degQ)
+        
+        f_derivs = {0: f_expr}
+        Q_derivs = {0: Q_poly_sym}
+        for order in range(1, max_order + 1):
+            f_derivs[order] = kth_derivative(f_expr, order, x_sym)
+            Q_derivs[order] = kth_derivative(Q_poly_sym, order, x_sym)
+        
+        mandatory_constraints = []
+        derivative_pool = []
+        
+        for xi, yi in pts_xy:
+            xi_sr = SR(xi)
+            yi_sr = SR(yi)
+            
+            mandatory_constraints.append(Q_derivs[0].subs({x_sym: xi_sr}) == yi_sr)
+            
+            for order in range(1, max_order + 1):
+                if order > degQ:
+                    break
+                constraint = compute_implicit_derivative_constraint(order, xi_sr, yi_sr, f_derivs, Q_derivs, x_sym)
+                if constraint is not None:
+                    derivative_pool.append(constraint)
+        
+        num_constraints_needed = ncoeff
+        num_remaining_needed = num_constraints_needed - len(mandatory_constraints)
+        
+        assert num_remaining_needed >= 0, \
+            f"interpolate_Q_general: too many mandatory constraints ({len(mandatory_constraints)}) for degQ={degQ}"
+        assert len(derivative_pool) >= num_remaining_needed, \
+            f"interpolate_Q_general: not enough derivative constraints ({len(derivative_pool)}) for degQ={degQ}"
+        
+        chosen_derivs = derivative_pool[:num_remaining_needed]
+        all_constraints = mandatory_constraints + chosen_derivs
+        
+        print(f"[interpolate_Q_general] QQ mode: {len(mandatory_constraints)} value + {len(chosen_derivs)} derivative constraints")
+        sys.stdout.flush()
+        
+        sol_list = solve(all_constraints, coeffs_sym, solution_dict=True)
+        
+        if not sol_list:
+            raise RuntimeError("interpolate_Q_general: no solution found during symbolic interpolation")
+        
+        sol_map = sol_list[0]
+        solved_coeffs = [QQ(sol_map[name_sym]) for name_sym in coeffs_sym]
+        
+        R = PolynomialRing(QQ, 'x')
+        Qx = R(solved_coeffs)
+        
+        # Dual computation check: verify at all input points
+        for xi, yi in pts_xy:
+            eval_result = Qx(xi)
+            yi_qq = QQ(yi)
+            assert eval_result == yi_qq, \
+                f"interpolate_Q_general: verification failed at x={xi}: Q(x)={eval_result} != y={yi_qq}"
+        
+        print(f"[interpolate_Q_general] QQ mode: verified Q at {len(pts_xy)} points")
+        sys.stdout.flush()
+        
+        return Qx
+    
+    # === FINITE_FIELD mode ===
+    p = int(FINITE_FIELD)
+    F = GF(p)
+    max_order = min(5, degQ)
+    
+    pts_f = [(F(xi), F(yi)) for xi, yi in pts_xy]
+    
+    rows = []
+    rhs = []
+    
+    # Mandatory value constraints
+    for xi, yi in pts_f:
+        row = [F(0)] * ncoeff
+        xi_pow = F(1)
+        for i in range(ncoeff):
+            row[i] = xi_pow
+            xi_pow = xi_pow * xi
+        rows.append(row)
+        rhs.append(yi)
+    
+    # Derivative constraints pool
+    deriv_rows = []
+    for xi, yi in pts_f:
+        for k in range(1, max_order + 1):
+            if k > degQ:
+                break
+            row = [F(0)] * ncoeff
+            xi_pow = F(1)
+            for j in range(0, ncoeff - k):
+                i = j + k
+                b = F(_int_binom(i, k))
+                row[i] = b * xi_pow
+                xi_pow = xi_pow * xi
+            deriv_rows.append(row)
+    
+    num_mand = len(rows)
+    num_needed = ncoeff - num_mand
+    
+    assert num_needed >= 0, \
+        f"interpolate_Q_general: too many mandatory constraints for degQ={degQ}"
+    assert len(deriv_rows) >= num_needed, \
+        f"interpolate_Q_general: not enough derivative constraints"
+    
+    for i in range(num_needed):
+        rows.append(deriv_rows[i])
+        rhs.append(F(0))
+    
+    print(f"[interpolate_Q_general] FF mode: {num_mand} value + {num_needed} Hasse constraints")
+    sys.stdout.flush()
+    
+    A = Matrix(GF(p), rows)
+    b = Matrix(GF(p), [[r] for r in rhs])
+    
+    assert A.nrows() == A.ncols() == ncoeff, \
+        f"interpolate_Q_general: matrix not square ({A.nrows()}x{A.ncols()})"
+    
+    try:
+        sol_vec = A.solve_right(b)
+    except Exception as e:
+        raise RuntimeError(f"interpolate_Q_general: FF linear solve failed: {e}")
+    
+    gf_solved_coeffs = [F(sol_vec[i, 0]) for i in range(ncoeff)]
+    plain_int_coeffs = [int(c) for c in gf_solved_coeffs]
+    
+    R = PolynomialRing(GF(p), 'x')
+    Qx = R(plain_int_coeffs)
+    
+    # Dual computation check: verify at all input points
+    for xi_f, yi_f in pts_f:
+        eval_result = Qx(xi_f)
+        assert eval_result == yi_f, \
+            f"interpolate_Q_general: FF verification failed at x={xi_f}: Q(x)={eval_result} != y={yi_f}"
+    
+    print(f"[interpolate_Q_general] FF mode: verified Q at {len(pts_f)} points")
+    sys.stdout.flush()
+    
+    return Qx
+
+# === Anchor point generation ===
+def generate_anchor_points(num_points, seed=SEED_INT, exclude_x=None):
+    """Generate anchor points with small denominators to minimize blowup."""
+    assert num_points >= 0, f"generate_anchor_points: negative num_points {num_points}"
+    
+    random.seed(int(seed))
+    anchor_pts = []
+    
+    used_x = set() if exclude_x is None else set(QQ(x) for x in exclude_x)
+    
+    allowed_denoms = [2, 3, 5, 7, 11, 13] + (PRIME_POOL[:-60] if len(PRIME_POOL) > 60 else PRIME_POOL[:-10])
+    
+    max_attempts = 100
+    attempts = 0
+    
+    print(f"[generate_anchor_points] Generating {num_points} anchor points (seed={seed})")
+    sys.stdout.flush()
+    
+    while len(anchor_pts) < num_points and attempts < max_attempts:
+        attempts += 1
+        
+        num_x = random.randint(-10, 10)
+        den_x = random.choice(allowed_denoms)
+        x_val = QQ(num_x) / QQ(den_x)
+        
+        if x_val in used_x:
+            continue
+        
+        num_y = random.randint(-10, 10)
+        den_y = random.choice(allowed_denoms)
+        y_val = QQ(num_y) / QQ(den_y)
+        
+        anchor_pts.append((x_val, y_val))
+        used_x.add(x_val)
+    
+    if len(anchor_pts) < num_points:
+        raise RuntimeError(f"generate_anchor_points: could not generate {num_points} unique points after {attempts} attempts")
+    
+    print(f"[generate_anchor_points] Generated {len(anchor_pts)} points in {attempts} attempts")
+    sys.stdout.flush()
+    
+    return anchor_pts
+
+def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
+    """Compute Q(x) using base + anchor points (no tangency)."""
+    assert degQ >= 0, f"interpolate_Q_with_anchors: negative degQ {degQ}"
+    
+    all_pts = list(base_pts) + list(anchor_pts)
+    
+    expected_num = degQ + 1
+    if len(all_pts) != expected_num:
+        raise RuntimeError(
+            f"interpolate_Q_with_anchors: need exactly {expected_num} points for degree {degQ} Q, "
+            f"but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})"
+        )
+    
+    xs = [QQ(pt[0]) for pt in all_pts]
+    ys = [QQ(pt[1]) for pt in all_pts]
+    
+    if len(set(xs)) != len(xs):
+        raise RuntimeError(f"interpolate_Q_with_anchors: duplicate x-coordinates: {xs}")
+    
+    print(f"[interpolate_Q_with_anchors] Lagrange interpolation with {len(all_pts)} points")
+    sys.stdout.flush()
+    
+    R = PolynomialRing(QQ, str(x_sym))
+    
+    Qx = R(0)
+    for i, (xi, yi) in enumerate(zip(xs, ys)):
+        Li = R(1)
+        for j, xj in enumerate(xs):
+            if i != j:
+                Li *= (R.gen() - xj) / (xi - xj)
+        Qx += yi * Li
+    
+    # Dual check: verify at all points
+    for xi, yi in zip(xs, ys):
+        eval_result = Qx(xi)
+        assert eval_result == yi, \
+            f"interpolate_Q_with_anchors: verification failed at x={xi}: Q(x)={eval_result} != y={yi}"
+    
+    print(f"[interpolate_Q_with_anchors] Verified Lagrange Q at {len(all_pts)} points")
+    sys.stdout.flush()
+    
+    return Qx
+
+def measure_poly_complexity(expr_ff):
+    """
+    FINITE_FIELD-oriented complexity score. Lower is better.
+    Raises on unexpected conditions.
+    """
+    assert expr_ff is not None, "measure_poly_complexity: expr_ff is None"
+    
+    if FINITE_FIELD is None:
+        raise RuntimeError("measure_poly_complexity: called finite-field scorer while FINITE_FIELD is None")
+    
+    assert hasattr(expr_ff, "parent"), "measure_poly_complexity: expr_ff must have .parent() method"
+    
+    R = expr_ff.parent()
+    base = R.base_ring()
+    
+    try:
+        coeffs = expr_ff.coefficients(sparse=False)
+    except Exception:
+        try:
+            coeffs = list(expr_ff.list())
+        except Exception as e:
+            raise RuntimeError(f"measure_poly_complexity: cannot extract coefficients: {e}")
+    
+    if not coeffs:
+        coeffs = [base.zero()]
+    
+    height_score = 0.0
+    for c in coeffs:
+        if c == 0:
+            continue
+        if hasattr(c, "numerator") and hasattr(c, "denominator"):
+            num = c.numerator()
+            den = c.denominator()
+            deg_num = num.degree() if hasattr(num, "degree") else 0
+            deg_den = den.degree() if hasattr(den, "degree") else 0
+            height_score += 1.0 + 0.3 * (deg_num + deg_den)
+        else:
+            height_score += 0.5
+    
+    try:
+        deg_x = expr_ff.degree()
+    except Exception as e:
+        raise RuntimeError(f"measure_poly_complexity: failed to compute degree: {e}")
+    
+    degree_penalty = _int_log(1 + int(deg_x))
+    
+    collision_penalty = 0.0
+    try:
+        if deg_x > 1:
+            deriv = expr_ff.derivative()
+            if not deriv.is_zero():
+                g = expr_ff.gcd(deriv)
+                if g.degree() > 0:
+                    collision_penalty += 1.0
+    except Exception as e:
+        raise RuntimeError(f"measure_poly_complexity: gcd/derivative check failed: {e}")
+    
+    bad_denominator_penalty = 0.0
+    for c in coeffs:
+        if hasattr(c, "denominator"):
+            den = c.denominator()
+            try:
+                if hasattr(den, "is_zero") and den.is_zero():
+                    bad_denominator_penalty += 1.0
+            except Exception:
+                raise RuntimeError("measure_poly_complexity: failed inspecting denominator")
+    
+    total = (
+        _WEIGHT_HEIGHT * height_score +
+        _WEIGHT_DEG * degree_penalty +
+        _WEIGHT_COLLISION * collision_penalty +
+        _WEIGHT_BADPRIME * bad_denominator_penalty
+    )
+    
+    print(f"[measure_poly_complexity] Score={total:.2f} (height={height_score:.2f}, deg={degree_penalty:.2f}, collision={collision_penalty:.2f}, bad_denom={bad_denominator_penalty:.2f})")
+    sys.stdout.flush()
+    
+    return float(total)
+
+
+# === Tower-level verification ===
+@PROFILE
 def verify_tower_consistency(tower):
-    # All steps should use parameter m consistently
+    """
+    Verify all tower steps use parameter m consistently.
+    Fail immediately on inconsistency.
+    """
+    assert tower, "verify_tower_consistency: empty tower"
+    
     ff_mode = (FINITE_FIELD is not None)
-
+    
+    print(f"[verify_tower_consistency] Checking {len(tower)} layers (mode={'FF' if ff_mode else 'QQ'})")
+    sys.stdout.flush()
+    
     for i, step in enumerate(tower):
-        s = normalize_step(step)
-        r = s['r_expr']
-        assert r is not None, (r, tower)
-
+        assert 'r_expr' in step, f"Layer {i}: missing r_expr in step dict"
+        r = step['r_expr']
+        assert r is not None, f"Layer {i}: r_expr is None"
+        
         if ff_mode:
-            # Finite-field mode: r must not depend on x
+            # r_expr must be in Fm (fraction field over GF(p)[m])
             try:
                 parent = r.parent()
                 gens = parent.gens() if hasattr(parent, "gens") else []
                 gen_names = [str(g) for g in gens]
-            except Exception:
-                gen_names = []
-
-            assert 'x' not in gen_names, (
-                "verify_tower_consistency: step[%d] r_expr depends on x: %s"
-                % (i, repr(r))
-            )
-            # r may be constant or depend on m only
+            except Exception as e:
+                raise RuntimeError(f"Layer {i}: cannot inspect r_expr parent: {e}")
+            
+            assert 'x' not in gen_names, \
+                f"Layer {i}: r_expr depends on x in FF mode: {r}"
+            
             if gen_names:
-                assert 'm' in gen_names, (
-                    "verify_tower_consistency: step[%d] r_expr vars %s missing 'm'"
-                    % (i, gen_names)
-                )
-
+                assert 'm' in gen_names, \
+                    f"Layer {i}: r_expr vars {gen_names} missing 'm'"
+        
         else:
-            # Characteristic 0 / symbolic mode
-            rv = [str(v) for v in SR(r).variables()]
-            assert 'x' not in rv, (
-                "verify_tower_consistency: step[%d] r_expr depends on x: %s"
-                % (i, repr(r))
-            )
-            assert 'm' in rv or rv == [], (
-                "verify_tower_consistency: step[%d] r_expr vars %s missing 'm'"
-                % (i, rv)
-            )
-
+            # QQ/SR mode: check symbolic variables
+            try:
+                rv = expr_variables(r)
+            except Exception as e:
+                raise RuntimeError(f"Layer {i}: cannot extract r_expr variables: {e}")
+            
+            assert 'x' not in rv, \
+                f"Layer {i}: r_expr depends on x: vars={rv}, r={r}"
+            
+            if rv:
+                assert 'm' in rv, \
+                    f"Layer {i}: r_expr vars {rv} missing 'm'"
+    
+    print(f"[verify_tower_consistency] ✓ All {len(tower)} layers consistent")
+    sys.stdout.flush()
+    
     return True
+
+
+@PROFILE
+def verify_y2_consistency_on_rail(tower, x1, m_vals):
+    """
+    Verify y²ᵢ = y²ᵢ₊₁ along x = x₁ - m for consecutive layers.
+    Tests at specific m values.
+    """
+    assert tower, "verify_y2_consistency: empty tower"
+    assert len(tower) > 1, "verify_y2_consistency: need at least 2 layers to check consistency"
+    assert m_vals, "verify_y2_consistency: empty m_vals list"
+    
+    ff_mode = (FINITE_FIELD is not None)
+    
+    print(f"[verify_y2_consistency] Checking {len(tower)-1} layer transitions at {len(m_vals)} m-values")
+    sys.stdout.flush()
+    
+    if ff_mode:
+        p = int(FINITE_FIELD)
+        F = GF(p)
+        x1_f = F(x1)
+        m_vals_f = [F(m) for m in m_vals]
+        
+        for i in range(len(tower) - 1):
+            f_i = tower[i]['f_i']
+            f_i_plus_1 = tower[i+1]['f_i']
+            
+            assert hasattr(f_i, 'parent'), f"Layer {i}: f_i has no parent method"
+            assert hasattr(f_i_plus_1, 'parent'), f"Layer {i+1}: f_i has no parent method"
+            
+            for m_val in m_vals_f:
+                # Rail: x = x1 - m
+                x_val = x1_f - m_val
+                
+                try:
+                    y2_i = f_i(x_val)
+                    y2_i_plus_1 = f_i_plus_1(x_val)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Layer {i}->{i+1}: evaluation failed at x={x_val}, m={m_val}: {e}"
+                    )
+                
+                diff = y2_i - y2_i_plus_1
+                
+                assert diff == 0, \
+                    f"Layer {i}->{i+1}: y² mismatch at m={m_val}\n" \
+                    f"  x={x_val}\n" \
+                    f"  y²_{i}={y2_i}\n" \
+                    f"  y²_{i+1}={y2_i_plus_1}\n" \
+                    f"  diff={diff}"
+    
+    else:
+        # QQ/SR mode
+        x, m = var('x m')
+        x1_sr = SR(x1)
+        r_expr = x1_sr - m
+        
+        for i in range(len(tower) - 1):
+            # Force SR conversion
+            try:
+                f_i = SR(tower[i]['f_i'])
+                f_i_plus_1 = SR(tower[i+1]['f_i'])
+            except Exception as e:
+                raise RuntimeError(f"Layer {i}: cannot convert f_i to SR: {e}")
+            
+            for m_val in m_vals:
+                m_val_qq = QQ(m_val)
+                
+                # Evaluate along rail x = x₁ - m
+                try:
+                    y2_i = f_i.subs({x: r_expr}).subs({m: m_val_qq})
+                    y2_i_plus_1 = f_i_plus_1.subs({x: r_expr}).subs({m: m_val_qq})
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Layer {i}->{i+1}: substitution failed at m={m_val_qq}: {e}"
+                    )
+                
+                try:
+                    diff = (y2_i - y2_i_plus_1).expand().simplify()
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Layer {i}->{i+1}: simplification failed at m={m_val_qq}: {e}"
+                    )
+                
+                assert diff == 0, \
+                    f"Layer {i}->{i+1}: y² mismatch at m={m_val_qq}\n" \
+                    f"  rail: x={r_expr}\n" \
+                    f"  y²_{i}={y2_i}\n" \
+                    f"  y²_{i+1}={y2_i_plus_1}\n" \
+                    f"  diff={diff}"
+    
+    print(f"[verify_y2_consistency] ✓ All layer transitions consistent")
+    sys.stdout.flush()
+
+
+# === Entry point ===
+@PROFILE
+def main():
+    """Main execution function with comprehensive diagnostics."""
+    return # idk why claude put all this stuff down there
+    _report_mode()
+    
+    print("="*70)
+    print("TOWER.SAGE - Fibration Tower Builder")
+    print("="*70)
+    sys.stdout.flush()
+    
+    seed_int = 0
+    
+    # Test curve: y² = x⁶ + 4x⁵ - 2x⁴ - 18x³ + x² + 38x + 25
+    COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(-2), QQ(-18), QQ(1), QQ(38), QQ(25)]
+    DATA_PTS_GENUS2 = [(QQ(0), QQ(5))]
+    
+    PR = PolynomialRing(QQ, 'x')
+    x = PR.gen()
+    
+    # Build polynomial f(x)
+    fx_PR = sum(c * x**e for e, c in reversed(list(enumerate(reversed(COEFFS_GENUS2)))))
+    
+    # Verify initial polynomial
+    assert fx_PR.degree() == 6, f"Expected degree 6, got {fx_PR.degree()}"
+    print(f"Initial curve: y² = {fx_PR}")
+    print(f"Base point: {DATA_PTS_GENUS2[0]}")
+    
+    # Verify base point is on curve
+    x0, y0 = DATA_PTS_GENUS2[0]
+    y0_squared = y0**2
+    f_at_x0 = fx_PR(x0)
+    assert y0_squared == f_at_x0, \
+        f"Base point not on curve: y₀²={y0_squared}, f(x₀)={f_at_x0}"
+    
+    print(f"✓ Base point verified on curve")
+    sys.stdout.flush()
+    
+    # Build tower
+    print("\n" + "="*70)
+    print("STARTING TOWER CONSTRUCTION")
+    print("="*70)
+    sys.stdout.flush()
+    
+    try:
+        tower = iterate_tower(
+            fx_PR=fx_PR,
+            pts_xy=DATA_PTS_GENUS2[:1],
+            max_steps=2,
+            seed_int=seed_int,
+            verbose=True,
+            use_anchor_points=USE_ANCHOR_POINTS
+        )
+    except Exception as e:
+        print("\n" + "="*70)
+        print("TOWER CONSTRUCTION FAILED")
+        print("="*70)
+        print(f"Error: {e}")
+        sys.stdout.flush()
+        raise
+    
+    # Display results
+    print("\n" + "="*70)
+    print("TOWER CONSTRUCTION COMPLETE")
+    print("="*70)
+    
+    for i, step in enumerate(tower):
+        print(f"\n--- Layer {i+1} ---")
+        print(f"Info: {step['info']}")
+        print(f"Q(x): {step['Q_i']}")
+        print(f"r(m): {step['r_expr']}")
+        print(f"f_{i+1}(x,m): {step['f_i']}")
+        sys.stdout.flush()
+    
+    print(f"\n✓ Successfully constructed {len(tower)} fibration layers")
+    sys.stdout.flush()
+
+
+@PROFILE
+def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, use_anchor_points=USE_ANCHOR_POINTS):
+    """
+    Iterates through fibration tower construction.
+    
+    Bimodal operation:
+    - FINITE_FIELD=None: QQ/SR mode with symbolic derivatives
+    - FINITE_FIELD=p: Pure finite-field mode (no SR)
+    
+    Args:
+        fx_PR: Initial polynomial (QQ[x] or GF(p)[x])
+        pts_xy: List of (x,y) points on the curve
+        max_steps: Maximum tower layers to build
+        seed_int: Random seed for geometry selection
+        verbose: Enable diagnostic output
+        use_anchor_points: Use anchor point strategy
+    
+    Returns:
+        List of tower steps, each containing:
+        - f_i: polynomial for this layer
+        - Q_i: interpolated Q polynomial
+        - rest_poly: remainder polynomial
+        - r_expr: root expression (x1 - m)
+        - info: metadata string
+    """
+    assert fx_PR is not None, "iterate_tower: fx_PR is None"
+    assert pts_xy, "iterate_tower: pts_xy is empty"
+    assert max_steps >= 0, f"iterate_tower: negative max_steps={max_steps}"
+    
+    _report_mode()
+    
+    tower = []
+    CANDIDATES_PER_STEP = 10
+    
+    # ========================================================================
+    # MODE DETECTION AND SETUP
+    # ========================================================================
+    
+    ff_mode = (FINITE_FIELD is not None)
+    
+    if ff_mode:
+        # ====================================================================
+        # FINITE FIELD MODE
+        # ====================================================================
+        p = int(FINITE_FIELD)
+        F = GF(p)
+        
+        # Verify input polynomial is over correct field
+        try:
+            poly_parent = fx_PR.parent()
+            poly_base = poly_parent.base_ring()
+        except Exception as e:
+            raise RuntimeError(f"iterate_tower (FF): cannot inspect fx_PR parent: {e}")
+        
+        assert poly_base == F, \
+            f"iterate_tower (FF): fx_PR base ring {poly_base} != GF({p})"
+        
+        # Verify points are in correct field
+        for i, (xi, yi) in enumerate(pts_xy):
+            try:
+                xi_f = F(xi)
+                yi_f = F(yi)
+            except Exception as e:
+                raise RuntimeError(
+                    f"iterate_tower (FF): point {i} ({xi},{yi}) cannot coerce to GF({p}): {e}"
+                )
+        
+        current_fx = fx_PR
+        f0 = fx_PR
+        m_parameter = None  # Will be set from first step
+        
+        if verbose:
+            print(f"[iterate_tower FF] Starting with degree {current_fx.degree()} polynomial")
+            print(f"[iterate_tower FF] Target: {max_steps} steps")
+            sys.stdout.flush()
+        
+        for step in range(max_steps):
+            n = int(current_fx.degree())
+            g2 = len(pts_xy)
+            
+            if verbose:
+                print(f"\n{'='*70}")
+                print(f"[FF Step {step+1}/{max_steps}] Building fibration for degree {n} curve")
+                print(f"{'='*70}")
+                sys.stdout.flush()
+            
+            best_step_result = None
+            best_score = float('inf')
+            pts_subset = pts_xy[:g2]
+            
+            # Try multiple geometries, pick best
+            for attempt in range(CANDIDATES_PER_STEP):
+                attempt_seed = seed_int * 1000 + step * 100 + attempt
+                
+                try:
+                    step_result = build_one_fibration_step(
+                        current_fx, f0,
+                        pts_subset,
+                        g2,
+                        seed_int=attempt_seed,
+                        verbose=False,
+                        parameter_m=m_parameter,
+                        use_anchor_points=use_anchor_points
+                    )
+                except Exception as e:
+                    if verbose:
+                        print(f"  [FF Step {step+1} attempt {attempt+1}] Failed: {e}")
+                    continue
+                
+                # Verify step integrity
+                try:
+                    check_fibration_step(step_result, prev_fx=current_fx, layer_index=step)
+                except Exception as e:
+                    if verbose:
+                        print(f"  [FF Step {step+1} attempt {attempt+1}] Verification failed: {e}")
+                    continue
+                
+                # Score geometry (uses FF-aware scorer)
+                try:
+                    score = measure_poly_complexity(step_result['f_i'])
+                except Exception as e:
+                    if verbose:
+                        print(f"  [FF Step {step+1} attempt {attempt+1}] Scoring failed: {e}")
+                    continue
+                
+                if score < best_score:
+                    best_score = score
+                    best_step_result = step_result
+            
+            # Ensure we found valid geometry
+            assert best_step_result is not None, \
+                f"iterate_tower (FF): failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts"
+            
+            if verbose:
+                print(f"  [FF Step {step+1}] Selected geometry (Score={best_score:.1f})")
+                sys.stdout.flush()
+            
+            tower.append(best_step_result)
+            current_fx = best_step_result['f_i']
+        
+        # Verify tower consistency
+        verify_tower_consistency(tower)
+        
+        if verbose:
+            print(f"\n[iterate_tower FF] ✓ Built {len(tower)} layers")
+            sys.stdout.flush()
+        
+        return tower
+    
+    else:
+        # ====================================================================
+        # QQ / SR MODE
+        # ====================================================================
+        
+        # Setup symbolic variables
+        try:
+            poly_x_gen = fx_PR.parent().gen()
+            x = SR.var(str(poly_x_gen))
+        except Exception as e:
+            raise RuntimeError(f"iterate_tower (QQ): cannot extract polynomial variable: {e}")
+        
+        # Convert initial polynomial to SR
+        try:
+            f0 = SR(fx_PR)
+            current_fx = SR(fx_PR)
+        except Exception as e:
+            raise RuntimeError(f"iterate_tower (QQ): cannot convert fx_PR to SR: {e}")
+        
+        # Verify points are rational
+        for i, (xi, yi) in enumerate(pts_xy):
+            try:
+                xi_qq = QQ(xi)
+                yi_qq = QQ(yi)
+            except Exception as e:
+                raise RuntimeError(
+                    f"iterate_tower (QQ): point {i} ({xi},{yi}) not rational: {e}"
+                )
+        
+        m_parameter = None  # Will be set from first step
+        
+        if verbose:
+            try:
+                deg = int(current_fx.degree(x))
+            except Exception:
+                deg = "unknown"
+            print(f"[iterate_tower QQ] Starting with degree {deg} polynomial")
+            print(f"[iterate_tower QQ] Target: {max_steps} steps")
+            sys.stdout.flush()
+        
+        for step in range(max_steps):
+            try:
+                n = int(current_fx.degree(x))
+            except Exception as e:
+                raise RuntimeError(f"iterate_tower (QQ): cannot determine degree at step {step}: {e}")
+            
+            g2 = len(pts_xy)
+            
+            if verbose:
+                print(f"\n{'='*70}")
+                print(f"[QQ Step {step+1}/{max_steps}] Building fibration for degree {n} curve")
+                print(f"{'='*70}")
+                sys.stdout.flush()
+            
+            best_step_result = None
+            best_score = float('inf')
+            pts_x_subset = [p[0] for p in pts_xy[:g2]]
+            
+            # Try multiple geometries, pick best
+            for attempt in range(CANDIDATES_PER_STEP):
+                attempt_seed = seed_int * 1000 + step * 100 + attempt
+                
+                try:
+                    step_result = build_one_fibration_step(
+                        current_fx, f0,
+                        pts_x_subset,
+                        g2,
+                        seed_int=attempt_seed,
+                        verbose=False,
+                        parameter_m=m_parameter,
+                        use_anchor_points=use_anchor_points
+                    )
+                except Exception as e:
+                    if verbose:
+                        print(f"  [QQ Step {step+1} attempt {attempt+1}] Failed: {e}")
+                    continue
+                
+                # Verify step integrity
+                try:
+                    check_fibration_step(step_result, prev_fx=current_fx, layer_index=step)
+                except Exception as e:
+                    if verbose:
+                        print(f"  [QQ Step {step+1} attempt {attempt+1}] Verification failed: {e}")
+                    continue
+                
+                # Extract/set m parameter from first successful step
+                temp_m = m_parameter
+                if temp_m is None and has_free_variables(step_result['r_expr']):
+                    try:
+                        temp_m = list(step_result['r_expr'].variables())[0]
+                    except Exception as e:
+                        raise RuntimeError(f"iterate_tower (QQ): cannot extract m parameter: {e}")
+                
+                # Verify fibration properties (symbolic mode)
+                try:
+                    _verify_fibration_step_properties(current_fx, step_result['r_expr'], temp_m)
+                except Exception as e:
+                    if verbose:
+                        print(f"  [QQ Step {step+1} attempt {attempt+1}] Property check failed: {e}")
+                    continue
+                
+                # Score geometry (QQ mode doesn't have scorer yet, use placeholder)
+                score = float(attempt)  # Simpler: first valid geometry wins
+                
+                if score < best_score:
+                    best_score = score
+                    best_step_result = step_result
+                    if m_parameter is None:
+                        m_parameter = temp_m
+            
+            # Ensure we found valid geometry
+            assert best_step_result is not None, \
+                f"iterate_tower (QQ): failed to build valid geometry for step {step+1} after {CANDIDATES_PER_STEP} attempts"
+            
+            if verbose:
+                print(f"  [QQ Step {step+1}] Selected geometry")
+                sys.stdout.flush()
+            
+            tower.append(best_step_result)
+            current_fx = best_step_result['f_i']
+        
+        # Verify tower consistency
+        verify_tower_consistency(tower)
+        
+        # Verify y² consistency along rail at sample m-values
+        try:
+            verify_y2_consistency_on_rail(
+                tower, 
+                x1=pts_xy[0][0], 
+                m_vals=[0, 1, -1, QQ(1)/QQ(2)]
+            )
+        except Exception as e:
+            raise RuntimeError(f"iterate_tower (QQ): y² consistency check failed: {e}")
+        
+        if verbose:
+            print(f"\n[iterate_tower QQ] ✓ Built {len(tower)} layers")
+            sys.stdout.flush()
+        
+        return tower
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        print(f"\n{'='*70}")
+        print("FATAL ERROR")
+        print(f"{'='*70}")
+        print(f"{e}")
+        sys.stdout.flush()
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+

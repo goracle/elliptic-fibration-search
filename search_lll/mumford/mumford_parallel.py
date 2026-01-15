@@ -137,235 +137,6 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
     return summary, per_vec, cumulative_supports
 
 
-def find_poly_roots_fp_python(coeffs, p):
-    """
-    Find roots of polynomial over F_p using Sage's optimized backend.
-    Replaces previous brute-force Python implementation.
-    """
-    try:
-        # Use Sage's GF and polynomial ring (cached automatically by Sage)
-        # This uses FLINT/NTL under the hood which is asymptotically fast
-        R = GF(p)['x']
-        f = R(coeffs)
-        
-        # .roots(multiplicities=False) returns a list of values
-        # We convert them to standard Python ints
-        roots = [int(r) for r in f.roots(multiplicities=False)]
-        return roots
-    except Exception:
-        # Fallback only if Sage fails for some reason
-        raise
-        return []
-
-def _brute_force_roots(coeffs, p):
-    """Optimized brute force root finding."""
-    # Dead code: kept to minimize file diffs
-    roots = []
-    if coeffs[0] % p == 0:
-        roots.append(0)
-    for x in range(1, p):
-        val = 0
-        for c in reversed(coeffs):
-            val = (val * x + c) % p
-        if val == 0:
-            roots.append(x)
-    return roots
-
-def _quadratic_roots_fp(coeffs, p):
-    """Solve ax^2 + bx + c = 0 mod p."""
-    # Dead code: replaced by Sage
-    c, b, a = coeffs[0], coeffs[1], coeffs[2]
-    a, b, c = a % p, b % p, c % p
-    if a == 0:
-        if b == 0: return list(range(p)) if c == 0 else []
-        b_inv = pow(int(b), -1, p)
-        return [(-c * b_inv) % p]
-    disc = (b * b - 4 * a * c) % p
-    sqrt_disc = _tonelli_shanks(disc, p)
-    if sqrt_disc is None: return []
-    a_inv = pow(int(a), -1, p)
-    two_a_inv = (2 * a_inv) % p
-    root1 = ((-b + sqrt_disc) * two_a_inv) % p
-    root2 = ((-b - sqrt_disc) * two_a_inv) % p
-    return [root1, root2] if root1 != root2 else [root1]
-
-def _cubic_roots_fp(coeffs, p):
-    return _brute_force_roots(coeffs, p)
-
-def _tonelli_shanks(n, p):
-    """Tonelli-Shanks algorithm for modular square root."""
-    # Dead code: replaced by Sage
-    n = n % p
-    if n == 0: return 0
-    if pow(n, (p - 1) // 2, p) != 1: return None
-    if p % 4 == 3: return pow(n, (p + 1) // 4, p)
-    q = p - 1
-    s = 0
-    while q % 2 == 0:
-        q //= 2
-        s += 1
-    z = 2
-    while pow(z, (p - 1) // 2, p) == 1: z += 1
-    m = s
-    c = pow(z, q, p)
-    t = pow(n, q, p)
-    r = pow(n, (q + 1) // 2, p)
-    while t != 1:
-        i = 1
-        temp = (t * t) % p
-        while temp != 1 and i < m:
-            temp = (temp * temp) % p
-            i += 1
-        if i == m: return None
-        b = pow(c, 1 << (m - i - 1), p)
-        m = i
-        c = (b * b) % p
-        t = (t * c) % p
-        r = (r * b) % p
-    return r
-
-
-def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=16, debug=False):
-    """
-    Generates tasks with a safety clamp on worker count and polynomial degree.
-    """
-    t_start = time.time()
-    
-    # --- SAFETY CLAMP ---
-    # Even if called with 20 workers, we force it down to 6 to prevent OOM
-    if num_workers > 16:
-        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
-        num_workers = 16
-    # --------------------
-
-    f_coeffs = eqs_dict['f_coeffs']
-    f_coeffs_ints = [int(c) for c in f_coeffs]
-    const_val_int = int(QQ(eqs_dict['const']))
-        
-    if debug:
-        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
-
-    t0 = time.time()
-    tasks_with_metadata = []
-    skipped_count = 0
-    
-    # CRITICAL: Do ALL Sage operations here in main process
-    for p in prime_list:
-        if p not in Ep_dict:
-            continue
-        Ep = Ep_dict[p]
-        p_vecs = vecs_lll.get(p)
-        if not p_vecs:
-            continue
-        
-        # Do Sage operations HERE - workers will only use Python ints
-        Fp = GF(p)
-        R_m = Fp['m']
-        m_var = R_m.gen()
-        rhs_poly = -m_var + Fp(const_val_int)
-        p_mults = mult_lll.get(p, {})
-        
-        for v_idx, v_tuple in enumerate(vecs_list):
-            if not v_tuple:
-                continue
-            
-            # ALL SAGE OPERATIONS HERE
-            Pm = Ep(0)
-            valid_vec = True
-            v_coeffs = p_vecs[v_idx]
-
-            for i, c in enumerate(v_coeffs):
-                k = int(c)
-                if k == 0:
-                    continue
-                
-                try:
-                    mults_for_sec = p_mults[i]
-                    if k in mults_for_sec:
-                        Pm += mults_for_sec[k]
-                    else:
-                        valid_vec = False
-                        break
-                except (IndexError, KeyError, TypeError):
-                    valid_vec = False
-                    raise
-                    break
-            
-            if not valid_vec or Pm[2] == 0:
-                continue
-            if hasattr(Pm, 'is_zero') and Pm.is_zero():
-                continue
-            
-            try:
-                diff = Pm[0] - Pm[2] * rhs_poly
-                diff_num = diff.numerator()
-                
-                if diff_num.is_zero():
-                    continue
-                
-                # Extract coefficients as Python ints - ONLY data passed to workers
-                coeffs = diff_num.list()
-                
-                poly_degree = len(coeffs) - 1
-                if poly_degree > MAX_TASK_DEGREE and False: # turn off degree cap since roots are fast
-                    skipped_count += 1
-                    continue
-                
-                coeffs_ints = [int(c) for c in coeffs]
-                
-                # Store task with metadata for sorting
-                task = (int(p), f_coeffs_ints, [(v_tuple, coeffs_ints)], const_val_int)
-                tasks_with_metadata.append((poly_degree, task))
-                
-            except Exception:
-                raise
-                continue
-    
-    # CRITICAL: Sort by polynomial degree (descending) for load balancing
-    tasks_with_metadata.sort(key=lambda x: -x[0])
-    tasks = [task for degree, task in tasks_with_metadata]
-    
-    if debug:
-        if skipped_count > 0:
-            print(f"[mumford] Skipped {skipped_count} tasks with degree > {MAX_TASK_DEGREE} to prevent OOM")
-        
-        if tasks:
-            degrees = [deg for deg, _ in tasks_with_metadata]
-            print(f"[mumford] Task degrees: min={min(degrees)}, max={max(degrees)}, "
-                  f"median={sorted(degrees)[len(degrees)//2]}")
-
-    mumford_timer_add("task_generation", time.time() - t0)
-
-    if not tasks:
-        if debug:
-            print("[mumford] No tasks generated!")
-        return {}
-    
-    if debug:
-        print(f"[mumford] Generated {len(tasks)} tasks for {num_workers} workers ({len(tasks)/num_workers:.1f} tasks per worker)")
-    
-    # Use spawn context to avoid Sage pollution in workers
-    t0 = time.time()
-    ctx = multiprocessing.get_context("spawn")
-    pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
-
-    results_dict = {}
-    with pool_obj as pool:
-        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
-                                  total=len(tasks), desc="Solving Mumford Mod P"):
-            if p not in results_dict:
-                results_dict[p] = {}
-            results_dict[p].update(result_map)
-    
-    mumford_timer_add("parallel_solving", time.time() - t0)
-    mumford_timer_add("residue_computation_total", time.time() - t_start)
-    
-    if debug:
-        print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
-            
-    return results_dict
-
 def _reconstruct_worker_parallel_v2(args):
     """
     Batch CRT reconstruct + algebraic verification worker.
@@ -624,78 +395,6 @@ def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
     return results, checked
 
 
-def _solve_worker_wrapper(args):
-    """
-    Worker with detailed timing diagnostics.
-    args = (p, f_coeffs_ints, chunk_items, const_val_int)
-    """
-    p, f_coeffs_ints, chunk_items, const_val_int = args
-
-    roots_cache = {}
-    p_results = {}
-
-    chunk_start = time.time()
-
-    for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
-        item_start = time.time()
-
-        coeff_key = tuple(c % p for c in diff_coeffs_list)
-
-        if all(c == 0 for c in coeff_key):
-            continue
-
-        t0 = time.time()
-        if coeff_key not in roots_cache:
-            roots = find_poly_roots_fp_python(coeff_key, p)
-            roots_cache[coeff_key] = roots
-        else:
-            roots = roots_cache[coeff_key]
-        root_time = time.time() - t0
-
-        if not roots:
-            continue
-
-        t0 = time.time()
-        x_res_to_sols = {}
-
-        for m_root in roots:
-            x_val = (-m_root + const_val_int) % p
-
-            # Respect FINITE_FIELD flag properly
-            if FINITE_FIELD:
-                max_sols = 10000
-            else:
-                max_sols = 500
-
-            sols = solve_mumford_mod_p_optimized(f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols)
-
-            verified_sols = []
-            for sol in sols:
-                s, p_val, v0, v1 = sol
-                # verify with modulus p
-                if verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
-                    verified_sols.append(sol)
-
-            if verified_sols:
-                x_res_to_sols[x_val] = verified_sols
-
-        mumford_time = time.time() - t0
-        item_time = time.time() - item_start
-
-        if item_time > 0.5:
-            sys.stderr.write(f"[Worker p={p}] Vector {v_tuple}: deg={len(coeff_key)-1}, roots={len(roots)}, "
-                             f"root_time={root_time:.3f}s, mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n")
-
-        if x_res_to_sols:
-            p_results[v_tuple] = x_res_to_sols
-
-    chunk_time = time.time() - chunk_start
-    if chunk_time > 1.0:
-        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
-
-    return p, p_results
-
-
 class ModInverseCache:
     """Cache for modular inverses."""
     def __init__(self):
@@ -735,3 +434,281 @@ def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
             return False
 
     return True
+
+
+# In mumford_parallel.py, DELETE lines 102-172 (dead root-finding code)
+# Replace with this clean version:
+
+def find_poly_roots_fp_python(coeffs, p):
+    """
+    Find roots of polynomial over F_p using Sage's optimized backend.
+    Uses FLINT/NTL under the hood which is asymptotically fast.
+    """
+    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
+    assert coeffs, "Empty coefficient list"
+    
+    try:
+        R = GF(p)['x']
+        f = R(coeffs)
+        roots = [int(r) for r in f.roots(multiplicities=False)]
+        return roots
+    except Exception as e:
+        raise RuntimeError(f"Sage root finding failed for p={p}, coeffs={coeffs}: {e}")
+
+
+# In mumford_parallel.py, add these improvements to _solve_worker_wrapper:
+
+def _solve_worker_wrapper(args):
+    """
+    Worker with fail-fast error handling and detailed diagnostics.
+    
+    CRITICAL: All exceptions propagate - no silent failures.
+    """
+    p, f_coeffs_ints, chunk_items, const_val_int = args
+    
+    # Validate inputs
+    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
+    assert f_coeffs_ints, "Empty f_coeffs"
+    assert chunk_items, "Empty chunk_items"
+
+    roots_cache = {}
+    p_results = {}
+    chunk_start = time.time()
+
+    for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
+        assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
+        assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
+        
+        item_start = time.time()
+
+        # Normalize coefficients mod p
+        coeff_key = tuple(c % p for c in diff_coeffs_list)
+
+        # Skip zero polynomial
+        if all(c == 0 for c in coeff_key):
+            continue
+
+        # Find roots (with caching)
+        t0 = time.time()
+        if coeff_key not in roots_cache:
+            roots = find_poly_roots_fp_python(coeff_key, p)
+            roots_cache[coeff_key] = roots
+        else:
+            roots = roots_cache[coeff_key]
+        root_time = time.time() - t0
+
+        if not roots:
+            continue
+
+        # Solve Mumford equations
+        t0 = time.time()
+        x_res_to_sols = {}
+
+        for m_root in roots:
+            assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
+            
+            x_val = (-m_root + const_val_int) % p
+
+            # Respect FINITE_FIELD flag
+            max_sols = 10000 if FINITE_FIELD else 500
+
+            try:
+                sols = solve_mumford_mod_p_optimized(
+                    f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols
+                )
+            except Exception as e:
+                # DO NOT CATCH - let it propagate
+                raise RuntimeError(
+                    f"Mumford solver failed: p={p}, x_val={x_val}, "
+                    f"v_tuple={v_tuple}, error={e}"
+                )
+
+            # Verify solutions
+            verified_sols = []
+            for sol in sols:
+                assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
+                s, p_val, v0, v1 = sol
+                
+                # Verify algebraically mod p
+                if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
+                    # Verification failure is a DATA BUG, not a search failure
+                    raise RuntimeError(
+                        f"Mumford pair failed verification: "
+                        f"p={p}, sol={sol}, v_tuple={v_tuple}"
+                    )
+                
+                verified_sols.append(sol)
+
+            if verified_sols:
+                x_res_to_sols[x_val] = verified_sols
+
+        mumford_time = time.time() - t0
+        item_time = time.time() - item_start
+
+        # Diagnostic for slow items
+        if item_time > 0.5:
+            sys.stderr.write(
+                f"[Worker p={p}] Vector {v_tuple}: deg={len(coeff_key)-1}, "
+                f"roots={len(roots)}, root_time={root_time:.3f}s, "
+                f"mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n"
+            )
+            sys.stderr.flush()
+
+        if x_res_to_sols:
+            p_results[v_tuple] = x_res_to_sols
+
+    chunk_time = time.time() - chunk_start
+    if chunk_time > 1.0:
+        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
+        sys.stderr.flush()
+
+    return p, p_results
+
+
+# Similarly, add assertions to mumford_precompute_residues_parallel:
+
+def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                                         rhs_modp_list, vecs_list, num_workers=16, debug=False):
+    """
+    Generates tasks with fail-fast validation and polynomial degree safety clamp.
+    """
+    assert eqs_dict and 'f_coeffs' in eqs_dict, "Invalid eqs_dict"
+    assert prime_list, "Empty prime_list"
+    assert Ep_dict, "Empty Ep_dict"
+    assert vecs_list, "Empty vecs_list"
+    
+    t_start = time.time()
+    
+    # Safety clamp on workers
+    if num_workers > 16:
+        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
+        num_workers = 16
+
+    f_coeffs = eqs_dict['f_coeffs']
+    f_coeffs_ints = [int(c) for c in f_coeffs]
+    const_val_int = int(QQ(eqs_dict['const']))
+        
+    if debug:
+        print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
+        sys.stdout.flush()
+
+    t0 = time.time()
+    tasks_with_metadata = []
+    skipped_count = 0
+    
+    # CRITICAL: All Sage operations in main process
+    for p in prime_list:
+        assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
+        
+        Ep = Ep_dict[p]
+        p_vecs = vecs_lll.get(p)
+        
+        assert p_vecs is not None, f"Prime {p} missing from vecs_lll"
+        
+        # Sage operations HERE - workers get only Python ints
+        Fp = GF(p)
+        R_m = Fp['m']
+        m_var = R_m.gen()
+        rhs_poly = -m_var + Fp(const_val_int)
+        p_mults = mult_lll.get(p, {})
+        
+        for v_idx, v_tuple in enumerate(vecs_list):
+            if not v_tuple:
+                continue
+            
+            # Build section multiple
+            Pm = Ep(0)
+            valid_vec = True
+            v_coeffs = p_vecs[v_idx]
+
+            for i, c in enumerate(v_coeffs):
+                k = int(c)
+                if k == 0:
+                    continue
+                
+                try:
+                    mults_for_sec = p_mults[i]
+                    if k in mults_for_sec:
+                        Pm += mults_for_sec[k]
+                    else:
+                        valid_vec = False
+                        break
+                except (IndexError, KeyError, TypeError) as e:
+                    # DO NOT CATCH - this indicates a data structure bug
+                    raise RuntimeError(
+                        f"Failed to build section multiple: p={p}, "
+                        f"v_idx={v_idx}, i={i}, k={k}, error={e}"
+                    )
+            
+            if not valid_vec or Pm[2] == 0:
+                continue
+            if hasattr(Pm, 'is_zero') and Pm.is_zero():
+                continue
+            
+            # Extract polynomial coefficients
+            try:
+                diff = Pm[0] - Pm[2] * rhs_poly
+                diff_num = diff.numerator()
+                
+                if diff_num.is_zero():
+                    continue
+                
+                coeffs = diff_num.list()
+                poly_degree = len(coeffs) - 1
+                
+                # Degree cap disabled per your comment
+                # if poly_degree > MAX_TASK_DEGREE: continue
+                
+                coeffs_ints = [int(c) for c in coeffs]
+                
+                task = (int(p), f_coeffs_ints, [(v_tuple, coeffs_ints)], const_val_int)
+                tasks_with_metadata.append((poly_degree, task))
+                
+            except Exception as e:
+                # DO NOT CATCH - propagate data errors
+                raise RuntimeError(
+                    f"Failed to extract polynomial: p={p}, v_idx={v_idx}, "
+                    f"v_tuple={v_tuple}, error={e}"
+                )
+    
+    # Sort by degree (descending) for load balancing
+    tasks_with_metadata.sort(key=lambda x: -x[0])
+    tasks = [task for degree, task in tasks_with_metadata]
+    
+    if debug:
+        if tasks:
+            degrees = [deg for deg, _ in tasks_with_metadata]
+            print(f"[mumford] Task degrees: min={min(degrees)}, max={max(degrees)}, "
+                  f"median={sorted(degrees)[len(degrees)//2]}")
+            print(f"[mumford] Generated {len(tasks)} tasks for {num_workers} workers "
+                  f"({len(tasks)/num_workers:.1f} tasks per worker)")
+        sys.stdout.flush()
+
+    mumford_timer_add("task_generation", time.time() - t0)
+
+    assert tasks, "No tasks generated - this indicates a configuration error"
+    
+    # Spawn workers (clean process space)
+    t0 = time.time()
+    ctx = multiprocessing.get_context("spawn")
+    pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
+
+    results_dict = {}
+    with pool_obj as pool:
+        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
+                                  total=len(tasks), desc="Solving Mumford Mod P"):
+            if p not in results_dict:
+                results_dict[p] = {}
+            results_dict[p].update(result_map)
+    
+    mumford_timer_add("parallel_solving", time.time() - t0)
+    mumford_timer_add("residue_computation_total", time.time() - t_start)
+    
+    if debug:
+        print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
+        sys.stdout.flush()
+    
+    # ASSERT: Must have results for at least one prime
+    assert results_dict, "Worker pool returned empty results - this indicates a failure"
+            
+    return results_dict

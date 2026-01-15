@@ -451,64 +451,6 @@ def index_calculus_factor_base_analysis(divisors, p, f_coeffs, verbose=True):
     }
 
 
-def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
-    """
-    Builds the sign-aware relation matrix for the Index Calculus attack.
-    Synchronized with index_calculus.py to use strict Min(y, p-y) convention.
-    """
-    root_to_idx = {root: i for i, root in enumerate(factor_base)}
-    matrix_rows = []
-    seen = set()
-
-    for d in divisors:
-        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
-        if (s, pp, v0, v1) in seen: continue
-        seen.add((s, pp, v0, v1))
-
-        # Get roots
-        roots = d.get('roots', [])
-        if not roots and p:
-             disc = (s*s - 4*pp) % p
-             if pow(disc, (p-1)//2, p) == 1:
-                 delta = tonelli_shanks(disc, p)
-                 inv2 = pow(2, -1, p)
-                 r1 = (s + delta) * inv2 % p
-                 r2 = (s - delta) * inv2 % p
-                 roots = [r1, r2]
-
-        if not roots: continue
-
-        row = [0] * len(factor_base)
-        for r in roots:
-            if r not in root_to_idx: continue
-            idx = root_to_idx[r]
-            
-            # y = v(r)
-            y_val = (v1 * r + v0) % p if p else (QQ(v1)*r + QQ(v0))
-            
-            # STRICT SIGN CONVENTION
-            # We assume y_val is a square root of f(x)
-            if p:
-                # Calculate y^2 = f(r) using the v-poly evaluation
-                y_sq = (y_val * y_val) % p
-                y_ref = tonelli_shanks(y_sq, p)
-                y_can = min(y_ref, p - y_ref)
-                
-                if y_val == y_can:
-                    row[idx] += 1
-                else:
-                    row[idx] -= 1
-            else:
-                # Rational case - just use y
-                row[idx] += 1
-                
-        matrix_rows.append(row)
-
-    M = matrix(ZZ, matrix_rows) if matrix_rows else matrix(ZZ, 0, len(factor_base))
-    if verbose:
-        print(f"  [Matrix] {M.nrows()} Rows x {M.ncols()} Cols | Rank: {M.rank()}")
-    return {'matrix': M, 'rank': M.rank()}
-
 def analyze_preferred_hit_rate(divisors, preferred_set, p=None):
     """
     Diagnostic to see how well we biased the factor base.
@@ -814,3 +756,101 @@ def diagnose_finite_field_search(divisors, verbose=True):
         'G_roots': G_roots,
         'Q_roots': Q_roots
     }
+
+
+# In smoothness.py, REPLACE build_relation_matrix function (around line 257)
+# with this corrected version that matches index_calculus.py sign convention:
+
+def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
+    """
+    Builds the sign-aware relation matrix for Index Calculus attack.
+    
+    CRITICAL: Uses STRICT Min(y, p-y) sign convention to match index_calculus.py.
+    This ensures consistency between relation construction here and solving there.
+    """
+    from .smoothness import tonelli_shanks
+    
+    root_to_idx = {root: i for i, root in enumerate(factor_base)}
+    matrix_rows = []
+    seen = set()
+
+    for d in divisors:
+        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
+        
+        # Deduplicate
+        if (s, pp, v0, v1) in seen:
+            continue
+        seen.add((s, pp, v0, v1))
+
+        # Extract roots
+        roots = d.get('roots', [])
+        if not roots and p:
+            disc = (s*s - 4*pp) % p
+            if pow(disc, (p-1)//2, p) == 1:
+                delta = tonelli_shanks(disc, p)
+                inv2 = pow(2, -1, p)
+                r1 = (s + delta) * inv2 % p
+                r2 = (s - delta) * inv2 % p
+                roots = [r1, r2]
+
+        if not roots:
+            continue
+
+        row = [0] * len(factor_base)
+        
+        for r in roots:
+            if r not in root_to_idx:
+                continue
+            
+            idx = root_to_idx[r]
+            
+            # STRICT SIGN CONVENTION (matching index_calculus.py)
+            # v(x) evaluated at root r
+            if p:
+                y_val = (v1 * r + v0) % p
+                
+                # Compute f(r) to get canonical y
+                # We need to evaluate f(x) at x=r
+                # For now, we compute y² = v(r)² and assume it equals f(r)
+                # (this is guaranteed by the Mumford relation v² ≡ f mod u)
+                y_sq = (y_val * y_val) % p
+                
+                # Canonical y is min(sqrt, p - sqrt)
+                if pow(y_sq, (p-1)//2, p) != 1:
+                    # Not a quadratic residue - skip this root
+                    continue
+                
+                y_can = tonelli_shanks(y_sq, p)
+                y_can = min(y_can, p - y_can)
+                
+                # Sign determination
+                if y_val == y_can:
+                    row[idx] += 1  # Positive sign
+                elif (p - y_val) % p == y_can:
+                    row[idx] -= 1  # Negative sign
+                else:
+                    # y_val doesn't match canonical ±sqrt - data inconsistency
+                    if verbose:
+                        print(f"  [WARNING] Sign mismatch at r={r}: y_val={y_val}, y_can={y_can}")
+                    # Skip this divisor entirely
+                    row = None
+                    break
+            else:
+                # Rational case - no sign ambiguity
+                row[idx] += 1
+        
+        if row is not None:
+            matrix_rows.append(row)
+
+    if not matrix_rows:
+        M = matrix(ZZ, 0, len(factor_base))
+        rank = 0
+    else:
+        M = matrix(ZZ, matrix_rows)
+        rank = M.rank()
+    
+    if verbose:
+        print(f"  [Matrix] {M.nrows()} Rows x {M.ncols()} Cols | Rank: {rank}")
+        sys.stdout.flush()
+    
+    return {'matrix': M, 'rank': rank}
