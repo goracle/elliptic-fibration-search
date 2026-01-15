@@ -1702,8 +1702,7 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     row_q_dict = {int(k): int(v) for k, v in row_q.items()} if row_q else {}
 
     # tuning knobs:
-    DEFAULT_BLOCK_SIZE = 8            # increase if you have many cores and memory
-    DEFAULT_NPROCS = max(1, cpu_count() - 1)
+    DEFAULT_BLOCK_SIZE = 32            # increase if you have many cores and memory
 
     d_log_val = None
     # 1) Primary: run Block-Wiedemann (sparse, parallel)
@@ -1719,13 +1718,13 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
             G, Q,
             verbose=verbose,
             block_size=DEFAULT_BLOCK_SIZE,
-            nprocs=DEFAULT_NPROCS
         )
         if verbose:
             print("  [Solver] Block-Wiedemann returned a candidate.")
     except Exception as bw_e:
         # If block Wiedemann fails, fall back to direct projected solve (optional).
         # Keep this fallback guarded so we don't accidentally trigger the heat-death solve.
+        raise # to debug
         if verbose:
             print(f"  [Solver] Block-Wiedemann failed with: {bw_e!r}")
             print("  [Solver] Falling back to PROJECTED direct solve (only if safe)...")

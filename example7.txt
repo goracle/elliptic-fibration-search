@@ -188,3 +188,68 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+[mumford] Residue computation took 75.28s
