@@ -1,6 +1,6 @@
 import random
 from sage.all import Integer, Zmod
-from sage.all import berlekamp_massey
+from sage.matrix.berlekamp_massey import berlekamp_massey
 from multiprocessing import Pool, cpu_count
 
 class SparseRelationMatrix:
