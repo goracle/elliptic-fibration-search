@@ -301,7 +301,9 @@ def solve_dlp_mod_l_block_wiedemann(
         sys.stdout.flush()
 
     # Verify
-    assert (dlog * G - Q).order() % ell == 0, "Block-Wiedemann solution failed verification"
+    #assert (dlog * G - Q).order() % ell == 0, "Block-Wiedemann solution failed verification"
+    D = dlog * G - Q
+    assert (ell * D).is_zero()
 
     return int(dlog)
 

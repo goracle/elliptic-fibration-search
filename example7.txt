@@ -252,4 +252,4 @@ Jacobian order: 1126029650170156
 Factorization: 2^2 * 289603 * 972045913
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
-[mumford] Residue computation took 75.28s
+[mumford] Residue computation took 75.13s
