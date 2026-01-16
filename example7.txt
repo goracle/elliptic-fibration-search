@@ -252,7 +252,7 @@ Jacobian order: 1126029650170156
 Factorization: 2^2 * 289603 * 972045913
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
-[mumford] Residue computation took 76.65s
+[mumford] Residue computation took 85.61s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -263,105 +263,10150 @@ availability_rate: 0.0 activation_rate: 0.0
 Jacobian order: 1126029650170156
 Working in J[ℓ=972045913] subgroup
   Collected 350000 unique smooth divisors
-  Factor base size: 87203
+  Factor base size: 87179
   Building relations via random linear combinations...
-  Built 3 relations
-
-Mumford search reconstructed 3 divisors
-  3 divisors had rational roots in u(x)
-  WARNING: Generator G has root x=17964274 NOT in factor base
-  WARNING: Generator G has root x=11833238 NOT in factor base
-  WARNING: Target Q has root x=32422197 NOT in factor base
-  WARNING: Target Q has root x=2927392 NOT in factor base
-
-[Preferred Coordinates Hit Rate]
-  Target coordinates: 4
-  Found in Factor Base: 0 / 4 (0.0%)
-  Divisors containing target: 0 / 3 (0.0%)
-
-============================================================
- INDEX CALCULUS ATTACK DIAGNOSTIC
-============================================================
- Target Field: GF(33554467)
- Relations:    3
- Factor Base:  6
- Matrix Rank:  3
-------------------------------------------------------------
- [X] CRITICAL: Generator G is NOT smooth over factor base
-    G roots: [11833238, 17964274]
-    Missing from FB: [11833238, 17964274]
- [X] CRITICAL: Target Q is NOT smooth over factor base
-    Q roots: [2927392, 32422197]
-    Missing from FB: [2927392, 32422197]
-------------------------------------------------------------
- FAILURE: Deficit of 3 independent relations.
- FAILURE: Keypair not smooth over current factor base.
- Suggestion: Increase TMAX or add more search vectors.
-============================================================
-
-Total time: 118.75s
-Total Rational Points Found (Unique x): 0
-
-Phases (s):
-  mumford_residues         : 76.65s
-  mumford_reconstruction   : 38.13s
-  prep_mod_data            : 3.97s
-  mumford_setup            : 0.00s
-
-Counters:
-  crt_candidates_found          : 0
-  crt_lift_attempts             : 0
-  modular_checks                : 0
-  modular_mults                 : 79
-  multiply_ops                  : 0
-  new_sections_unique           : 0
-  rational_points_unique        : 0
-  rational_recon_attempts_worker: 0
-  rational_recon_failure_worker : 0
-  rational_recon_success_worker : 0
-  rationality_tests_failure     : 0
-  rationality_tests_success     : 0
-  rationality_tests_total       : 0
-  subsets_filtered_out_combo    : 0
-  subsets_generated_initial     : 0
-  subsets_processed             : 0
-  symbolic_solves_attempted     : 0
-  symbolic_solves_success       : 0
-
-Successes: 0, Failures: 0
-Discard Reasons (Top 5):
-  (None)
---------------------------------
-  [Factor Base] Extracted 6 unique x-coordinates (projected mode).
-  [Setup] Curve: y^2 = x^5 + x + 2
-  [Phase 0] Attempting RR-Localization for target Q...
-  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
-
-======================================================================
-INDEX CALCULUS DLP ATTACK (Full Jacobian Group)
-======================================================================
-Full Jacobian order |J|: 1126029650170156
-  [Legacy] Detected legacy mumford_divisors input: building relations...
-  [Legacy->Relations] Building factor base from 5 sample divisors...
-  [Legacy->Relations] Factor base size: 10
-  [Relations] Building relations from random combinations...
-  [Relations] Built 3 relations
-  [Relations] Loaded 3 homogeneous relations
-  [Factor Base] Size: 10
-  [Solver] Starting Block-Wiedemann (preferred path)...
-  [BW] Working mod ℓ=972045913, cofactor h=1158412
-  [BW] Sparse system: 4 x 9, nnz=8
-  [Solver] Using direct sparse solve (n=9 < 10k)
-  [Direct] Building sparse matrix over Zmod(972045913)...
-  [Direct] Matrix: 4 x 9, nnz=8, density=22.2222%
-  [Direct] Solving system (backend=Sage/generic)...
-  [Direct] ✓ Solved in 0.02s
-  [BW] Candidate dlog mod ℓ = 0
-=== BW DIAGNOSTIC START ===
-n_cols (derived) = 9 solution length = 9
-[verify_matrix_solution] OK: A * solution == b (mod 972045913)
-Failed to reconstruct d from solution: reconstruct_d_from_solution: solution length 9 <= index 9
-[dump_group_torsion_info] {'ell': 972045913, 'h': 1158412, 'ellG_zero': True, 'ellQ_zero': True, 'hG_zero': False, 'hQ_zero': False}
-=== BW DIAGNOSTIC END ===
-Attack failed: Block-Wiedemann solver failed: [BW-Verify] Verification failed: dlog * G != Q in J(F_p)[ℓ]
-  dlog = 0, ell = 972045913
+here
+here2
+roots list: [10639044, 187175]
+here
+here
+here2
+roots list: [10592527, 3012477]
+here
+here
+here
+here2
+roots list: [31261760, 19634977]
+here
+here2
+roots list: [25594579, 18805354]
+here
+here
+here
+here
+here2
+roots list: [18841355, 1997477]
+here
+here
+here2
+roots list: [19113799, 8187427]
+here
+here2
+roots list: [18794115, 13355283]
+here
+here2
+roots list: [18605915, 9040791]
+here
+here
+here
+here
+here2
+roots list: [14446910, 4539359]
+here
+here2
+roots list: [28066191, 13693903]
+here
+here
+here
+here
+here2
+roots list: [11770713, 83227]
+here
+here2
+roots list: [31861144, 27139415]
+here
+here
+here
+here2
+roots list: [16209263, 2662141]
+here
+here
+here2
+roots list: [18589536, 17644463]
+here
+here2
+roots list: [31343695, 13858721]
+here
+here2
+roots list: [22760516, 11116099]
+here
+here
+here2
+roots list: [31717263, 6132393]
+here
+here2
+roots list: [24991410, 11714458]
+here
+here
+here2
+roots list: [23580101, 15075581]
+here
+here
+here2
+roots list: [30909367, 8052254]
+here
+here2
+roots list: [30668980, 24041577]
+here
+here2
+roots list: [24420850, 2463799]
+here
+here2
+roots list: [27431764, 24497696]
+here
+here2
+roots list: [19035756, 6005032]
+here
+here
+here2
+roots list: [24909101, 19104048]
+here
+here2
+roots list: [31793490, 2781467]
+here
+here
+here2
+roots list: [16402701, 14117669]
+here
+here
+here2
+roots list: [31910576, 18820162]
+here
+here2
+roots list: [13850184, 10690065]
+here
+here
+here2
+roots list: [18000345, 392484]
+here
+here
+here2
+roots list: [20037282, 10943877]
+here
+here2
+roots list: [21640561, 14475918]
+here
+here
+here2
+roots list: [30404186, 22322917]
+here
+here2
+roots list: [3674303, 1059328]
+here
+here
+here2
+roots list: [14427776, 5100671]
+here
+here
+here2
+roots list: [23145808, 11316977]
+here
+here2
+roots list: [31668523, 30047392]
+here
+here2
+roots list: [26517712, 23061991]
+here
+here2
+roots list: [28982832, 1097491]
+here
+here
+here2
+roots list: [21894222, 10636517]
+here
+here
+here
+here2
+roots list: [18321650, 16589310]
+here
+here2
+roots list: [25498998, 13017534]
+here
+here2
+roots list: [29742803, 18261271]
+here
+here
+here2
+roots list: [32385290, 14552421]
+here
+here2
+roots list: [22012935, 4463547]
+here
+here
+here2
+roots list: [18701085, 9199577]
+here
+here2
+roots list: [1797376, 526373]
+here
+here2
+roots list: [4647844, 1740821]
+here
+here
+here
+here
+here2
+roots list: [23678845, 10301645]
+here
+here
+here2
+roots list: [8050805, 6988036]
+here
+here
+here
+here2
+roots list: [21881323, 15353031]
+here
+here2
+roots list: [17380778, 13754196]
+here
+here
+here2
+roots list: [26128936, 24031039]
+here
+here
+here
+here2
+roots list: [12231247, 3858346]
+here
+here2
+roots list: [28836275, 2564609]
+here
+here2
+roots list: [5927087, 2332970]
+here
+here2
+roots list: [33330559, 21088752]
+here
+here2
+roots list: [30881140, 378580]
+here
+here
+here
+here
+here
+here2
+roots list: [14992956, 1813695]
+here
+here2
+roots list: [20987563, 15409135]
+here
+here
+here
+here2
+roots list: [27755224, 9028663]
+here
+here2
+roots list: [17327967, 11469541]
+here
+here2
+roots list: [32768041, 3021911]
+here
+here
+here
+here
+here2
+roots list: [25264781, 15155232]
+here
+here
+here
+here2
+roots list: [10446858, 552968]
+here
+here2
+roots list: [26656526, 7350328]
+here
+here2
+roots list: [26681824, 16857237]
+here
+here2
+roots list: [18821654, 16703447]
+here
+here2
+roots list: [21031217, 2274583]
+here
+here2
+roots list: [17424617, 16068346]
+here
+here2
+roots list: [15303520, 5595603]
+here
+here2
+roots list: [31445267, 26653702]
+here
+here2
+roots list: [20541230, 400171]
+here
+here2
+roots list: [24133781, 16116450]
+here
+here2
+roots list: [32490046, 1581484]
+here
+here2
+roots list: [26451979, 17207589]
+here
+here
+here
+here2
+roots list: [16432299, 13603101]
+here
+here2
+roots list: [23619582, 11992328]
+here
+here2
+roots list: [20243904, 17597689]
+here
+here2
+roots list: [31978824, 22632529]
+here
+here2
+roots list: [31744081, 3742057]
+here
+here
+here2
+roots list: [9648675, 4230834]
+here
+here
+here
+here
+here
+here2
+roots list: [28640597, 19559523]
+here
+here
+here
+here
+here2
+roots list: [29744916, 29386970]
+here
+here
+here
+here2
+roots list: [12922392, 12899464]
+here
+here2
+roots list: [15967941, 9750613]
+here
+here
+here2
+roots list: [26662867, 9627229]
+here
+here
+here
+here
+here2
+roots list: [18851852, 12786750]
+here
+here2
+roots list: [24896673, 1563417]
+here
+here2
+roots list: [18315603, 753024]
+here
+here2
+roots list: [31598342, 29596005]
+here
+here2
+roots list: [17664513, 17154725]
+here
+here
+here
+here
+here2
+roots list: [11338290, 6235051]
+here
+here2
+roots list: [23035500, 21536673]
+here
+here2
+roots list: [14934651, 14719529]
+here
+here
+here2
+roots list: [20459594, 6960790]
+here
+here2
+roots list: [33284472, 12348753]
+here
+here2
+roots list: [24754340, 3350040]
+here
+here2
+roots list: [9412020, 5478634]
+here
+here
+here
+here2
+roots list: [26757267, 14193382]
+here
+here2
+roots list: [20290928, 19872237]
+here
+here
+here2
+roots list: [29362770, 9502562]
+here
+here2
+roots list: [27712184, 22648856]
+here
+here2
+roots list: [33019290, 1735072]
+here
+here
+here
+here2
+roots list: [31785563, 2009839]
+here
+here2
+roots list: [29684799, 15891815]
+here
+here
+here
+here2
+roots list: [28189723, 8958170]
+here
+here2
+roots list: [14406605, 798180]
+here
+here2
+roots list: [29551524, 4093776]
+here
+here2
+roots list: [23295914, 9967065]
+here
+here
+here2
+roots list: [29847320, 6863278]
+here
+here
+here2
+roots list: [32490673, 409430]
+here
+here
+here2
+roots list: [27988860, 938661]
+here
+here2
+roots list: [31844486, 22867526]
+here
+here
+here
+here
+here2
+roots list: [16918088, 868853]
+here
+here
+here
+here2
+roots list: [32165910, 24048215]
+here
+here
+here2
+roots list: [20208727, 15407147]
+here
+here2
+roots list: [21702125, 12334002]
+here
+here
+here
+here
+here
+here2
+roots list: [19512759, 15618465]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26846634, 1105392]
+here
+here2
+roots list: [29428641, 1177679]
+here
+here
+here2
+roots list: [24076085, 10186369]
+here
+here
+here
+here
+here
+here2
+roots list: [27747689, 21336352]
+here
+here2
+roots list: [11410430, 1266171]
+here
+here
+here2
+roots list: [22435107, 11895026]
+here
+here2
+roots list: [31816629, 6675800]
+here
+here2
+roots list: [20577026, 662090]
+here
+here2
+roots list: [32020313, 9105272]
+here
+here2
+roots list: [18118410, 17357502]
+here
+here2
+roots list: [28410078, 19898194]
+here
+here2
+roots list: [32010589, 11008191]
+here
+here2
+roots list: [18314247, 6681984]
+here
+here
+here2
+roots list: [16360612, 13460636]
+here
+here
+here2
+roots list: [24033270, 17090806]
+here
+here2
+roots list: [31272994, 12102394]
+here
+here2
+roots list: [18783525, 2401566]
+here
+here2
+roots list: [24208772, 23353744]
+here
+here2
+roots list: [30335585, 29514999]
+here
+here
+here
+here
+here2
+roots list: [15858041, 8637996]
+here
+here2
+roots list: [33273010, 31051638]
+here
+here
+here2
+roots list: [32467455, 1225141]
+here
+here
+here2
+roots list: [33303975, 17896802]
+here
+here2
+roots list: [32885232, 18208453]
+here
+here
+here
+here2
+roots list: [21597949, 12478168]
+here
+here
+here
+here
+here2
+roots list: [22590579, 3423621]
+here
+here
+here2
+roots list: [31189929, 30116626]
+here
+here
+here2
+roots list: [13410163, 12366037]
+here
+here2
+roots list: [24113623, 7483861]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22612865, 4398024]
+here
+here2
+roots list: [32050364, 20459821]
+here
+here2
+roots list: [20779103, 18225909]
+here
+here2
+roots list: [30804530, 18748021]
+here
+here2
+roots list: [31288084, 30973644]
+here
+here2
+roots list: [17558522, 12865312]
+here
+here
+here2
+roots list: [22185664, 19856110]
+here
+here
+here
+here
+here2
+roots list: [17986307, 7677454]
+here
+here2
+roots list: [4228485, 2713705]
+here
+here
+here2
+roots list: [7108918, 608152]
+here
+here2
+roots list: [31800121, 20605217]
+here
+here2
+roots list: [20475202, 892199]
+here
+here
+here
+here
+here2
+roots list: [22231142, 510089]
+here
+here
+here2
+roots list: [31562024, 16306559]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [28700979, 8996089]
+here
+here
+here
+here2
+roots list: [15283953, 13262725]
+here
+here
+here
+here2
+roots list: [18357785, 10044130]
+here
+here
+here2
+roots list: [10595347, 5700836]
+here
+here
+here2
+roots list: [33488915, 30502656]
+here
+here2
+roots list: [32990602, 13435801]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31935602, 25919123]
+here
+here
+here2
+roots list: [19299411, 4317286]
+here
+here
+here
+here2
+roots list: [24269088, 14803700]
+here
+here2
+roots list: [10120464, 3664067]
+here
+here
+here2
+roots list: [21745394, 12937383]
+here
+here2
+roots list: [7937575, 2172480]
+here
+here2
+roots list: [30125368, 24747621]
+here
+here2
+roots list: [13312535, 6006469]
+here
+here2
+roots list: [28295594, 17876199]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29706383, 27670855]
+here
+here2
+roots list: [25465096, 6106934]
+here
+here
+here
+here2
+roots list: [24958768, 12115033]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25756327, 8097811]
+here
+here2
+roots list: [15869195, 8363445]
+here
+here
+here2
+roots list: [27467149, 6427843]
+here
+here
+here
+here2
+roots list: [32051269, 9134211]
+here
+here
+here2
+roots list: [31748874, 15644400]
+here
+here2
+roots list: [26421549, 14468665]
+here
+here2
+roots list: [13749601, 9466695]
+here
+here2
+roots list: [28737199, 879380]
+here
+here
+here2
+roots list: [25795908, 901449]
+here
+here
+here2
+roots list: [12291414, 8631068]
+here
+here2
+roots list: [30539314, 15892393]
+here
+here
+here
+here2
+roots list: [23265194, 3129847]
+here
+here2
+roots list: [29134039, 22013711]
+here
+here
+here
+here
+here2
+roots list: [22985197, 9108565]
+here
+here
+here
+here
+here
+here2
+roots list: [11266883, 4288103]
+here
+here2
+roots list: [24946819, 9870682]
+here
+here
+here
+here
+here2
+roots list: [24960254, 21822219]
+here
+here2
+roots list: [8484105, 5672308]
+here
+here
+here
+here
+here2
+roots list: [14829958, 11221956]
+here
+here
+here2
+roots list: [31506896, 22917508]
+here
+here2
+roots list: [1997323, 1416593]
+here
+here
+here2
+roots list: [32278512, 13051296]
+here
+here
+here2
+roots list: [22034816, 13077098]
+here
+here
+here2
+roots list: [16125458, 11430301]
+here
+here
+here2
+roots list: [12191787, 5025566]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [18172294, 14683401]
+here
+here2
+roots list: [30877842, 26663296]
+here
+here
+here2
+roots list: [24652298, 7430718]
+here
+here
+here2
+roots list: [21866369, 10146163]
+here
+here2
+roots list: [26470169, 10829891]
+here
+here
+here
+here2
+roots list: [31721795, 150366]
+here
+here2
+roots list: [23803044, 19661113]
+here
+here2
+roots list: [32444535, 18506946]
+here
+here2
+roots list: [23590958, 15213041]
+here
+here2
+roots list: [30209932, 12289054]
+here
+here2
+roots list: [30527184, 26974756]
+here
+here2
+roots list: [26269132, 346084]
+here
+here2
+roots list: [18663379, 1760312]
+here
+here2
+roots list: [22961449, 8794465]
+here
+here
+here
+here
+here
+here2
+roots list: [27415429, 26566563]
+here
+here2
+roots list: [26211975, 10552602]
+here
+here2
+roots list: [28425696, 12356846]
+here
+here2
+roots list: [19955641, 16888595]
+here
+here
+here2
+roots list: [11459757, 3322650]
+here
+here2
+roots list: [27358248, 217221]
+here
+here
+here2
+roots list: [21537712, 3219805]
+here
+here
+here
+here
+here
+here2
+roots list: [24802358, 16559499]
+here
+here2
+roots list: [31984858, 6366872]
+here
+here2
+roots list: [12795558, 456267]
+here
+here2
+roots list: [9245897, 1012496]
+here
+here2
+roots list: [28667945, 23832248]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [18053558, 6476672]
+here
+here
+here
+here
+here2
+roots list: [13038570, 8572388]
+here
+here2
+roots list: [8661863, 3270150]
+here
+here
+here2
+roots list: [31907109, 16104938]
+here
+here2
+roots list: [31995069, 20037122]
+here
+here
+here
+here
+here2
+roots list: [16414300, 3827515]
+here
+here
+here2
+roots list: [20968699, 2739235]
+here
+here
+here2
+roots list: [33375106, 19093247]
+here
+here
+here2
+roots list: [21941281, 12239098]
+here
+here
+here
+here2
+roots list: [23824093, 19947596]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [17726025, 8913442]
+here
+here
+here2
+roots list: [19266346, 18342790]
+here
+here
+here2
+roots list: [31171727, 3151865]
+here
+here2
+roots list: [12914669, 5514975]
+here
+here2
+roots list: [14920373, 7790307]
+here
+here2
+roots list: [20213052, 10600758]
+here
+here
+here2
+roots list: [24231294, 16455586]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29071629, 21120568]
+here
+here2
+roots list: [22761282, 2854646]
+here
+here
+here2
+roots list: [30414565, 11196689]
+here
+here2
+roots list: [24154874, 9181856]
+here
+here2
+roots list: [31936554, 979579]
+here
+here2
+roots list: [25798785, 15229467]
+here
+here2
+roots list: [11472912, 9892489]
+here
+here2
+roots list: [5583783, 3212668]
+here
+here
+here2
+roots list: [22602806, 11976517]
+here
+here
+here
+here2
+roots list: [18215359, 11773281]
+here
+here2
+roots list: [22609222, 4499808]
+here
+here2
+roots list: [31788715, 17561548]
+here
+here
+here
+here2
+roots list: [24060920, 21996974]
+here
+here
+here2
+roots list: [23588761, 2175243]
+here
+here2
+roots list: [30840171, 11639270]
+here
+here2
+roots list: [9637584, 5270586]
+here
+here2
+roots list: [25132773, 24647327]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [30476722, 23466811]
+here
+here2
+roots list: [33416452, 31386939]
+here
+here2
+roots list: [5535306, 1241550]
+here
+here2
+roots list: [15611079, 7591072]
+here
+here
+here2
+roots list: [28798452, 28062599]
+here
+here
+here2
+roots list: [17783874, 327521]
+here
+here2
+roots list: [30972073, 30074353]
+here
+here2
+roots list: [6588038, 5970230]
+here
+here2
+roots list: [19962509, 3729564]
+here
+here2
+roots list: [16856006, 6388834]
+here
+here2
+roots list: [21879201, 19878931]
+here
+here2
+roots list: [13058362, 687838]
+here
+here
+here2
+roots list: [30799622, 29836139]
+here
+here2
+roots list: [15573721, 4509829]
+here
+here2
+roots list: [32556967, 24438112]
+here
+here2
+roots list: [32942446, 10558925]
+here
+here2
+roots list: [18983090, 12043341]
+here
+here2
+roots list: [22431596, 14535939]
+here
+here2
+roots list: [25782957, 5589562]
+here
+here2
+roots list: [16244743, 15841598]
+here
+here2
+roots list: [33548792, 28076103]
+here
+here2
+roots list: [24485671, 7734424]
+here
+here2
+roots list: [15710748, 2106410]
+here
+here2
+roots list: [15998628, 15900618]
+here
+here2
+roots list: [21546058, 19595475]
+here
+here2
+roots list: [23955909, 2417367]
+here
+here
+here
+here2
+roots list: [29928542, 22413933]
+here
+here
+here2
+roots list: [7170594, 6791073]
+here
+here
+here2
+roots list: [22862321, 6572295]
+here
+here
+here2
+roots list: [19750561, 16445586]
+here
+here
+here2
+roots list: [30187788, 13502416]
+here
+here
+here
+here2
+roots list: [5813764, 1068616]
+here
+here
+here
+here2
+roots list: [14957414, 3027067]
+here
+here
+here
+here2
+roots list: [31615429, 6486546]
+here
+here2
+roots list: [32341160, 9509201]
+here
+here
+here
+here2
+roots list: [25104293, 20971798]
+here
+here
+here
+here
+here2
+roots list: [19615238, 11937124]
+here
+here
+here
+here2
+roots list: [4928042, 1680147]
+here
+here2
+roots list: [27375280, 18794467]
+here
+here
+here
+here2
+roots list: [22892939, 20760212]
+here
+here2
+roots list: [30205704, 20058224]
+here
+here
+here
+here2
+roots list: [7573481, 6750870]
+here
+here
+here2
+roots list: [12176282, 3423472]
+here
+here2
+roots list: [18925549, 9923623]
+here
+here
+here2
+roots list: [10156372, 1323484]
+here
+here2
+roots list: [27281047, 16620328]
+here
+here2
+roots list: [13459283, 7799981]
+here
+here2
+roots list: [29003954, 10499563]
+here
+here2
+roots list: [27100667, 24265244]
+here
+here2
+roots list: [30043521, 5302939]
+here
+here2
+roots list: [25181780, 4183854]
+here
+here2
+roots list: [23252843, 20499119]
+here
+here2
+roots list: [15320677, 13260566]
+here
+here
+here2
+roots list: [23854844, 16607438]
+here
+here
+here2
+roots list: [15195280, 207348]
+here
+here2
+roots list: [32128759, 11570164]
+here
+here
+here2
+roots list: [15398706, 8323741]
+here
+here
+here2
+roots list: [33145231, 9339489]
+here
+here2
+roots list: [30557159, 25079265]
+here
+here2
+roots list: [28906827, 10974889]
+here
+here2
+roots list: [30681620, 8291371]
+here
+here
+here2
+roots list: [12833833, 4406815]
+here
+here
+here
+here2
+roots list: [18787659, 9738468]
+here
+here2
+roots list: [21534013, 19331827]
+here
+here
+here
+here2
+roots list: [32934136, 5895042]
+here
+here
+here
+here2
+roots list: [29268723, 4468438]
+here
+here2
+roots list: [21493190, 12137063]
+here
+here
+here2
+roots list: [26626810, 3308560]
+here
+here2
+roots list: [16239745, 14166052]
+here
+here
+here2
+roots list: [30305434, 28114098]
+here
+here2
+roots list: [30645692, 24308093]
+here
+here
+here
+here2
+roots list: [22011363, 17529872]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [19296474, 1839791]
+here
+here2
+roots list: [17359809, 1873600]
+here
+here
+here2
+roots list: [29066129, 26688623]
+here
+here2
+roots list: [20686099, 8930687]
+here
+here2
+roots list: [32854867, 19089986]
+here
+here2
+roots list: [18966455, 10640743]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [24972604, 17010526]
+here
+here2
+roots list: [12167999, 5395323]
+here
+here
+here
+here2
+roots list: [13029719, 11848317]
+here
+here
+here
+here
+here2
+roots list: [19288283, 12358163]
+here
+here2
+roots list: [27144900, 26704350]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29608006, 64829]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [15797885, 8989662]
+here
+here
+here2
+roots list: [29627244, 5286348]
+here
+here
+here2
+roots list: [23490281, 17792363]
+here
+here2
+roots list: [31951595, 31463261]
+here
+here2
+roots list: [31542629, 19279441]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [18163477, 15979882]
+here
+here
+here2
+roots list: [9796742, 1132973]
+here
+here
+here2
+roots list: [7297299, 6072867]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22036041, 11801131]
+here
+here
+here
+here
+here2
+roots list: [11128224, 8093263]
+here
+here2
+roots list: [29306810, 4979]
+here
+here2
+roots list: [27373728, 27133915]
+here
+here
+here
+here
+here2
+roots list: [33142695, 12344079]
+here
+here
+here2
+roots list: [30477073, 29818345]
+here
+here
+here2
+roots list: [24192377, 18661701]
+here
+here2
+roots list: [31716523, 21953345]
+here
+here
+here
+here2
+roots list: [16295568, 8916330]
+here
+here2
+roots list: [18890950, 1409065]
+here
+here
+here2
+roots list: [20276862, 2672150]
+here
+here2
+roots list: [31830793, 25718397]
+here
+here2
+roots list: [26873212, 5086181]
+here
+here2
+roots list: [23566650, 14516348]
+here
+here
+here
+here
+here2
+roots list: [23880834, 9330969]
+here
+here
+here2
+roots list: [21209044, 17324695]
+here
+here2
+roots list: [16003623, 1613023]
+here
+here2
+roots list: [15808062, 4434026]
+here
+here2
+roots list: [13825178, 13083526]
+here
+here2
+roots list: [12567406, 6108765]
+here
+here2
+roots list: [26565200, 11364546]
+here
+here
+here2
+roots list: [30214759, 13105167]
+here
+here2
+roots list: [25452622, 20502239]
+here
+here2
+roots list: [32083115, 25343538]
+here
+here
+here
+here
+here
+here2
+roots list: [22484379, 15189570]
+here
+here
+here
+here
+here2
+roots list: [23729173, 10965958]
+here
+here
+here
+here2
+roots list: [24676940, 5954012]
+here
+here
+here2
+roots list: [27456455, 15276867]
+here
+here
+here
+here2
+roots list: [11765480, 4418241]
+here
+here2
+roots list: [29122822, 5573124]
+here
+here2
+roots list: [11093961, 9967767]
+here
+here
+here2
+roots list: [31518327, 1022260]
+here
+here
+here2
+roots list: [30406084, 28813378]
+here
+here
+here
+here
+here
+here2
+roots list: [30456785, 26290778]
+here
+here
+here
+here
+here
+here2
+roots list: [23640797, 147365]
+here
+here2
+roots list: [21467138, 19415785]
+here
+here2
+roots list: [7390206, 688700]
+here
+here2
+roots list: [17390538, 11476522]
+here
+here2
+roots list: [26354591, 17522672]
+here
+here2
+roots list: [32118279, 6261982]
+here
+here2
+roots list: [27634378, 17122269]
+here
+here
+here2
+roots list: [1982914, 588397]
+here
+here2
+roots list: [11113971, 10054659]
+here
+here2
+roots list: [31851385, 21830127]
+here
+here2
+roots list: [5342867, 3784599]
+here
+here2
+roots list: [32312607, 13494324]
+here
+here
+here
+here2
+roots list: [32960979, 22758029]
+here
+here2
+roots list: [23723508, 10318692]
+here
+here2
+roots list: [25639233, 20321506]
+here
+here
+here
+here2
+roots list: [26676277, 12121612]
+here
+here2
+roots list: [8364116, 2617505]
+here
+here2
+roots list: [27021512, 14397249]
+here
+here
+here
+here
+here
+here2
+roots list: [10202822, 2260295]
+here
+here
+here
+here
+here
+here2
+roots list: [18719005, 549713]
+here
+here2
+roots list: [19444985, 16312633]
+here
+here2
+roots list: [27897094, 23168130]
+here
+here
+here
+here2
+roots list: [22372658, 14118085]
+here
+here
+here2
+roots list: [27250678, 22037888]
+here
+here2
+roots list: [22785611, 22075906]
+here
+here
+here2
+roots list: [8015354, 5227910]
+here
+here2
+roots list: [31480133, 13221089]
+here
+here
+here
+here2
+roots list: [26337198, 20644537]
+here
+here2
+roots list: [16294132, 12565599]
+here
+here2
+roots list: [17333772, 610699]
+here
+here2
+roots list: [25621659, 9170368]
+here
+here
+here
+here
+here
+here2
+roots list: [18920197, 1649533]
+here
+here
+here
+here2
+roots list: [24093686, 14215170]
+here
+here2
+roots list: [21310184, 17844778]
+here
+here
+here
+here
+here2
+roots list: [31315243, 30882967]
+here
+here2
+roots list: [21297905, 14163164]
+here
+here2
+roots list: [8980580, 6550308]
+here
+here2
+roots list: [29852231, 5739485]
+here
+here2
+roots list: [13475929, 12771086]
+here
+here
+here2
+roots list: [25061068, 14508201]
+here
+here2
+roots list: [5057758, 482506]
+here
+here2
+roots list: [27441932, 23937234]
+here
+here
+here
+here2
+roots list: [17251815, 13083893]
+here
+here2
+roots list: [27533417, 23204635]
+here
+here2
+roots list: [24205494, 356422]
+here
+here2
+roots list: [30220591, 2586900]
+here
+here2
+roots list: [17128801, 9365250]
+here
+here2
+roots list: [18431815, 13104764]
+here
+here
+here2
+roots list: [27984527, 2328257]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [16654710, 4979471]
+here
+here
+here
+here
+here
+here2
+roots list: [28212441, 14461746]
+here
+here
+here2
+roots list: [24239801, 3695375]
+here
+here2
+roots list: [17653041, 13252826]
+here
+here2
+roots list: [20206324, 14632650]
+here
+here
+here
+here2
+roots list: [24098498, 16657895]
+here
+here2
+roots list: [25754156, 17719889]
+here
+here2
+roots list: [21145012, 9340952]
+here
+here2
+roots list: [9378633, 6061370]
+here
+here
+here
+here2
+roots list: [28865622, 7796752]
+here
+here2
+roots list: [11494025, 3016252]
+here
+here2
+roots list: [21273452, 11741031]
+here
+here
+here2
+roots list: [8414031, 2098508]
+here
+here
+here2
+roots list: [7994347, 5767936]
+here
+here
+here2
+roots list: [24409637, 5329749]
+here
+here2
+roots list: [22443995, 2225748]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [17843142, 8606375]
+here
+here2
+roots list: [30395176, 25466974]
+here
+here2
+roots list: [26936725, 21721789]
+here
+here
+here2
+roots list: [31430394, 4125758]
+here
+here
+here
+here
+here2
+roots list: [32577202, 17922746]
+here
+here2
+roots list: [20882785, 13136969]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [32472089, 140122]
+here
+here2
+roots list: [28451403, 21044657]
+here
+here
+here2
+roots list: [9521097, 7404646]
+here
+here
+here2
+roots list: [14743619, 5708104]
+here
+here2
+roots list: [12311522, 9464316]
+here
+here2
+roots list: [22977971, 17605560]
+here
+here2
+roots list: [24843514, 2089372]
+here
+here
+here2
+roots list: [30626578, 8663669]
+here
+here
+here
+here2
+roots list: [27315647, 17012015]
+here
+here
+here2
+roots list: [16652232, 14335584]
+here
+here
+here2
+roots list: [28407014, 11426014]
+here
+here
+here2
+roots list: [21350249, 15322881]
+here
+here
+here
+here
+here
+here2
+roots list: [17976961, 17691380]
+here
+here
+here
+here2
+roots list: [17420261, 5447307]
+here
+here
+here
+here2
+roots list: [22381590, 20101375]
+here
+here2
+roots list: [31184440, 10700530]
+here
+here
+here
+here2
+roots list: [19587851, 18023603]
+here
+here2
+roots list: [33308165, 3604944]
+here
+here
+here2
+roots list: [28562999, 25344236]
+here
+here2
+roots list: [12835807, 12698927]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29651607, 9988355]
+here
+here
+here
+here
+here2
+roots list: [9639223, 4834930]
+here
+here
+here2
+roots list: [13483959, 6074357]
+here
+here
+here
+here
+here
+here2
+roots list: [27182399, 18637680]
+here
+here
+here2
+roots list: [15936809, 8529646]
+here
+here
+here
+here
+here2
+roots list: [22251718, 14413045]
+here
+here
+here
+here2
+roots list: [24620915, 5775369]
+here
+here
+here
+here
+here
+here2
+roots list: [17768372, 7129797]
+here
+here
+here2
+roots list: [28321349, 5661206]
+here
+here
+here
+here2
+roots list: [30615866, 6326740]
+here
+here
+here
+here2
+roots list: [28689363, 20718999]
+here
+here2
+roots list: [3144750, 2417850]
+here
+here2
+roots list: [21849893, 13028232]
+here
+here
+here2
+roots list: [11486831, 1393820]
+here
+here2
+roots list: [16229343, 3744761]
+here
+here2
+roots list: [20403599, 7243554]
+here
+here2
+roots list: [27085184, 14187064]
+here
+here2
+roots list: [25136525, 13656522]
+here
+here
+here2
+roots list: [29401163, 2687904]
+here
+here
+here2
+roots list: [15905320, 10765652]
+here
+here
+here2
+roots list: [27095439, 10590277]
+here
+here
+here
+here
+here2
+roots list: [14831277, 8825162]
+here
+here2
+roots list: [28204136, 14366908]
+here
+here2
+roots list: [9713963, 488588]
+here
+here
+here
+here2
+roots list: [21251318, 16928731]
+here
+here2
+roots list: [25994202, 25843616]
+here
+here2
+roots list: [22689682, 22013581]
+here
+here
+here2
+roots list: [15468145, 1251395]
+here
+here
+here2
+roots list: [30807714, 10238124]
+here
+here2
+roots list: [28014757, 17106376]
+here
+here2
+roots list: [32445322, 25595954]
+here
+here
+here2
+roots list: [20107017, 19643479]
+here
+here2
+roots list: [28224541, 9852629]
+here
+here
+here2
+roots list: [19691495, 15327146]
+here
+here
+here
+here2
+roots list: [16415160, 13625539]
+here
+here
+here2
+roots list: [33454734, 22889729]
+here
+here2
+roots list: [23311132, 4748916]
+here
+here2
+roots list: [15314259, 1971089]
+here
+here2
+roots list: [20958652, 12372446]
+here
+here2
+roots list: [31637709, 12738123]
+here
+here2
+roots list: [27524771, 24763416]
+here
+here2
+roots list: [12150236, 8719290]
+here
+here2
+roots list: [22797152, 13516624]
+here
+here
+here
+here2
+roots list: [25470156, 13935127]
+here
+here
+here2
+roots list: [14795329, 2179053]
+here
+here
+here2
+roots list: [25139745, 19118203]
+here
+here
+here2
+roots list: [10521855, 8761816]
+here
+here2
+roots list: [23622944, 6299972]
+here
+here2
+roots list: [25870340, 17996949]
+here
+here
+here2
+roots list: [25483470, 17204465]
+here
+here2
+roots list: [22802725, 5298605]
+here
+here
+here
+here2
+roots list: [20831622, 14716353]
+here
+here
+here2
+roots list: [26366753, 19026224]
+here
+here2
+roots list: [30645395, 23706622]
+here
+here2
+roots list: [17175452, 7052037]
+here
+here
+here2
+roots list: [23746987, 6385242]
+here
+here2
+roots list: [29873390, 24745599]
+here
+here2
+roots list: [28601707, 19486436]
+here
+here2
+roots list: [29968669, 4047464]
+here
+here
+here
+here
+here
+here2
+roots list: [30416614, 4305315]
+here
+here2
+roots list: [32968577, 9209180]
+here
+here2
+roots list: [23580107, 14348487]
+here
+here
+here2
+roots list: [7982545, 382446]
+here
+here
+here
+here2
+roots list: [6076312, 1681605]
+here
+here2
+roots list: [30918313, 13401466]
+here
+here
+here
+here2
+roots list: [7208429, 4601407]
+here
+here
+here
+here2
+roots list: [18973490, 1544256]
+here
+here2
+roots list: [21163564, 2098236]
+here
+here
+here2
+roots list: [21366313, 1217131]
+here
+here2
+roots list: [24968236, 3623263]
+here
+here2
+roots list: [27402034, 8732291]
+here
+here2
+roots list: [26720192, 1860451]
+here
+here
+here2
+roots list: [21664760, 16200692]
+here
+here
+here
+here
+here2
+roots list: [24437314, 13464561]
+here
+here
+here
+here
+here2
+roots list: [17282490, 374492]
+here
+here
+here2
+roots list: [26074637, 13002810]
+here
+here2
+roots list: [33506636, 18218430]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [28167730, 3341530]
+here
+here2
+roots list: [29325417, 5558961]
+here
+here
+here2
+roots list: [21866024, 3006274]
+here
+here2
+roots list: [24029836, 9548419]
+here
+here
+here
+here2
+roots list: [25795634, 2942921]
+here
+here2
+roots list: [20457340, 11961480]
+here
+here
+here
+here2
+roots list: [7686596, 3749621]
+here
+here2
+roots list: [26428747, 16916802]
+here
+here
+here2
+roots list: [6708195, 577643]
+here
+here
+here
+here2
+roots list: [24569340, 6442431]
+here
+here2
+roots list: [9796110, 4159451]
+here
+here2
+roots list: [21926302, 3802192]
+here
+here
+here2
+roots list: [22846032, 17489684]
+here
+here2
+roots list: [17408489, 10020780]
+here
+here2
+roots list: [24157924, 16666928]
+here
+here2
+roots list: [28310303, 8886556]
+here
+here
+here2
+roots list: [2343655, 2057648]
+here
+here
+here
+here2
+roots list: [29315306, 18296958]
+here
+here2
+roots list: [28763130, 3217322]
+here
+here
+here2
+roots list: [19833866, 511127]
+here
+here
+here
+here
+here2
+roots list: [18855788, 13312608]
+here
+here
+here2
+roots list: [31700964, 19121398]
+here
+here
+here
+here
+here2
+roots list: [25798422, 7982695]
+here
+here2
+roots list: [10476689, 9166064]
+here
+here2
+roots list: [28549982, 7256558]
+here
+here2
+roots list: [9818478, 2439167]
+here
+here
+here2
+roots list: [20078916, 13171468]
+here
+here
+here2
+roots list: [28608806, 9719116]
+here
+here2
+roots list: [18577556, 10938244]
+here
+here2
+roots list: [31954338, 27235651]
+here
+here
+here2
+roots list: [30323454, 8923952]
+here
+here
+here2
+roots list: [20901239, 20651081]
+here
+here2
+roots list: [33394096, 17993595]
+here
+here2
+roots list: [29902463, 12652389]
+here
+here2
+roots list: [13603187, 10884338]
+here
+here
+here
+here
+here2
+roots list: [10504314, 9229211]
+here
+here2
+roots list: [25691030, 2808249]
+here
+here
+here
+here2
+roots list: [24447199, 22512348]
+here
+here2
+roots list: [20517757, 11685054]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31337445, 11846304]
+here
+here2
+roots list: [30929303, 12361354]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31826275, 26589968]
+here
+here
+here2
+roots list: [9747800, 7731708]
+here
+here
+here
+here
+here2
+roots list: [26452093, 3529529]
+here
+here2
+roots list: [21162955, 19397743]
+here
+here2
+roots list: [22480582, 2731848]
+here
+here2
+roots list: [16541119, 15676934]
+here
+here2
+roots list: [24002039, 16597949]
+here
+here
+here
+here
+here
+here2
+roots list: [24861577, 1438802]
+here
+here2
+roots list: [23671631, 3560601]
+here
+here
+here
+here
+here2
+roots list: [19999142, 8260638]
+here
+here2
+roots list: [20476271, 14341355]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25676468, 20694831]
+here
+here
+here2
+roots list: [32859560, 13788846]
+here
+here2
+roots list: [29428810, 25362146]
+here
+here
+here
+here2
+roots list: [16502306, 10893151]
+here
+here2
+roots list: [27095258, 25499213]
+here
+here2
+roots list: [30889158, 18546725]
+here
+here
+here
+here
+here2
+roots list: [16882208, 9889587]
+here
+here2
+roots list: [15903500, 14051675]
+here
+here2
+roots list: [29033617, 13798165]
+here
+here2
+roots list: [21034644, 18059803]
+here
+here2
+roots list: [5501377, 4194341]
+here
+here
+here2
+roots list: [30506540, 12284543]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [14570534, 3728128]
+here
+here2
+roots list: [27023501, 12475778]
+here
+here
+here2
+roots list: [10531959, 6868841]
+here
+here2
+roots list: [32829240, 19150199]
+here
+here
+here2
+roots list: [32398797, 18449451]
+here
+here
+here2
+roots list: [19233983, 4729215]
+here
+here
+here2
+roots list: [27507648, 9920554]
+here
+here
+here
+here
+here2
+roots list: [24826600, 15796824]
+here
+here
+here2
+roots list: [10304454, 6747673]
+here
+here
+here
+here
+here
+here2
+roots list: [11012223, 4899101]
+here
+here
+here
+here2
+roots list: [33442305, 17812032]
+here
+here2
+roots list: [9933392, 6661951]
+here
+here2
+roots list: [28633652, 1407448]
+here
+here
+here
+here2
+roots list: [30658053, 25384326]
+here
+here2
+roots list: [17966935, 2015145]
+here
+here
+here
+here2
+roots list: [13019478, 1836278]
+here
+here2
+roots list: [18250544, 10985228]
+here
+here2
+roots list: [18832672, 3818047]
+here
+here2
+roots list: [33452498, 5319796]
+here
+here2
+roots list: [14548641, 14116246]
+here
+here2
+roots list: [3963908, 3483260]
+here
+here2
+roots list: [32183350, 5974159]
+here
+here2
+roots list: [31791862, 27031868]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [13525793, 4635215]
+here
+here
+here2
+roots list: [21529428, 14235553]
+here
+here
+here2
+roots list: [32124904, 22080755]
+here
+here2
+roots list: [29199851, 620899]
+here
+here2
+roots list: [21369036, 19905046]
+here
+here2
+roots list: [10688898, 1272887]
+here
+here
+here2
+roots list: [15694933, 12703066]
+here
+here2
+roots list: [15608196, 154879]
+here
+here
+here
+here2
+roots list: [27401784, 25765320]
+here
+here
+here2
+roots list: [25710137, 25608692]
+here
+here
+here
+here
+here2
+roots list: [21344861, 1086952]
+here
+here
+here
+here
+here2
+roots list: [20665711, 17317391]
+here
+here
+here2
+roots list: [26275816, 202343]
+here
+here2
+roots list: [33410089, 30637541]
+here
+here2
+roots list: [8148968, 6574880]
+here
+here2
+roots list: [23612204, 23586537]
+here
+here2
+roots list: [15196474, 13763483]
+here
+here2
+roots list: [18926709, 12462485]
+here
+here
+here
+here
+here2
+roots list: [19776677, 2749745]
+here
+here
+here2
+roots list: [27785739, 16937381]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31899039, 9393272]
+here
+here2
+roots list: [21335315, 4281595]
+here
+here
+here2
+roots list: [25403812, 15377067]
+here
+here
+here2
+roots list: [9332598, 5350131]
+here
+here
+here2
+roots list: [27247963, 15075497]
+here
+here
+here
+here2
+roots list: [25725756, 4207651]
+here
+here
+here2
+roots list: [20654123, 1894362]
+here
+here
+here
+here2
+roots list: [22763614, 19702137]
+here
+here
+here2
+roots list: [17513233, 12822729]
+here
+here
+here
+here2
+roots list: [15340699, 4826389]
+here
+here
+here
+here2
+roots list: [24908892, 4004932]
+here
+here
+here
+here2
+roots list: [15696065, 14134213]
+here
+here2
+roots list: [23933305, 23015815]
+here
+here
+here2
+roots list: [30777280, 9900027]
+here
+here
+here2
+roots list: [5910167, 2225209]
+here
+here
+here2
+roots list: [32963932, 31280998]
+here
+here2
+roots list: [32380765, 9633155]
+here
+here2
+roots list: [7319205, 3077427]
+here
+here2
+roots list: [32603702, 11282997]
+here
+here2
+roots list: [14897192, 6227378]
+here
+here2
+roots list: [12740467, 11332961]
+here
+here2
+roots list: [7473010, 6129532]
+here
+here
+here
+here2
+roots list: [11488068, 7325132]
+here
+here
+here
+here2
+roots list: [14990800, 12510803]
+here
+here2
+roots list: [30416109, 7870981]
+here
+here
+here
+here
+here
+here2
+roots list: [24251724, 20617306]
+here
+here2
+roots list: [10458553, 1651846]
+here
+here2
+roots list: [19016112, 5722953]
+here
+here
+here2
+roots list: [27837282, 25338252]
+here
+here2
+roots list: [27080759, 19624874]
+here
+here2
+roots list: [30192886, 27731216]
+here
+here2
+roots list: [25590697, 20969424]
+here
+here2
+roots list: [9276787, 5960012]
+here
+here2
+roots list: [26701752, 26272890]
+here
+here
+here2
+roots list: [10328790, 2056442]
+here
+here2
+roots list: [32343214, 23407607]
+here
+here2
+roots list: [32180761, 12355347]
+here
+here2
+roots list: [5037874, 4935302]
+here
+here
+here2
+roots list: [19622687, 13761770]
+here
+here2
+roots list: [23406934, 20694132]
+here
+here2
+roots list: [30554796, 22350964]
+here
+here2
+roots list: [20960272, 4002153]
+here
+here2
+roots list: [24454910, 5797925]
+here
+here2
+roots list: [23639987, 12299218]
+here
+here2
+roots list: [30266259, 12011551]
+here
+here
+here
+here
+here2
+roots list: [11074446, 6349236]
+here
+here
+here2
+roots list: [27584025, 24502809]
+here
+here
+here
+here2
+roots list: [24924771, 19059299]
+here
+here
+here2
+roots list: [24469731, 11505041]
+here
+here2
+roots list: [27783475, 5668999]
+here
+here
+here2
+roots list: [23313766, 12992031]
+here
+here2
+roots list: [30978726, 6260871]
+here
+here
+here2
+roots list: [17196289, 402154]
+here
+here2
+roots list: [22214613, 1758079]
+here
+here
+here
+here
+here2
+roots list: [25311246, 6159156]
+here
+here2
+roots list: [20151104, 10316011]
+here
+here2
+roots list: [8670290, 2590248]
+here
+here2
+roots list: [2700403, 2676925]
+here
+here2
+roots list: [32888045, 27906725]
+here
+here2
+roots list: [29161523, 11856880]
+here
+here
+here2
+roots list: [19906889, 18989981]
+here
+here
+here2
+roots list: [8443606, 6685207]
+here
+here2
+roots list: [19145183, 12293663]
+here
+here
+here2
+roots list: [25096976, 1552692]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [2682851, 1845151]
+here
+here
+here
+here2
+roots list: [27791833, 22882001]
+here
+here
+here
+here2
+roots list: [7672716, 7179772]
+here
+here2
+roots list: [22147199, 12043828]
+here
+here2
+roots list: [12779120, 1867988]
+here
+here
+here
+here
+here2
+roots list: [7472404, 3616709]
+here
+here
+here2
+roots list: [18761045, 365409]
+here
+here2
+roots list: [32379932, 8943528]
+here
+here
+here2
+roots list: [32701387, 17293778]
+here
+here2
+roots list: [5869676, 3665464]
+here
+here
+here
+here
+here2
+roots list: [33515821, 9686532]
+here
+here2
+roots list: [7494422, 2171183]
+here
+here2
+roots list: [33361565, 23528225]
+here
+here2
+roots list: [27258727, 20804072]
+here
+here
+here
+here2
+roots list: [23095669, 22118968]
+here
+here
+here
+here2
+roots list: [11952381, 786953]
+here
+here2
+roots list: [20475067, 17773720]
+here
+here
+here2
+roots list: [5951426, 1274142]
+here
+here2
+roots list: [30605298, 8056479]
+here
+here2
+roots list: [28683957, 10976726]
+here
+here
+here
+here2
+roots list: [25545160, 17138448]
+here
+here
+here
+here2
+roots list: [18740246, 14575711]
+here
+here2
+roots list: [28803452, 27971263]
+here
+here2
+roots list: [29109463, 25639636]
+here
+here2
+roots list: [16733265, 3166388]
+here
+here2
+roots list: [26941110, 15760086]
+here
+here2
+roots list: [29711630, 25434802]
+here
+here2
+roots list: [15846828, 6290299]
+here
+here
+here2
+roots list: [30593787, 21693463]
+here
+here2
+roots list: [17265014, 2546284]
+here
+here
+here2
+roots list: [33022299, 21520242]
+here
+here
+here
+here2
+roots list: [18241308, 15306069]
+here
+here
+here2
+roots list: [17500515, 2651346]
+here
+here2
+roots list: [8518697, 4909762]
+here
+here2
+roots list: [23203092, 8291278]
+here
+here
+here2
+roots list: [23985849, 16572488]
+here
+here2
+roots list: [18872554, 13211361]
+here
+here
+here2
+roots list: [32569952, 5319150]
+here
+here
+here2
+roots list: [31391560, 14755551]
+here
+here2
+roots list: [12690925, 149106]
+here
+here2
+roots list: [28791546, 19439883]
+here
+here2
+roots list: [19278761, 2659732]
+here
+here2
+roots list: [24624072, 17715664]
+here
+here2
+roots list: [25255541, 10509767]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [28905458, 23688288]
+here
+here
+here2
+roots list: [8563599, 6135203]
+here
+here2
+roots list: [9584782, 6120964]
+here
+here
+here2
+roots list: [17181328, 6566362]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22862889, 18878041]
+here
+here2
+roots list: [23463524, 14651771]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [9373601, 6549754]
+here
+here2
+roots list: [20793571, 11149791]
+here
+here2
+roots list: [20541246, 11245745]
+here
+here
+here2
+roots list: [25682894, 7226614]
+here
+here2
+roots list: [13011568, 4499665]
+here
+here2
+roots list: [12299968, 8088235]
+here
+here2
+roots list: [31322592, 6750183]
+here
+here2
+roots list: [23791315, 13520793]
+here
+here
+here2
+roots list: [13601138, 12871359]
+here
+here
+here2
+roots list: [31716186, 12323930]
+here
+here2
+roots list: [15802869, 1342036]
+here
+here
+here
+here
+here2
+roots list: [31165570, 17316571]
+here
+here2
+roots list: [33431765, 30077864]
+here
+here2
+roots list: [18608354, 1996012]
+here
+here
+here
+here
+here
+here2
+roots list: [31641749, 20461428]
+here
+here2
+roots list: [24247001, 20929409]
+here
+here2
+roots list: [11359499, 5724991]
+here
+here2
+roots list: [16911472, 8408647]
+here
+here2
+roots list: [16342991, 4862811]
+here
+here2
+roots list: [29967876, 28720831]
+here
+here2
+roots list: [32242775, 6522417]
+here
+here
+here2
+roots list: [23871159, 2487449]
+here
+here2
+roots list: [19932101, 6889386]
+here
+here2
+roots list: [11434244, 3989413]
+here
+here
+here2
+roots list: [30098895, 14204423]
+here
+here2
+roots list: [18913325, 10652418]
+here
+here
+here
+here2
+roots list: [10886728, 1110907]
+here
+here2
+roots list: [9186291, 346188]
+here
+here
+here2
+roots list: [17466861, 13770895]
+here
+here2
+roots list: [32386535, 22461446]
+here
+here2
+roots list: [24143875, 7659168]
+here
+here2
+roots list: [33345277, 16356236]
+here
+here
+here2
+roots list: [18981269, 14033454]
+here
+here2
+roots list: [27115214, 12682659]
+here
+here2
+roots list: [16372172, 15256315]
+here
+here
+here2
+roots list: [24419656, 1566175]
+here
+here2
+roots list: [11990203, 2336967]
+here
+here
+here
+here2
+roots list: [13019843, 346565]
+here
+here
+here2
+roots list: [19424578, 13241290]
+here
+here2
+roots list: [13066274, 7621669]
+here
+here2
+roots list: [27606001, 1943546]
+here
+here2
+roots list: [19454240, 17561247]
+here
+here2
+roots list: [27415316, 1561456]
+here
+here2
+roots list: [25853678, 9440865]
+here
+here
+here2
+roots list: [21563235, 18458412]
+here
+here2
+roots list: [18084806, 9371883]
+here
+here2
+roots list: [24932798, 15737195]
+here
+here
+here2
+roots list: [25386992, 19370380]
+here
+here2
+roots list: [15451425, 8729673]
+here
+here
+here
+here
+here2
+roots list: [4899539, 1676324]
+here
+here2
+roots list: [13336661, 5505599]
+here
+here
+here2
+roots list: [24430006, 2858199]
+here
+here2
+roots list: [27279195, 8778828]
+here
+here2
+roots list: [19280804, 15135563]
+here
+here2
+roots list: [33461554, 18489516]
+here
+here2
+roots list: [29742881, 15744423]
+here
+here
+here
+here2
+roots list: [31582411, 26255462]
+here
+here2
+roots list: [28469149, 17876200]
+here
+here
+here2
+roots list: [15057065, 2719589]
+here
+here
+here2
+roots list: [29809662, 8994900]
+here
+here
+here2
+roots list: [29540173, 8501374]
+here
+here
+here2
+roots list: [30286112, 12835566]
+here
+here2
+roots list: [15163779, 9059748]
+here
+here2
+roots list: [15949859, 9193476]
+here
+here
+here
+here
+here2
+roots list: [22991702, 4013945]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [27963184, 25306663]
+here
+here2
+roots list: [20808494, 19368934]
+here
+here
+here
+here2
+roots list: [32952166, 12844209]
+here
+here2
+roots list: [28513744, 9104734]
+here
+here2
+roots list: [21087814, 20563964]
+here
+here2
+roots list: [23608720, 13279201]
+here
+here2
+roots list: [29726374, 21025989]
+here
+here
+here2
+roots list: [26132422, 10431723]
+here
+here
+here
+here
+here2
+roots list: [22026148, 10199125]
+here
+here
+here2
+roots list: [32885873, 4767888]
+here
+here2
+roots list: [33324470, 17407526]
+here
+here
+here
+here2
+roots list: [26049582, 12061239]
+here
+here
+here2
+roots list: [32325226, 27130762]
+here
+here2
+roots list: [26999343, 15196195]
+here
+here2
+roots list: [28463034, 25921675]
+here
+here
+here
+here2
+roots list: [20834382, 14822626]
+here
+here2
+roots list: [31015963, 7760237]
+here
+here2
+roots list: [28044879, 20275542]
+here
+here
+here2
+roots list: [31613638, 23407627]
+here
+here2
+roots list: [19469047, 17682593]
+here
+here2
+roots list: [26659573, 10270131]
+here
+here2
+roots list: [9229343, 2855967]
+here
+here
+here
+here2
+roots list: [7074702, 5385675]
+here
+here2
+roots list: [16916111, 8398754]
+here
+here2
+roots list: [28601439, 13399708]
+here
+here
+here2
+roots list: [30520102, 12923224]
+here
+here
+here2
+roots list: [27823515, 13567528]
+here
+here2
+roots list: [29559982, 5375176]
+here
+here
+here
+here2
+roots list: [24252489, 20201798]
+here
+here
+here2
+roots list: [23399302, 7344628]
+here
+here2
+roots list: [21396457, 7053099]
+here
+here
+here2
+roots list: [12823352, 8761456]
+here
+here2
+roots list: [30055019, 29917467]
+here
+here2
+roots list: [32248258, 26815151]
+here
+here2
+roots list: [31938503, 29103140]
+here
+here
+here
+here2
+roots list: [23137724, 4112721]
+here
+here2
+roots list: [30703644, 25318723]
+here
+here
+here2
+roots list: [11911444, 7330028]
+here
+here
+here2
+roots list: [22596662, 21956322]
+here
+here
+here
+here
+here2
+roots list: [29518029, 20265513]
+here
+here2
+roots list: [31122933, 11837792]
+here
+here
+here2
+roots list: [29267809, 26558754]
+here
+here2
+roots list: [30893363, 16754085]
+here
+here
+here
+here
+here2
+roots list: [27347440, 25942578]
+here
+here2
+roots list: [31018036, 30261322]
+here
+here2
+roots list: [29486115, 20282045]
+here
+here2
+roots list: [19743734, 7831425]
+here
+here2
+roots list: [25853639, 4898430]
+here
+here2
+roots list: [31917859, 8832559]
+here
+here2
+roots list: [23135456, 17207638]
+here
+here2
+roots list: [21836868, 11979080]
+here
+here
+here
+here2
+roots list: [29974407, 13806154]
+here
+here2
+roots list: [17278286, 722635]
+here
+here2
+roots list: [29961270, 11884071]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [21538265, 21049088]
+here
+here
+here2
+roots list: [9113594, 2369381]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26912606, 5987018]
+here
+here2
+roots list: [30692695, 16452600]
+here
+here2
+roots list: [17443184, 9800522]
+here
+here2
+roots list: [17142642, 5456363]
+here
+here2
+roots list: [27871317, 3759771]
+here
+here2
+roots list: [32163189, 5868216]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29345214, 6488895]
+here
+here
+here
+here
+here2
+roots list: [33129315, 3309723]
+here
+here2
+roots list: [31460654, 18157178]
+here
+here2
+roots list: [13499234, 4318940]
+here
+here
+here
+here2
+roots list: [27223740, 13661224]
+here
+here
+here2
+roots list: [28983490, 7352019]
+here
+here2
+roots list: [11581667, 11537047]
+here
+here2
+roots list: [18263520, 1510191]
+here
+here
+here2
+roots list: [9538566, 1901547]
+here
+here
+here
+here2
+roots list: [29156480, 19734283]
+here
+here
+here
+here2
+roots list: [30060694, 1473526]
+here
+here
+here2
+roots list: [24135305, 2030573]
+here
+here2
+roots list: [31513460, 14594470]
+here
+here
+here2
+roots list: [20670452, 20191248]
+here
+here
+here2
+roots list: [31320737, 20500061]
+here
+here2
+roots list: [29114916, 13396206]
+here
+here
+here2
+roots list: [24663468, 21496892]
+here
+here
+here
+here2
+roots list: [25479964, 765897]
+here
+here2
+roots list: [32661168, 11448979]
+here
+here2
+roots list: [30870958, 16210008]
+here
+here
+here
+here2
+roots list: [17023694, 10892083]
+here
+here2
+roots list: [17603658, 11506945]
+here
+here
+here2
+roots list: [16142724, 12516078]
+here
+here2
+roots list: [16357705, 14376408]
+here
+here
+here2
+roots list: [32130015, 4202215]
+here
+here2
+roots list: [28622275, 25904148]
+here
+here
+here2
+roots list: [21846898, 3123533]
+here
+here
+here2
+roots list: [8861723, 3822445]
+here
+here2
+roots list: [29154587, 2489039]
+here
+here2
+roots list: [25663853, 18217814]
+here
+here2
+roots list: [28446696, 16236036]
+here
+here2
+roots list: [25805520, 21652178]
+here
+here2
+roots list: [9162124, 3876739]
+here
+here
+here2
+roots list: [20492903, 3594500]
+here
+here2
+roots list: [26190296, 14377221]
+here
+here2
+roots list: [14822875, 2556395]
+here
+here
+here
+here2
+roots list: [32462752, 12810524]
+here
+here
+here2
+roots list: [29792452, 23010922]
+here
+here
+here2
+roots list: [27453341, 19566021]
+here
+here2
+roots list: [19641405, 8046852]
+here
+here2
+roots list: [29120875, 2301655]
+here
+here2
+roots list: [18571604, 4769359]
+here
+here
+here
+here2
+roots list: [32633087, 6438723]
+here
+here2
+roots list: [25828228, 18218201]
+here
+here
+here2
+roots list: [31956629, 13440290]
+here
+here
+here2
+roots list: [10371479, 1952974]
+here
+here
+here
+here
+here2
+roots list: [26165287, 4904477]
+here
+here2
+roots list: [8993139, 1789106]
+here
+here2
+roots list: [30008325, 18960470]
+here
+here2
+roots list: [16030842, 11053987]
+here
+here
+here2
+roots list: [31241619, 2560563]
+here
+here
+here2
+roots list: [28424515, 27490217]
+here
+here2
+roots list: [30294939, 24973107]
+here
+here
+here
+here2
+roots list: [16182300, 8028417]
+here
+here2
+roots list: [28878866, 22784321]
+here
+here2
+roots list: [15771996, 11762944]
+here
+here
+here2
+roots list: [28996929, 9279593]
+here
+here2
+roots list: [32440410, 11407050]
+here
+here2
+roots list: [12848839, 4262306]
+here
+here2
+roots list: [20944610, 16545136]
+here
+here
+here
+here
+here
+here2
+roots list: [24773804, 5942727]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [32480306, 8289955]
+here
+here2
+roots list: [32798623, 13296450]
+here
+here
+here
+here2
+roots list: [17813724, 12239486]
+here
+here2
+roots list: [22842206, 20880695]
+here
+here
+here
+here
+here2
+roots list: [31857781, 11255327]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [18234749, 8073306]
+here
+here2
+roots list: [23333957, 5949363]
+here
+here
+here
+here
+here
+here2
+roots list: [33266478, 10644244]
+here
+here2
+roots list: [25912915, 14724976]
+here
+here2
+roots list: [30702377, 29100383]
+here
+here2
+roots list: [21898223, 2202449]
+here
+here2
+roots list: [9601038, 5173607]
+here
+here
+here2
+roots list: [31367051, 18502677]
+here
+here2
+roots list: [22716180, 2772281]
+here
+here2
+roots list: [4395869, 3326796]
+here
+here
+here
+here2
+roots list: [27833587, 15104962]
+here
+here2
+roots list: [13615281, 2809495]
+here
+here2
+roots list: [14906727, 11522047]
+here
+here2
+roots list: [13973361, 392761]
+here
+here
+here2
+roots list: [17339482, 743642]
+here
+here
+here
+here2
+roots list: [31996889, 10157422]
+here
+here
+here
+here
+here2
+roots list: [27859209, 13249794]
+here
+here
+here2
+roots list: [24184741, 18568474]
+here
+here
+here2
+roots list: [31626642, 14086660]
+here
+here2
+roots list: [5135282, 3313454]
+here
+here2
+roots list: [30624172, 22100082]
+here
+here
+here
+here
+here2
+roots list: [28111427, 16598034]
+here
+here2
+roots list: [14306505, 749682]
+here
+here
+here
+here2
+roots list: [30606248, 3826317]
+here
+here2
+roots list: [22603479, 2574011]
+here
+here2
+roots list: [30742593, 15074721]
+here
+here2
+roots list: [28200612, 12044620]
+here
+here2
+roots list: [33256932, 5149777]
+here
+here2
+roots list: [31570833, 3522967]
+here
+here
+here
+here
+here2
+roots list: [17530127, 10186882]
+here
+here
+here
+here2
+roots list: [8584075, 2358647]
+here
+here2
+roots list: [22787085, 17269833]
+here
+here
+here2
+roots list: [19384600, 9468694]
+here
+here
+here
+here2
+roots list: [29607190, 26573995]
+here
+here
+here
+here2
+roots list: [30470994, 18950161]
+here
+here2
+roots list: [24275215, 8650859]
+here
+here
+here2
+roots list: [30226226, 19612150]
+here
+here2
+roots list: [25477729, 4039761]
+here
+here2
+roots list: [25221501, 9770545]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [27390942, 3460654]
+here
+here2
+roots list: [7780015, 136801]
+here
+here2
+roots list: [31079374, 21137448]
+here
+here
+here
+here
+here2
+roots list: [20806503, 15071805]
+here
+here2
+roots list: [30556422, 26699465]
+here
+here
+here
+here2
+roots list: [22171208, 8811610]
+here
+here2
+roots list: [17718560, 3007236]
+here
+here
+here2
+roots list: [26115778, 23770811]
+here
+here
+here2
+roots list: [30096625, 22008020]
+here
+here2
+roots list: [24735851, 5213826]
+here
+here2
+roots list: [28784338, 13094044]
+here
+here
+here
+here2
+roots list: [24788774, 21548211]
+here
+here2
+roots list: [24818646, 13412062]
+here
+here
+here
+here2
+roots list: [23686703, 21094509]
+here
+here
+here
+here2
+roots list: [20957550, 1560398]
+here
+here
+here2
+roots list: [33316150, 17408884]
+here
+here2
+roots list: [14942200, 12242254]
+here
+here
+here
+here
+here
+here2
+roots list: [12344550, 3532632]
+here
+here
+here
+here2
+roots list: [4105414, 2988846]
+here
+here
+here2
+roots list: [20424779, 14454816]
+here
+here2
+roots list: [30633551, 29399333]
+here
+here2
+roots list: [21976163, 7960392]
+here
+here2
+roots list: [26247070, 7191810]
+here
+here
+here2
+roots list: [30216273, 13295395]
+here
+here2
+roots list: [28207324, 9034188]
+here
+here
+here
+here2
+roots list: [29915031, 5607232]
+here
+here
+here
+here
+here2
+roots list: [20139318, 10894029]
+here
+here
+here
+here2
+roots list: [13640657, 7939757]
+here
+here
+here
+here2
+roots list: [29806758, 8878585]
+here
+here2
+roots list: [10904914, 740157]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [14456208, 1734404]
+here
+here2
+roots list: [30249067, 23113356]
+here
+here2
+roots list: [25686949, 12162764]
+here
+here
+here2
+roots list: [22577545, 16006931]
+here
+here2
+roots list: [14573346, 3396773]
+here
+here
+here
+here2
+roots list: [30494425, 17435408]
+here
+here
+here2
+roots list: [9812137, 6958849]
+here
+here2
+roots list: [18884214, 15264028]
+here
+here
+here
+here2
+roots list: [6537656, 459019]
+here
+here2
+roots list: [28439424, 2609263]
+here
+here
+here2
+roots list: [24659507, 2969549]
+here
+here2
+roots list: [31820728, 21179526]
+here
+here2
+roots list: [13126115, 4092525]
+here
+here
+here2
+roots list: [15954161, 4694351]
+here
+here2
+roots list: [32307594, 15514126]
+here
+here2
+roots list: [28420954, 8025975]
+here
+here
+here2
+roots list: [23249275, 3842880]
+here
+here2
+roots list: [29899883, 21832579]
+here
+here2
+roots list: [28490022, 1068828]
+here
+here2
+roots list: [1189957, 426081]
+here
+here2
+roots list: [32913380, 6832563]
+here
+here2
+roots list: [24776926, 22470074]
+here
+here
+here2
+roots list: [28934881, 9401599]
+here
+here2
+roots list: [24687650, 1076006]
+here
+here
+here
+here2
+roots list: [31785373, 21565768]
+here
+here
+here
+here
+here
+here2
+roots list: [8102468, 3516237]
+here
+here
+here
+here
+here2
+roots list: [24094710, 7606563]
+here
+here2
+roots list: [19846703, 15860525]
+here
+here2
+roots list: [17642153, 11749362]
+here
+here
+here
+here2
+roots list: [32683923, 17160419]
+here
+here
+here2
+roots list: [32582410, 30150117]
+here
+here2
+roots list: [12296584, 11570251]
+here
+here2
+roots list: [24546305, 23460763]
+here
+here2
+roots list: [18602054, 7634347]
+here
+here2
+roots list: [32885757, 519624]
+here
+here2
+roots list: [22446542, 18314911]
+here
+here2
+roots list: [18466188, 17538228]
+here
+here2
+roots list: [11525328, 4878207]
+here
+here2
+roots list: [25380901, 20416019]
+here
+here
+here
+here2
+roots list: [21675169, 19913291]
+here
+here2
+roots list: [25112352, 24155883]
+here
+here
+here2
+roots list: [14295318, 14190180]
+here
+here
+here2
+roots list: [30946765, 7620039]
+here
+here2
+roots list: [22599198, 12100757]
+here
+here
+here2
+roots list: [22472308, 12015439]
+here
+here2
+roots list: [27638057, 24909975]
+here
+here
+here2
+roots list: [30841935, 378191]
+here
+here2
+roots list: [9539362, 8090757]
+here
+here
+here
+here
+here2
+roots list: [21299129, 19993431]
+here
+here
+here2
+roots list: [6410724, 5154575]
+here
+here
+here2
+roots list: [29304973, 27335463]
+here
+here
+here2
+roots list: [26223690, 8270376]
+here
+here
+here
+here
+here2
+roots list: [13165466, 1314536]
+here
+here
+here2
+roots list: [29567005, 6670946]
+here
+here
+here2
+roots list: [23679937, 5660162]
+here
+here2
+roots list: [4474848, 3195035]
+here
+here2
+roots list: [28786423, 27924887]
+here
+here
+here
+here
+here
+here2
+roots list: [11156180, 6774633]
+here
+here
+here
+here2
+roots list: [24573216, 24221810]
+here
+here
+here
+here2
+roots list: [4155076, 29283]
+here
+here
+here2
+roots list: [20395285, 14926110]
+here
+here2
+roots list: [17573736, 8712421]
+here
+here2
+roots list: [19938287, 11356897]
+here
+here
+here2
+roots list: [32244429, 20910585]
+here
+here2
+roots list: [6117543, 2897575]
+here
+here2
+roots list: [24647492, 20662636]
+here
+here
+here2
+roots list: [27989695, 25588966]
+here
+here2
+roots list: [11672248, 5115787]
+here
+here2
+roots list: [16665541, 15190911]
+here
+here2
+roots list: [24722313, 20438757]
+here
+here2
+roots list: [25058604, 5320991]
+here
+here
+here
+here2
+roots list: [25523281, 17033882]
+here
+here2
+roots list: [26407803, 19251415]
+here
+here
+here2
+roots list: [13627042, 7589588]
+here
+here2
+roots list: [27443288, 18199803]
+here
+here2
+roots list: [20091889, 2769782]
+here
+here
+here
+here2
+roots list: [13439028, 5268633]
+here
+here2
+roots list: [16020036, 7929250]
+here
+here2
+roots list: [21188977, 13516091]
+here
+here
+here2
+roots list: [11243538, 9024998]
+here
+here
+here
+here
+here2
+roots list: [18178083, 9213670]
+here
+here2
+roots list: [23522193, 9372911]
+here
+here2
+roots list: [23400457, 14097144]
+here
+here2
+roots list: [30001521, 7568921]
+here
+here2
+roots list: [23783133, 21637967]
+here
+here
+here
+here2
+roots list: [6978046, 4882404]
+here
+here2
+roots list: [33380076, 4642803]
+here
+here
+here2
+roots list: [6680011, 5442958]
+here
+here2
+roots list: [31823623, 31738844]
+here
+here2
+roots list: [32925400, 23665970]
+here
+here2
+roots list: [9563593, 4786032]
+here
+here2
+roots list: [25797488, 3367552]
+here
+here
+here2
+roots list: [33173833, 23962731]
+here
+here2
+roots list: [29402882, 25856570]
+here
+here
+here2
+roots list: [28238060, 11741926]
+here
+here2
+roots list: [13646404, 5405974]
+here
+here2
+roots list: [31292463, 19536465]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [13131476, 4654726]
+here
+here2
+roots list: [33386658, 21192342]
+here
+here2
+roots list: [28422463, 22362641]
+here
+here
+here
+here2
+roots list: [23505763, 18079448]
+here
+here
+here
+here2
+roots list: [23767528, 7298509]
+here
+here2
+roots list: [28587873, 8615882]
+here
+here
+here
+here2
+roots list: [32895592, 26081304]
+here
+here2
+roots list: [28604097, 27948242]
+here
+here2
+roots list: [32184520, 13788610]
+here
+here2
+roots list: [16350722, 903176]
+here
+here
+here
+here
+here2
+roots list: [4936653, 1288255]
+here
+here2
+roots list: [22042363, 11347397]
+here
+here2
+roots list: [18506345, 15357293]
+here
+here2
+roots list: [30584332, 11394067]
+here
+here
+here2
+roots list: [32938393, 27671722]
+here
+here2
+roots list: [16884878, 11750543]
+here
+here2
+roots list: [12587630, 10713004]
+here
+here2
+roots list: [26205967, 18424599]
+here
+here2
+roots list: [16415028, 13988223]
+here
+here2
+roots list: [27707437, 23226801]
+here
+here
+here2
+roots list: [29996333, 18766570]
+here
+here2
+roots list: [24862780, 19569029]
+here
+here
+here
+here
+here2
+roots list: [29510301, 26935527]
+here
+here
+here
+here
+here2
+roots list: [20903424, 7708401]
+here
+here
+here2
+roots list: [7666148, 4119067]
+here
+here2
+roots list: [21648982, 20639018]
+here
+here2
+roots list: [24554274, 17526094]
+here
+here2
+roots list: [24636791, 11447106]
+here
+here2
+roots list: [12432908, 2150395]
+here
+here
+here2
+roots list: [30199198, 21350493]
+here
+here
+here
+here2
+roots list: [15715348, 14592252]
+here
+here
+here2
+roots list: [16086959, 1634534]
+here
+here
+here2
+roots list: [12171787, 4464694]
+here
+here
+here2
+roots list: [27430915, 25623552]
+here
+here2
+roots list: [26227305, 24301035]
+here
+here
+here2
+roots list: [25514072, 20368326]
+here
+here2
+roots list: [32253382, 20233316]
+here
+here
+here2
+roots list: [10759880, 444838]
+here
+here2
+roots list: [29610102, 25680288]
+here
+here
+here
+here
+here2
+roots list: [8673035, 3681160]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [21077848, 4018956]
+here
+here2
+roots list: [18813278, 17925433]
+here
+here2
+roots list: [28777793, 19021365]
+here
+here2
+roots list: [6277670, 5989151]
+here
+here2
+roots list: [25770678, 10508156]
+here
+here
+here2
+roots list: [29615089, 18261219]
+here
+here
+here
+here2
+roots list: [32711085, 6197509]
+here
+here
+here2
+roots list: [26837683, 12708612]
+here
+here
+here2
+roots list: [16647437, 7003309]
+here
+here
+here
+here
+here2
+roots list: [32322609, 877420]
+here
+here2
+roots list: [29948473, 20437642]
+here
+here2
+roots list: [3092159, 2334173]
+here
+here2
+roots list: [22156728, 10573761]
+here
+here2
+roots list: [21710177, 10966253]
+here
+here
+here2
+roots list: [32423601, 7152873]
+here
+here
+here2
+roots list: [21411359, 18225805]
+here
+here
+here2
+roots list: [18268550, 5655156]
+here
+here2
+roots list: [18757947, 16602776]
+here
+here
+here
+here2
+roots list: [32026714, 23213701]
+here
+here2
+roots list: [33338965, 31484425]
+here
+here
+here2
+roots list: [10769668, 2723450]
+here
+here
+here
+here
+here
+here2
+roots list: [26153148, 25153086]
+here
+here
+here2
+roots list: [32078144, 23562810]
+here
+here
+here
+here2
+roots list: [29605626, 28366179]
+here
+here2
+roots list: [2293214, 2250268]
+here
+here
+here
+here2
+roots list: [23216033, 4571405]
+here
+here
+here
+here2
+roots list: [18647252, 14545418]
+here
+here2
+roots list: [27760757, 6864769]
+here
+here
+here2
+roots list: [32904271, 29836608]
+here
+here
+here2
+roots list: [28193123, 6373282]
+here
+here2
+roots list: [33111811, 5751189]
+here
+here
+here2
+roots list: [13481023, 3129639]
+here
+here2
+roots list: [12552602, 6740495]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [15182108, 5933490]
+here
+here
+here2
+roots list: [33439471, 4690230]
+here
+here2
+roots list: [28515800, 22409081]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29766195, 4009997]
+here
+here
+here
+here2
+roots list: [32730490, 28962211]
+here
+here
+here2
+roots list: [23690516, 3553659]
+here
+here
+here2
+roots list: [12049726, 3697077]
+here
+here2
+roots list: [24965388, 8610572]
+here
+here
+here2
+roots list: [32527739, 15395269]
+here
+here
+here2
+roots list: [23037941, 7863481]
+here
+here
+here
+here2
+roots list: [20263893, 13211753]
+here
+here
+here2
+roots list: [12658424, 12104487]
+here
+here
+here2
+roots list: [28063230, 14819585]
+here
+here
+here
+here
+here2
+roots list: [22792142, 9207735]
+here
+here
+here2
+roots list: [19269461, 1867142]
+here
+here2
+roots list: [30305676, 19129136]
+here
+here
+here2
+roots list: [11968296, 6014056]
+here
+here
+here
+here
+here
+here2
+roots list: [28069114, 23102286]
+here
+here
+here2
+roots list: [29598134, 16994961]
+here
+here
+here2
+roots list: [32441783, 1228109]
+here
+here2
+roots list: [24764403, 15430890]
+here
+here
+here
+here
+here2
+roots list: [30599095, 8966624]
+here
+here
+here
+here
+here2
+roots list: [24613280, 24563261]
+here
+here
+here2
+roots list: [16107261, 6475758]
+here
+here2
+roots list: [17604441, 8126740]
+here
+here2
+roots list: [28738179, 11543297]
+here
+here2
+roots list: [32082735, 19670508]
+here
+here2
+roots list: [24042999, 1624229]
+here
+here2
+roots list: [19183542, 448446]
+here
+here2
+roots list: [26199817, 7710755]
+here
+here2
+roots list: [22363499, 17688691]
+here
+here2
+roots list: [17273356, 5102677]
+here
+here2
+roots list: [22806122, 13869035]
+here
+here2
+roots list: [17831388, 11766609]
+here
+here
+here2
+roots list: [20643269, 6446988]
+here
+here2
+roots list: [26926052, 11070060]
+here
+here2
+roots list: [22349522, 7358620]
+here
+here
+here
+here
+here2
+roots list: [33008643, 1060130]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [23987720, 22622604]
+here
+here2
+roots list: [23803386, 5590872]
+here
+here
+here
+here
+here2
+roots list: [18125318, 12243937]
+here
+here2
+roots list: [16024660, 11339756]
+here
+here2
+roots list: [30214251, 29076786]
+here
+here2
+roots list: [23198982, 385593]
+here
+here
+here
+here2
+roots list: [29983536, 1192164]
+here
+here
+here2
+roots list: [32847936, 30452333]
+here
+here2
+roots list: [25343172, 8798016]
+here
+here
+here2
+roots list: [22455677, 11935077]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [33368239, 26746070]
+here
+here
+here
+here
+here2
+roots list: [22724029, 7623465]
+here
+here
+here
+here
+here
+here2
+roots list: [20231550, 12104389]
+here
+here
+here2
+roots list: [22179937, 10965690]
+here
+here
+here2
+roots list: [2632570, 1472724]
+here
+here
+here
+here2
+roots list: [21887224, 12898068]
+here
+here2
+roots list: [24321852, 13845821]
+here
+here2
+roots list: [16974423, 14454731]
+here
+here
+here2
+roots list: [32661489, 391413]
+here
+here
+here
+here
+here2
+roots list: [20891007, 6231521]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [30343682, 27138704]
+here
+here2
+roots list: [24618169, 22722077]
+here
+here
+here
+here2
+roots list: [11240165, 4067362]
+here
+here
+here
+here
+here2
+roots list: [33359124, 898934]
+here
+here2
+roots list: [21135963, 6343543]
+here
+here
+here
+here2
+roots list: [15626536, 5520820]
+here
+here2
+roots list: [9635447, 8806294]
+here
+here
+here2
+roots list: [7257779, 2116622]
+here
+here
+here
+here2
+roots list: [22738162, 9540692]
+here
+here2
+roots list: [7924605, 5465163]
+here
+here
+here
+here
+here2
+roots list: [25700883, 12267404]
+here
+here
+here2
+roots list: [14671187, 782519]
+here
+here2
+roots list: [28361255, 27851918]
+here
+here2
+roots list: [26604866, 22460993]
+here
+here
+here2
+roots list: [23734090, 13209845]
+here
+here2
+roots list: [20024468, 15899173]
+here
+here2
+roots list: [22141286, 8914293]
+here
+here
+here
+here2
+roots list: [24438297, 22725189]
+here
+here
+here
+here2
+roots list: [33142437, 28682462]
+here
+here2
+roots list: [23300365, 12908668]
+here
+here
+here
+here2
+roots list: [18615404, 3680788]
+here
+here2
+roots list: [23232247, 16151104]
+here
+here
+here2
+roots list: [24796841, 23281607]
+here
+here2
+roots list: [13984970, 8348645]
+here
+here
+here
+here2
+roots list: [33200698, 25288533]
+here
+here2
+roots list: [19029707, 849526]
+here
+here
+here
+here
+here
+here2
+roots list: [12989480, 12029457]
+here
+here2
+roots list: [30276705, 29272346]
+here
+here
+here
+here2
+roots list: [9508232, 1402300]
+here
+here2
+roots list: [30965849, 8518947]
+here
+here2
+roots list: [19449623, 5670686]
+here
+here2
+roots list: [14029944, 8144175]
+here
+here2
+roots list: [15929821, 14864463]
+here
+here
+here2
+roots list: [29287333, 12122469]
+here
+here
+here
+here
+here
+here2
+roots list: [16806572, 15153033]
+here
+here2
+roots list: [18460645, 3149335]
+here
+here
+here
+here2
+roots list: [33175299, 28377886]
+here
+here2
+roots list: [33517024, 1542933]
+here
+here
+here2
+roots list: [22455977, 16292666]
+here
+here
+here2
+roots list: [27749239, 26716031]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [33198160, 32910226]
+here
+here
+here2
+roots list: [28472296, 21924710]
+here
+here
+here2
+roots list: [17950017, 5183233]
+here
+here2
+roots list: [32275200, 17706479]
+here
+here2
+roots list: [30678946, 21489305]
+here
+here2
+roots list: [11368624, 4295985]
+here
+here
+here2
+roots list: [16997408, 8317901]
+here
+here2
+roots list: [23027916, 4903897]
+here
+here2
+roots list: [17154284, 12667224]
+here
+here2
+roots list: [25947327, 5116578]
+here
+here
+here2
+roots list: [14196964, 4049794]
+here
+here2
+roots list: [29210197, 3510341]
+here
+here2
+roots list: [33280227, 15493983]
+here
+here
+here2
+roots list: [29733251, 27433532]
+here
+here
+here
+here2
+roots list: [12322868, 2991399]
+here
+here2
+roots list: [31234366, 15097681]
+here
+here2
+roots list: [22802075, 12285374]
+here
+here2
+roots list: [15685411, 6719910]
+here
+here2
+roots list: [11246422, 9965413]
+here
+here
+here
+here2
+roots list: [29902725, 16077654]
+here
+here2
+roots list: [20924726, 14696289]
+here
+here
+here
+here2
+roots list: [14923125, 6507155]
+here
+here
+here2
+roots list: [28075281, 8855077]
+here
+here
+here2
+roots list: [16258647, 8901008]
+here
+here
+here2
+roots list: [20698548, 11339529]
+here
+here2
+roots list: [30118253, 1648565]
+here
+here
+here
+here
+here
+here2
+roots list: [28035649, 3480065]
+here
+here
+here
+here2
+roots list: [32247193, 24228357]
+here
+here2
+roots list: [19100734, 3194502]
+here
+here2
+roots list: [27699255, 10396307]
+here
+here2
+roots list: [22125961, 4217831]
+here
+here
+here
+here
+here
+here2
+roots list: [14342638, 2733079]
+here
+here2
+roots list: [28210196, 1328818]
+here
+here
+here2
+roots list: [19330282, 9890703]
+here
+here
+here2
+roots list: [27648832, 9574103]
+here
+here
+here
+here2
+roots list: [26716654, 25670225]
+here
+here2
+roots list: [17178760, 7841310]
+here
+here
+here
+here
+here2
+roots list: [19807916, 9856173]
+here
+here
+here2
+roots list: [20329557, 15836058]
+here
+here
+here
+here2
+roots list: [31199031, 4662502]
+here
+here2
+roots list: [25806539, 16956507]
+here
+here2
+roots list: [29111460, 17152309]
+here
+here
+here2
+roots list: [21024703, 17848325]
+here
+here
+here2
+roots list: [30862773, 4721775]
+here
+here
+here
+here2
+roots list: [17849356, 14216522]
+here
+here
+here
+here
+here2
+roots list: [31620239, 19368539]
+here
+here
+here
+here2
+roots list: [27792819, 19390664]
+here
+here
+here2
+roots list: [21790555, 16176635]
+here
+here
+here
+here2
+roots list: [21434290, 5973661]
+here
+here
+here2
+roots list: [5778447, 3466386]
+here
+here2
+roots list: [11111269, 7539574]
+here
+here
+here2
+roots list: [32455093, 31605309]
+here
+here2
+roots list: [32865914, 28321252]
+here
+here2
+roots list: [22441356, 3530407]
+here
+here
+here2
+roots list: [23256508, 6513339]
+here
+here2
+roots list: [25006342, 8435448]
+here
+here
+here2
+roots list: [23496694, 6375434]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [27308938, 18829183]
+here
+here
+here2
+roots list: [10947123, 6273650]
+here
+here
+here
+here
+here
+here2
+roots list: [27430101, 8557041]
+here
+here2
+roots list: [20681148, 15679438]
+here
+here2
+roots list: [23475489, 11090582]
+here
+here
+here
+here2
+roots list: [33424267, 14498217]
+here
+here2
+roots list: [28310223, 9439475]
+here
+here2
+roots list: [26426383, 9548086]
+here
+here
+here
+here2
+roots list: [16390295, 11252174]
+here
+here2
+roots list: [19292991, 18816217]
+here
+here2
+roots list: [22138015, 21538829]
+here
+here
+here
+here
+here2
+roots list: [27710552, 2424136]
+here
+here2
+roots list: [22884383, 8266916]
+here
+here
+here2
+roots list: [30485458, 6552297]
+here
+here
+here
+here2
+roots list: [21209233, 4122822]
+here
+here2
+roots list: [16905127, 9692202]
+here
+here
+here
+here
+here
+here2
+roots list: [32371621, 24161221]
+here
+here
+here
+here2
+roots list: [32676123, 28694511]
+here
+here
+here2
+roots list: [14751102, 5443240]
+here
+here
+here
+here
+here
+here2
+roots list: [33011456, 2922271]
+here
+here
+here
+here
+here2
+roots list: [16112243, 15344477]
+here
+here2
+roots list: [25098361, 21304479]
+here
+here2
+roots list: [6266912, 6251760]
+here
+here
+here2
+roots list: [10277982, 16332]
+here
+here2
+roots list: [15408380, 4801923]
+here
+here
+here2
+roots list: [32387421, 6871107]
+here
+here2
+roots list: [5034763, 4692195]
+here
+here2
+roots list: [28150094, 19822489]
+here
+here2
+roots list: [33387513, 31276097]
+here
+here2
+roots list: [7669229, 902656]
+here
+here
+here2
+roots list: [24328995, 15874405]
+here
+here
+here2
+roots list: [18322176, 11898596]
+here
+here2
+roots list: [30371341, 22302205]
+here
+here2
+roots list: [20877212, 11334543]
+here
+here2
+roots list: [31380047, 11769355]
+here
+here
+here2
+roots list: [32147599, 10696869]
+here
+here2
+roots list: [28407326, 11402282]
+here
+here2
+roots list: [20514091, 19692835]
+here
+here
+here
+here2
+roots list: [32883983, 29925770]
+here
+here
+here2
+roots list: [30964570, 2926812]
+here
+here
+here2
+roots list: [17808698, 5202819]
+here
+here2
+roots list: [23815828, 863223]
+here
+here
+here
+here
+here
+here2
+roots list: [32983328, 24869697]
+here
+here
+here2
+roots list: [29971529, 24543319]
+here
+here2
+roots list: [31332384, 16308486]
+here
+here2
+roots list: [14574165, 13275425]
+here
+here2
+roots list: [7922106, 1504889]
+here
+here
+here
+here2
+roots list: [33152846, 14035804]
+here
+here
+here2
+roots list: [31231187, 9800318]
+here
+here2
+roots list: [16788575, 13739172]
+here
+here
+here2
+roots list: [24792083, 9255749]
+here
+here2
+roots list: [29817204, 6510317]
+here
+here
+here2
+roots list: [12818462, 12453572]
+here
+here2
+roots list: [22191469, 21511568]
+here
+here2
+roots list: [24154600, 11139530]
+here
+here
+here
+here2
+roots list: [18334145, 16387905]
+here
+here
+here2
+roots list: [31949648, 19472598]
+here
+here2
+roots list: [27175327, 13217063]
+here
+here2
+roots list: [7082155, 1375835]
+here
+here2
+roots list: [21014139, 2543974]
+here
+here
+here2
+roots list: [26007796, 73986]
+here
+here
+here
+here
+here2
+roots list: [13655302, 3356752]
+here
+here
+here
+here2
+roots list: [21930112, 16259224]
+here
+here
+here2
+roots list: [7299614, 3553606]
+here
+here2
+roots list: [32478292, 28131402]
+here
+here2
+roots list: [19675799, 14287268]
+here
+here
+here
+here2
+roots list: [31254340, 14516163]
+here
+here2
+roots list: [19290267, 16458798]
+here
+here2
+roots list: [32802535, 28911841]
+here
+here2
+roots list: [26388995, 23394655]
+here
+here2
+roots list: [15264323, 1339779]
+here
+here2
+roots list: [27392100, 15311973]
+here
+here2
+roots list: [15052343, 145985]
+here
+here2
+roots list: [27833330, 24094175]
+here
+here2
+roots list: [17965399, 1984279]
+here
+here2
+roots list: [4925777, 2818074]
+here
+here2
+roots list: [17143052, 2389235]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [3014291, 1202536]
+here
+here2
+roots list: [7475398, 2630478]
+here
+here
+here2
+roots list: [25025127, 7196698]
+here
+here
+here2
+roots list: [30247537, 20675420]
+here
+here2
+roots list: [32994952, 25255079]
+here
+here
+here2
+roots list: [6941341, 1105871]
+here
+here
+here2
+roots list: [17426254, 3200269]
+here
+here2
+roots list: [8350886, 7024560]
+here
+here2
+roots list: [31804802, 30883536]
+here
+here2
+roots list: [27321172, 22780092]
+here
+here2
+roots list: [28204310, 3790403]
+here
+here2
+roots list: [31486441, 3187817]
+here
+here2
+roots list: [33124853, 23845340]
+here
+here2
+roots list: [11330545, 1991057]
+here
+here
+here2
+roots list: [8588895, 5158009]
+here
+here2
+roots list: [29479191, 26551158]
+here
+here2
+roots list: [14744685, 6796827]
+here
+here2
+roots list: [28185483, 14924254]
+here
+here2
+roots list: [31607322, 24644646]
+here
+here
+here2
+roots list: [8234778, 5379563]
+here
+here2
+roots list: [13810575, 12740183]
+here
+here2
+roots list: [8156290, 919153]
+here
+here2
+roots list: [28302512, 26411997]
+here
+here2
+roots list: [29876029, 22125170]
+here
+here
+here2
+roots list: [23006186, 165594]
+here
+here2
+roots list: [30344584, 27346453]
+here
+here
+here2
+roots list: [22012703, 11797695]
+here
+here
+here2
+roots list: [18829168, 17947201]
+here
+here2
+roots list: [33304597, 5508472]
+here
+here2
+roots list: [33535061, 1709525]
+here
+here2
+roots list: [31818413, 15294321]
+here
+here2
+roots list: [26321414, 16271242]
+here
+here2
+roots list: [31393144, 6246894]
+here
+here
+here
+here2
+roots list: [28143517, 17346567]
+here
+here
+here2
+roots list: [22708547, 14222779]
+here
+here2
+roots list: [20263093, 4759457]
+here
+here
+here2
+roots list: [28101730, 2193151]
+here
+here2
+roots list: [27571830, 8786070]
+here
+here
+here
+here2
+roots list: [14483979, 1371361]
+here
+here2
+roots list: [26069611, 18377293]
+here
+here2
+roots list: [19440634, 9098128]
+here
+here
+here
+here2
+roots list: [29085348, 5038324]
+here
+here2
+roots list: [10015954, 3183936]
+here
+here
+here2
+roots list: [12086133, 9948500]
+here
+here
+here
+here
+here2
+roots list: [9823417, 5022083]
+here
+here
+here
+here
+here2
+roots list: [23636701, 20173879]
+here
+here2
+roots list: [30219158, 13434842]
+here
+here2
+roots list: [18604715, 6061868]
+here
+here
+here
+here
+here2
+roots list: [30776962, 22886692]
+here
+here
+here2
+roots list: [12047471, 1620188]
+here
+here2
+roots list: [2054323, 1156668]
+here
+here2
+roots list: [22204929, 6944054]
+here
+here
+here2
+roots list: [32525698, 17810853]
+here
+here
+here
+here
+here2
+roots list: [25261050, 757764]
+here
+here
+here
+here2
+roots list: [9480055, 503738]
+here
+here2
+roots list: [23815285, 14709731]
+here
+here2
+roots list: [16530463, 1004935]
+here
+here2
+roots list: [32009160, 27609408]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26568442, 12443908]
+here
+here2
+roots list: [32887361, 31174939]
+here
+here2
+roots list: [16469791, 2609649]
+here
+here2
+roots list: [32724313, 16108636]
+here
+here
+here
+here
+here2
+roots list: [28090407, 11273537]
+here
+here2
+roots list: [32273453, 6620247]
+here
+here
+here
+here2
+roots list: [13597475, 6165861]
+here
+here2
+roots list: [29943223, 22554728]
+here
+here
+here
+here2
+roots list: [27814413, 6134381]
+here
+here
+here2
+roots list: [21965356, 18071941]
+here
+here2
+roots list: [21444100, 2288029]
+here
+here2
+roots list: [26919090, 25545298]
+here
+here
+here
+here2
+roots list: [19755987, 8294271]
+here
+here2
+roots list: [20618287, 14070728]
+here
+here2
+roots list: [30799347, 17806580]
+here
+here
+here
+here2
+roots list: [17154114, 11335363]
+here
+here
+here
+here2
+roots list: [32102683, 3005598]
+here
+here2
+roots list: [27077225, 3820214]
+here
+here2
+roots list: [20572253, 17480408]
+here
+here2
+roots list: [18209592, 11872197]
+here
+here2
+roots list: [30889655, 5165120]
+here
+here2
+roots list: [25171439, 368125]
+here
+here
+here2
+roots list: [20613692, 2476848]
+here
+here
+here
+here
+here2
+roots list: [11404017, 7357415]
+here
+here2
+roots list: [24387412, 11837950]
+here
+here2
+roots list: [11034285, 2260604]
+here
+here
+here2
+roots list: [2991874, 2504812]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25296773, 16893084]
+here
+here2
+roots list: [28091328, 11366394]
+here
+here2
+roots list: [19354216, 18762592]
+here
+here2
+roots list: [18913227, 1108917]
+here
+here
+here
+here2
+roots list: [22545119, 7809434]
+here
+here
+here
+here
+here2
+roots list: [19634069, 4918187]
+here
+here
+here
+here2
+roots list: [32235301, 1305578]
+here
+here2
+roots list: [17546819, 5870833]
+here
+here
+here2
+roots list: [26168323, 25422703]
+here
+here2
+roots list: [19487947, 13615142]
+here
+here
+here
+here2
+roots list: [30247120, 15917475]
+here
+here2
+roots list: [16482619, 9432642]
+here
+here
+here2
+roots list: [18567307, 4636412]
+here
+here
+here
+here2
+roots list: [5547820, 4176846]
+here
+here2
+roots list: [27087070, 2974966]
+here
+here
+here
+here
+here
+here2
+roots list: [32665845, 3883790]
+here
+here2
+roots list: [30521924, 23314421]
+here
+here
+here2
+roots list: [6781324, 5719907]
+here
+here2
+roots list: [11157297, 2546273]
+here
+here
+here
+here
+here
+here2
+roots list: [32073437, 17021119]
+here
+here
+here
+here2
+roots list: [22028513, 2118399]
+here
+here2
+roots list: [13962379, 282519]
+here
+here2
+roots list: [27382920, 10675887]
+here
+here2
+roots list: [8973063, 7911183]
+here
+here
+here
+here2
+roots list: [18641575, 14962784]
+here
+here2
+roots list: [29647869, 12925912]
+here
+here
+here
+here
+here2
+roots list: [16905045, 5369888]
+here
+here2
+roots list: [25335176, 24877904]
+here
+here2
+roots list: [25777216, 3802760]
+here
+here
+here
+here2
+roots list: [33353385, 14316499]
+here
+here2
+roots list: [28339997, 12489281]
+here
+here2
+roots list: [24942586, 11823203]
+here
+here2
+roots list: [24029893, 22844369]
+here
+here2
+roots list: [22815525, 10545003]
+here
+here
+here2
+roots list: [32769348, 15779304]
+here
+here
+here2
+roots list: [31730540, 2136912]
+here
+here2
+roots list: [20283190, 19479045]
+here
+here2
+roots list: [21680279, 7309998]
+here
+here2
+roots list: [30166953, 15097669]
+here
+here
+here
+here
+here2
+roots list: [31155932, 5503587]
+here
+here
+here2
+roots list: [30749331, 19163419]
+here
+here2
+roots list: [10015091, 7918158]
+here
+here2
+roots list: [23537606, 5180247]
+here
+here2
+roots list: [24897676, 17446294]
+here
+here
+here
+here2
+roots list: [22402793, 2012344]
+here
+here
+here2
+roots list: [33151835, 14704622]
+here
+here
+here2
+roots list: [18969884, 6288506]
+here
+here2
+roots list: [18385434, 613291]
+here
+here2
+roots list: [16545747, 6661462]
+here
+here2
+roots list: [26292587, 26093740]
+here
+here2
+roots list: [32766308, 11538311]
+here
+here2
+roots list: [15955669, 14272543]
+here
+here2
+roots list: [6252063, 2485382]
+here
+here
+here
+here2
+roots list: [33163274, 29167786]
+here
+here
+here2
+roots list: [26781866, 2321596]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [5431667, 4197984]
+here
+here
+here2
+roots list: [24907438, 7150687]
+here
+here
+here
+here2
+roots list: [20607449, 2913753]
+here
+here
+here2
+roots list: [27797116, 22555005]
+here
+here2
+roots list: [15798406, 13295754]
+here
+here
+here2
+roots list: [29407842, 29311542]
+here
+here2
+roots list: [26570893, 4121112]
+here
+here
+here
+here2
+roots list: [28724617, 26690400]
+here
+here
+here
+here
+here2
+roots list: [30724967, 21830265]
+here
+here
+here
+here2
+roots list: [31755900, 11107559]
+here
+here2
+roots list: [14136550, 305048]
+here
+here2
+roots list: [29359491, 24702052]
+here
+here
+here
+here2
+roots list: [25323007, 14973130]
+here
+here2
+roots list: [22534588, 11002735]
+here
+here
+here2
+roots list: [21066694, 10116693]
+here
+here2
+roots list: [27956758, 21813446]
+here
+here
+here
+here2
+roots list: [27036813, 23164157]
+here
+here2
+roots list: [14102224, 7498291]
+here
+here
+here2
+roots list: [30834195, 16922441]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [2772030, 2034686]
+here
+here2
+roots list: [10223053, 6327885]
+here
+here
+here2
+roots list: [31237038, 12620206]
+here
+here2
+roots list: [15358551, 437941]
+here
+here
+here2
+roots list: [30797716, 16340548]
+here
+here
+here
+here2
+roots list: [23392133, 3370681]
+here
+here2
+roots list: [28806389, 12051780]
+here
+here
+here
+here
+here2
+roots list: [25553533, 6878793]
+here
+here
+here
+here2
+roots list: [31022756, 24405049]
+here
+here2
+roots list: [9820895, 5802769]
+here
+here
+here2
+roots list: [24826083, 18116491]
+here
+here
+here
+here
+here
+here2
+roots list: [29740904, 20100826]
+here
+here2
+roots list: [32986678, 31309650]
+here
+here
+here
+here2
+roots list: [19413897, 1123167]
+here
+here2
+roots list: [22976592, 15739674]
+here
+here2
+roots list: [33375122, 5867937]
+here
+here2
+roots list: [15465611, 9665539]
+here
+here
+here2
+roots list: [13226748, 2455569]
+here
+here
+here2
+roots list: [32757085, 23976163]
+here
+here2
+roots list: [15100557, 9514111]
+here
+here
+here2
+roots list: [11589617, 3403152]
+here
+here
+here
+here2
+roots list: [16976177, 14698687]
+here
+here
+here
+here
+here2
+roots list: [18049954, 14154670]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [3596926, 2979320]
+here
+here
+here2
+roots list: [23915364, 21272185]
+here
+here2
+roots list: [32328169, 10207673]
+here
+here
+here2
+roots list: [21766625, 7492541]
+here
+here2
+roots list: [22782810, 22156514]
+here
+here
+here
+here
+here
+here2
+roots list: [24168175, 6409279]
+here
+here
+here
+here2
+roots list: [27672170, 26718726]
+here
+here
+here
+here2
+roots list: [19742596, 9057374]
+here
+here
+here
+here
+here2
+roots list: [10017521, 8601183]
+here
+here
+here2
+roots list: [22196500, 11389543]
+here
+here2
+roots list: [32319378, 600526]
+here
+here2
+roots list: [31949438, 12464613]
+here
+here
+here
+here2
+roots list: [31599818, 26735378]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25682995, 17922227]
+here
+here2
+roots list: [18321208, 9192079]
+here
+here2
+roots list: [25819239, 7641630]
+here
+here2
+roots list: [17108928, 3204470]
+here
+here2
+roots list: [29943531, 15514475]
+here
+here2
+roots list: [25405204, 15530518]
+here
+here
+here2
+roots list: [28818129, 10109765]
+here
+here2
+roots list: [13936601, 4636858]
+here
+here2
+roots list: [20836307, 7947760]
+here
+here
+here
+here2
+roots list: [32658821, 18734838]
+here
+here
+here
+here2
+roots list: [25112375, 17935554]
+here
+here2
+roots list: [27422273, 25470320]
+here
+here2
+roots list: [21761904, 17326460]
+here
+here
+here2
+roots list: [14365954, 2001119]
+here
+here2
+roots list: [32207065, 8567810]
+here
+here2
+roots list: [26961719, 19349701]
+here
+here2
+roots list: [30819467, 12033411]
+here
+here
+here
+here2
+roots list: [22485509, 11548336]
+here
+here
+here2
+roots list: [30505592, 7497569]
+here
+here2
+roots list: [19927941, 8041367]
+here
+here
+here
+here2
+roots list: [32877833, 8819183]
+here
+here2
+roots list: [32984529, 23798554]
+here
+here
+here
+here2
+roots list: [15433027, 6399244]
+here
+here
+here
+here
+here
+here2
+roots list: [32518419, 31857962]
+here
+here
+here
+here
+here
+here2
+roots list: [29702001, 18085079]
+here
+here2
+roots list: [23657949, 20019832]
+here
+here
+here
+here2
+roots list: [25834502, 12929059]
+here
+here2
+roots list: [10131829, 8934578]
+here
+here
+here2
+roots list: [31772536, 29842608]
+here
+here2
+roots list: [15906683, 8080758]
+here
+here2
+roots list: [33155792, 13591763]
+here
+here
+here2
+roots list: [25809217, 10175045]
+here
+here2
+roots list: [33461210, 30714984]
+here
+here2
+roots list: [13107633, 9836263]
+here
+here
+here
+here2
+roots list: [4368286, 3058550]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [30242244, 20550278]
+here
+here
+here
+here2
+roots list: [8563557, 5218555]
+here
+here2
+roots list: [15454310, 11139582]
+here
+here
+here
+here2
+roots list: [29751859, 2976396]
+here
+here2
+roots list: [21889800, 10955435]
+here
+here2
+roots list: [7114385, 6427155]
+here
+here
+here
+here2
+roots list: [21565779, 5856333]
+here
+here2
+roots list: [32852271, 11333980]
+here
+here
+here
+here
+here2
+roots list: [10762499, 6173702]
+here
+here2
+roots list: [20321748, 2511169]
+here
+here
+here2
+roots list: [22861359, 16199924]
+here
+here2
+roots list: [12472426, 8146260]
+here
+here
+here2
+roots list: [30467903, 3236247]
+here
+here
+here2
+roots list: [32392864, 29387456]
+here
+here
+here2
+roots list: [31724919, 28205866]
+here
+here2
+roots list: [23234910, 17614158]
+here
+here2
+roots list: [18019034, 17448746]
+here
+here
+here2
+roots list: [21551373, 17809649]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [27513828, 422114]
+here
+here
+here
+here2
+roots list: [30396477, 10196256]
+here
+here
+here
+here2
+roots list: [31847745, 16024497]
+here
+here
+here
+here
+here
+here2
+roots list: [28762525, 27870588]
+here
+here
+here2
+roots list: [30313471, 9111732]
+here
+here2
+roots list: [12990637, 3622902]
+here
+here
+here
+here
+here2
+roots list: [20728878, 16898105]
+here
+here2
+roots list: [22221412, 18821477]
+here
+here
+here2
+roots list: [18509812, 11665947]
+here
+here2
+roots list: [14206048, 1153349]
+here
+here
+here2
+roots list: [28033152, 6852927]
+here
+here
+here
+here
+here2
+roots list: [31862706, 10691982]
+here
+here2
+roots list: [28943392, 6618715]
+here
+here2
+roots list: [21340811, 10614992]
+here
+here2
+roots list: [32137124, 13401133]
+here
+here
+here
+here
+here
+here2
+roots list: [22070659, 6772554]
+here
+here
+here2
+roots list: [26468603, 20720883]
+here
+here
+here2
+roots list: [5225412, 1095233]
+here
+here
+here
+here2
+roots list: [18337132, 13829670]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [9773787, 909894]
+here
+here
+here2
+roots list: [11776997, 6613187]
+here
+here2
+roots list: [14297969, 2598687]
+here
+here2
+roots list: [20981497, 4584958]
+here
+here
+here2
+roots list: [22204737, 7372300]
+here
+here2
+roots list: [33336538, 2722891]
+here
+here
+here
+here2
+roots list: [12632568, 6026404]
+here
+here2
+roots list: [19338563, 4349943]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31833504, 6014785]
+here
+here
+here
+here2
+roots list: [13039289, 1021489]
+here
+here2
+roots list: [29043529, 2483956]
+here
+here2
+roots list: [11066176, 9938777]
+here
+here
+here
+here
+here2
+roots list: [7445583, 3866473]
+here
+here
+here2
+roots list: [7685156, 7386768]
+here
+here
+here
+here
+here2
+roots list: [7154982, 4754707]
+here
+here2
+roots list: [22496723, 3527364]
+here
+here2
+roots list: [27296476, 14538523]
+here
+here
+here
+here2
+roots list: [33328835, 17461026]
+here
+here2
+roots list: [22363521, 11945280]
+here
+here
+here
+here
+here2
+roots list: [15239734, 8912711]
+here
+here2
+roots list: [27050039, 15631591]
+here
+here
+here
+here2
+roots list: [14472326, 7831767]
+here
+here2
+roots list: [15795250, 6149744]
+here
+here2
+roots list: [22077371, 13007569]
+here
+here2
+roots list: [31019133, 19732088]
+here
+here
+here2
+roots list: [30706812, 10435505]
+here
+here
+here
+here
+here
+here2
+roots list: [13630686, 1289767]
+here
+here
+here2
+roots list: [17418578, 9429648]
+here
+here
+here
+here2
+roots list: [25869039, 17382744]
+here
+here
+here2
+roots list: [11428749, 9460731]
+here
+here
+here
+here2
+roots list: [17756078, 9865162]
+here
+here
+here2
+roots list: [18140947, 5038739]
+here
+here
+here
+here
+here2
+roots list: [31850501, 4167620]
+here
+here
+here2
+roots list: [29551892, 24597320]
+here
+here2
+roots list: [14226954, 13552471]
+here
+here2
+roots list: [20072307, 2663124]
+here
+here2
+roots list: [30250105, 4705132]
+here
+here
+here
+here
+here2
+roots list: [17567668, 947609]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [28773561, 7405916]
+here
+here
+here
+here
+here
+here2
+roots list: [9993609, 7367532]
+here
+here2
+roots list: [13776621, 11493170]
+here
+here
+here
+here
+here2
+roots list: [31450277, 4371413]
+here
+here
+here2
+roots list: [32668574, 11283331]
+here
+here2
+roots list: [22980489, 5398960]
+here
+here
+here
+here2
+roots list: [8314685, 6401936]
+here
+here2
+roots list: [31435677, 10628369]
+here
+here
+here2
+roots list: [10807485, 4874570]
+here
+here
+here
+here
+here2
+roots list: [31753970, 11337441]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [29724640, 1559510]
+here
+here2
+roots list: [33012227, 10820847]
+here
+here2
+roots list: [30652788, 23607872]
+here
+here
+here
+here
+here2
+roots list: [32016233, 31433143]
+here
+here
+here2
+roots list: [25297815, 3071529]
+here
+here
+here
+here2
+roots list: [24925788, 23862575]
+here
+here2
+roots list: [33058396, 214199]
+here
+here
+here2
+roots list: [29605216, 11831425]
+here
+here
+here
+here2
+roots list: [19429771, 9428532]
+here
+here
+here2
+roots list: [33206577, 2212876]
+here
+here
+here2
+roots list: [32495305, 23434315]
+here
+here
+here2
+roots list: [18427018, 15649564]
+here
+here2
+roots list: [27799336, 26809988]
+here
+here
+here
+here2
+roots list: [32153187, 27086342]
+here
+here
+here2
+roots list: [17846454, 10180940]
+here
+here2
+roots list: [19781042, 5519220]
+here
+here2
+roots list: [30962861, 1510841]
+here
+here
+here2
+roots list: [30335154, 18284190]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [17763280, 10046053]
+here
+here2
+roots list: [17832229, 15155615]
+here
+here
+here2
+roots list: [26388939, 4200087]
+here
+here2
+roots list: [16107370, 6669025]
+here
+here2
+roots list: [19497943, 5745902]
+here
+here
+here2
+roots list: [22606240, 12250301]
+here
+here2
+roots list: [31339659, 20677750]
+here
+here
+here
+here
+here
+here2
+roots list: [18193880, 3350276]
+here
+here2
+roots list: [18942604, 11515109]
+here
+here2
+roots list: [32160255, 7357344]
+here
+here2
+roots list: [4962720, 2759234]
+here
+here
+here
+here
+here2
+roots list: [26141892, 11285546]
+here
+here
+here2
+roots list: [30520505, 5797028]
+here
+here
+here2
+roots list: [17144251, 5441542]
+here
+here
+here2
+roots list: [14478791, 3237388]
+here
+here2
+roots list: [7723263, 372110]
+here
+here
+here
+here
+here2
+roots list: [33302050, 2799581]
+here
+here2
+roots list: [17021027, 2297304]
+here
+here2
+roots list: [17081749, 11407579]
+here
+here2
+roots list: [4964194, 634052]
+here
+here2
+roots list: [7784093, 5997962]
+here
+here2
+roots list: [10092632, 8840788]
+here
+here2
+roots list: [33301330, 30629324]
+here
+here
+here2
+roots list: [20914056, 17629053]
+here
+here2
+roots list: [15023083, 3924204]
+here
+here2
+roots list: [9655077, 2567903]
+here
+here2
+roots list: [28632092, 14875557]
+here
+here2
+roots list: [20517546, 14699371]
+here
+here2
+roots list: [8068091, 6382697]
+here
+here2
+roots list: [32100918, 25745472]
+here
+here
+here
+here2
+roots list: [18363405, 8576027]
+here
+here2
+roots list: [21691684, 13529703]
+here
+here2
+roots list: [33331253, 12363319]
+here
+here2
+roots list: [26004213, 5622818]
+here
+here2
+roots list: [28052718, 26829380]
+here
+here2
+roots list: [15601644, 10067973]
+here
+here2
+roots list: [10106208, 9222867]
+here
+here2
+roots list: [33099692, 19672400]
+here
+here
+here2
+roots list: [12036690, 7914032]
+here
+here2
+roots list: [14456740, 9503146]
+here
+here
+here2
+roots list: [21668365, 6937325]
+here
+here2
+roots list: [30749640, 15424889]
+here
+here
+here2
+roots list: [14079557, 5336047]
+here
+here2
+roots list: [29915447, 21745189]
+here
+here
+here2
+roots list: [21414279, 3637548]
+here
+here
+here
+here2
+roots list: [26597376, 25738171]
+here
+here2
+roots list: [20053511, 15077053]
+here
+here
+here2
+roots list: [18126223, 1178989]
+here
+here2
+roots list: [13566617, 11623554]
+here
+here
+here2
+roots list: [22624852, 10130981]
+here
+here2
+roots list: [18073682, 9038440]
+here
+here2
+roots list: [14515035, 1408993]
+here
+here2
+roots list: [3937165, 1382561]
+here
+here
+here
+here2
+roots list: [23034037, 2671457]
+here
+here2
+roots list: [25329843, 9234626]
+here
+here
+here2
+roots list: [23249675, 9134295]
+here
+here
+here
+here2
+roots list: [30397585, 5781076]
+here
+here
+here
+here2
+roots list: [25519504, 20469234]
+here
+here
+here
+here
+here2
+roots list: [26519891, 20665939]
+here
+here
+here
+here
+here
+here2
+roots list: [29225407, 21558015]
+here
+here
+here
+here2
+roots list: [15871755, 8602342]
+here
+here
+here2
+roots list: [23329502, 12022877]
+here
+here
+here2
+roots list: [27762971, 9706359]
+here
+here2
+roots list: [18281494, 6212406]
+here
+here2
+roots list: [10572539, 9353001]
+here
+here2
+roots list: [30204935, 24618468]
+here
+here
+here2
+roots list: [31814261, 30526866]
+here
+here2
+roots list: [21082741, 9061644]
+here
+here2
+roots list: [21423580, 5811403]
+here
+here
+here2
+roots list: [18024533, 6123558]
+here
+here
+here
+here
+here
+here2
+roots list: [2331564, 1537989]
+here
+here2
+roots list: [21828376, 4297624]
+here
+here
+here
+here
+here
+here2
+roots list: [33280802, 9334683]
+here
+here2
+roots list: [18165185, 4634061]
+here
+here2
+roots list: [31851277, 13154478]
+here
+here2
+roots list: [32653398, 4320100]
+here
+here2
+roots list: [15131684, 8786129]
+here
+here
+here2
+roots list: [24433113, 791500]
+here
+here2
+roots list: [29704119, 26273093]
+here
+here
+here2
+roots list: [32739418, 22307187]
+here
+here2
+roots list: [17415551, 321345]
+here
+here2
+roots list: [28271478, 4521994]
+here
+here2
+roots list: [30117102, 20350442]
+here
+here2
+roots list: [25877883, 18170024]
+here
+here
+here2
+roots list: [28109388, 25789544]
+here
+here2
+roots list: [11362123, 6065674]
+here
+here2
+roots list: [28076251, 18646745]
+here
+here
+here2
+roots list: [20746685, 4693275]
+here
+here2
+roots list: [24631581, 929143]
+here
+here2
+roots list: [25525524, 15801182]
+here
+here
+here2
+roots list: [9124484, 4441259]
+here
+here
+here2
+roots list: [27162085, 17495119]
+here
+here2
+roots list: [10697808, 4582591]
+here
+here
+here2
+roots list: [33228441, 28209545]
+here
+here2
+roots list: [16484012, 2980981]
+here
+here2
+roots list: [20258842, 5940836]
+here
+here2
+roots list: [23047316, 20835403]
+here
+here2
+roots list: [28037857, 18837330]
+here
+here
+here
+here
+here2
+roots list: [28646319, 18220665]
+here
+here
+here
+here
+here
+here2
+roots list: [31177342, 19445126]
+here
+here
+here
+here
+here2
+roots list: [31831888, 18600191]
+here
+here
+here2
+roots list: [33175055, 32244209]
+here
+here2
+roots list: [13380639, 9274792]
+here
+here
+here
+here
+here2
+roots list: [29089474, 19784658]
+here
+here2
+roots list: [25968476, 19323240]
+here
+here
+here2
+roots list: [26546551, 7311665]
+here
+here
+here
+here2
+roots list: [31118963, 13177835]
+here
+here2
+roots list: [21095218, 1502947]
+here
+here2
+roots list: [6815291, 899517]
+here
+here
+here2
+roots list: [18086438, 1726795]
+here
+here2
+roots list: [11994907, 7137170]
+here
+here2
+roots list: [30370478, 16637376]
+here
+here
+here2
+roots list: [5474489, 4674844]
+here
+here
+here2
+roots list: [31275044, 9439713]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [16550317, 12727981]
+here
+here2
+roots list: [28994605, 24693648]
+here
+here2
+roots list: [20583313, 12149662]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22527535, 21796082]
+here
+here
+here2
+roots list: [27528243, 23747774]
+here
+here2
+roots list: [19467497, 14976075]
+here
+here2
+roots list: [30829668, 6055926]
+here
+here
+here
+here2
+roots list: [25759543, 10614537]
+here
+here
+here
+here2
+roots list: [21533926, 5082112]
+here
+here2
+roots list: [31581765, 11276367]
+here
+here
+here2
+roots list: [17865500, 3410895]
+here
+here
+here
+here
+here
+here2
+roots list: [31366620, 26102075]
+here
+here
+here2
+roots list: [21297251, 15537576]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [11521394, 7639543]
+here
+here
+here2
+roots list: [19501589, 4157576]
+here
+here2
+roots list: [11575950, 6690818]
+here
+here
+here
+here2
+roots list: [25068954, 8046451]
+here
+here2
+roots list: [17860121, 2582141]
+here
+here
+here2
+roots list: [19665003, 8509621]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [33241568, 4169049]
+here
+here
+here2
+roots list: [25811317, 9969922]
+here
+here2
+roots list: [16506573, 8240241]
+here
+here2
+roots list: [23382608, 15620783]
+here
+here2
+roots list: [28326489, 4377712]
+here
+here2
+roots list: [30044381, 23761983]
+here
+here2
+roots list: [8162738, 3144673]
+here
+here2
+roots list: [31273711, 26732448]
+here
+here2
+roots list: [18456857, 1702407]
+here
+here2
+roots list: [9479605, 4036810]
+here
+here
+here
+here
+here2
+roots list: [26762151, 9031182]
+here
+here
+here
+here
+here
+here2
+roots list: [22196317, 13939676]
+here
+here
+here
+here2
+roots list: [25586027, 14522556]
+here
+here2
+roots list: [12762983, 2944960]
+here
+here2
+roots list: [33392115, 26470517]
+here
+here2
+roots list: [32235864, 15983335]
+here
+here2
+roots list: [32357084, 11130434]
+here
+here
+here2
+roots list: [26441043, 16507958]
+here
+here
+here2
+roots list: [24292384, 15816872]
+here
+here
+here2
+roots list: [19756707, 51814]
+here
+here2
+roots list: [17251080, 5182279]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25849990, 1177901]
+here
+here2
+roots list: [21883738, 19673804]
+here
+here
+here2
+roots list: [19545489, 16772250]
+here
+here2
+roots list: [27166843, 19866042]
+here
+here2
+roots list: [17507866, 3693647]
+here
+here
+here2
+roots list: [13371402, 5882307]
+here
+here2
+roots list: [17132777, 1642501]
+here
+here
+here2
+roots list: [31186285, 5087941]
+here
+here
+here2
+roots list: [28348462, 7557468]
+here
+here
+here
+here
+here2
+roots list: [31504085, 18027732]
+here
+here
+here
+here
+here
+here2
+roots list: [29452276, 11253492]
+here
+here2
+roots list: [13335477, 5487046]
+here
+here
+here2
+roots list: [23426637, 21707904]
+here
+here
+here
+here2
+roots list: [18093661, 13070230]
+here
+here
+here2
+roots list: [30735821, 30335880]
+here
+here
+here
+here2
+roots list: [33363635, 29466241]
+here
+here
+here
+here2
+roots list: [27817702, 3333189]
+here
+here2
+roots list: [29760787, 9433500]
+here
+here2
+roots list: [20976725, 6114541]
+here
+here
+here
+here2
+roots list: [28916303, 23969790]
+here
+here2
+roots list: [19515034, 1145663]
+here
+here2
+roots list: [29678942, 5385633]
+here
+here
+here2
+roots list: [21876239, 5367544]
+here
+here
+here2
+roots list: [8422763, 1411421]
+here
+here
+here
+here2
+roots list: [5308730, 2245516]
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [10836153, 4583603]
+here
+here
+here
+here2
+roots list: [12565011, 3311491]
+here
+here2
+roots list: [27029452, 9840801]
+here
+here2
+roots list: [28531466, 13450959]
+here
+here
+here
+here2
+roots list: [17596081, 15493545]
+here
+here2
+roots list: [16986579, 11556312]
+here
+here
+here2
+roots list: [17829133, 16246798]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [12224970, 1737832]
+here
+here
+here2
+roots list: [26732944, 17705746]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [779309, 593324]
+here
+here
+here2
+roots list: [28112481, 7678826]
+here
+here2
+roots list: [16053628, 5271996]
+here
+here2
+roots list: [21062045, 8109297]
+here
+here2
+roots list: [26094960, 18236536]
+here
+here2
+roots list: [25613816, 19823165]
+here
+here2
+roots list: [6249579, 321478]
+here
+here2
+roots list: [32390613, 28003570]
+here
+here
+here
+here
+here2
+roots list: [7049933, 6860232]
+here
+here2
+roots list: [24292358, 16714928]
+here
+here
+here
+here2
+roots list: [14893550, 11274546]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [20549439, 4169657]
+here
+here
+here2
+roots list: [31907638, 1220235]
+here
+here2
+roots list: [15259628, 6626110]
+here
+here
+here
+here2
+roots list: [6790397, 2666008]
+here
+here2
+roots list: [11161584, 5529810]
+here
+here
+here
+here2
+roots list: [32335520, 29757919]
+here
+here2
+roots list: [31809956, 17131339]
+here
+here
+here
+here2
+roots list: [25857202, 5096888]
+here
+here2
+roots list: [21228569, 21181925]
+here
+here
+here
+here2
+roots list: [30366007, 7093774]
+here
+here
+here
+here2
+roots list: [15540582, 15160952]
+here
+here
+here2
+roots list: [30160391, 913724]
+here
+here2
+roots list: [23717364, 219271]
+here
+here
+here2
+roots list: [9502782, 5088543]
+here
+here2
+roots list: [5737389, 1290460]
+here
+here2
+roots list: [12689796, 12126033]
+here
+here2
+roots list: [24372953, 10819482]
+here
+here
+here
+here
+here
+here2
+roots list: [30344789, 11676522]
+here
+here
+here2
+roots list: [17566213, 11041371]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [20857308, 20379819]
+here
+here
+here
+here2
+roots list: [24428794, 23044499]
+here
+here2
+roots list: [5702681, 1508611]
+here
+here
+here
+here2
+roots list: [31264166, 2614377]
+here
+here
+here2
+roots list: [16014745, 10925080]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26755928, 13906539]
+here
+here
+here2
+roots list: [28933228, 19964275]
+here
+here2
+roots list: [32129616, 18153114]
+here
+here2
+roots list: [23281470, 3108693]
+here
+here
+here
+here2
+roots list: [14955089, 5197982]
+here
+here
+here2
+roots list: [29207779, 4018916]
+here
+here2
+roots list: [31597287, 13376505]
+here
+here
+here2
+roots list: [33000785, 32291151]
+here
+here
+here
+here2
+roots list: [20015112, 3399002]
+here
+here
+here2
+roots list: [15887719, 490735]
+here
+here2
+roots list: [28536421, 21687815]
+here
+here
+here2
+roots list: [29118951, 4101877]
+here
+here
+here
+here2
+roots list: [21111847, 19865469]
+here
+here2
+roots list: [19814082, 6999255]
+here
+here
+here
+here
+here
+here2
+roots list: [9787980, 4637979]
+here
+here2
+roots list: [6429684, 2553800]
+here
+here
+here2
+roots list: [32435546, 13163014]
+here
+here
+here2
+roots list: [18892217, 14301981]
+here
+here2
+roots list: [28245254, 360353]
+here
+here2
+roots list: [24241324, 5050163]
+here
+here
+here2
+roots list: [28448862, 2271285]
+here
+here2
+roots list: [14946355, 13132187]
+here
+here
+here2
+roots list: [30440719, 6768014]
+here
+here2
+roots list: [11303652, 9873040]
+here
+here2
+roots list: [20300607, 4609232]
+here
+here2
+roots list: [25613109, 18428355]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22665150, 19189418]
+here
+here
+here2
+roots list: [31906050, 7951794]
+here
+here
+here
+here
+here2
+roots list: [8917513, 2777005]
+here
+here
+here
+here2
+roots list: [10774081, 10293218]
+here
+here2
+roots list: [25745507, 11694649]
+here
+here2
+roots list: [16652879, 1882934]
+here
+here2
+roots list: [20035711, 1314558]
+here
+here
+here2
+roots list: [31437741, 1901195]
+here
+here
+here2
+roots list: [19600033, 15666006]
+here
+here
+here
+here2
+roots list: [7142905, 2661336]
+here
+here2
+roots list: [21592323, 14910266]
+here
+here
+here
+here
+here2
+roots list: [25170937, 10621617]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [14476050, 3909912]
+here
+here2
+roots list: [19568687, 19547157]
+here
+here2
+roots list: [19234633, 14104704]
+here
+here2
+roots list: [25993010, 982683]
+here
+here2
+roots list: [27984719, 12130343]
+here
+here
+here2
+roots list: [23126472, 15366997]
+here
+here2
+roots list: [10500972, 53661]
+here
+here2
+roots list: [32774695, 23904794]
+here
+here2
+roots list: [18595689, 9525811]
+here
+here2
+roots list: [3702248, 480721]
+here
+here2
+roots list: [29317217, 26353444]
+here
+here2
+roots list: [11816689, 10499497]
+here
+here
+here2
+roots list: [29471539, 27897333]
+here
+here2
+roots list: [21793290, 16931835]
+here
+here
+here2
+roots list: [28153326, 19957532]
+here
+here2
+roots list: [30241353, 10982466]
+here
+here
+here2
+roots list: [28552025, 14368520]
+here
+here2
+roots list: [22782242, 18745474]
+here
+here
+here2
+roots list: [10377717, 621545]
+here
+here2
+roots list: [16192344, 13666177]
+here
+here
+here
+here
+here2
+roots list: [30653896, 11575526]
+here
+here
+here2
+roots list: [26255729, 13500568]
+here
+here
+here2
+roots list: [24359326, 967518]
+here
+here
+here
+here
+here
+here2
+roots list: [24404003, 17275300]
+here
+here
+here2
+roots list: [23374346, 9139901]
+here
+here2
+roots list: [22713704, 13779825]
+here
+here
+here2
+roots list: [28918295, 16970267]
+here
+here2
+roots list: [17664320, 7888282]
+here
+here2
+roots list: [31516438, 9645519]
+here
+here2
+roots list: [15745944, 4289946]
+here
+here2
+roots list: [26428060, 21506896]
+here
+here
+here
+here2
+roots list: [11531902, 11013184]
+here
+here2
+roots list: [24867448, 2067987]
+here
+here
+here
+here2
+roots list: [24192602, 9164123]
+here
+here
+here2
+roots list: [26285396, 17398081]
+here
+here2
+roots list: [32319855, 8017751]
+here
+here
+here
+here2
+roots list: [21044123, 3832261]
+here
+here2
+roots list: [30287174, 6015928]
+here
+here2
+roots list: [26520451, 10547657]
+here
+here2
+roots list: [29273158, 27026374]
+here
+here2
+roots list: [21280230, 18406628]
+here
+here2
+roots list: [10566689, 7069982]
+here
+here
+here2
+roots list: [26895503, 1140702]
+here
+here
+here2
+roots list: [12027423, 3122367]
+here
+here
+here
+here
+here2
+roots list: [32028262, 22977498]
+here
+here
+here2
+roots list: [22144429, 9383437]
+here
+here2
+roots list: [7605146, 5860153]
+here
+here2
+roots list: [22878141, 14904778]
+here
+here
+here2
+roots list: [28556832, 8481671]
+here
+here
+here2
+roots list: [29650095, 14271563]
+here
+here2
+roots list: [32256505, 14268982]
+here
+here
+here2
+roots list: [25673625, 725057]
+here
+here2
+roots list: [23249081, 21115228]
+here
+here
+here
+here2
+roots list: [22730972, 17812293]
+here
+here2
+roots list: [25455925, 18385630]
+here
+here
+here
+here2
+roots list: [31642262, 2459535]
+here
+here2
+roots list: [33489123, 18858217]
+here
+here2
+roots list: [9593288, 9338710]
+here
+here
+here2
+roots list: [14247138, 434146]
+here
+here
+here2
+roots list: [20043392, 1455242]
+here
+here
+here
+here
+here2
+roots list: [32227120, 7863832]
+here
+here
+here
+here2
+roots list: [24267366, 7592310]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26838379, 1088783]
+here
+here2
+roots list: [22669410, 10049091]
+here
+here2
+roots list: [16034249, 1975358]
+here
+here
+here2
+roots list: [25470946, 10194002]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [10942704, 3704587]
+here
+here2
+roots list: [7532447, 5725795]
+here
+here2
+roots list: [30216066, 15443931]
+here
+here2
+roots list: [33023093, 14021023]
+here
+here2
+roots list: [13472341, 8500830]
+here
+here
+here
+here2
+roots list: [27646921, 886998]
+here
+here
+here2
+roots list: [16340747, 14745095]
+here
+here2
+roots list: [21639251, 6838039]
+here
+here2
+roots list: [32031521, 27297717]
+here
+here2
+roots list: [17310422, 13296674]
+here
+here2
+roots list: [2923217, 1197196]
+here
+here
+here
+here2
+roots list: [16907381, 15378573]
+here
+here2
+roots list: [25817180, 4169133]
+here
+here
+here2
+roots list: [4324866, 1880322]
+here
+here
+here
+here
+here2
+roots list: [22556048, 860686]
+here
+here
+here2
+roots list: [28411354, 23703937]
+here
+here
+here2
+roots list: [31053392, 20081525]
+here
+here
+here2
+roots list: [26249098, 5033790]
+here
+here
+here2
+roots list: [10813623, 3275642]
+here
+here
+here2
+roots list: [18704607, 10979677]
+here
+here2
+roots list: [19115409, 15444111]
+here
+here2
+roots list: [22793383, 11090468]
+here
+here2
+roots list: [5782623, 4688659]
+here
+here
+here2
+roots list: [33347437, 13203560]
+here
+here2
+roots list: [28972463, 15188475]
+here
+here
+here2
+roots list: [27842772, 25507315]
+here
+here
+here2
+roots list: [33069706, 19301540]
+here
+here2
+roots list: [29383197, 20917807]
+here
+here2
+roots list: [26834930, 23858200]
+here
+here2
+roots list: [20911790, 8803849]
+here
+here2
+roots list: [28545159, 20982097]
+here
+here2
+roots list: [28631662, 16622910]
+here
+here2
+roots list: [16076351, 11161873]
+here
+here2
+roots list: [26672130, 13532555]
+here
+here2
+roots list: [17872132, 953931]
+here
+here2
+roots list: [27501838, 4623604]
+here
+here2
+roots list: [10304252, 461119]
+here
+here2
+roots list: [23238642, 17774439]
+here
+here
+here2
+roots list: [21702315, 4326137]
+here
+here2
+roots list: [16201925, 9132138]
+here
+here
+here2
+roots list: [14571675, 6570997]
+here
+here2
+roots list: [22301029, 7657229]
+here
+here2
+roots list: [10015174, 8085005]
+here
+here2
+roots list: [10160655, 4931042]
+here
+here2
+roots list: [24407213, 18551755]
+here
+here2
+roots list: [14647400, 8104845]
+here
+here
+here2
+roots list: [9142597, 4877058]
+here
+here2
+roots list: [26737180, 23662650]
+here
+here
+here2
+roots list: [32036149, 16106024]
+here
+here2
+roots list: [30712077, 12040008]
+here
+here
+here2
+roots list: [29105033, 216183]
+here
+here
+here
+here
+here
+here2
+roots list: [29189587, 13962307]
+here
+here2
+roots list: [32911392, 6389643]
+here
+here2
+roots list: [15857770, 8967065]
+here
+here2
+roots list: [15219931, 5825851]
+here
+here
+here2
+roots list: [28193460, 17831254]
+here
+here2
+roots list: [13929351, 9586839]
+here
+here
+here
+here2
+roots list: [6665834, 1759884]
+here
+here2
+roots list: [31252495, 7545833]
+here
+here2
+roots list: [27109088, 12420278]
+here
+here2
+roots list: [25156847, 1029805]
+here
+here2
+roots list: [8117107, 4809596]
+here
+here
+here2
+roots list: [21484142, 8537283]
+here
+here
+here
+here
+here
+here2
+roots list: [29601598, 12813522]
+here
+here
+here2
+roots list: [30054013, 2986243]
+here
+here2
+roots list: [15109582, 8860155]
+here
+here2
+roots list: [21821181, 9373050]
+here
+here
+here
+here
+here
+here2
+roots list: [21219982, 18548123]
+here
+here
+here
+here2
+roots list: [31200949, 24156247]
+here
+here
+here2
+roots list: [32727500, 7112786]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [23971519, 9449172]
+here
+here
+here
+here2
+roots list: [30028959, 9742139]
+here
+here
+here2
+roots list: [30066904, 27085015]
+here
+here2
+roots list: [20454964, 16341608]
+here
+here2
+roots list: [22880563, 17416023]
+here
+here
+here
+here
+here2
+roots list: [25788483, 636210]
+here
+here
+here
+here
+here2
+roots list: [31658780, 23741333]
+here
+here
+here2
+roots list: [33131020, 12458727]
+here
+here2
+roots list: [32786152, 29281117]
+here
+here2
+roots list: [16339132, 8480274]
+here
+here2
+roots list: [19215061, 13981444]
+here
+here2
+roots list: [31968400, 6070718]
+here
+here
+here2
+roots list: [7239252, 4773707]
+here
+here2
+roots list: [15993627, 5313667]
+here
+here2
+roots list: [33311864, 2498546]
+here
+here2
+roots list: [23253242, 19192618]
+here
+here2
+roots list: [23025448, 1198235]
+here
+here2
+roots list: [33145906, 30562356]
+here
+here
+here
+here
+here
+here2
+roots list: [17170592, 7388352]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [26941875, 18190066]
+here
+here2
+roots list: [27402130, 21365630]
+here
+here
+here
+here2
+roots list: [16782062, 6360068]
+here
+here2
+roots list: [29370188, 3607307]
+here
+here2
+roots list: [27201417, 8726458]
+here
+here2
+roots list: [15881216, 1205865]
+here
+here
+here
+here
+here2
+roots list: [26794582, 5457674]
+here
+here
+here
+here
+here
+here2
+roots list: [28032002, 5257493]
+here
+here2
+roots list: [25625688, 633293]
+here
+here2
+roots list: [12923469, 422461]
+here
+here2
+roots list: [14648858, 3610113]
+here
+here
+here2
+roots list: [28357618, 608516]
+here
+here2
+roots list: [21747020, 4703126]
+here
+here
+here
+here
+here
+here2
+roots list: [17701271, 9230686]
+here
+here
+here2
+roots list: [14071125, 3565950]
+here
+here
+here2
+roots list: [19089666, 3329763]
+here
+here2
+roots list: [24025564, 9639131]
+here
+here2
+roots list: [11841448, 3819354]
+here
+here2
+roots list: [32595701, 7520344]
+here
+here
+here
+here
+here2
+roots list: [25800446, 20877260]
+here
+here2
+roots list: [23318860, 2030074]
+here
+here
+here
+here2
+roots list: [18442322, 9027644]
+here
+here2
+roots list: [19697657, 1936111]
+here
+here
+here
+here
+here2
+roots list: [28366967, 18540465]
+here
+here
+here2
+roots list: [11786952, 4380566]
+here
+here2
+roots list: [21893932, 8943968]
+here
+here
+here2
+roots list: [15165055, 12621134]
+here
+here
+here
+here2
+roots list: [24214878, 14950052]
+here
+here
+here
+here2
+roots list: [7170043, 2703084]
+here
+here2
+roots list: [28238622, 11922858]
+here
+here
+here
+here2
+roots list: [28401995, 7066022]
+here
+here2
+roots list: [32136417, 18346650]
+here
+here
+here
+here
+here
+here2
+roots list: [14764831, 4028230]
+here
+here
+here2
+roots list: [31490609, 25692152]
+here
+here2
+roots list: [25517054, 2790321]
+here
+here2
+roots list: [7163271, 1120181]
+here
+here2
+roots list: [33551357, 12052163]
+here
+here
+here2
+roots list: [19014624, 3519024]
+here
+here2
+roots list: [15128936, 9779327]
+here
+here2
+roots list: [23253578, 3887741]
+here
+here2
+roots list: [23020451, 19595037]
+here
+here2
+roots list: [15293142, 11006060]
+here
+here2
+roots list: [30755080, 1366740]
+here
+here
+here2
+roots list: [13196532, 6933738]
+here
+here
+here
+here
+here2
+roots list: [18497010, 2418644]
+here
+here2
+roots list: [26369014, 7036618]
+here
+here2
+roots list: [17321946, 7578469]
+here
+here
+here
+here
+here2
+roots list: [18448592, 14122352]
+here
+here
+here
+here2
+roots list: [30235583, 17422190]
+here
+here2
+roots list: [32930278, 5773799]
+here
+here
+here2
+roots list: [32184638, 19152068]
+here
+here2
+roots list: [29630907, 29079763]
+here
+here2
+roots list: [6921400, 606854]
+here
+here2
+roots list: [16835096, 12604883]
+here
+here
+here
+here
+here
+here2
+roots list: [23913611, 1740341]
+here
+here2
+roots list: [30914452, 23175258]
+here
+here
+here
+here
+here2
+roots list: [27537915, 23619479]
+here
+here2
+roots list: [9216635, 2827095]
+here
+here2
+roots list: [16287414, 8269608]
+here
+here2
+roots list: [30696078, 15954497]
+here
+here
+here
+here2
+roots list: [29594259, 20333663]
+here
+here2
+roots list: [17563223, 13721515]
+here
+here
+here
+here2
+roots list: [24195826, 18706380]
+here
+here2
+roots list: [28162251, 12149759]
+here
+here2
+roots list: [28805660, 27165438]
+here
+here
+here2
+roots list: [27644816, 2283066]
+here
+here2
+roots list: [27836946, 24189087]
+here
+here
+here
+here
+here
+here2
+roots list: [31673643, 1287768]
+here
+here
+here
+here
+here
+here2
+roots list: [31760751, 2844165]
+here
+here2
+roots list: [29624801, 3950505]
+here
+here2
+roots list: [32300017, 3752104]
+here
+here2
+roots list: [26365867, 9642211]
+here
+here2
+roots list: [25210105, 19905504]
+here
+here
+here
+here
+here2
+roots list: [31600472, 29776495]
+here
+here2
+roots list: [26508788, 4723564]
+here
+here2
+roots list: [11532781, 5555583]
+here
+here
+here2
+roots list: [20791977, 10742007]
+here
+here
+here
+here2
+roots list: [30695989, 2134148]
+here
+here
+here
+here2
+roots list: [33056293, 6880398]
+here
+here2
+roots list: [21713191, 15636309]
+here
+here2
+roots list: [28990266, 13200093]
+here
+here
+here2
+roots list: [31912440, 23353412]
+here
+here
+here
+here2
+roots list: [33011680, 14056651]
+here
+here2
+roots list: [19043275, 17470977]
+here
+here
+here
+here
+here2
+roots list: [32729687, 22869068]
+here
+here2
+roots list: [12975453, 7071295]
+here
+here2
+roots list: [13500963, 4489192]
+here
+here2
+roots list: [22350765, 12512842]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22861015, 20883148]
+here
+here2
+roots list: [24122741, 3469483]
+here
+here2
+roots list: [8513642, 4474480]
+here
+here
+here2
+roots list: [24498324, 12047465]
+here
+here
+here2
+roots list: [10870668, 7268219]
+here
+here2
+roots list: [26866994, 8935436]
+here
+here2
+roots list: [23135496, 254078]
+here
+here2
+roots list: [27819167, 7343108]
+here
+here
+here
+here
+here
+here2
+roots list: [31424197, 6866030]
+here
+here2
+roots list: [32100458, 23497675]
+here
+here2
+roots list: [12796609, 7428889]
+here
+here2
+roots list: [28870684, 14943040]
+here
+here2
+roots list: [24350373, 18980240]
+here
+here2
+roots list: [32368792, 23672946]
+here
+here
+here
+here2
+roots list: [15181675, 9357972]
+here
+here
+here
+here2
+roots list: [11686959, 4653809]
+here
+here2
+roots list: [24056471, 10237395]
+here
+here
+here
+here
+here
+here2
+roots list: [32170867, 30296654]
+here
+here
+here
+here2
+roots list: [16450698, 15167020]
+here
+here
+here
+here2
+roots list: [31252298, 14479316]
+here
+here
+here
+here
+here
+here2
+roots list: [29266839, 1111067]
+here
+here2
+roots list: [27443574, 3400068]
+here
+here2
+roots list: [19215579, 17890940]
+here
+here
+here
+here2
+roots list: [28347549, 21394487]
+here
+here2
+roots list: [29215671, 7327009]
+here
+here2
+roots list: [14244971, 2075943]
+here
+here
+here2
+roots list: [33318027, 24407350]
+here
+here
+here
+here2
+roots list: [33495141, 23924910]
+here
+here
+here
+here2
+roots list: [6370607, 6017177]
+here
+here2
+roots list: [10755789, 8717716]
+here
+here2
+roots list: [11345261, 9936244]
+here
+here
+here
+here2
+roots list: [31085603, 5725143]
+here
+here2
+roots list: [10919978, 3530560]
+here
+here2
+roots list: [24714544, 2398845]
+here
+here
+here
+here
+here
+here2
+roots list: [30212359, 25083222]
+here
+here2
+roots list: [31737368, 29491185]
+here
+here
+here
+here2
+roots list: [26891856, 23108118]
+here
+here
+here2
+roots list: [29874271, 21518169]
+here
+here2
+roots list: [28267120, 1821305]
+here
+here2
+roots list: [23540850, 22135174]
+here
+here
+here2
+roots list: [12095502, 2449821]
+here
+here
+here2
+roots list: [29289952, 6725568]
+here
+here
+here
+here2
+roots list: [28607269, 1230376]
+here
+here
+here
+here
+here
+here2
+roots list: [20461848, 12433046]
+here
+here
+here2
+roots list: [20578288, 8232851]
+here
+here2
+roots list: [13578257, 7523296]
+here
+here2
+roots list: [23245157, 22707395]
+here
+here
+here
+here2
+roots list: [28257806, 12681285]
+here
+here
+here2
+roots list: [13835274, 11668767]
+here
+here
+here2
+roots list: [32358270, 1233955]
+here
+here
+here2
+roots list: [18838325, 18667670]
+here
+here2
+roots list: [33152636, 4741657]
+here
+here2
+roots list: [20595339, 14863915]
+here
+here2
+roots list: [19426358, 17474554]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [25778235, 24999853]
+here
+here2
+roots list: [30415742, 9872044]
+here
+here
+here2
+roots list: [33299816, 29490415]
+here
+here
+here2
+roots list: [30869803, 5419048]
+here
+here
+here
+here2
+roots list: [31778005, 1012894]
+here
+here2
+roots list: [2526040, 244330]
+here
+here2
+roots list: [19404006, 18454855]
+here
+here
+here
+here2
+roots list: [30630114, 26976623]
+here
+here2
+roots list: [26041843, 937325]
+here
+here
+here
+here2
+roots list: [24081398, 2124180]
+here
+here2
+roots list: [25167629, 14883249]
+here
+here2
+roots list: [31349609, 8330546]
+here
+here
+here2
+roots list: [29149455, 23488403]
+here
+here2
+roots list: [26745724, 6620346]
+here
+here
+here2
+roots list: [26412369, 23574987]
+here
+here
+here2
+roots list: [18935654, 10311112]
+here
+here2
+roots list: [21917287, 18219359]
+here
+here
+here2
+roots list: [26699394, 2952934]
+here
+here
+here
+here2
+roots list: [31817960, 27886172]
+here
+here
+here2
+roots list: [29125090, 67257]
+here
+here
+here2
+roots list: [29325594, 14832258]
+here
+here
+here2
+roots list: [23651177, 6043928]
+here
+here2
+roots list: [29845861, 8766801]
+here
+here
+here
+here2
+roots list: [18949452, 15463627]
+here
+here2
+roots list: [22870671, 16846343]
+here
+here2
+roots list: [29623684, 824343]
+here
+here
+here2
+roots list: [28587604, 16330371]
+here
+here
+here2
+roots list: [31434503, 1545783]
+here
+here2
+roots list: [33514751, 32547547]
+here
+here2
+roots list: [24033450, 16891526]
+here
+here
+here2
+roots list: [27527478, 6438946]
+here
+here2
+roots list: [29365324, 4442630]
+here
+here2
+roots list: [25440070, 12311628]
+here
+here
+here
+here
+here
+here2
+roots list: [22041340, 5622833]
+here
+here2
+roots list: [10638096, 6071709]
+here
+here2
+roots list: [22252384, 15890816]
+here
+here
+here2
+roots list: [32926749, 20012237]
+here
+here
+here2
+roots list: [24384815, 14564819]
+here
+here
+here2
+roots list: [32752269, 13498556]
+here
+here
+here2
+roots list: [18175442, 16326735]
+here
+here2
+roots list: [28081234, 7449159]
+here
+here
+here2
+roots list: [28452129, 5466961]
+here
+here2
+roots list: [30696407, 14460454]
+here
+here2
+roots list: [23195913, 10685877]
+here
+here
+here2
+roots list: [5692066, 861756]
+here
+here
+here
+here2
+roots list: [33207974, 25251183]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [15484864, 5511124]
+here
+here2
+roots list: [30050366, 3611558]
+here
+here2
+roots list: [29142212, 5107004]
+here
+here
+here
+here2
+roots list: [23567163, 21178407]
+here
+here2
+roots list: [15523536, 5356346]
+here
+here
+here
+here
+here
+here2
+roots list: [26195826, 6060047]
+here
+here2
+roots list: [8253270, 2721851]
+here
+here
+here
+here2
+roots list: [31514089, 18837164]
+here
+here2
+roots list: [19439866, 18093179]
+here
+here2
+roots list: [26904338, 18112342]
+here
+here2
+roots list: [20726617, 2740486]
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [19232558, 1198724]
+here
+here
+here2
+roots list: [31790983, 17613542]
+here
+here
+here2
+roots list: [7726323, 2192597]
+here
+here2
+roots list: [8665839, 4152647]
+here
+here2
+roots list: [17608678, 10647294]
+here
+here2
+roots list: [24519937, 10207768]
+here
+here2
+roots list: [29014065, 8826643]
+here
+here2
+roots list: [17578388, 13200882]
+here
+here2
+roots list: [26007717, 16464539]
+here
+here2
+roots list: [24670067, 22332533]
+here
+here
+here
+here2
+roots list: [11314348, 7344347]
+here
+here
+here
+here
+here
+here2
+roots list: [20630786, 4273919]
+here
+here
+here
+here2
+roots list: [28076226, 16417097]
+here
+here2
+roots list: [33458944, 32829520]
+here
+here
+here
+here2
+roots list: [4804899, 1873198]
+here
+here2
+roots list: [11100716, 10678176]
+here
+here2
+roots list: [20146137, 10479818]
+here
+here
+here
+here2
+roots list: [25403823, 7361301]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [19895782, 5595679]
+here
+here
+here2
+roots list: [20048220, 5386308]
+here
+here
+here2
+roots list: [21166935, 17130139]
+here
+here2
+roots list: [12877001, 10784625]
+here
+here
+here2
+roots list: [26967377, 15575320]
+here
+here2
+roots list: [17994464, 8372413]
+here
+here2
+roots list: [26295383, 12315782]
+here
+here
+here2
+roots list: [32803367, 8846745]
+here
+here2
+roots list: [20165224, 1882287]
+here
+here
+here2
+roots list: [28514780, 25705592]
+here
+here
+here
+here2
+roots list: [14206748, 10975459]
+here
+here
+here2
+roots list: [10092875, 4233207]
+here
+here
+here
+here
+here
+here2
+roots list: [22036100, 9696227]
+here
+here
+here2
+roots list: [29791542, 21120688]
+here
+here2
+roots list: [30012538, 16306439]
+here
+here2
+roots list: [32485989, 9922587]
+here
+here
+here
+here2
+roots list: [21759902, 937304]
+here
+here
+here2
+roots list: [28344167, 19586196]
+here
+here2
+roots list: [28450231, 22082408]
+here
+here2
+roots list: [14868724, 12439801]
+here
+here2
+roots list: [21264685, 3280777]
+here
+here2
+roots list: [31813277, 26534682]
+here
+here2
+roots list: [29586135, 23606508]
+here
+here
+here2
+roots list: [25446494, 14851373]
+here
+here
+here
+here
+here2
+roots list: [26679151, 5770320]
+here
+here2
+roots list: [30031484, 8971975]
+here
+here
+here2
+roots list: [28354133, 2340693]
+here
+here2
+roots list: [26335797, 6472870]
+here
+here
+here2
+roots list: [19677837, 9867750]
+here
+here
+here2
+roots list: [25473738, 14328867]
+here
+here2
+roots list: [10530121, 1924]
+here
+here2
+roots list: [32098527, 10587072]
+here
+here2
+roots list: [8730471, 6147456]
+here
+here2
+roots list: [32361395, 23291512]
+here
+here2
+roots list: [30185078, 3439487]
+here
+here
+here
+here
+here2
+roots list: [10025049, 2350309]
+here
+here2
+roots list: [11329622, 3999785]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [31835816, 4210054]
+here
+here2
+roots list: [28894856, 7377751]
+here
+here
+here2
+roots list: [33169968, 28020738]
+here
+here2
+roots list: [29039686, 24260203]
+here
+here
+here2
+roots list: [32310520, 19120026]
+here
+here
+here
+here
+here
+here2
+roots list: [30296855, 16900527]
+here
+here2
+roots list: [9927488, 7238924]
+here
+here2
+roots list: [15723674, 1907009]
+here
+here2
+roots list: [19689606, 8285233]
+here
+here
+here2
+roots list: [17256582, 11093523]
+here
+here2
+roots list: [22837765, 20061386]
+here
+here2
+roots list: [30480814, 27116329]
+here
+here2
+roots list: [13732034, 9805085]
+here
+here
+here2
+roots list: [26274768, 318571]
+here
+here
+here2
+roots list: [19121263, 10494614]
+here
+here
+here2
+roots list: [30423178, 231747]
+here
+here2
+roots list: [21999070, 6685608]
+here
+here
+here2
+roots list: [32230627, 7661544]
+here
+here
+here
+here
+here
+here2
+roots list: [28070792, 2025372]
+here
+here
+here
+here2
+roots list: [32862307, 13182927]
+here
+here
+here
+here2
+roots list: [29430063, 4924573]
+here
+here
+here
+here2
+roots list: [29615636, 22555585]
+here
+here
+here
+here2
+roots list: [9045251, 909529]
+here
+here2
+roots list: [26798129, 18569792]
+here
+here
+here
+here
+here2
+roots list: [21760420, 20234365]
+here
+here
+here2
+roots list: [32215668, 26800287]
+here
+here
+here
+here2
+roots list: [28394859, 16523338]
+here
+here2
+roots list: [33458919, 7654465]
+here
+here
+here
+here
+here2
+roots list: [32882873, 20732731]
+here
+here2
+roots list: [17520067, 1683295]
+here
+here2
+roots list: [25894429, 14758120]
+here
+here
+here
+here2
+roots list: [33162288, 28583595]
+here
+here2
+roots list: [10932943, 4350591]
+here
+here2
+roots list: [33464450, 29633029]
+here
+here2
+roots list: [5909102, 2798796]
+here
+here2
+roots list: [14492074, 2480171]
+here
+here2
+roots list: [13425596, 722433]
+here
+here
+here
+here2
+roots list: [31799820, 30703752]
+here
+here
+here2
+roots list: [18352023, 1081233]
+here
+here
+here2
+roots list: [13195487, 2600023]
+here
+here
+here2
+roots list: [11151053, 2935807]
+here
+here2
+roots list: [30456075, 5437813]
+here
+here
+here
+here
+here
+here2
+roots list: [8295177, 2676578]
+here
+here
+here
+here2
+roots list: [29287599, 6058041]
+here
+here
+here
+here2
+roots list: [8568049, 3992420]
+here
+here
+here
+here
+here
+here
+here
+here2
+roots list: [22906153, 14030880]
+here
+here2
+roots list: [22530992, 19466886]
+here
+here2
+roots list: [27559414, 8730031]
+here
+here2
+roots list: [31099951, 4006251]
+here
+here
+here2
+roots list: [17043900, 16911807]
+here
+here2
+roots list: [9892225, 2416423]
+here
+here2
+roots list: [24051867, 250978]
+here
+here
+here
+here
+here2
+roots list: [21470567, 16261550]
+here
+here
+here2
+roots list: [20199961, 16864503]
+here
+here2
+roots list: [29504709, 25361739]
+here
+here2
+roots list: [16305282, 6182610]
+here
+here
+here
+here
+here2
+roots list: [21106999, 18968426]
+here
+here
+here2
+roots list: [23911279, 23492709]
+here
+here
+here2
+roots list: [7809230, 4602359]
+here
+here
+here
+here
+here2
+roots list: [26310530, 15553856]
+here
+here2
+roots list: [22955474, 12067781]
+here
+here
+here2
+roots list: [24245634, 15827919]
+here
+here
+here2
+roots list: [27857613, 16844864]
+here
+here2
+roots list: [10632620, 6505394]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [15369770, 222749]
+here
+here2
+roots list: [6784237, 3743761]
+here
+here
+here
+here2
+roots list: [32742718, 29830676]
+here
+here2
+roots list: [13964334, 11324417]
+here
+here
+here
+here2
+roots list: [28356643, 5834469]
+here
+here
+here2
+roots list: [12505301, 6439683]
+here
+here2
+roots list: [23789327, 9794801]
+here
+here2
+roots list: [16133513, 8489675]
+here
+here
+here
+here2
+roots list: [24720255, 17249041]
+here
+here2
+roots list: [26675740, 6232898]
+here
+here2
+roots list: [3482270, 3079061]
+here
+here
+here2
+roots list: [10120178, 1576233]
+here
+here
+here
+here2
+roots list: [15312266, 5853422]
+here
+here
+here2
+roots list: [19767797, 2300256]
+here
+here2
+roots list: [31763626, 16292098]
+here
+here2
+roots list: [11386471, 254345]
+here
+here
+here2
+roots list: [29057186, 6781525]
+here
+here
+here
+here2
+roots list: [26767416, 26487297]
+here
+here2
+roots list: [3116040, 1282965]
+here
+here
+here
+here
+here
+here2
+roots list: [20588875, 8831390]
+here
+here2
+roots list: [4610094, 3283804]
+here
+here
+here2
+roots list: [18907905, 9161071]
+here
+here2
+roots list: [33473074, 29881196]
+here
+here
+here
+here
+here
+here
+here2
+roots list: [6428220, 4570770]
+here
+here
+here2
+roots list: [25168445, 9922050]
+here
+here2
+roots list: [8150696, 5898997]
+here
+here2
+roots list: [24217990, 22724696]
+here
+here2

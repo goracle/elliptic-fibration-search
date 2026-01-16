@@ -1105,6 +1105,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         try:
             D = Integer(a) * G + Integer(b) * Q
         except Exception:
+            raise
             continue
         
         # Check if D is smooth (splits over factor base)
@@ -1112,25 +1113,32 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         
         if u_D.degree() != 2:
             continue
+        print("here")
         
         # Check if splits
         try:
             roots_D = u_D.roots(F)
         except Exception:
+            raise
             continue
         
         if sum(mult for _, mult in roots_D) != 2:
             continue
+
+        print("here2")
         
         # Extract roots
         roots_list = []
         for root, mult in roots_D:
             for _ in range(mult):
                 roots_list.append(int(root))
+
+        print("roots list:", roots_list)
         
         # Check if all roots in factor base
         if not all(r in unique_roots_set for r in roots_list):
             continue
+        print("here3")
         
         # Build relation dict
         relation = {
@@ -1149,6 +1157,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     
     if debug:
         print(f"  Built {len(relations)} relations")
+        assert relations
     
     # Store relations in mumford_divisors format for downstream
     mumford_divisors = []
@@ -1159,7 +1168,17 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         div['roots'] = rel['roots']
         div['has_rational_roots'] = True
         mumford_divisors.append(div)
-    
+
+
+    if debug:
+        print(f"  Returning {len(mumford_divisors)} divisors with relations")
+        if mumford_divisors:
+            print(f"  First divisor keys: {list(mumford_divisors[0].keys())}")
+            print(f"  Has scalar_a? {'scalar_a' in mumford_divisors[0]}")
+        else:
+            print(f"  WARNING: mumford_divisors is empty!")
+            print(f"  smooth_divisors collected: {len(smooth_divisors)}")
+
     return set(), mumford_divisors
 
 

@@ -21,6 +21,7 @@ from sage.all import QQ, PolynomialRing
 from sage.all import PolynomialRing, SR, QQ
 from .riemann_roch_localization import localize_target_via_rr
 from search_common import *
+from .index_calculus import prepare_relations_for_dlp
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):
@@ -464,11 +465,17 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                     return found_xs, [], mumford_residues, stats
 
             print("  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.")
+    
+            # Convert Mumford divisors to index calculus relations
+            relations_bundle = prepare_relations_for_dlp(
+                mumford_divisors, coeffs_genus2, p, verbose=True
+            )
 
             # 4. Solve the system using perform_dlp_attack
             try:
                 log_v = perform_dlp_attack(
-                    G, Q, mumford_divisors, p, coeffs_genus2, L, 
+                    G, Q, relations_bundle,  # ← Now using adapter output
+                    p, coeffs_genus2, L, 
                     verbose=True,
                     force_index_calculus=True  # <-- to test factor base
                 )
