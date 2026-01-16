@@ -17,6 +17,7 @@ from collections import defaultdict, Counter
 from sage.all import QQ, ZZ, gcd, PolynomialRing
 from .mumford_verification import verify_mumford_pair
 from search_common import DATA_PTS_GENUS2, FINITE_FIELD
+from search_lll.index_calculus import dlp_bsgs
 
 
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
@@ -217,12 +218,95 @@ def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
     
     return filtered
 
+
+def quick_dependence_check(div1, div2):
+    """Check if two divisors with same u are dependent"""
+    if (div1['s'], div1['p']) != (div2['s'], div2['p']):
+        return False  # different u
+    
+    # Same u - check if v1 ≡ ±v2 (mod u)
+    # For Mumford rep: v(x) = v_1*x + v_0
+    # Check: (v1_1*x + v1_0) ≡ ±(v2_1*x + v2_0) (mod u(x))
+    
+    # Simplest: just check if coefficients are ± each other
+    if (div1['v_0'] == div2['v_0'] and div1['v_1'] == div2['v_1']):
+        return True  # identical
+    if (div1['v_0'] == -div2['v_0'] and div1['v_1'] == -div2['v_1']):
+        return True  # negatives
+    
+    return False  # might still be dependent, but not obviously
+
+
+# Add to mumford_reconstruction.py, after the CRT reconstruction loop
+
+
+# In mumford_reconstruction.py, modify _reconstruct_mumford_finite_field:
+
+
+def get_u_roots_mod_p(s_val, p_val, F):
+    """
+    Finds roots of u(x) = x^2 - s*x + p in F.
+    Returns sorted tuple of roots or None if irreducible.
+    """
+    delta = (s_val * s_val - 4 * p_val)
+    if not delta.is_square():
+        return None
+    sqrt_delta = delta.sqrt()
+    inv_2 = F(2).inverse()
+    r1 = int((s_val + sqrt_delta) * inv_2)
+    r2 = int((s_val - sqrt_delta) * inv_2)
+    return tuple(sorted((r1, r2)))
+
+
+def rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass=False):
+    """
+    Reconstructs rational from CRT value. 
+    Bypasses height limits for Weierstrass points per aimist.txt.
+    """
+    # Use standard bound for the reconstruction algorithm itself
+    max_den = floor(sqrt(M / QQ(2)))
+    num, den = rational_reconstruct(crt_val, M, max_den=max_den)
+    
+    if not is_weierstrass:
+        if abs(num) > max_height or abs(den) > max_height:
+            raise RationalReconstructionError("Height too large for non-Weierstrass point")
+    
+    return num, den
+
+def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None):
+    """
+    Fast reconstruction with Weierstrass-aware height bypass.
+    """
+    rec_vals = []
+    
+    # Heuristic detection of Weierstrass divisor mod p before reconstruction
+    # A divisor contains a Weierstrass point if gcd(u(x), f(x)) != 1
+    is_weierstrass = False
+    if f_poly is not None:
+        p0 = primes[0]
+        s_mod, p_mod = sol_combo[0][0], sol_combo[0][1]
+        R = f_poly.parent()
+        x = R.gen()
+        u_mod = x^2 - s_mod*x + p_mod
+        if gcd(u_mod, f_poly) != 1:
+            is_weierstrass = True
+
+    for idx in range(4):
+        vals = tuple(sol[idx] for sol in sol_combo)
+        crt_val = crt_cached(vals, tuple(primes))
+        
+        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass)
+        rec_vals.append(QQ(num) / QQ(den))
+    
+    return rec_vals
+
+
 def _reconstruct_worker_parallel_v2(args):
     """
     Optimized worker with robust error handling for modular inverses.
     """
-    # Unpack the new v_tuple argument at the end
-    combo_batch, primes, M_in, f_coeffs, max_height, v_tuple = args
+    # Unpack args (v_tuple removed)
+    combo_batch, primes, M_in, f_coeffs, max_height = args
     
     # Setup fast CRT constants once per batch
     M, weights = setup_crt_constants(primes)
@@ -332,32 +416,10 @@ def _reconstruct_worker_parallel_v2(args):
             stats['algebraic_reject'] += 1
             continue
         
-        # Attach the vector here so it survives the return trip
-        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq, 'vector': v_tuple})
+        results.append({'s': s_qq, 'p': p_qq, 'v_0': v0_qq, 'v_1': v1_qq})
         stats['success'] += 1
     
     return results, stats
-
-def quick_dependence_check(div1, div2):
-    """Check if two divisors with same u are dependent"""
-    if (div1['s'], div1['p']) != (div2['s'], div2['p']):
-        return False  # different u
-    
-    # Same u - check if v1 ≡ ±v2 (mod u)
-    # For Mumford rep: v(x) = v_1*x + v_0
-    # Check: (v1_1*x + v1_0) ≡ ±(v2_1*x + v2_0) (mod u(x))
-    
-    # Simplest: just check if coefficients are ± each other
-    if (div1['v_0'] == div2['v_0'] and div1['v_1'] == div2['v_1']):
-        return True  # identical
-    if (div1['v_0'] == -div2['v_0'] and div1['v_1'] == -div2['v_1']):
-        return True  # negatives
-    
-    return False  # might still be dependent, but not obviously
-
-
-# Add to mumford_reconstruction.py, after the CRT reconstruction loop
-
 
 def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, rationality_test, debug=True):
     """
@@ -380,15 +442,15 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     mumford_divisors_raw = []
 
     t0 = time.time()
-    by_vector_and_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    by_xres = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     
     for p in residues:
-        for v_tuple, x_res_dict in residues[p].items():
+        for _, x_res_dict in residues[p].items():
             if isinstance(x_res_dict, list):
-                by_vector_and_xres[v_tuple]['unknown'][p] = x_res_dict
+                by_xres['unknown'][p] = x_res_dict
             elif isinstance(x_res_dict, dict):
                 for x_res, sols in x_res_dict.items():
-                    by_vector_and_xres[v_tuple][x_res][p] = sols
+                    by_xres[x_res][p] = sols
     
     mumford_timer_add("residue_grouping", time.time() - t0)
 
@@ -401,7 +463,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     if debug:
         print("\n=== EARLY ALGEBRAIC FILTERING (per prime) ===")
     
-    for v_tuple, xres_groups in by_vector_and_xres.items():
+    for v_tuple, xres_groups in by_xres.items():
         for x_res_key, prime_data in xres_groups.items():
             for prime in list(prime_data.keys()):
                 sol_list = prime_data[prime]
@@ -425,8 +487,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     mumford_timer_add("algebraic_prefiltering", time.time() - t0)
 
 
-    num_groups = sum(len(xres_groups) for xres_groups in by_vector_and_xres.values())
-    print(f"Grouped into {len(by_vector_and_xres)} vectors, {num_groups} (vector,x-residue) pairs")
+    num_groups = sum(len(xres_groups) for xres_groups in by_xres.values())
+    print(f"Grouped into {len(by_xres)} vectors, {num_groups} (vector,x-residue) pairs")
 
     total_attempted = 0
     total_stats = {
@@ -445,7 +507,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     
     all_work_items = []
     
-    for v_tuple, xres_groups in by_vector_and_xres.items():
+    for xres_groups in by_xres.items():
         for x_res_key, prime_data in xres_groups.items():
             primes = sorted(prime_data.keys())
             sol_lists = [prime_data[p] for p in primes]
@@ -597,7 +659,6 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                 max_height = int(M ** 0.5)
             
             all_work_items.append({
-                'v_tuple': v_tuple,
                 'primes': primes,
                 'M': M,
                 'sol_lists': sol_lists,
@@ -634,8 +695,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                     item['primes'],
                     item['M'],
                     f_coeffs,
-                    item['max_height'],
-                    item['v_tuple']  # PASS THE VECTOR TUPLE HERE
+                    item['max_height']
                 ))
         
         if debug:
@@ -651,7 +711,6 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
         try:
             for batch_results, batch_stats in pool.imap_unordered(_reconstruct_worker_parallel_v2, all_batches):
                 for div in batch_results:
-                    # Do not override div['vector'] here; use the one from the worker
                     mumford_divisors_raw.append(div)
                 
                 total_stats['height_reject'] += batch_stats['height_reject']
@@ -677,7 +736,6 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             M = item['M']
             sol_lists = item['sol_lists']
             max_height = item['max_height']
-            v_tuple = item['v_tuple']
             
             limit = min(item['adaptive_limit'], item['total_combos'])
             
@@ -744,7 +802,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
                     continue
                 
                 mumford_divisors_raw.append({
-                    'vector': v_tuple, 's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
+                    's': s, 'p': p_val, 'v_0': v0, 'v_1': v1
                 })
                 total_stats['success'] += 1
 
@@ -865,16 +923,13 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     mumford_timers_print()
     return found_xs, mumford_divisors
 
-
-# In mumford_reconstruction.py, modify _reconstruct_mumford_finite_field:
-
-
 def _ff_worker_verify_batch(args):
     """
     Worker function for parallel verification of Mumford solutions in finite field mode.
     Returns: (verified_divisors, stats)
     """
-    sol_batch, f_coeffs, p, shift, v_tuple = args
+    # REMOVED v_tuple
+    sol_batch, f_coeffs, p, shift = args
     
     from sage.all import GF
     
@@ -918,7 +973,7 @@ def _ff_worker_verify_batch(args):
         
         div_entry = {
             's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
-            'vector': v_tuple,
+            # 'vector': v_tuple, <-- REMOVED
             'has_rational_roots': True,
             'roots': list(roots)
         }
@@ -928,82 +983,19 @@ def _ff_worker_verify_batch(args):
     return verified, stats
 
 
-def get_u_roots_mod_p(s_val, p_val, F):
-    """
-    Finds roots of u(x) = x^2 - s*x + p in F.
-    Returns sorted tuple of roots or None if irreducible.
-    """
-    delta = (s_val * s_val - 4 * p_val)
-    if not delta.is_square():
-        return None
-    sqrt_delta = delta.sqrt()
-    inv_2 = F(2).inverse()
-    r1 = int((s_val + sqrt_delta) * inv_2)
-    r2 = int((s_val - sqrt_delta) * inv_2)
-    return tuple(sorted((r1, r2)))
-
-
-def rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass=False):
-    """
-    Reconstructs rational from CRT value. 
-    Bypasses height limits for Weierstrass points per aimist.txt.
-    """
-    # Use standard bound for the reconstruction algorithm itself
-    max_den = floor(sqrt(M / QQ(2)))
-    num, den = rational_reconstruct(crt_val, M, max_den=max_den)
-    
-    if not is_weierstrass:
-        if abs(num) > max_height or abs(den) > max_height:
-            raise RationalReconstructionError("Height too large for non-Weierstrass point")
-    
-    return num, den
-
-def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None):
-    """
-    Fast reconstruction with Weierstrass-aware height bypass.
-    """
-    rec_vals = []
-    
-    # Heuristic detection of Weierstrass divisor mod p before reconstruction
-    # A divisor contains a Weierstrass point if gcd(u(x), f(x)) != 1
-    is_weierstrass = False
-    if f_poly is not None:
-        p0 = primes[0]
-        s_mod, p_mod = sol_combo[0][0], sol_combo[0][1]
-        R = f_poly.parent()
-        x = R.gen()
-        u_mod = x^2 - s_mod*x + p_mod
-        if gcd(u_mod, f_poly) != 1:
-            is_weierstrass = True
-
-    for idx in range(4):
-        vals = tuple(sol[idx] for sol in sol_combo)
-        crt_val = crt_cached(vals, tuple(primes))
-        
-        num, den = rational_reconstruct_with_height_check(crt_val, M, max_height, is_weierstrass)
-        rec_vals.append(QQ(num) / QQ(den))
-    
-    return rec_vals
-
-
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
-    Index calculus reconstruction for finite fields (patched).
-    Enforces caps on factor base and active pool to avoid OOM and
-    to restore the 'small-FB' behavior.
-    
-    FIX: Now correctly tracks vector scalars during random walk mixing.
-    FIX: Discards duplicate divisors to avoid inconsistent linear algebra relations.
+    Index calculus reconstruction for finite fields.
+    Builds relations: random_combination = smooth_divisor
     """
     if FINITE_FIELD is None:
-        raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
+        raise RuntimeError("FINITE_FIELD is not set")
     
     p = int(FINITE_FIELD)
     F = GF(p)
     R = PolynomialRing(F, 'x')
     x = R.gen()
     
-    # Build the Jacobian for group operations
     f_poly = R(f_coeffs[::-1])
     
     try:
@@ -1012,37 +1004,33 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     except Exception as e:
         raise RuntimeError(f"Failed to initialize Jacobian: {e}")
     
-    if p not in residues:
-        if debug:
-            print(f"  No residues found for field characteristic {p}")
-        return set(), []
+    G = BASE_DIVISOR
+    Q = TARGET_DIVISOR
     
-    # ----------------------- Tunable caps -----------------------
-    # These are conservative defaults that reproduce the small-FB behavior.
-    MAX_FB_SIZE = 6000            # hard cap on unique x-coordinates in FB
-    MAX_ACTIVE_POOL = 20000       # cap on stored relations (Jacobians) to bound memory
-    TARGET_BUFFER_MIN = 200       # never require less than this
-    TARGET_BUFFER_FRAC = 0.08     # relative buffer (8% of FB) instead of 15%
-    MAX_PATIENCE = 30000          # keep your existing patience default
-    MAX_ROUNDS = 150000
-    # ------------------------------------------------------------
+    if G is None or Q is None:
+        raise RuntimeError("BASE_DIVISOR and TARGET_DIVISOR must be set")
     
-    res_p = residues[p]
+    from prime_subgroup_projection import compute_jacobian_order
+    J_order = compute_jacobian_order(f_coeffs, p)
+    factors = factor(J_order)
+    ell = int(max(int(pr) for pr, _ in factors))
     
     if debug:
         print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+        print(f"Jacobian order: {J_order}")
+        print(f"Working in J[ℓ={ell}] subgroup")
     
-    found_xs = set()
-    active_pool = []             # list of tuples (J_obj, div_data)
-    seen_divisors = set()        # set of (roots, v0, v1) tuples - FULL Mumford representation
-    unique_roots_set = set()     # set of x roots (ints)
+    if p not in residues:
+        return set(), []
     
-    # 1. Harvest Initial Solutions (conservative)
-    if debug:
-        print("  Harvesting initial solutions (capped)...")
-    count_raw = 0
-    for v_tuple, val in res_p.items():
-        # normalize sol list
+    res_p = residues[p]
+    
+    # Collect smooth divisors from Mumford solver output
+    smooth_divisors = []
+    seen_divisors = set()
+    unique_roots_set = set()
+    
+    for val in res_p.values():
         if isinstance(val, list):
             sols = val
         elif isinstance(val, dict):
@@ -1051,223 +1039,127 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             sols = [val]
         
         for sol in sols:
-            count_raw += 1
             s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
             
-            # quick algebraic verification
             u_poly = x**2 - F(s_val)*x + F(p_val)
             v_poly = F(v1_val)*x + F(v0_val)
+            
             if (v_poly**2 - f_poly) % u_poly != 0:
                 continue
             
-            # get roots (sorted)
             delta = (F(s_val)*F(s_val) - 4*F(p_val))
             if not delta.is_square():
                 continue
+            
             sqrt_delta = delta.sqrt()
             inv_2 = F(2).inverse()
             r1 = int((F(s_val) + sqrt_delta) * inv_2)
             r2 = int((F(s_val) - sqrt_delta) * inv_2)
             roots = tuple(sorted((r1, r2)))
             
-            # CRITICAL FIX: Include v polynomial in deduplication key
-            # Two divisors with same u but different v are linearly independent!
             div_key = (roots, int(v0_val), int(v1_val))
             
-            # Determine how many *new* distinct x-roots this would add
-            new_roots = [r for r in roots if r not in unique_roots_set]
-            # If accepting this will exceed MAX_FB_SIZE, skip it
-            if len(unique_roots_set) + len(new_roots) > MAX_FB_SIZE:
-                # conservative skip to prevent explosion
+            if div_key in seen_divisors:
                 continue
             
-            # Accept: create Jacobian point and store
+            seen_divisors.add(div_key)
+            for r in roots:
+                unique_roots_set.add(r)
+            
             div_J = J(u_poly, v_poly)
+            
             div_data = {
                 's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
-                'vector': v_tuple, 'roots': list(roots), 'has_rational_roots': True
+                'roots': list(roots), 'has_rational_roots': True,
+                'J_element': div_J  # Store for relation building
             }
-            if div_key not in seen_divisors:
-                seen_divisors.add(div_key)
-                for r in roots:
-                    unique_roots_set.add(r)
-                active_pool.append((div_J, div_data))
-                
-                # small rationality test
-                for r in roots:
-                    x_cand = int(r) - int(shift)
-                    if x_cand not in found_xs:
-                        res = rationality_test(x_cand)
-                        if res is not None:
-                            found_xs.add(x_cand)
             
-            # Trim active_pool if it grows too large (drop oldest/random)
-            if len(active_pool) > MAX_ACTIVE_POOL:
-                # trim to 90% of MAX_ACTIVE_POOL by popping oldest half
-                trim_to = int(MAX_ACTIVE_POOL * 0.9)
-                # keep newest entries (cheap): slice the tail
-                active_pool = active_pool[-trim_to:]
+            smooth_divisors.append(div_data)
     
     if debug:
-        print(f"  Initial harvest: {len(active_pool)} unique smooth divisors from {count_raw} candidates.")
-        print(f"  Factor Base (Unique x): {len(unique_roots_set)}")
+        print(f"  Collected {len(smooth_divisors)} unique smooth divisors")
+        print(f"  Factor base size: {len(unique_roots_set)}")
     
-    if not active_pool:
-        if debug:
-            print("  No smooth divisors found initially. Cannot proceed with mixing.")
-        return found_xs, []
+    if not smooth_divisors:
+        return set(), []
     
-    # 2. Random Walk / Mixing to fill Rank (conservative rules)
+    # ============================================================
+    # Build relations by random linear combinations
+    # ============================================================
+    
     if debug:
-        print("  Starting structured random walk to improve Rank/FB ratio (capped mixing)...")
-    generated_count = 0
-    patience = 0
+        print(f"  Building relations via random linear combinations...")
     
-    # precompute random selection indices usage
     import random
-    while generated_count < MAX_ROUNDS:
-        fb_size = len(unique_roots_set)
-        num_rels = len(active_pool)
-        target_buffer = max(TARGET_BUFFER_MIN, int(fb_size * TARGET_BUFFER_FRAC))
-        
-        # If we have reached a reasonable target buffer *or* we've hit FB cap, stop.
-        if num_rels > fb_size + target_buffer:
-            if debug:
-                print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
-            break
-        
-        # Safety: if FB hit the hard cap, prefer to stop mixing to avoid growth
-        if fb_size >= MAX_FB_SIZE:
-            if debug:
-                print(f"  FB size reached MAX_FB_SIZE={MAX_FB_SIZE}. Halting growth.")
-            break
-        
-        # pick two (with replacement) from pool
-        if len(active_pool) < 2:
-            break
-        
-        idx1 = random.randrange(len(active_pool))
-        idx2 = random.randrange(len(active_pool))
-        D1, data1 = active_pool[idx1]
-        D2, data2 = active_pool[idx2]
-        
-        # Try either addition or subtraction, but keep at most one result (conservative)
-        if random.random() < 0.5:
-            candidates = [(D1 + D2, 1)] # 1 for addition
-        else:
-            candidates = [(D1 - D2, -1)] # -1 for subtraction
-        
-        for D3, sign_op in candidates:
-            u3 = D3[0].monic()
-            v3 = D3[1]
-            coeffs_u = u3.list()
-            if len(coeffs_u) != 3:
-                continue
-            s_new = -coeffs_u[1]
-            p_new = coeffs_u[0]
-            
-            # compute roots in F
-            delta = (s_new * s_new - 4 * p_new)
-            if not delta.is_square():
-                patience += 1
-                continue
-            sqrt_delta = delta.sqrt()
-            inv_2 = F(2).inverse()
-            r1 = int((s_new + sqrt_delta) * inv_2)
-            r2 = int((s_new - sqrt_delta) * inv_2)
-            roots = tuple(sorted((r1, r2)))
-            
-            # Extract v polynomial coefficients
-            coeffs_v = v3.list()
-            v1_new = coeffs_v[1] if len(coeffs_v) >= 2 else F(0)
-            v0_new = coeffs_v[0] if len(coeffs_v) >= 1 else F(0)
-            
-            # CRITICAL FIX: Full Mumford key including v polynomial
-            div_key = (roots, int(v0_new), int(v1_new))
-            
-            # count how many *new* roots would be added
-            new_roots_count = sum(1 for r in roots if r not in unique_roots_set)
-            
-            # Conservative acceptance rules:
-            # - Accept only if new_roots_count <= 1 (never accept an operation that would add 2 brand new roots).
-            # - Also ensure acceptance won't push FB above cap.
-            if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
-                
-                # --- FIX: TRACK VECTOR SCALARS ---
-                # We must propagate the linear combination of the vectors (scalars)
-                # D3 = D1 +/- D2  =>  v3 = v1 +/- v2
-                vec1 = data1['vector']
-                vec2 = data2['vector']
-                
-                # Ensure vectors are tuples (they should be from initial harvest)
-                if not isinstance(vec1, tuple): vec1 = tuple(vec1) if hasattr(vec1, '__iter__') else (vec1,)
-                if not isinstance(vec2, tuple): vec2 = tuple(vec2) if hasattr(vec2, '__iter__') else (vec2,)
-                
-                try:
-                    if sign_op == 1:
-                        v_new = tuple(a + b for a, b in zip(vec1, vec2))
-                    else:
-                        v_new = tuple(a - b for a, b in zip(vec1, vec2))
-                except Exception:
-                    # If vectors have mismatching dimensions or types, skip
-                    patience += 1
-                    continue
-                # ----------------------------------
-
-                # Accept candidate
-                if div_key not in seen_divisors:
-                    seen_divisors.add(div_key)
-                    for r in roots:
-                        unique_roots_set.add(r)
-                    
-                    new_data = {
-                        's': int(s_new), 'p': int(p_new), 
-                        'v_0': int(v0_new), 'v_1': int(v1_new),
-                        'vector': v_new,  # Using computed vector instead of 'mixed'
-                        'roots': list(roots),
-                        'has_rational_roots': True
-                    }
-                    active_pool.append((D3, new_data))
-                    generated_count += 1
-                    patience = 0
-                    
-                    # check for rational points cheaply
-                    for r in roots:
-                        x_cand = int(r) - int(shift)
-                        if x_cand not in found_xs:
-                            res = rationality_test(x_cand)
-                            if res is not None:
-                                found_xs.add(x_cand)
-                    
-                    # trim active_pool if necessary
-                    if len(active_pool) > MAX_ACTIVE_POOL:
-                        trim_to = int(MAX_ACTIVE_POOL * 0.9)
-                        active_pool = active_pool[-trim_to:]
-                else:
-                    # Duplicate divisor found.
-                    # CRITICAL FIX: DO NOT ADD duplicates to active_pool.
-                    # Adding a duplicate divisor with a *different* vector (scalar) creates
-                    # conflicting linear equations (Row*x = r1 AND Row*x = r2 where r1 != r2).
-                    # This causes inconsistent linear algebra. We simply discard it.
-                    patience += 1
-                    pass
-            else:
-                # reject candidate that would grow FB by 2 or overflow cap
-                patience += 1
-        
-        # patience termination
-        if patience > MAX_PATIENCE:
-            if debug:
-                print("  Max patience reached (mining exhausted). Stopping.")
-            break
+    random.seed(42)  # Deterministic
     
-    # produce final mumford_divisors (strip heavy J objects for return)
-    mumford_divisors = [d for _, d in active_pool]
-    # diagnostics
-    all_roots = set()
-    for d in mumford_divisors:
-        all_roots.update(d['roots'])
+    relations = []
+    max_relations = min(len(smooth_divisors), 50000)  # Cap to prevent OOM
+    
+    for _ in tqdm(range(max_relations), desc="Building relations"):
+        # Pick random coefficients (non-zero mod ell)
+        a = random.randint(1, ell - 1)
+        b = random.randint(1, ell - 1)
+        
+        # Compute D = a*G + b*Q in Jacobian
+        try:
+            D = Integer(a) * G + Integer(b) * Q
+        except Exception:
+            continue
+        
+        # Check if D is smooth (splits over factor base)
+        u_D = D[0]
+        
+        if u_D.degree() != 2:
+            continue
+        
+        # Check if splits
+        try:
+            roots_D = u_D.roots(F)
+        except Exception:
+            continue
+        
+        if sum(mult for _, mult in roots_D) != 2:
+            continue
+        
+        # Extract roots
+        roots_list = []
+        for root, mult in roots_D:
+            for _ in range(mult):
+                roots_list.append(int(root))
+        
+        # Check if all roots in factor base
+        if not all(r in unique_roots_set for r in roots_list):
+            continue
+        
+        # Build relation dict
+        relation = {
+            'a': int(a % ell),
+            'b': int(b % ell),
+            'roots': roots_list,
+            'divisor': {
+                's': int(-u_D[1]),
+                'p': int(u_D[0]),
+                'v_0': int(D[1][0]) if len(D[1].list()) > 0 else 0,
+                'v_1': int(D[1][1]) if len(D[1].list()) > 1 else 0
+            }
+        }
+        
+        relations.append(relation)
     
     if debug:
-        print(f"  Final Status: {len(mumford_divisors)} relations, {len(all_roots)} factor base elements.")
-    return found_xs, mumford_divisors
+        print(f"  Built {len(relations)} relations")
+    
+    # Store relations in mumford_divisors format for downstream
+    mumford_divisors = []
+    for rel in relations:
+        div = rel['divisor']
+        div['scalar_a'] = rel['a']  # Coefficient of G
+        div['scalar_b'] = rel['b']  # Coefficient of Q
+        div['roots'] = rel['roots']
+        div['has_rational_roots'] = True
+        mumford_divisors.append(div)
+    
+    return set(), mumford_divisors
+
+

@@ -195,3 +195,236 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
             preferred_x_coords.add(int(root))
     
     return ell, [basex], G, Q, preferred_x_coords, final_secret
+
+
+# Put at top of file (if not already imported)
+from sage.all import Integer, factor
+from math import ceil, sqrt
+
+# ---------------------------------------------------------------------
+# Helper: ensure G and Q are in the ℓ-subgroup (or project them)
+# ---------------------------------------------------------------------
+def ensure_prime_subgroup_elements(G, Q, full_order, verbose=False):
+    """
+    Ensure G and Q lie in J(F_p)[ell], where ell is the largest prime factor of full_order.
+    If they are not, attempt to project via the cofactor h = |J| // ell and return projected elements.
+    Returns (ell, h, G_used, Q_used).
+    """
+    J_order = Integer(full_order)
+    facs = factor(J_order)
+    ell = int(max(int(p) for p, _ in facs))
+    h = int(J_order // ell)
+
+    # Quick checks: ell*G and ell*Q should be zero if already in subgroup
+    ellG_zero = bool((Integer(ell) * G).is_zero())
+    ellQ_zero = bool((Integer(ell) * Q).is_zero())
+
+    if verbose:
+        print(f"[ensure] ell={ell}, cofactor h={h}")
+        print(f"[ensure] ell*G == 0? {ellG_zero}; ell*Q == 0? {ellQ_zero}")
+
+    if ellG_zero and ellQ_zero:
+        return ell, h, G, Q
+
+    # Not in ℓ-subgroup: attempt to project by cofactor h
+    if verbose:
+        print("[ensure] Warning: G/Q not in ℓ-subgroup. Projecting by cofactor h to move into ℓ-subgroup.")
+
+    Gp = Integer(h) * G
+    Qp = Integer(h) * Q
+
+    if not (Integer(ell) * Gp).is_zero() or not (Integer(ell) * Qp).is_zero():
+        # Projection failed: something strange; raise to force user to inspect the setup
+        raise RuntimeError("[ensure] Failed to project G/Q into ℓ-subgroup (post-projection still not ℓ-torsion).")
+
+    return ell, h, Gp, Qp
+
+# ---------------------------------------------------------------------
+# Main solver rewrite (Model A: operate directly mod ell)
+# ---------------------------------------------------------------------
+def solve_dlp_mod_l_block_wiedemann(
+    valid_rows,
+    rhs_values,
+    row_q_dict,
+    beta_q,
+    full_order,
+    G, Q,
+    *,
+    verbose=True,
+    block_size=32,
+    nprocs=None,
+    max_iters=None
+):
+    """
+    Solve discrete log using your sparse Block-Wiedemann core, under the assumption
+    we want to operate in the prime-order subgroup J(F_p)[ell].
+
+    Differences from the previous version:
+      - We do NOT multiply relation coefficients by the cofactor `h`.
+      - We verify with exact equality d*G == Q (because G and Q should already be in the ℓ-subgroup).
+      - If G/Q are not in ℓ-subgroup, we project them by h (defensive).
+    Returns:
+      full integer discrete log d (0 <= d < ell) such that d*G == Q.
+    """
+    if nprocs is None:
+        from multiprocessing import cpu_count
+        nprocs = max(1, cpu_count() - 1)
+
+    if verbose:
+        print(f"  [BW] block_size={block_size}, nprocs={nprocs}")
+        sys.stdout.flush()
+
+    # Compute ell and h (largest prime factor)
+    J_order = Integer(full_order)
+    facs = factor(J_order)
+    ell = int(max(int(p) for p, _ in facs))
+    h = int(J_order // ell)
+
+    if verbose:
+        print(f"  [BW] Computed Jacobian order factors: ell={ell}, cofactor h={h}")
+        sys.stdout.flush()
+
+    # Ensure G and Q are in the ell-subgroup (or project them)
+    ell, h, G_used, Q_used = ensure_prime_subgroup_elements(G, Q, full_order, verbose=verbose)
+
+    # Convert relations INTO mod ell (no cofactor multiplication)
+    projected_rows = []
+    projected_rhs = []
+
+    for row, rhs in zip(valid_rows, rhs_values):
+        # Coerce coefficients into ints modulo ell
+        new_row = {}
+        for k, v in row.items():
+            vk = int(Integer(v) % Integer(ell))
+            if vk:
+                new_row[k] = vk
+        rhs_proj = int(Integer(rhs) % Integer(ell))
+        # If relation is 0 = nonzero (mod ell), that's inconsistent
+        if not new_row:
+            if rhs_proj % ell != 0:
+                raise ValueError(f"Block-Wiedemann: inconsistent zero-row: 0 == {rhs_proj} (mod {ell})")
+            # else redundant relation, skip
+            continue
+        projected_rows.append(new_row)
+        projected_rhs.append(rhs_proj)
+
+    if not projected_rows:
+        raise ValueError("Block-Wiedemann: no nonzero relations after projection (unexpected)")
+
+    n_cols = max(k for row in projected_rows for k in row) + 1
+
+    if verbose:
+        nnz = sum(len(r) for r in projected_rows)
+        print(f"  [BW] Sparse system: {len(projected_rows)} x {n_cols}, nnz={nnz}")
+        sys.stdout.flush()
+
+    # Build SparseRelationMatrix (expects modulus=ell)
+    A = SparseRelationMatrix(projected_rows, projected_rhs, ell)
+
+    if verbose:
+        print("  [BW] Starting Krylov iterations...")
+        sys.stdout.flush()
+
+    t0 = time.time()
+    solution = block_wiedemann_solve(
+        A=A,
+        b=projected_rhs,
+        block_size=block_size,
+        iters=max_iters,
+        verbose=verbose,
+    )
+    dt = time.time() - t0
+
+    if solution is None:
+        raise RuntimeError("Block-Wiedemann failed to converge (returned None)")
+
+    if verbose:
+        print(f"  [BW] Solved in {dt:.2f}s")
+        sys.stdout.flush()
+
+    # Reconstruct discrete log modulo ell
+    beta_q_l = int(Integer(beta_q) % Integer(ell))
+    row_q_l = {k: int(Integer(v) % Integer(ell)) for k, v in row_q_dict.items()}
+
+    dlog = Integer(beta_q_l)
+    for k, v in row_q_l.items():
+        coeff = int(solution[k])  # solution is a vector over Zmod(ell); int() coerces
+        dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
+    dlog = int(dlog)
+
+    if verbose:
+        print("  [BW] Candidate d (mod ell):", dlog)
+        sys.stdout.flush()
+
+    # Verify exact equality (since G_used and Q_used are in ell-subgroup)
+    D = Integer(dlog) * G_used - Q_used
+    if not D.is_zero():
+        # This is a fatal error for Model A (we expect exact equality)
+        raise AssertionError(
+            "[BW-Verify] Verification failed: d * G != Q in prime subgroup\n"
+            f"  candidate d (mod ell) = {dlog}\n"
+            f"  ell = {ell}, h = {h}\n"
+            "  This indicates relation construction or linear algebra corruption."
+        )
+
+    if verbose:
+        print("  [Verify] ✓ Exact equality d*G == Q (prime subgroup).")
+    return int(dlog)
+
+
+# ---------------------------------------------------------------------
+# Optional helper (kept for completeness): BSGS lift in case you ever need to lift
+# ---------------------------------------------------------------------
+def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
+    """
+    Attempt to lift d = d_mod_ell (mod ell) to full d = d_mod_ell + t*ell, 0 <= t < h,
+    solving t*(ell*G) = Q - d_mod_ell*G using baby-step giant-step.
+    Returns full d if found, or None if not found.
+    (Not used in Model A where G,Q are already in ell-subgroup.)
+    """
+    # Compute correction target R = Q - d_mod_ell * G
+    R = Q - Integer(d_mod_ell) * G
+    if R.is_zero():
+        if verbose:
+            print("[lift] Already exact: d_mod_ell is the full discrete log.")
+        return int(d_mod_ell)
+
+    H = Integer(ell) * G
+    if H.is_zero():
+        if verbose:
+            print("[lift] ell * G is zero (degenerate); cannot lift.")
+        return None
+
+    bound = int(h)
+    m = int(ceil(sqrt(bound)))
+    if verbose:
+        print(f"[lift] BSGS parameters: bound={bound}, m={m}")
+
+    # baby steps
+    baby = {}
+    cur = Integer(0) * H
+    for j in range(m):
+        key = str(cur)  # use string representation as hashable key
+        if key not in baby:
+            baby[key] = j
+        cur = cur + H
+
+    # giant steps
+    factor = Integer(m) * H
+    giant = R
+    for i in range(0, m + 1):
+        key = str(giant)
+        if key in baby:
+            j = baby[key]
+            t = i * m + j
+            if t < bound:
+                full_d = int(Integer(d_mod_ell) + Integer(t) * Integer(ell))
+                if full_d * G == Q:
+                    if verbose:
+                        print(f"[lift] Found lift: t={t}, full_d={full_d}")
+                    return full_d
+        giant = giant - factor
+
+    if verbose:
+        print("[lift] BSGS failed to find a lift in [0,h).")
+    return None

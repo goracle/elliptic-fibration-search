@@ -252,7 +252,7 @@ Jacobian order: 1126029650170156
 Factorization: 2^2 * 289603 * 972045913
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
-[mumford] Residue computation took 75.13s
+[mumford] Residue computation took 76.65s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -260,43 +260,52 @@ availability_rate: 0.0 activation_rate: 0.0
 {'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
-  Harvesting initial solutions (capped)...
-  Initial harvest: 18017 unique smooth divisors from 350000 candidates.
-  Factor Base (Unique x): 6000
-  Starting structured random walk to improve Rank/FB ratio (capped mixing)...
-  Target reached: 18017 relations > 6000 FB + 480 buffer.
-  Final Status: 18017 relations, 4504 factor base elements.
+Jacobian order: 1126029650170156
+Working in J[ℓ=972045913] subgroup
+  Collected 350000 unique smooth divisors
+  Factor base size: 87203
+  Building relations via random linear combinations...
+  Built 3 relations
 
-Mumford search reconstructed 18017 divisors
-  18017 divisors had rational roots in u(x)
+Mumford search reconstructed 3 divisors
+  3 divisors had rational roots in u(x)
+  WARNING: Generator G has root x=17964274 NOT in factor base
+  WARNING: Generator G has root x=11833238 NOT in factor base
+  WARNING: Target Q has root x=32422197 NOT in factor base
+  WARNING: Target Q has root x=2927392 NOT in factor base
 
 [Preferred Coordinates Hit Rate]
   Target coordinates: 4
-  Found in Factor Base: 4 / 4 (100.0%)
-  Divisors containing target: 32 / 18017 (0.2%)
+  Found in Factor Base: 0 / 4 (0.0%)
+  Divisors containing target: 0 / 3 (0.0%)
 
 ============================================================
  INDEX CALCULUS ATTACK DIAGNOSTIC
 ============================================================
  Target Field: GF(33554467)
- Relations:    18017
- Factor Base:  4504
- Matrix Rank:  4504
+ Relations:    3
+ Factor Base:  6
+ Matrix Rank:  3
 ------------------------------------------------------------
- [OK] Generator G is smooth over factor base
- [OK] Target Q is smooth over factor base
+ [X] CRITICAL: Generator G is NOT smooth over factor base
+    G roots: [11833238, 17964274]
+    Missing from FB: [11833238, 17964274]
+ [X] CRITICAL: Target Q is NOT smooth over factor base
+    Q roots: [2927392, 32422197]
+    Missing from FB: [2927392, 32422197]
 ------------------------------------------------------------
- SUCCESS: Matrix is full rank. Ready for Linear Algebra.
-          Both G and Q are expressible over factor base.
+ FAILURE: Deficit of 3 independent relations.
+ FAILURE: Keypair not smooth over current factor base.
+ Suggestion: Increase TMAX or add more search vectors.
 ============================================================
 
-Total time: 107.71s
+Total time: 118.75s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 75.14s
-  mumford_reconstruction   : 4.31s
-  prep_mod_data            : 3.98s
+  mumford_residues         : 76.65s
+  mumford_reconstruction   : 38.13s
+  prep_mod_data            : 3.97s
   mumford_setup            : 0.00s
 
 Counters:
@@ -323,7 +332,7 @@ Successes: 0, Failures: 0
 Discard Reasons (Top 5):
   (None)
 --------------------------------
-  [Factor Base] Extracted 4504 unique x-coordinates (projected mode).
+  [Factor Base] Extracted 6 unique x-coordinates (projected mode).
   [Setup] Curve: y^2 = x^5 + x + 2
   [Phase 0] Attempting RR-Localization for target Q...
   [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
@@ -333,60 +342,26 @@ INDEX CALCULUS DLP ATTACK (Full Jacobian Group)
 ======================================================================
 Full Jacobian order |J|: 1126029650170156
   [Legacy] Detected legacy mumford_divisors input: building relations...
-  [Legacy->Relations] Building factor base from 18019 sample divisors...
-  [Legacy->Relations] Factor base size: 4504
-  [Anchoring] Using base anchor x = 5271
-  [Anchoring] Built 18017 homogeneous relations (RHS=0)
-  [Relations] Loaded 18017 homogeneous relations
-  [Factor Base] Size: 4504
-  [Smoothing] Generator G is already smooth.
-  [Smoothing] Target Q is already smooth.
-
-  [Solver] Ready to solve: 18018 rows, factor-base size 4504
+  [Legacy->Relations] Building factor base from 5 sample divisors...
+  [Legacy->Relations] Factor base size: 10
+  [Relations] Building relations from random combinations...
+  [Relations] Built 3 relations
+  [Relations] Loaded 3 homogeneous relations
+  [Factor Base] Size: 10
   [Solver] Starting Block-Wiedemann (preferred path)...
-  [BW] block_size=32, nprocs=19
   [BW] Working mod ℓ=972045913, cofactor h=1158412
-  [BW] Sparse system: 18017 x 4504, nnz=45039
-  [BW] Starting Krylov iterations...
-[BW-fast] block=32, target_iters=359, nrows=18017, ncols=4504
-[BW-fast] Pass 1: Generating Sequence (Trace)
-  [BW Pass 1] iter 14/359 (3.9%) | elapsed 0.1m | ETA 1.9m
-  [BW Pass 1] iter 28/359 (7.8%) | elapsed 0.2m | ETA 1.9m
-  [BW Pass 1] iter 42/359 (11.7%) | elapsed 0.3m | ETA 1.9m
-  [BW Pass 1] iter 56/359 (15.6%) | elapsed 0.3m | ETA 1.8m
-  [BW Pass 1] iter 70/359 (19.5%) | elapsed 0.4m | ETA 1.7m
-  [BW Pass 1] iter 84/359 (23.4%) | elapsed 0.5m | ETA 1.6m
-  [BW Pass 1] iter 98/359 (27.3%) | elapsed 0.6m | ETA 1.6m
-  [BW Pass 1] iter 112/359 (31.2%) | elapsed 0.7m | ETA 1.5m
-  [BW Pass 1] iter 126/359 (35.1%) | elapsed 0.8m | ETA 1.4m
-  [BW Pass 1] iter 140/359 (39.0%) | elapsed 0.8m | ETA 1.3m
-  [BW Pass 1] iter 154/359 (42.9%) | elapsed 0.9m | ETA 1.2m
-  [BW Pass 1] iter 168/359 (46.8%) | elapsed 1.0m | ETA 1.1m
-  [BW Pass 1] iter 182/359 (50.7%) | elapsed 1.1m | ETA 1.1m
-  [BW Pass 1] iter 196/359 (54.6%) | elapsed 1.2m | ETA 1.0m
-  [BW Pass 1] iter 210/359 (58.5%) | elapsed 1.3m | ETA 0.9m
-  [BW Pass 1] iter 224/359 (62.4%) | elapsed 1.4m | ETA 0.8m
-  [BW Pass 1] iter 238/359 (66.3%) | elapsed 1.4m | ETA 0.7m
-  [BW Pass 1] iter 250/359 (69.6%) | elapsed 1.5m | ETA 0.7m
-  [BW Pass 1] iter 258/359 (71.9%) | elapsed 1.6m | ETA 0.6m
-  [BW Pass 1] iter 266/359 (74.1%) | elapsed 1.7m | ETA 0.6m
-  [BW Pass 1] iter 274/359 (76.3%) | elapsed 1.8m | ETA 0.6m
-  [BW Pass 1] iter 282/359 (78.6%) | elapsed 1.9m | ETA 0.5m
-  [BW Pass 1] iter 290/359 (80.8%) | elapsed 1.9m | ETA 0.5m
-  [BW Pass 1] iter 298/359 (83.0%) | elapsed 2.0m | ETA 0.4m
-  [BW Pass 1] iter 306/359 (85.2%) | elapsed 2.1m | ETA 0.4m
-  [BW Pass 1] iter 314/359 (87.5%) | elapsed 2.2m | ETA 0.3m
-  [BW Pass 1] iter 322/359 (89.7%) | elapsed 2.3m | ETA 0.3m
-  [BW Pass 1] iter 330/359 (91.9%) | elapsed 2.4m | ETA 0.2m
-  [BW Pass 1] iter 338/359 (94.2%) | elapsed 2.5m | ETA 0.2m
-  [BW Pass 1] iter 346/359 (96.4%) | elapsed 2.5m | ETA 0.1m
-  [BW Pass 1] iter 354/359 (98.6%) | elapsed 2.6m | ETA 0.0m
-[BW-fast] Computing Minimal Polynomial from 11488 scalars...
-[BW-fast] Minimal polynomial degree: 256
-[BW-fast] Pass 2: Reconstructing Solution Vector
-  [BW Pass 2] iter 8/9 (88.9%) | elapsed 0.1m | ETA 0.0m
-  [BW] Solved in 165.64s
-  [BW] Candidate dlog mod ℓ = 74864408
-  [Solver] Block-Wiedemann returned a candidate.
-  [Result] Discrete log (mod ℓ) candidate: 74864408
-Attack failed: name 'ell' is not defined
+  [BW] Sparse system: 4 x 9, nnz=8
+  [Solver] Using direct sparse solve (n=9 < 10k)
+  [Direct] Building sparse matrix over Zmod(972045913)...
+  [Direct] Matrix: 4 x 9, nnz=8, density=22.2222%
+  [Direct] Solving system (backend=Sage/generic)...
+  [Direct] ✓ Solved in 0.02s
+  [BW] Candidate dlog mod ℓ = 0
+=== BW DIAGNOSTIC START ===
+n_cols (derived) = 9 solution length = 9
+[verify_matrix_solution] OK: A * solution == b (mod 972045913)
+Failed to reconstruct d from solution: reconstruct_d_from_solution: solution length 9 <= index 9
+[dump_group_torsion_info] {'ell': 972045913, 'h': 1158412, 'ellG_zero': True, 'ellQ_zero': True, 'hG_zero': False, 'hQ_zero': False}
+=== BW DIAGNOSTIC END ===
+Attack failed: Block-Wiedemann solver failed: [BW-Verify] Verification failed: dlog * G != Q in J(F_p)[ℓ]
+  dlog = 0, ell = 972045913
