@@ -16,8 +16,6 @@ from collections import Counter
 from prime_subgroup_projection import *
 from .sparse_linalg_modp import *
 from .smoothness import tonelli_shanks, extract_factor_base
-from sage.all import GF
-    
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -41,6 +39,7 @@ K = GF(FINITE_FIELD)
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def get_canonical_y_cached(x_int):
     global _GLOBAL_FB_Y_CACHE
@@ -543,6 +542,7 @@ def u_poly_roots_in_fp(div, p):
     try:
         roots = u_poly.roots(K)
     except Exception:
+        raise
         return None
 
     # Check complete split
@@ -563,6 +563,7 @@ def _u_poly_roots_in_fp(div, p):
     try:
         roots = u_poly.roots(K)
     except Exception:
+        raise
         return None
     total_mult = sum(m for _, m in roots)
     if total_mult != u_poly.degree():
@@ -660,7 +661,7 @@ def jacobian_to_dict(J_elem, p):
             res['roots'] = [int(r) for r, _ in roots_data]
     except Exception:
         # If root extraction fails, that's fine — caller can still use u_coeffs/v_coeffs
-        pass
+        raise
 
     return res
 
@@ -689,6 +690,7 @@ def get_relation_row(div, root_to_idx, f_poly, p, fb_y_cache=None):
     try:
         roots_data = u_poly.roots(K)
     except Exception:
+        raise
         return None
 
     if sum(m for _, m in roots_data) != u_poly.degree():
@@ -704,6 +706,7 @@ def get_relation_row(div, root_to_idx, f_poly, p, fb_y_cache=None):
         try:
             y_val = int(v_poly(x_elem))
         except Exception:
+            raise
             return None
 
         # compute canonical sqrt of f(x)
@@ -863,6 +866,107 @@ This patch adds:
 # ============================================================================
 # Insert this logic where valid_rows are being built from smooth_divs
 
+def build_anchored_relations(smooth_divs, r_to_idx, f_p, p, fb_y_cache, preferred_x_coords=PREFERRED_X_COORDS, verbose=True):
+    """
+    Build relation rows with consistent anchoring.
+    
+    All relations are rebased to a single canonical anchor point chosen from
+    preferred_x_coords. This ensures the linear system is mathematically consistent.
+    
+    Returns:
+        (valid_rows, rhs_values) where all rows are anchored to the same base point
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    # Choose base anchor (first preferred x-coord in factor base)
+    base_anchor_x = None
+    for x in sorted(preferred_x_coords):
+        if int(x) in r_to_idx:
+            base_anchor_x = int(x)
+            break
+    
+    if base_anchor_x is None:
+        raise RuntimeError("No preferred x-coordinate found in factor base for anchoring")
+    
+    if verbose:
+        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
+    
+    # Precompute base anchor row (we'll need this many times)
+    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    if base_row is None:
+        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_anchor = 0
+    skipped_rebase_fail = 0
+    
+    for d in smooth_divs:
+        # Extract scalar r from the vector (assumes vector[0] is coefficient for G)
+        vec = d.get('vector', None)
+        if vec is None:
+            continue
+        r_val = int(vec[0])
+        
+        # Build divisor polynomials
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        else:
+            try:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            except Exception:
+                raise
+                continue
+        
+        # Get relation row
+        from .index_calculus import get_relation_row
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        if not row:
+            continue
+        
+        # Find anchor point in this divisor (any root in factor base)
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            raise
+            continue
+        
+        current_anchor_x = None
+        for r, _ in roots_data:
+            r_int = int(r)
+            if r_int in r_to_idx:
+                current_anchor_x = r_int
+                break
+        
+        if current_anchor_x is None:
+            skipped_no_anchor += 1
+            continue
+        
+        # Rebase to canonical anchor
+        rebased_row = rebase_relation_row(
+            row, current_anchor_x, base_anchor_x,
+            r_to_idx, f_p, p, fb_y_cache
+        )
+        
+        if rebased_row is None:
+            skipped_rebase_fail += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
+        rhs_values.append(r_val)
+    
+    if verbose:
+        print(f"  [Anchoring] Built {len(valid_rows)} anchored relations")
+        if skipped_no_anchor > 0:
+            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
+        if skipped_rebase_fail > 0:
+            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
+    
+    return valid_rows, rhs_values
+
 
 # ============================================================================
 # USAGE IN perform_dlp_attack
@@ -948,6 +1052,106 @@ def rebase_relation_row(row, current_anchor_x, base_anchor_x, r_to_idx, f_p, p, 
     return new_row
 
 
+def build_anchored_relations_homogeneous(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
+                                        preferred_x_coords=None, verbose=True):
+    """
+    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
+    
+    These divisors are NOT scalar multiples of G - they're just arbitrary smooth divisors.
+    They give us dependencies among FB elements: ∏ P_i^{e_i} = 0 in the Jacobian.
+    
+    All relations are rebased to a single canonical anchor point for consistency.
+    
+    Returns:
+        (valid_rows, rhs_values) where rhs_values are all 0
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    # Choose base anchor
+    base_anchor_x = None
+    if preferred_x_coords:
+        for x in sorted(preferred_x_coords):
+            if int(x) in r_to_idx:
+                base_anchor_x = int(x)
+                break
+    
+    if base_anchor_x is None:
+        # Fallback: use first element in factor base
+        base_anchor_x = min(r_to_idx.keys())
+    
+    if verbose:
+        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
+    
+    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
+    if base_row is None:
+        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_anchor = 0
+    skipped_rebase_fail = 0
+    
+    for d in smooth_divs:
+        # Build divisor polynomials
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        else:
+            try:
+                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+            except Exception:
+                raise
+                continue
+        
+        # Get relation row
+        from .index_calculus import get_relation_row
+        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        if not row:
+            continue
+        
+        # Find anchor point in this divisor
+        try:
+            roots_data = u_poly.roots(K)
+        except Exception:
+            raise
+            continue
+        
+        current_anchor_x = None
+        for r, _ in roots_data:
+            r_int = int(r)
+            if r_int in r_to_idx:
+                current_anchor_x = r_int
+                break
+        
+        if current_anchor_x is None:
+            skipped_no_anchor += 1
+            continue
+        
+        # Rebase to canonical anchor
+        rebased_row = rebase_relation_row(
+            row, current_anchor_x, base_anchor_x,
+            r_to_idx, f_p, p, fb_y_cache
+        )
+        
+        if rebased_row is None:
+            skipped_rebase_fail += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
+        rhs_values.append(0)  # HOMOGENEOUS: all smooth divisor relations have RHS = 0
+    
+    if verbose:
+        print(f"  [Anchoring] Built {len(valid_rows)} homogeneous relations (RHS=0)")
+        if skipped_no_anchor > 0:
+            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
+        if skipped_rebase_fail > 0:
+            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
+    
+    return valid_rows, rhs_values
+
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -981,6 +1185,7 @@ def is_divisor_fb_smooth(div, r_to_idx, f_p, p, fb_y_cache=None):
     try:
         roots_data = u_poly.roots(K)
     except Exception:
+        raise
         return False
 
     if sum(m for _, m in roots_data) != u_poly.degree():
@@ -994,6 +1199,7 @@ def is_divisor_fb_smooth(div, r_to_idx, f_p, p, fb_y_cache=None):
         try:
             y_val = int(v_poly(x_elem))
         except Exception:
+            raise
             return False
 
         if fb_y_cache is not None and x_int in fb_y_cache:
@@ -1304,7 +1510,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
         extended_divs.append(jacobian_to_dict(Q, p))
     except Exception:
         # If G/Q are not Jacobian objects (edge-case), just skip them:
-        pass
+        raise
 
     # append the provided smooth_divs (assumed dicts with u_coeffs/v_coeffs or s/p/v_*)
     extended_divs.extend(list(smooth_divs))
@@ -1324,8 +1530,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
         print(f"  [Legacy->Relations] Factor base size: {len(r_to_idx)}")
 
     # Build homogeneous relations from the supplied smooth_divs (rebased to canonical anchor)
-    # [FIXED]: Unpack 3 values, though we might not use rhs_coeffs_a/b directly if they are 0
-    valid_rows, rhs_a, rhs_b = build_anchored_relations_homogeneous(
+    valid_rows, rhs_values = build_anchored_relations_homogeneous(
         smooth_divs, r_to_idx, f_p, p, fb_y_cache,
         preferred_x_coords=None,  # allow function to choose fallback anchor (G/Q anchors already injected)
         verbose=verbose
@@ -1333,20 +1538,9 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
 
     if not valid_rows:
         raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
-    
-    # Construct RHS values. If relations are a*G + b*Q = Sum(FB), then Sum(FB) - a*G - b*Q = 0
-    # But usually this legacy function produces FB dependencies (RHS=0). 
-    # If the inputs have 'scalar_a'/'scalar_b', we might need to handle them differently
-    # For now, stick to the assumption that these are pure FB relations (rhs=0).
-    # If scalars are present, valid_rows will represent Sum(FB), so we just set rhs to 0
-    # and let the solver handle the extra G/Q variables if it supports them.
-    # However, existing perform_dlp_attack handles G and Q separately.
-    rhs_values = [0] * len(valid_rows)
 
     return valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache
 
-
-   
 
 def get_largest_prime_factor(n):
     """
@@ -1475,711 +1669,191 @@ def project_relations_and_solve_mod_l(valid_rows, rhs_values, q_anchored, full_o
         )
 
 
-def build_anchored_relations(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
-                           preferred_x_coords=None, verbose=True):
-    """
-    Build relation rows with scalars.
-    
-    Simplified Version: Removes 'Anchoring' logic.
-    Extracts scalar 'r' from the divisor metadata (d['vector'][0]).
-    
-    Returns:
-        (valid_rows, rhs_values)
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    valid_rows = []
-    rhs_values = []
-    
-    if verbose:
-        print(f"  [Relations] Building relations (Direct/No-Anchoring)...")
-    
-    for d in smooth_divs:
-        # Extract scalar r from the vector (assumes vector[0] is coefficient for G)
-        vec = d.get('vector', None)
-        if vec is None:
-            continue
-        # Allow crash if vector structure is unexpected, per user preference for loud failures
-        try:
-            r_val = int(vec[0])
-        except (IndexError, TypeError, ValueError):
-            continue
-
-        # Build divisor polynomials
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        else:
-            # Fallback for s/p/v dicts
-            try:
-                s = int(d['s'])
-                pp = int(d['p'])
-                v1 = int(d['v_1'])
-                v0 = int(d['v_0'])
-                u_poly = R.gen()**2 - K(s)*R.gen() + K(pp)
-                v_poly = K(v1)*R.gen() + K(v0)
-            except (KeyError, ValueError):
-                continue
-        
-        # Get relation row
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        
-        if row:
-            valid_rows.append({int(k): int(v) for k, v in row.items()})
-            rhs_values.append(r_val)
-    
-    if verbose:
-        print(f"  [Relations] Built {len(valid_rows)} relations")
-    
-    return valid_rows, rhs_values
-
-
-# ============================================================================
-# MODIFIED perform_dlp_attack TO USE NEW RELATIONS
-# ============================================================================
-
-    
-
-
-def build_anchored_relations_homogeneous(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
-                                        preferred_x_coords=None, verbose=True):
-    """
-    Build relations from divisors with known (a,b) coefficients.
-    Each relation: a*G + b*Q = smooth_divisor
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    valid_rows = []
-    rhs_coeffs_a = []  # Coefficients of G
-    rhs_coeffs_b = []  # Coefficients of Q
-    
-    if verbose:
-        print(f"  [Relations] Building relations from random combinations...")
-
-    for d in smooth_divs:
-        # Extract the (a, b) coefficients
-        # Priority 1: scalar_a, scalar_b keys
-        if 'scalar_a' in d and 'scalar_b' in d:
-            a = int(d['scalar_a'])
-            b = int(d['scalar_b'])
-        # Priority 2: vector key (assuming dim 2)
-        elif 'vector' in d:
-            try:
-                vec = d['vector']
-                if len(vec) >= 2:
-                    a = int(vec[0])
-                    b = int(vec[1])
-                elif len(vec) == 1:
-                    a = int(vec[0])
-                    b = 0
-                else:
-                    a = 0
-                    b = 0
-            except (ValueError, TypeError, IndexError):
-                continue
-        else:
-            continue
-        
-        # Build divisor polynomials
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        else:
-            try:
-                s = int(d['s'])
-                pp = int(d['p'])
-                v1 = int(d['v_1'])
-                v0 = int(d['v_0'])
-                u_poly = R.gen()**2 - K(s)*R.gen() + K(pp)
-                v_poly = K(v1)*R.gen() + K(v0)
-            except (KeyError, ValueError):
-                continue
-        
-        # Get factor base decomposition of the smooth divisor
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        
-        if row:
-            valid_rows.append({int(k): int(v) for k, v in row.items()})
-            rhs_coeffs_a.append(a)
-            rhs_coeffs_b.append(b)
-            
-    if verbose:
-        print(f"  [Relations] Built {len(valid_rows)} relations")
-    
-    return valid_rows, rhs_coeffs_a, rhs_coeffs_b
-
-
-# Add this to index_calculus.py
-
-
-# ============================================================================
-# INTEGRATION POINT: search_main.py calls this
-# ============================================================================
-
-
-# ============================================================================
-# MODIFIED perform_dlp_attack TO USE NEW RELATIONS
-# ============================================================================
-
-# Add this to index_calculus.py
-
-def ingest_mumford_relations(mumford_divisors, f_coeffs, p, verbose=True):
-    """
-    Adapter: Convert Mumford divisors to index calculus relations.
-    
-    This is the ONLY place where Mumford structure crosses into index calculus.
-    
-    Args:
-        mumford_divisors: List of dicts from mumford_reconstruction with keys:
-            - 's', 'p', 'v_0', 'v_1' (Mumford coords)
-            - 'scalar_a', 'scalar_b' (a*G + b*Q = divisor)
-            - 'roots' (optional, x-coords where u splits)
-        f_coeffs: Curve polynomial coefficients (highest degree first)
-        p: Prime modulus
-        
-    Returns:
-        dict with keys:
-            - 'relations': list of sparse dicts {col_idx: signed_exp}
-            - 'rhs_a': list of ints (coefficients of G)
-            - 'rhs_b': list of ints (coefficients of Q)
-            - 'fb_roots': sorted list of factor base x-coords
-            - 'fb_map': dict {x_int: column_index}
-            - 'fb_y_cache': dict {x_int: canonical_y}
-    """
-    from sage.all import GF, PolynomialRing
-    from .smoothness import tonelli_shanks, extract_factor_base
-    
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    
-    if verbose:
-        print(f"\n{'='*70}")
-        print("MUMFORD → INDEX CALCULUS ADAPTER")
-        print(f"{'='*70}")
-        print(f"Input: {len(mumford_divisors)} Mumford divisors")
-    
-    # Step 1: Extract factor base from the divisors
-    fb_data = extract_factor_base(mumford_divisors, p, f_p, verbose=verbose)
-    fb_roots = fb_data['roots']
-    fb_map = fb_data['root_to_idx']
-    fb_y_cache = fb_data.get('fb_y_cache', {})
-    
-    if verbose:
-        print(f"Factor base size: {len(fb_roots)}")
-    
-    # Step 2: Convert each divisor to a relation vector
-    relations = []
-    rhs_a = []  # Coefficients of G
-    rhs_b = []  # Coefficients of Q
-    
-    skipped_reasons = {'not_smooth': 0, 'missing_scalars': 0, 'conversion_error': 0}
-    
-    for idx, div in enumerate(mumford_divisors):
-        try:
-            # Extract scalar coefficients
-            if 'scalar_a' in div and 'scalar_b' in div:
-                a = int(div['scalar_a'])
-                b = int(div['scalar_b'])
-            else:
-                skipped_reasons['missing_scalars'] += 1
-                continue
-            
-            # Build Mumford polynomials
-            if 'u_coeffs' in div and 'v_coeffs' in div:
-                u_poly = R(div['u_coeffs'])
-                v_poly = R(div['v_coeffs'])
-            else:
-                # Fallback: construct from s,p,v_0,v_1
-                s = int(div['s'])
-                p_val = int(div['p'])
-                v0 = int(div.get('v_0', 0))
-                v1 = int(div.get('v_1', 0))
-                
-                x = R.gen()
-                u_poly = x**2 - K(s)*x + K(p_val)
-                v_poly = K(v1)*x + K(v0)
-            
-            # Convert to factor base decomposition
-            row = _mumford_to_fb_row(u_poly, v_poly, fb_map, f_p, p, fb_y_cache)
-            
-            if row is None:
-                skipped_reasons['not_smooth'] += 1
-                continue
-            
-            # Normalize and store
-            row_normalized = _normalize_relation_row(row, p)
-            relations.append(row_normalized)
-            rhs_a.append(a)
-            rhs_b.append(b)
-            
-        except Exception as e:
-            if verbose and skipped_reasons['conversion_error'] < 3:
-                print(f"  [Warning] Conversion error for divisor {idx}: {e}")
-            skipped_reasons['conversion_error'] += 1
-            continue
-    
-    if verbose:
-        print(f"\nConversion results:")
-        print(f"  Valid relations: {len(relations)}")
-        print(f"  Skipped (not smooth): {skipped_reasons['not_smooth']}")
-        print(f"  Skipped (missing scalars): {skipped_reasons['missing_scalars']}")
-        print(f"  Skipped (errors): {skipped_reasons['conversion_error']}")
-    
-    if not relations:
-        raise RuntimeError("No valid relations extracted from Mumford divisors")
-    
-    return {
-        'type': 'relations',  # Marker for precomputed relations
-        'relations': relations,
-        'rhs_a': rhs_a,
-        'rhs_b': rhs_b,
-        'fb_roots': fb_roots,
-        'fb_map': fb_map,
-        'fb_y_cache': fb_y_cache
-    }
-
-
-def _mumford_to_fb_row(u_poly, v_poly, fb_map, f_p, p, fb_y_cache):
-    """
-    Convert a single Mumford divisor (u, v) to factor base row.
-    
-    Returns:
-        dict {col_idx: signed_multiplicity} or None if not smooth
-    """
-    from sage.all import GF
-    from .smoothness import tonelli_shanks
-    
-    K = GF(p)
-    
-    # Check degree
-    if u_poly.degree() not in [1, 2]:
-        return None
-    
-    # Extract roots
-    try:
-        roots_data = u_poly.roots(K)
-    except:
-        return None
-    
-    # Check complete splitting
-    if sum(mult for _, mult in roots_data) != u_poly.degree():
-        return None
-    
-    row = {}
-    
-    for x_elem, mult in roots_data:
-        x_int = int(x_elem)
-        
-        # Check if in factor base
-        if x_int not in fb_map:
-            return None
-        
-        # Get y-coordinate from v(x)
-        y_val = int(v_poly(x_elem))
-        
-        # Get canonical y from cache or compute
-        if x_int in fb_y_cache:
-            y_can = fb_y_cache[x_int]
-        else:
-            y2 = int(f_p(x_elem))
-            if y2 == 0:
-                y_can = 0
-            elif pow(y2, (p-1)//2, p) != 1:
-                return None  # Not a quadratic residue
-            else:
-                y_can = tonelli_shanks(y2, p)
-                y_can = int(min(y_can, p - y_can))
-        
-        # Determine sign
-        col_idx = fb_map[x_int]
-        
-        if y_val == y_can:
-            row[col_idx] = row.get(col_idx, 0) + int(mult)
-        elif (p - y_val) % p == y_can:
-            row[col_idx] = row.get(col_idx, 0) - int(mult)
-        else:
-            return None  # Sign mismatch
-    
-    return row
-
-
-def _normalize_relation_row(row, modulus):
-    """
-    Normalize a relation row: reduce mod ℓ, drop zeros.
-    
-    This is the ONLY place where normalization happens.
-    """
-    normalized = {}
-    
-    for col_idx, exp in row.items():
-        exp_mod = int(exp) % int(modulus)
-        if exp_mod != 0:
-            normalized[int(col_idx)] = exp_mod
-    
-    return normalized
-
-
-# ============================================================================
-# INTEGRATION POINT: search_main.py calls this
-# ============================================================================
-
-def prepare_relations_for_dlp(mumford_divisors, f_coeffs, p, verbose=True):
-    """
-    Single entry point: Mumford divisors → DLP-ready relations.
-    
-    Call this from search_main.py instead of passing raw divisors.
-    
-    Returns:
-        Relations dict suitable for perform_dlp_attack(precomputed=True)
-    """
-    relations_data = ingest_mumford_relations(mumford_divisors, f_coeffs, p, verbose)
-    
-    # Wrap in list for perform_dlp_attack's precomputed format
-    return [relations_data]
-
-
-# ============================================================================
-# REWRITTEN perform_dlp_attack TO USE ADAPTER
-# ============================================================================
-
 def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
                        verbose=True, force_index_calculus=False):
     """
-    REWRITTEN: Robust wrapper for Index-Calculus DLP using adapter pattern.
-    
-    Args:
-        G: Generator (Jacobian element)
-        Q: Target (Jacobian element)  
-        smooth_divs_or_rels: Either:
-            - List with single dict {'type': 'relations', ...} (from prepare_relations_for_dlp)
-            - List of raw Mumford divisor dicts (legacy path, will auto-convert)
-        p: Prime modulus
-        f_coeffs: Curve coefficients
-        order: Full Jacobian order
-        verbose: Print diagnostics
-        force_index_calculus: Unused (kept for compatibility)
-        
-    Returns:
-        Integer: Discrete log d such that Q = d*G
+    Robust wrapper for Index-Calculus DLP.
+    FIXED: Properly constructs inhomogeneous system for G and Q.
     """
+    # Basic validation
     if G is None or Q is None:
         raise ValueError("Generator G and target Q must be provided")
     if order is None or int(order) <= 0:
         raise ValueError("Invalid Jacobian order provided")
 
     full_order = Integer(order)
+
+    # Check if precomputed relations
+    precomputed = False
+    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
+            and isinstance(smooth_divs_or_rels[0], dict)
+            and smooth_divs_or_rels[0].get('type') == 'relations'):
+        precomputed = True
+
+    # Prepare polynomial ring and curve
     K = GF(p)
     R = PolynomialRing(K, 'x')
     f_p = sage_poly_from_coeffs(f_coeffs, R)
-
-    # Detect if precomputed relations or raw divisors
-    precomputed = False
-    if (isinstance(smooth_divs_or_rels, (list, tuple)) and 
-        len(smooth_divs_or_rels) >= 1 and
-        isinstance(smooth_divs_or_rels[0], dict) and
-        smooth_divs_or_rels[0].get('type') == 'relations'):
-        precomputed = True
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
 
     if verbose:
         print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS DLP ATTACK")
+        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
         print(f"{'='*70}")
         print(f"Full Jacobian order |J|: {full_order}")
-        sys.stdout.flush()
 
-    # Extract or build relations
+    # Build or extract factor base and homogeneous relations
     if precomputed:
         data = smooth_divs_or_rels[0]
-        valid_rows = data['relations']
-        rhs_a = data['rhs_a']
-        rhs_b = data['rhs_b']
-        fb_map = data['fb_map']
-        fb_y_cache = data['fb_y_cache']
+        homogeneous_rows = data['relations']
+        fb_roots = data['fb_roots']
+        r_to_idx = data['fb_map']
         
-        if verbose:
-            print(f"  [Precomputed] Using {len(valid_rows)} relations")
-            print(f"  [Factor Base] Size: {len(fb_map)}")
+        fb_y_cache = {}
+        for x_int in fb_roots:
+            y2 = int(f_p(K(x_int)))
+            if y2 == 0:
+                fb_y_cache[x_int] = 0
+            else:
+                y_can = tonelli_shanks(y2, p)
+                fb_y_cache[x_int] = int(min(y_can, p - y_can))
     else:
-        # Legacy path: auto-convert raw Mumford divisors
+        # Legacy path: build from Mumford divisors
         if verbose:
-            print("  [Legacy] Auto-converting Mumford divisors to relations...")
-        relations_bundle = prepare_relations_for_dlp(smooth_divs_or_rels, f_coeffs, p, verbose=False)
-        data = relations_bundle[0]
-        valid_rows = data['relations']
-        rhs_a = data['rhs_a']
-        rhs_b = data['rhs_b']
-        fb_map = data['fb_map']
-        fb_y_cache = data['fb_y_cache']
-
-    if not valid_rows:
-        raise RuntimeError("No valid relations available")
-
-    if verbose:
-        print(f"  [Relations] {len(valid_rows)} homogeneous relations loaded")
-        sys.stdout.flush()
-
-    # ========================================================================
-    # SMOOTH GENERATOR G
-    # ========================================================================
-    
-    if verbose:
-        print("\n  [Smoothing] Attempting to smooth generator G...")
-        sys.stdout.flush()
-    
-    row_g = None
-    alpha_g = 0  # We want G itself, or (1+r)*G if G not smooth
-    
-    # Try G directly
-    if is_divisor_fb_smooth(G, fb_map, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = canonicalize_divisor_to_factor_base(G, fb_map, f_p, p)
-        if row_g is None:
-            row_g = _build_signed_row_from_divisor(G, fb_map, f_p, p)
-        if row_g:
-            alpha_g = 0
-            if verbose:
-                print("  [Smoothing] G is smooth over factor base")
-    
-    # Random walk if G not smooth
-    if row_g is None:
-        if verbose:
-            print("  [Smoothing] G not smooth, trying random multiples...")
-            sys.stdout.flush()
+            print("  [Legacy] Building factor base and relations from Mumford divisors...")
         
-        for attempt in range(1, 2001):
+        homogeneous_rows, _, fb_roots, r_to_idx, fb_y_cache = \
+            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+
+    if not homogeneous_rows:
+        raise RuntimeError("No valid homogeneous relations available")
+
+    if verbose:
+        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
+        print(f"  [Factor Base] Size: {len(r_to_idx)}")
+        sys.stdout.flush()
+
+    # --- CRITICAL FIX: Build inhomogeneous rows for G and Q separately ---
+    
+    # Smooth G
+    row_g = None
+    alpha_g = 0
+    
+    if is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Generator G is already smooth.")
+    else:
+        if verbose:
+            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
+        for i in range(1, 2001):
             r = ZZ.random_element(1, int(full_order))
             cand_G = (1 + r) * G
-            
-            if is_divisor_fb_smooth(cand_G, fb_map, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = canonicalize_divisor_to_factor_base(cand_G, fb_map, f_p, p)
-                if row_g is None:
-                    row_g = _build_signed_row_from_divisor(cand_G, fb_map, f_p, p)
-                
+            if is_divisor_fb_smooth(cand_G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = canonicalize_divisor_to_factor_base(cand_G, r_to_idx, f_p, p) or \
+                        _build_signed_row_from_divisor(cand_G, r_to_idx, f_p, p)
                 if row_g:
                     alpha_g = r
                     if verbose:
-                        print(f"  [Smoothing] Found smooth (1+{r})*G after {attempt} attempts")
+                        print(f"  [Smoothing] Found smooth generator at iter {i}")
                     break
-        
-        if row_g is None:
-            raise RuntimeError("Failed to smooth generator G after 2000 attempts")
+    
+    if row_g is None:
+        raise RuntimeError("Failed to smooth Generator G")
 
-    # ========================================================================
-    # SMOOTH TARGET Q  
-    # ========================================================================
-    
-    if verbose:
-        print("\n  [Smoothing] Attempting to smooth target Q...")
-        sys.stdout.flush()
-    
+    # Smooth Q
     row_q = None
-    beta_q = 0  # We want Q + r*G for some r
+    beta_q = 0
     
-    # Try Q directly
-    if is_divisor_fb_smooth(Q, fb_map, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = canonicalize_divisor_to_factor_base(Q, fb_map, f_p, p)
-        if row_q is None:
-            row_q = _build_signed_row_from_divisor(Q, fb_map, f_p, p)
-        if row_q:
-            beta_q = 0
-            if verbose:
-                print("  [Smoothing] Q is smooth over factor base")
-    
-    # Random walk if Q not smooth
-    if row_q is None:
+    if is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
         if verbose:
-            print("  [Smoothing] Q not smooth, trying Q + r*G...")
-            sys.stdout.flush()
-        
-        for attempt in range(1, 2001):
+            print("  [Smoothing] Target Q is already smooth.")
+    else:
+        if verbose:
+            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
+        for i in range(1, 2001):
             r = ZZ.random_element(1, int(full_order))
             cand_Q = Q + r * G
-            
-            if is_divisor_fb_smooth(cand_Q, fb_map, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = canonicalize_divisor_to_factor_base(cand_Q, fb_map, f_p, p)
-                if row_q is None:
-                    row_q = _build_signed_row_from_divisor(cand_Q, fb_map, f_p, p)
-                
+            if is_divisor_fb_smooth(cand_Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_q = canonicalize_divisor_to_factor_base(cand_Q, r_to_idx, f_p, p) or \
+                        _build_signed_row_from_divisor(cand_Q, r_to_idx, f_p, p)
                 if row_q:
                     beta_q = r
                     if verbose:
-                        print(f"  [Smoothing] Found smooth Q+{r}*G after {attempt} attempts")
+                        print(f"  [Smoothing] Found smooth target at iter {i}")
                     break
-        
-        if row_q is None:
-            raise RuntimeError("Failed to smooth target Q after 2000 attempts")
+    
+    if row_q is None:
+        raise RuntimeError("Failed to smooth Target Q")
 
-    # ========================================================================
-    # BUILD EXTENDED SYSTEM
-    # ========================================================================
+    # --- CRITICAL: Construct the FULL system with proper RHS values ---
+    # The system is now:
+    #   homogeneous_rows[i] · x = 0  (for i in smooth divisors)
+    #   row_g · x = 1 + alpha_g      (inhomogeneous for G)
     
-    # Our relations are: a_i*G + b_i*Q = Sum_j(e_{ij} * FB_j)
-    # Rearranging: Sum_j(e_{ij} * log(FB_j)) - a_i*log(G) - b_i*log(Q) = 0
-    #
-    # We also have:
-    #   (1 + alpha_g)*G = Sum_j(g_j * FB_j)  =>  Sum(g_j * log(FB_j)) = (1+alpha_g)
-    #   Q + beta_q*G = Sum_j(q_j * FB_j)     =>  Sum(q_j * log(FB_j)) - beta_q = log(Q)
+    # Append G row to the system
+    full_rows = list(homogeneous_rows)  # Copy
+    full_rhs = [0] * len(homogeneous_rows)  # All zeros for homogeneous
     
-    # Extended system has variables: [log(FB_0), ..., log(FB_n), log(G), log(Q)]
-    num_fb = len(fb_map)
-    idx_log_G = num_fb      # Index for log(G)
-    idx_log_Q = num_fb + 1  # Index for log(Q)
-    num_vars = num_fb + 2
-    
-    extended_rows = []
-    extended_rhs = []
-    
-    # Add homogeneous relations: Sum(e_{ij} * log(FB_j)) - a_i*log(G) - b_i*log(Q) = 0
-    for i, row in enumerate(valid_rows):
-        extended_row = dict(row)  # Copy FB part
-        
-        # Add -a_i for log(G)
-        if rhs_a[i] != 0:
-            extended_row[idx_log_G] = -int(rhs_a[i])
-        
-        # Add -b_i for log(Q)
-        if rhs_b[i] != 0:
-            extended_row[idx_log_Q] = -int(rhs_b[i])
-        
-        extended_rows.append(extended_row)
-        extended_rhs.append(0)  # Homogeneous
-    
-    # Add G equation: Sum(g_j * log(FB_j)) + 1*log(G) = (1 + alpha_g)
-    g_row = dict(row_g)
-    g_row[idx_log_G] = 1
-    extended_rows.append(g_row)
-    extended_rhs.append(int(1 + alpha_g))
-    
-    # Add Q equation: Sum(q_j * log(FB_j)) + 0*log(G) + 1*log(Q) = beta_q
-    q_row = dict(row_q)
-    q_row[idx_log_Q] = 1
-    extended_rows.append(q_row)
-    extended_rhs.append(int(beta_q))
+    full_rows.append({int(k): int(v) for k, v in row_g.items()})
+    full_rhs.append(int(1 + alpha_g))  # CRITICAL: Non-zero RHS for G
     
     if verbose:
-        print(f"\n  [System] Extended system: {len(extended_rows)} equations, {num_vars} variables")
-        print(f"           Variables: {num_fb} FB logs + log(G) + log(Q)")
+        print(f"\n  [System] Built system: {len(full_rows)} rows ({len(homogeneous_rows)} homogeneous + 1 for G)")
+        print(f"  [System] G row RHS: {full_rhs[-1]} (should be 1 + {alpha_g})")
         sys.stdout.flush()
 
-    # ========================================================================
-    # SOLVE USING BLOCK-WIEDEMANN
-    # ========================================================================
-    
-    if verbose:
-        print(f"\n  [Solver] Calling Block-Wiedemann solver...")
-        sys.stdout.flush()
-    
-    # The BW solver expects:
-    # - valid_rows: homogeneous relations (FB variables only)
-    # - rhs_values: zeros for homogeneous system
-    # - row_q_dict: FB decomposition of Q (or Q + beta*G)
-    # - beta_q: scalar offset
-    # It will internally:
-    # 1. Project everything mod ℓ
-    # 2. Build the augmented system with log(G) and log(Q) variables
-    # 3. Solve and extract log(Q)
-    
-    # Prepare inputs for BW solver
-    # Note: valid_rows already contain the homogeneous relations (a*G + b*Q = Sum(FB))
-    # We need to pass them as-is, along with the (a, b) coefficients
-    
-    # The current BW solver signature doesn't handle (a, b) coefficients!
-    # We need to build the extended system ourselves before calling BW.
-    
-    # Extended system has variables: [log(FB_0), ..., log(FB_n), log(G), log(Q)]
-    num_fb = len(fb_map)
-    idx_log_G = num_fb
-    idx_log_Q = num_fb + 1
-    
-    extended_rows = []
-    extended_rhs = []
-    
-    # Homogeneous relations: Sum(e_ij * log(FB_j)) - a_i*log(G) - b_i*log(Q) = 0
-    for i, row in enumerate(valid_rows):
-        extended_row = dict(row)  # Copy FB coefficients
-        
-        if rhs_a[i] != 0:
-            extended_row[idx_log_G] = -int(rhs_a[i])
-        if rhs_b[i] != 0:
-            extended_row[idx_log_Q] = -int(rhs_b[i])
-        
-        extended_rows.append(extended_row)
-        extended_rhs.append(0)
-    
-    # G smoothing equation: (1 + alpha_g)*G = Sum(g_j * FB_j)
-    # In logs: Sum(g_j * log(FB_j)) + log(G) = (1 + alpha_g)
-    g_row = dict(row_g)
-    g_row[idx_log_G] = 1
-    extended_rows.append(g_row)
-    extended_rhs.append(int(1 + alpha_g))
-    
-    # Q smoothing equation: Q + beta_q*G = Sum(q_j * FB_j)
-    # In logs: Sum(q_j * log(FB_j)) + log(Q) = beta_q
-    q_row_extended = dict(row_q)
-    q_row_extended[idx_log_Q] = 1
-    extended_rows.append(q_row_extended)
-    extended_rhs.append(int(beta_q))
-    
-    if verbose:
-        print(f"  [System] Extended: {len(extended_rows)} eqs, {num_fb + 2} vars (FB + log(G) + log(Q))")
-        sys.stdout.flush()
-    
-    # Now we need to extract log(Q) from the solution
-    # The BW solver returns solution[idx_log_Q] directly
-    
-    # Call BW solver with the extended system
-    from .sparse_linalg_modp import solve_dlp_mod_l_block_wiedemann
-    
-    # TRICK: We'll use row_q as the "target row" and beta_q as the "target scalar"
-    # But since log(Q) is now a variable at index idx_log_Q, we need to tell BW
-    # that we want to solve for variable idx_log_Q = beta_q - Sum(q_j * log(FB_j))
-    
-    # Actually, the BW solver computes: beta_q - Sum(q_j * solution[j])
-    # So if we give it row_q and beta_q, it will compute:
-    #   result = beta_q - Sum_over_FB(q_j * solution[j])
-    # But we want solution[idx_log_Q], not that formula.
-    
-    # FIX: Create a "dummy" row_q that extracts variable idx_log_Q:
-    #   We want: solution[idx_log_Q] = ?
-    #   So we set row_q_dict = {idx_log_Q: 1} and beta_q = 0
-    #   Then: result = 0 - 1*solution[idx_log_Q] = -solution[idx_log_Q]
-    #   So: solution[idx_log_Q] = -result
-    
-    # Wait, that's backwards. Let me re-read the BW solver...
-    # From sparse_linalg_modp.py line ~550:
-    #   dlog = Integer(beta_q_l)
-    #   for k, v in row_q_l.items():
-    #       dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
-    #
-    # So it computes: dlog = beta_q - Sum(v_k * solution[k])
-    #
-    # For us to extract solution[idx_log_Q], we need:
-    #   dlog = 0 - (-1) * solution[idx_log_Q] = solution[idx_log_Q]
-    #
-    # So: row_q_dict = {idx_log_Q: -1}, beta_q = 0
-    
-    row_q_extract = {idx_log_Q: -1}
-    beta_q_extract = 0
-    
+    # Solve the system
+    beta_q_int = int(beta_q)
+    row_q_dict = {int(k): int(v) for k, v in row_q.items()}
+
+    d_log_val = None
     try:
-        log_Q_mod_ell = solve_dlp_mod_l_block_wiedemann(
-            valid_rows=extended_rows,
-            rhs_values=extended_rhs,
-            row_q_dict=row_q_extract,
-            beta_q=beta_q_extract,
-            full_order=full_order,
-            G=G,
-            Q=Q,
+        if verbose:
+            print("  [Solver] Starting Block-Wiedemann...")
+        
+        d_log_val = solve_dlp_mod_l_block_wiedemann(
+            full_rows,  # ← Now includes G with proper RHS
+            full_rhs,   # ← Now has [0, 0, ..., 0, 1+alpha_g]
+            row_q_dict,
+            beta_q_int,
+            full_order,
+            G, Q,
             verbose=verbose,
-            block_size=1,  # Standard Wiedemann
+            block_size=32,
         )
+        
+        if verbose:
+            print("  [Solver] Block-Wiedemann returned a candidate.")
     except Exception as e:
-        raise RuntimeError(f"Block-Wiedemann solver failed: {e}") from e
-    
+        raise RuntimeError(f"Block-Wiedemann solver failed: {e}")
+
+    if d_log_val is None:
+        raise RuntimeError("Solver produced no result")
+
     if verbose:
-        print(f"\n  [Result] Discrete log (mod ℓ): {log_Q_mod_ell}")
-        sys.stdout.flush()
-    
-    return Integer(log_Q_mod_ell)
+        print(f"  [Result] Discrete log (mod ℓ) candidate: {d_log_val}")
+
+    # Verify
+    ell = int(max(int(p) for p, _ in factor(full_order)))
+    D = Integer(d_log_val) * G - Q
+
+    if not (Integer(ell) * D).is_zero():
+        raise RuntimeError(
+            "[Verify] ✗ Block-Wiedemann result FAILED group verification:\n"
+            f"        ℓ * (d_log_val * G − Q) ≠ 0\n"
+            f"        dlog={d_log_val}, ℓ={ell}"
+        )
+
+    if verbose:
+        print("  [Verify] ✓ ℓ-torsion verification passed")
+        if D.is_zero():
+            print("  [Verify] ✓ Exact equality d*G == Q")
+        else:
+            print("  [Verify] ℹ d*G ≠ Q exactly (cofactor component)")
+
+    return Integer(d_log_val)
