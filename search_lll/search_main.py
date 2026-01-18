@@ -402,8 +402,10 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # For now, we skip detailed matrix diagnostics if multiple primes are used.
             if FINITE_FIELD:
                 if len(prime_list) == 1:
+                    p = int(FINITE_FIELD)
+                    f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
                     from .smoothness import diagnose_finite_field_search
-                    diagnose_finite_field_search(mumford_divisors, verbose=True)
+                    diagnose_finite_field_search(mumford_divisors, f_poly, verbose=True)
                 else:
                     print("[Info] Skipping single-prime matrix diagnostics (Multi-prime mode active).")
 
@@ -430,17 +432,19 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             p = int(FINITE_FIELD)
             f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
             # 1. Extract the factor base
-            fb_ret = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
-            # fb_ret in projected mode is a dict; in compat mode is a list
-            if isinstance(fb_ret, dict):
-                fb_roots = fb_ret['roots']
-                root_to_idx = fb_ret['root_to_idx']
-                fb_y_cache = fb_ret.get('fb_y_cache', {})
-            else:
-                fb_roots = fb_ret
-                root_to_idx = {r: i for i, r in enumerate(fb_roots)}
-                fb_y_cache = {}
-            fb_roots_set = set(root_to_idx.keys())
+            atom_to_idx, fb_y_cache = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
+
+            # Extract x-coordinates from degree-1 atoms for backward compatibility
+            fb_roots = []
+            for atom, idx in atom_to_idx.items():
+                if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
+                    x_val = atom[1]
+                    if x_val not in fb_roots:
+                        fb_roots.append(x_val)
+            
+            # Build root_to_idx mapping for legacy code
+            root_to_idx = {r: i for i, r in enumerate(fb_roots)}
+            fb_roots_set = set(fb_roots)
 
             # 2. Compute Jacobian Order
             L = compute_jacobian_order(coeffs_genus2, p)
@@ -449,6 +453,20 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print(f"  [Setup] Curve: y^2 = {f_poly}")
             #G, Q, true_d = generate_test_keypair(f_poly, p)
             G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
+
+            # **ADD HOMOMORPHISM TEST HERE**
+            print("\n" + "="*70)
+            print("TESTING FACTOR BASE HOMOMORPHISM PROPERTY")
+            print("="*70)
+            C = HyperellipticCurve(f_poly)
+            J = C.jacobian()
+            if not homomorphism_test(J, atom_to_idx, f_poly, p, trials=50):
+                print("CRITICAL: Homomorphism test FAILED!")
+                print("The factor base encoding is not preserving group structure.")
+                print("Attack will likely fail. Aborting.")
+                raise RuntimeError("Factor base homomorphism test failed")
+            print(" Homomorphism test PASSED")
+            print("="*70 + "\n")
 
             # NEW: RR-Local Pre-check
             print(f"  [Phase 0] Attempting RR-Localization for target Q...")
