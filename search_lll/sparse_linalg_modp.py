@@ -944,80 +944,6 @@ def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
 from sage.all import Integer, Zmod, vector, matrix
 
 
-def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
-    """
-    Prune factor base to pivot columns via Gaussian elimination.
-    
-    Returns:
-        (pruned_rows, pruned_rhs, col_map, pivot_cols)
-    where:
-        - pruned_rows: rows with only pivot columns
-        - pruned_rhs: corresponding RHS values
-        - col_map: dict mapping old_col_idx -> new_col_idx (or None if pruned)
-        - pivot_cols: list of original pivot column indices
-    """
-    K = GF(mod)
-    
-    # Find all columns that appear
-    all_cols = set()
-    for row in A_rows:
-        all_cols.update(row.keys())
-    n_cols_orig = max(all_cols) + 1 if all_cols else 0
-    
-    if verbose:
-        print(f"  [Prune] Input: {len(A_rows)} rows x {n_cols_orig} cols")
-        sys.stdout.flush()
-    
-    # Build sparse matrix
-    entries = {}
-    for i, row in enumerate(A_rows):
-        for j, v in row.items():
-            val = K(int(v))
-            if val != 0:
-                entries[(i, j)] = val
-    
-    M = matrix(K, len(A_rows), n_cols_orig, entries, sparse=True)
-    
-    # Compute pivots via row echelon form
-    M_rref = M.rref()
-    
-    # Extract pivot columns
-    pivot_cols = []
-    for i in range(M_rref.nrows()):
-        for j in range(M_rref.ncols()):
-            if M_rref[i, j] != 0:
-                pivot_cols.append(j)
-                break
-    
-    pivot_cols = sorted(set(pivot_cols))
-    
-    if verbose:
-        print(f"  [Prune] Pivot columns: {len(pivot_cols)}/{n_cols_orig}")
-        print(f"  [Prune] Rank: {len(pivot_cols)}")
-        sys.stdout.flush()
-    
-    # Build column mapping
-    col_map = {}
-    for new_idx, old_idx in enumerate(pivot_cols):
-        col_map[old_idx] = new_idx
-    
-    # Prune rows to only pivot columns
-    pruned_rows = []
-    for row in A_rows:
-        pruned_row = {}
-        for old_idx, val in row.items():
-            if old_idx in col_map:
-                pruned_row[col_map[old_idx]] = val
-        if pruned_row:
-            pruned_rows.append(pruned_row)
-    
-    if verbose:
-        print(f"  [Prune] Output: {len(pruned_rows)} rows x {len(pivot_cols)} cols")
-        sys.stdout.flush()
-    
-    return pruned_rows, b_list[:len(pruned_rows)], col_map, pivot_cols
-
-
 # ============================================================================
 # FILE: sparse_linalg_modp.py
 # FUNCTION: solve_sparse_direct_mod_ell (COMPLETE REWRITE)
@@ -1221,3 +1147,122 @@ def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=
             V = [at_a_v_from_packed(A.packed_rows, v, n, mod) for v in V]
 
     return vector(Zmod(mod), x_accum)
+
+
+def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
+    """
+    Prune factor base to pivot columns via sparse incremental Gaussian elimination.
+    
+    Returns:
+        (pruned_rows, pruned_rhs, col_map, pivot_cols)
+    where:
+        - pruned_rows: rows with only pivot columns
+        - pruned_rhs: corresponding RHS values
+        - col_map: dict mapping old_col_idx -> new_col_idx (or None if pruned)
+        - pivot_cols: list of original pivot column indices
+    """
+    from sage.all import GF
+    
+    K = GF(mod)
+    
+    # Find all columns that appear
+    all_cols = set()
+    for row in A_rows:
+        all_cols.update(row.keys())
+    n_cols_orig = max(all_cols) + 1 if all_cols else 0
+    
+    if verbose:
+        print(f"  [Prune] Input: {len(A_rows)} rows x {n_cols_orig} cols")
+        sys.stdout.flush()
+    
+    # Use sparse incremental elimination to find exact pivot columns
+    pivot_cols = find_exact_pivot_columns_sparse(A_rows, mod, verbose=verbose)
+    
+    if not pivot_cols:
+        raise RuntimeError("Pruning found zero pivot columns - system is trivial!")
+    
+    if verbose:
+        print(f"  [Prune] Pivot columns: {len(pivot_cols)}/{n_cols_orig}")
+        print(f"  [Prune] Rank: {len(pivot_cols)}")
+        print(f"  [Prune] Pruned {n_cols_orig - len(pivot_cols)} redundant columns")
+        sys.stdout.flush()
+    
+    # Build column mapping
+    col_map = {}
+    for new_idx, old_idx in enumerate(pivot_cols):
+        col_map[old_idx] = new_idx
+    
+    # Prune rows to only pivot columns
+    pruned_rows = []
+    for row in A_rows:
+        pruned_row = {}
+        for old_idx, val in row.items():
+            if old_idx in col_map:
+                new_idx = col_map[old_idx]
+                pruned_row[new_idx] = int(val)
+        if pruned_row:
+            pruned_rows.append(pruned_row)
+    
+    if verbose:
+        print(f"  [Prune] Output: {len(pruned_rows)} rows x {len(pivot_cols)} cols")
+        sys.stdout.flush()
+    
+    return pruned_rows, b_list[:len(pruned_rows)], col_map, pivot_cols
+
+
+def find_exact_pivot_columns_sparse(A_rows, mod, verbose=True):
+    """
+    Exact pivot column identification via sparse incremental Gaussian elimination.
+    Much faster than full RREF for sparse matrices.
+    
+    Returns: sorted list of pivot column indices
+    """
+    from sage.all import GF
+    
+    K = GF(mod)
+    
+    pivot_cols = []
+    row_echelon = []  # Store reduced rows for incremental reduction
+    
+    n_rows = len(A_rows)
+    
+    if verbose:
+        print(f"  [Pivot] Incremental elimination on {n_rows} rows...")
+        sys.stdout.flush()
+    
+    for i, row in enumerate(A_rows):
+        if not row:
+            continue
+        
+        # Reduce current row by previous pivot rows
+        current = dict(row)
+        
+        for pivot_col, pivot_row in zip(pivot_cols, row_echelon):
+            if pivot_col in current:
+                # Eliminate this column using the pivot row
+                multiplier = K(current[pivot_col]) / K(pivot_row[pivot_col])
+                for col, val in pivot_row.items():
+                    current[col] = K(current.get(col, 0) - multiplier * val)
+                    if current[col] == 0:
+                        del current[col]
+        
+        # Find leading column in reduced row
+        if current:
+            leading_col = min(current.keys())
+            
+            # Normalize so leading coefficient is 1
+            lead_inv = K(current[leading_col])**(-1)
+            current = {col: K(val * lead_inv) for col, val in current.items()}
+            
+            pivot_cols.append(leading_col)
+            row_echelon.append(current)
+        
+        if verbose and (i + 1) % 1000 == 0:
+            print(f"    [Pivot] Processed {i+1}/{n_rows} rows, found {len(pivot_cols)} pivots")
+            sys.stdout.flush()
+    
+    if verbose:
+        print(f"  [Pivot] Found {len(pivot_cols)} exact pivot columns")
+        sys.stdout.flush()
+    
+    return sorted(pivot_cols)

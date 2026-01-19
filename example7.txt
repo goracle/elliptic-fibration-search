@@ -1,0 +1,489 @@
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+
+======================================================================
+FINITE FIELD MODE: GF(33554467)
+Goal: Solve HECC DLP via index calculus on Jacobian
+======================================================================
+
+
+--- Searching for y=0 points ---
+hyperelliptic curve: y^2 = x^5 + x + 2
+Found 1 points where y=0: [(33554466, 0)]
+known_pts start: {(3831755, 15121190), (33554466, 0)}
+
+======================================================================
+Constructing new fibration using: ((3831755, 15121190),)
+Known pts so far: [(3831755, 15121190), (33554466, 0)]
+======================================================================
+
+shifted G poly1: x^5 + x + 2
+--- Building 1 Step Fibration Tower (deg 5 -> 4) ---
+[MODE] Operating in FINITE FIELD mode over GF(33554467)
+[iterate_tower FF] Starting with degree 5 polynomial
+[iterate_tower FF] Target: 1 steps
+
+======================================================================
+[FF Step 1/1] Building fibration for degree 5 curve
+======================================================================
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+[choose_degQ] n=5 -> degQ=2 (path: 2*degQ=n-1)
+[interpolate_Q_general] Starting interpolation: degQ=2, num_pts=1, mode=FF
+[interpolate_Q_general] FF mode: 1 value + 2 Hasse constraints
+[interpolate_Q_general] FF mode: verified Q at 1 points
+[measure_poly_complexity] Score=9.63 (height=7.70, deg=1.61, collision=0.00, bad_denom=0.00)
+  [FF Step 1] Selected geometry (Score=9.6)
+[verify_tower_consistency] Checking 1 layers (mode=FF)
+[verify_tower_consistency] ✓ All 1 layers consistent
+
+[iterate_tower FF] ✓ Built 1 layers
+--- Running 1-point Fibration (Primary Geometry) ---
+======================================================================
+BUILDCD: Constructing Fibration Data
+======================================================================
+[buildcd] Mode: FINITE_FIELD GF(33554467)
+[buildcd] Extracting Weierstrass coefficients...
+[buildcd] Raw a4 degree: 2
+[buildcd] Raw a6 degree: 4
+
+[buildcd] Finite field mode: using raw model (no minimization)
+[buildcd] Skipping SR coercion (finite field mode)
+
+[buildcd] Computing bad primes...
+  Finite field mode: p=33554467 is the only bad prime
+
+[buildcd] Skipping singular fiber analysis (finite field mode)
+
+[buildcd] Packaging CurveDataExt...
+
+======================================================================
+BUILDCD COMPLETE
+======================================================================
+
+=== Auto-configuring search parameters for this fibration ===
+[auto_cfg] Building height estimation from 2 known x-coords.
+[auto_cfg] Init: Pool Size=1 | Heavy Analysis=False
+[auto_cfg] Pool recommendation error: name 'search_common' is not defined
+[auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
+[residue_counts] Using split_poly degree=8
+[galois] Attempting poly.galois_group() (may be slow)...
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
+[galois/empirical] Tested 1 primes -> avg_roots=3, patterns_sample=[(1, 1, 1, 3)]
+[residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
+[residue_counts] sample: [(33554467, 3)]
+[residue_counts] galois_info: {'galois_group_info': 'Transitive group number 50 of degree 8', 'galois_group_order': 40320, 'avg_roots': 3.0}
+[auto_cfg] Final Config: TMAX=500, Subsets=1, Modulus=1000000000
+
+[auto_cfg] Applied adaptive parameters:
+  HEIGHT_BOUND: 1809
+  TMAX: 500
+  NUM_PRIME_SUBSETS: 1
+  PRIME_POOL size: 1
+
+[auto_cfg summary] height_bound=1809, MAX_MODULUS=1000000000, NUM_PRIME_SUBSETS=1, PRIME_POOL size=1, TMAX=500
+[prime_pool] Final pool has 1 primes up to 33554467
+
+======================================================================
+FIBRATION SUMMARY
+======================================================================
+Data points: ((3831755, 15121190),)
+Base points: [(3831755, 15121190)]
+
+Quartic curve: Affine Plane Curve over Fraction Field of Univariate Polynomial Ring in m over Finite Field of size 33554467 defined by (2*m + 14395692)*x^4 + (m^2 + 2900427*m + 21410025)*x^3 + (22059202*m^2 + 25692030*m + 17113765)*x^2 + (23200241*m^2 + 13691012*m + 21120363)*x + y^2 + 18488610*m^2 + 15159039*m + 22620557
+Defining polynomial: (2*m + 14395692)*x^4 + (m^2 + 2900427*m + 21410025)*x^3 + (22059202*m^2 + 25692030*m + 17113765)*x^2 + (23200241*m^2 + 13691012*m + 21120363)*x + y^2 + 18488610*m^2 + 15159039*m + 22620557
+Quartic discriminant: (33554459*m + 9526166)*x^4 + (33554463*m^2 + 21952759*m + 15023301)*x^3 + (12426593*m^2 + 31449748*m + 32208341)*x^2 + (7862437*m^2 + 12344886*m + 16181949)*x + 26708961*m^2 + 6472778*m + 10181173
+
+Weierstrass discriminant: 28583162*m^8 + 24602989*m^6 + 11297833*m^5 + 1822379*m^4 + 28259185*m^3 + 20975355*m^2 + 9607126*m + 8134267
+
+Weierstrass model coefficients:
+  a4(m): 12434102*m^2 + 17461919*m + 28366442
+  a6(m): 14765665*m^4 + 25170873*m^2 + 6976749*m + 26267569
+
+Base sections (1 total):
+  P1: (3831755, 15121190)
+======================================================================
+
+--- Searching for CM Fibers ---
+Found roots for a4(m)=0 (potential j=1728): [-3778567]
+Found roots for a4(m)=0 (potential j=1728): [-12021678]
+
+--- Searching for special fibers via j-invariants: [0, 1728, -1728, -32768, -884736] ---
+Testing special m-values from fibers: {-3778567, -12021678}
+
+[compute_base_sections] Mapping 1 points (mode=FF)
+[compute_base_sections FF] Setting up GF(p)(m) arithmetic
+[compute_base_sections FF] Morphisms mapped to Fp(m)
+[compute_base_sections] Mapped to 1 sections
+
+[verify_morphism] Testing 1 sample points
+[verify_morphism] All sample points verified
+
+[lll_reduce] Processing 1 sections (mode=FF)
+[lll_reduce FF] Skipping LLL (no height structure)
+[lll_reduce FF] Cleaned: 1 -> 1 sections
+
+--- Search Iteration 0 with 1 sections ---
+Height Pairing Matrix H:
+ [1]
+[FF vectors] Generated 80 canonical vectors
+  Sample: [(63,), (44,), (20,), (35,), (29,), (26,), (38,), (17,), (72,), (47,)]
+Searching 80 vectors up to height 1809...
+
+======================================================================
+MUMFORD JACOBIAN ELEMENT SEARCH MODE
+Searching for (s,p,v_0,v_1) instead of rational m
+======================================================================
+
+Building 5-equation Mumford system from fibration...
+[FF MODE] Forcing search to single prime: 33554467
+
+[prepare_modular_data_lll] Rejected 0 primes:
+[mumford] NOTICE: Reducing workers from 20 to 16 to prevent memory exhaustion.
+[mumford] Generating tasks for 1 primes...
+[mumford] Task degrees: min=1, max=8533, median=2241
+[mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+[mumford] Residue computation took 79.40s
+PRIME: 33554467
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
+  Harvesting initial solutions (capped)...
+  Initial harvest: 18021 unique smooth divisors from 350000 candidates.
+  Factor Base (Unique x): 6000
+  Starting structured random walk to improve Rank/FB ratio (capped mixing)...
+  Target reached: 18021 relations > 6000 FB + 480 buffer.
+  Final Status: 18021 relations, 4504 factor base elements.
+
+Mumford search reconstructed 18021 divisors
+  18021 divisors had rational roots in u(x)
+
+[Preferred Coordinates Hit Rate]
+  Target coordinates: 4
+  Found in Factor Base: 4 / 4 (100.0%)
+  Divisors containing target: 32 / 18021 (0.2%)
+
+============================================================
+ INDEX CALCULUS ATTACK DIAGNOSTIC
+============================================================
+ Target Field: GF(33554467)
+ Relations:    18021
+ Factor Base:  4504
+ Matrix Rank:  4504
+------------------------------------------------------------
+ [OK] Generator G is smooth over factor base
+ [OK] Target Q is smooth over factor base
+------------------------------------------------------------
+ SUCCESS: Matrix is full rank. Ready for Linear Algebra.
+          Both G and Q are expressible over factor base.
+============================================================
+
+Total time: 110.17s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 79.40s
+  mumford_reconstruction   : 4.24s
+  prep_mod_data            : 3.95s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+[Factor Base] 4504 prime atoms
+  [Setup] Curve: y^2 = x^5 + x + 2
+
+======================================================================
+TESTING FACTOR BASE HOMOMORPHISM PROPERTY
+======================================================================
+homomorphism_test: 200/200 passed
+ Homomorphism test PASSED
+======================================================================
+
+  [Phase 0] Attempting RR-Localization for target Q...
+  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
+
+======================================================================
+INDEX CALCULUS DLP ATTACK (Anchored + Subgroup Projection)
+======================================================================
+Full Jacobian order |J|: 1126029650170156
+  [Relations] Extracting factor base and building anchored relations...
+[Factor Base] 4504 prime atoms
+  [Anchoring] Using base anchor atom: ('d1', 5145, 11764095) (idx=823)
+  [Anchoring] Built 18021 anchored homogeneous relations
+  [Relations] Loaded 18021 homogeneous relations
+  [Factor Base] Size: 4504
+  [Smoothing] Generator G is already smooth.
+  [Smoothing] Target Q is already smooth.
+  [Projection] Working mod ℓ=972045913, cofactor h=1158412
+  [Projection] Homogeneous relations: multiply by h (kill cofactor)
+  [Projection] G/Q relations: already in J[ℓ], reduce mod ℓ directly
+  [System] Before pruning: 18022 rows x 4504 cols, nnz=45053
+  [Prune] Input: 18022 rows x 4504 cols
+  [Pivot] Incremental elimination on 18022 rows...
+    [Pivot] Processed 1000/18022 rows, found 252 pivots
+    [Pivot] Processed 2000/18022 rows, found 502 pivots
+    [Pivot] Processed 3000/18022 rows, found 752 pivots
+    [Pivot] Processed 4000/18022 rows, found 1002 pivots
+    [Pivot] Processed 5000/18022 rows, found 1252 pivots
+    [Pivot] Processed 6000/18022 rows, found 1502 pivots
+    [Pivot] Processed 7000/18022 rows, found 1752 pivots
+    [Pivot] Processed 8000/18022 rows, found 2002 pivots
+    [Pivot] Processed 9000/18022 rows, found 2252 pivots
+    [Pivot] Processed 10000/18022 rows, found 2502 pivots
+    [Pivot] Processed 11000/18022 rows, found 2752 pivots
+    [Pivot] Processed 12000/18022 rows, found 3002 pivots
+    [Pivot] Processed 13000/18022 rows, found 3252 pivots
+    [Pivot] Processed 14000/18022 rows, found 3502 pivots
+    [Pivot] Processed 15000/18022 rows, found 3749 pivots
+    [Pivot] Processed 16000/18022 rows, found 3999 pivots
+    [Pivot] Processed 17000/18022 rows, found 4249 pivots
+    [Pivot] Processed 18000/18022 rows, found 4498 pivots
+  [Pivot] Found 4504 exact pivot columns
+  [Prune] Pivot columns: 4504/4504
+  [Prune] Rank: 4504
+  [Prune] Pruned 0 redundant columns
+  [Prune] Output: 18022 rows x 4504 cols
+  [Pruned System] 18022 rows x 4504 cols
+  [Verify] ✓ Q row survived pruning: 2 nonzero entries
+  [Solver] Using Block-Wiedemann (n=4504 >= 10k)
+[BW-fast] block=32, target_iters=359, nrows=18022, ncols=4504
+[BW-fast] Pass 1: Generating Sequence (Trace)
+  [BW Pass 1] iter 14/359 (3.9%) | elapsed 0.1m | ETA 1.9m
+  [BW Pass 1] iter 28/359 (7.8%) | elapsed 0.2m | ETA 1.9m
+  [BW Pass 1] iter 42/359 (11.7%) | elapsed 0.3m | ETA 1.9m
+  [BW Pass 1] iter 56/359 (15.6%) | elapsed 0.3m | ETA 1.8m
+  [BW Pass 1] iter 70/359 (19.5%) | elapsed 0.4m | ETA 1.7m
+  [BW Pass 1] iter 84/359 (23.4%) | elapsed 0.5m | ETA 1.6m
+  [BW Pass 1] iter 98/359 (27.3%) | elapsed 0.6m | ETA 1.5m
+  [BW Pass 1] iter 112/359 (31.2%) | elapsed 0.7m | ETA 1.5m
+  [BW Pass 1] iter 126/359 (35.1%) | elapsed 0.8m | ETA 1.4m
+  [BW Pass 1] iter 140/359 (39.0%) | elapsed 0.8m | ETA 1.3m
+  [BW Pass 1] iter 154/359 (42.9%) | elapsed 0.9m | ETA 1.2m
+  [BW Pass 1] iter 168/359 (46.8%) | elapsed 1.0m | ETA 1.1m
+  [BW Pass 1] iter 182/359 (50.7%) | elapsed 1.1m | ETA 1.1m
+  [BW Pass 1] iter 196/359 (54.6%) | elapsed 1.2m | ETA 1.0m
+  [BW Pass 1] iter 210/359 (58.5%) | elapsed 1.3m | ETA 0.9m
+  [BW Pass 1] iter 224/359 (62.4%) | elapsed 1.3m | ETA 0.8m
+  [BW Pass 1] iter 238/359 (66.3%) | elapsed 1.4m | ETA 0.7m
+  [BW Pass 1] iter 252/359 (70.2%) | elapsed 1.5m | ETA 0.6m
+  [BW Pass 1] iter 266/359 (74.1%) | elapsed 1.6m | ETA 0.6m
+  [BW Pass 1] iter 280/359 (78.0%) | elapsed 1.7m | ETA 0.5m
+  [BW Pass 1] iter 294/359 (81.9%) | elapsed 1.8m | ETA 0.4m
+  [BW Pass 1] iter 308/359 (85.8%) | elapsed 1.8m | ETA 0.3m
+  [BW Pass 1] iter 322/359 (89.7%) | elapsed 1.9m | ETA 0.2m
+  [BW Pass 1] iter 336/359 (93.6%) | elapsed 2.0m | ETA 0.1m
+  [BW Pass 1] iter 350/359 (97.5%) | elapsed 2.1m | ETA 0.1m
+[BW-fast] Computing Minimal Polynomial from 11488 scalars...
+[BW-fast] Minimal polynomial degree: 256
+[BW-fast] Pass 2: Reconstructing Solution Vector
+  [BW] Solved in 132.16s
+  [Result] Candidate dlog mod ℓ = 396916934
+  [Verify] ✓ ℓ-torsion verification passed: ℓ * (dlog * G - Q) = 0
+  [Verify] ℹ dlog * G ≠ Q exactly (cofactor component)
+✓ Confirmed Discrete Log: 396916934
+Found 6000 new point(s) and 0 new section(s).
+
+======================================================================
+FIBRATION GEOMETRY DIAGNOSTICS
+======================================================================
+
+--- Automorphism Search ---
+[automorph] FINITE_FIELD mode detected (F_33554467)
+[automorph] Möbius automorphisms not applicable over finite fields
+[automorph] Computing translation automorphisms only
+No scaling automorphisms found.
+Found 1 translation automorphisms:
+  [0] Translation by Section S0
+
+--- Torsion Analysis ---
+Torsion analysis over finite fields: Using specializations at field elements
+Got 40 good specializations for torsion check.
+GCD of specialized curve orders (informational only): 1
+Fiber component counts: []  -> lcm bound: 1
+Base section 0 does not appear to be small order torsion.
+
+======================================================================
+FINITE FIELD MODE: Completed DLP attack on single fibration
+======================================================================
+
+======================================================================
+FINAL SUMMARY
+======================================================================
+
+--- Cumulative Run Statistics ---
+Total time: 287.41s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 79.40s
+  mumford_reconstruction   : 4.24s
+  prep_mod_data            : 3.95s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+
+--- Finite Field Results ---
+Field: GF(33554467)
+Factor base size: 6002
+Total Jacobian elements processed: 12002
+
+Note: In FINITE_FIELD mode, the 'found points' are factor base elements
+used for the index calculus attack, not rational points over Q.
+======================================================================
