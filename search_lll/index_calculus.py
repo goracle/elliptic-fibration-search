@@ -1495,267 +1495,6 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
     }
 
 
-def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
-                       verbose=True, force_index_calculus=False):
-    """
-    Robust wrapper for Index-Calculus DLP.
-    CORRECTED: Uses proper Mumford→factor-base homomorphism (v(x) directly).
-    """
-    # Basic validation
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
-
-    full_order = Integer(order)
-
-    # Check if precomputed relations
-    precomputed = False
-    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
-            and isinstance(smooth_divs_or_rels[0], dict)
-            and smooth_divs_or_rels[0].get('type') == 'relations'):
-        precomputed = True
-
-    # Prepare polynomial ring and curve
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
-
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS DLP ATTACK (Corrected Mumford Homomorphism)")
-        print(f"{'='*70}")
-        print(f"Full Jacobian order |J|: {full_order}")
-
-    # Build or extract factor base and homogeneous relations
-    if precomputed:
-        data = smooth_divs_or_rels[0]
-        homogeneous_rows = data['relations']
-        fb_roots = data['fb_roots']
-        r_to_idx = data['fb_map']
-        
-        fb_y_cache = {}
-        for x_int in fb_roots:
-            y2 = int(f_p(K(x_int)))
-            if y2 == 0:
-                fb_y_cache[x_int] = 0
-            else:
-                y_can = tonelli_shanks(y2, p)
-                fb_y_cache[x_int] = int(min(y_can, p - y_can))
-    else:
-        # Legacy path: build from Mumford divisors
-        if verbose:
-            print("  [Legacy] Building factor base and relations from Mumford divisors...")
-        
-        homogeneous_rows, homogeneous_rhs, fb_roots, r_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
-        
-        # Verify all RHS are zero (homogeneous)
-        if any(r != 0 for r in homogeneous_rhs):
-            raise RuntimeError(
-                f"_legacy_build_relations_from_mumford returned non-homogeneous relations"
-            )
-
-    if not homogeneous_rows:
-        raise RuntimeError("No valid homogeneous relations available")
-
-    if verbose:
-        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
-        print(f"  [Factor Base] Size: {len(r_to_idx)}")
-        sys.stdout.flush()
-
-    # --- Smooth G and Q using corrected homomorphism ---
-    
-    # Build atom_to_idx from r_to_idx for smoothness checking
-    atom_to_idx_for_smooth = {}
-    for x_val, idx in r_to_idx.items():
-        if x_val in fb_y_cache:
-            y_can = fb_y_cache[x_val]
-        else:
-            y2 = int(f_p(K(x_val)))
-            if y2 == 0:
-                y_can = 0
-            elif pow(y2, (p-1)//2, p) == 1:
-                from .smoothness import tonelli_shanks
-                y_can = tonelli_shanks(y2, p)
-                y_can = min(y_can, p - y_can)
-            else:
-                continue
-        atom = ('d1', int(x_val), int(y_can))
-        atom_to_idx_for_smooth[atom] = idx
-    
-    # Smooth G
-    row_g = None
-    alpha_g = 0
-    
-    if is_divisor_fb_smooth(G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = get_relation_row(G, atom_to_idx_for_smooth, f_p, p)
-        if verbose:
-            print("  [Smoothing] Generator G is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_G = (1 + r) * G
-            if is_divisor_fb_smooth(cand_G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = get_relation_row(cand_G, atom_to_idx_for_smooth, f_p, p)
-                if row_g:
-                    alpha_g = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth generator at iter {i}")
-                    break
-    
-    if row_g is None:
-        raise RuntimeError("Failed to smooth Generator G")
-
-    # Smooth Q
-    row_q = None
-    beta_q = 0
-    
-    if is_divisor_fb_smooth(Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = get_relation_row(Q, atom_to_idx_for_smooth, f_p, p)
-        if verbose:
-            print("  [Smoothing] Target Q is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_Q = Q + r * G
-            if is_divisor_fb_smooth(cand_Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = get_relation_row(cand_Q, atom_to_idx_for_smooth, f_p, p)
-                if row_q:
-                    beta_q = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth target at iter {i}")
-                    break
-    
-    if row_q is None:
-        raise RuntimeError("Failed to smooth Target Q")
-
-    # Convert to plain dicts
-    row_g_dict = {int(k): int(v) for k, v in row_g.items()}
-    row_q_dict = {int(k): int(v) for k, v in row_q.items()}
-    
-    # --- Compute ell before diagnostics ---
-    ell = int(max(int(p) for p, _ in factor(full_order)))
-
-    # --- RUN DIAGNOSTICS BEFORE SOLVING ---
-    #diag = diagnose_system_consistency(
-    #    homogeneous_rows, 
-    #    row_g_dict, 
-    #    row_q_dict, 
-    #    full_order, 
-    #    verbose=verbose
-    #)
-
-    # --- RUN DIAGNOSTICS BEFORE SOLVING ---
-    if verbose:
-        # LIGHTWEIGHT diagnostic - just check dimensions and column coverage
-        print(f"\n{'='*70}")
-        print(f"SYSTEM CONSISTENCY CHECK (Lightweight)")
-        print(f"{'='*70}")
-        print(f"Modulus ℓ: {ell}")
-        print(f"Homogeneous relations: {len(homogeneous_rows)}")
-        print(f"Factor base size: {len(r_to_idx)}")
-        
-        # Check G column coverage
-        cols_in_g = set(row_g_dict.keys())
-        cols_in_hom = set()
-        for r in homogeneous_rows:
-            cols_in_hom.update(r.keys())
-        
-        missing_g = cols_in_g - cols_in_hom
-        if missing_g:
-            print(f"⚠ WARNING: G uses {len(missing_g)} columns not in homogeneous relations")
-            print(f"  Missing columns: {sorted(missing_g)[:10]}{'...' if len(missing_g) > 10 else ''}")
-        else:
-            print(f"✓ G column coverage: all columns present")
-        
-        # Check Q column coverage
-        cols_in_q = set(row_q_dict.keys())
-        missing_q = cols_in_q - cols_in_hom
-        if missing_q:
-            print(f"⚠ WARNING: Q uses {len(missing_q)} columns not in homogeneous relations")
-            print(f"  Missing columns: {sorted(missing_q)[:10]}{'...' if len(missing_q) > 10 else ''}")
-        else:
-            print(f"✓ Q column coverage: all columns present")
-        
-        print(f"{'='*70}\n")
-        
-        # Critical check: if either G or Q has missing columns, we WILL fail
-        if missing_g or missing_q:
-            raise RuntimeError(
-                "G or Q uses columns not in homogeneous relations.\n"
-                "The divisor→factor-base map is not a valid homomorphism or factor base is incomplete."
-            )
-    
-    # --- Construct the system ---
-    full_rows = list(homogeneous_rows)
-    full_rhs = [0] * len(homogeneous_rows)
-    
-    # Append G row
-    full_rows.append(row_g_dict)
-    full_rhs.append(int(1 + alpha_g))
-    
-    if verbose:
-        print(f"\n  [System] Built system: {len(full_rows)} rows ({len(homogeneous_rows)} homogeneous + 1 for G)")
-        print(f"  [System] G row RHS: {full_rhs[-1]} (should be 1 + {alpha_g})")
-        sys.stdout.flush()
-
-    # Solve the system
-    beta_q_int = int(beta_q)
-
-    d_log_val = None
-    try:
-        if verbose:
-            print("  [Solver] Starting Block-Wiedemann...")
-        
-        d_log_val = solve_dlp_mod_l_block_wiedemann(
-            full_rows,
-            full_rhs,
-            row_q_dict,
-            beta_q_int,
-            full_order,
-            G, Q,
-            verbose=verbose,
-            block_size=32,
-        )
-        
-        if verbose:
-            print("  [Solver] Block-Wiedemann returned a candidate.")
-    except Exception as e:
-        raise RuntimeError(f"Block-Wiedemann solver failed: {e}")
-
-    if d_log_val is None:
-        raise RuntimeError("Solver produced no result")
-
-    if verbose:
-        print(f"  [Result] Discrete log (mod ℓ) candidate: {d_log_val}")
-
-    # Verify
-    D = Integer(d_log_val) * G - Q
-
-    if not (Integer(ell) * D).is_zero():
-        raise RuntimeError(
-            "[Verify] ✗ Block-Wiedemann result FAILED group verification:\n"
-            f"        ℓ * (d_log_val * G − Q) ≠ 0\n"
-            f"        dlog={d_log_val}, ℓ={ell}"
-        )
-
-    if verbose:
-        print("  [Verify] ✓ ℓ-torsion verification passed")
-        if D.is_zero():
-            print("  [Verify] ✓ Exact equality d*G == Q")
-        else:
-            print("  [Verify] ℹ d*G ≠ Q exactly (cofactor component)")
-
-    return Integer(d_log_val)
-
-
 # quick homomorphism test
 
 
@@ -2305,7 +2044,7 @@ def combine_vectors(vec1, vec2, sign=1):
         return tuple(int(a) - int(b) for a, b in zip(v1, v2))
 
 
-def get_relation_row(divisor, atom_to_idx, f_p, p):
+def get_relation_row(divisor, atom_to_idx, f_p, p, fb_y_cache=None):
     """
     Build factor-base row for `divisor`.
     - divisor: either a Mumford dict {'s','p','v_0','v_1',...} or a Sage Jacobian Mumford pair [u,v]
@@ -2426,3 +2165,143 @@ def get_relation_row(divisor, atom_to_idx, f_p, p):
             del row[idx]
 
     return row
+
+
+def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
+                       verbose=True, force_index_calculus=False):
+    """
+    Robust wrapper for Index-Calculus DLP.
+    """
+    # Basic validation
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    full_order = Integer(order)
+
+    # Check if precomputed relations
+    precomputed = False
+    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
+            and isinstance(smooth_divs_or_rels[0], dict)
+            and smooth_divs_or_rels[0].get('type') == 'relations'):
+        precomputed = True
+
+    # Prepare polynomial ring and curve
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+    
+    # Build or extract factor base and homogeneous relations
+    if precomputed:
+        data = smooth_divs_or_rels[0]
+        homogeneous_rows = data['relations']
+        fb_roots = data['fb_roots']
+        r_to_idx = data['fb_map']
+        
+        fb_y_cache = {}
+        for x_int in fb_roots:
+            y2 = int(f_p(K(x_int)))
+            if y2 == 0:
+                fb_y_cache[x_int] = 0
+            else:
+                from .smoothness import tonelli_shanks
+                y_can = tonelli_shanks(y2, p)
+                fb_y_cache[x_int] = int(min(y_can, p - y_can))
+    else:
+        # Legacy path: build from Mumford divisors
+        homogeneous_rows, homogeneous_rhs, fb_roots, r_to_idx, fb_y_cache = \
+            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+
+    if not homogeneous_rows:
+        raise RuntimeError("No valid homogeneous relations available")
+
+    # --- Smooth G and Q ---
+    
+    # Build atom_to_idx from r_to_idx
+    atom_to_idx_for_smooth = {}
+    for x_val, idx in r_to_idx.items():
+        if x_val in fb_y_cache:
+            y_can = fb_y_cache[x_val]
+        else:
+            y2 = int(f_p(K(x_val)))
+            if y2 == 0:
+                y_can = 0
+            elif pow(y2, (p-1)//2, p) == 1:
+                from .smoothness import tonelli_shanks
+                y_can = tonelli_shanks(y2, p)
+                y_can = min(y_can, p - y_can)
+            else:
+                continue
+        atom = ('d1', int(x_val), int(y_can))
+        atom_to_idx_for_smooth[atom] = idx
+    
+    # Smooth G
+    row_g = None
+    alpha_g = 0
+    if is_divisor_fb_smooth(G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = get_relation_row(G, atom_to_idx_for_smooth, f_p, p)
+    else:
+        # Try random smoothing
+        for i in range(1, 2001):
+            r = ZZ.random_element(1, int(full_order))
+            cand_G = (1 + r) * G
+            if is_divisor_fb_smooth(cand_G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = get_relation_row(cand_G, atom_to_idx_for_smooth, f_p, p)
+                alpha_g = r
+                break
+    
+    if row_g is None:
+        raise RuntimeError("Failed to smooth Generator G")
+
+    # Smooth Q
+    row_q = None
+    beta_q = 0
+    if is_divisor_fb_smooth(Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = get_relation_row(Q, atom_to_idx_for_smooth, f_p, p)
+    else:
+        for i in range(1, 2001):
+            r = ZZ.random_element(1, int(full_order))
+            cand_Q = Q + r * G
+            if is_divisor_fb_smooth(cand_Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
+                row_q = get_relation_row(cand_Q, atom_to_idx_for_smooth, f_p, p)
+                beta_q = r
+                break
+    
+    if row_q is None:
+        raise RuntimeError("Failed to smooth Target Q")
+
+    row_g_dict = {int(k): int(v) for k, v in row_g.items()}
+    row_q_dict = {int(k): int(v) for k, v in row_q.items()}
+    
+    # --- Construct the system ---
+    full_rows = list(homogeneous_rows)
+    # Homogeneous relations have RHS 0
+    full_rhs = [0] * len(homogeneous_rows)
+    
+    # Append G row. RHS is scalar multiplier of G.
+    # Relation: sum(row_g) = (1 + alpha_g) * G
+    full_rows.append(row_g_dict)
+    full_rhs.append(int(1 + alpha_g))
+    
+    if verbose:
+        print(f"\n  [System] Built system: {len(full_rows)} rows")
+        print(f"  [System] G row RHS: {full_rhs[-1]}")
+
+    # Solve the system
+    # Note: solve_dlp_mod_l_block_wiedemann handles the projection by h internally
+    d_log_val = solve_dlp_mod_l_block_wiedemann(
+        full_rows,
+        full_rhs,
+        row_q_dict,
+        int(beta_q),
+        full_order,
+        G, Q,
+        verbose=verbose,
+        block_size=32,
+    )
+
+    if d_log_val is None:
+        raise RuntimeError("Solver produced no result")
+
+    return Integer(d_log_val)

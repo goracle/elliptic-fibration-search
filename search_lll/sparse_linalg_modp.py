@@ -14,6 +14,7 @@ from sage.all import Integer, Zmod, vector, GF
 from math import ceil
 from sage.all import Integer, Zmod, vector, GF, PolynomialRing, matrix
 from sage.all import factor
+from search_common import BLOCK_WIEDEMANN
 
 
 # Tunable threshold for lazy reduction
@@ -721,7 +722,6 @@ def solve_dlp_mod_l_block_wiedemann(
     block_size=1, # Default to 1 (Standard Wiedemann) for safety
     nprocs=None,
     max_iters=None,
-    force_direct=False
 ):
     """
     Sparse Block-Wiedemann wrapper for DLP modulo largest prime ell.
@@ -787,7 +787,7 @@ def solve_dlp_mod_l_block_wiedemann(
     
     # Decide which solver to use
     # Threshold for direct solve: 10,000 columns
-    if force_direct or n_cols < 10000:
+    if not BLOCK_WIEDEMANN and n_cols < 10000:
         if verbose:
             print(f"  [Solver] Using direct sparse solve (n={n_cols} < 10k)")
             sys.stdout.flush()
@@ -851,63 +851,6 @@ def solve_dlp_mod_l_block_wiedemann(
         print("  [BW-Verify] ✓ Exact equality dlog * G == Q in prime subgroup")
 
     return int(dlog)
-
-
-def solve_sparse_direct_mod_ell(A_obj, b_vec_ints, mod, verbose=True):
-    """
-    Direct sparse solve using Sage's built-in solver over Zmod(mod).
-    Recommended for systems with < 10k unknowns.
-    """
-    if verbose:
-        print(f"  [Direct] Building sparse matrix over Zmod({mod})...")
-        sys.stdout.flush()
-    
-    t0 = time.time()
-    K = Zmod(mod)
-    n_rows = len(A_obj.packed_rows)
-    n_cols = A_obj.n_cols
-    
-    # NEW: Sample rows if severely overdetermined (>2x overdetermined)
-    if n_rows > 2 * n_cols:
-        target_rows = int(1.2 * n_cols)  # 20% buffer for safety
-        indices = random.sample(range(n_rows), target_rows)
-        indices.sort()
-        if verbose:
-            print(f"  [Direct] Sampling {target_rows} of {n_rows} rows (system is {n_rows/n_cols:.1f}x overdetermined)")
-            sys.stdout.flush()
-    else:
-        indices = range(n_rows)
-    
-    # Build dictionary using sampled rows
-    entries = {}
-    sampled_b = []
-    for idx in indices:
-        i = len(sampled_b)  # new row index in sampled system
-        idxs, vals = A_obj.packed_rows[idx]
-        for j, v in zip(idxs, vals):
-            entries[(i, j)] = K(int(v))
-        sampled_b.append(K(int(b_vec_ints[idx])))
-    
-    # Construct Sage sparse matrix with sampled rows
-    M = matrix(K, len(sampled_b), n_cols, entries, sparse=True)
-    b_sage = vector(K, sampled_b)
-    
-    if verbose:
-        nnz = len(entries)
-        size = len(sampled_b) * n_cols
-        density = 100.0 * nnz / size if size > 0 else 0
-        print(f"  [Direct] Matrix: {len(sampled_b)} x {n_cols}, nnz={nnz}, density={density:.4f}%")
-        print(f"  [Direct] Solving system (backend=Sage/generic)...")
-        sys.stdout.flush()
-    
-    solution = M.solve_right(b_sage)
-    dt = time.time() - t0
-    
-    if verbose:
-        print(f"  [Direct] ✓ Solved in {dt:.2f}s")
-        sys.stdout.flush()
-        
-    return solution
 
 
 # put this near your other solvers in sparse_linalg_modp.py
@@ -1112,3 +1055,84 @@ def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
 
     raise RuntimeError(f"wiedemann_solve: failed to find solution after {max_trials} trials")
 
+
+from sage.all import Integer, Zmod, vector, matrix
+
+def solve_sparse_direct_mod_ell(A_obj, b_vec_ints, mod, verbose=True):
+    """
+    Direct sparse solve using Sage's built-in solver over Zmod(mod).
+    Recommended for systems with < 10k unknowns.
+    
+    Fixed: Forces inclusion of non-zero RHS rows during sampling.
+    """
+    if verbose:
+        print(f"  [Direct] Building sparse matrix over Zmod({mod})...")
+        sys.stdout.flush()
+    
+    t0 = time.time()
+    K = Zmod(mod)
+    n_rows = len(A_obj.packed_rows)
+    n_cols = A_obj.n_cols
+    
+    # Identify critical rows (non-zero RHS)
+    critical_indices = [i for i, b in enumerate(b_vec_ints) if int(b) % int(mod) != 0]
+    
+    # Sampling logic
+    if n_rows > 2 * n_cols:
+        target_rows = int(1.2 * n_cols)
+        
+        # Start with all critical rows
+        indices = set(critical_indices)
+        
+        # Fill the rest with random rows
+        remaining_slots = target_rows - len(indices)
+        if remaining_slots > 0:
+            candidate_pool = [i for i in range(n_rows) if i not in indices]
+            # Safety check if pool is smaller than needed (unlikely given check above)
+            sample_size = min(len(candidate_pool), remaining_slots)
+            indices.update(random.sample(candidate_pool, sample_size))
+            
+        indices = sorted(list(indices))
+        
+        if verbose:
+            print(f"  [Direct] Sampling {len(indices)} rows (forced {len(critical_indices)} non-zero RHS).")
+            sys.stdout.flush()
+    else:
+        indices = range(n_rows)
+    
+    # Build dictionary using sampled rows
+    entries = {}
+    sampled_b = []
+    
+    # Map old row index to new row index (0, 1, 2...)
+    for new_row_idx, old_row_idx in enumerate(indices):
+        idxs, vals = A_obj.packed_rows[old_row_idx]
+        for j, v in zip(idxs, vals):
+            entries[(new_row_idx, j)] = K(int(v))
+        sampled_b.append(K(int(b_vec_ints[old_row_idx])))
+    
+    # Construct Sage sparse matrix
+    M = matrix(K, len(sampled_b), n_cols, entries, sparse=True)
+    b_sage = vector(K, sampled_b)
+    
+    if verbose:
+        nnz = len(entries)
+        size = len(sampled_b) * n_cols
+        density = 100.0 * nnz / size if size > 0 else 0
+        print(f"  [Direct] Matrix: {len(sampled_b)} x {n_cols}, nnz={nnz}, density={density:.4f}%")
+        print(f"  [Direct] Solving system (backend=Sage/generic)...")
+        sys.stdout.flush()
+    
+    try:
+        solution = M.solve_right(b_sage)
+    except ValueError as e:
+        # Re-raise with context
+        raise RuntimeError(f"Direct sparse solve failed (inconsistent or underdetermined): {e}")
+
+    dt = time.time() - t0
+    
+    if verbose:
+        print(f"  [Direct] ✓ Solved in {dt:.2f}s")
+        sys.stdout.flush()
+        
+    return solution
