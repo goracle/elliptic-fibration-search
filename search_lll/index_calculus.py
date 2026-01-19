@@ -16,6 +16,8 @@ from collections import Counter
 from prime_subgroup_projection import *
 from .sparse_linalg_modp import *
 from .smoothness import tonelli_shanks, extract_factor_base
+from search_lll.cofactor_dlp import solve_cofactor_dlp
+from search_common import SECRET_KEY
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -2498,7 +2500,33 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
             print("  [Verify] ℹ dlog * G ≠ Q exactly (cofactor component)")
         sys.stdout.flush()
 
-    return Integer(dlog)
+
+    # Extract order components
+    J_order = Integer(full_order)
+    factors = factor(J_order)
+    ell = int(max(int(p) for p, _ in factors))
+    d_mod_ell = dlog
+    h = int(J_order // ell)
+
+    # Lift to full discrete log
+    full_dlog = solve_cofactor_dlp(
+        target_residue=d_mod_ell,  # The 800 you got
+        generator_residue=None,     # Not used
+        G=G,                        # Your generator
+        Q=Q,                        # Your target
+        ell=ell,                    # 972045913
+        h=h,                        # 1158412
+        full_order=J_order,
+        method='auto',              # Or 'crt' or 'bsgs'
+        verbose=True
+    )
+
+    # Compare with SECRET_KEY
+    print(f"\nRecovered discrete log: {full_dlog}")
+    print(f"Original SECRET_KEY:    {SECRET_KEY}")
+    print(f"Match: {full_dlog == SECRET_KEY}")
+
+    return Integer(full_dlog)
 
 
 # ============================================================================
