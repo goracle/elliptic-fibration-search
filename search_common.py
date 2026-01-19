@@ -310,7 +310,7 @@ COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
 #DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
 DATA_PTS_GENUS2 = [QQ(1)]
 DATA_PTS_GENUS2 = None # placeholder for random.
-DATA_PTS_GENUS2 = [QQ(10598399)]
+DATA_PTS_GENUS2 = [QQ(10598399), QQ(18579300)]
 TERMINATE_WHEN_6 = 3
 
 ##### END TEST CURVES ######
@@ -341,6 +341,7 @@ if DATA_PTS_GENUS2 is None:
     # Ensure we use the prime currently active in your pool
     _p_init = FINITE_FIELD
     DATA_PTS_GENUS2 = [get_random_x_on_hyperelliptic(COEFFS_GENUS2, _p_init)]
+    print("after random:", DATA_PTS_GENUS2)
 
 
 if FINITE_FIELD:
@@ -3371,3 +3372,6 @@ def augment_known(known_pts, found, deg6=False):
     sys.stdout.flush()
     
     return ret
+
+
+print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)

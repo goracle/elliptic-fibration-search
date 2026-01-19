@@ -145,6 +145,7 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     f_poly = R([F(c) for c in reversed(coeffs_genus2)])
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
+    f = R(f_poly)
     
     order = compute_jacobian_order(coeffs_genus2, p)
     factorization = factor(order)
@@ -156,7 +157,14 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     print(f"Largest prime ℓ: {ell}")
     print(f"Cofactor h: {cofactor}")
     
-    G_original, basex, basey = generate_random_curve_point(f_poly, p)
+    if base_pts_x[0] is None:
+        G_original, basex, basey = generate_random_curve_point(f_poly, p)
+        base_pts_x = [basex]
+    else:
+        x_coord = base_pts_x[0]
+        y2 = f(x_coord)
+        y_coord = y2.sqrt()
+        G_original = J(C((x_coord, y_coord))) # pick the first base point as the original generator
     G = Integer(cofactor) * G_original
     
     if G.is_zero():
@@ -194,7 +202,7 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
         for root, _ in D[0].roots():
             preferred_x_coords.add(int(root))
     
-    return ell, [basex], G, Q, preferred_x_coords, final_secret
+    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret
 
 
 # Put at top of file (if not already imported)

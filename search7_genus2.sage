@@ -59,6 +59,7 @@ def main_genus2():
         print(f"{'='*70}\n")
     
     initial_xs = DATA_PTS_GENUS2
+    print("initial x's:", initial_xs)
 
     if FINITE_FIELD is not None:
         F = GF(FINITE_FIELD)
