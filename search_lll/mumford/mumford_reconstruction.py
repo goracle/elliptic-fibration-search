@@ -988,12 +988,9 @@ def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None
 
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
-    Index calculus reconstruction for finite fields (patched).
-    Enforces caps on factor base and active pool to avoid OOM and
-    to restore the 'small-FB' behavior.
-    
-    FIX: Now correctly tracks vector scalars during random walk mixing.
-    FIX: Discards duplicate divisors to avoid inconsistent linear algebra relations.
+    Index calculus reconstruction for finite fields (clean, vector-free).
+    Keeps caps on factor base and active pool to avoid OOM and to reproduce
+    the small-FB behavior, but removes all 'vector' / metadata propagation.
     """
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
@@ -1018,12 +1015,11 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         return set(), []
     
     # ----------------------- Tunable caps -----------------------
-    # These are conservative defaults that reproduce the small-FB behavior.
     MAX_FB_SIZE = 6000            # hard cap on unique x-coordinates in FB
     MAX_ACTIVE_POOL = 20000       # cap on stored relations (Jacobians) to bound memory
-    TARGET_BUFFER_MIN = 200       # never require less than this
-    TARGET_BUFFER_FRAC = 0.08     # relative buffer (8% of FB) instead of 15%
-    MAX_PATIENCE = 30000          # keep your existing patience default
+    TARGET_BUFFER_MIN = 200
+    TARGET_BUFFER_FRAC = 0.08
+    MAX_PATIENCE = 30000
     MAX_ROUNDS = 150000
     # ------------------------------------------------------------
     
@@ -1070,22 +1066,23 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             r2 = int((F(s_val) - sqrt_delta) * inv_2)
             roots = tuple(sorted((r1, r2)))
             
-            # CRITICAL FIX: Include v polynomial in deduplication key
-            # Two divisors with same u but different v are linearly independent!
+            # Deduplication key includes v polynomial coefficients
             div_key = (roots, int(v0_val), int(v1_val))
             
             # Determine how many *new* distinct x-roots this would add
             new_roots = [r for r in roots if r not in unique_roots_set]
-            # If accepting this will exceed MAX_FB_SIZE, skip it
             if len(unique_roots_set) + len(new_roots) > MAX_FB_SIZE:
-                # conservative skip to prevent explosion
                 continue
             
-            # Accept: create Jacobian point and store
-            div_J = J(u_poly, v_poly)
+            # Accept: create Jacobian point and store (no vectors)
+            div_J = J([u_poly, v_poly])
             div_data = {
-                's': s_val, 'p': p_val, 'v_0': v0_val, 'v_1': v1_val,
-                'vector': v_tuple, 'roots': list(roots), 'has_rational_roots': True
+                's': int(s_val),
+                'p': int(p_val),
+                'v_0': int(v0_val),
+                'v_1': int(v1_val),
+                'roots': list(roots),
+                'has_rational_roots': True
             }
             if div_key not in seen_divisors:
                 seen_divisors.add(div_key)
@@ -1093,7 +1090,7 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                     unique_roots_set.add(r)
                 active_pool.append((div_J, div_data))
                 
-                # small rationality test
+                # small rationality test (harmless in FF mode)
                 for r in roots:
                     x_cand = int(r) - int(shift)
                     if x_cand not in found_xs:
@@ -1101,11 +1098,9 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                         if res is not None:
                             found_xs.add(x_cand)
             
-            # Trim active_pool if it grows too large (drop oldest/random)
+            # Trim active_pool if it grows too large
             if len(active_pool) > MAX_ACTIVE_POOL:
-                # trim to 90% of MAX_ACTIVE_POOL by popping oldest half
                 trim_to = int(MAX_ACTIVE_POOL * 0.9)
-                # keep newest entries (cheap): slice the tail
                 active_pool = active_pool[-trim_to:]
     
     if debug:
@@ -1117,32 +1112,28 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             print("  No smooth divisors found initially. Cannot proceed with mixing.")
         return found_xs, []
     
-    # 2. Random Walk / Mixing to fill Rank (conservative rules)
+    # 2. Random Walk / Mixing to fill Rank (vector-free)
     if debug:
         print("  Starting structured random walk to improve Rank/FB ratio (capped mixing)...")
     generated_count = 0
     patience = 0
     
-    # precompute random selection indices usage
     import random
     while generated_count < MAX_ROUNDS:
         fb_size = len(unique_roots_set)
         num_rels = len(active_pool)
         target_buffer = max(TARGET_BUFFER_MIN, int(fb_size * TARGET_BUFFER_FRAC))
         
-        # If we have reached a reasonable target buffer *or* we've hit FB cap, stop.
         if num_rels > fb_size + target_buffer:
             if debug:
                 print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
             break
         
-        # Safety: if FB hit the hard cap, prefer to stop mixing to avoid growth
         if fb_size >= MAX_FB_SIZE:
             if debug:
                 print(f"  FB size reached MAX_FB_SIZE={MAX_FB_SIZE}. Halting growth.")
             break
         
-        # pick two (with replacement) from pool
         if len(active_pool) < 2:
             break
         
@@ -1151,13 +1142,14 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         D1, data1 = active_pool[idx1]
         D2, data2 = active_pool[idx2]
         
-        # Try either addition or subtraction, but keep at most one result (conservative)
+        # Try either addition or subtraction
         if random.random() < 0.5:
-            candidates = [(D1 + D2, 1)] # 1 for addition
+            candidates = [(D1 + D2, 1)]
         else:
-            candidates = [(D1 - D2, -1)] # -1 for subtraction
+            candidates = [(D1 - D2, -1)]
         
         for D3, sign_op in candidates:
+            # Extract Mumford parts from Jacobian element D3
             u3 = D3[0].monic()
             v3 = D3[1]
             coeffs_u = u3.list()
@@ -1177,53 +1169,29 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
             r2 = int((s_new - sqrt_delta) * inv_2)
             roots = tuple(sorted((r1, r2)))
             
-            # Extract v polynomial coefficients
+            # Extract v polynomial coefficients (v = v1*x + v0)
             coeffs_v = v3.list()
-            v1_new = coeffs_v[1] if len(coeffs_v) >= 2 else F(0)
-            v0_new = coeffs_v[0] if len(coeffs_v) >= 1 else F(0)
+            v0_new = int(coeffs_v[0]) if len(coeffs_v) >= 1 else 0
+            v1_new = int(coeffs_v[1]) if len(coeffs_v) >= 2 else 0
             
-            # CRITICAL FIX: Full Mumford key including v polynomial
-            div_key = (roots, int(v0_new), int(v1_new))
+            # Dedup key
+            div_key = (roots, v0_new, v1_new)
             
             # count how many *new* roots would be added
             new_roots_count = sum(1 for r in roots if r not in unique_roots_set)
             
-            # Conservative acceptance rules:
-            # - Accept only if new_roots_count <= 1 (never accept an operation that would add 2 brand new roots).
-            # - Also ensure acceptance won't push FB above cap.
+            # Conservative acceptance rules: allow limited growth
             if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
-                
-                # --- FIX: TRACK VECTOR SCALARS ---
-                # We must propagate the linear combination of the vectors (scalars)
-                # D3 = D1 +/- D2  =>  v3 = v1 +/- v2
-                vec1 = data1['vector']
-                vec2 = data2['vector']
-                
-                # Ensure vectors are tuples (they should be from initial harvest)
-                if not isinstance(vec1, tuple): vec1 = tuple(vec1) if hasattr(vec1, '__iter__') else (vec1,)
-                if not isinstance(vec2, tuple): vec2 = tuple(vec2) if hasattr(vec2, '__iter__') else (vec2,)
-                
-                try:
-                    if sign_op == 1:
-                        v_new = tuple(a + b for a, b in zip(vec1, vec2))
-                    else:
-                        v_new = tuple(a - b for a, b in zip(vec1, vec2))
-                except Exception:
-                    # If vectors have mismatching dimensions or types, skip
-                    patience += 1
-                    continue
-                # ----------------------------------
-
-                # Accept candidate
                 if div_key not in seen_divisors:
                     seen_divisors.add(div_key)
                     for r in roots:
                         unique_roots_set.add(r)
                     
                     new_data = {
-                        's': int(s_new), 'p': int(p_new), 
-                        'v_0': int(v0_new), 'v_1': int(v1_new),
-                        'vector': v_new,  # Using computed vector instead of 'mixed'
+                        's': int(s_new),
+                        'p': int(p_new),
+                        'v_0': int(v0_new),
+                        'v_1': int(v1_new),
                         'roots': list(roots),
                         'has_rational_roots': True
                     }
@@ -1244,18 +1212,12 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
                         trim_to = int(MAX_ACTIVE_POOL * 0.9)
                         active_pool = active_pool[-trim_to:]
                 else:
-                    # Duplicate divisor found.
-                    # CRITICAL FIX: DO NOT ADD duplicates to active_pool.
-                    # Adding a duplicate divisor with a *different* vector (scalar) creates
-                    # conflicting linear equations (Row*x = r1 AND Row*x = r2 where r1 != r2).
-                    # This causes inconsistent linear algebra. We simply discard it.
+                    # Duplicate: do not add. increment patience.
                     patience += 1
-                    pass
             else:
                 # reject candidate that would grow FB by 2 or overflow cap
                 patience += 1
         
-        # patience termination
         if patience > MAX_PATIENCE:
             if debug:
                 print("  Max patience reached (mining exhausted). Stopping.")
@@ -1263,7 +1225,6 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     
     # produce final mumford_divisors (strip heavy J objects for return)
     mumford_divisors = [d for _, d in active_pool]
-    # diagnostics
     all_roots = set()
     for d in mumford_divisors:
         all_roots.update(d['roots'])

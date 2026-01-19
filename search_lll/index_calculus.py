@@ -629,15 +629,6 @@ def jacobian_to_dict(J_elem, p):
     return res
 
 
-# ... (Previous globals and helper functions remain unchanged) ...
-
-
-# ... (Previous globals and helper functions remain unchanged) ...
-
-
-# ... (perform_dlp_attack remains unchanged from previous correction) ...
-
-
 def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     """
     Setup the HECC cryptosystem for the prime-order subgroup.
@@ -1408,45 +1399,6 @@ def get_divisor_anchor_x(div, r_to_idx, K):
 # ============================================================================
 
 
-def get_relation_row_cached(divisor):
-    """
-    CORRECTED: Worker version that uses Mumford v(x) directly.
-    
-    Checks if a divisor is smooth over the factor base and returns its relation vector.
-    Updated to handle degree-1 divisors.
-    """
-    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE
-    u_poly, v_poly = divisor[0], divisor[1]
-
-    if u_poly.degree() not in [1, 2]:
-        return None
-
-    roots_data = u_poly.roots(K)
-    if sum(m for _, m in roots_data) != u_poly.degree():
-        return None
-
-    row = {}
-    for x_elem, mult in roots_data:
-        x_int = int(x_elem)
-        if x_int not in _GLOBAL_ATOM_TO_IDX:
-            return None
-
-        # Use Mumford v(x) directly
-        y_val = int(v_poly(x_elem))
-        
-        idx = _GLOBAL_ATOM_TO_IDX[x_int]
-        
-        # CRITICAL FIX: Same sign convention
-        if y_val == 0:
-            row[idx] = row.get(idx, 0) + int(mult)
-        elif y_val <= _GLOBAL_P // 2:
-            row[idx] = row.get(idx, 0) + int(mult)
-        else:
-            row[idx] = row.get(idx, 0) - int(mult)
-            
-    return row
-
-
 def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verbose=True):
     """
     Run comprehensive diagnostics on the linear system BEFORE solving.
@@ -1865,76 +1817,6 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     return valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache
 
 
-def get_relation_row(div, atom_to_idx, f_p, p, fb_y_cache=None):
-    """
-    Encode a Mumford divisor (u,v) into prime-divisor atoms.
-    Returns sparse dict col->mult or None if not FB-smooth.
-    
-    Args:
-        div: Either a dict with 'u_coeffs'/'v_coeffs' or a Sage Jacobian element
-        atom_to_idx: dict mapping atom tuples to column indices
-        f_p: polynomial f(x) over GF(p)
-        p: prime
-        fb_y_cache: optional dict of x -> canonical_y (not used in new atom-based encoding)
-    
-    Returns:
-        dict {col_idx: multiplicity} or None if not smooth
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    if isinstance(div, dict):
-        if 'u_coeffs' in div and 'v_coeffs' in div:
-            u = R(div['u_coeffs'])
-            v = R(div['v_coeffs'])
-        elif 's' in div and 'p' in div:
-            x = R.gen()
-            s = int(div['s'])
-            pp = int(div['p'])
-            v0 = int(div.get('v_0', 0))
-            v1 = int(div.get('v_1', 0))
-            u = x**2 - K(s)*x + K(pp)
-            v = K(v1)*x + K(v0)
-        else:
-            return None
-    else:
-        u, v = div[0], div[1]
-
-    row = {}
-
-    try:
-        facs = u.factor()
-    except Exception:
-        raise
-        return None
-
-    for fac, mult in facs:
-        deg = fac.degree()
-
-        if deg == 1:
-            x_val = int(fac.roots()[0][0])
-            y_val = int(v(K(x_val)))
-            y_val = min(y_val, p - y_val)
-            atom = ('d1', x_val, y_val)
-
-        elif deg == 2:
-            u_coeffs = tuple(int(c) for c in fac.list())
-            v_mod = (v % fac)
-            v_coeffs = tuple(int(c) for c in v_mod.list())
-            atom = ('d2', u_coeffs, v_coeffs)
-
-        else:
-            return None
-
-        idx = atom_to_idx.get(atom)
-        if idx is None:
-            return None
-
-        row[idx] = row.get(idx, 0) + mult
-
-    return row
-
-
 def build_homogeneous_relations_no_rebase(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
                                          verbose=True):
     """
@@ -2063,94 +1945,6 @@ def _build_signed_row_from_divisor(div, r_to_idx, f_p, p):
     return canonicalize_divisor_to_factor_base(div, r_to_idx, f_p, p)
 
 
-def homomorphism_test(J, atom_to_idx, f_p, p, trials=50):
-    """
-    Test that the factor base encoding is a group homomorphism.
-    
-    For random smooth divisors D1, D2, verify:
-        encode(D1 + D2) = encode(D1) + encode(D2)
-    
-    Returns True if all trials pass, False otherwise.
-    """
-    from random import randint
-    K = GF(p)
-    C = J.curve()
-    
-    def get_random_jacobian_element():
-        """Generate a random element in the Jacobian by finding a random curve point."""
-        max_attempts = 100
-        for _ in range(max_attempts):
-            x_coord = K.random_element()
-            y2 = f_p(x_coord)
-            if y2.is_square():
-                y_coord = y2.sqrt()
-                try:
-                    pt = C((x_coord, y_coord))
-                    return J(pt)
-                except Exception:
-                    raise
-                    continue
-        # Fallback: return identity
-        return J(0)
-    
-    passed = 0
-    failed = 0
-    
-    for trial_num in range(trials):
-        # Generate two random divisors
-        D1 = get_random_jacobian_element()
-        D2 = get_random_jacobian_element()
-        
-        # Get their encodings
-        enc1 = get_relation_row(D1, atom_to_idx, f_p, p)
-        enc2 = get_relation_row(D2, atom_to_idx, f_p, p)
-        
-        # Compute sum and its encoding
-        D_sum = D1 + D2
-        enc_sum = get_relation_row(D_sum, atom_to_idx, f_p, p)
-        
-        # If any encoding failed (not smooth), skip this trial
-        if enc1 is None or enc2 is None or enc_sum is None:
-            continue
-        
-        # Compute expected encoding as vector sum
-        combined = {}
-        for k, v in enc1.items():
-            combined[k] = combined.get(k, 0) + v
-        for k, v in enc2.items():
-            combined[k] = combined.get(k, 0) + v
-        
-        # Remove zeros
-        combined = {k: v for k, v in combined.items() if v != 0}
-        
-        # Compare
-        if combined == enc_sum:
-            passed += 1
-        else:
-            failed += 1
-            if failed == 1:  # Print first failure for debugging
-                print(f"\n  [Trial {trial_num}] HOMOMORPHISM FAILURE:")
-                print(f"    enc(D1): {enc1}")
-                print(f"    enc(D2): {enc2}")
-                print(f"    enc(D1) + enc(D2): {combined}")
-                print(f"    enc(D1 + D2): {enc_sum}")
-    
-    total_tested = passed + failed
-    
-    if total_tested == 0:
-        print(f"  WARNING: No smooth divisor pairs found in {trials} trials")
-        print(f"           Cannot verify homomorphism property")
-        return True  # Don't fail if we just couldn't find smooth examples
-    
-    print(f"  Homomorphism tests: {passed}/{total_tested} passed")
-    
-    if failed > 0:
-        print(f"  âŒ {failed} failures detected!")
-        return False
-    
-    return True
-
-
 def is_divisor_fb_smooth(div, atom_to_idx, f_p, p, fb_y_cache=None):
     """
     Boolean wrapper: True if divisor encodes successfully into FB using atom-based encoding.
@@ -2167,3 +1961,468 @@ def is_divisor_fb_smooth(div, atom_to_idx, f_p, p, fb_y_cache=None):
     """
     row = get_relation_row(div, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache)
     return row is not None
+
+
+# --- Replace get_relation_row_cached and homomorphism_test with the following ---
+
+
+def get_relation_row_cached(divisor):
+    """
+    Worker-safe version: use Mumford v(x) directly and atom-based lookup.
+
+    Returns {col_idx: multiplicity_signed} or None if not FB-smooth / not in FB.
+    Raises on unexpected errors (per your loud-failure policy).
+    """
+    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY
+
+    if _GLOBAL_ATOM_TO_IDX is None:
+        raise RuntimeError("_GLOBAL_ATOM_TO_IDX not initialized in worker")
+
+    if _GLOBAL_P is None:
+        raise RuntimeError("_GLOBAL_P not initialized in worker")
+
+    # Local field objects for evaluation
+    K = GF(int(_GLOBAL_P))
+    R = PolynomialRing(K, 'x')
+
+    try:
+        u_poly, v_poly = divisor[0], divisor[1]
+    except Exception as e:
+        raise RuntimeError(f"get_relation_row_cached: malformed divisor input: {e}")
+
+    deg = u_poly.degree()
+    if deg not in (1, 2):
+        return None
+
+    # Ensure u splits completely into linear factors over K
+    try:
+        roots_data = u_poly.roots(K)
+    except Exception as e:
+        raise RuntimeError(f"get_relation_row_cached: u_poly.roots() failed: {e}")
+
+    if sum(m for _, m in roots_data) != deg:
+        return None
+
+    row = {}
+
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+
+        # get canonical y (preferred from worker cache)
+        y_can = None
+        if _GLOBAL_FB_Y_CACHE is not None:
+            y_can = _GLOBAL_FB_Y_CACHE.get(int(x_int), None)
+
+        if y_can is None:
+            # fallback: try to compute canonical y from stored global f(x) if available
+            if _GLOBAL_F_POLY is not None:
+                try:
+                    y2 = int(_GLOBAL_F_POLY(K(x_int)))
+                except Exception:
+                    raise
+                    return None
+                if y2 == 0:
+                    y_can = 0
+                elif pow(y2, (int(_GLOBAL_P) - 1) // 2, int(_GLOBAL_P)) != 1:
+                    return None
+                else:
+                    from .smoothness import tonelli_shanks
+                    y_can_tmp = tonelli_shanks(y2, int(_GLOBAL_P))
+                    y_can = int(min(y_can_tmp, int(_GLOBAL_P) - y_can_tmp))
+            else:
+                # no canonical y available -> cannot reliably sign degree-1 atom
+                return None
+
+        # evaluate Mumford v at x
+        try:
+            # v_poly is a Sage polynomial defined over the same base field as u_poly
+            y_val = int(v_poly(x_elem)) % int(_GLOBAL_P)
+        except Exception:
+            raise
+
+        # determine sign relative to canonical y
+        if y_can == 0:
+            sign = +1
+        elif y_val == int(y_can):
+            sign = +1
+        elif (int(_GLOBAL_P) - y_val) % int(_GLOBAL_P) == int(y_can):
+            sign = -1
+        else:
+            # ambiguous / not matching canonical ±sqrt
+            return None
+
+        # construct the atom tuple and lookup index in atom map
+        atom = ('d1', int(x_int), int(y_can))
+        idx = _GLOBAL_ATOM_TO_IDX.get(atom)
+        if idx is None:
+            # atom not present in factor base
+            return None
+
+        row[idx] = row.get(idx, 0) + int(sign) * int(mult)
+        if row[idx] == 0:
+            del row[idx]
+
+    return row
+
+
+def homomorphism_test(J, atom_to_idx, f_p, p, smooth_divisors, fb_y_cache, trials=200):
+    """
+    Correct homomorphism test for your Mumford-divisor dict format.
+
+    Verifies:
+        enc(D1 + D2) == enc(D1) + enc(D2)
+    WITHOUT requiring D1+D2 to be smooth.
+
+    Uses algebraic reconstruction via Jacobian.
+    """
+
+    from random import randint
+
+    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
+    R = f_p.parent()
+
+    def dict_to_jac(div):
+        """
+        Convert your reconstructed Mumford dict -> Jacobian element.
+        """
+        R = J.base_ring()['x']
+        x = R.gen()
+
+        s = R(div['s'])
+        p = R(div['p'])
+        v0 = R(div['v_0'])
+        v1 = R(div['v_1'])
+
+        u = x**2 - s*x + p
+        v = v1*x + v0
+
+        return J([u, v])
+
+
+    def atom_to_jac(atom):
+        """
+        Convert factor base atom -> Jacobian element.
+        """
+        R = J.base_ring()['x']
+        x = R.gen()
+
+        if atom[0] == 'd1':
+            _, x0, y0 = atom
+            u = x - R(x0)
+            v = R(y0)
+            return J([u, v])
+
+        elif atom[0] == 'd2':
+            _, u_coeffs, v_coeffs = atom
+            u = R(list(u_coeffs))
+            v = R(list(v_coeffs))
+            return J([u, v])
+
+        else:
+            raise RuntimeError(f"Unknown atom type {atom}")
+
+
+    def reconstruct(enc):
+        D = J.zero()
+        for i, e in enc.items():
+            D += int(e) * atom_to_jac(idx_to_atom[i])
+        return D
+
+    for _ in range(trials):
+        D1 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
+        D2 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
+
+        enc1 = get_relation_row(D1, atom_to_idx, f_p, p)
+        enc2 = get_relation_row(D2, atom_to_idx, f_p, p)
+
+        if enc1 is None or enc2 is None:
+            raise RuntimeError("Stored smooth divisor failed to encode")
+
+        combined = {}
+        for k,v in enc1.items(): combined[k] = combined.get(k,0)+v
+        for k,v in enc2.items(): combined[k] = combined.get(k,0)+v
+        combined = {k:v for k,v in combined.items() if v}
+
+        # True Jacobian sum
+        Jsum = dict_to_jac(D1) + dict_to_jac(D2)
+
+        # Reconstructed Jacobian from atoms
+        Jrecon = reconstruct(combined)
+
+        if Jrecon != Jsum:
+            print("\nHOMOMORPHISM FAILURE")
+            print("enc(D1) =", enc1)
+            print("enc(D2) =", enc2)
+            print("reconstructed =", Jrecon)
+            print("actual sum   =", Jsum)
+            debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2)
+            return False
+
+    print(f"homomorphism_test: {trials}/{trials} passed")
+    return True
+
+
+def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2):
+    """
+    Detailed diagnostics for a homomorphism failure.
+    Prints:
+      - vector lengths and contents for D1/D2
+      - atom tuples for indices present in enc1/enc2
+      - reconstructed and true Mumford polys
+      - attempt to express the difference as FB atoms
+      - checks for canonical-y mismatches for d1 atoms
+    """
+    from sage.all import GF, PolynomialRing
+    F = GF(int(p))
+    R = PolynomialRing(F, 'x'); x = R.gen()
+
+    # build idx->atom
+    idx_to_atom = {int(idx): atom for atom, idx in atom_to_idx.items()}
+
+    print("\n=== HOMOMORPHISM DEBUG ===")
+    print("p =", p)
+    print("enc(D1) =", enc1)
+    print("enc(D2) =", enc2)
+    print("D1 keys:", sorted(D1.keys()))
+    print("D2 keys:", sorted(D2.keys()))
+    v1 = D1.get('vector'); v2 = D2.get('vector')
+    print("vector D1 (len):", (len(v1) if hasattr(v1,'__len__') else None))
+    print("vector D2 (len):", (len(v2) if hasattr(v2,'__len__') else None))
+    print("vector D1 sample:", v1[:20] if hasattr(v1,'__len__') else v1)
+    print("vector D2 sample:", v2[:20] if hasattr(v2,'__len__') else v2)
+
+    # Show atoms referenced by enc1/enc2
+    idxs = sorted(set(list(enc1.keys()) + list(enc2.keys())))
+    print("\nAtoms referenced (idx -> atom):")
+    for idx in idxs:
+        atom = idx_to_atom.get(int(idx), None)
+        print(f"  {idx:5d} -> {atom}")
+
+    # Build dict_to_jac here (consistent with your dict format)
+    def dict_to_jac(div):
+        s = div['s']; pval = div['p']; v0 = div['v_0']; v1c = div['v_1']
+        u = x**2 - R(s)*x + R(pval)
+        v = R(v1c)*x + R(v0)
+        return J([u, v])
+
+    # reconstruct combined enc
+    combined = {}
+    for k,v in enc1.items(): combined[k] = combined.get(k,0) + int(v)
+    for k,v in enc2.items(): combined[k] = combined.get(k,0) + int(v)
+    combined = {int(k):int(v) for k,v in combined.items() if int(v) != 0}
+
+    # Reconstruct Jacobians
+    def atom_to_jac(atom):
+        if atom is None:
+            raise RuntimeError("missing atom for index")
+        kind = atom[0]
+        if kind == 'd1':
+            _, x0, y0 = atom
+            u = x - R(x0)
+            v = R(y0)
+            return J([u, v])
+        elif kind == 'd2':
+            _, u_coeffs, v_coeffs = atom
+            return J([R(list(u_coeffs)), R(list(v_coeffs))])
+        else:
+            raise RuntimeError("unknown atom kind")
+
+    J_recon = J.zero()
+    for idx, mult in combined.items():
+        atom = idx_to_atom.get(int(idx))
+        if atom is None:
+            print("WARNING: no atom for idx", idx); continue
+        atomJ = atom_to_jac(atom)
+        J_recon += int(mult) * atomJ
+
+    J_true = dict_to_jac(D1) + dict_to_jac(D2)
+
+    print("\nReconstructed (from atoms) Mumford:", J_recon)
+    print("Actual sum (from dicts) Mumford      :", J_true)
+
+    if J_recon == J_true:
+        print("=> They are equal (unexpected here).")
+        return
+
+    # Print explicit u,v polys for comparison
+    u_recon, v_recon = J_recon[0], J_recon[1]
+    u_true, v_true = J_true[0], J_true[1]
+    print("\nReconstructed u:", u_recon)
+    print("Actual        u:", u_true)
+    print("\nReconstructed v:", v_recon)
+    print("Actual        v:", v_true)
+
+    # Attempt to express difference as factor base combination (sanity)
+    diff = J_recon - J_true
+    print("\nDifference (J_recon - J_true):", diff)
+    try:
+        enc_diff = get_relation_row(diff, atom_to_idx, f_p, p)
+        print("Difference is FB-smooth; encoding:", enc_diff)
+    except Exception as e:
+        print("Could not encode difference (get_relation_row raised):", repr(e))
+        raise
+
+    # For each d1 atom referenced, check canonical y vs evaluated v(x)
+    print("\nCanonical vs evaluated y checks for d1 atoms in enc:")
+    for idx in idxs:
+        atom = idx_to_atom.get(int(idx))
+        if atom is None: continue
+        if atom[0] != 'd1': continue
+        x0 = int(atom[1]); y_can = int(atom[2])
+        # compute v(x0) from D1 and D2 v polys just for info
+        v_eval_D1 = None; v_eval_D2 = None
+        try:
+            v_eval_D1 = int((R(D1['v_1'])*R(x0) + R(D1['v_0']))) % int(p)
+        except Exception:
+            v_eval_D1 = None
+            raise
+        try:
+            v_eval_D2 = int((R(D2['v_1'])*R(x0) + R(D2['v_0']))) % int(p)
+        except Exception:
+            v_eval_D2 = None
+            raise
+
+        print(f" idx {idx}: atom x={x0}, y_can={y_can}, v_eval_D1={v_eval_D1}, v_eval_D2={v_eval_D2}")
+        if fb_y_cache is not None:
+            print("   fb_y_cache[x]:", fb_y_cache.get(int(x0)))
+    print("\n=== END DEBUG ===\n")
+
+
+def combine_vectors(vec1, vec2, sign=1):
+    """Pad shorter vector with zeros and add: vec1 + sign*vec2"""
+    # Convert to lists of ints
+    if not hasattr(vec1, '__len__'):
+        vec1 = (vec1,)
+    if not hasattr(vec2, '__len__'):
+        vec2 = (vec2,)
+    n1, n2 = len(vec1), len(vec2)
+    n = max(n1, n2)
+    v1 = list(vec1) + [0] * (n - n1)
+    v2 = list(vec2) + [0] * (n - n2)
+    if sign == 1:
+        return tuple(int(a) + int(b) for a, b in zip(v1, v2))
+    else:
+        return tuple(int(a) - int(b) for a, b in zip(v1, v2))
+
+
+def get_relation_row(divisor, atom_to_idx, f_p, p):
+    """
+    Build factor-base row for `divisor`.
+    - divisor: either a Mumford dict {'s','p','v_0','v_1',...} or a Sage Jacobian Mumford pair [u,v]
+    - atom_to_idx: mapping { atom_tuple -> col_index }, where degree-1 atoms are ('d1', x_int, y_can)
+    - f_p: curve polynomial (sage) over GF(p) (only used for type-coercion)
+    - p: prime modulus (int)
+
+    Returns: {col_idx: multiplicity_signed} or None if divisor is not FB-smooth.
+    Raises on malformed inputs.
+    """
+    # explicit, no hidden imports
+    from sage.all import GF, PolynomialRing
+
+    p = int(p)
+    K = GF(p)
+    # try to get polynomial ring consistent with f_p if available; otherwise make one
+    try:
+        R = f_p.parent()
+        x = R.gen()
+    except Exception:
+        R = PolynomialRing(K, 'x')
+        x = R.gen()
+        raise
+
+    # Build inverse idx map for quick atom lookup by x
+    d1_by_x = {}
+    for atom, idx in atom_to_idx.items():
+        if atom[0] == 'd1':
+            x_val = int(atom[1])
+            # ensure uniqueness; if multiple d1 atoms for same x, crash (you want to know)
+            if x_val in d1_by_x:
+                raise RuntimeError(f"Ambiguous factor base: multiple d1 atoms for x={x_val}")
+            d1_by_x[x_val] = (atom, int(idx))
+
+    row = {}
+
+    # Case A: input is your Mumford dict (from reconstruction)
+    if isinstance(divisor, dict):
+        # expect keys 's','p','v_0','v_1' (integers or QQ in general)
+        assert 's' in divisor and 'p' in divisor and 'v_0' in divisor and 'v_1' in divisor, \
+            "get_relation_row: divisor dict missing required keys"
+        s_val = int(divisor['s'])
+        p_val = int(divisor['p'])
+        v0 = K(int(divisor['v_0']))
+        v1 = K(int(divisor['v_1']))
+
+        # u(x) = x^2 - s*x + p
+        u_poly = x**2 - K(s_val)*x + K(p_val)
+        # ensure u splits (we only encode split u's)
+        roots_data = u_poly.roots(K)
+        if sum(m for _, m in roots_data) != 2:
+            return None
+
+        for x_elem, mult in roots_data:
+            x_int = int(x_elem)
+            # require factor base has a d1 atom at this x
+            entry = d1_by_x.get(x_int)
+            if entry is None:
+                return None
+            atom, idx = entry
+            y_can = int(atom[2])  # canonical y stored in atom tuple
+
+            # compute v(x) in GF(p)
+            v_at_x = int((v1 * K(x_elem) + v0)) % p
+
+            # compare strictly to canonical y or its negation mod p
+            if v_at_x == y_can:
+                sign = 1
+            elif (p - v_at_x) % p == y_can:
+                sign = -1
+            else:
+                # Doesn't match canonical ±y -> not FB-smooth in degree-1 atoms
+                return None
+
+            row[idx] = row.get(idx, 0) + sign * int(mult)
+            if row[idx] == 0:
+                del row[idx]
+
+        return row
+
+    # Case B: input is a Sage Jacobian element (Mumford pair)
+    # Expect divisor to be indexable like D[0], D[1] yielding u_poly, v_poly
+    try:
+        u_poly = divisor[0]
+        v_poly = divisor[1]
+    except Exception:
+        raise RuntimeError("get_relation_row: unsupported divisor type")
+
+    deg = u_poly.degree()
+    if deg not in (1, 2):
+        return None
+
+    # get linear factors
+    roots_data = u_poly.roots(K)
+    if sum(m for _, m in roots_data) != deg:
+        return None
+
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+        entry = d1_by_x.get(x_int)
+        if entry is None:
+            return None
+        atom, idx = entry
+        y_can = int(atom[2])
+
+        # evaluate v_poly at x_elem (coerce)
+        v_at_x = int(v_poly(x_elem)) % p
+
+        if v_at_x == y_can:
+            sign = 1
+        elif (p - v_at_x) % p == y_can:
+            sign = -1
+        else:
+            return None
+
+        row[idx] = row.get(idx, 0) + sign * int(mult)
+        if row[idx] == 0:
+            del row[idx]
+
+    return row

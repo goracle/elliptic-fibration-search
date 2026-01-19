@@ -908,3 +908,207 @@ def solve_sparse_direct_mod_ell(A_obj, b_vec_ints, mod, verbose=True):
         sys.stdout.flush()
         
     return solution
+
+
+# put this near your other solvers in sparse_linalg_modp.py
+from sage.all import GF, PolynomialRing, vector, randint
+
+def berlekamp_massey(seq, mod):
+    """
+    Return connection polynomial C as list C[0..L] (C[0]=1),
+    such that for n>=L: sum_{i=0..L} C[i]*s[n-i] = 0 (mod).
+    """
+    seq = [int(x) % mod for x in seq]
+    nmax = len(seq)
+    C = [1]
+    B = [1]
+    L = 0
+    m = 1
+    b = 1
+    for n in range(nmax):
+        # discrepancy
+        d = seq[n]
+        for i in range(1, L+1):
+            d = (d + C[i] * seq[n - i]) % mod
+        if d == 0:
+            m += 1
+        else:
+            T = C[:]
+            coef = (d * pow(int(b), -1, mod)) % mod
+            # C = C - coef * x^m * B
+            need = len(B) + m
+            if len(C) < need:
+                C += [0] * (need - len(C))
+            for i in range(len(B)):
+                C[i + m] = (C[i + m] - coef * B[i]) % mod
+            if 2 * L <= n:
+                L_new = n + 1 - L
+                B = T
+                b = d
+                m = 1
+                L = L_new
+            else:
+                m += 1
+    # trim trailing zeros
+    while len(C) > 1 and C[-1] == 0:
+        C.pop()
+    return [int(x) % mod for x in C]
+
+def _matvec_mod(A, v, p):
+    """Matrix-vector product with reduction to GF(p) as sage vector."""
+    res = A * v
+    # ensure reduction (Sage should handle it but be explicit)
+    return vector([int(x) % p for x in list(res)])
+
+def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
+    """
+    Solve A x = b over GF(p) using Wiedemann + Berlekamp-Massey (scalar version).
+
+    A: sage matrix (m x n)
+    b: sage vector (length m)
+    p: modulus (int or sage integer)
+    Returns: x as sage vector (length n) if successful.
+    Raises RuntimeError on unrecoverable failure.
+    """
+    p = int(p)
+    m, n = A.nrows(), A.ncols()
+    if len(b) != m:
+        raise RuntimeError("wiedemann_solve: dimension mismatch: b length != A.nrows()")
+
+    # Precompute Krylov length - standard choice 2*n
+    seq_len = 2 * n
+
+    # Define function to compute sequence s_k = u^T * (A^k * b)
+    def compute_sequence(u_vec):
+        # compute w0 = b, then w_{k+1} = A * w_k
+        w = [vector([int(x) % p for x in list(b)])]
+        # we need up to seq_len - 1 A-multiplications
+        for k in range(1, seq_len):
+            w.append(_matvec_mod(A, w[-1], p))
+        # compute sequence s_k = u^T w_k
+        s = [int(sum((int(u_vec[i]) * int(wk[i])) for i, wk in enumerate([wk]) )) % p]  # placeholder safe init
+        # compute properly
+        s = []
+        for wk in w:
+            # dot product
+            s.append(int(sum((int(u_vec[i]) * int(wk[i])) % p for i in range(len(u_vec)))) % p)
+        return s, w
+
+    # Slight optimization: instead of recomputing all w for each trial, compute Krylov with respect to b once
+    # and reuse across trials. But because we use random u only, Krylov depends only on b and A -> compute once.
+    # compute w_k = A^k b
+    if verbosity:
+        print(f"Wiedemann: preparing Krylov sequence length {seq_len} (this will do {seq_len-1} matvecs)")
+    w = [vector([int(x) % p for x in list(b)])]
+    for k in range(1, seq_len):
+        w.append(_matvec_mod(A, w[-1], p))
+
+    # Try random u vectors
+    for trial in range(1, max_trials + 1):
+        # random projection u in GF(p)^m (non-zero)
+        u = vector([randint(0, p - 1) for _ in range(m)])
+        if all(int(x) % p == 0 for x in u):
+            u[0] = 1
+
+        # compute scalar sequence s_k = u^T w_k
+        s = [int(sum((int(u[i]) * int(wk[i])) % p for i in range(m))) % p for wk in w]
+
+        # BM to get minimal polynomial m(t)
+        C = berlekamp_massey(s, p)
+        deg = len(C) - 1
+        if verbosity:
+            print(f"trial {trial}: BM degree = {deg}")
+
+        if deg == 0:
+            # deg 0 means sequence all zeros -> useless
+            if verbosity:
+                print("  BM produced degree 0 polynomial; retrying")
+            continue
+        if deg > n:
+            # unlikely but possible; BM degree > n => try new u
+            if verbosity:
+                print("  BM degree > n; retrying with new projection")
+            continue
+
+        # Create polynomial ring and construct m_poly(t) = C[0] + C[1] t + ... + C[d] t^d
+        R = PolynomialRing(GF(p), 't')
+        t = R.gen()
+        m_poly = sum( (int(C[i]) % p) * t**i for i in range(len(C)) )
+        # require m_poly(0) != 0 so gcd(m,t)=1
+        if int(m_poly(0)) % p == 0:
+            if verbosity:
+                print("  minimal polynomial m(0)==0 (not invertible mod t). retrying.")
+            continue
+
+        # compute inverse of t modulo m_poly via xgcd: find u_poly, v_poly with u_poly * t + v_poly * m_poly = gcd = 1
+        try:
+            g, u_poly, v_poly = R(x=t).xgcd(m_poly)  # xgcd returns (g, s, t) with s*x + t*m = g
+            # Note: depending on Sage version, xgcd signature may differ; use polynomial xgcd
+        except Exception:
+            # fallback: use m_poly.xgcd with t
+            try:
+                g, u_poly, v_poly = m_poly.xgcd(t)
+                # m_poly.xgcd(t) returns g, s, t s.t. s*m_poly + t*t = g
+                # rearrange to get u_poly * t + v_poly * m_poly = g
+                # but s*m_poly + t*t = g  => t*t + s*m_poly = g  => u_poly = t, v_poly = s
+                # We want u_poly * t + v_poly * m_poly = g -> u_poly = t, v_poly = s
+                # Therefore swap accordingly:
+                tmp_u = u_poly
+                tmp_v = v_poly
+                u_poly = tmp_v  # polynomial multiplying t
+                v_poly = tmp_u
+            except Exception as e:
+                raise RuntimeError(f"wiedemann_solve: polynomial xgcd failed: {e}")
+
+        # ensure gcd is 1
+        if int(g(0)) % p != 1 and int(g) != 1:
+            # try normalization if g is constant invertible
+            if g.degree() == 0 and int(g.constant_coefficient()) % p != 0:
+                inv_g = pow(int(g.constant_coefficient()), -1, p)
+                u_poly = (u_poly * inv_g)
+            else:
+                if verbosity:
+                    print("  gcd != 1; retrying with new projection")
+                continue
+
+        # u_poly is the polynomial such that u_poly * t + v_poly * m_poly = g == 1
+        # thus u_poly is the inverse of t modulo m_poly (up to normalization)
+        # reduce u_poly modulo m_poly to degree < deg
+        q_poly = u_poly % m_poly
+        # get coefficients q_0..q_{deg-1}
+        q_coeffs = [int(q_poly[i]) % p if i <= q_poly.degree() else 0 for i in range(deg)]
+        if verbosity:
+            print(f"  got q polynomial degree {len(q_coeffs)-1}; reconstructing x as sum q_i A^i b")
+
+        # Now compute x = sum_{i=0..deg-1} q_i * w_i  (w_i = A^i b precomputed)
+        x_vec = vector([0] * n)
+        # But note: w_i are length m vectors (A^i b). To compute x in domain of columns,
+        # we need to produce x of length n. The polynomial method actually produces x in the domain
+        # of A such that A x = b. That requires computing the Krylov with respect to A^T as well, or using standard derivation.
+        # The classical Wiedemann technique: q(A) * b yields a vector y in F^n satisfying A*y = b.
+        # However, careful: w_i we computed are length m (they are in RHS space). We need the Krylov of A with respect to column-space.
+        # For standard Ax=b with A (m x n), the algorithm works with operator on n-space: define M = A (if square),
+        # but with rectangular A we treat the normal equations A^T A possibly. To keep it robust, require A to be square here.
+        if m != n:
+            raise RuntimeError("wiedemann_solve: current scalar Wiedemann implementation requires a square matrix (m == n).")
+
+        # Now n == m, w_i are length n
+        for i, qi in enumerate(q_coeffs):
+            if qi % p == 0:
+                continue
+            # add qi * w_i (w_i length n)
+            x_vec = vector([(int(x_vec[j]) + qi * int(w[i][j])) % p for j in range(n)])
+
+        # Verify A * x_vec == b
+        lhs = _matvec_mod(A, x_vec, p)
+        if list(lhs) == [int(x) % p for x in list(b)]:
+            if verbosity:
+                print(f"Wiedemann: solution verified on trial {trial}")
+            return x_vec
+        else:
+            if verbosity:
+                print(f"  verification failed on trial {trial}; retrying")
+            # try next random u
+
+    raise RuntimeError(f"wiedemann_solve: failed to find solution after {max_trials} trials")
+
