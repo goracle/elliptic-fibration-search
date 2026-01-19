@@ -8,9 +8,6 @@ import sys
 import time
 from sage.all import Integer, Zmod, vector, GF, PolynomialRing
 from sage.all import factor, vector
-from sage.all import Integer, Zmod, factor, vector
-from sage.all import Integer, Zmod, vector
-from sage.all import Integer, Zmod, vector, GF
 from math import ceil
 from sage.all import Integer, Zmod, vector, GF, PolynomialRing, matrix
 from sage.all import factor
@@ -411,120 +408,6 @@ def compute_proj_and_atav(packed_rows, vec, left_vec_b, n_cols, mod, lazy_limit=
     return proj, atav
 
 
-def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=1):
-    mod = int(A.mod)
-    m = len(A.packed_rows)
-    n = A.n_cols
-    
-    # Wiedemann complexity: ~2N iterations for scalar, 2N/B for blocked
-    # We add a small safety buffer (+50)
-    if iters is None:
-        iters = int(2.2 * n // max(1, block_size)) + 50
-
-    if verbose:
-        print(f"[BW-fast] block={block_size}, target_iters={iters}, nrows={m}, ncols={n}")
-        sys.stdout.flush()
-
-    left_vec_b = [int(x) % mod for x in b]
-    seed_val = random.randrange(1, mod)
-    
-    # --- PASS 1 ---
-    if verbose:
-        print("[BW-fast] Pass 1: Generating Sequence (Trace)")
-        sys.stdout.flush()
-    
-    rng_state = random.getstate()
-    random.seed(seed_val)
-    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
-    random.setstate(rng_state)
-
-    seq = []
-    t_start = time.time()
-    last_print = t_start
-
-    for t in range(iters):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-            elapsed = now - t_start
-            rate = (t + 1) / max(1e-9, elapsed)
-            remaining = (iters - t) / rate if rate > 0 else 0
-            print(f"  [BW Pass 1] iter {t}/{iters} ({100.0*t/iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-            sys.stdout.flush()
-            last_print = now
-
-        AV_projs = []
-        AVs_atav = []
-        for v in V:
-            proj, atav = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
-            AV_projs.append(proj)
-            AVs_atav.append(atav)
-        seq.extend(AV_projs)
-        V = AVs_atav
-
-    # --- POLYNOMIAL STEP ---
-    if verbose:
-        print(f"[BW-fast] Computing Minimal Polynomial from {len(seq)} scalars...")
-        sys.stdout.flush()
-    
-    K = GF(mod)
-    seq_mod = [K(s) for s in seq]
-    poly = berlekamp_massey(seq_mod)
-    coeffs = [int(c) for c in poly.list()]
-    
-    deg = poly.degree()
-    if verbose:
-        print(f"[BW-fast] Minimal polynomial degree: {deg}")
-        sys.stdout.flush()
-
-    # Safety check: if degree is suspiciously close to block size or very small
-    if deg <= block_size * 2 or deg < 100:
-         print(f"  [BW-fast] WARNING: Poly degree {deg} is suspiciously low (system size {n}).")
-         print(f"            This suggests the Krylov sequence degenerated. Result will likely be wrong.")
-         # We do not raise here, to allow 'verify' step to catch it downstream if needed
-
-    # --- PASS 2 ---
-    if verbose:
-        print("[BW-fast] Pass 2: Reconstructing Solution Vector")
-        sys.stdout.flush()
-
-    random.seed(seed_val)
-    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
-    random.setstate(rng_state)
-
-    x_accum = [0] * n
-    # For standard Wiedemann (block=1), this reconstructs sum(c_i * A^i * v)
-    reconstruct_iters = (len(coeffs) + block_size - 1) // block_size
-    
-    t_start = time.time()
-    last_print = t_start
-    
-    for t in range(reconstruct_iters):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-             elapsed = now - t_start
-             rate = (t + 1) / max(1e-9, elapsed)
-             remaining = (reconstruct_iters - t) / rate if rate > 0 else 0
-             print(f"  [BW Pass 2] iter {t}/{reconstruct_iters} ({100.0*t/reconstruct_iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-             sys.stdout.flush()
-             last_print = now
-
-        base_idx = t * block_size
-        for i in range(block_size):
-            c_idx = base_idx + i
-            if c_idx < len(coeffs):
-                c = coeffs[c_idx]
-                if c != 0:
-                    vec = V[i]
-                    for j in range(n):
-                        if vec[j]:
-                            x_accum[j] = (x_accum[j] + c * vec[j]) % mod
-        
-        if t < reconstruct_iters - 1:
-            V = [at_a_v_from_packed(A.packed_rows, v, n, mod) for v in V]
-
-    return vector(Zmod(mod), x_accum)
-
-
 def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
     """
     Solve for full discrete log d = d_mod_ell + t*ell with 0 <= t < h,
@@ -798,11 +681,13 @@ def solve_dlp_mod_l_block_wiedemann(
             print(f"  [Solver] Using Block-Wiedemann (n={n_cols} >= 10k)")
             sys.stdout.flush()
         
+        # Adaptive block size: use 1 for small systems, larger for huge systems
+        adaptive_block = 1 if n_cols < 5000 else min(32, n_cols // 200)
         t0 = time.time()
         solution = block_wiedemann_solve(
             A=A,
             b=projected_rhs,
-            block_size=block_size,
+            block_size=adaptive_block,
             iters=max_iters,
             verbose=verbose,
         )
@@ -1058,81 +943,281 @@ def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
 
 from sage.all import Integer, Zmod, vector, matrix
 
-def solve_sparse_direct_mod_ell(A_obj, b_vec_ints, mod, verbose=True):
+
+def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
     """
-    Direct sparse solve using Sage's built-in solver over Zmod(mod).
-    Recommended for systems with < 10k unknowns.
+    Prune factor base to pivot columns via Gaussian elimination.
     
-    Fixed: Forces inclusion of non-zero RHS rows during sampling.
+    Returns:
+        (pruned_rows, pruned_rhs, col_map, pivot_cols)
+    where:
+        - pruned_rows: rows with only pivot columns
+        - pruned_rhs: corresponding RHS values
+        - col_map: dict mapping old_col_idx -> new_col_idx (or None if pruned)
+        - pivot_cols: list of original pivot column indices
     """
+    K = GF(mod)
+    
+    # Find all columns that appear
+    all_cols = set()
+    for row in A_rows:
+        all_cols.update(row.keys())
+    n_cols_orig = max(all_cols) + 1 if all_cols else 0
+    
     if verbose:
-        print(f"  [Direct] Building sparse matrix over Zmod({mod})...")
+        print(f"  [Prune] Input: {len(A_rows)} rows x {n_cols_orig} cols")
         sys.stdout.flush()
     
-    t0 = time.time()
-    K = Zmod(mod)
-    n_rows = len(A_obj.packed_rows)
-    n_cols = A_obj.n_cols
-    
-    # Identify critical rows (non-zero RHS)
-    critical_indices = [i for i, b in enumerate(b_vec_ints) if int(b) % int(mod) != 0]
-    
-    # Sampling logic
-    if n_rows > 2 * n_cols:
-        target_rows = int(1.2 * n_cols)
-        
-        # Start with all critical rows
-        indices = set(critical_indices)
-        
-        # Fill the rest with random rows
-        remaining_slots = target_rows - len(indices)
-        if remaining_slots > 0:
-            candidate_pool = [i for i in range(n_rows) if i not in indices]
-            # Safety check if pool is smaller than needed (unlikely given check above)
-            sample_size = min(len(candidate_pool), remaining_slots)
-            indices.update(random.sample(candidate_pool, sample_size))
-            
-        indices = sorted(list(indices))
-        
-        if verbose:
-            print(f"  [Direct] Sampling {len(indices)} rows (forced {len(critical_indices)} non-zero RHS).")
-            sys.stdout.flush()
-    else:
-        indices = range(n_rows)
-    
-    # Build dictionary using sampled rows
+    # Build sparse matrix
     entries = {}
-    sampled_b = []
+    for i, row in enumerate(A_rows):
+        for j, v in row.items():
+            val = K(int(v))
+            if val != 0:
+                entries[(i, j)] = val
     
-    # Map old row index to new row index (0, 1, 2...)
-    for new_row_idx, old_row_idx in enumerate(indices):
-        idxs, vals = A_obj.packed_rows[old_row_idx]
-        for j, v in zip(idxs, vals):
-            entries[(new_row_idx, j)] = K(int(v))
-        sampled_b.append(K(int(b_vec_ints[old_row_idx])))
+    M = matrix(K, len(A_rows), n_cols_orig, entries, sparse=True)
     
-    # Construct Sage sparse matrix
-    M = matrix(K, len(sampled_b), n_cols, entries, sparse=True)
-    b_sage = vector(K, sampled_b)
+    # Compute pivots via row echelon form
+    M_rref = M.rref()
+    
+    # Extract pivot columns
+    pivot_cols = []
+    for i in range(M_rref.nrows()):
+        for j in range(M_rref.ncols()):
+            if M_rref[i, j] != 0:
+                pivot_cols.append(j)
+                break
+    
+    pivot_cols = sorted(set(pivot_cols))
     
     if verbose:
-        nnz = len(entries)
-        size = len(sampled_b) * n_cols
-        density = 100.0 * nnz / size if size > 0 else 0
-        print(f"  [Direct] Matrix: {len(sampled_b)} x {n_cols}, nnz={nnz}, density={density:.4f}%")
-        print(f"  [Direct] Solving system (backend=Sage/generic)...")
+        print(f"  [Prune] Pivot columns: {len(pivot_cols)}/{n_cols_orig}")
+        print(f"  [Prune] Rank: {len(pivot_cols)}")
+        sys.stdout.flush()
+    
+    # Build column mapping
+    col_map = {}
+    for new_idx, old_idx in enumerate(pivot_cols):
+        col_map[old_idx] = new_idx
+    
+    # Prune rows to only pivot columns
+    pruned_rows = []
+    for row in A_rows:
+        pruned_row = {}
+        for old_idx, val in row.items():
+            if old_idx in col_map:
+                pruned_row[col_map[old_idx]] = val
+        if pruned_row:
+            pruned_rows.append(pruned_row)
+    
+    if verbose:
+        print(f"  [Prune] Output: {len(pruned_rows)} rows x {len(pivot_cols)} cols")
+        sys.stdout.flush()
+    
+    return pruned_rows, b_list[:len(pruned_rows)], col_map, pivot_cols
+
+
+# ============================================================================
+# FILE: sparse_linalg_modp.py
+# FUNCTION: solve_sparse_direct_mod_ell (COMPLETE REWRITE)
+# ============================================================================
+
+def solve_sparse_direct_mod_ell(A_sparse_matrix, b_list, mod, verbose=True):
+    """
+    Direct sparse solver - uses full matrix when already full rank from pruning.
+    
+    CRITICAL: After pruning guarantees full rank, we can use the entire system.
+    Greedy row selection can fail for columns that only appear as pivots in
+    linear combinations, not as leading entries in any single row.
+    """
+    # Extract rows in dict format
+    A_rows = []
+    for (idxs, vals) in A_sparse_matrix.packed_rows:
+        row_dict = {int(idx): int(val) for idx, val in zip(idxs, vals)}
+        A_rows.append(row_dict)
+    
+    n_cols = A_sparse_matrix.n_cols
+    n_rows = len(A_rows)
+    
+    if verbose:
+        print(f"  [Direct] Building full system: {n_rows} rows x {n_cols} cols")
+        sys.stdout.flush()
+    
+    K = GF(mod)
+    
+    # Check if system is already square or overdetermined
+    if n_rows < n_cols:
+        raise RuntimeError(
+            f"Underdetermined system after pruning:\n"
+            f"  {n_rows} rows < {n_cols} columns\n"
+            f"  Pruning should have reduced columns to match available rank."
+        )
+    
+    if verbose:
+        print(f"  [Direct] System is {'square' if n_rows == n_cols else 'overdetermined'}")
+        print(f"  [Direct] Using full matrix (pruning already guaranteed full rank)")
+        sys.stdout.flush()
+    
+    # Build full matrix - use ALL rows
+    M_sage = matrix(GF(mod), n_rows, n_cols, sparse=True)
+    b_sage = vector(GF(mod), b_list)
+    
+    for i, row_dict in enumerate(A_rows):
+        for col, val in row_dict.items():
+            M_sage[i, col] = val
+    
+    # Verify rank
+    if verbose:
+        print(f"  [Direct] Verifying rank...")
+        sys.stdout.flush()
+    
+    actual_rank = M_sage.rank()
+    
+    if actual_rank < n_cols:
+        raise RuntimeError(
+            f"RANK DEFICIT in full matrix:\n"
+            f"  Matrix size: {n_rows} x {n_cols}\n"
+            f"  Actual rank: {actual_rank}\n"
+            f"  Missing {n_cols - actual_rank} dimensions.\n"
+            f"  This should not happen after pruning claimed full rank!"
+        )
+    
+    if verbose:
+        print(f"  [Direct] ✓ Rank verified: {actual_rank}/{n_cols}")
+        print(f"  [Direct] Solving system...")
         sys.stdout.flush()
     
     try:
-        solution = M.solve_right(b_sage)
+        solution = M_sage.solve_right(b_sage)
     except ValueError as e:
-        # Re-raise with context
-        raise RuntimeError(f"Direct sparse solve failed (inconsistent or underdetermined): {e}")
-
-    dt = time.time() - t0
+        # Inconsistent system
+        M_aug = M_sage.augment(b_sage.column(), subdivide=False)
+        rank_aug = M_aug.rank()
+        raise RuntimeError(
+            f"System INCONSISTENT:\n"
+            f"  Rank[A] = {actual_rank}\n"
+            f"  Rank[A|b] = {rank_aug}\n"
+            f"  The RHS is not in the column space.\n"
+            f"  Original error: {e}"
+        )
     
     if verbose:
-        print(f"  [Direct] ✓ Solved in {dt:.2f}s")
+        print("  [Direct] ✓ Solve successful")
         sys.stdout.flush()
-        
+    
     return solution
+
+
+def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=1):
+    mod = int(A.mod)
+    m = len(A.packed_rows)
+    n = A.n_cols
+    
+    # Wiedemann complexity: ~2N iterations for scalar, 2N/B for blocked
+    # We add a small safety buffer (+50)
+    if iters is None:
+        iters = int(2.2 * n // max(1, block_size)) + 50
+
+    if verbose:
+        print(f"[BW-fast] block={block_size}, target_iters={iters}, nrows={m}, ncols={n}")
+        sys.stdout.flush()
+
+    left_vec_b = [int(x) % mod for x in b]
+    seed_val = random.randrange(1, mod)
+    
+    # --- PASS 1: Generate Krylov Sequence ---
+    if verbose:
+        print("[BW-fast] Pass 1: Generating Sequence (Trace)")
+        sys.stdout.flush()
+    
+    rng_state = random.getstate()
+    random.seed(seed_val)
+    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
+    random.setstate(rng_state)
+
+    seq = []
+    t_start = time.time()
+    last_print = t_start
+
+    for t in range(iters):
+        now = time.time()
+        if verbose and (now - last_print > 5):
+            elapsed = now - t_start
+            rate = (t + 1) / max(1e-9, elapsed)
+            remaining = (iters - t) / rate if rate > 0 else 0
+            print(f"  [BW Pass 1] iter {t}/{iters} ({100.0*t/iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
+            sys.stdout.flush()
+            last_print = now
+
+        AV_projs = []
+        AVs_atav = []
+        for v in V:
+            proj, atav = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
+            AV_projs.append(proj)
+            AVs_atav.append(atav)
+        seq.extend(AV_projs)
+        V = AVs_atav
+
+    # --- POLYNOMIAL STEP: Berlekamp-Massey ---
+    if verbose:
+        print(f"[BW-fast] Computing Minimal Polynomial from {len(seq)} scalars...")
+        sys.stdout.flush()
+    
+    # Convert sequence to GF(mod) for Berlekamp-Massey
+    K = GF(mod)
+    seq_mod = [K(s) for s in seq]
+    
+    # Call custom Berlekamp-Massey (returns list of int coefficients)
+    coeffs = berlekamp_massey(seq_mod, mod)
+    deg = len(coeffs) - 1
+    
+    if verbose:
+        print(f"[BW-fast] Minimal polynomial degree: {deg}")
+        sys.stdout.flush()
+
+    # Safety check: if degree is suspiciously low
+    if deg <= block_size * 2 or deg < 100:
+        print(f"  [BW-fast] WARNING: Poly degree {deg} is suspiciously low (system size {n}).")
+        print(f"            This suggests the Krylov sequence degenerated. Result will likely be wrong.")
+
+    # --- PASS 2: Reconstruct Solution Vector ---
+    if verbose:
+        print("[BW-fast] Pass 2: Reconstructing Solution Vector")
+        sys.stdout.flush()
+
+    random.seed(seed_val)
+    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
+    random.setstate(rng_state)
+
+    x_accum = [0] * n
+    reconstruct_iters = (len(coeffs) + block_size - 1) // block_size
+    
+    t_start = time.time()
+    last_print = t_start
+    
+    for t in range(reconstruct_iters):
+        now = time.time()
+        if verbose and (now - last_print > 5):
+            elapsed = now - t_start
+            rate = (t + 1) / max(1e-9, elapsed)
+            remaining = (reconstruct_iters - t) / rate if rate > 0 else 0
+            print(f"  [BW Pass 2] iter {t}/{reconstruct_iters} ({100.0*t/reconstruct_iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
+            sys.stdout.flush()
+            last_print = now
+
+        base_idx = t * block_size
+        for i in range(block_size):
+            c_idx = base_idx + i
+            if c_idx < len(coeffs):
+                c = coeffs[c_idx]
+                if c != 0:
+                    vec = V[i]
+                    for j in range(n):
+                        if vec[j]:
+                            x_accum[j] = (x_accum[j] + c * vec[j]) % mod
+        
+        if t < reconstruct_iters - 1:
+            V = [at_a_v_from_packed(A.packed_rows, v, n, mod) for v in V]
+
+    return vector(Zmod(mod), x_accum)

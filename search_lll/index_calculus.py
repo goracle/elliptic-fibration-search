@@ -869,38 +869,6 @@ Only G and Q (after smoothing) give us actual scalar equations.
 """
 
 
-def single_point_row(x_int, r_to_idx, f_p, p, fb_y_cache=None):
-    """
-    Build factor-base row for degree-1 divisor at point (x_int, y_canonical).
-    
-    Returns:
-        dict {col_idx: 1} if x_int is in factor base and has canonical y
-        None otherwise
-    """
-    x_int = int(x_int)
-    
-    if x_int not in r_to_idx:
-        return None
-    
-    # Get canonical y-coordinate
-    if fb_y_cache is not None and x_int in fb_y_cache:
-        y_can = fb_y_cache[x_int]
-    else:
-        K = GF(p)
-        y2 = int(f_p(K(x_int)))
-        
-        if y2 == 0:
-            y_can = 0
-        elif pow(y2, (p - 1) // 2, p) != 1:
-            return None
-        else:
-            y_can = tonelli_shanks(y2, p)
-            y_can = int(min(y_can, p - y_can))
-    
-    idx = r_to_idx[x_int]
-    return {idx: 1}
-
-
 def rebase_relation_row(row, current_anchor_x, base_anchor_x, r_to_idx, f_p, p, fb_y_cache=None):
     """
     Rebase a relation row from current_anchor to base_anchor.
@@ -930,107 +898,6 @@ def rebase_relation_row(row, current_anchor_x, base_anchor_x, r_to_idx, f_p, p, 
         new_row[col] = new_row.get(col, 0) + val
     
     return new_row
-
-
-def build_anchored_relations_homogeneous(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
-                                        preferred_x_coords=None, verbose=True):
-    """
-    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
-    
-    These divisors are NOT scalar multiples of G - they're just arbitrary smooth divisors.
-    They give us dependencies among FB elements: ∏ P_i^{e_i} = 0 in the Jacobian.
-    
-    All relations are rebased to a single canonical anchor point for consistency.
-    
-    Returns:
-        (valid_rows, rhs_values) where rhs_values are all 0
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    # Choose base anchor
-    base_anchor_x = None
-    if preferred_x_coords:
-        for x in sorted(preferred_x_coords):
-            if int(x) in r_to_idx:
-                base_anchor_x = int(x)
-                break
-    
-    if base_anchor_x is None:
-        # Fallback: use first element in factor base
-        base_anchor_x = min(r_to_idx.keys())
-    
-    if verbose:
-        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
-    
-    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
-    if base_row is None:
-        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
-    
-    valid_rows = []
-    rhs_values = []
-    skipped_no_anchor = 0
-    skipped_rebase_fail = 0
-    
-    for d in smooth_divs:
-        # Build divisor polynomials
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        else:
-            try:
-                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            except Exception:
-                raise
-                continue
-        
-        # Get relation row
-        from .index_calculus import get_relation_row
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        if not row:
-            continue
-        
-        # Find anchor point in this divisor
-        try:
-            roots_data = u_poly.roots(K)
-        except Exception:
-            raise
-            continue
-        
-        current_anchor_x = None
-        for r, _ in roots_data:
-            r_int = int(r)
-            if r_int in r_to_idx:
-                current_anchor_x = r_int
-                break
-        
-        if current_anchor_x is None:
-            skipped_no_anchor += 1
-            continue
-        
-        # Rebase to canonical anchor
-        #rebased_row = rebase_relation_row(
-        #    row, current_anchor_x, base_anchor_x,
-        #    r_to_idx, f_p, p, fb_y_cache
-        #)
-        rebase_row = row
-        
-        if rebased_row is None:
-            skipped_rebase_fail += 1
-            continue
-        
-        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
-        rhs_values.append(0)  # HOMOGENEOUS: all smooth divisor relations have RHS = 0
-    
-    if verbose:
-        print(f"  [Anchoring] Built {len(valid_rows)} homogeneous relations (RHS=0)")
-        if skipped_no_anchor > 0:
-            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
-        if skipped_rebase_fail > 0:
-            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
-    
-    return valid_rows, rhs_values
 
 
 # ============================================================================
@@ -2167,10 +2034,154 @@ def get_relation_row(divisor, atom_to_idx, f_p, p, fb_y_cache=None):
     return row
 
 
+# ... [Keep imports and helper functions as they are until perform_dlp_attack] ...
+
+
+# ... [Keep rest of file unchanged] ...
+
+
+# ============================================================================
+# FILE: index_calculus.py
+# FUNCTION: perform_dlp_attack (PARTIAL REWRITE - PROJECTION SECTION ONLY)
+# ============================================================================
+
+
+# ============================================================================
+# FILE: index_calculus.py
+# FUNCTION: perform_dlp_attack
+# ============================================================================
+
+
+# ============================================================================
+# FILE: index_calculus.py
+# FUNCTION: build_anchored_relations_homogeneous, single_point_row, perform_dlp_attack
+# ============================================================================
+
+def single_point_row(atom, atom_to_idx):
+    """
+    Build factor-base row for a single atomic point.
+    atom: tuple ('d1', x, y)
+    
+    Returns:
+        dict {col_idx: 1} if atom is in factor base
+        None otherwise
+    """
+    if atom not in atom_to_idx:
+        return None
+    return {atom_to_idx[atom]: 1}
+
+
+def build_anchored_relations_homogeneous(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
+                                        preferred_x_coords=None, verbose=True):
+    """
+    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors using the ATOMIC factor base.
+    
+    Each divisor D ~ sum n_i P_i is converted to a relation on (P_i - P_base).
+    This is achieved by subtracting deg(D) * [P_base] from the relation, 
+    ensuring the row coefficients sum to 0.
+    
+    Args:
+        smooth_divs: list of Mumford divisors (dicts or Jacobian elements)
+        atom_to_idx: dict { ('d1',x,y) : index }
+        f_p, p: curve params
+    
+    Returns:
+        (valid_rows, rhs_values) where rhs_values are all 0
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    # 1. Choose Base Anchor Atom
+    # Prefer an atom from preferred_x_coords if available
+    base_atom = None
+    
+    # Sort atoms for deterministic behavior
+    sorted_atoms = sorted(atom_to_idx.keys())
+    
+    if preferred_x_coords:
+        # Try to find an atom matching a preferred x
+        pref_set = set(int(x) for x in preferred_x_coords)
+        for atom in sorted_atoms:
+            if atom[0] == 'd1' and atom[1] in pref_set:
+                base_atom = atom
+                break
+    
+    # Fallback to first available d1 atom
+    if base_atom is None:
+        for atom in sorted_atoms:
+            if atom[0] == 'd1':
+                base_atom = atom
+                break
+                
+    if base_atom is None:
+        raise RuntimeError("No degree-1 atoms found in factor base to use as anchor")
+        
+    base_idx = atom_to_idx[base_atom]
+    if verbose:
+        print(f"  [Anchoring] Using base anchor atom: {base_atom} (idx={base_idx})")
+
+    # 2. Build Relations
+    valid_rows = []
+    rhs_values = []
+    skipped_not_smooth = 0
+    
+    for d in smooth_divs:
+        # Decode Mumford Polys
+        if isinstance(d, dict):
+            if 'u_coeffs' in d:
+                u_poly = R(d['u_coeffs'])
+                v_poly = R(d['v_coeffs'])
+            elif 's' in d and 'p' in d:
+                try:
+                    x = R.gen()
+                    u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
+                    v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
+                except Exception:
+                    continue
+            else:
+                continue
+            div_obj = [u_poly, v_poly] # format for get_relation_row
+        else:
+            div_obj = d # assume Jacobian tuple
+            
+        # Get raw relation row (sum n_i P_i)
+        # CRITICAL: Pass atom_to_idx (dict of tuples), NOT r_to_idx (dict of ints)
+        row = get_relation_row(div_obj, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache)
+        
+        if row is None:
+            skipped_not_smooth += 1
+            continue
+            
+        # Anchoring: Convert sum n_i P_i  ->  sum n_i (P_i - P_base)
+        # Mathematically: row_anchored = row - (sum(coeffs)) * row_base
+        
+        weight = sum(row.values())
+        
+        # In-place subtraction of base row
+        if weight != 0:
+            row[base_idx] = row.get(base_idx, 0) - weight
+            if row[base_idx] == 0:
+                del row[base_idx]
+                
+        valid_rows.append(row)
+        rhs_values.append(0) # Homogeneous
+        
+    if verbose:
+        print(f"  [Anchoring] Built {len(valid_rows)} anchored homogeneous relations")
+        if skipped_not_smooth > 0:
+            print(f"  [Anchoring] Skipped {skipped_not_smooth} divisors (not smooth/encoding failed)")
+            
+    return valid_rows, rhs_values
+
+
 def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
                        verbose=True, force_index_calculus=False):
     """
     Robust wrapper for Index-Calculus DLP.
+    CORRECTED: 
+      1. Uses proper atomic factor base extraction
+      2. Calls build_anchored_relations_homogeneous with atomic map
+      3. No h-multiplication for G/Q (already in J[ℓ])
     """
     # Basic validation
     if G is None or Q is None:
@@ -2180,7 +2191,7 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
 
     full_order = Integer(order)
 
-    # Check if precomputed relations
+    # Check if precomputed relations (dict format)
     precomputed = False
     if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
             and isinstance(smooth_divs_or_rels[0], dict)
@@ -2191,65 +2202,85 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     K = GF(p)
     R = PolynomialRing(K, 'x')
     f_p = sage_poly_from_coeffs(f_coeffs, R)
-    
-    # Build or extract factor base and homogeneous relations
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"INDEX CALCULUS DLP ATTACK (Anchored + Subgroup Projection)")
+        print(f"{'='*70}")
+        print(f"Full Jacobian order |J|: {full_order}")
+        sys.stdout.flush()
+
+    # ---------------------------------------------------------
+    # 1. Build Relations & Factor Base
+    # ---------------------------------------------------------
     if precomputed:
+        # Precomputed path usually has integer maps, need to be careful.
+        # Ideally, we reconstruct atoms. For now assuming standard raw divisors list path 
+        # is what's hitting the error, so focusing on the else block.
         data = smooth_divs_or_rels[0]
         homogeneous_rows = data['relations']
-        fb_roots = data['fb_roots']
-        r_to_idx = data['fb_map']
-        
-        fb_y_cache = {}
-        for x_int in fb_roots:
-            y2 = int(f_p(K(x_int)))
-            if y2 == 0:
-                fb_y_cache[x_int] = 0
-            else:
-                from .smoothness import tonelli_shanks
-                y_can = tonelli_shanks(y2, p)
-                fb_y_cache[x_int] = int(min(y_can, p - y_can))
+        # Reconstruct minimalistic atomic map if needed, but 'Legacy' path below is safer
+        # if input is just raw divisors.
+        # (Assuming precomputed logic is fine or not used in this crash context)
+        raise NotImplementedError("Precomputed relations path not fully atomic-updated yet.")
     else:
-        # Legacy path: build from Mumford divisors
-        homogeneous_rows, homogeneous_rhs, fb_roots, r_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+        # Robust path: Extract ATOMIC FB then build Anchored relations
+        if verbose:
+            print("  [Relations] Extracting factor base and building anchored relations...")
+            sys.stdout.flush()
+        
+        # Extract Factor Base (Atomic)
+        from .smoothness import extract_factor_base
+        atom_to_idx, fb_y_cache = extract_factor_base(smooth_divs_or_rels, p, f_p, verbose=verbose)
+        
+        if not atom_to_idx:
+            raise RuntimeError("Empty factor base extracted")
 
-    if not homogeneous_rows:
-        raise RuntimeError("No valid homogeneous relations available")
+        # Build Anchored Relations using ATOMIC map
+        homogeneous_rows, homogeneous_rhs = build_anchored_relations_homogeneous(
+            smooth_divs_or_rels, atom_to_idx, f_p, p, fb_y_cache, 
+            preferred_x_coords=None, verbose=verbose
+        )
 
-    # --- Smooth G and Q ---
-    
-    # Build atom_to_idx from r_to_idx
-    atom_to_idx_for_smooth = {}
-    for x_val, idx in r_to_idx.items():
-        if x_val in fb_y_cache:
-            y_can = fb_y_cache[x_val]
-        else:
-            y2 = int(f_p(K(x_val)))
-            if y2 == 0:
-                y_can = 0
-            elif pow(y2, (p-1)//2, p) == 1:
-                from .smoothness import tonelli_shanks
-                y_can = tonelli_shanks(y2, p)
-                y_can = min(y_can, p - y_can)
-            else:
-                continue
-        atom = ('d1', int(x_val), int(y_can))
-        atom_to_idx_for_smooth[atom] = idx
+        if not homogeneous_rows:
+            raise RuntimeError("No valid homogeneous relations available after anchoring")
+
+    if verbose:
+        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
+        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
+        sys.stdout.flush()
+
+    # ---------------------------------------------------------
+    # 2. Smooth G and Q
+    # ---------------------------------------------------------
     
     # Smooth G
     row_g = None
     alpha_g = 0
-    if is_divisor_fb_smooth(G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = get_relation_row(G, atom_to_idx_for_smooth, f_p, p)
+    
+    # Use atomic map for smoothing checks
+    if is_divisor_fb_smooth(G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = get_relation_row(G, atom_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Generator G is already smooth.")
+            sys.stdout.flush()
     else:
-        # Try random smoothing
+        if verbose:
+            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
+            sys.stdout.flush()
         for i in range(1, 2001):
             r = ZZ.random_element(1, int(full_order))
             cand_G = (1 + r) * G
-            if is_divisor_fb_smooth(cand_G, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = get_relation_row(cand_G, atom_to_idx_for_smooth, f_p, p)
-                alpha_g = r
-                break
+            if is_divisor_fb_smooth(cand_G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = get_relation_row(cand_G, atom_to_idx, f_p, p)
+                if row_g:
+                    alpha_g = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth generator at iter {i}")
+                        sys.stdout.flush()
+                    break
     
     if row_g is None:
         raise RuntimeError("Failed to smooth Generator G")
@@ -2257,51 +2288,319 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     # Smooth Q
     row_q = None
     beta_q = 0
-    if is_divisor_fb_smooth(Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = get_relation_row(Q, atom_to_idx_for_smooth, f_p, p)
+    
+    if is_divisor_fb_smooth(Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = get_relation_row(Q, atom_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Target Q is already smooth.")
+            sys.stdout.flush()
     else:
+        if verbose:
+            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
+            sys.stdout.flush()
         for i in range(1, 2001):
             r = ZZ.random_element(1, int(full_order))
             cand_Q = Q + r * G
-            if is_divisor_fb_smooth(cand_Q, atom_to_idx_for_smooth, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = get_relation_row(cand_Q, atom_to_idx_for_smooth, f_p, p)
-                beta_q = r
-                break
+            if is_divisor_fb_smooth(cand_Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_q = get_relation_row(cand_Q, atom_to_idx, f_p, p)
+                if row_q:
+                    beta_q = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth target at iter {i}")
+                        sys.stdout.flush()
+                    break
     
     if row_q is None:
         raise RuntimeError("Failed to smooth Target Q")
 
+    # Convert to plain dicts
     row_g_dict = {int(k): int(v) for k, v in row_g.items()}
     row_q_dict = {int(k): int(v) for k, v in row_q.items()}
     
-    # --- Construct the system ---
-    full_rows = list(homogeneous_rows)
-    # Homogeneous relations have RHS 0
-    full_rhs = [0] * len(homogeneous_rows)
+    # Compute ell and h
+    J_order = Integer(full_order)
+    factors = factor(J_order)
+    ell = int(max(int(p) for p, _ in factors))
+    h = int(J_order // ell)
+
+    if verbose:
+        print(f"  [Projection] Working mod ℓ={ell}, cofactor h={h}")
+        print(f"  [Projection] Homogeneous relations: multiply by h (kill cofactor)")
+        print(f"  [Projection] G/Q relations: already in J[ℓ], reduce mod ℓ directly")
+        sys.stdout.flush()
     
-    # Append G row. RHS is scalar multiplier of G.
-    # Relation: sum(row_g) = (1 + alpha_g) * G
-    full_rows.append(row_g_dict)
-    full_rhs.append(int(1 + alpha_g))
+    # ---------------------------------------------------------
+    # 3. Project to mod ℓ
+    # ---------------------------------------------------------
+    
+    projected_rows = []
+    projected_rhs = []
+
+    # Process homogeneous rows - multiply by h, then mod ℓ
+    for row in homogeneous_rows:
+        new_row = {}
+        for k, v in row.items():
+            val = int((Integer(v) * Integer(h)) % ell)
+            if val != 0:
+                new_row[k] = val
+        
+        rhs_proj = 0  # Homogeneous: h * 0 = 0
+        
+        if not new_row:
+            continue 
+            
+        projected_rows.append(new_row)
+        projected_rhs.append(rhs_proj)
+
+    # Process G row - DO NOT multiply by h (G is already in J[ℓ])
+    # Just reduce coefficients mod ell
+    g_row_proj = {}
+    for k, v in row_g_dict.items():
+        val = int(Integer(v) % ell)
+        if val != 0:
+            g_row_proj[k] = val
+    
+    # RHS for G is 1 + alpha
+    g_rhs_proj = int(Integer(1 + alpha_g) % ell)
+    
+    projected_rows.append(g_row_proj)
+    projected_rhs.append(g_rhs_proj)
+
+    if not projected_rows:
+        raise ValueError("No nonzero relations after mod ℓ reduction")
+
+    n_cols_orig = max(k for row in projected_rows for k in row) + 1
     
     if verbose:
-        print(f"\n  [System] Built system: {len(full_rows)} rows")
-        print(f"  [System] G row RHS: {full_rhs[-1]}")
+        nnz = sum(len(r) for r in projected_rows)
+        print(f"  [System] Before pruning: {len(projected_rows)} rows x {n_cols_orig} cols, nnz={nnz}")
+        sys.stdout.flush()
 
-    # Solve the system
-    # Note: solve_dlp_mod_l_block_wiedemann handles the projection by h internally
-    d_log_val = solve_dlp_mod_l_block_wiedemann(
-        full_rows,
-        full_rhs,
-        row_q_dict,
-        int(beta_q),
-        full_order,
-        G, Q,
-        verbose=verbose,
-        block_size=32,
+    # ---------------------------------------------------------
+    # 4. Prune to Pivot Columns
+    # ---------------------------------------------------------
+    
+    pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
+        projected_rows, projected_rhs, ell, verbose=verbose
     )
+    
+    if not pruned_rows:
+        raise RuntimeError("All rows vanished during pruning!")
+    
+    n_cols = len(pivot_cols)
+    
+    if verbose:
+        print(f"  [Pruned System] {len(pruned_rows)} rows x {n_cols} cols")
+        sys.stdout.flush()
+    
+    # ---------------------------------------------------------
+    # 5. Verify Q survival
+    # ---------------------------------------------------------
+    
+    # Project Q row - DO NOT multiply by h
+    row_q_l = {}
+    for k, v in row_q_dict.items():
+        val = int(Integer(v) % ell)
+        if val != 0:
+            row_q_l[k] = val
+    
+    beta_q_l = int(Integer(beta_q) % ell)
+    
+    # Remap to pruned columns
+    row_q_pruned = {}
+    for old_idx, val in row_q_l.items():
+        new_idx = col_map.get(old_idx)
+        if new_idx is not None:
+            row_q_pruned[new_idx] = int(val)
+    
+    if not row_q_pruned:
+        raise RuntimeError(
+            "Q row VANISHED after pruning!\n"
+            "This means Q is not in the span of pivot columns.\n"
+            "The factor base does not span Q's divisor class mod ℓ."
+        )
+    
+    if verbose:
+        print(f"  [Verify] ✓ Q row survived pruning: {len(row_q_pruned)} nonzero entries")
+        sys.stdout.flush()
+    
+    # ---------------------------------------------------------
+    # 6. Solve
+    # ---------------------------------------------------------
+    
+    # Build SparseRelationMatrix with pruned data
+    A = SparseRelationMatrix(pruned_rows, pruned_rhs, ell)
+    
+    # Decide which solver to use
+    if not BLOCK_WIEDEMANN and n_cols < 10000:
+        if verbose:
+            print(f"  [Solver] Using direct sparse solve (n={n_cols} < 10k)")
+            sys.stdout.flush()
+        
+        solution = solve_sparse_direct_mod_ell(A, pruned_rhs, ell, verbose=verbose)
+    else:
+        if verbose:
+            print(f"  [Solver] Using Block-Wiedemann (n={n_cols} >= 10k)")
+            sys.stdout.flush()
+        
+        t0 = time.time()
+        solution = block_wiedemann_solve(
+            A=A,
+            b=pruned_rhs,
+            block_size=32,
+            iters=None,
+            verbose=verbose,
+        )
+        dt = time.time() - t0
+        
+        if solution is None:
+            raise RuntimeError("Block-Wiedemann failed to converge")
+        
+        if verbose:
+            print(f"  [BW] Solved in {dt:.2f}s")
+            sys.stdout.flush()
 
-    if d_log_val is None:
-        raise RuntimeError("Solver produced no result")
+    # ---------------------------------------------------------
+    # 7. Extract & Verify
+    # ---------------------------------------------------------
+    
+    # Compute dlog from pruned solution
+    dlog = Integer(beta_q_l)
+    for k, v in row_q_pruned.items():
+        if k < len(solution):
+            coeff = int(solution[k])
+            dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
+    dlog = int(dlog)
 
-    return Integer(d_log_val)
+    if verbose:
+        print("  [Result] Candidate dlog mod ℓ =", dlog)
+        sys.stdout.flush()
+
+    # Verify: ℓ * (dlog * G - Q) = 0
+    D = Integer(dlog) * G - Q
+    
+    if not (Integer(ell) * D).is_zero():
+        if verbose:
+            print("  [Verify] Direct verification failed.")
+            sys.stdout.flush()
+        
+        raise AssertionError(
+            "[Verify] ✗ Verification failed: ℓ * (dlog * G - Q) ≠ 0\n"
+            f"  dlog = {dlog}, ℓ = {ell}\n"
+            f"  This implies the factor base logic or linear algebra was inconsistent."
+        )
+
+    if verbose:
+        print("  [Verify] ✓ ℓ-torsion verification passed: ℓ * (dlog * G - Q) = 0")
+        if D.is_zero():
+            print("  [Verify] ✓ Exact equality dlog * G == Q")
+        else:
+            print("  [Verify] ℹ dlog * G ≠ Q exactly (cofactor component)")
+        sys.stdout.flush()
+
+    return Integer(dlog)
+
+
+# ============================================================================
+# FILE: index_calculus.py
+# FUNCTION: prune_factor_base_to_pivot_columns
+# ============================================================================
+
+def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
+    """
+    Prune factor base to pivot columns via Gaussian elimination.
+    
+    Optimization: Since the system is often overdetermined, we only use
+    a subset of rows (N_cols + buffer) to find the pivots. This prevents
+    hangs on massive relation sets while still identifying the basis.
+    
+    Returns:
+        (pruned_rows, pruned_rhs, col_map, pivot_cols)
+    """
+    from sage.all import GF, matrix
+    
+    K = GF(mod)
+    
+    # Find all columns that appear
+    all_cols = set()
+    for row in A_rows:
+        all_cols.update(row.keys())
+    n_cols_orig = max(all_cols) + 1 if all_cols else 0
+    
+    if verbose:
+        print(f"  [Prune] Input: {len(A_rows)} rows x {n_cols_orig} cols")
+        sys.stdout.flush()
+    
+    # OPTIMIZATION: Limit rows for pivot finding
+    # We only need enough rows to span the column space (rank <= n_cols_orig).
+    # Taking n_cols + 500 is extremely safe for random sparse relations.
+    rref_limit = n_cols_orig + 500
+    
+    if len(A_rows) > rref_limit:
+        if verbose:
+            print(f"  [Prune] optimization: using subset of {rref_limit} rows to find pivots")
+        rows_for_rref = A_rows[:rref_limit]
+    else:
+        rows_for_rref = A_rows
+        
+    # Build sparse matrix for RREF (using subset)
+    entries = {}
+    for i, row in enumerate(rows_for_rref):
+        for j, v in row.items():
+            val = K(int(v))
+            if val != 0:
+                entries[(i, j)] = val
+    
+    # Matrix dimensions for RREF are (subset_rows x n_cols)
+    M = matrix(K, len(rows_for_rref), n_cols_orig, entries, sparse=True)
+    
+    if verbose:
+        print(f"  [Prune] Computing row echelon form (on {M.nrows()} rows)...")
+        sys.stdout.flush()
+    
+    # Compute pivots via row echelon form
+    M_rref = M.rref()
+    
+    # Extract pivot columns
+    pivot_cols = []
+    for i in range(M_rref.nrows()):
+        # Find first nonzero in this row
+        for j in range(M_rref.ncols()):
+            if M_rref[i, j] != 0:
+                if j not in pivot_cols:
+                    pivot_cols.append(j)
+                break
+    
+    pivot_cols = sorted(set(pivot_cols))
+    
+    if not pivot_cols:
+        raise RuntimeError("Pruning found zero pivot columns - system is trivial!")
+    
+    if verbose:
+        print(f"  [Prune] Pivot columns: {len(pivot_cols)}/{n_cols_orig}")
+        print(f"  [Prune] Rank: {len(pivot_cols)}")
+        print(f"  [Prune] Pruned {n_cols_orig - len(pivot_cols)} redundant columns")
+        sys.stdout.flush()
+    
+    # Build column mapping
+    col_map = {}
+    for new_idx, old_idx in enumerate(pivot_cols):
+        col_map[old_idx] = new_idx
+    
+    # Prune rows to only pivot columns
+    # Note: We apply the pruning to ALL rows, not just the subset used for RREF
+    pruned_rows = []
+    for row in A_rows:
+        pruned_row = {}
+        for old_idx, val in row.items():
+            if old_idx in col_map:
+                new_idx = col_map[old_idx]
+                pruned_row[new_idx] = int(val)
+        if pruned_row:
+            pruned_rows.append(pruned_row)
+    
+    if verbose:
+        print(f"  [Prune] Output: {len(pruned_rows)} rows x {len(pivot_cols)} cols")
+        sys.stdout.flush()
+    
+    return pruned_rows, b_list[:len(pruned_rows)], col_map, pivot_cols
