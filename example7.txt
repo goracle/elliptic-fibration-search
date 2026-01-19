@@ -188,3 +188,247 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+[mumford] Residue computation took 76.89s
+PRIME: 33554467
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(33554467)) ===
+  Harvesting initial solutions (capped)...
+  Initial harvest: 18017 unique smooth divisors from 350000 candidates.
+  Factor Base (Unique x): 6000
+  Starting structured random walk to improve Rank/FB ratio (capped mixing)...
+  Target reached: 18017 relations > 6000 FB + 480 buffer.
+  Final Status: 18017 relations, 4504 factor base elements.
+
+Mumford search reconstructed 18017 divisors
+  18017 divisors had rational roots in u(x)
+
+[Preferred Coordinates Hit Rate]
+  Target coordinates: 4
+  Found in Factor Base: 4 / 4 (100.0%)
+  Divisors containing target: 32 / 18017 (0.2%)
+
+============================================================
+ INDEX CALCULUS ATTACK DIAGNOSTIC
+============================================================
+ Target Field: GF(33554467)
+ Relations:    18017
+ Factor Base:  4504
+ Matrix Rank:  4504
+------------------------------------------------------------
+ [OK] Generator G is smooth over factor base
+ [OK] Target Q is smooth over factor base
+------------------------------------------------------------
+ SUCCESS: Matrix is full rank. Ready for Linear Algebra.
+          Both G and Q are expressible over factor base.
+============================================================
+
+Total time: 108.33s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 76.89s
+  mumford_reconstruction   : 4.48s
+  prep_mod_data            : 3.98s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+[Factor Base] 4504 prime atoms
+  [Setup] Curve: y^2 = x^5 + x + 2
+
+======================================================================
+TESTING FACTOR BASE HOMOMORPHISM PROPERTY
+======================================================================
+homomorphism_test: 200/200 passed
+ Homomorphism test PASSED
+======================================================================
+
+  [Phase 0] Attempting RR-Localization for target Q...
+  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
+
+======================================================================
+INDEX CALCULUS DLP ATTACK (Anchored + Subgroup Projection)
+======================================================================
+Full Jacobian order |J|: 1126029650170156
+  [Relations] Extracting factor base and building anchored relations...
+[Factor Base] 4504 prime atoms
+  [Anchoring] Using base anchor atom: ('d1', 21545, 3541516) (idx=2691)
+  [Anchoring] Built 18017 anchored homogeneous relations
+  [Relations] Loaded 18017 homogeneous relations
+  [Factor Base] Size: 4504
+  [Smoothing] Generator G is already smooth.
+  [Smoothing] Target Q is already smooth.
+  [Projection] Working mod ℓ=972045913, cofactor h=1158412
+  [Projection] Homogeneous relations: multiply by h (kill cofactor)
+  [Projection] G/Q relations: already in J[ℓ], reduce mod ℓ directly
+  [System] Before pruning: 18018 rows x 4504 cols, nnz=45043
+  [Prune] Input: 18018 rows x 4504 cols
+  [Pivot] Incremental elimination on 18018 rows...
+    [Pivot] Processed 1000/18018 rows, found 252 pivots
+    [Pivot] Processed 2000/18018 rows, found 502 pivots
+    [Pivot] Processed 3000/18018 rows, found 752 pivots
+    [Pivot] Processed 4000/18018 rows, found 1003 pivots
+    [Pivot] Processed 5000/18018 rows, found 1253 pivots
+    [Pivot] Processed 6000/18018 rows, found 1503 pivots
+    [Pivot] Processed 7000/18018 rows, found 1753 pivots
+    [Pivot] Processed 8000/18018 rows, found 2003 pivots
+    [Pivot] Processed 9000/18018 rows, found 2253 pivots
+    [Pivot] Processed 10000/18018 rows, found 2503 pivots
+    [Pivot] Processed 11000/18018 rows, found 2752 pivots
+    [Pivot] Processed 12000/18018 rows, found 3002 pivots
+    [Pivot] Processed 13000/18018 rows, found 3252 pivots
+    [Pivot] Processed 14000/18018 rows, found 3502 pivots
+    [Pivot] Processed 15000/18018 rows, found 3749 pivots
+    [Pivot] Processed 16000/18018 rows, found 3999 pivots
+    [Pivot] Processed 17000/18018 rows, found 4249 pivots
+    [Pivot] Processed 18000/18018 rows, found 4499 pivots
+  [Pivot] Found 4504 exact pivot columns
+  [Prune] Pivot columns: 4504/4504
+  [Prune] Rank: 4504
+  [Prune] Pruned 0 redundant columns
+  [Prune] Output: 18018 rows x 4504 cols
+  [Pruned System] 18018 rows x 4504 cols
+  [Verify] ✓ Q row survived pruning: 2 nonzero entries
+  [Solver] Using Block-Wiedemann (n=4504 >= 10k)
+[BW-fast] block=32, target_iters=359, nrows=18018, ncols=4504
+[BW-fast] Pass 1: Generating Sequence (Trace)
+  [BW Pass 1] iter 14/359 (3.9%) | elapsed 0.1m | ETA 1.9m
+  [BW Pass 1] iter 29/359 (8.1%) | elapsed 0.2m | ETA 1.9m
+  [BW Pass 1] iter 44/359 (12.3%) | elapsed 0.3m | ETA 1.8m
+  [BW Pass 1] iter 58/359 (16.2%) | elapsed 0.3m | ETA 1.8m
+  [BW Pass 1] iter 72/359 (20.1%) | elapsed 0.4m | ETA 1.7m
+  [BW Pass 1] iter 86/359 (24.0%) | elapsed 0.5m | ETA 1.6m
+  [BW Pass 1] iter 100/359 (27.9%) | elapsed 0.6m | ETA 1.5m
+  [BW Pass 1] iter 114/359 (31.8%) | elapsed 0.7m | ETA 1.5m
+  [BW Pass 1] iter 129/359 (35.9%) | elapsed 0.8m | ETA 1.4m
+  [BW Pass 1] iter 144/359 (40.1%) | elapsed 0.9m | ETA 1.3m
+  [BW Pass 1] iter 158/359 (44.0%) | elapsed 0.9m | ETA 1.2m
+  [BW Pass 1] iter 173/359 (48.2%) | elapsed 1.0m | ETA 1.1m
+  [BW Pass 1] iter 187/359 (52.1%) | elapsed 1.1m | ETA 1.0m
+  [BW Pass 1] iter 202/359 (56.3%) | elapsed 1.2m | ETA 0.9m
+  [BW Pass 1] iter 217/359 (60.4%) | elapsed 1.3m | ETA 0.8m
+  [BW Pass 1] iter 232/359 (64.6%) | elapsed 1.4m | ETA 0.8m
+  [BW Pass 1] iter 246/359 (68.5%) | elapsed 1.5m | ETA 0.7m
+  [BW Pass 1] iter 260/359 (72.4%) | elapsed 1.6m | ETA 0.6m
+  [BW Pass 1] iter 275/359 (76.6%) | elapsed 1.6m | ETA 0.5m
+  [BW Pass 1] iter 290/359 (80.8%) | elapsed 1.7m | ETA 0.4m
+  [BW Pass 1] iter 305/359 (85.0%) | elapsed 1.8m | ETA 0.3m
+  [BW Pass 1] iter 319/359 (88.9%) | elapsed 1.9m | ETA 0.2m
+  [BW Pass 1] iter 333/359 (92.8%) | elapsed 2.0m | ETA 0.2m
+  [BW Pass 1] iter 348/359 (96.9%) | elapsed 2.1m | ETA 0.1m
+[BW-fast] Computing Minimal Polynomial from 11488 scalars...
+[BW-fast] Minimal polynomial degree: 256
+[BW-fast] Pass 2: Reconstructing Solution Vector
+  [BW] Solved in 131.51s
+  [Result] Candidate dlog mod ℓ = 184661492
+  [Verify] ✓ ℓ-torsion verification passed: ℓ * (dlog * G - Q) = 0
+  [Verify] ℹ dlog * G ≠ Q exactly (cofactor component)
+  [Auto] Choosing direct BSGS (largest factor 289603)
+
+======================================================================
+COFACTOR DLP LIFTING (Baby-Step Giant-Step)
+======================================================================
+Prime ℓ: 972045913
+Cofactor h: 1158412
+Known: d ≡ 184661492 (mod 972045913)
+Goal: Find k ∈ [0, 1158412) such that d_full = 184661492 + k*972045913
+  [Lift] ℓ * G = 0  →  G is already in J[ℓ] (no cofactor component)
+  [Lift] The discrete log mod ℓ IS the full discrete log!
+
+======================================================================
+SUCCESS: Full discrete logarithm = 184661492
+======================================================================
+
+Attack failed: G is in ℓ-torsion but verification failed:
+  184661492 * G ≠ Q
+  This suggests the ℓ-torsion solve was incorrect.

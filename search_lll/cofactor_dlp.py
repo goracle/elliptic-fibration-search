@@ -2,6 +2,10 @@ from sage.all import Integer, factor, gcd, crt
 import math
 import sys
 
+
+# Main entry point - choose best strategy
+
+
 def solve_cofactor_dlp_bsgs(target_residue, generator_residue, G, Q, ell, h, 
                             full_order, verbose=True):
     """
@@ -51,7 +55,26 @@ def solve_cofactor_dlp_bsgs(target_residue, generator_residue, G, Q, ell, h,
     H = Integer(ell) * G
     
     if H.is_zero():
-        raise RuntimeError("ell * G is zero - cannot lift (degenerate case)")
+        # G is already in ℓ-torsion! No cofactor component exists.
+        # The discrete log we found mod ℓ IS the full discrete log.
+        if verbose:
+            print(f"  [Lift] ℓ * G = 0  →  G is already in J[ℓ] (no cofactor component)")
+            print(f"  [Lift] The discrete log mod ℓ IS the full discrete log!")
+            print(f"\n{'='*70}")
+            print(f"SUCCESS: Full discrete logarithm = {d_ell}")
+            print(f"{'='*70}\n")
+            sys.stdout.flush()
+        
+        # Final verification
+        verification = Integer(d_ell) * G
+        if verification == Q:
+            return int(d_ell)
+        else:
+            raise RuntimeError(
+                f"G is in ℓ-torsion but verification failed:\n"
+                f"  {d_ell} * G ≠ Q\n"
+                f"  This suggests the ℓ-torsion solve was incorrect."
+            )
     
     if verbose:
         print(f"  [Lift] Residue R = Q - {d_ell}*G is non-zero")
@@ -164,11 +187,24 @@ def solve_cofactor_dlp_crt(target_residue, generator_residue, G, Q, ell, h,
     
     if R.is_zero():
         if verbose:
-            print(f"  [Lift] R is zero - d_ell is already the full discrete log!")
+            print(f"  [Lift] R = Q - {d_ell}*G is zero")
+            print(f"  [Lift] The discrete log mod ℓ IS the full discrete log!")
+            print(f"\n{'='*70}")
+            print(f"SUCCESS: Full discrete logarithm = {d_ell}")
+            print(f"{'='*70}\n")
             sys.stdout.flush()
         return int(d_ell)
     
     H = Integer(ell) * G
+    
+    if H.is_zero():
+        # G is in ℓ-torsion, but R ≠ 0? This is inconsistent.
+        raise RuntimeError(
+            f"Inconsistent state:\n"
+            f"  G is in ℓ-torsion (ℓ*G = 0)\n"
+            f"  But Q - {d_ell}*G ≠ 0\n"
+            f"  This means the ℓ-torsion solve was incorrect."
+        )
     
     # Solve DLP mod each prime power
     remainders = []
