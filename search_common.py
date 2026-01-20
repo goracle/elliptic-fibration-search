@@ -421,6 +421,8 @@ if FINITE_FIELD is not None:
 
     assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
     assert BASE_DIVISOR*SECRET_KEY == TARGET_DIVISOR, (BASE_DIVISOR*SECRET_KEY, TARGET_DIVISOR)
+    assert (GROUP_MODULUS * BASE_DIVISOR).is_zero()
+    assert (GROUP_MODULUS * TARGET_DIVISOR).is_zero()
 
     # Re-randomize the seed so that subsequent operations (like random walks in workers)
     # are not identical across processes.
@@ -428,6 +430,7 @@ if FINITE_FIELD is not None:
     set_random_seed()
 else:
     BASE_DIVISOR = TARGET_DIVISOR = PREFERRED_X_COORDS = None
+
 
 try:
     PROFILE = profile

@@ -1,24 +1,27 @@
-from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Curve, Jacobian, Integer, Zmod, prime_factors, set_random_seed, factor, crt
-from sage.all import Zmod, Integer, matrix, vector
-from sage.all import GF, PolynomialRing
-from sage.all import GF, PolynomialRing, ZZ, Integer
-from sage.all import matrix, GF, vector, ZZ, PolynomialRing, Integer, Zmod, factor
-from sage.all import factor, Integer
-from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
-from .smoothness import tonelli_shanks
-from .smoothness import extract_factor_base  # replace local duplicate
-from search_common import *
-import random
-import time
+# Standard library
 import sys
+import time
+import random
+from math import ceil, sqrt, gcd
 from multiprocessing import Pool, cpu_count
 from collections import Counter
-from prime_subgroup_projection import *
-from .sparse_linalg_modp import *
+
+# Sage imports (consolidated)
+from sage.all import (
+    Integer, Zmod, GF, ZZ,
+    matrix, vector,
+    PolynomialRing,
+    factor, crt, prime_factors,
+    set_random_seed
+)
+from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
+from sage.matrix.berlekamp_massey import berlekamp_massey
+
+# Local imports
+from search_common import SECRET_KEY, BLOCK_WIEDEMANN
 from .smoothness import tonelli_shanks, extract_factor_base
-from search_lll.cofactor_dlp import solve_cofactor_dlp
-from search_common import SECRET_KEY
 from .sparse_linalg_modp import solve_dlp_mod_l_block_wiedemann
+from search_lll.cofactor_dlp import solve_cofactor_dlp
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -38,6 +41,9 @@ _GLOBAL_F_POLY = None
 _GLOBAL_OFFSET_CACHE = None
 
 K = GF(FINITE_FIELD)
+# Tunable threshold for lazy reduction
+_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
+
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -632,104 +638,6 @@ def jacobian_to_dict(J_elem, p):
     return res
 
 
-def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
-    """
-    Setup the HECC cryptosystem for the prime-order subgroup.
-    
-    FORCE FIX: Ensures target Q is split (has rational roots) over F_p.
-    Returns the ADJUSTED secret key used to generate the split Q.
-    """
-    F = GF(p)
-    R = PolynomialRing(F, 'x')
-    f_poly = R([F(c) for c in reversed(coeffs_genus2)])
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()
-    
-    order = compute_jacobian_order(coeffs_genus2, p)
-    factorization = factor(order)
-    ell = max([Integer(prime) for prime, _ in factorization])
-    cofactor = order // ell
-    
-    print(f"Jacobian order: {order}")
-    print(f"Factorization: {factorization}")
-    print(f"Largest prime ℓ: {ell}")
-    print(f"Cofactor h: {cofactor}")
-    
-    # Generate base G
-    G_original, basex, basey = generate_random_curve_point(f_poly, p)
-    print(f"Original base divisor G: {G_original}")
-    
-    G = Integer(cofactor) * G_original
-    
-    if G.is_zero():
-        raise RuntimeError("Projection sent G to identity - base point was torsion!")
-    
-    print(f"Projected base divisor G: {G}")
-    print(f"Projected G support: {[int(r) for r, _ in G[0].roots()]}")
-    
-    base_pts_x = [basex]
-    print(f"Original base point: ({basex}, {basey})")
-    
-    # *** FORCE SPLIT Q ***
-    print("\n--- Searching for SPLIT target Q ---")
-    
-    current_secret = Integer(secret_key) % ell
-    Q = None
-    final_secret = None
-    
-    for offset in range(1000):
-        test_secret = (current_secret + offset) % ell
-        if test_secret == 0:
-            continue  # Skip identity
-            
-        Q_candidate = Integer(test_secret) * G
-        
-        if Q_candidate.is_zero():
-            continue
-            
-        u_poly = Q_candidate[0]
-        
-        # Check if fully split
-        if u_poly.degree() == 0:
-            # Identity divisor
-            continue
-        elif u_poly.degree() == 1:
-            # Weight-1, automatically split
-            Q = Q_candidate
-            final_secret = test_secret
-            print(f"Found weight-1 target Q at secret={final_secret}")
-            break
-        else:
-            # Check discriminant for genus-2
-            disc = u_poly.discriminant()
-            if disc.is_square() and disc != 0:
-                # Fully splits
-                Q = Q_candidate
-                final_secret = test_secret
-                print(f"Found SPLIT target Q at secret={final_secret} (offset +{offset})")
-                break
-    
-    if Q is None:
-        raise RuntimeError("Failed to find split Q after 1000 attempts")
-    
-    print(f"Target divisor Q: {Q}")
-    print(f"Target Q support: {[int(r) for r, _ in Q[0].roots()]}")
-    
-    # Extract preferred coordinates
-    preferred_x_coords = set()
-    for D in [G, Q]:
-        u = D[0]
-        for root, _ in u.roots():
-            preferred_x_coords.add(int(root))
-    
-    print(f"Preferred x-coordinates (from projected divisors): {sorted(preferred_x_coords)}")
-    
-    if not preferred_x_coords:
-        raise RuntimeError("No preferred coordinates extracted")
-    
-    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret  # ← RETURN NEW SECRET
-
-
 """
 Anchoring fix for inconsistent linear system in perform_dlp_attack.
 
@@ -870,37 +778,6 @@ They give us LINEAR DEPENDENCIES among FB elements, NOT scalar equations.
 
 Only G and Q (after smoothing) give us actual scalar equations.
 """
-
-
-def rebase_relation_row(row, current_anchor_x, base_anchor_x, r_to_idx, f_p, p, fb_y_cache=None):
-    """
-    Rebase a relation row from current_anchor to base_anchor.
-    
-    Mathematically: D' = D - (current_anchor) + (base_anchor)
-    """
-    return row
-    if current_anchor_x == base_anchor_x:
-        return dict(row)
-    
-    current_row = single_point_row(current_anchor_x, r_to_idx, f_p, p, fb_y_cache)
-    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
-    
-    if current_row is None or base_row is None:
-        return None
-    
-    new_row = dict(row)
-    
-    # Subtract current anchor
-    for col, val in current_row.items():
-        new_row[col] = new_row.get(col, 0) - val
-        if new_row[col] == 0:
-            del new_row[col]
-    
-    # Add base anchor
-    for col, val in base_row.items():
-        new_row[col] = new_row.get(col, 0) + val
-    
-    return new_row
 
 
 # ============================================================================
@@ -1851,580 +1728,6 @@ def get_relation_row(divisor, atom_to_idx, f_p, p, fb_y_cache=None):
     return row
 
 
-# ... [Keep imports and helper functions as they are until perform_dlp_attack] ...
-
-
-# ... [Keep rest of file unchanged] ...
-
-
-# ============================================================================
-# FILE: index_calculus.py
-# FUNCTION: perform_dlp_attack (PARTIAL REWRITE - PROJECTION SECTION ONLY)
-# ============================================================================
-
-
-# ============================================================================
-# FILE: index_calculus.py
-# FUNCTION: perform_dlp_attack
-# ============================================================================
-
-
-# ============================================================================
-# FILE: index_calculus.py
-# FUNCTION: build_anchored_relations_homogeneous, single_point_row, perform_dlp_attack
-# ============================================================================
-
-def single_point_row(atom, atom_to_idx):
-    """
-    Build factor-base row for a single atomic point.
-    atom: tuple ('d1', x, y)
-    
-    Returns:
-        dict {col_idx: 1} if atom is in factor base
-        None otherwise
-    """
-    if atom not in atom_to_idx:
-        return None
-    return {atom_to_idx[atom]: 1}
-
-
-def build_anchored_relations_homogeneous(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
-                                        preferred_x_coords=None, verbose=True):
-    """
-    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors using the ATOMIC factor base.
-    
-    Each divisor D ~ sum n_i P_i is converted to a relation on (P_i - P_base).
-    This is achieved by subtracting deg(D) * [P_base] from the relation, 
-    ensuring the row coefficients sum to 0.
-    
-    Args:
-        smooth_divs: list of Mumford divisors (dicts or Jacobian elements)
-        atom_to_idx: dict { ('d1',x,y) : index }
-        f_p, p: curve params
-    
-    Returns:
-        (valid_rows, rhs_values) where rhs_values are all 0
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    # 1. Choose Base Anchor Atom
-    # Prefer an atom from preferred_x_coords if available
-    base_atom = None
-    
-    # Sort atoms for deterministic behavior
-    sorted_atoms = sorted(atom_to_idx.keys())
-    
-    if preferred_x_coords:
-        # Try to find an atom matching a preferred x
-        pref_set = set(int(x) for x in preferred_x_coords)
-        for atom in sorted_atoms:
-            if atom[0] == 'd1' and atom[1] in pref_set:
-                base_atom = atom
-                break
-    
-    # Fallback to first available d1 atom
-    if base_atom is None:
-        for atom in sorted_atoms:
-            if atom[0] == 'd1':
-                base_atom = atom
-                break
-                
-    if base_atom is None:
-        raise RuntimeError("No degree-1 atoms found in factor base to use as anchor")
-        
-    base_idx = atom_to_idx[base_atom]
-    if verbose:
-        print(f"  [Anchoring] Using base anchor atom: {base_atom} (idx={base_idx})")
-
-    # 2. Build Relations
-    valid_rows = []
-    rhs_values = []
-    skipped_not_smooth = 0
-    
-    for d in smooth_divs:
-        # Decode Mumford Polys
-        if isinstance(d, dict):
-            if 'u_coeffs' in d:
-                u_poly = R(d['u_coeffs'])
-                v_poly = R(d['v_coeffs'])
-            elif 's' in d and 'p' in d:
-                try:
-                    x = R.gen()
-                    u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
-                    v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
-                except Exception:
-                    continue
-            else:
-                continue
-            div_obj = [u_poly, v_poly] # format for get_relation_row
-        else:
-            div_obj = d # assume Jacobian tuple
-            
-        # Get raw relation row (sum n_i P_i)
-        # CRITICAL: Pass atom_to_idx (dict of tuples), NOT r_to_idx (dict of ints)
-        row = get_relation_row(div_obj, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        
-        if row is None:
-            skipped_not_smooth += 1
-            continue
-            
-        # Anchoring: Convert sum n_i P_i  ->  sum n_i (P_i - P_base)
-        # Mathematically: row_anchored = row - (sum(coeffs)) * row_base
-        
-        weight = sum(row.values())
-        
-        # In-place subtraction of base row
-        if weight != 0:
-            row[base_idx] = row.get(base_idx, 0) - weight
-            if row[base_idx] == 0:
-                del row[base_idx]
-                
-        valid_rows.append(row)
-        rhs_values.append(0) # Homogeneous
-        
-    if verbose:
-        print(f"  [Anchoring] Built {len(valid_rows)} anchored homogeneous relations")
-        if skipped_not_smooth > 0:
-            print(f"  [Anchoring] Skipped {skipped_not_smooth} divisors (not smooth/encoding failed)")
-            
-    return valid_rows, rhs_values
-
-
-# ============================================================================
-# FILE: index_calculus.py
-# FUNCTION: prune_factor_base_to_pivot_columns
-# ============================================================================
-
-
-from sage.all import Integer, Zmod
-from sage.matrix.berlekamp_massey import berlekamp_massey
-from math import ceil, sqrt, gcd
-from multiprocessing import cpu_count
-from sage.all import Integer, Zmod, vector, GF, PolynomialRing
-from sage.all import factor, vector
-from math import ceil
-from sage.all import Integer, Zmod, vector, GF, PolynomialRing, matrix
-from sage.all import factor
-from search_common import BLOCK_WIEDEMANN
-
-
-# Tunable threshold for lazy reduction
-_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
-
-
-# [Rest of the file remains the same until diagnose_bw_failure]
-
-
-# [Keep all other functions unchanged - berlekamp_massey, block_wiedemann_solve, etc.]
-
-
-# Tunable threshold for lazy reduction
-_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
-
-
-def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
-                       verbose=True, force_index_calculus=False):
-    """
-    Robust wrapper for Index-Calculus DLP.
-    FIXED: Properly constructs inhomogeneous system for G and Q.
-    
-    CRITICAL: G and Q are assumed to already be in J(F_p)[ℓ] (ℓ-torsion).
-    The system we solve is:
-      homogeneous_rows · x = 0  (smooth divisor relations)
-      row_g · x = 1 + alpha_g   (G smoothing equation)
-    Then extract d from: row_q · x = beta_q (Q smoothing equation)
-    """
-    # Basic validation
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
-
-    full_order = Integer(order)
-
-    # Check if precomputed relations
-    precomputed = False
-    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
-            and isinstance(smooth_divs_or_rels[0], dict)
-            and smooth_divs_or_rels[0].get('type') == 'relations'):
-        precomputed = True
-
-    # Prepare polynomial ring and curve
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
-
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
-        print(f"{'='*70}")
-        print(f"Full Jacobian order |J|: {full_order}")
-
-    # Build or extract factor base and homogeneous relations
-    if precomputed:
-        data = smooth_divs_or_rels[0]
-        homogeneous_rows = data['relations']
-        fb_roots = data['fb_roots']
-        r_to_idx = data['fb_map']
-        
-        fb_y_cache = {}
-        for x_int in fb_roots:
-            y2 = int(f_p(K(x_int)))
-            if y2 == 0:
-                fb_y_cache[x_int] = 0
-            else:
-                y_can = tonelli_shanks(y2, p)
-                fb_y_cache[x_int] = int(min(y_can, p - y_can))
-    else:
-        # Legacy path: build from Mumford divisors
-        if verbose:
-            print("  [Legacy] Building factor base and relations from Mumford divisors...")
-        
-        # CRITICAL: _legacy_build_relations_from_mumford returns (rows, rhs, fb_roots, atom_to_idx, fb_y_cache)
-        # NOW returns atom_to_idx instead of r_to_idx
-        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
-        
-        # Verify all RHS are zero (homogeneous)
-        if any(r != 0 for r in homogeneous_rhs):
-            raise RuntimeError(
-                f"_legacy_build_relations_from_mumford returned non-homogeneous relations:\n"
-                f"  Found {sum(1 for r in homogeneous_rhs if r != 0)} nonzero RHS values"
-            )
-
-    if not homogeneous_rows:
-        raise RuntimeError("No valid homogeneous relations available")
-
-    if verbose:
-        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
-        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
-        sys.stdout.flush()
-
-    # --- CRITICAL FIX: Build inhomogeneous rows for G and Q separately ---
-    
-    # Smooth G
-    row_g = None
-    alpha_g = 0
-    
-    if is_divisor_fb_smooth(G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = canonicalize_divisor_to_factor_base(G, atom_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(G, atom_to_idx, f_p, p)
-        if verbose:
-            print("  [Smoothing] Generator G is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_G = (1 + r) * G
-            if is_divisor_fb_smooth(cand_G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = canonicalize_divisor_to_factor_base(cand_G, atom_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_G, atom_to_idx, f_p, p)
-                if row_g:
-                    alpha_g = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth generator at iter {i}")
-                    break
-    
-    if row_g is None:
-        raise RuntimeError("Failed to smooth Generator G")
-
-    # Smooth Q
-    row_q = None
-    beta_q = 0
-    
-    if is_divisor_fb_smooth(Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = canonicalize_divisor_to_factor_base(Q, atom_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(Q, atom_to_idx, f_p, p)
-        if verbose:
-            print("  [Smoothing] Target Q is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_Q = Q + r * G
-            if is_divisor_fb_smooth(cand_Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = canonicalize_divisor_to_factor_base(cand_Q, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_Q, r_to_idx, f_p, p)
-                if row_q:
-                    beta_q = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth target at iter {i}")
-                    break
-    
-    if row_q is None:
-        raise RuntimeError("Failed to smooth Target Q")
-
-    # === PROJECT HOMOGENEOUS RELATIONS ===
-    # Multiply by h, then mod ℓ
-    factors = factor(full_order)
-    ell = int(max(int(p) for p, _ in factors))
-    h = int(full_order // ell)
-    
-    if verbose:
-        print(f"  [Projection] Working mod ℓ={ell}, cofactor h={h}")
-        print(f"  [Projection] Homogeneous relations: multiply by h (kill cofactor)")
-        print(f"  [Projection] G/Q relations: already in J[ℓ], reduce mod ℓ directly")
-        sys.stdout.flush()
-    
-    projected_rows = []
-    projected_rhs = []
-
-    for row in homogeneous_rows:
-        new_row = {}
-        for k, v in row.items():
-            vk = int((Integer(v) * Integer(h)) % ell)
-            if vk:
-                new_row[k] = vk
-        
-        if new_row:
-            projected_rows.append(new_row)
-            projected_rhs.append(0)
-
-    # === PROJECT G ROW ===
-    g_row_proj = {}
-    for k, v in row_g.items():
-        val = int(Integer(v) % ell)
-        if val != 0:
-            g_row_proj[k] = val
-    
-    g_rhs_proj = int(Integer(1 + alpha_g) % ell)
-    
-    projected_rows.append(g_row_proj)
-    projected_rhs.append(g_rhs_proj)
-
-    # === PROJECT Q ROW ===
-    row_q_l = {}
-    for k, v in row_q.items():
-        val = int(Integer(v) % ell)
-        if val != 0:
-            row_q_l[k] = val
-    
-    beta_q_l = int(Integer(beta_q) % ell)
-
-    if not projected_rows:
-        raise ValueError("No nonzero relations after mod ℓ reduction")
-
-    n_cols = max(k for row in projected_rows for k in row) + 1
-    
-    if verbose:
-        nnz = sum(len(r) for r in projected_rows)
-        print(f"  [System] Before pruning: {len(projected_rows)} rows x {n_cols} cols, nnz={nnz}")
-        sys.stdout.flush()
-
-    # Build SparseRelationMatrix BEFORE row mixing for original system tracking
-    A_original = SparseRelationMatrix(projected_rows, projected_rhs, ell)
-    projected_rhs_original = list(projected_rhs)
-    
-    # === PRUNING STEP ===
-    if verbose:
-        print(f"  [BW] Pruning to pivot columns...")
-        sys.stdout.flush()
-    
-    pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
-        projected_rows, projected_rhs, ell, verbose=verbose
-    )
-    
-    if not pruned_rows:
-        raise RuntimeError("All rows vanished during pruning!")
-    
-    n_cols_pruned = len(pivot_cols)
-    
-    # Remap Q row to pruned columns
-    row_q_pruned = {}
-    for old_idx, val in row_q_l.items():
-        new_idx = col_map.get(old_idx)
-        if new_idx is not None:
-            row_q_pruned[new_idx] = int(val)
-    
-    if not row_q_pruned:
-        raise RuntimeError("Q row vanished after pruning!")
-    
-    if verbose:
-        print(f"  [Pruned System] {len(pruned_rows)} rows x {n_cols_pruned} cols")
-        print(f"  [Verify] ✓ Q row survived pruning: {len(row_q_pruned)} nonzero entries")
-        sys.stdout.flush()
-    
-    # Update to use pruned versions
-    projected_rows = pruned_rows
-    projected_rhs = pruned_rhs
-    n_cols = n_cols_pruned
-    row_q_l = row_q_pruned
-
-    # === ROW MIXING (if overdetermined) ===
-    row_mixing_applied = False
-    if len(projected_rows) > n_cols * 2:
-        if verbose:
-            print(f"  [BW] System is {len(projected_rows)/n_cols:.1f}x overdetermined")
-            print(f"  [BW] Applying random row mixing to improve Krylov diversity...")
-            sys.stdout.flush()
-        
-        projected_rows, projected_rhs = randomize_rows_for_bw(
-            projected_rows, 
-            projected_rhs, 
-            ell,
-            compression_factor=2,
-            mix_count=4,
-            verbose=verbose
-        )
-        row_mixing_applied = True
-
-    # Build SparseRelationMatrix
-    A = SparseRelationMatrix(projected_rows, projected_rhs, ell)
-    
-    # Decide which solver to use
-    if not BLOCK_WIEDEMANN and n_cols < 10000:
-        if verbose:
-            print(f"  [Solver] Using direct sparse solve (n={n_cols} < 10k)")
-            sys.stdout.flush()
-        
-        solution = solve_sparse_direct_mod_ell(A, projected_rhs, ell, verbose=verbose)
-        
-    else:
-        if verbose:
-            print(f"  [Solver] Using Block-Wiedemann (n={n_cols} >= 10k)")
-            sys.stdout.flush()
-
-        solution = None
-        bm_degree = None
-        adaptive_block = max(64, min(128, n_cols // 50))
-        
-        for attempt in range(3):
-            if attempt > 0 and verbose:
-                print(f"\n  [Retry] Attempt {attempt + 1}/3 (previous BM degree was {bm_degree})")
-                sys.stdout.flush()
-            
-            base_seed = random.randint(0, 2**30)
-            attempt_seed = base_seed + attempt * 999983
-            random.seed(attempt_seed)
-            
-            if verbose and attempt == 0:
-                print(f"  [BW] Initial random seed: {base_seed}")
-                sys.stdout.flush()
-            
-            t0 = time.time()
-            try:
-                solution, bm_degree = block_wiedemann_solve(
-                    A=A,
-                    b=projected_rhs,
-                    block_size=adaptive_block,
-                    iters=None,
-                    verbose=verbose,
-                )
-            except Exception as e:
-                if verbose:
-                    print(f"  [BW] Attempt {attempt + 1} raised exception: {e}")
-                if attempt == 2:
-                    raise
-                continue
-            
-            dt = time.time() - t0
-            
-            if solution is None:
-                if verbose:
-                    print(f"  [BW] Attempt {attempt + 1} returned None")
-                if attempt == 2:
-                    raise RuntimeError("Block-Wiedemann failed to converge after all retries")
-                continue
-            
-            if verbose:
-                print(f"  [BW] Solved in {dt:.2f}s, BM degree: {bm_degree}")
-                sys.stdout.flush()
-            
-            min_expected_degree = n_cols // 100
-            
-            if bm_degree < min_expected_degree:
-                if verbose:
-                    print(f"  [BW] WARNING: BM degree {bm_degree} < {min_expected_degree} (n/100)")
-                    print(f"  [BW] This suggests Krylov degeneration. Retrying with different seed...")
-                
-                if attempt < 2:
-                    continue
-                else:
-                    if verbose:
-                        print(f"  [BW] Final attempt has low degree. Proceeding to verification anyway...")
-            else:
-                if verbose:
-                    print(f"  [BW] BM degree {bm_degree} looks reasonable (>= n/100)")
-                break
-
-    # === EXTRACT DISCRETE LOG ===
-    dlog = Integer(beta_q_l)
-    for k, v in row_q_l.items():
-        if k < len(solution):
-            coeff = int(solution[k])
-            dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
-    dlog = int(dlog)
-
-    if verbose:
-        print("  [BW] Candidate dlog mod ℓ =", dlog)
-        sys.stdout.flush()
-
-    # === VERIFICATION ===
-    # CRITICAL FIX: When row mixing is applied, skip matrix verification
-    # and rely on the ℓ-torsion group check
-    if verbose:
-        print("  [BW] Running verification diagnostics...")
-    
-    if not row_mixing_applied:
-        # Only verify matrix equation if we didn't mix rows
-        diag = diagnose_bw_failure(
-            A_original.packed_rows, projected_rhs_original, solution, ell,
-            G, Q, full_order, row_q_l, beta_q_l, verbose=False
-        )
-
-        if not diag['matrix_ok']:
-            # Run full diagnostics before failing
-            diagnose_bw_failure(
-                A_original.packed_rows, projected_rhs_original, solution, ell,
-                G, Q, full_order, row_q_l, beta_q_l, verbose=True
-            )
-            raise RuntimeError("Matrix verification failed")
-    else:
-        if verbose:
-            print("  [BW] Skipping matrix verification (row mixing applied)")
-            print("  [BW] Relying on ℓ-torsion group check instead")
-            sys.stdout.flush()
-
-    # === PRIMARY VERIFICATION: ℓ-torsion check ===
-    # CRITICAL: Verify in J[ℓ] using h-projection
-    # We check: h * (dlog * G - Q) == 0
-    # This is the correct verification after cofactor projection
-    D = Integer(dlog) * G - Q
-    
-    # Project to ℓ-torsion subgroup
-    hD = Integer(h) * D
-    
-    if not hD.is_zero():
-        if verbose:
-            print("  [BW-Verify] ✗ FAILED ℓ-torsion verification:")
-            print(f"              h * (dlog * G - Q) ≠ 0")
-            print(f"              dlog = {dlog}, ℓ = {ell}, h = {h}")
-            # Additional diagnostics
-            print(f"              Testing ℓ * D:")
-            ellD = Integer(ell) * D
-            print(f"                ℓ * D is zero? {ellD.is_zero()}")
-        raise AssertionError(
-            "[BW-Verify] ✗ ℓ-torsion verification failed:\n"
-            f"  h * (dlog * G - Q) ≠ 0\n"
-            f"  dlog = {dlog}, ℓ = {ell}, h = {h}"
-        )
-
-    if verbose:
-        print("  [BW-Verify] ✓ ℓ-torsion verification passed: h * (dlog * G - Q) == 0")
-        if D.is_zero():
-            print("  [BW-Verify] ✓ Exact equality dlog * G == Q")
-        else:
-            print("  [BW-Verify] ℹ dlog * G ≠ Q exactly (cofactor component present)")
-            print(f"              But h * D == 0, so dlog is correct mod ℓ")
-
-    return Integer(dlog)
-
-
 # [Rest of the file remains the same until diagnose_bw_failure]
 
 
@@ -2624,3 +1927,310 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     # CRITICAL: Return atom_to_idx, NOT r_to_idx
     # The old version built r_to_idx = {x_int: col_idx} here, which is WRONG
     return valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache
+
+
+def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
+                       verbose=True, force_index_calculus=False):
+    """
+    CORRECTED: Traditional Index Calculus with proper kernel solver.
+    
+    CRITICAL: G and Q are assumed to already be in J(F_p)[ℓ] (ℓ-torsion).
+    The system we solve is:
+      A x = 0  (homogeneous relations in ℓ-torsion)
+    Then extract d from kernel solution using G and Q encodings.
+    """
+    # Basic validation
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    full_order = Integer(order)
+
+    # Check if precomputed relations
+    precomputed = False
+    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
+            and isinstance(smooth_divs_or_rels[0], dict)
+            and smooth_divs_or_rels[0].get('type') == 'relations'):
+        precomputed = True
+
+    # Prepare polynomial ring and curve
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
+        print(f"{'='*70}")
+        print(f"Full Jacobian order |J|: {full_order}")
+
+    # Compute ℓ and h
+    factors = factor(full_order)
+    ell = int(max(int(p) for p, _ in factors))
+    h = int(full_order // ell)
+    
+    if verbose:
+        print(f"Largest prime ℓ: {ell}")
+        print(f"Cofactor h: {h}")
+
+    # Build or extract factor base and homogeneous relations
+    if precomputed:
+        data = smooth_divs_or_rels[0]
+        homogeneous_rows = data['relations']
+        fb_roots = data['fb_roots']
+        atom_to_idx = data['fb_map']
+        
+        fb_y_cache = {}
+        for x_int in fb_roots:
+            y2 = int(f_p(K(x_int)))
+            if y2 == 0:
+                fb_y_cache[x_int] = 0
+            else:
+                y_can = tonelli_shanks(y2, p)
+                fb_y_cache[x_int] = int(min(y_can, p - y_can))
+    else:
+        # Legacy path: build from Mumford divisors
+        if verbose:
+            print("  [Legacy] Building factor base and relations from Mumford divisors...")
+        
+        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
+            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+        
+        # Verify all RHS are zero (homogeneous)
+        if any(r != 0 for r in homogeneous_rhs):
+            raise RuntimeError(
+                f"_legacy_build_relations_from_mumford returned non-homogeneous relations:\n"
+                f"  Found {sum(1 for r in homogeneous_rhs if r != 0)} nonzero RHS values"
+            )
+
+    if not homogeneous_rows:
+        raise RuntimeError("No valid homogeneous relations available")
+
+    if verbose:
+        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
+        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
+        sys.stdout.flush()
+
+    # === PROJECT HOMOGENEOUS RELATIONS TO ℓ-TORSION ===
+    # Multiply by h to kill cofactor component
+    projected_homogeneous = []
+    for row in homogeneous_rows:
+        new_row = {}
+        for k, v in row.items():
+            vk = int((Integer(v) * Integer(h)) % ell)
+            if vk:
+                new_row[k] = vk
+        if new_row:
+            projected_homogeneous.append(new_row)
+    
+    if verbose:
+        print(f"  [Projection] Projected {len(homogeneous_rows)} → {len(projected_homogeneous)} relations to J[ℓ]")
+        sys.stdout.flush()
+
+    # === SMOOTH G AND Q (these are ALREADY ℓ-torsion by construction) ===
+    row_g = None
+    alpha_g = 0
+    
+    if is_divisor_fb_smooth(G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = get_relation_row(G, atom_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Generator G is already smooth.")
+    else:
+        if verbose:
+            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
+        for i in range(1, 2001):
+            r = ZZ.random_element(1, int(ell))  # Sample mod ℓ (G is ℓ-torsion)
+            cand_G = (1 + r) * G
+            if is_divisor_fb_smooth(cand_G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = get_relation_row(cand_G, atom_to_idx, f_p, p)
+                if row_g:
+                    alpha_g = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth generator at iter {i}")
+                    break
+    
+    if row_g is None:
+        raise RuntimeError("Failed to smooth Generator G")
+
+    row_q = None
+    beta_q = 0
+    
+    if is_divisor_fb_smooth(Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = get_relation_row(Q, atom_to_idx, f_p, p)
+        if verbose:
+            print("  [Smoothing] Target Q is already smooth.")
+    else:
+        if verbose:
+            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
+        for i in range(1, 2001):
+            r = ZZ.random_element(1, int(ell))  # Sample mod ℓ (Q is ℓ-torsion)
+            cand_Q = Q + r * G
+            if is_divisor_fb_smooth(cand_Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_q = get_relation_row(cand_Q, atom_to_idx, f_p, p)
+                if row_q:
+                    beta_q = r
+                    if verbose:
+                        print(f"  [Smoothing] Found smooth target at iter {i}")
+                    break
+    
+    if row_q is None:
+        raise RuntimeError("Failed to smooth Target Q")
+
+    # === CALL KERNEL SOLVER ===
+    # Pass only homogeneous relations (already in ℓ-torsion)
+    # G and Q rows are used for dlog extraction, NOT added to system
+    
+    dlog = solve_dlp_mod_l_block_wiedemann(
+        projected_homogeneous,  # Homogeneous relations in J[ℓ]
+        row_g,                   # G encoding (for dlog extraction)
+        alpha_g,                 # G smoothing offset
+        row_q,                   # Q encoding (for dlog extraction)
+        beta_q,                  # Q smoothing offset
+        full_order,
+        G, Q,
+        verbose=verbose,
+        block_size=32,
+    )
+
+    if verbose:
+        print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
+
+    # === FINAL VERIFICATION ===
+    # CORRECTED: G and Q are ℓ-torsion, so just check dlog * G == Q
+    D = Integer(dlog) * G - Q
+
+    if not D.is_zero():
+        raise RuntimeError(
+            f"[Verify] ✗ Final verification FAILED:\n"
+            f"        dlog * G ≠ Q\n"
+            f"        dlog={dlog}, ℓ={ell}"
+        )
+
+    if verbose:
+        print("  [Verify] ✓ Exact equality dlog * G == Q")
+
+    return Integer(dlog)
+
+
+def verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False):
+    """
+    Verify that a relation row represents a divisor in ℓ-torsion.
+    
+    Reconstructs D = Σ row[i] * FB[i] and checks ℓ * D == 0.
+    
+    Args:
+        row: dict {col_idx: multiplicity}
+        atom_to_idx: dict {atom_tuple: col_idx}
+        ell: prime modulus
+        J: Jacobian
+        verbose: print diagnostics
+    
+    Returns:
+        True if ℓ * D == 0, False otherwise
+    
+    Raises on reconstruction failure
+    """
+    from sage.all import GF, PolynomialRing
+    
+    # Build inverse map
+    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
+    
+    # Reconstruct divisor from row
+    D = J.zero()
+    
+    for idx, mult in row.items():
+        atom = idx_to_atom.get(int(idx))
+        if atom is None:
+            raise RuntimeError(f"Relation references unknown atom index {idx}")
+        
+        # Convert atom to Jacobian element
+        if atom[0] == 'd1':
+            # Degree-1: ('d1', x, y)
+            _, x_val, y_val = atom
+            K = J.base_ring()
+            R = PolynomialRing(K, 'x')
+            x_poly = R.gen()
+            
+            u_poly = x_poly - K(int(x_val))
+            v_poly = K(int(y_val))
+            
+            atom_div = J([u_poly, v_poly])
+        elif atom[0] == 'd2':
+            # Degree-2: ('d2', u_coeffs_tuple, v_coeffs_tuple)
+            _, u_coeffs, v_coeffs = atom
+            K = J.base_ring()
+            R = PolynomialRing(K, 'x')
+            
+            u_poly = R(list(u_coeffs))
+            v_poly = R(list(v_coeffs))
+            
+            atom_div = J([u_poly, v_poly])
+        else:
+            raise RuntimeError(f"Unknown atom type: {atom[0]}")
+        
+        # Add mult * atom to D
+        D += int(mult) * atom_div
+    
+    # Check ℓ * D == 0
+    ellD = Integer(ell) * D
+    is_torsion = ellD.is_zero()
+    
+    if verbose:
+        print(f"  [Relation Check] ℓ * D is zero? {is_torsion}")
+        if not is_torsion:
+            print(f"                   Row: {row}")
+            print(f"                   Reconstructed D: {D}")
+    
+    return is_torsion
+
+
+def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J, 
+                                         sample_size=100, verbose=True):
+    """
+    Sample-check that projected homogeneous relations are ℓ-torsion.
+    
+    Args:
+        projected_rows: list of relation dicts (after h-projection)
+        atom_to_idx: factor base atom map
+        ell: prime
+        J: Jacobian
+        sample_size: how many to check (or None for all)
+        verbose: print progress
+    
+    Raises if any relation fails the check
+    """
+    import random
+    
+    n_check = min(sample_size, len(projected_rows)) if sample_size else len(projected_rows)
+    
+    if verbose:
+        print(f"  [Sanity] Checking {n_check}/{len(projected_rows)} relations are ℓ-torsion...")
+        sys.stdout.flush()
+    
+    indices = random.sample(range(len(projected_rows)), n_check) if sample_size else range(len(projected_rows))
+    
+    failures = []
+    for i in indices:
+        row = projected_rows[i]
+        try:
+            is_torsion = verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False)
+            if not is_torsion:
+                failures.append((i, row))
+        except Exception as e:
+            raise RuntimeError(f"Relation {i} failed reconstruction: {e}")
+    
+    if failures:
+        print(f"  [Sanity] ✗ FAILED: {len(failures)} relations are NOT ℓ-torsion!")
+        for i, row in failures[:5]:  # Show first 5
+            print(f"           Row {i}: {row}")
+        raise RuntimeError(
+            f"{len(failures)}/{n_check} relations failed ℓ-torsion check!\n"
+            f"Homogeneous relations MUST be in J[ℓ] after h-projection."
+        )
+    
+    if verbose:
+        print(f"  [Sanity] ✓ All {n_check} sampled relations are ℓ-torsion")
+        sys.stdout.flush()
