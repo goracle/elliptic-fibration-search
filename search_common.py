@@ -420,6 +420,7 @@ if FINITE_FIELD is not None:
         )
 
     assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
+    assert BASE_DIVISOR*SECRET_KEY == TARGET_DIVISOR, (BASE_DIVISOR*SECRET_KEY, TARGET_DIVISOR)
 
     # Re-randomize the seed so that subsequent operations (like random walks in workers)
     # are not identical across processes.

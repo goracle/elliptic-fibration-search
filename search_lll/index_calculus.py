@@ -1368,192 +1368,6 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
 # quick homomorphism test
 
 
-def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
-    """
-    Convert legacy 'smooth_divs' into relations WITHOUT rebasing.
-    CORRECTED: Uses proper Mumford homomorphism.
-    
-    Returns: (valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache)
-    """
-    if smooth_divs is None or not isinstance(smooth_divs, (list, tuple)):
-        raise RuntimeError("_legacy_build_relations_from_mumford: expected list of divisors")
-
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-
-    # Prepare extended divisors for factor-base extraction
-    extended_divs = []
-    try:
-        extended_divs.append(jacobian_to_dict(G, p))
-        extended_divs.append(jacobian_to_dict(Q, p))
-    except Exception:
-        raise
-
-    extended_divs.extend(list(smooth_divs))
-
-    if verbose:
-        print(f"  [Legacy->Relations] Building factor base from {len(extended_divs)} sample divisors...")
-
-    # Extract factor base - returns (atom_to_idx, fb_y_cache)
-    atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=True)
-    
-    # Extract fb_roots from degree-1 atoms
-    fb_roots = []
-    for atom, idx in atom_to_idx.items():
-        if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
-            x_val = atom[1]
-            if x_val not in fb_roots:
-                fb_roots.append(x_val)
-    
-    # Build r_to_idx mapping from fb_roots
-    r_to_idx = {r: i for i, r in enumerate(fb_roots)}
-
-    if len(r_to_idx) == 0:
-        raise RuntimeError("_legacy_build_relations_from_mumford: empty factor base extracted")
-
-    if verbose:
-        print(f"  [Legacy->Relations] Factor base size: {len(r_to_idx)}")
-
-    # Build homogeneous relations using corrected homomorphism
-    valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
-        smooth_divs, r_to_idx, f_p, p, fb_y_cache, verbose=verbose
-    )
-
-    if not valid_rows:
-        raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
-
-    return valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache
-
-
-def build_homogeneous_relations_no_rebase(smooth_divs, r_to_idx, f_p, p, fb_y_cache, 
-                                         verbose=True):
-    """
-    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
-    NO REBASING - preserves exact Mumford algebra.
-    CORRECTED: Uses Mumford v(x) directly via get_relation_row.
-    
-    NOTE: r_to_idx is the OLD format (x_int -> col_idx).
-          This function needs to be updated to use atom_to_idx instead.
-    
-    Returns:
-        (valid_rows, rhs_values) where rhs_values are all 0
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    # Build atom_to_idx from r_to_idx (backward compatibility hack)
-    # This assumes r_to_idx maps x-coordinates to indices
-    atom_to_idx = {}
-    for x_val, idx in r_to_idx.items():
-        # Get canonical y from cache if available
-        if x_val in fb_y_cache:
-            y_can = fb_y_cache[x_val]
-        else:
-            # Compute canonical y
-            y2 = int(f_p(K(x_val)))
-            if y2 == 0:
-                y_can = 0
-            elif pow(y2, (p-1)//2, p) == 1:
-                from .smoothness import tonelli_shanks
-                y_can = tonelli_shanks(y2, p)
-                y_can = min(y_can, p - y_can)
-            else:
-                continue  # Not a valid point
-        
-        atom = ('d1', int(x_val), int(y_can))
-        atom_to_idx[atom] = idx
-    
-    valid_rows = []
-    rhs_values = []
-    skipped_no_row = 0
-    
-    for d in smooth_divs:
-        # Build divisor polynomials
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        elif 's' in d and 'p' in d:
-            try:
-                x = R.gen()
-                u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
-            except Exception:
-                raise
-                continue
-        else:
-            continue
-        
-        # Get relation row using corrected homomorphism
-        row = get_relation_row([u_poly, v_poly], atom_to_idx, f_p, p)
-        if not row:
-            skipped_no_row += 1
-            continue
-        
-        valid_rows.append({int(k): int(v) for k, v in row.items()})
-        rhs_values.append(0)  # HOMOGENEOUS
-    
-    if verbose:
-        print(f"  [Relations] Built {len(valid_rows)} homogeneous relations (RHS=0, no rebasing)")
-        if skipped_no_row > 0:
-            print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
-    
-    return valid_rows, rhs_values
-
-
-def canonicalize_divisor_to_factor_base(divisor, r_to_idx, f_p, p):
-    """
-    CORRECTED: Uses Mumford v(x) directly without re-canonicalizing.
-    
-    Re-express a divisor using its Mumford y-coordinates.
-    Returns sparse row dict or None.
-    
-    NOTE: This function uses old r_to_idx format. Should be migrated to atom_to_idx.
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    u_poly = divisor[0]
-    v_poly = divisor[1]
-    
-    if u_poly.degree() not in [1, 2]:
-        return None
-    
-    roots_data = u_poly.roots(K)
-    if sum(m for _, m in roots_data) != u_poly.degree():
-        return None
-    
-    # Build atom_to_idx from r_to_idx for this function
-    # (This is inefficient but maintains backward compatibility)
-    atom_to_idx = {}
-    for x_val, idx in r_to_idx.items():
-        y2 = int(f_p(K(x_val)))
-        if y2 == 0:
-            y_can = 0
-        elif pow(y2, (p-1)//2, p) == 1:
-            from .smoothness import tonelli_shanks
-            y_can = tonelli_shanks(y2, p)
-            y_can = min(y_can, p - y_can)
-        else:
-            continue
-        atom = ('d1', int(x_val), int(y_can))
-        atom_to_idx[atom] = idx
-    
-    row = get_relation_row([u_poly, v_poly], atom_to_idx, f_p, p)
-    return row
-
-
-def _build_signed_row_from_divisor(div, r_to_idx, f_p, p):
-    """
-    CORRECTED: Uses Mumford v(x) directly.
-    
-    Build signed row dict from Mumford divisor.
-    Fallback when canonicalize_divisor_to_factor_base fails.
-    """
-    # Just call canonicalize_divisor_to_factor_base since they do the same thing now
-    return canonicalize_divisor_to_factor_base(div, r_to_idx, f_p, p)
-
-
 def is_divisor_fb_smooth(div, atom_to_idx, f_p, p, fb_y_cache=None):
     """
     Boolean wrapper: True if divisor encodes successfully into FB using atom-based encoding.
@@ -2199,6 +2013,16 @@ from search_common import BLOCK_WIEDEMANN
 _LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
 
 
+# [Rest of the file remains the same until diagnose_bw_failure]
+
+
+# [Keep all other functions unchanged - berlekamp_massey, block_wiedemann_solve, etc.]
+
+
+# Tunable threshold for lazy reduction
+_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
+
+
 def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
                        verbose=True, force_index_calculus=False):
     """
@@ -2259,9 +2083,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         if verbose:
             print("  [Legacy] Building factor base and relations from Mumford divisors...")
         
-        # CRITICAL: _legacy_build_relations_from_mumford returns (rows, rhs, fb_roots, r_to_idx, fb_y_cache)
-        # The rhs should be all zeros (homogeneous relations only)
-        homogeneous_rows, homogeneous_rhs, fb_roots, r_to_idx, fb_y_cache = \
+        # CRITICAL: _legacy_build_relations_from_mumford returns (rows, rhs, fb_roots, atom_to_idx, fb_y_cache)
+        # NOW returns atom_to_idx instead of r_to_idx
+        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
             _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
         
         # Verify all RHS are zero (homogeneous)
@@ -2276,7 +2100,7 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
 
     if verbose:
         print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
-        print(f"  [Factor Base] Size: {len(r_to_idx)}")
+        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
         sys.stdout.flush()
 
     # --- CRITICAL FIX: Build inhomogeneous rows for G and Q separately ---
@@ -2285,9 +2109,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     row_g = None
     alpha_g = 0
     
-    if is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
+    if is_divisor_fb_smooth(G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_g = canonicalize_divisor_to_factor_base(G, atom_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(G, atom_to_idx, f_p, p)
         if verbose:
             print("  [Smoothing] Generator G is already smooth.")
     else:
@@ -2296,9 +2120,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         for i in range(1, 2001):
             r = ZZ.random_element(1, int(full_order))
             cand_G = (1 + r) * G
-            if is_divisor_fb_smooth(cand_G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = canonicalize_divisor_to_factor_base(cand_G, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_G, r_to_idx, f_p, p)
+            if is_divisor_fb_smooth(cand_G, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+                row_g = canonicalize_divisor_to_factor_base(cand_G, atom_to_idx, f_p, p) or \
+                        _build_signed_row_from_divisor(cand_G, atom_to_idx, f_p, p)
                 if row_g:
                     alpha_g = r
                     if verbose:
@@ -2312,9 +2136,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     row_q = None
     beta_q = 0
     
-    if is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
+    if is_divisor_fb_smooth(Q, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache):
+        row_q = canonicalize_divisor_to_factor_base(Q, atom_to_idx, f_p, p) or \
+                _build_signed_row_from_divisor(Q, atom_to_idx, f_p, p)
         if verbose:
             print("  [Smoothing] Target Q is already smooth.")
     else:
@@ -2661,3 +2485,142 @@ def diagnose_bw_failure(
 
 # [Keep all other functions unchanged - berlekamp_massey, block_wiedemann_solve, etc.]
 
+
+def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
+                                         verbose=True):
+    """
+    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
+    NO REBASING - preserves exact Mumford algebra.
+    CORRECTED: Uses Mumford v(x) directly via get_relation_row.
+    
+    NOW accepts atom_to_idx (tuple-keyed dict), not r_to_idx (int-keyed dict).
+    
+    Returns:
+        (valid_rows, rhs_values) where rhs_values are all 0
+    """
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_row = 0
+    
+    for d in smooth_divs:
+        # Build divisor polynomials
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        elif 's' in d and 'p' in d:
+            try:
+                x = R.gen()
+                u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
+                v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
+            except Exception:
+                raise
+                continue
+        else:
+            continue
+        
+        # Get relation row using corrected homomorphism
+        # CRITICAL: Pass atom_to_idx directly (no conversion needed)
+        row = get_relation_row([u_poly, v_poly], atom_to_idx, f_p, p)
+        if not row:
+            skipped_no_row += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in row.items()})
+        rhs_values.append(0)  # HOMOGENEOUS
+    
+    if verbose:
+        print(f"  [Relations] Built {len(valid_rows)} homogeneous relations (RHS=0, no rebasing)")
+        if skipped_no_row > 0:
+            print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
+    
+    return valid_rows, rhs_values
+
+
+def canonicalize_divisor_to_factor_base(divisor, atom_to_idx, f_p, p):
+    """
+    CORRECTED: Uses Mumford v(x) directly without re-canonicalizing.
+    
+    Re-express a divisor using its Mumford y-coordinates.
+    Returns sparse row dict or None.
+    
+    NOW accepts atom_to_idx (tuple-keyed dict), not r_to_idx (int-keyed dict).
+    """
+    row = get_relation_row(divisor, atom_to_idx, f_p, p)
+    return row
+
+
+def _build_signed_row_from_divisor(div, atom_to_idx, f_p, p):
+    """
+    CORRECTED: Uses Mumford v(x) directly.
+    
+    Build signed row dict from Mumford divisor.
+    Fallback when canonicalize_divisor_to_factor_base fails.
+    
+    NOW accepts atom_to_idx (tuple-keyed dict), not r_to_idx (int-keyed dict).
+    """
+    # Just call canonicalize_divisor_to_factor_base since they do the same thing now
+    return canonicalize_divisor_to_factor_base(div, atom_to_idx, f_p, p)
+
+
+def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
+    """
+    Convert legacy 'smooth_divs' into relations WITHOUT rebasing.
+    CORRECTED: Uses proper Mumford homomorphism.
+    
+    CRITICAL FIX: Now returns atom_to_idx instead of r_to_idx.
+    
+    Returns: (valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache)
+             NOT (valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache)
+    """
+    if smooth_divs is None or not isinstance(smooth_divs, (list, tuple)):
+        raise RuntimeError("_legacy_build_relations_from_mumford: expected list of divisors")
+
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+
+    # Prepare extended divisors for factor-base extraction
+    extended_divs = []
+    try:
+        extended_divs.append(jacobian_to_dict(G, p))
+        extended_divs.append(jacobian_to_dict(Q, p))
+    except Exception:
+        raise
+
+    extended_divs.extend(list(smooth_divs))
+
+    if verbose:
+        print(f"  [Legacy->Relations] Building factor base from {len(extended_divs)} sample divisors...")
+
+    # Extract factor base - returns (atom_to_idx, fb_y_cache)
+    atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=True)
+    
+    # Extract fb_roots from degree-1 atoms (for backward compatibility with diagnostics)
+    fb_roots = []
+    for atom, idx in atom_to_idx.items():
+        if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
+            x_val = atom[1]
+            if x_val not in fb_roots:
+                fb_roots.append(x_val)
+
+    if len(atom_to_idx) == 0:
+        raise RuntimeError("_legacy_build_relations_from_mumford: empty factor base extracted")
+
+    if verbose:
+        print(f"  [Legacy->Relations] Factor base size: {len(atom_to_idx)}")
+
+    # Build homogeneous relations using corrected homomorphism
+    # CRITICAL: Pass atom_to_idx directly (NOT r_to_idx)
+    valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
+        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, verbose=verbose
+    )
+
+    if not valid_rows:
+        raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
+
+    # CRITICAL: Return atom_to_idx, NOT r_to_idx
+    # The old version built r_to_idx = {x_int: col_idx} here, which is WRONG
+    return valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache

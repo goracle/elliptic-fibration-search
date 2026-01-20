@@ -431,7 +431,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             p = int(FINITE_FIELD)
             f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
-            # 1. Extract the factor base
+            
+            # 1. Extract the factor base (ATOMIC FORMAT)
             atom_to_idx, fb_y_cache = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
 
             # Extract x-coordinates from degree-1 atoms for backward compatibility
@@ -442,8 +443,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                     if x_val not in fb_roots:
                         fb_roots.append(x_val)
             
-            # Build root_to_idx mapping for legacy code
-            root_to_idx = {r: i for i, r in enumerate(fb_roots)}
+            # CRITICAL FIX: Don't re-index! Just create a lookup set
+            # The OLD code did: root_to_idx = {r: i for i, r in enumerate(fb_roots)}
+            # which creates WRONG indices that don't match atom_to_idx
             fb_roots_set = set(fb_roots)
 
             # 2. Compute Jacobian Order
@@ -451,7 +453,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             # 3. Setup the challenge
             print(f"  [Setup] Curve: y^2 = {f_poly}")
-            #G, Q, true_d = generate_test_keypair(f_poly, p)
             G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
 
             # **ADD HOMOMORPHISM TEST HERE**
@@ -460,7 +461,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print("="*70)
             C = HyperellipticCurve(f_poly)
             J = C.jacobian()
-            #if not homomorphism_test(J, atom_to_idx, f_poly, p, trials=50):
             if not homomorphism_test(J, atom_to_idx, f_poly, p, mumford_divisors, fb_y_cache):
                 print("CRITICAL: Homomorphism test FAILED!")
                 print("The factor base encoding is not preserving group structure.")
@@ -472,13 +472,26 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # NEW: RR-Local Pre-check
             print(f"  [Phase 0] Attempting RR-Localization for target Q...")
             
-            # Try n_pole = 6, 7, 8 for increasing neighborhood depth
+            # CRITICAL: Pass atom_to_idx, NOT root_to_idx
+            # The RR localization function needs to be updated to accept atom_to_idx
             for n in [6, 7, 8]:
-                roots, poly_a, poly_b, vec = localize_target_via_rr(Q, fb_roots_set, f_poly, p, n_pole=n)
+                roots, poly_a, poly_b, vec = localize_target_via_rr(
+                    Q, fb_roots_set, f_poly, p, n_pole=n
+                )
                 if roots is not None:
                     print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n})!")
-                    # Convert roots to log_v directly
-                    log_v = resolve_log_from_rr_decomposition(roots, root_to_idx, poly_a, poly_b, p)
+                    
+                    # CRITICAL FIX: resolve_log_from_rr_decomposition must accept atom_to_idx
+                    # If it currently expects root_to_idx, it needs to be updated
+                    # For now, we'll create a minimal x->idx mapping from atom_to_idx
+                    x_to_idx = {}
+                    for atom, idx in atom_to_idx.items():
+                        if atom[0] == 'd1':
+                            x_to_idx[atom[1]] = idx
+                    
+                    log_v = resolve_log_from_rr_decomposition(
+                        roots, x_to_idx, poly_a, poly_b, p
+                    )
                     print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
                     return found_xs, [], mumford_residues, stats
 
@@ -489,16 +502,14 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 log_v = perform_dlp_attack(
                     G, Q, mumford_divisors, p, coeffs_genus2, L, 
                     verbose=True,
-                    force_index_calculus=True  # <-- to test factor base
+                    force_index_calculus=True
                 )
                 print(f"✓ Confirmed Discrete Log: {log_v}")
             except Exception as e:
                 print(f"Attack failed: {e}")
                 raise
 
-
         return found_xs, [], mumford_residues, stats
-
     # === UNPACK: SCONF ===
     min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
     min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
