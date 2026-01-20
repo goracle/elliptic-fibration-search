@@ -19,218 +19,6 @@ _LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
 
 
 # Example wrapper that keeps your solve_dlp_mod_l_block_wiedemann outer flow, but uses the new fast core:
-
-
-def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
-                       verbose=True, force_index_calculus=False):
-    """
-    Robust wrapper for Index-Calculus DLP.
-    FIXED: Properly constructs inhomogeneous system for G and Q.
-    
-    CRITICAL: G and Q are assumed to already be in J(F_p)[ℓ] (ℓ-torsion).
-    The system we solve is:
-      homogeneous_rows · x = 0  (smooth divisor relations)
-      row_g · x = 1 + alpha_g   (G smoothing equation)
-    Then extract d from: row_q · x = beta_q (Q smoothing equation)
-    """
-    # Basic validation
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
-
-    full_order = Integer(order)
-
-    # Check if precomputed relations
-    precomputed = False
-    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
-            and isinstance(smooth_divs_or_rels[0], dict)
-            and smooth_divs_or_rels[0].get('type') == 'relations'):
-        precomputed = True
-
-    # Prepare polynomial ring and curve
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
-
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
-        print(f"{'='*70}")
-        print(f"Full Jacobian order |J|: {full_order}")
-
-    # Build or extract factor base and homogeneous relations
-    if precomputed:
-        data = smooth_divs_or_rels[0]
-        homogeneous_rows = data['relations']
-        fb_roots = data['fb_roots']
-        r_to_idx = data['fb_map']
-        
-        fb_y_cache = {}
-        for x_int in fb_roots:
-            y2 = int(f_p(K(x_int)))
-            if y2 == 0:
-                fb_y_cache[x_int] = 0
-            else:
-                y_can = tonelli_shanks(y2, p)
-                fb_y_cache[x_int] = int(min(y_can, p - y_can))
-    else:
-        # Legacy path: build from Mumford divisors
-        if verbose:
-            print("  [Legacy] Building factor base and relations from Mumford divisors...")
-        
-        # CRITICAL: _legacy_build_relations_from_mumford returns (rows, rhs, fb_roots, r_to_idx, fb_y_cache)
-        # The rhs should be all zeros (homogeneous relations only)
-        homogeneous_rows, homogeneous_rhs, fb_roots, r_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
-        
-        # Verify all RHS are zero (homogeneous)
-        if any(r != 0 for r in homogeneous_rhs):
-            raise RuntimeError(
-                f"_legacy_build_relations_from_mumford returned non-homogeneous relations:\n"
-                f"  Found {sum(1 for r in homogeneous_rhs if r != 0)} nonzero RHS values"
-            )
-
-    if not homogeneous_rows:
-        raise RuntimeError("No valid homogeneous relations available")
-
-    if verbose:
-        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
-        print(f"  [Factor Base] Size: {len(r_to_idx)}")
-        sys.stdout.flush()
-
-    # --- CRITICAL FIX: Build inhomogeneous rows for G and Q separately ---
-    
-    # Smooth G
-    row_g = None
-    alpha_g = 0
-    
-    if is_divisor_fb_smooth(G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_g = canonicalize_divisor_to_factor_base(G, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(G, r_to_idx, f_p, p)
-        if verbose:
-            print("  [Smoothing] Generator G is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_G = (1 + r) * G
-            if is_divisor_fb_smooth(cand_G, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_g = canonicalize_divisor_to_factor_base(cand_G, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_G, r_to_idx, f_p, p)
-                if row_g:
-                    alpha_g = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth generator at iter {i}")
-                    break
-    
-    if row_g is None:
-        raise RuntimeError("Failed to smooth Generator G")
-
-    # Smooth Q
-    row_q = None
-    beta_q = 0
-    
-    if is_divisor_fb_smooth(Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-        row_q = canonicalize_divisor_to_factor_base(Q, r_to_idx, f_p, p) or \
-                _build_signed_row_from_divisor(Q, r_to_idx, f_p, p)
-        if verbose:
-            print("  [Smoothing] Target Q is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(full_order))
-            cand_Q = Q + r * G
-            if is_divisor_fb_smooth(cand_Q, r_to_idx, f_p, p, fb_y_cache=fb_y_cache):
-                row_q = canonicalize_divisor_to_factor_base(cand_Q, r_to_idx, f_p, p) or \
-                        _build_signed_row_from_divisor(cand_Q, r_to_idx, f_p, p)
-                if row_q:
-                    beta_q = r
-                    if verbose:
-                        print(f"  [Smoothing] Found smooth target at iter {i}")
-                    break
-    
-    if row_q is None:
-        raise RuntimeError("Failed to smooth Target Q")
-
-    # --- CRITICAL: Construct the FULL system with proper RHS values ---
-    # The system is now:
-    #   homogeneous_rows[i] · x = 0  (for i in smooth divisors)
-    #   row_g · x = 1 + alpha_g      (inhomogeneous for G)
-    
-    # Append G row to the system
-    full_rows = list(homogeneous_rows)  # Copy
-    full_rhs = [0] * len(homogeneous_rows)  # All zeros for homogeneous
-    
-    full_rows.append({int(k): int(v) for k, v in row_g.items()})
-    full_rhs.append(int(1 + alpha_g))  # CRITICAL: Non-zero RHS for G
-    
-    if verbose:
-        print(f"\n  [System] Built system: {len(full_rows)} rows ({len(homogeneous_rows)} homogeneous + 1 for G)")
-        print(f"  [System] G row RHS: {full_rhs[-1]} (should be 1 + {alpha_g})")
-        sys.stdout.flush()
-
-    # Solve the system
-    beta_q_int = int(beta_q)
-    row_q_dict = {int(k): int(v) for k, v in row_q.items()}
-
-    d_log_val = None
-    try:
-        if verbose:
-            print("  [Solver] Starting Block-Wiedemann...")
-        
-        d_log_val = solve_dlp_mod_l_block_wiedemann(
-            full_rows,  # ← Now includes G with proper RHS
-            full_rhs,   # ← Now has [0, 0, ..., 0, 1+alpha_g]
-            row_q_dict,
-            beta_q_int,
-            full_order,
-            G, Q,
-            verbose=verbose,
-            block_size=32,
-        )
-        
-        if verbose:
-            print("  [Solver] Block-Wiedemann returned a candidate.")
-    except Exception as e:
-        raise RuntimeError(f"Block-Wiedemann solver failed: {e}")
-
-    if d_log_val is None:
-        raise RuntimeError("Solver produced no result")
-
-    if verbose:
-        print(f"  [Result] Discrete log (mod ℓ) candidate: {d_log_val}")
-
-    # Verify
-    ell = int(max(int(p) for p, _ in factor(full_order)))
-    D = Integer(d_log_val) * G - Q
-
-    if not (Integer(ell) * D).is_zero():
-        raise RuntimeError(
-            "[Verify] ✗ Block-Wiedemann result FAILED group verification:\n"
-            f"        ℓ * (d_log_val * G − Q) ≠ 0\n"
-            f"        dlog={d_log_val}, ℓ={ell}"
-        )
-
-    if verbose:
-        print("  [Verify] ✓ ℓ-torsion verification passed")
-        if D.is_zero():
-            print("  [Verify] ✓ Exact equality d*G == Q")
-        else:
-            print("  [Verify] ℹ d*G ≠ Q exactly (cofactor component)")
-
-    return Integer(d_log_val)
-
-
-# Tunable threshold for lazy reduction
-_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
-
-
-# Example wrapper that keeps your solve_dlp_mod_l_block_wiedemann outer flow, but uses the new fast core:
 def block_wiedemann_solve_wrapper(A, b, block_size=32, iters=None, verbose=True):
     """
     Thin wrapper preserving previous call signature.
@@ -1208,6 +996,8 @@ def solve_dlp_mod_l_block_wiedemann(
     beta_q,
     full_order,
     G, Q,
+    atom_to_idx,  # ← ADD THIS PARAMETER
+    J,            # ← ADD THIS PARAMETER
     *,
     verbose=True,
     block_size=1,
@@ -1226,6 +1016,17 @@ def solve_dlp_mod_l_block_wiedemann(
     
     CRITICAL: homogeneous_rows are ALREADY in J[ℓ] (projected by h before calling).
               row_g and row_q are ALREADY in J[ℓ] (G,Q are ℓ-torsion by construction).
+    
+    Args:
+        homogeneous_rows: list of relation dicts (already h-projected to J[ℓ])
+        row_g_dict: G encoding as factor base row
+        alpha_g: G smoothing offset
+        row_q_dict: Q encoding as factor base row
+        beta_q: Q smoothing offset
+        full_order: full Jacobian order
+        G, Q: Jacobian elements for verification
+        atom_to_idx: factor base atom map (needed for relation verification)
+        J: Jacobian (needed for relation reconstruction)
     """
     if nprocs is None:
         nprocs = max(1, cpu_count() - 1)
@@ -1242,14 +1043,22 @@ def solve_dlp_mod_l_block_wiedemann(
         sys.stdout.flush()
     
     # === SANITY CHECK: Verify homogeneous relations are in ℓ-torsion ===
-    if verbose:
+    # Sample check a few relations to ensure h-projection worked
+    if verbose and atom_to_idx is not None and J is not None:
         print(f"  [Sanity] Checking that homogeneous relations are ℓ-torsion...")
         sys.stdout.flush()
-    
-    # Build inverse atom map for reconstruction
-    from search_lll.index_calculus import atom_to_idx
-    # Note: atom_to_idx should be passed in, but for now we'll skip reconstruction check
-    # and just verify the matrix algebra
+        
+        try:
+            verify_all_relations_are_ell_torsion(
+                homogeneous_rows, atom_to_idx, ell, J,
+                sample_size=min(100, len(homogeneous_rows)),
+                verbose=verbose
+            )
+        except Exception as e:
+            if verbose:
+                print(f"  [Sanity] WARNING: Relation verification failed: {e}")
+                print(f"  [Sanity] Proceeding anyway (verification may be disabled)")
+            # Don't crash - just warn
     
     # === BUILD HOMOGENEOUS SYSTEM (kernel) ===
     projected_rows = []

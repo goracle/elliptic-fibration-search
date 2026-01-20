@@ -485,100 +485,6 @@ def analyze_preferred_hit_rate(divisors, preferred_set, p=None):
 # In smoothness.py, REPLACE build_relation_matrix function (around line 257)
 # with this corrected version that matches index_calculus.py sign convention:
 
-def build_relation_matrix(divisors, factor_base, p=None, verbose=False):
-    """
-    Builds the sign-aware relation matrix for Index Calculus attack.
-    
-    CRITICAL: Uses STRICT Min(y, p-y) sign convention to match index_calculus.py.
-    This ensures consistency between relation construction here and solving there.
-    """
-    from .smoothness import tonelli_shanks
-    
-    root_to_idx = {root: i for i, root in enumerate(factor_base)}
-    matrix_rows = []
-    seen = set()
-
-    for d in divisors:
-        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
-        
-        # Deduplicate
-        if (s, pp, v0, v1) in seen:
-            continue
-        seen.add((s, pp, v0, v1))
-
-        # Extract roots
-        roots = d.get('roots', [])
-        if not roots and p:
-            disc = (s*s - 4*pp) % p
-            if pow(disc, (p-1)//2, p) == 1:
-                delta = tonelli_shanks(disc, p)
-                inv2 = pow(2, -1, p)
-                r1 = (s + delta) * inv2 % p
-                r2 = (s - delta) * inv2 % p
-                roots = [r1, r2]
-
-        if not roots:
-            continue
-
-        row = [0] * len(factor_base)
-        
-        for r in roots:
-            if r not in root_to_idx:
-                continue
-            
-            idx = root_to_idx[r]
-            
-            # STRICT SIGN CONVENTION (matching index_calculus.py)
-            # v(x) evaluated at root r
-            if p:
-                y_val = (v1 * r + v0) % p
-                
-                # Compute f(r) to get canonical y
-                # We need to evaluate f(x) at x=r
-                # For now, we compute y² = v(r)² and assume it equals f(r)
-                # (this is guaranteed by the Mumford relation v² ≡ f mod u)
-                y_sq = (y_val * y_val) % p
-                
-                # Canonical y is min(sqrt, p - sqrt)
-                if pow(y_sq, (p-1)//2, p) != 1:
-                    # Not a quadratic residue - skip this root
-                    continue
-                
-                y_can = tonelli_shanks(y_sq, p)
-                y_can = min(y_can, p - y_can)
-                
-                # Sign determination
-                if y_val == y_can:
-                    row[idx] += 1  # Positive sign
-                elif (p - y_val) % p == y_can:
-                    row[idx] -= 1  # Negative sign
-                else:
-                    # y_val doesn't match canonical ±sqrt - data inconsistency
-                    if verbose:
-                        print(f"  [WARNING] Sign mismatch at r={r}: y_val={y_val}, y_can={y_can}")
-                    # Skip this divisor entirely
-                    row = None
-                    break
-            else:
-                # Rational case - no sign ambiguity
-                row[idx] += 1
-        
-        if row is not None:
-            matrix_rows.append(row)
-
-    if not matrix_rows:
-        M = matrix(ZZ, 0, len(factor_base))
-        rank = 0
-    else:
-        M = matrix(ZZ, matrix_rows)
-        rank = M.rank()
-    
-    if verbose:
-        print(f"  [Matrix] {M.nrows()} Rows x {M.ncols()} Cols | Rank: {rank}")
-        sys.stdout.flush()
-    
-    return {'matrix': M, 'rank': rank}
-
 
 # --- start patch (put in smoothness.py) ---
 from sage.all import GF, PolynomialRing
@@ -728,10 +634,137 @@ def extract_factor_base(sample_divisors, p, f_p=None, verbose=False):
     return atom_to_idx, fb_y_cache
 
 
+def build_relation_matrix(divisors, factor_base, p=None, f_p=None, verbose=False):
+    """
+    Builds the sign-aware relation matrix for Index Calculus attack.
+    
+    CRITICAL: Uses Mumford v(x) directly - NO re-canonicalization with f(x).
+    This matches the encoding in index_calculus.py get_relation_row().
+    
+    Args:
+        divisors: list of Mumford divisor dicts
+        factor_base: list of x-coordinates (for backward compatibility)
+                     OR dict of atoms (new format)
+        p: prime modulus
+        f_p: curve polynomial (optional, for canonical y lookup)
+        verbose: print diagnostics
+    
+    Returns:
+        dict {'matrix': M, 'rank': rank}
+    """
+    from .smoothness import tonelli_shanks
+    
+    # Handle both old (list of x-coords) and new (atom dict) formats
+    if isinstance(factor_base, dict):
+        # New format: atom_to_idx
+        atom_to_idx = factor_base
+        # Extract x-coords from degree-1 atoms for backward compat
+        root_to_idx = {}
+        for atom, idx in atom_to_idx.items():
+            if atom[0] == 'd1':
+                x_val = atom[1]
+                root_to_idx[x_val] = idx
+    else:
+        # Old format: list of x-coordinates
+        root_to_idx = {root: i for i, root in enumerate(factor_base)}
+    
+    matrix_rows = []
+    seen = set()
+
+    for d in divisors:
+        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
+        
+        # Deduplicate
+        if (s, pp, v0, v1) in seen:
+            continue
+        seen.add((s, pp, v0, v1))
+
+        # Extract roots
+        roots = d.get('roots', [])
+        if not roots and p:
+            disc = (s*s - 4*pp) % p
+            if pow(disc, (p-1)//2, p) == 1:
+                delta = tonelli_shanks(disc, p)
+                inv2 = pow(2, -1, p)
+                r1 = (s + delta) * inv2 % p
+                r2 = (s - delta) * inv2 % p
+                roots = [r1, r2]
+
+        if not roots:
+            continue
+
+        row = [0] * len(root_to_idx)
+        
+        for r in roots:
+            if r not in root_to_idx:
+                continue
+            
+            idx = root_to_idx[r]
+            
+            # CRITICAL: Use Mumford v(x) DIRECTLY - no f(x) re-canonicalization
+            # This matches index_calculus.py get_relation_row()
+            if p:
+                # Evaluate Mumford v(x) at root r
+                y_val = (v1 * r + v0) % p
+                
+                # Canonical y from factor base (if available via f_p)
+                if f_p is not None:
+                    # Compute f(r) to get canonical sqrt
+                    K = GF(p)
+                    y2 = int(f_p(K(r)))
+                    
+                    if y2 == 0:
+                        y_can = 0
+                    elif pow(y2, (p-1)//2, p) != 1:
+                        # Not a quadratic residue - skip this root
+                        continue
+                    else:
+                        sqrt_y2 = tonelli_shanks(y2, p)
+                        y_can = min(sqrt_y2, p - sqrt_y2)
+                else:
+                    # No curve polynomial - use v(r) itself as canonical
+                    # (This path should not be used in production)
+                    y_can = min(y_val, p - y_val)
+                
+                # Sign determination: compare v(r) to canonical y
+                if y_val == y_can:
+                    row[idx] += 1  # Positive sign
+                elif (p - y_val) % p == y_can:
+                    row[idx] -= 1  # Negative sign
+                else:
+                    # y_val doesn't match canonical ±sqrt - data inconsistency
+                    if verbose:
+                        print(f"  [WARNING] Sign mismatch at r={r}: v(r)={y_val}, y_can={y_can}")
+                    # Skip this divisor entirely
+                    row = None
+                    break
+            else:
+                # Rational case - no sign ambiguity
+                row[idx] += 1
+        
+        if row is not None:
+            matrix_rows.append(row)
+
+    if not matrix_rows:
+        M = matrix(ZZ, 0, len(root_to_idx))
+        rank = 0
+    else:
+        M = matrix(ZZ, matrix_rows)
+        rank = M.rank()
+    
+    if verbose:
+        print(f"  [Matrix] {M.nrows()} Rows x {M.ncols()} Cols | Rank: {rank}")
+        sys.stdout.flush()
+    
+    return {'matrix': M, 'rank': rank}
+
+
 def diagnose_finite_field_search(divisors, f_p, verbose=True):
     """
     Clean, high-level summary of the attack status.
     NOW INCLUDES: Verification that G and Q are both FB-smooth.
+    
+    CORRECTED: Passes f_p to build_relation_matrix for proper sign convention.
     """
     p = FINITE_FIELD
     
@@ -746,8 +779,8 @@ def diagnose_finite_field_search(divisors, f_p, verbose=True):
             if x_val not in fb_roots:
                 fb_roots.append(x_val)
     
-    # Build relation matrix from divisors using the root list
-    res = build_relation_matrix(divisors, fb_roots, p=p)
+    # Build relation matrix from divisors - PASS f_p for correct sign convention
+    res = build_relation_matrix(divisors, fb_roots, p=p, f_p=f_p, verbose=False)
     
     rank = res['rank']
     needed = len(fb_roots)

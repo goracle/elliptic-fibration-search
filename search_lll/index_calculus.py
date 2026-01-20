@@ -18,7 +18,7 @@ from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from sage.matrix.berlekamp_massey import berlekamp_massey
 
 # Local imports
-from search_common import SECRET_KEY, BLOCK_WIEDEMANN
+from search_common import SECRET_KEY, BLOCK_WIEDEMANN, FINITE_FIELD, PREFERRED_X_COORDS
 from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import solve_dlp_mod_l_block_wiedemann
 from search_lll.cofactor_dlp import solve_cofactor_dlp
@@ -503,28 +503,6 @@ def f_poly_from_coeffs(coeffs, p):
     return sage_poly_from_coeffs(coeffs, R)
 
 
-def u_poly_roots_in_fp(div, p):
-    """
-    Return list of integer x-roots of the u-polynomial of a Mumford divisor,
-    or None if it does not split completely over GF(p).
-    """
-    K = GF(p)
-    u_poly = div[0]
-
-    try:
-        roots = u_poly.roots(K)
-    except Exception:
-        raise
-        return None
-
-    # Check complete split
-    total_mult = sum(m for _, m in roots)
-    if total_mult != u_poly.degree():
-        return None
-
-    return [int(r) for r, _ in roots]
-
-
 def _u_poly_roots_in_fp(div, p):
     """
     Return list of integer x-roots of the u-polynomial of a Mumford divisor,
@@ -712,7 +690,6 @@ def build_anchored_relations(smooth_divs, r_to_idx, f_p, p, fb_y_cache, preferre
                 continue
         
         # Get relation row
-        from .index_calculus import get_relation_row
         row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
         if not row:
             continue
@@ -1731,61 +1708,6 @@ def get_relation_row(divisor, atom_to_idx, f_p, p, fb_y_cache=None):
 # [Rest of the file remains the same until diagnose_bw_failure]
 
 
-def diagnose_bw_failure(
-    A_packed_rows, projected_rhs, solution, mod, G, Q, full_order,
-    row_q_dict, beta_q, verbose=True
-):
-    """
-    Run a suite of checks to find mismatch causes.
-    FIXED: Reports findings without raising on matrix failure.
-    """
-    print("=== BW DIAGNOSTIC START ===")
-    # 1) Sanity: solution length vs n_cols
-    n_cols = max((j for (idxs, _) in A_packed_rows for j in idxs), default=-1) + 1
-    print("n_cols (derived) =", n_cols, "solution length =", len(solution))
-    if len(solution) != n_cols:
-        print("WARNING: solution length != n_cols. This is a prime suspect for ordering mismatch.")
-
-    # 2) verify linear system
-    ok_mat = verify_matrix_solution(A_packed_rows, projected_rhs, solution, mod, verbose=verbose)
-
-    # 3) reconstruct d purely algebraically (mod)
-    try:
-        d_recon = reconstruct_d_from_solution(beta_q, row_q_dict, solution, mod)
-        print("Reconstructed d (mod):", d_recon)
-    except Exception as e:
-        print("Failed to reconstruct d from solution:", e)
-        d_recon = None
-
-    # 4) group torsion checks
-    tors = dump_group_torsion_info(G, Q, full_order, verbose=verbose)
-
-    # 5) compute D = d*G - Q and inspect non-zero D's invariants
-    D_is_zero = None
-    if d_recon is not None:
-        D = Integer(d_recon) * G - Q
-        try:
-            D_is_zero = bool(D.is_zero())
-        except Exception:
-            D_is_zero = None
-        print("Group check: D.is_zero() =>", D_is_zero)
-        # compute order of D if not zero (try ell, try h)
-        if D_is_zero is False:
-            try:
-                # Try orders dividing ell and h: show ell*D and h*D
-                print("ell*D is zero? ", bool((Integer(tors['ell']) * D).is_zero()))
-                print("h*D is zero?   ", bool((Integer(tors['h']) * D).is_zero()))
-            except Exception as e:
-                print("Failed to inspect D torsion properties:", e)
-    print("=== BW DIAGNOSTIC END ===")
-    return {
-        'matrix_ok': ok_mat,
-        'd_recon': d_recon,
-        'torsion_info': tors,
-        'D_is_zero': D_is_zero
-    }
-
-
 # [Keep all other functions unchanged - berlekamp_massey, block_wiedemann_solve, etc.]
 
 
@@ -2091,6 +2013,8 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         beta_q,                  # Q smoothing offset
         full_order,
         G, Q,
+        atom_to_idx,             # Factor base atom map (for sanity checks)
+        J,                       # Jacobian (for relation reconstruction)
         verbose=verbose,
         block_size=32,
     )
