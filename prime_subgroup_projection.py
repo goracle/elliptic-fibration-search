@@ -139,72 +139,6 @@ def generate_random_curve_point(f_poly, p):
     raise ValueError("Failed to generate random curve point")
 
 
-def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
-    F = GF(p)
-    R = PolynomialRing(F, 'x')
-    f_poly = R([F(c) for c in reversed(coeffs_genus2)])
-    C = HyperellipticCurve(f_poly)
-    J = C.jacobian()
-    f = R(f_poly)
-    
-    order = compute_jacobian_order(coeffs_genus2, p)
-    factorization = factor(order)
-    ell = max([Integer(prime) for prime, _ in factorization])
-    cofactor = order // ell
-    
-    print(f"Jacobian order: {order}")
-    print(f"Factorization: {factorization}")
-    print(f"Largest prime ℓ: {ell}")
-    print(f"Cofactor h: {cofactor}")
-    
-    if base_pts_x[0] is None:
-        G_original, basex, basey = generate_random_curve_point(f_poly, p)
-        base_pts_x = [basex]
-    else:
-        x_coord = base_pts_x[0]
-        y2 = f(x_coord)
-        y_coord = y2.sqrt()
-        G_original = J(C((x_coord, y_coord))) # pick the first base point as the original generator
-    G = Integer(cofactor) * G_original
-    
-    if G.is_zero():
-        raise RuntimeError("G projected to identity.")
-    
-    current_secret = Integer(secret_key) % ell
-    Q = None
-    final_secret = None
-    
-    # Search for a split target Q
-    for offset in range(1000):
-        test_secret = (current_secret + offset) % ell
-        if test_secret == 0: continue
-            
-        Q_candidate = Integer(test_secret) * G
-        if Q_candidate.is_zero(): continue
-            
-        u_poly = Q_candidate[0]
-        if u_poly.degree() == 1:
-            Q = Q_candidate
-            final_secret = test_secret
-            break
-        elif u_poly.degree() == 2:
-            disc = u_poly.discriminant()
-            if disc.is_square() and disc != 0:
-                Q = Q_candidate
-                final_secret = test_secret
-                break
-    
-    if Q is None:
-        raise RuntimeError("Failed to find split Q")
-    
-    preferred_x_coords = set()
-    for D in [G, Q]:
-        for root, _ in D[0].roots():
-            preferred_x_coords.add(int(root))
-    
-    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret
-
-
 # Put at top of file (if not already imported)
 from sage.all import Integer, factor
 from math import ceil, sqrt
@@ -436,3 +370,114 @@ def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
     if verbose:
         print("[lift] BSGS failed to find a lift in [0,h).")
     return None
+
+
+def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
+    F = GF(p)
+    R = PolynomialRing(F, 'x')
+    f_poly = R([F(c) for c in reversed(coeffs_genus2)])
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    f = R(f_poly)
+    
+    order = compute_jacobian_order(coeffs_genus2, p)
+    factorization = factor(order)
+    ell = max([Integer(prime) for prime, _ in factorization])
+    cofactor = order // ell
+    
+    print(f"Jacobian order: {order}")
+    print(f"Factorization: {factorization}")
+    print(f"Largest prime ℓ: {ell}")
+    print(f"Cofactor h: {cofactor}")
+    
+    def has_split_degree2_u(D):
+        """Check if D has degree-2 u(x) that splits over F_p"""
+        if D.is_zero():
+            return False
+        u_poly = D[0]
+        if u_poly.degree() != 2:
+            return False
+        disc = u_poly.discriminant()
+        return disc != 0 and disc.is_square()
+    
+    # Search for G_original that projects to a split divisor
+    max_attempts = 10000
+    G = None
+    
+    for attempt in range(max_attempts):
+        if base_pts_x[0] is None:
+            try:
+                G_original, basex, basey = generate_random_curve_point(f_poly, p)
+            except Exception:
+                continue
+        else:
+            # Start from provided base point
+            x_coord = base_pts_x[0]
+            y2 = f(F(x_coord))
+            if not y2.is_square():
+                raise ValueError("Base point not quadratic residue")
+            y_coord = y2.sqrt()
+            G_original_base = J(C((x_coord, y_coord)))
+            
+            # Try multiples to find one that projects well
+            # Try G_original = [k] * base for k = 1, 2, 3, ...
+            G_original = Integer(attempt + 1) * G_original_base
+        
+        # Project into ℓ-subgroup
+        G_candidate = Integer(cofactor) * G_original
+        
+        if G_candidate.is_zero():
+            continue
+        
+        # Check if it has split u(x)
+        if has_split_degree2_u(G_candidate):
+            G = G_candidate
+            if base_pts_x[0] is None:
+                base_pts_x = [basex]
+            break
+        
+        # If using provided base point, keep trying multiples
+        if base_pts_x[0] is None:
+            # For random generation, just try a new random point
+            pass
+    
+    if G is None:
+        raise RuntimeError(f"Failed to find G with split u(x) after {max_attempts} attempts")
+    
+    # Verify G is in ℓ-subgroup
+    assert (Integer(ell) * G).is_zero(), "G not in ℓ-subgroup"
+    
+    # Search for Q = [k]*G with split u(x)
+    current_secret = Integer(secret_key) % ell
+    Q = None
+    final_secret = None
+    
+    for offset in range(max_attempts):
+        test_secret = (current_secret + offset) % ell
+        if test_secret == 0:
+            continue
+        
+        Q_candidate = Integer(test_secret) * G
+        
+        if has_split_degree2_u(Q_candidate):
+            Q = Q_candidate
+            final_secret = test_secret
+            break
+    
+    if Q is None:
+        raise RuntimeError(f"Failed to find Q with split u(x) after {max_attempts} attempts")
+    
+    # Extract x-coordinates (now guaranteed to exist since u(x) splits)
+    preferred_x_coords = set()
+    for D in [G, Q]:
+        u_poly = D[0]
+        for root, _ in u_poly.roots():
+            preferred_x_coords.add(int(root))
+    
+    assert len(preferred_x_coords) == 4, f"Expected 4 x-coords, got {len(preferred_x_coords)}: {preferred_x_coords}"
+    
+    print(f"Generated {len(preferred_x_coords)} preferred x-coordinates: {preferred_x_coords}")
+    print(f"G has u(x) = {G[0]} (splits)")
+    print(f"Q has u(x) = {Q[0]} (splits)")
+    
+    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret

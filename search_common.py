@@ -419,6 +419,8 @@ if FINITE_FIELD is not None:
             SECRET_KEY
         )
 
+    assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
+
     # Re-randomize the seed so that subsequent operations (like random walks in workers)
     # are not identical across processes.
     

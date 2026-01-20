@@ -1,4 +1,0 @@
-Jacobian order: 1126029650170156
-Factorization: 2^2 * 289603 * 972045913
-Largest prime ℓ: 972045913
-Cofactor h: 1158412

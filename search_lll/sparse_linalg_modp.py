@@ -593,151 +593,6 @@ def diagnose_bw_failure(
     }
 
 
-def solve_dlp_mod_l_block_wiedemann(
-    valid_rows,
-    rhs_values,
-    row_q_dict,
-    beta_q,
-    full_order,
-    G, Q,
-    *,
-    verbose=True,
-    block_size=1, # Default to 1 (Standard Wiedemann) for safety
-    nprocs=None,
-    max_iters=None,
-):
-    """
-    Sparse Block-Wiedemann wrapper for DLP modulo largest prime ell.
-    Returns the discrete log modulo ℓ (prime subgroup).
-    Automatically switches to Direct Sparse Solver for n_cols < 10,000.
-    
-    CRITICAL FIX: Relations from Mumford search hold in J(F_p), not J[ℓ].
-    We must multiply by cofactor h before reducing mod ℓ to get valid J[ℓ] relations.
-    """
-    if nprocs is None:
-        nprocs = max(1, cpu_count() - 1)
-
-    # Compute ell (largest prime factor) and cofactor h
-    J_order = Integer(full_order)
-    factors = factor(J_order)
-    ell = int(max(int(p) for p, _ in factors))
-    h = int(J_order // ell)
-
-    if verbose:
-        print(f"  [BW] Working mod ℓ={ell}, cofactor h={h}")
-        print(f"  [BW] CRITICAL: Multiplying relations by h={h} before mod ℓ reduction")
-        sys.stdout.flush()
-    
-    # CRITICAL FIX: Multiply Q-relation by h as well
-    beta_q_l = int((Integer(beta_q) * Integer(h)) % ell)
-    row_q_l = {k: int((Integer(v) * Integer(h)) % ell) for k, v in row_q_dict.items()}
-
-    projected_rows = []
-    projected_rhs = []
-
-    for row, rhs in zip(valid_rows, rhs_values):
-        # CRITICAL FIX: Multiply by h BEFORE reducing mod ℓ
-        # This ensures relations hold in J[ℓ], not just J(F_p)
-        new_row = {}
-        for k, v in row.items():
-            vk = int((Integer(v) * Integer(h)) % ell)
-            if vk:
-                new_row[k] = vk
-        
-        rhs_proj = int((Integer(rhs) * Integer(h)) % ell)
-        
-        if not new_row:
-            if rhs_proj != 0:
-                raise ValueError(f"Inconsistent zero-row: RHS={rhs_proj} ≠ 0 mod ℓ")
-            continue 
-            
-        projected_rows.append(new_row)
-        projected_rhs.append(rhs_proj)
-
-    if not projected_rows:
-        raise ValueError("No nonzero relations after mod ℓ reduction")
-
-    n_cols = max(k for row in projected_rows for k in row) + 1
-    
-    if verbose:
-        nnz = sum(len(r) for r in projected_rows)
-        print(f"  [BW] Sparse system: {len(projected_rows)} x {n_cols}, nnz={nnz}")
-        print(f"  [BW] After h-multiplication, all relations now hold in J[ℓ]")
-        sys.stdout.flush()
-
-    # Build SparseRelationMatrix
-    A = SparseRelationMatrix(projected_rows, projected_rhs, ell)
-    
-    # Decide which solver to use
-    # Threshold for direct solve: 10,000 columns
-    if not BLOCK_WIEDEMANN and n_cols < 10000:
-        if verbose:
-            print(f"  [Solver] Using direct sparse solve (n={n_cols} < 10k)")
-            sys.stdout.flush()
-        
-        solution = solve_sparse_direct_mod_ell(A, projected_rhs, ell, verbose=verbose)
-    else:
-        if verbose:
-            print(f"  [Solver] Using Block-Wiedemann (n={n_cols} >= 10k)")
-            sys.stdout.flush()
-        
-        # Adaptive block size: use 1 for small systems, larger for huge systems
-        adaptive_block = 1 if n_cols < 5000 else min(32, n_cols // 200)
-        t0 = time.time()
-        solution = block_wiedemann_solve(
-            A=A,
-            b=projected_rhs,
-            block_size=adaptive_block,
-            iters=max_iters,
-            verbose=verbose,
-        )
-        dt = time.time() - t0
-        
-        if solution is None:
-            raise RuntimeError("Block-Wiedemann failed to converge")
-        
-        if verbose:
-            print(f"  [BW] Solved in {dt:.2f}s")
-            sys.stdout.flush()
-
-    # CRITICAL: Extract dlog using h-multiplied row_q
-    dlog = Integer(beta_q_l)
-    for k, v in row_q_l.items():
-        if k < len(solution):
-            coeff = int(solution[k])
-            dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
-    dlog = int(dlog)
-
-    if verbose:
-        print("  [BW] Candidate dlog mod ℓ =", dlog)
-        sys.stdout.flush()
-
-    # Verify in J[ℓ]
-    D = Integer(dlog) * G - Q
-    if not D.is_zero():
-        # Before failing, try the diagnostic
-        if verbose:
-            print("  [BW] Direct verification failed, running diagnostics...")
-        diagnose_bw_failure(
-            A.packed_rows,
-            projected_rhs,
-            solution,
-            ell,
-            G, Q, full_order,
-            row_q_l, beta_q_l,
-            verbose=True
-        )
-        raise AssertionError(
-            "[BW-Verify] Verification failed: dlog * G != Q in J(F_p)[ℓ]\n"
-            f"  dlog = {dlog}, ℓ = {ell}"
-        )
-
-    if verbose:
-        print("  [BW-Verify] ✓ Exact equality dlog * G == Q in prime subgroup")
-
-    return int(dlog)
-
-
 # put this near your other solvers in sparse_linalg_modp.py
 from sage.all import GF, PolynomialRing, vector, randint
 
@@ -1042,8 +897,10 @@ def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=
     
     # Wiedemann complexity: ~2N iterations for scalar, 2N/B for blocked
     # We add a small safety buffer (+50)
+    # In block_wiedemann_solve:
     if iters is None:
-        iters = int(2.2 * n // max(1, block_size)) + 50
+        base_iters = int(3.0 * n // max(1, block_size))  # Was 2.2, now 3.0
+        iters = base_iters + 200  # Was +50, now +200
 
     if verbose:
         print(f"[BW-fast] block={block_size}, target_iters={iters}, nrows={m}, ncols={n}")
@@ -1146,7 +1003,7 @@ def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=
         if t < reconstruct_iters - 1:
             V = [at_a_v_from_packed(A.packed_rows, v, n, mod) for v in V]
 
-    return vector(Zmod(mod), x_accum)
+    return vector(Zmod(mod), x_accum), deg
 
 
 def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
@@ -1266,3 +1123,345 @@ def find_exact_pivot_columns_sparse(A_rows, mod, verbose=True):
         sys.stdout.flush()
     
     return sorted(pivot_cols)
+
+
+def randomize_rows_for_bw(A_rows, b_list, mod, compression_factor=2, mix_count=3, verbose=True):
+    """
+    Apply random row mixing to break local structure and improve Krylov mixing.
+    
+    Args:
+        A_rows: list of row dicts
+        b_list: corresponding RHS values
+        compression_factor: target reduction (2 = half the rows)
+        mix_count: how many random rows to combine (3-4 recommended)
+    """
+    import random
+    
+    n_original = len(A_rows)
+    n_target = n_original // compression_factor
+    
+    if verbose:
+        print(f"  [RowMix] Mixing {n_original} rows down to {n_target}")
+        print(f"  [RowMix] Each new row combines {mix_count} random originals")
+    
+    mixed_rows = []
+    mixed_rhs = []
+    
+    for _ in range(n_target):
+        # Pick random rows to combine
+        indices = random.sample(range(n_original), mix_count)
+        
+        # Random nonzero coefficients
+        coeffs = [random.randint(1, mod-1) for _ in range(mix_count)]
+        
+        # Combine rows
+        new_row = {}
+        new_rhs = 0
+        
+        for idx, coeff in zip(indices, coeffs):
+            for col, val in A_rows[idx].items():
+                new_row[col] = (new_row.get(col, 0) + coeff * val) % mod
+            new_rhs = (new_rhs + coeff * b_list[idx]) % mod
+        
+        # Remove zero entries
+        new_row = {k: v for k, v in new_row.items() if v != 0}
+        
+        if new_row:  # Only keep non-empty rows
+            mixed_rows.append(new_row)
+            mixed_rhs.append(new_rhs)
+    
+    if verbose:
+        avg_density = sum(len(r) for r in mixed_rows) / len(mixed_rows)
+        print(f"  [RowMix] Result: {len(mixed_rows)} rows, avg density {avg_density:.1f}")
+    
+    return mixed_rows, mixed_rhs
+
+
+def solve_with_retry(A, b, max_attempts=3, **kwargs):
+    """
+    Retry Block-Wiedemann with different random seeds if BM degree is suspicious.
+    """
+    for attempt in range(max_attempts):
+        if kwargs.get('verbose'):
+            print(f"\n  [Retry] Attempt {attempt + 1}/{max_attempts}")
+        
+        # Randomize seed for this attempt
+        seed = random.randint(0, 2**30) + attempt * 12345
+        random.seed(seed)
+        
+        solution = block_wiedemann_solve(A, b, **kwargs)
+        
+        # Check if BM degree is reasonable (heuristic: > n/100)
+        # This would require block_wiedemann_solve to return (solution, bm_degree)
+        # For now, just return and let verification catch failures
+        
+        return solution
+    
+    raise RuntimeError("All retry attempts failed")
+
+
+def solve_dlp_mod_l_block_wiedemann(
+    homogeneous_rows,
+    row_g_dict,
+    alpha_g,
+    row_q_dict,
+    beta_q,
+    full_order,
+    G, Q,
+    *,
+    verbose=True,
+    block_size=1,
+    nprocs=None,
+    max_iters=None,
+    max_retry_attempts=3,
+):
+    """
+    Sparse Block-Wiedemann wrapper for DLP modulo largest prime ell.
+    Returns the discrete log modulo ℓ (prime subgroup).
+    
+    Args:
+        homogeneous_rows: List of homogeneous relation dicts (RHS=0)
+        row_g_dict: Factor base row for smoothed G (dict)
+        alpha_g: Scalar offset from smoothing G (int)
+        row_q_dict: Factor base row for smoothed Q (dict)  
+        beta_q: Scalar offset from smoothing Q (int)
+        full_order: Full Jacobian order
+        G, Q: Jacobian elements for verification
+    
+    CRITICAL: homogeneous_rows are multiplied by h before mod ℓ.
+              row_g and row_q are already in J[ℓ], so just reduce mod ℓ.
+    """
+    if nprocs is None:
+        nprocs = max(1, cpu_count() - 1)
+
+    # Compute ell (largest prime factor) and cofactor h
+    J_order = Integer(full_order)
+    factors = factor(J_order)
+    ell = int(max(int(p) for p, _ in factors))
+    h = int(J_order // ell)
+
+    if verbose:
+        print(f"  [Projection] Working mod ℓ={ell}, cofactor h={h}")
+        print(f"  [Projection] Homogeneous relations: multiply by h (kill cofactor)")
+        print(f"  [Projection] G/Q relations: already in J[ℓ], reduce mod ℓ directly")
+        sys.stdout.flush()
+    
+    # === PROJECT HOMOGENEOUS RELATIONS ===
+    # Multiply by h, then mod ℓ
+    projected_rows = []
+    projected_rhs = []
+
+    for row in homogeneous_rows:
+        new_row = {}
+        for k, v in row.items():
+            vk = int((Integer(v) * Integer(h)) % ell)
+            if vk:
+                new_row[k] = vk
+        
+        if new_row:
+            projected_rows.append(new_row)
+            projected_rhs.append(0)  # Homogeneous
+
+    # === PROJECT G ROW ===
+    # DO NOT multiply by h (already in J[ℓ])
+    g_row_proj = {}
+    for k, v in row_g_dict.items():
+        val = int(Integer(v) % ell)
+        if val != 0:
+            g_row_proj[k] = val
+    
+    g_rhs_proj = int(Integer(1 + alpha_g) % ell)
+    
+    projected_rows.append(g_row_proj)
+    projected_rhs.append(g_rhs_proj)
+
+    # === PROJECT Q ROW ===
+    # DO NOT multiply by h (already in J[ℓ])
+    row_q_l = {}
+    for k, v in row_q_dict.items():
+        val = int(Integer(v) % ell)
+        if val != 0:
+            row_q_l[k] = val
+    
+    beta_q_l = int(Integer(beta_q) % ell)
+
+    if not projected_rows:
+        raise ValueError("No nonzero relations after mod ℓ reduction")
+
+    n_cols = max(k for row in projected_rows for k in row) + 1
+    
+    if verbose:
+        nnz = sum(len(r) for r in projected_rows)
+        print(f"  [System] Before pruning: {len(projected_rows)} rows x {n_cols} cols, nnz={nnz}")
+        sys.stdout.flush()
+
+    # === PRUNING STEP ===
+    if verbose:
+        print(f"  [BW] Pruning to pivot columns...")
+        sys.stdout.flush()
+    
+    pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
+        projected_rows, projected_rhs, ell, verbose=verbose
+    )
+    
+    if not pruned_rows:
+        raise RuntimeError("All rows vanished during pruning!")
+    
+    n_cols_pruned = len(pivot_cols)
+    
+    # Remap Q row to pruned columns
+    row_q_pruned = {}
+    for old_idx, val in row_q_l.items():
+        new_idx = col_map.get(old_idx)
+        if new_idx is not None:
+            row_q_pruned[new_idx] = int(val)
+    
+    if not row_q_pruned:
+        raise RuntimeError("Q row vanished after pruning!")
+    
+    if verbose:
+        print(f"  [Pruned System] {len(pruned_rows)} rows x {n_cols_pruned} cols")
+        print(f"  [Verify] ✓ Q row survived pruning: {len(row_q_pruned)} nonzero entries")
+        sys.stdout.flush()
+    
+    # Update to use pruned versions
+    projected_rows = pruned_rows
+    projected_rhs = pruned_rhs
+    n_cols = n_cols_pruned
+    row_q_l = row_q_pruned
+
+    # === ROW MIXING (if overdetermined) ===
+    if len(projected_rows) > n_cols * 2:
+        if verbose:
+            print(f"  [BW] System is {len(projected_rows)/n_cols:.1f}x overdetermined")
+            print(f"  [BW] Applying random row mixing to improve Krylov diversity...")
+            sys.stdout.flush()
+        
+        projected_rows, projected_rhs = randomize_rows_for_bw(
+            projected_rows, 
+            projected_rhs, 
+            ell,
+            compression_factor=2,
+            mix_count=4,
+            verbose=verbose
+        )
+
+    # Build SparseRelationMatrix
+    A = SparseRelationMatrix(projected_rows, projected_rhs, ell)
+    
+    # Decide which solver to use
+    if not BLOCK_WIEDEMANN and n_cols < 10000:
+        if verbose:
+            print(f"  [Solver] Using direct sparse solve (n={n_cols} < 10k)")
+            sys.stdout.flush()
+        
+        solution = solve_sparse_direct_mod_ell(A, projected_rhs, ell, verbose=verbose)
+        
+    else:
+        if verbose:
+            print(f"  [Solver] Using Block-Wiedemann (n={n_cols} >= 10k)")
+            sys.stdout.flush()
+
+        solution = None
+        bm_degree = None
+        adaptive_block = max(64, min(128, n_cols // 50))
+        
+        for attempt in range(max_retry_attempts):
+            if attempt > 0 and verbose:
+                print(f"\n  [Retry] Attempt {attempt + 1}/{max_retry_attempts} (previous BM degree was {bm_degree})")
+                sys.stdout.flush()
+            
+            base_seed = random.randint(0, 2**30)
+            attempt_seed = base_seed + attempt * 999983
+            random.seed(attempt_seed)
+            
+            if verbose and attempt == 0:
+                print(f"  [BW] Initial random seed: {base_seed}")
+                sys.stdout.flush()
+            
+            t0 = time.time()
+            try:
+                solution, bm_degree = block_wiedemann_solve(
+                    A=A,
+                    b=projected_rhs,
+                    block_size=adaptive_block,
+                    iters=max_iters,
+                    verbose=verbose,
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"  [BW] Attempt {attempt + 1} raised exception: {e}")
+                if attempt == max_retry_attempts - 1:
+                    raise
+                continue
+            
+            dt = time.time() - t0
+            
+            if solution is None:
+                if verbose:
+                    print(f"  [BW] Attempt {attempt + 1} returned None")
+                if attempt == max_retry_attempts - 1:
+                    raise RuntimeError("Block-Wiedemann failed to converge after all retries")
+                continue
+            
+            if verbose:
+                print(f"  [BW] Solved in {dt:.2f}s, BM degree: {bm_degree}")
+                sys.stdout.flush()
+            
+            min_expected_degree = n_cols // 100
+            
+            if bm_degree < min_expected_degree:
+                if verbose:
+                    print(f"  [BW] WARNING: BM degree {bm_degree} < {min_expected_degree} (n/100)")
+                    print(f"  [BW] This suggests Krylov degeneration. Retrying with different seed...")
+                
+                if attempt < max_retry_attempts - 1:
+                    continue
+                else:
+                    if verbose:
+                        print(f"  [BW] Final attempt has low degree. Proceeding to verification anyway...")
+            else:
+                if verbose:
+                    print(f"  [BW] BM degree {bm_degree} looks reasonable (>= n/100)")
+                break
+
+    # === EXTRACT DISCRETE LOG ===
+    dlog = Integer(beta_q_l)
+    for k, v in row_q_l.items():
+        if k < len(solution):
+            coeff = int(solution[k])
+            dlog = (dlog - Integer(v) * Integer(coeff)) % Integer(ell)
+    dlog = int(dlog)
+
+    if verbose:
+        print("  [BW] Candidate dlog mod ℓ =", dlog)
+        sys.stdout.flush()
+
+    # === VERIFICATION ===
+    if verbose:
+        print("  [BW] Running verification diagnostics...")
+        diag = diagnose_bw_failure(
+            A.packed_rows, projected_rhs, solution, ell,
+            G, Q, full_order, row_q_l, beta_q_l, verbose=False
+        )
+
+        if not diag['matrix_ok']:
+            raise RuntimeError("Matrix verification failed before group test")
+
+    D = Integer(dlog) * G - Q
+    if not D.is_zero():
+        if verbose:
+            print("  [BW] Direct verification failed, running full diagnostics...")
+        diagnose_bw_failure(
+            A.packed_rows, projected_rhs, solution, ell,
+            G, Q, full_order, row_q_l, beta_q_l, verbose=True
+        )
+        raise AssertionError(
+            "[BW-Verify] Verification failed: dlog * G != Q in J(F_p)[ℓ]\n"
+            f"  dlog = {dlog}, ℓ = {ell}"
+        )
+
+    if verbose:
+        print("  [BW-Verify] ✓ Exact equality dlog * G == Q in prime subgroup")
+
+    return int(dlog)
