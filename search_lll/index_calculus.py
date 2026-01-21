@@ -21,7 +21,6 @@ from sage.matrix.berlekamp_massey import berlekamp_massey
 from search_common import SECRET_KEY, BLOCK_WIEDEMANN, FINITE_FIELD, PREFERRED_X_COORDS
 from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import solve_dlp_mod_l_block_wiedemann
-from search_lll.cofactor_dlp import solve_cofactor_dlp
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -82,69 +81,6 @@ def generate_random_test_keypair(f_poly, p, target_d=None):
 
     Q = target_d * G
     return G, Q, Integer(target_d)
-
-
-def _worker_core_try_batch(r_val):
-    """
-    Worker core: attempts to find a relation for a specific scalar r.
-    Returns plain Python types only (no Sage objects).
-    """
-    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ATOM_TO_IDX
-    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
-    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
-
-    P_int = _GLOBAL_P
-    sample_roots = _GLOBAL_SAMPLE_ROOTS_INT
-    agg_stats = Counter()
-    agg_stats['tried'] = 1
-
-    try:
-        if _GLOBAL_TARGET_POINT is None:
-            D = r_val * _GLOBAL_GENERATOR
-        else:
-            D = r_val * _GLOBAL_GENERATOR + _GLOBAL_TARGET_POINT
-    except Exception:
-        raise
-        return ("STATS", dict(agg_stats))
-    
-    for off_idx, offset_D in enumerate([None] + _GLOBAL_OFFSET_CACHE):
-        try:
-            cand_D = D + offset_D if offset_D else D
-            # Fixed: Sage Jacobian points are already iterable/indexable as (u, v)
-            cand_div = cand_D 
-        except Exception:
-            raise
-            continue
-        
-        try:
-            u = cand_div[0]
-            if u.degree() != 2:
-                continue
-                
-            u0 = int(u[0])
-            u1 = int(u[1])
-
-            hit = False
-            for xr in sample_roots:
-                if (xr * xr + u1 * xr + u0) % P_int == 0:
-                    hit = True
-                    break
-            
-            if not hit:
-                agg_stats['sample_miss'] += 1
-                continue
-
-            row_vec = get_relation_row_cached(cand_div)
-            if row_vec is not None:
-                r_val_int = int(r_val)
-                row_vec_plain = {int(k): int(v) for k, v in row_vec.items()}
-                offset_idx = off_idx - 1
-                return ("SUCCESS", (r_val_int, row_vec_plain, offset_idx))
-        except Exception:
-            raise
-            continue
-            
-    return ("STATS", dict(agg_stats))
 
 
 # ... (Previous imports and helper functions remain the same)
@@ -1472,7 +1408,6 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         atom_to_idx,             # Factor base atom map (for sanity checks)
         J,                       # Jacobian (for relation reconstruction)
         verbose=verbose,
-        block_size=32,
     )
 
     if verbose:
@@ -1956,10 +1891,72 @@ def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1,
 # FIX 2: Worker initialization without fragile error handling
 # ============================================================================
 
+
+# In index_calculus.py
+
+def _worker_core_try_batch(r_val):
+    """
+    Updated: Returns (r_val_int, row_vec_plain, offset_idx, target_coeff)
+    where target_coeff is 1 if _GLOBAL_TARGET_POINT was added, else 0.
+    """
+    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT, _GLOBAL_ATOM_TO_IDX
+    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_P, _GLOBAL_ORDER
+    global _GLOBAL_OFFSET_CACHE
+
+    P_int = _GLOBAL_P
+    sample_roots = _GLOBAL_SAMPLE_ROOTS_INT
+    agg_stats = Counter()
+    agg_stats['tried'] = 1
+
+    try:
+        # Track if we are solving for [r]G or [r]G + Q
+        if _GLOBAL_TARGET_POINT is None:
+            D = r_val * _GLOBAL_GENERATOR
+            target_coeff = 0
+        else:
+            D = r_val * _GLOBAL_GENERATOR + _GLOBAL_TARGET_POINT
+            target_coeff = 1
+    except Exception:
+        return ("STATS", dict(agg_stats))
+    
+    for off_idx, offset_D in enumerate([None] + _GLOBAL_OFFSET_CACHE):
+        try:
+            cand_D = D + offset_D if offset_D else D
+            cand_div = cand_D 
+            
+            u = cand_div[0]
+            if u.degree() != 2:
+                continue
+                
+            u0, u1 = int(u[0]), int(u[1])
+            hit = False
+            for xr in sample_roots:
+                if (xr * xr + u1 * xr + u0) % P_int == 0:
+                    hit = True
+                    break
+            
+            if not hit:
+                agg_stats['sample_miss'] += 1
+                continue
+
+            # This helper must return the FB exponent vector
+            row_vec = get_relation_row_cached(cand_div)
+            if row_vec is not None:
+                r_val_int = int(r_val)
+                row_vec_plain = {int(k): int(v) for k, v in row_vec.items()}
+                offset_idx = off_idx - 1
+                # SUCCESS: Return exponents AND the RHS scalars (r, target_coeff)
+                return ("SUCCESS", (r_val_int, row_vec_plain, offset_idx, target_coeff))
+        except Exception:
+            continue
+            
+    return ("STATS", dict(agg_stats))
+
+
 def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int, 
                  fb_y_cache, p_int, order_int, window_size, offset_coeffs, f_coeffs):
     """
-    FIXED: Proper error handling without raise+continue pattern.
+    Worker initialization with proper error handling.
     """
     global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT
     global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
@@ -1973,16 +1970,13 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
     _GLOBAL_ORDER = int(order_int)
     _GLOBAL_WINDOW_SIZE = int(window_size)
     
-    # Reconstruct f_poly in worker process
     K = GF(int(p_int))
     R = PolynomialRing(K, 'x')
     _GLOBAL_F_POLY = sage_poly_from_coeffs(f_coeffs, R)
 
-    # Reconstruct curve and Jacobian
     C = HyperellipticCurve(_GLOBAL_F_POLY)
     J = C.jacobian()
     
-    # Reconstruct generator
     if gen_mumford is not None:
         gen_u_coeffs, gen_v_coeffs = gen_mumford
         u_poly = R(gen_u_coeffs)
@@ -1991,7 +1985,6 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
     else:
         _GLOBAL_GENERATOR = None
     
-    # Reconstruct target
     if target_mumford is not None:
         target_u_coeffs, target_v_coeffs = target_mumford
         u_poly = R(target_u_coeffs)
@@ -2000,7 +1993,6 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
     else:
         _GLOBAL_TARGET_POINT = None
     
-    # Precompute baby steps
     zero = J.zero()
     _GLOBAL_BABY = [zero]
     curr = zero
@@ -2008,7 +2000,6 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
         curr = curr + _GLOBAL_GENERATOR
         _GLOBAL_BABY.append(curr)
     
-    # Reconstruct offset cache
     _GLOBAL_OFFSET_CACHE = []
     if offset_coeffs:
         x = R.gen()
@@ -2021,8 +2012,9 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
             except Exception as e:
                 failed_offsets.append((idx, s, p_val, e))
         
-        # Log failures but continue (offsets are optional heuristic)
         if failed_offsets and len(failed_offsets) < len(offset_coeffs):
-            print(f"  [Worker] Warning: {len(failed_offsets)}/{len(offset_coeffs)} offset divisors failed reconstruction")
+            print(f"  [Worker] Warning: {len(failed_offsets)}/{len(offset_coeffs)} offset divisors failed")
         elif failed_offsets:
-            raise RuntimeError(f"_worker_init: ALL offset divisors failed reconstruction: {failed_offsets[0]}")
+            raise RuntimeError(f"_worker_init: ALL offsets failed: {failed_offsets[0]}")
+
+

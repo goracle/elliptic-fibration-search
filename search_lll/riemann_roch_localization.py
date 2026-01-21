@@ -9,6 +9,9 @@ import itertools
 from sage.all import Matrix, vector, ZZ, GF, PolynomialRing
 
 
+# search_lll/riemann_roch_localization.py
+
+
 def get_rr_basis(n_pole, f_poly, p):
     if f_poly.degree() != 5:
         raise ValueError("RR Localizer requires odd-degree genus 2 model (deg f=5).")
@@ -111,3 +114,15 @@ def localize_target_via_rr(target_div, factor_base_roots, f_poly, p, n_pole=7):
                 return roots_data, poly_a, poly_b, vec
                     
     return None, None, None, None
+
+def localize_wrapper(args):
+    """
+    Wrapper for parallel execution of localize_target_via_rr.
+    args: (target_div, factor_base_roots, f_poly, p, n_pole)
+    """
+    try:
+        target_div, factor_base_roots, f_poly, p, n_pole = args
+        return localize_target_via_rr(target_div, factor_base_roots, f_poly, p, n_pole=n_pole)
+    except Exception as e:
+        # Allow exception to propagate to parent
+        raise e

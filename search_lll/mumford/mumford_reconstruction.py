@@ -986,28 +986,167 @@ def reconstruct_mumford_combo_fast(sol_combo, primes, M, max_height, f_poly=None
     return rec_vals
 
 
+def _ff_harvest_worker(args):
+    """
+    Worker for parallel initial harvesting of finite field solutions.
+    Returns list of valid div_data dictionaries.
+    """
+    batch_items, f_coeffs, p = args
+    
+    # Re-import strictly necessary Sage components
+    from sage.all import GF, PolynomialRing
+    
+    F = GF(p)
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
+    f_poly = R(f_coeffs[::-1])
+    
+    results = []
+    
+    for v_tuple, val in batch_items:
+        # Normalize input list
+        if isinstance(val, list):
+            sols = val
+        elif isinstance(val, dict):
+            sols = [s for sublist in val.values() for s in sublist]
+        else:
+            sols = [val]
+            
+        for sol in sols:
+            s_val, p_val, v0_val, v1_val = [int(n) for n in sol]
+            
+            # 1. Algebraic Verification
+            # Verify v(x)^2 = f(x) mod (x^2 - sx + p)
+            u_poly = x**2 - F(s_val)*x + F(p_val)
+            v_poly = F(v1_val)*x + F(v0_val)
+            
+            remainder = (v_poly**2 - f_poly) % u_poly
+            if not remainder.is_zero():
+                continue
+            
+            # 2. Roots Check (must split in F_p)
+            delta = F(s_val)**2 - 4*F(p_val)
+            if not delta.is_square():
+                continue
+                
+            sqrt_delta = delta.sqrt()
+            inv_2 = F(2).inverse()
+            r1 = int((F(s_val) + sqrt_delta) * inv_2)
+            r2 = int((F(s_val) - sqrt_delta) * inv_2)
+            roots = tuple(sorted((r1, r2)))
+            
+            # Return raw data; parent handles deduplication and J object creation
+            results.append({
+                's': s_val,
+                'p': p_val,
+                'v_0': v0_val,
+                'v_1': v1_val,
+                'roots': list(roots),
+                'has_rational_roots': True
+            })
+            
+    return results
+
+def _ff_mixing_worker(args):
+    """
+    Worker for parallel random walk mixing.
+    Receives a snapshot of the active pool (as raw data) and performs random group operations.
+    """
+    pool_data, f_coeffs, p, iterations = args
+    
+    from sage.all import GF, PolynomialRing, HyperellipticCurve
+    import random
+    
+    F = GF(p)
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
+    f_poly = R(f_coeffs[::-1])
+    
+    # Initialize Jacobian locally
+    try:
+        C = HyperellipticCurve(f_poly)
+        J = C.jacobian()
+    except Exception:
+        return []
+
+    pool_size = len(pool_data)
+    if pool_size < 2:
+        return []
+        
+    results = []
+    
+    for _ in range(iterations):
+        idx1 = random.randrange(pool_size)
+        idx2 = random.randrange(pool_size)
+        
+        d1 = pool_data[idx1]
+        d2 = pool_data[idx2]
+        
+        # Reconstruct Jacobian elements on the fly
+        # This is fast enough compared to pickling overhead of Sage objects
+        u1 = x**2 - F(d1['s'])*x + F(d1['p'])
+        v1 = F(d1['v_1'])*x + F(d1['v_0'])
+        D1 = J([u1, v1])
+        
+        u2 = x**2 - F(d2['s'])*x + F(d2['p'])
+        v2 = F(d2['v_1'])*x + F(d2['v_0'])
+        D2 = J([u2, v2])
+        
+        # Random Group Operation
+        if random.random() < 0.5:
+            D3 = D1 + D2
+        else:
+            D3 = D1 - D2
+            
+        # Extract Mumford Representation
+        try:
+            u3 = D3[0].monic()
+            v3 = D3[1]
+        except (AttributeError, ValueError, IndexError):
+            continue
+
+        coeffs_u = u3.list()
+        # Ensure it is a generic genus 2 divisor (deg u = 2)
+        if len(coeffs_u) != 3:
+            continue
+            
+        s_new = -int(coeffs_u[1])
+        p_new = int(coeffs_u[0])
+        
+        # Check if it splits (smoothness)
+        delta = F(s_new)**2 - 4*F(p_new)
+        if not delta.is_square():
+            continue
+            
+        sqrt_delta = delta.sqrt()
+        inv_2 = F(2).inverse()
+        r1 = int((F(s_new) + sqrt_delta) * inv_2)
+        r2 = int((F(s_new) - sqrt_delta) * inv_2)
+        roots = tuple(sorted((r1, r2)))
+        
+        coeffs_v = v3.list()
+        v0_new = int(coeffs_v[0]) if len(coeffs_v) >= 1 else 0
+        v1_new = int(coeffs_v[1]) if len(coeffs_v) >= 2 else 0
+        
+        results.append({
+            's': s_new,
+            'p': p_new,
+            'v_0': v0_new,
+            'v_1': v1_new,
+            'roots': list(roots),
+            'has_rational_roots': True
+        })
+        
+    return results
+
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
-    Index calculus reconstruction for finite fields (clean, vector-free).
-    Keeps caps on factor base and active pool to avoid OOM and to reproduce
-    the small-FB behavior, but removes all 'vector' / metadata propagation.
+    Index calculus reconstruction for finite fields (Parallelized).
     """
     if FINITE_FIELD is None:
         raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
     
     p = int(FINITE_FIELD)
-    F = GF(p)
-    R = PolynomialRing(F, 'x')
-    x = R.gen()
-    
-    # Build the Jacobian for group operations
-    f_poly = R(f_coeffs[::-1])
-    
-    try:
-        C = HyperellipticCurve(f_poly)
-        J = C.jacobian()
-    except Exception as e:
-        raise RuntimeError(f"Failed to initialize Jacobian: {e}")
     
     if p not in residues:
         if debug:
@@ -1016,219 +1155,172 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
     
     # ----------------------- Tunable caps -----------------------
     MAX_FB_SIZE = 6000            # hard cap on unique x-coordinates in FB
-    MAX_ACTIVE_POOL = 20000       # cap on stored relations (Jacobians) to bound memory
-    TARGET_BUFFER_MIN = 200
+    MAX_ACTIVE_POOL = 20000       # cap on stored relations to bound memory
     TARGET_BUFFER_FRAC = 0.08
-    MAX_PATIENCE = 30000
-    MAX_ROUNDS = 150000
+    MAX_ROUNDS = 200              # parallel rounds (batches)
+    BATCH_SIZE_MIX = 2000         # attempts per worker per round
     # ------------------------------------------------------------
     
     res_p = residues[p]
     
     if debug:
-        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p})) ===")
+        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p}) - PARALLEL) ===")
     
     found_xs = set()
-    active_pool = []             # list of tuples (J_obj, div_data)
-    seen_divisors = set()        # set of (roots, v0, v1) tuples - FULL Mumford representation
+    active_pool_data = []        # list of div_data dicts (no Sage objects)
+    seen_divisors = set()        # set of (roots, v0, v1)
     unique_roots_set = set()     # set of x roots (ints)
     
-    # 1. Harvest Initial Solutions (conservative)
+    # Setup Parallel Pool
+    num_cpus = max(4, multiprocessing.cpu_count())
+    pool = multiprocessing.Pool(processes=num_cpus)
+    
+    # 1. Harvest Initial Solutions (Parallel)
+    t0 = time.time()
     if debug:
-        print("  Harvesting initial solutions (capped)...")
+        print("  Harvesting initial solutions...")
+        
+    # Chunk the work
+    items = list(res_p.items())
+    chunk_size = max(1, len(items) // (num_cpus * 4))
+    batches = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    
+    work_args = [(batch, f_coeffs, p) for batch in batches]
+    
     count_raw = 0
-    for v_tuple, val in res_p.items():
-        # normalize sol list
-        if isinstance(val, list):
-            sols = val
-        elif isinstance(val, dict):
-            sols = [s for sublist in val.values() for s in sublist]
-        else:
-            sols = [val]
-        
-        for sol in sols:
-            count_raw += 1
-            s_val, p_val, v0_val, v1_val = [int(x) for x in sol]
-            
-            # quick algebraic verification
-            u_poly = x**2 - F(s_val)*x + F(p_val)
-            v_poly = F(v1_val)*x + F(v0_val)
-            if (v_poly**2 - f_poly) % u_poly != 0:
-                continue
-            
-            # get roots (sorted)
-            delta = (F(s_val)*F(s_val) - 4*F(p_val))
-            if not delta.is_square():
-                continue
-            sqrt_delta = delta.sqrt()
-            inv_2 = F(2).inverse()
-            r1 = int((F(s_val) + sqrt_delta) * inv_2)
-            r2 = int((F(s_val) - sqrt_delta) * inv_2)
-            roots = tuple(sorted((r1, r2)))
-            
-            # Deduplication key includes v polynomial coefficients
-            div_key = (roots, int(v0_val), int(v1_val))
-            
-            # Determine how many *new* distinct x-roots this would add
-            new_roots = [r for r in roots if r not in unique_roots_set]
-            if len(unique_roots_set) + len(new_roots) > MAX_FB_SIZE:
-                continue
-            
-            # Accept: create Jacobian point and store (no vectors)
-            div_J = J([u_poly, v_poly])
-            div_data = {
-                's': int(s_val),
-                'p': int(p_val),
-                'v_0': int(v0_val),
-                'v_1': int(v1_val),
-                'roots': list(roots),
-                'has_rational_roots': True
-            }
-            if div_key not in seen_divisors:
-                seen_divisors.add(div_key)
-                for r in roots:
-                    unique_roots_set.add(r)
-                active_pool.append((div_J, div_data))
+    try:
+        for batch_results in pool.imap_unordered(_ff_harvest_worker, work_args):
+            for div_data in batch_results:
+                count_raw += 1
                 
-                # small rationality test (harmless in FF mode)
-                for r in roots:
-                    x_cand = int(r) - int(shift)
-                    if x_cand not in found_xs:
-                        res = rationality_test(x_cand)
-                        if res is not None:
-                            found_xs.add(x_cand)
-            
-            # Trim active_pool if it grows too large
-            if len(active_pool) > MAX_ACTIVE_POOL:
-                trim_to = int(MAX_ACTIVE_POOL * 0.9)
-                active_pool = active_pool[-trim_to:]
-    
-    if debug:
-        print(f"  Initial harvest: {len(active_pool)} unique smooth divisors from {count_raw} candidates.")
-        print(f"  Factor Base (Unique x): {len(unique_roots_set)}")
-    
-    if not active_pool:
-        if debug:
-            print("  No smooth divisors found initially. Cannot proceed with mixing.")
-        return found_xs, []
-    
-    # 2. Random Walk / Mixing to fill Rank (vector-free)
-    if debug:
-        print("  Starting structured random walk to improve Rank/FB ratio (capped mixing)...")
-    generated_count = 0
-    patience = 0
-    
-    import random
-    while generated_count < MAX_ROUNDS:
-        fb_size = len(unique_roots_set)
-        num_rels = len(active_pool)
-        target_buffer = max(TARGET_BUFFER_MIN, int(fb_size * TARGET_BUFFER_FRAC))
-        
-        if num_rels > fb_size + target_buffer:
-            if debug:
-                print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
-            break
-        
-        if fb_size >= MAX_FB_SIZE:
-            if debug:
-                print(f"  FB size reached MAX_FB_SIZE={MAX_FB_SIZE}. Halting growth.")
-            break
-        
-        if len(active_pool) < 2:
-            break
-        
-        idx1 = random.randrange(len(active_pool))
-        idx2 = random.randrange(len(active_pool))
-        D1, data1 = active_pool[idx1]
-        D2, data2 = active_pool[idx2]
-        
-        # Try either addition or subtraction
-        if random.random() < 0.5:
-            candidates = [(D1 + D2, 1)]
-        else:
-            candidates = [(D1 - D2, -1)]
-        
-        for D3, sign_op in candidates:
-            # Extract Mumford parts from Jacobian element D3
-            u3 = D3[0].monic()
-            v3 = D3[1]
-            coeffs_u = u3.list()
-            if len(coeffs_u) != 3:
-                continue
-            s_new = -coeffs_u[1]
-            p_new = coeffs_u[0]
-            
-            # compute roots in F
-            delta = (s_new * s_new - 4 * p_new)
-            if not delta.is_square():
-                patience += 1
-                continue
-            sqrt_delta = delta.sqrt()
-            inv_2 = F(2).inverse()
-            r1 = int((s_new + sqrt_delta) * inv_2)
-            r2 = int((s_new - sqrt_delta) * inv_2)
-            roots = tuple(sorted((r1, r2)))
-            
-            # Extract v polynomial coefficients (v = v1*x + v0)
-            coeffs_v = v3.list()
-            v0_new = int(coeffs_v[0]) if len(coeffs_v) >= 1 else 0
-            v1_new = int(coeffs_v[1]) if len(coeffs_v) >= 2 else 0
-            
-            # Dedup key
-            div_key = (roots, v0_new, v1_new)
-            
-            # count how many *new* roots would be added
-            new_roots_count = sum(1 for r in roots if r not in unique_roots_set)
-            
-            # Conservative acceptance rules: allow limited growth
-            if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
+                # Check caps
+                if len(unique_roots_set) > MAX_FB_SIZE and len(active_pool_data) > MAX_ACTIVE_POOL:
+                    continue
+
+                roots = tuple(div_data['roots'])
+                div_key = (roots, div_data['v_0'], div_data['v_1'])
+                
+                # Deduplicate
                 if div_key not in seen_divisors:
+                    # Check FB growth cap
+                    new_roots = [r for r in roots if r not in unique_roots_set]
+                    if len(unique_roots_set) + len(new_roots) > MAX_FB_SIZE:
+                        continue
+                        
                     seen_divisors.add(div_key)
                     for r in roots:
                         unique_roots_set.add(r)
+                    active_pool_data.append(div_data)
                     
-                    new_data = {
-                        's': int(s_new),
-                        'p': int(p_new),
-                        'v_0': int(v0_new),
-                        'v_1': int(v1_new),
-                        'roots': list(roots),
-                        'has_rational_roots': True
-                    }
-                    active_pool.append((D3, new_data))
-                    generated_count += 1
-                    patience = 0
-                    
-                    # check for rational points cheaply
+                    # Rationality test (Main process only)
                     for r in roots:
                         x_cand = int(r) - int(shift)
                         if x_cand not in found_xs:
                             res = rationality_test(x_cand)
                             if res is not None:
                                 found_xs.add(x_cand)
-                    
-                    # trim active_pool if necessary
-                    if len(active_pool) > MAX_ACTIVE_POOL:
-                        trim_to = int(MAX_ACTIVE_POOL * 0.9)
-                        active_pool = active_pool[-trim_to:]
-                else:
-                    # Duplicate: do not add. increment patience.
-                    patience += 1
-            else:
-                # reject candidate that would grow FB by 2 or overflow cap
-                patience += 1
+                                
+                    # Trim pool
+                    if len(active_pool_data) > MAX_ACTIVE_POOL:
+                        # Keep recent ones (random shuffle might be better but this is faster)
+                        active_pool_data = active_pool_data[-int(MAX_ACTIVE_POOL * 0.9):]
+
+    except KeyboardInterrupt:
+        pool.terminate()
+        raise
         
-        if patience > MAX_PATIENCE:
-            if debug:
-                print("  Max patience reached (mining exhausted). Stopping.")
-            break
+    if debug:
+        print(f"  Harvest done ({time.time()-t0:.2f}s): {len(active_pool_data)} unique relations.")
+        print(f"  Factor Base (Unique x): {len(unique_roots_set)}")
+
+    if not active_pool_data:
+        pool.close()
+        return found_xs, []
+
+    # 2. Random Walk / Mixing (Parallel)
+    if debug:
+        print("  Starting parallel structured random walk...")
+        
+    generated_count = 0
+    patience = 0
+    max_patience = 5  # Rounds without progress
     
-    # produce final mumford_divisors (strip heavy J objects for return)
-    mumford_divisors = [d for _, d in active_pool]
-    all_roots = set()
-    for d in mumford_divisors:
-        all_roots.update(d['roots'])
+    for round_idx in range(MAX_ROUNDS):
+        fb_size = len(unique_roots_set)
+        num_rels = len(active_pool_data)
+        target_buffer = max(200, int(fb_size * TARGET_BUFFER_FRAC))
+        
+        # Stop condition
+        if num_rels > fb_size + target_buffer:
+            if debug:
+                print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
+            break
+            
+        if fb_size >= MAX_FB_SIZE and num_rels > fb_size + 100:
+             if debug:
+                print(f"  FB Size capped and sufficient relations found.")
+             break
+
+        # Dispatch mixing jobs
+        # We send the raw pool data to workers
+        args_list = [(active_pool_data, f_coeffs, p, BATCH_SIZE_MIX) for _ in range(num_cpus)]
+        
+        new_items_in_round = 0
+        
+        try:
+            for batch_results in pool.imap_unordered(_ff_mixing_worker, args_list):
+                for div_data in batch_results:
+                    roots = tuple(div_data['roots'])
+                    div_key = (roots, div_data['v_0'], div_data['v_1'])
+                    
+                    if div_key in seen_divisors:
+                        continue
+                        
+                    # Check FB growth constraints
+                    new_roots_count = sum(1 for r in roots if r not in unique_roots_set)
+                    
+                    # Stricter acceptance during mixing to prevent explosion
+                    if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
+                        seen_divisors.add(div_key)
+                        for r in roots:
+                            unique_roots_set.add(r)
+                            
+                        active_pool_data.append(div_data)
+                        generated_count += 1
+                        new_items_in_round += 1
+                        
+                        # Rationality Check
+                        for r in roots:
+                            x_cand = int(r) - int(shift)
+                            if x_cand not in found_xs:
+                                res = rationality_test(x_cand)
+                                if res is not None:
+                                    found_xs.add(x_cand)
+        except KeyboardInterrupt:
+            pool.terminate()
+            raise
+
+        # Trim pool at end of round
+        if len(active_pool_data) > MAX_ACTIVE_POOL:
+             active_pool_data = active_pool_data[-int(MAX_ACTIVE_POOL * 0.9):]
+             
+        if new_items_in_round == 0:
+            patience += 1
+        else:
+            patience = 0
+            
+        if patience > max_patience:
+            if debug:
+                print("  Mixing stalled (no new independent relations). Stopping.")
+            break
+            
+        if debug and round_idx % 5 == 0:
+            print(f"    Round {round_idx}: FB={len(unique_roots_set)}, Rels={len(active_pool_data)} (+{new_items_in_round})")
+
+    pool.close()
+    pool.join()
     
     if debug:
-        print(f"  Final Status: {len(mumford_divisors)} relations, {len(all_roots)} factor base elements.")
-    return found_xs, mumford_divisors
+        print(f"  Final Status: {len(active_pool_data)} relations, {len(unique_roots_set)} factor base elements.")
+        
+    return found_xs, active_pool_data

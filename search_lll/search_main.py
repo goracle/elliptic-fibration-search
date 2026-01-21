@@ -470,30 +470,59 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print("="*70 + "\n")
 
             # NEW: RR-Local Pre-check
-            print(f"  [Phase 0] Attempting RR-Localization for target Q...")
+            print(f"  [Phase 0] Attempting RR-Localization for target Q (Parallel)...")
+            from .riemann_roch_localization import localize_wrapper
             
-            # CRITICAL: Pass atom_to_idx, NOT root_to_idx
-            # The RR localization function needs to be updated to accept atom_to_idx
-            for n in [6, 7, 8]:
-                roots, poly_a, poly_b, vec = localize_target_via_rr(
-                    Q, fb_roots_set, f_poly, p, n_pole=n
+            # Try a broader range since we are parallel
+            pole_range = [6, 7, 8, 9, 10]
+            
+            # Construct task arguments
+            rr_tasks = [
+                (Q, fb_roots_set, f_poly, p, n) for n in pole_range
+            ]
+            
+            found_rr_solution = None
+            
+            try:
+                ctx = multiprocessing.get_context("fork")
+            except Exception:
+                ctx = None
+
+            # Execute in parallel
+            with ProcessPoolExecutor(max_workers=min(len(rr_tasks), num_workers), mp_context=ctx) as executor:
+                futures = {executor.submit(localize_wrapper, args): args[-1] for args in rr_tasks}
+                
+                for future in as_completed(futures):
+                    n_pole_val = futures[future]
+                    try:
+                        roots, poly_a, poly_b, vec = future.result()
+                        if roots is not None:
+                            print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n_pole_val})!")
+                            found_rr_solution = (roots, poly_a, poly_b, vec)
+                            
+                            # Cancel remaining tasks by shutting down executor
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            break
+                    except Exception as e:
+                        print(f"  [!] RR Worker (n={n_pole_val}) failed: {e}")
+                        raise e
+
+            if found_rr_solution:
+                roots, poly_a, poly_b, vec = found_rr_solution
+                
+                # CRITICAL FIX: resolve_log_from_rr_decomposition must accept atom_to_idx
+                # If it currently expects root_to_idx, it needs to be updated
+                # For now, we'll create a minimal x->idx mapping from atom_to_idx
+                x_to_idx = {}
+                for atom, idx in atom_to_idx.items():
+                    if atom[0] == 'd1':
+                        x_to_idx[atom[1]] = idx
+                
+                log_v = resolve_log_from_rr_decomposition(
+                    roots, x_to_idx, fb_y_cache, poly_a, poly_b, p
                 )
-                if roots is not None:
-                    print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n})!")
-                    
-                    # CRITICAL FIX: resolve_log_from_rr_decomposition must accept atom_to_idx
-                    # If it currently expects root_to_idx, it needs to be updated
-                    # For now, we'll create a minimal x->idx mapping from atom_to_idx
-                    x_to_idx = {}
-                    for atom, idx in atom_to_idx.items():
-                        if atom[0] == 'd1':
-                            x_to_idx[atom[1]] = idx
-                    
-                    log_v = resolve_log_from_rr_decomposition(
-                        roots, x_to_idx, poly_a, poly_b, p
-                    )
-                    print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
-                    return found_xs, [], mumford_residues, stats
+                print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
+                return found_xs, [], mumford_residues, stats
 
             print("  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.")
 
@@ -1060,5 +1089,3 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(stats.summary_string())
 
     return new_xs, new_sections, precomputed_residues, stats
-
-
