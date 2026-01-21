@@ -1060,7 +1060,7 @@ def solve_dlp_mod_l_block_wiedemann(
     *,
     verbose=True,
     nprocs=None,
-    use_direct_solver=False,
+    use_direct_solver=True,
 ):
     """
     CORRECTED: Traditional Index Calculus - Inhomogeneous Linear System WITH PRUNING.
