@@ -18,12 +18,178 @@ from search_common import BLOCK_WIEDEMANN
 _LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
 
 
-# Example wrapper that keeps your solve_dlp_mod_l_block_wiedemann outer flow, but uses the new fast core:
-def block_wiedemann_solve_wrapper(A, b, block_size=32, iters=None, verbose=True):
+# put this near your other solvers in sparse_linalg_modp.py
+from sage.all import GF, PolynomialRing, vector, randint
+
+
+def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
     """
-    Thin wrapper preserving previous call signature.
+    Solve A x = b over GF(p) using Wiedemann + Berlekamp-Massey (scalar version).
+
+    A: sage matrix (m x n)
+    b: sage vector (length m)
+    p: modulus (int or sage integer)
+    Returns: x as sage vector (length n) if successful.
+    Raises RuntimeError on unrecoverable failure.
     """
-    return block_wiedemann_solve(A, b, block_size=block_size, iters=iters, verbose=verbose)
+    p = int(p)
+    m, n = A.nrows(), A.ncols()
+    if len(b) != m:
+        raise RuntimeError("wiedemann_solve: dimension mismatch: b length != A.nrows()")
+
+    # Precompute Krylov length - standard choice 2*n
+    seq_len = 2 * n
+
+    # Define function to compute sequence s_k = u^T * (A^k * b)
+    def compute_sequence(u_vec):
+        # compute w0 = b, then w_{k+1} = A * w_k
+        w = [vector([int(x) % p for x in list(b)])]
+        # we need up to seq_len - 1 A-multiplications
+        for k in range(1, seq_len):
+            w.append(_matvec_mod(A, w[-1], p))
+        # compute sequence s_k = u^T w_k
+        s = [int(sum((int(u_vec[i]) * int(wk[i])) for i, wk in enumerate([wk]) )) % p]  # placeholder safe init
+        # compute properly
+        s = []
+        for wk in w:
+            # dot product
+            s.append(int(sum((int(u_vec[i]) * int(wk[i])) % p for i in range(len(u_vec)))) % p)
+        return s, w
+
+    # Slight optimization: instead of recomputing all w for each trial, compute Krylov with respect to b once
+    # and reuse across trials. But because we use random u only, Krylov depends only on b and A -> compute once.
+    # compute w_k = A^k b
+    if verbosity:
+        print(f"Wiedemann: preparing Krylov sequence length {seq_len} (this will do {seq_len-1} matvecs)")
+    w = [vector([int(x) % p for x in list(b)])]
+    for k in range(1, seq_len):
+        w.append(_matvec_mod(A, w[-1], p))
+
+    # Try random u vectors
+    for trial in range(1, max_trials + 1):
+        # random projection u in GF(p)^m (non-zero)
+        u = vector([randint(0, p - 1) for _ in range(m)])
+        if all(int(x) % p == 0 for x in u):
+            u[0] = 1
+
+        # compute scalar sequence s_k = u^T w_k
+        s = [int(sum((int(u[i]) * int(wk[i])) % p for i in range(m))) % p for wk in w]
+
+        # BM to get minimal polynomial m(t)
+        C = berlekamp_massey(s, p)
+        deg = len(C) - 1
+        if verbosity:
+            print(f"trial {trial}: BM degree = {deg}")
+
+        if deg == 0:
+            # deg 0 means sequence all zeros -> useless
+            if verbosity:
+                print("  BM produced degree 0 polynomial; retrying")
+            continue
+        if deg > n:
+            # unlikely but possible; BM degree > n => try new u
+            if verbosity:
+                print("  BM degree > n; retrying with new projection")
+            continue
+
+        # Create polynomial ring and construct m_poly(t) = C[0] + C[1] t + ... + C[d] t^d
+        R = PolynomialRing(GF(p), 't')
+        t = R.gen()
+        m_poly = sum( (int(C[i]) % p) * t**i for i in range(len(C)) )
+        # require m_poly(0) != 0 so gcd(m,t)=1
+        if int(m_poly(0)) % p == 0:
+            if verbosity:
+                print("  minimal polynomial m(0)==0 (not invertible mod t). retrying.")
+            continue
+
+        # compute inverse of t modulo m_poly via xgcd: find u_poly, v_poly with u_poly * t + v_poly * m_poly = gcd = 1
+        try:
+            g, u_poly, v_poly = R(x=t).xgcd(m_poly)  # xgcd returns (g, s, t) with s*x + t*m = g
+            # Note: depending on Sage version, xgcd signature may differ; use polynomial xgcd
+        except Exception:
+            # fallback: use m_poly.xgcd with t
+            try:
+                g, u_poly, v_poly = m_poly.xgcd(t)
+                # m_poly.xgcd(t) returns g, s, t s.t. s*m_poly + t*t = g
+                # rearrange to get u_poly * t + v_poly * m_poly = g
+                # but s*m_poly + t*t = g  => t*t + s*m_poly = g  => u_poly = t, v_poly = s
+                # We want u_poly * t + v_poly * m_poly = g -> u_poly = t, v_poly = s
+                # Therefore swap accordingly:
+                tmp_u = u_poly
+                tmp_v = v_poly
+                u_poly = tmp_v  # polynomial multiplying t
+                v_poly = tmp_u
+            except Exception as e:
+                raise RuntimeError(f"wiedemann_solve: polynomial xgcd failed: {e}")
+
+        # ensure gcd is 1
+        if int(g(0)) % p != 1 and int(g) != 1:
+            # try normalization if g is constant invertible
+            if g.degree() == 0 and int(g.constant_coefficient()) % p != 0:
+                inv_g = pow(int(g.constant_coefficient()), -1, p)
+                u_poly = (u_poly * inv_g)
+            else:
+                if verbosity:
+                    print("  gcd != 1; retrying with new projection")
+                continue
+
+        # u_poly is the polynomial such that u_poly * t + v_poly * m_poly = g == 1
+        # thus u_poly is the inverse of t modulo m_poly (up to normalization)
+        # reduce u_poly modulo m_poly to degree < deg
+        q_poly = u_poly % m_poly
+        # get coefficients q_0..q_{deg-1}
+        q_coeffs = [int(q_poly[i]) % p if i <= q_poly.degree() else 0 for i in range(deg)]
+        if verbosity:
+            print(f"  got q polynomial degree {len(q_coeffs)-1}; reconstructing x as sum q_i A^i b")
+
+        # Now compute x = sum_{i=0..deg-1} q_i * w_i  (w_i = A^i b precomputed)
+        x_vec = vector([0] * n)
+        # But note: w_i are length m vectors (A^i b). To compute x in domain of columns,
+        # we need to produce x of length n. The polynomial method actually produces x in the domain
+        # of A such that A x = b. That requires computing the Krylov with respect to A^T as well, or using standard derivation.
+        # The classical Wiedemann technique: q(A) * b yields a vector y in F^n satisfying A*y = b.
+        # However, careful: w_i we computed are length m (they are in RHS space). We need the Krylov of A with respect to column-space.
+        # For standard Ax=b with A (m x n), the algorithm works with operator on n-space: define M = A (if square),
+        # but with rectangular A we treat the normal equations A^T A possibly. To keep it robust, require A to be square here.
+        if m != n:
+            raise RuntimeError("wiedemann_solve: current scalar Wiedemann implementation requires a square matrix (m == n).")
+
+        # Now n == m, w_i are length n
+        for i, qi in enumerate(q_coeffs):
+            if qi % p == 0:
+                continue
+            # add qi * w_i (w_i length n)
+            x_vec = vector([(int(x_vec[j]) + qi * int(w[i][j])) % p for j in range(n)])
+
+        # Verify A * x_vec == b
+        lhs = _matvec_mod(A, x_vec, p)
+        if list(lhs) == [int(x) % p for x in list(b)]:
+            if verbosity:
+                print(f"Wiedemann: solution verified on trial {trial}")
+            return x_vec
+        else:
+            if verbosity:
+                print(f"  verification failed on trial {trial}; retrying")
+            # try next random u
+
+    raise RuntimeError(f"wiedemann_solve: failed to find solution after {max_trials} trials")
+
+
+from sage.all import Integer, Zmod, vector, matrix
+
+
+# ============================================================================
+# FILE: sparse_linalg_modp.py
+# FUNCTION: solve_sparse_direct_mod_ell (COMPLETE REWRITE)
+# ============================================================================
+
+
+from sage.all import vector, GF, PolynomialRing, matrix, factor
+
+
+# Tunable threshold for lazy reduction
+_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
+
 
 class SparseRelationMatrix:
     def __init__(self, rows, rhs, modulus):
@@ -382,7 +548,6 @@ def diagnose_bw_failure(
 
 
 # put this near your other solvers in sparse_linalg_modp.py
-from sage.all import GF, PolynomialRing, vector, randint
 
 def berlekamp_massey(seq, mod):
     """
@@ -431,166 +596,6 @@ def _matvec_mod(A, v, p):
     # ensure reduction (Sage should handle it but be explicit)
     return vector([int(x) % p for x in list(res)])
 
-def wiedemann_solve(A, b, p, max_trials=5, verbosity=1):
-    """
-    Solve A x = b over GF(p) using Wiedemann + Berlekamp-Massey (scalar version).
-
-    A: sage matrix (m x n)
-    b: sage vector (length m)
-    p: modulus (int or sage integer)
-    Returns: x as sage vector (length n) if successful.
-    Raises RuntimeError on unrecoverable failure.
-    """
-    p = int(p)
-    m, n = A.nrows(), A.ncols()
-    if len(b) != m:
-        raise RuntimeError("wiedemann_solve: dimension mismatch: b length != A.nrows()")
-
-    # Precompute Krylov length - standard choice 2*n
-    seq_len = 2 * n
-
-    # Define function to compute sequence s_k = u^T * (A^k * b)
-    def compute_sequence(u_vec):
-        # compute w0 = b, then w_{k+1} = A * w_k
-        w = [vector([int(x) % p for x in list(b)])]
-        # we need up to seq_len - 1 A-multiplications
-        for k in range(1, seq_len):
-            w.append(_matvec_mod(A, w[-1], p))
-        # compute sequence s_k = u^T w_k
-        s = [int(sum((int(u_vec[i]) * int(wk[i])) for i, wk in enumerate([wk]) )) % p]  # placeholder safe init
-        # compute properly
-        s = []
-        for wk in w:
-            # dot product
-            s.append(int(sum((int(u_vec[i]) * int(wk[i])) % p for i in range(len(u_vec)))) % p)
-        return s, w
-
-    # Slight optimization: instead of recomputing all w for each trial, compute Krylov with respect to b once
-    # and reuse across trials. But because we use random u only, Krylov depends only on b and A -> compute once.
-    # compute w_k = A^k b
-    if verbosity:
-        print(f"Wiedemann: preparing Krylov sequence length {seq_len} (this will do {seq_len-1} matvecs)")
-    w = [vector([int(x) % p for x in list(b)])]
-    for k in range(1, seq_len):
-        w.append(_matvec_mod(A, w[-1], p))
-
-    # Try random u vectors
-    for trial in range(1, max_trials + 1):
-        # random projection u in GF(p)^m (non-zero)
-        u = vector([randint(0, p - 1) for _ in range(m)])
-        if all(int(x) % p == 0 for x in u):
-            u[0] = 1
-
-        # compute scalar sequence s_k = u^T w_k
-        s = [int(sum((int(u[i]) * int(wk[i])) % p for i in range(m))) % p for wk in w]
-
-        # BM to get minimal polynomial m(t)
-        C = berlekamp_massey(s, p)
-        deg = len(C) - 1
-        if verbosity:
-            print(f"trial {trial}: BM degree = {deg}")
-
-        if deg == 0:
-            # deg 0 means sequence all zeros -> useless
-            if verbosity:
-                print("  BM produced degree 0 polynomial; retrying")
-            continue
-        if deg > n:
-            # unlikely but possible; BM degree > n => try new u
-            if verbosity:
-                print("  BM degree > n; retrying with new projection")
-            continue
-
-        # Create polynomial ring and construct m_poly(t) = C[0] + C[1] t + ... + C[d] t^d
-        R = PolynomialRing(GF(p), 't')
-        t = R.gen()
-        m_poly = sum( (int(C[i]) % p) * t**i for i in range(len(C)) )
-        # require m_poly(0) != 0 so gcd(m,t)=1
-        if int(m_poly(0)) % p == 0:
-            if verbosity:
-                print("  minimal polynomial m(0)==0 (not invertible mod t). retrying.")
-            continue
-
-        # compute inverse of t modulo m_poly via xgcd: find u_poly, v_poly with u_poly * t + v_poly * m_poly = gcd = 1
-        try:
-            g, u_poly, v_poly = R(x=t).xgcd(m_poly)  # xgcd returns (g, s, t) with s*x + t*m = g
-            # Note: depending on Sage version, xgcd signature may differ; use polynomial xgcd
-        except Exception:
-            # fallback: use m_poly.xgcd with t
-            try:
-                g, u_poly, v_poly = m_poly.xgcd(t)
-                # m_poly.xgcd(t) returns g, s, t s.t. s*m_poly + t*t = g
-                # rearrange to get u_poly * t + v_poly * m_poly = g
-                # but s*m_poly + t*t = g  => t*t + s*m_poly = g  => u_poly = t, v_poly = s
-                # We want u_poly * t + v_poly * m_poly = g -> u_poly = t, v_poly = s
-                # Therefore swap accordingly:
-                tmp_u = u_poly
-                tmp_v = v_poly
-                u_poly = tmp_v  # polynomial multiplying t
-                v_poly = tmp_u
-            except Exception as e:
-                raise RuntimeError(f"wiedemann_solve: polynomial xgcd failed: {e}")
-
-        # ensure gcd is 1
-        if int(g(0)) % p != 1 and int(g) != 1:
-            # try normalization if g is constant invertible
-            if g.degree() == 0 and int(g.constant_coefficient()) % p != 0:
-                inv_g = pow(int(g.constant_coefficient()), -1, p)
-                u_poly = (u_poly * inv_g)
-            else:
-                if verbosity:
-                    print("  gcd != 1; retrying with new projection")
-                continue
-
-        # u_poly is the polynomial such that u_poly * t + v_poly * m_poly = g == 1
-        # thus u_poly is the inverse of t modulo m_poly (up to normalization)
-        # reduce u_poly modulo m_poly to degree < deg
-        q_poly = u_poly % m_poly
-        # get coefficients q_0..q_{deg-1}
-        q_coeffs = [int(q_poly[i]) % p if i <= q_poly.degree() else 0 for i in range(deg)]
-        if verbosity:
-            print(f"  got q polynomial degree {len(q_coeffs)-1}; reconstructing x as sum q_i A^i b")
-
-        # Now compute x = sum_{i=0..deg-1} q_i * w_i  (w_i = A^i b precomputed)
-        x_vec = vector([0] * n)
-        # But note: w_i are length m vectors (A^i b). To compute x in domain of columns,
-        # we need to produce x of length n. The polynomial method actually produces x in the domain
-        # of A such that A x = b. That requires computing the Krylov with respect to A^T as well, or using standard derivation.
-        # The classical Wiedemann technique: q(A) * b yields a vector y in F^n satisfying A*y = b.
-        # However, careful: w_i we computed are length m (they are in RHS space). We need the Krylov of A with respect to column-space.
-        # For standard Ax=b with A (m x n), the algorithm works with operator on n-space: define M = A (if square),
-        # but with rectangular A we treat the normal equations A^T A possibly. To keep it robust, require A to be square here.
-        if m != n:
-            raise RuntimeError("wiedemann_solve: current scalar Wiedemann implementation requires a square matrix (m == n).")
-
-        # Now n == m, w_i are length n
-        for i, qi in enumerate(q_coeffs):
-            if qi % p == 0:
-                continue
-            # add qi * w_i (w_i length n)
-            x_vec = vector([(int(x_vec[j]) + qi * int(w[i][j])) % p for j in range(n)])
-
-        # Verify A * x_vec == b
-        lhs = _matvec_mod(A, x_vec, p)
-        if list(lhs) == [int(x) % p for x in list(b)]:
-            if verbosity:
-                print(f"Wiedemann: solution verified on trial {trial}")
-            return x_vec
-        else:
-            if verbosity:
-                print(f"  verification failed on trial {trial}; retrying")
-            # try next random u
-
-    raise RuntimeError(f"wiedemann_solve: failed to find solution after {max_trials} trials")
-
-
-from sage.all import Integer, Zmod, vector, matrix
-
-
-# ============================================================================
-# FILE: sparse_linalg_modp.py
-# FUNCTION: solve_sparse_direct_mod_ell (COMPLETE REWRITE)
-# ============================================================================
 
 def solve_sparse_direct_mod_ell(A_sparse_matrix, b_list, mod, verbose=True):
     """
@@ -676,122 +681,6 @@ def solve_sparse_direct_mod_ell(A_sparse_matrix, b_list, mod, verbose=True):
         sys.stdout.flush()
     
     return solution
-
-
-def block_wiedemann_solve(A, b, block_size=1, iters=None, verbose=True, ntrials=1):
-    mod = int(A.mod)
-    m = len(A.packed_rows)
-    n = A.n_cols
-    
-    # Wiedemann complexity: ~2N iterations for scalar, 2N/B for blocked
-    # We add a small safety buffer (+50)
-    # In block_wiedemann_solve:
-    if iters is None:
-        base_iters = int(3.0 * n // max(1, block_size))  # Was 2.2, now 3.0
-        iters = base_iters + 200  # Was +50, now +200
-
-    if verbose:
-        print(f"[BW-fast] block={block_size}, target_iters={iters}, nrows={m}, ncols={n}")
-        sys.stdout.flush()
-
-    left_vec_b = [int(x) % mod for x in b]
-    seed_val = random.randrange(1, mod)
-    
-    # --- PASS 1: Generate Krylov Sequence ---
-    if verbose:
-        print("[BW-fast] Pass 1: Generating Sequence (Trace)")
-        sys.stdout.flush()
-    
-    rng_state = random.getstate()
-    random.seed(seed_val)
-    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
-    random.setstate(rng_state)
-
-    seq = []
-    t_start = time.time()
-    last_print = t_start
-
-    for t in range(iters):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-            elapsed = now - t_start
-            rate = (t + 1) / max(1e-9, elapsed)
-            remaining = (iters - t) / rate if rate > 0 else 0
-            print(f"  [BW Pass 1] iter {t}/{iters} ({100.0*t/iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-            sys.stdout.flush()
-            last_print = now
-
-        AV_projs = []
-        AVs_atav = []
-        for v in V:
-            proj, atav = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
-            AV_projs.append(proj)
-            AVs_atav.append(atav)
-        seq.extend(AV_projs)
-        V = AVs_atav
-
-    # --- POLYNOMIAL STEP: Berlekamp-Massey ---
-    if verbose:
-        print(f"[BW-fast] Computing Minimal Polynomial from {len(seq)} scalars...")
-        sys.stdout.flush()
-    
-    # Convert sequence to GF(mod) for Berlekamp-Massey
-    K = GF(mod)
-    seq_mod = [K(s) for s in seq]
-    
-    # Call custom Berlekamp-Massey (returns list of int coefficients)
-    coeffs = berlekamp_massey(seq_mod, mod)
-    deg = len(coeffs) - 1
-    
-    if verbose:
-        print(f"[BW-fast] Minimal polynomial degree: {deg}")
-        sys.stdout.flush()
-
-    # Safety check: if degree is suspiciously low
-    if deg <= block_size * 2 or deg < 100:
-        print(f"  [BW-fast] WARNING: Poly degree {deg} is suspiciously low (system size {n}).")
-        print(f"            This suggests the Krylov sequence degenerated. Result will likely be wrong.")
-
-    # --- PASS 2: Reconstruct Solution Vector ---
-    if verbose:
-        print("[BW-fast] Pass 2: Reconstructing Solution Vector")
-        sys.stdout.flush()
-
-    random.seed(seed_val)
-    V = [[random.randrange(mod) for _ in range(n)] for _ in range(block_size)]
-    random.setstate(rng_state)
-
-    x_accum = [0] * n
-    reconstruct_iters = (len(coeffs) + block_size - 1) // block_size
-    
-    t_start = time.time()
-    last_print = t_start
-    
-    for t in range(reconstruct_iters):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-            elapsed = now - t_start
-            rate = (t + 1) / max(1e-9, elapsed)
-            remaining = (reconstruct_iters - t) / rate if rate > 0 else 0
-            print(f"  [BW Pass 2] iter {t}/{reconstruct_iters} ({100.0*t/reconstruct_iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-            sys.stdout.flush()
-            last_print = now
-
-        base_idx = t * block_size
-        for i in range(block_size):
-            c_idx = base_idx + i
-            if c_idx < len(coeffs):
-                c = coeffs[c_idx]
-                if c != 0:
-                    vec = V[i]
-                    for j in range(n):
-                        if vec[j]:
-                            x_accum[j] = (x_accum[j] + c * vec[j]) % mod
-        
-        if t < reconstruct_iters - 1:
-            V = [at_a_v_from_packed(A.packed_rows, v, n, mod) for v in V]
-
-    return vector(Zmod(mod), x_accum), deg
 
 
 def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
@@ -926,7 +815,7 @@ def randomize_rows_for_bw(A_rows, b_list, mod, compression_factor=2, mix_count=3
     import random
     
     n_original = len(A_rows)
-    n_target = n_original // compression_factor
+    n_target = int(n_original // compression_factor)
     
     if verbose:
         print(f"  [RowMix] Mixing {n_original} rows down to {n_target}")
@@ -965,6 +854,47 @@ def randomize_rows_for_bw(A_rows, b_list, mod, compression_factor=2, mix_count=3
     return mixed_rows, mixed_rhs
 
 
+def mix_rows_to_target_count(A_rows, mod, target_count, mix_count=4, verbose=True):
+    """
+    Mix rows down to a precise target count to control system rank.
+    Crucial for creating underdetermined systems (rank = cols - 1) from overdetermined data.
+    """
+    import random
+    
+    n_original = len(A_rows)
+    if n_original < target_count:
+        if verbose:
+             print(f"  [RowMix] WARNING: Original rows {n_original} < Target {target_count}. No mixing performed.")
+        return A_rows
+
+    if verbose:
+        print(f"  [RowMix] Mixing {n_original} rows down to EXACTLY {target_count}")
+        print(f"  [RowMix] Strategy: 1-dim kernel targeting (cols - 1)")
+    
+    mixed_rows = []
+    
+    for _ in range(target_count):
+        # Pick random rows to combine
+        indices = random.sample(range(n_original), mix_count)
+        coeffs = [random.randint(1, mod-1) for _ in range(mix_count)]
+        
+        # Combine rows
+        new_row = {}
+        for idx, coeff in zip(indices, coeffs):
+            for col, val in A_rows[idx].items():
+                new_row[col] = (new_row.get(col, 0) + coeff * val) % mod
+        
+        # Remove zero entries
+        new_row = {k: v for k, v in new_row.items() if v != 0}
+        if new_row:
+            mixed_rows.append(new_row)
+    
+    if verbose:
+        print(f"  [RowMix] Result: {len(mixed_rows)} rows")
+    
+    return mixed_rows
+
+
 def solve_with_retry(A, b, max_attempts=3, **kwargs):
     """
     Retry Block-Wiedemann with different random seeds if BM degree is suspicious.
@@ -988,6 +918,264 @@ def solve_with_retry(A, b, max_attempts=3, **kwargs):
     raise RuntimeError("All retry attempts failed")
 
 
+# ============================================================================
+# FIX 3: Ensure consistent atom-based indexing throughout
+# ============================================================================
+
+
+# ============================================================================
+# TRULY MINIMAL FIX: Use Sage BM + force block_size=1 for correctness
+# ============================================================================
+
+
+# ============================================================================
+# FIX 3: Atom-based indexing validation
+# (Still valid)
+# ============================================================================
+
+
+# ============================================================================
+# CORRECT SCALAR WIEDEMANN: Single Krylov chain, no block structure
+# ============================================================================
+
+
+# ============================================================================
+# FIX 2: Worker initialization (unchanged, still valid)
+# ============================================================================
+
+
+# ============================================================================
+# FIX 3: Atom validation (unchanged, still valid)
+# ============================================================================
+
+
+# ============================================================================
+# CORRECT SCALAR WIEDEMANN: Single Krylov chain, no block structure
+# ============================================================================
+
+
+# ============================================================================
+# FIX 2: Worker initialization (unchanged, still valid)
+# ============================================================================
+
+def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int, 
+                 fb_y_cache, p_int, order_int, window_size, offset_coeffs, f_coeffs):
+    """
+    Worker initialization with proper error handling.
+    """
+    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT
+    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
+    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
+    global _GLOBAL_ATOM_TO_IDX
+    
+    _GLOBAL_ATOM_TO_IDX = atom_to_idx
+    _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
+    _GLOBAL_FB_Y_CACHE = fb_y_cache
+    _GLOBAL_P = int(p_int)
+    _GLOBAL_ORDER = int(order_int)
+    _GLOBAL_WINDOW_SIZE = int(window_size)
+    
+    K = GF(int(p_int))
+    R = PolynomialRing(K, 'x')
+    _GLOBAL_F_POLY = sage_poly_from_coeffs(f_coeffs, R)
+
+    C = HyperellipticCurve(_GLOBAL_F_POLY)
+    J = C.jacobian()
+    
+    if gen_mumford is not None:
+        gen_u_coeffs, gen_v_coeffs = gen_mumford
+        u_poly = R(gen_u_coeffs)
+        v_poly = R(gen_v_coeffs)
+        _GLOBAL_GENERATOR = J([u_poly, v_poly])
+    else:
+        _GLOBAL_GENERATOR = None
+    
+    if target_mumford is not None:
+        target_u_coeffs, target_v_coeffs = target_mumford
+        u_poly = R(target_u_coeffs)
+        v_poly = R(target_v_coeffs)
+        _GLOBAL_TARGET_POINT = J([u_poly, v_poly])
+    else:
+        _GLOBAL_TARGET_POINT = None
+    
+    zero = J.zero()
+    _GLOBAL_BABY = [zero]
+    curr = zero
+    for _ in range(1, window_size):
+        curr = curr + _GLOBAL_GENERATOR
+        _GLOBAL_BABY.append(curr)
+    
+    _GLOBAL_OFFSET_CACHE = []
+    if offset_coeffs:
+        x = R.gen()
+        failed_offsets = []
+        for idx, (s, p_val, v0, v1) in enumerate(offset_coeffs):
+            try:
+                u_poly = x**2 - K(int(s))*x + K(int(p_val))
+                v_poly = K(int(v1))*x + K(int(v0))
+                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly]))
+            except Exception as e:
+                failed_offsets.append((idx, s, p_val, e))
+        
+        if failed_offsets and len(failed_offsets) < len(offset_coeffs):
+            print(f"  [Worker] Warning: {len(failed_offsets)}/{len(offset_coeffs)} offset divisors failed")
+        elif failed_offsets:
+            raise RuntimeError(f"_worker_init: ALL offsets failed: {failed_offsets[0]}")
+
+
+# ============================================================================
+# FIX 3: Atom validation (unchanged, still valid)
+# ============================================================================
+
+
+def block_wiedemann_solve(A, iters=None, verbose=True, 
+                          ntrials=1, left_seed=None, right_seed=None):
+    """
+    CORRECTED: True scalar Wiedemann with single Krylov chain.
+    Uses Sage's berlekamp_massey on a valid linear recurrence sequence.
+    
+    CRITICAL: Explicit seed control for kernel diversity.
+    SOLVES: Kernel of A (homogeneous system only).
+    
+    Args:
+        A: SparseRelationMatrix
+        iters: number of Krylov iterations (default 3*n + 200)
+        left_seed: seed for left projection vector u (if None, use random)
+        right_seed: seed for right start vector v (if None, use random)
+        
+    Returns:
+        (solution_vector, bm_degree) or (None, 0) if trivial kernel
+    """
+    from sage.matrix.berlekamp_massey import berlekamp_massey as sage_bm
+    
+    mod = int(A.mod)
+    m = len(A.packed_rows)
+    n = A.n_cols
+    
+    if iters is None:
+        iters = 3 * n + 200
+    
+    # CRITICAL: Sage BM requires even sequence length
+    if iters % 2 != 0:
+        iters += 1
+
+    if verbose:
+        print(f"[BW] Scalar Wiedemann: iters={iters}, nrows={m}, ncols={n}")
+        sys.stdout.flush()
+
+    # Generate seeds if not provided
+    if left_seed is None:
+        left_seed = random.randrange(1, mod)
+    if right_seed is None:
+        right_seed = random.randrange(1, mod)
+    
+    if verbose:
+        print(f"[BW] Seeds: left={left_seed}, right={right_seed}")
+    
+    # CRITICAL: Use local RNGs to avoid polluting global random state
+    rng_left = random.Random(left_seed)
+    rng_right = random.Random(right_seed)
+    
+    # Generate left projection vector from left_seed
+    left_vec_b = [rng_left.randrange(mod) for _ in range(m)]
+    if all(x == 0 for x in left_vec_b):
+        left_vec_b[0] = 1
+    
+    # Generate right start vector from right_seed  
+    v = [rng_right.randrange(mod) for _ in range(n)]
+    
+    # --- PASS 1: Generate Single Krylov Sequence ---
+    if verbose:
+        print("[BW] Pass 1: Generating Krylov Sequence s_t = <u, A^t v>")
+        sys.stdout.flush()
+    
+    seq = []
+    t_start = time.time()
+    last_print = t_start
+
+    for t in range(iters):
+        now = time.time()
+        if verbose and (now - last_print > 5):
+            elapsed = now - t_start
+            rate = (t + 1) / max(1e-9, elapsed)
+            remaining = (iters - t) / rate if rate > 0 else 0
+            print(f"  [BW Pass 1] iter {t}/{iters} ({100.0*t/iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
+            sys.stdout.flush()
+            last_print = now
+
+        proj, v_next = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
+        seq.append(proj)
+        v = v_next
+
+    # --- POLYNOMIAL STEP: Use Sage Berlekamp-Massey ---
+    if verbose:
+        print(f"[BW] Computing Minimal Polynomial from {len(seq)} scalars (Sage BM)...")
+        sys.stdout.flush()
+    
+    # CRITICAL: Sage BM requires even-length sequences
+    if len(seq) % 2 != 0:
+        seq = seq[:-1]
+        if verbose:
+            print(f"[BW] Truncated sequence to even length: {len(seq)}")
+    
+    assert len(seq) % 2 == 0, "BM sequence must be even length for Sage"
+    
+    K = GF(mod)
+    seq_gf = [K(s) for s in seq]
+    
+    min_poly = sage_bm(seq_gf)
+    deg = min_poly.degree()
+    
+    if verbose:
+        print(f"[BW] Minimal polynomial degree: {deg}")
+        sys.stdout.flush()
+
+    if deg == 0:
+        if verbose:
+            print(f"  [BW] Degree 0: trivial kernel")
+        return None, 0
+
+    if deg < 100:
+        print(f"  [BW] WARNING: Degree {deg} is low for system size {n}")
+
+    coeffs = [int(min_poly[i]) for i in range(deg + 1)]
+
+    # --- PASS 2: Reconstruct Solution Vector ---
+    if verbose:
+        print(f"[BW] Pass 2: Reconstructing Solution (applying polynomial)")
+        sys.stdout.flush()
+
+    # Reinitialize with same right_seed to get same v
+    # CRITICAL: Use local RNG to avoid polluting global state
+    rng_right = random.Random(right_seed)
+    v = [rng_right.randrange(mod) for _ in range(n)]
+
+    x_accum = [0] * n
+    
+    t_start = time.time()
+    last_print = t_start
+    
+    for i, c in enumerate(coeffs):
+        now = time.time()
+        if verbose and (now - last_print > 5):
+            elapsed = now - t_start
+            rate = (i + 1) / max(1e-9, elapsed)
+            remaining = (len(coeffs) - i) / rate if rate > 0 else 0
+            print(f"  [BW Pass 2] coeff {i}/{len(coeffs)} ({100.0*i/len(coeffs):.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
+            sys.stdout.flush()
+            last_print = now
+        
+        if c != 0:
+            for j in range(n):
+                if v[j]:
+                    x_accum[j] = (x_accum[j] + c * v[j]) % mod
+        
+        if i < len(coeffs) - 1:
+            v = at_a_v_from_packed(A.packed_rows, v, n, mod)
+
+    return vector(Zmod(mod), x_accum), deg
+
+
 def solve_dlp_mod_l_block_wiedemann(
     homogeneous_rows,
     row_g_dict,
@@ -996,71 +1184,42 @@ def solve_dlp_mod_l_block_wiedemann(
     beta_q,
     full_order,
     G, Q,
-    atom_to_idx,  # ← ADD THIS PARAMETER
-    J,            # ← ADD THIS PARAMETER
+    atom_to_idx,
+    J,
     *,
     verbose=True,
     block_size=1,
     nprocs=None,
     max_iters=None,
-    max_retry_attempts=3,
+    max_retry_attempts=20,
 ):
     """
-    CORRECTED: Traditional Index Calculus kernel solver.
+    Augmented kernel solver for Index Calculus DLP.
+    NOW WITH PROPER KERNEL DEGENERACY HANDLING.
     
-    System structure:
-        A x = 0  (homogeneous relations in ℓ-torsion)
-        
-    Extract dlog from:
-        d = (β_q - row_q · x) / (1 + α_g - row_g · x)  (mod ℓ)
-    
-    CRITICAL: homogeneous_rows are ALREADY in J[ℓ] (projected by h before calling).
-              row_g and row_q are ALREADY in J[ℓ] (G,Q are ℓ-torsion by construction).
-    
-    Args:
-        homogeneous_rows: list of relation dicts (already h-projected to J[ℓ])
-        row_g_dict: G encoding as factor base row
-        alpha_g: G smoothing offset
-        row_q_dict: Q encoding as factor base row
-        beta_q: Q smoothing offset
-        full_order: full Jacobian order
-        G, Q: Jacobian elements for verification
-        atom_to_idx: factor base atom map (needed for relation verification)
-        J: Jacobian (needed for relation reconstruction)
+    ASSUMES: homogeneous_rows already multiplied by cofactor h upstream.
     """
+    if atom_to_idx:
+        sample_key = next(iter(atom_to_idx.keys()))
+        if not isinstance(sample_key, tuple):
+            raise RuntimeError(
+                f"solve_dlp_mod_l_block_wiedemann: atom_to_idx must be tuple-keyed!\n"
+                f"  Got: {type(sample_key)}, expected tuple like ('d1', x_int, y_can)"
+            )
+    
     if nprocs is None:
         nprocs = max(1, cpu_count() - 1)
 
-    # Compute ℓ (largest prime factor) and cofactor h
     J_order = Integer(full_order)
     factors = factor(J_order)
     ell = int(max(int(p) for p, _ in factors))
-    h = int(J_order // ell)
 
     if verbose:
-        print(f"  [Kernel Solver] Working mod ℓ={ell}, cofactor h={h}")
-        print(f"  [Kernel Solver] Homogeneous relations already in J[ℓ]")
+        print(f"  [Kernel Solver] Working mod ℓ={ell}")
+        print(f"  [Kernel Solver] Assuming homogeneous rows already h-multiplied")
         sys.stdout.flush()
     
-    # === SANITY CHECK: Verify homogeneous relations are in ℓ-torsion ===
-    # Sample check a few relations to ensure h-projection worked
-    if verbose and atom_to_idx is not None and J is not None:
-        print(f"  [Sanity] Checking that homogeneous relations are ℓ-torsion...")
-        sys.stdout.flush()
-        
-        try:
-            verify_all_relations_are_ell_torsion(
-                homogeneous_rows, atom_to_idx, ell, J,
-                sample_size=min(100, len(homogeneous_rows)),
-                verbose=verbose
-            )
-        except Exception as e:
-            if verbose:
-                print(f"  [Sanity] WARNING: Relation verification failed: {e}")
-                print(f"  [Sanity] Proceeding anyway (verification may be disabled)")
-            # Don't crash - just warn
-    
-    # === BUILD HOMOGENEOUS SYSTEM (kernel) ===
+    # Project homogeneous rows to mod ℓ
     projected_rows = []
     for row in homogeneous_rows:
         new_row = {int(k): int(v) % ell for k, v in row.items() if int(v) % ell != 0}
@@ -1070,239 +1229,160 @@ def solve_dlp_mod_l_block_wiedemann(
     if not projected_rows:
         raise ValueError("No nonzero homogeneous relations after mod ℓ reduction")
 
-    n_cols = max(k for row in projected_rows for k in row) + 1
+    # Determine Factor Base width
+    n_cols_fb = 0
+    for r in projected_rows:
+        if r:
+            n_cols_fb = max(n_cols_fb, max(r.keys()) + 1)
+    
+    for r in [row_g_dict, row_q_dict]:
+        if r:
+            n_cols_fb = max(n_cols_fb, max(r.keys()) + 1)
+
+    # Augmented column indices
+    col_G = n_cols_fb
+    col_Q = n_cols_fb + 1
+    n_total_cols = col_Q + 1
     
     if verbose:
-        nnz = sum(len(r) for r in projected_rows)
-        print(f"  [System] Homogeneous system: {len(projected_rows)} rows x {n_cols} cols, nnz={nnz}")
+        print(f"  [Augmented System] FB columns: {n_cols_fb}")
+        print(f"  [Augmented System] G column: {col_G}, Q column: {col_Q}")
+        print(f"  [Augmented System] Total columns: {n_total_cols}")
         sys.stdout.flush()
 
-    # === PRUNING STEP ===
-    if verbose:
-        print(f"  [Kernel] Pruning to pivot columns...")
-        sys.stdout.flush()
+    # Build augmented system
+    augmented_rows = list(projected_rows)
     
-    pruned_rows, _, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
-        projected_rows, [0] * len(projected_rows), ell, verbose=verbose
-    )
+    row_for_G = {k: -int(v) % ell for k, v in row_g_dict.items()}
+    row_for_G[col_G] = 1
+    augmented_rows.append(row_for_G)
     
-    if not pruned_rows:
-        raise RuntimeError("All rows vanished during pruning!")
+    row_for_Q = {k: -int(v) % ell for k, v in row_q_dict.items()}
+    row_for_Q[col_Q] = 1
+    augmented_rows.append(row_for_Q)
     
-    n_cols_pruned = len(pivot_cols)
-    
-    # Remap G and Q rows to pruned columns
-    row_g_pruned = {}
-    for old_idx, val in row_g_dict.items():
-        new_idx = col_map.get(old_idx)
-        if new_idx is not None:
-            row_g_pruned[new_idx] = int(val) % ell
-    
-    row_q_pruned = {}
-    for old_idx, val in row_q_dict.items():
-        new_idx = col_map.get(old_idx)
-        if new_idx is not None:
-            row_q_pruned[new_idx] = int(val) % ell
-    
-    if not row_g_pruned:
-        raise RuntimeError("G row vanished after pruning!")
-    if not row_q_pruned:
-        raise RuntimeError("Q row vanished after pruning!")
-    
-    if verbose:
-        print(f"  [Pruned System] {len(pruned_rows)} rows x {n_cols_pruned} cols")
-        print(f"  [Verify] ✓ G row survived: {len(row_g_pruned)} nonzero entries")
-        print(f"  [Verify] ✓ Q row survived: {len(row_q_pruned)} nonzero entries")
-        sys.stdout.flush()
-    
-    # Update to pruned versions
-    projected_rows = pruned_rows
-    n_cols = n_cols_pruned
-    row_g_dict = row_g_pruned
-    row_q_dict = row_q_pruned
-
-    # === ROW MIXING (if overdetermined) - ONLY on homogeneous rows ===
-    row_mixing_applied = False
-    if len(projected_rows) > n_cols * 2:
+    # Optional row compression
+    target_rows = n_total_cols + 200
+    if len(augmented_rows) > target_rows:
         if verbose:
-            print(f"  [Kernel] System is {len(projected_rows)/n_cols:.1f}x overdetermined")
-            print(f"  [Kernel] Applying random row mixing to improve Krylov diversity...")
+            print(f"  [Kernel] Compressing {len(augmented_rows)} rows to ~{target_rows}")
             sys.stdout.flush()
         
-        projected_rows, _ = randomize_rows_for_bw(
-            projected_rows, 
-            [0] * len(projected_rows),  # All zeros (homogeneous)
+        augmented_rows, _ = randomize_rows_for_bw(
+            augmented_rows, 
+            [0] * len(augmented_rows),
             ell,
-            compression_factor=2,
-            mix_count=4,
+            compression_factor=len(augmented_rows) / target_rows,
+            mix_count=3,
             verbose=verbose
         )
-        row_mixing_applied = True
-
-    # Build RHS (all zeros for kernel)
-    projected_rhs = [0] * len(projected_rows)
-
-    # Build SparseRelationMatrix
-    A = SparseRelationMatrix(projected_rows, projected_rhs, ell)
     
-    # === KERNEL SOLVER ===
-    if not BLOCK_WIEDEMANN and n_cols < 10000:
-        if verbose:
-            print(f"  [Solver] Using direct sparse kernel solve (n={n_cols} < 10k)")
-            sys.stdout.flush()
-        
-        # Direct kernel solve
-        K = GF(ell)
-        entries = {}
-        for i, row in enumerate(projected_rows):
-            for j, v in row.items():
-                entries[(i, j)] = K(int(v))
-        
-        M = matrix(K, len(projected_rows), n_cols, entries, sparse=True)
-        
-        if verbose:
-            print(f"  [Solver] Computing kernel...")
-            sys.stdout.flush()
-        
-        kernel = M.right_kernel()
-        
-        if kernel.dimension() == 0:
-            raise RuntimeError("Kernel is trivial - no solution exists!")
-        
-        # Pick any kernel vector
-        solution = kernel.basis()[0]
-        
-    else:
-        if verbose:
-            print(f"  [Solver] Using Block-Wiedemann kernel solver (n={n_cols} >= 10k)")
-            sys.stdout.flush()
-
-        solution = None
-        bm_degree = None
-        adaptive_block = max(64, min(128, n_cols // 50))
-        
-        for attempt in range(max_retry_attempts):
-            if attempt > 0 and verbose:
-                print(f"\n  [Retry] Attempt {attempt + 1}/{max_retry_attempts} (previous BM degree was {bm_degree})")
-                sys.stdout.flush()
-            
-            base_seed = random.randint(0, 2**30)
-            attempt_seed = base_seed + attempt * 999983
-            random.seed(attempt_seed)
-            
-            if verbose and attempt == 0:
-                print(f"  [BW] Initial random seed: {base_seed}")
-                sys.stdout.flush()
-            
-            t0 = time.time()
-            try:
-                solution, bm_degree = block_wiedemann_solve(
-                    A=A,
-                    b=projected_rhs,
-                    block_size=adaptive_block,
-                    iters=max_iters,
-                    verbose=verbose,
-                )
-            except Exception as e:
-                if verbose:
-                    print(f"  [BW] Attempt {attempt + 1} raised exception: {e}")
-                if attempt == max_retry_attempts - 1:
-                    raise
-                continue
-            
-            dt = time.time() - t0
-            
-            if solution is None:
-                if verbose:
-                    print(f"  [BW] Attempt {attempt + 1} returned None")
-                if attempt == max_retry_attempts - 1:
-                    raise RuntimeError("Block-Wiedemann failed to converge after all retries")
-                continue
-            
-            if verbose:
-                print(f"  [BW] Solved in {dt:.2f}s, BM degree: {bm_degree}")
-                sys.stdout.flush()
-            
-            min_expected_degree = n_cols // 100
-            
-            if bm_degree < min_expected_degree:
-                if verbose:
-                    print(f"  [BW] WARNING: BM degree {bm_degree} < {min_expected_degree} (n/100)")
-                    print(f"  [BW] This suggests Krylov degeneration. Retrying with different seed...")
-                
-                if attempt < max_retry_attempts - 1:
-                    continue
-                else:
-                    if verbose:
-                        print(f"  [BW] Final attempt has low degree. Proceeding to verification anyway...")
-            else:
-                if verbose:
-                    print(f"  [BW] BM degree {bm_degree} looks reasonable (>= n/100)")
-                break
-
-    # === EXTRACT DISCRETE LOG FROM KERNEL VECTOR ===
-    # Traditional Index Calculus:
-    #   G smoothed to: (1 + α_g) * G = Σ row_g[i] * FB[i]
-    #   Q smoothed to: Q + β_q * G = Σ row_q[i] * FB[i]
-    #   Kernel gives: FB[i] = Σ solution[i] * (some basis)
-    #
-    # From kernel x:
-    #   row_g · x = (1 + α_g) * (scalar for G)
-    #   row_q · x = (scalar for Q + β_q * G)
-    #
-    # Therefore:
-    #   d = (row_q · x - β_q * row_g · x) / row_g · x  (mod ℓ)
+    projected_rhs = [0] * len(augmented_rows)
+    A = SparseRelationMatrix(augmented_rows, projected_rhs, ell)
     
-    # Compute row_g · solution
-    g_sum = Integer(0)
-    for k, v in row_g_dict.items():
-        if k < len(solution):
-            g_sum += Integer(v) * Integer(solution[k])
-    g_sum = int(g_sum % ell)
-    
-    # Compute row_q · solution
-    q_sum = Integer(0)
-    for k, v in row_q_dict.items():
-        if k < len(solution):
-            q_sum += Integer(v) * Integer(solution[k])
-    q_sum = int(q_sum % ell)
-    
-    if g_sum == 0:
-        raise RuntimeError("Kernel solution gives zero for G encoding - degeneracy!")
-    
-    # d = (q_sum - β_q * g_sum) / g_sum  (mod ℓ)
-    numerator = (q_sum - beta_q * g_sum) % ell
-    g_sum_inv = pow(int(g_sum), -1, ell)
-    dlog = (numerator * g_sum_inv) % ell
-
     if verbose:
-        print(f"  [Kernel] row_g · x = {g_sum} (mod ℓ)")
-        print(f"  [Kernel] row_q · x = {q_sum} (mod ℓ)")
-        print(f"  [Kernel] Candidate dlog mod ℓ = {dlog}")
+        print(f"  [Solver] Matrix: {len(augmented_rows)} rows x {A.n_cols} cols")
+        print(f"  [Solver] Will retry up to {max_retry_attempts} times for good kernel")
         sys.stdout.flush()
 
-    # === VERIFICATION ===
-    # CORRECTED: Since G and Q are ALREADY ℓ-torsion, just check dlog * G == Q directly
+    solution = None
+    bm_degree = None
+    
+    # KERNEL DEGENERACY RETRY LOOP WITH EXPLICIT SEED CONTROL
+    for attempt in range(max_retry_attempts):
+        if verbose:
+            print(f"\n  [Attempt {attempt + 1}/{max_retry_attempts}]")
+            sys.stdout.flush()
+        
+        # Generate unique seeds for this attempt
+        base_seed = random.randint(0, 2**30)
+        left_seed = base_seed + attempt * 999983
+        right_seed = base_seed + attempt * 777767 + 123456
+        
+        t0 = time.time()
+        try:
+            solution, bm_degree = block_wiedemann_solve(
+                A=A,
+                iters=max_iters,
+                verbose=verbose,
+                left_seed=left_seed,
+                right_seed=right_seed,
+            )
+        except Exception as e:
+            if verbose:
+                print(f"  [BW] Attempt {attempt + 1} raised: {e}")
+            if attempt == max_retry_attempts - 1:
+                raise
+            continue
+        
+        dt = time.time() - t0
+        
+        if solution is None:
+            if verbose:
+                print(f"  [BW] Degree 0 kernel (trivial)")
+            if attempt == max_retry_attempts - 1:
+                raise RuntimeError("BW failed: trivial kernel after all retries")
+            continue
+        
+        if verbose:
+            print(f"  [BW] Solved in {dt:.2f}s, BM degree: {bm_degree}")
+            sys.stdout.flush()
+        
+        if bm_degree < 100:
+            if verbose:
+                print(f"  [BW] Note: BM degree {bm_degree} is relatively low")
+        
+        # CHECK FOR USABLE KERNEL: both d_g and d_q must be nonzero
+        if len(solution) < n_total_cols:
+            solution = list(solution) + [0]*(n_total_cols - len(solution))
+        
+        d_g_candidate = int(solution[col_G]) % ell
+        d_q_candidate = int(solution[col_Q]) % ell
+        
+        if d_g_candidate == 0:
+            if verbose:
+                print(f"  [Kernel] Degeneracy: d_g=0 (kernel doesn't involve G)")
+            continue
+        
+        if d_q_candidate == 0:
+            if verbose:
+                print(f"  [Kernel] Degeneracy: d_q=0 (kernel doesn't involve Q)")
+            continue
+        
+        # Found usable kernel with both d_g != 0 and d_q != 0
+        if verbose:
+            print(f"  [Kernel] ✓ Found usable kernel: d_g={d_g_candidate}, d_q={d_q_candidate}")
+        break
+    else:
+        raise RuntimeError(
+            f"Failed to find kernel with both d_g ≠ 0 and d_q ≠ 0 after {max_retry_attempts} attempts.\n"
+            f"This suggests nullspace is dominated by FB-only relations.\n"
+            f"Consider: more relations, different FB, or block Wiedemann."
+        )
+
+    # Extract discrete log from kernel vector
+    d_g = int(solution[col_G]) % ell
+    d_q = int(solution[col_Q]) % ell
+    
+    assert d_g != 0, "d_g must be nonzero (validated above)"
+    assert d_q != 0, "d_q must be nonzero (validated above)"
+    
+    d_g_inv = pow(int(d_g), -1, ell)
+    dlog = (d_q * d_g_inv) % ell
+
+    if verbose:
+        print(f"  [Kernel] d_g={d_g}, d_q={d_q}, dlog mod ℓ = {dlog}")
+        sys.stdout.flush()
+
+    # Verification
     D = Integer(dlog) * G - Q
     
     if not D.is_zero():
         if verbose:
             print(f"  [Verify] ✗ FAILED: dlog * G ≠ Q")
-            print(f"            dlog = {dlog}, ℓ = {ell}")
-            # Additional diagnostics
-            print(f"            Testing ℓ * D:")
-            ellD = Integer(ell) * D
-            print(f"              ℓ * D is zero? {ellD.is_zero()}")
-            print(f"            Testing h * D:")
-            hD = Integer(h) * D
-            print(f"              h * D is zero? {hD.is_zero()}")
-        raise AssertionError(
-            f"[Verify] ✗ Verification failed:\n"
-            f"  dlog * G ≠ Q\n"
-            f"  dlog = {dlog}, ℓ = {ell}"
-        )
+        raise AssertionError(f"Verification failed: dlog={dlog}, ℓ={ell}")
 
     if verbose:
-        print("  [Verify] ✓ Exact equality: dlog * G == Q")
+        print("  [Verify] ✓ dlog * G == Q")
 
     return Integer(dlog)

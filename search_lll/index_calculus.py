@@ -84,71 +84,6 @@ def generate_random_test_keypair(f_poly, p, target_d=None):
     return G, Q, Integer(target_d)
 
 
-def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int, 
-                 fb_y_cache, p_int, order_int, window_size, offset_coeffs):
-    """
-    Initializes worker process. Reconstructs Sage objects from plain Python data.
-    """
-    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT
-    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
-    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
-    global _GLOBAL_ATOM_TO_IDX
-    _GLOBAL_ATOM_TO_IDX = atom_to_idx
-
-    _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
-    _GLOBAL_FB_Y_CACHE = fb_y_cache
-    _GLOBAL_P = int(p_int)
-    _GLOBAL_ORDER = int(order_int)
-    _GLOBAL_WINDOW_SIZE = int(window_size)
-    
-    # Reconstruct f_poly
-    R = PolynomialRing(K, 'x')
-
-    # Reconstruct curve and Jacobian
-    C = HyperellipticCurve(_GLOBAL_F_POLY)
-    J = C.jacobian()
-    
-    # Reconstruct generator
-    if gen_mumford is not None:
-        gen_u_coeffs, gen_v_coeffs = gen_mumford
-        u_poly = R(gen_u_coeffs)
-        v_poly = R(gen_v_coeffs)
-        _GLOBAL_GENERATOR = J([u_poly, v_poly])
-    else:
-        _GLOBAL_GENERATOR = None
-    
-    # Reconstruct target
-    if target_mumford is not None:
-        target_u_coeffs, target_v_coeffs = target_mumford
-        u_poly = R(target_u_coeffs)
-        v_poly = R(target_v_coeffs)
-        _GLOBAL_TARGET_POINT = J([u_poly, v_poly])
-    else:
-        _GLOBAL_TARGET_POINT = None
-    
-    # Precompute baby steps in worker
-    print(f"  [Worker] Precomputing {window_size} baby steps...")
-    zero = J.zero()
-    _GLOBAL_BABY = [zero]
-    curr = zero
-    for _ in range(1, window_size):
-        curr = curr + _GLOBAL_GENERATOR
-        _GLOBAL_BABY.append(curr)
-    
-    # Reconstruct offset cache
-    _GLOBAL_OFFSET_CACHE = []
-    if offset_coeffs:
-        x = R.gen()
-        for (s, p_val, v0, v1) in offset_coeffs:
-            try:
-                u_poly = x**2 - K(int(s))*x + K(int(p_val))
-                v_poly = K(int(v1))*x + K(int(v0))
-                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly])) # this line is broken, the u_poly and v_poly aren't valid for some reason
-            except Exception:
-                raise
-                continue
-
-
 def _worker_core_try_batch(r_val):
     """
     Worker core: attempts to find a relation for a specific scalar r.
@@ -232,131 +167,6 @@ def find_smooth_decomposition_worker(seed_and_batch):
             batch_stats.update(result[1])
     
     return ("STATS", dict(batch_stats))
-
-
-def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
-                              max_tries=None, num_workers=None,
-                              window_size=2048, sample_k=32, batch_candidates=512,
-                              offset_coeffs=None):
-    """
-    Parallel search for smooth divisor with restored serialization and live progress.
-
-    NOTE: This function now RAISES if no decomposition found (instead of returning (None, None)),
-    to follow the "loud failure" policy you requested.
-    """
-
-    # (existing body left mostly intact) -- we only change end behavior to raise
-    from multiprocessing import Pool, cpu_count
-    import random
-    import time
-    import sys
-
-    num_workers = cpu_count() if num_workers is None else num_workers
-    p_int = int(p)
-    order_int = int(order)
-    R = PolynomialRing(K, 'x')
-
-    # --- Setup Factor Base Cache ---
-    fb_roots = sorted(list(root_to_idx.keys()))
-    fb_y_cache = {}
-    for x_val in fb_roots:
-        y2 = int(f_poly(x_val))
-        if y2 == 0:
-            continue
-        if pow(y2, (p_int - 1) // 2, p_int) == 1:
-            y_can = tonelli_shanks(y2, p_int)
-            fb_y_cache[int(x_val)] = int(min(y_can, p_int - y_can))
-
-    fb_root_list = list(root_to_idx.keys())
-    if len(fb_root_list) == 0:
-        raise ValueError("Empty factor base provided to find_smooth_decomposition")
-
-    sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
-    coeffs_genus2 = [int(c) for c in f_poly.list()]
-    coeffs_genus2.reverse()
-
-    # --- FIX: Restore Serialization of Mumford Coordinates ---
-    gen_mumford = None
-    if generator is not None:
-        gen_u = [int(c) for c in generator[0].list()]
-        gen_v = [int(c) for c in generator[1].list()]
-        gen_mumford = (gen_u, gen_v)
-
-    target_mumford = None
-    if target_point is not None:
-        target_u = [int(c) for c in target_point[0].list()]
-        target_v = [int(c) for c in target_point[1].list()]
-        target_mumford = (target_u, target_v)
-
-    initargs = (
-        gen_mumford, target_mumford, root_to_idx, sample_roots,
-        fb_y_cache, p_int, order_int, window_size, offset_coeffs
-    )
-
-    # --- Search Execution with Progress Tracking ---
-    max_tries = max_tries or 10000000
-    total_batches = (max_tries + batch_candidates - 1) // batch_candidates
-    tasks = [(random.randint(0, 2**31 - 1), batch_candidates) for _ in range(total_batches)]
-
-    start_time = time.time()
-    total_tried = 0
-    total_hits = 0
-
-    print(f"  [Search] Targeting prime order {order_int}")
-    print(f"  [Search] Workers: {num_workers} | Factor Base: {len(fb_roots)}")
-
-    GLOBAL_FIELD = GF(p)
-    GLOBAL_RING = PolynomialRing(GLOBAL_FIELD, 'x')
-    global _GLOBAL_F_POLY
-    _GLOBAL_F_POLY = f_poly_from_coeffs(coeffs_genus2, p)  # uses GLOBAL_FIELD internally
-    print("_GLOBAL_F_POLY", _GLOBAL_F_POLY)
-
-    with Pool(processes=num_workers, initializer=_worker_init, initargs=initargs) as pool:
-        try:
-            for result in pool.imap_unordered(find_smooth_decomposition_worker, tasks):
-                if result is None:
-                    continue
-
-                status, data = result
-                if status == "SUCCESS":
-                    (r_val, row_vec, off_idx) = data
-                    print(f"\n  [!] SUCCESS: Anchor found in {total_tried} tries.")
-
-                    # Finalize row with offset if needed
-                    if off_idx >= 0 and offset_coeffs:
-                        (s, pp, v0, v1) = offset_coeffs[off_idx]
-                        u_off = R.gen()**2 - K(int(s))*R.gen() + K(int(pp))
-                        v_off = K(int(v1))*R.gen() + K(int(v0))
-                        off_row = get_relation_row([u_off, v_off], root_to_idx, f_poly, p_int)
-                        if off_row:
-                            for idx, val in off_row.items():
-                                row_vec[idx] = row_vec.get(idx, 0) - val
-                                if row_vec[idx] == 0:
-                                    del row_vec[idx]
-
-                    pool.terminate()
-                    # return anchor scalar and anchor row
-                    return r_val, {int(k): int(v) for k, v in row_vec.items()}
-
-                elif status == "STATS":
-                    total_tried += data.get('tried', 0)
-                    total_hits += (data.get('tried', 0) - data.get('sample_miss', 0))
-
-                    # Live Diagnostic Update
-                    elapsed = time.time() - start_time
-                    rate = total_tried / elapsed if elapsed > 0 else 0
-                    if not total_hits % 100000:
-                        sys.stdout.write(
-                            f"\r  Trying... Total: {total_tried} | Sample Hits: {total_hits} | Speed: {rate:.1f} t/s"
-                        )
-                        sys.stdout.flush()
-
-        except KeyboardInterrupt:
-            pool.terminate()
-            raise
-
-    # If we exit the loop without success, raise loudly (you asked code to explode)
-    raise RuntimeError("find_smooth_decomposition: exhausted search without finding a smooth decomposition")
 
 
 def dlp_bsgs(G, Q, order):
@@ -633,106 +443,6 @@ This patch adds:
 # PATCH FOR perform_dlp_attack
 # ============================================================================
 # Insert this logic where valid_rows are being built from smooth_divs
-
-def build_anchored_relations(smooth_divs, r_to_idx, f_p, p, fb_y_cache, preferred_x_coords=PREFERRED_X_COORDS, verbose=True):
-    """
-    Build relation rows with consistent anchoring.
-    
-    All relations are rebased to a single canonical anchor point chosen from
-    preferred_x_coords. This ensures the linear system is mathematically consistent.
-    
-    Returns:
-        (valid_rows, rhs_values) where all rows are anchored to the same base point
-    """
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    # Choose base anchor (first preferred x-coord in factor base)
-    base_anchor_x = None
-    for x in sorted(preferred_x_coords):
-        if int(x) in r_to_idx:
-            base_anchor_x = int(x)
-            break
-    
-    if base_anchor_x is None:
-        raise RuntimeError("No preferred x-coordinate found in factor base for anchoring")
-    
-    if verbose:
-        print(f"  [Anchoring] Using base anchor x = {base_anchor_x}")
-    
-    # Precompute base anchor row (we'll need this many times)
-    base_row = single_point_row(base_anchor_x, r_to_idx, f_p, p, fb_y_cache)
-    if base_row is None:
-        raise RuntimeError(f"Failed to compute base row for anchor x = {base_anchor_x}")
-    
-    valid_rows = []
-    rhs_values = []
-    skipped_no_anchor = 0
-    skipped_rebase_fail = 0
-    
-    for d in smooth_divs:
-        # Extract scalar r from the vector (assumes vector[0] is coefficient for G)
-        vec = d.get('vector', None)
-        if vec is None:
-            continue
-        r_val = int(vec[0])
-        
-        # Build divisor polynomials
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        else:
-            try:
-                u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
-                v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
-            except Exception:
-                raise
-                continue
-        
-        # Get relation row
-        row = get_relation_row([u_poly, v_poly], r_to_idx, f_p, p, fb_y_cache=fb_y_cache)
-        if not row:
-            continue
-        
-        # Find anchor point in this divisor (any root in factor base)
-        try:
-            roots_data = u_poly.roots(K)
-        except Exception:
-            raise
-            continue
-        
-        current_anchor_x = None
-        for r, _ in roots_data:
-            r_int = int(r)
-            if r_int in r_to_idx:
-                current_anchor_x = r_int
-                break
-        
-        if current_anchor_x is None:
-            skipped_no_anchor += 1
-            continue
-        
-        # Rebase to canonical anchor
-        rebased_row = rebase_relation_row(
-            row, current_anchor_x, base_anchor_x,
-            r_to_idx, f_p, p, fb_y_cache
-        )
-        
-        if rebased_row is None:
-            skipped_rebase_fail += 1
-            continue
-        
-        valid_rows.append({int(k): int(v) for k, v in rebased_row.items()})
-        rhs_values.append(r_val)
-    
-    if verbose:
-        print(f"  [Anchoring] Built {len(valid_rows)} anchored relations")
-        if skipped_no_anchor > 0:
-            print(f"  [Anchoring] Skipped {skipped_no_anchor} divisors with no FB anchor")
-        if skipped_rebase_fail > 0:
-            print(f"  [Anchoring] Skipped {skipped_rebase_fail} divisors that failed rebasing")
-    
-    return valid_rows, rhs_values
 
 
 # ============================================================================
@@ -1082,37 +792,6 @@ def project_relations_and_solve_mod_l(valid_rows, rhs_values, q_anchored, full_o
         )
 
 
-# Add these helper functions to index_calculus.py (near the top of the file, after imports)
-
-def choose_base_anchor(r_to_idx, preferred_x_coords=None):
-    """
-    Choose the same base anchor used by build_anchored_relations_homogeneous.
-    Duplicates the selection logic to ensure consistency.
-    """
-    if preferred_x_coords:
-        for x in sorted(preferred_x_coords):
-            if int(x) in r_to_idx:
-                return int(x)
-    # fallback: use first element in factor base
-    return int(min(r_to_idx.keys()))
-
-
-def get_divisor_anchor_x(div, r_to_idx, K):
-    """
-    Given a Jacobian element `div` (Sage J element), find any root in r_to_idx.
-    Returns the first x-coordinate found that's in the factor base, or None.
-    """
-    try:
-        u = div[0]
-        for r, _ in u.roots(K):
-            r_int = int(r)
-            if r_int in r_to_idx:
-                return r_int
-    except Exception:
-        raise
-    return None
-
-
 # ============================================================================
 # CORRECTED: Remove anchoring entirely - preserve Mumford algebra
 # ============================================================================
@@ -1340,229 +1019,6 @@ def get_relation_row_cached(divisor):
             del row[idx]
 
     return row
-
-
-def homomorphism_test(J, atom_to_idx, f_p, p, smooth_divisors, fb_y_cache, trials=200):
-    """
-    Correct homomorphism test for your Mumford-divisor dict format.
-
-    Verifies:
-        enc(D1 + D2) == enc(D1) + enc(D2)
-    WITHOUT requiring D1+D2 to be smooth.
-
-    Uses algebraic reconstruction via Jacobian.
-    """
-
-    from random import randint
-
-    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
-    R = f_p.parent()
-
-    def dict_to_jac(div):
-        """
-        Convert your reconstructed Mumford dict -> Jacobian element.
-        """
-        R = J.base_ring()['x']
-        x = R.gen()
-
-        s = R(div['s'])
-        p = R(div['p'])
-        v0 = R(div['v_0'])
-        v1 = R(div['v_1'])
-
-        u = x**2 - s*x + p
-        v = v1*x + v0
-
-        return J([u, v])
-
-
-    def atom_to_jac(atom):
-        """
-        Convert factor base atom -> Jacobian element.
-        """
-        R = J.base_ring()['x']
-        x = R.gen()
-
-        if atom[0] == 'd1':
-            _, x0, y0 = atom
-            u = x - R(x0)
-            v = R(y0)
-            return J([u, v])
-
-        elif atom[0] == 'd2':
-            _, u_coeffs, v_coeffs = atom
-            u = R(list(u_coeffs))
-            v = R(list(v_coeffs))
-            return J([u, v])
-
-        else:
-            raise RuntimeError(f"Unknown atom type {atom}")
-
-
-    def reconstruct(enc):
-        D = J.zero()
-        for i, e in enc.items():
-            D += int(e) * atom_to_jac(idx_to_atom[i])
-        return D
-
-    for _ in range(trials):
-        D1 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
-        D2 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
-
-        enc1 = get_relation_row(D1, atom_to_idx, f_p, p)
-        enc2 = get_relation_row(D2, atom_to_idx, f_p, p)
-
-        if enc1 is None or enc2 is None:
-            raise RuntimeError("Stored smooth divisor failed to encode")
-
-        combined = {}
-        for k,v in enc1.items(): combined[k] = combined.get(k,0)+v
-        for k,v in enc2.items(): combined[k] = combined.get(k,0)+v
-        combined = {k:v for k,v in combined.items() if v}
-
-        # True Jacobian sum
-        Jsum = dict_to_jac(D1) + dict_to_jac(D2)
-
-        # Reconstructed Jacobian from atoms
-        Jrecon = reconstruct(combined)
-
-        if Jrecon != Jsum:
-            print("\nHOMOMORPHISM FAILURE")
-            print("enc(D1) =", enc1)
-            print("enc(D2) =", enc2)
-            print("reconstructed =", Jrecon)
-            print("actual sum   =", Jsum)
-            debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2)
-            return False
-
-    print(f"homomorphism_test: {trials}/{trials} passed")
-    return True
-
-
-def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2):
-    """
-    Detailed diagnostics for a homomorphism failure.
-    Prints:
-      - vector lengths and contents for D1/D2
-      - atom tuples for indices present in enc1/enc2
-      - reconstructed and true Mumford polys
-      - attempt to express the difference as FB atoms
-      - checks for canonical-y mismatches for d1 atoms
-    """
-    from sage.all import GF, PolynomialRing
-    F = GF(int(p))
-    R = PolynomialRing(F, 'x'); x = R.gen()
-
-    # build idx->atom
-    idx_to_atom = {int(idx): atom for atom, idx in atom_to_idx.items()}
-
-    print("\n=== HOMOMORPHISM DEBUG ===")
-    print("p =", p)
-    print("enc(D1) =", enc1)
-    print("enc(D2) =", enc2)
-    print("D1 keys:", sorted(D1.keys()))
-    print("D2 keys:", sorted(D2.keys()))
-    v1 = D1.get('vector'); v2 = D2.get('vector')
-    print("vector D1 (len):", (len(v1) if hasattr(v1,'__len__') else None))
-    print("vector D2 (len):", (len(v2) if hasattr(v2,'__len__') else None))
-    print("vector D1 sample:", v1[:20] if hasattr(v1,'__len__') else v1)
-    print("vector D2 sample:", v2[:20] if hasattr(v2,'__len__') else v2)
-
-    # Show atoms referenced by enc1/enc2
-    idxs = sorted(set(list(enc1.keys()) + list(enc2.keys())))
-    print("\nAtoms referenced (idx -> atom):")
-    for idx in idxs:
-        atom = idx_to_atom.get(int(idx), None)
-        print(f"  {idx:5d} -> {atom}")
-
-    # Build dict_to_jac here (consistent with your dict format)
-    def dict_to_jac(div):
-        s = div['s']; pval = div['p']; v0 = div['v_0']; v1c = div['v_1']
-        u = x**2 - R(s)*x + R(pval)
-        v = R(v1c)*x + R(v0)
-        return J([u, v])
-
-    # reconstruct combined enc
-    combined = {}
-    for k,v in enc1.items(): combined[k] = combined.get(k,0) + int(v)
-    for k,v in enc2.items(): combined[k] = combined.get(k,0) + int(v)
-    combined = {int(k):int(v) for k,v in combined.items() if int(v) != 0}
-
-    # Reconstruct Jacobians
-    def atom_to_jac(atom):
-        if atom is None:
-            raise RuntimeError("missing atom for index")
-        kind = atom[0]
-        if kind == 'd1':
-            _, x0, y0 = atom
-            u = x - R(x0)
-            v = R(y0)
-            return J([u, v])
-        elif kind == 'd2':
-            _, u_coeffs, v_coeffs = atom
-            return J([R(list(u_coeffs)), R(list(v_coeffs))])
-        else:
-            raise RuntimeError("unknown atom kind")
-
-    J_recon = J.zero()
-    for idx, mult in combined.items():
-        atom = idx_to_atom.get(int(idx))
-        if atom is None:
-            print("WARNING: no atom for idx", idx); continue
-        atomJ = atom_to_jac(atom)
-        J_recon += int(mult) * atomJ
-
-    J_true = dict_to_jac(D1) + dict_to_jac(D2)
-
-    print("\nReconstructed (from atoms) Mumford:", J_recon)
-    print("Actual sum (from dicts) Mumford      :", J_true)
-
-    if J_recon == J_true:
-        print("=> They are equal (unexpected here).")
-        return
-
-    # Print explicit u,v polys for comparison
-    u_recon, v_recon = J_recon[0], J_recon[1]
-    u_true, v_true = J_true[0], J_true[1]
-    print("\nReconstructed u:", u_recon)
-    print("Actual        u:", u_true)
-    print("\nReconstructed v:", v_recon)
-    print("Actual        v:", v_true)
-
-    # Attempt to express difference as factor base combination (sanity)
-    diff = J_recon - J_true
-    print("\nDifference (J_recon - J_true):", diff)
-    try:
-        enc_diff = get_relation_row(diff, atom_to_idx, f_p, p)
-        print("Difference is FB-smooth; encoding:", enc_diff)
-    except Exception as e:
-        print("Could not encode difference (get_relation_row raised):", repr(e))
-        raise
-
-    # For each d1 atom referenced, check canonical y vs evaluated v(x)
-    print("\nCanonical vs evaluated y checks for d1 atoms in enc:")
-    for idx in idxs:
-        atom = idx_to_atom.get(int(idx))
-        if atom is None: continue
-        if atom[0] != 'd1': continue
-        x0 = int(atom[1]); y_can = int(atom[2])
-        # compute v(x0) from D1 and D2 v polys just for info
-        v_eval_D1 = None; v_eval_D2 = None
-        try:
-            v_eval_D1 = int((R(D1['v_1'])*R(x0) + R(D1['v_0']))) % int(p)
-        except Exception:
-            v_eval_D1 = None
-            raise
-        try:
-            v_eval_D2 = int((R(D2['v_1'])*R(x0) + R(D2['v_0']))) % int(p)
-        except Exception:
-            v_eval_D2 = None
-            raise
-
-        print(f" idx {idx}: atom x={x0}, y_can={y_can}, v_eval_D1={v_eval_D1}, v_eval_D2={v_eval_D2}")
-        if fb_y_cache is not None:
-            print("   fb_y_cache[x]:", fb_y_cache.get(int(x0)))
-    print("\n=== END DEBUG ===\n")
 
 
 def combine_vectors(vec1, vec2, sign=1):
@@ -2158,3 +1614,415 @@ def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J,
     if verbose:
         print(f"  [Sanity] ✓ All {n_check} sampled relations are ℓ-torsion")
         sys.stdout.flush()
+
+
+def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
+                              max_tries=None, num_workers=None,
+                              window_size=2048, sample_k=32, batch_candidates=512,
+                              offset_coeffs=None):
+    """
+    FIXED: Now properly passes f_coeffs to worker initialization.
+    
+    Parallel search for smooth divisor with restored serialization and live progress.
+    Raises if no decomposition found.
+    """
+
+    from multiprocessing import Pool, cpu_count
+    import random
+    import time
+    import sys
+
+    num_workers = cpu_count() if num_workers is None else num_workers
+    p_int = int(p)
+    order_int = int(order)
+    R = PolynomialRing(K, 'x')
+
+    # --- Setup Factor Base Cache ---
+    fb_roots = sorted(list(root_to_idx.keys()))
+    fb_y_cache = {}
+    for x_val in fb_roots:
+        y2 = int(f_poly(x_val))
+        if y2 == 0:
+            continue
+        if pow(y2, (p_int - 1) // 2, p_int) == 1:
+            y_can = tonelli_shanks(y2, p_int)
+            fb_y_cache[int(x_val)] = int(min(y_can, p_int - y_can))
+
+    fb_root_list = list(root_to_idx.keys())
+    if len(fb_root_list) == 0:
+        raise ValueError("Empty factor base provided to find_smooth_decomposition")
+
+    sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
+    
+    # FIXED: Extract f_poly coefficients to pass to workers
+    coeffs_genus2 = [int(c) for c in f_poly.list()]
+
+    # --- Restore Serialization of Mumford Coordinates ---
+    gen_mumford = None
+    if generator is not None:
+        gen_u = [int(c) for c in generator[0].list()]
+        gen_v = [int(c) for c in generator[1].list()]
+        gen_mumford = (gen_u, gen_v)
+
+    target_mumford = None
+    if target_point is not None:
+        target_u = [int(c) for c in target_point[0].list()]
+        target_v = [int(c) for c in target_point[1].list()]
+        target_mumford = (target_u, target_v)
+
+    # FIXED: Add f_coeffs to initargs
+    initargs = (
+        gen_mumford, target_mumford, root_to_idx, sample_roots,
+        fb_y_cache, p_int, order_int, window_size, offset_coeffs,
+        coeffs_genus2  # <- ADDED
+    )
+
+    # --- Search Execution with Progress Tracking ---
+    max_tries = max_tries or 10000000
+    total_batches = (max_tries + batch_candidates - 1) // batch_candidates
+    tasks = [(random.randint(0, 2**31 - 1), batch_candidates) for _ in range(total_batches)]
+
+    start_time = time.time()
+    total_tried = 0
+    total_hits = 0
+
+    print(f"  [Search] Targeting prime order {order_int}")
+    print(f"  [Search] Workers: {num_workers} | Factor Base: {len(fb_roots)}")
+
+    # REMOVED: Parent-process _GLOBAL_F_POLY setting (does nothing for workers)
+
+    with Pool(processes=num_workers, initializer=_worker_init, initargs=initargs) as pool:
+        try:
+            for result in pool.imap_unordered(find_smooth_decomposition_worker, tasks):
+                if result is None:
+                    continue
+
+                status, data = result
+                if status == "SUCCESS":
+                    (r_val, row_vec, off_idx) = data
+                    print(f"\n  [!] SUCCESS: Anchor found in {total_tried} tries.")
+
+                    # Finalize row with offset if needed
+                    if off_idx >= 0 and offset_coeffs:
+                        (s, pp, v0, v1) = offset_coeffs[off_idx]
+                        u_off = R.gen()**2 - K(int(s))*R.gen() + K(int(pp))
+                        v_off = K(int(v1))*R.gen() + K(int(v0))
+                        off_row = get_relation_row([u_off, v_off], root_to_idx, f_poly, p_int)
+                        if off_row:
+                            for idx, val in off_row.items():
+                                row_vec[idx] = row_vec.get(idx, 0) - val
+                                if row_vec[idx] == 0:
+                                    del row_vec[idx]
+
+                    pool.terminate()
+                    return r_val, {int(k): int(v) for k, v in row_vec.items()}
+
+                elif status == "STATS":
+                    total_tried += data.get('tried', 0)
+                    total_hits += (data.get('tried', 0) - data.get('sample_miss', 0))
+
+                    # Live Diagnostic Update
+                    elapsed = time.time() - start_time
+                    rate = total_tried / elapsed if elapsed > 0 else 0
+                    if not total_hits % 100000:
+                        sys.stdout.write(
+                            f"\r  Trying... Total: {total_tried} | Sample Hits: {total_hits} | Speed: {rate:.1f} t/s"
+                        )
+                        sys.stdout.flush()
+
+        except KeyboardInterrupt:
+            pool.terminate()
+            raise
+
+    raise RuntimeError("find_smooth_decomposition: exhausted search without finding a smooth decomposition")
+
+
+# ============================================================================
+# HELPER FUNCTIONS - Extracted from duplicates in homomorphism_test and debug
+# ============================================================================
+
+def _dict_to_jac_helper(div, J, R):
+    """
+    Convert Mumford dict -> Jacobian element.
+    Used by homomorphism_test and debug_homomorphism_failure.
+    """
+    s = div['s']
+    pval = div['p']
+    v0 = div['v_0']
+    v1c = div['v_1']
+    x = R.gen()
+    u = x**2 - R(s)*x + R(pval)
+    v = R(v1c)*x + R(v0)
+    return J([u, v])
+
+
+def _atom_to_jac_helper(atom, J, R):
+    """
+    Convert factor base atom -> Jacobian element.
+    Used by homomorphism_test and debug_homomorphism_failure.
+    """
+    if atom is None:
+        raise RuntimeError("missing atom for index")
+    
+    kind = atom[0]
+    x = R.gen()
+    
+    if kind == 'd1':
+        _, x0, y0 = atom
+        u = x - R(x0)
+        v = R(y0)
+        return J([u, v])
+    
+    elif kind == 'd2':
+        _, u_coeffs, v_coeffs = atom
+        return J([R(list(u_coeffs)), R(list(v_coeffs))])
+    
+    else:
+        raise RuntimeError(f"unknown atom kind: {kind}")
+
+
+# ============================================================================
+# UPDATE homomorphism_test to use helpers
+# ============================================================================
+
+def homomorphism_test(J, atom_to_idx, f_p, p, smooth_divisors, fb_y_cache, trials=200):
+    """
+    UPDATED: Uses extracted helper functions.
+    
+    Correct homomorphism test for your Mumford-divisor dict format.
+    Verifies: enc(D1 + D2) == enc(D1) + enc(D2)
+    WITHOUT requiring D1+D2 to be smooth.
+    Uses algebraic reconstruction via Jacobian.
+    """
+    from random import randint
+
+    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
+    R = f_p.parent()
+
+    def reconstruct(enc):
+        D = J.zero()
+        for i, e in enc.items():
+            D += int(e) * _atom_to_jac_helper(idx_to_atom[i], J, R)
+        return D
+
+    for _ in range(trials):
+        D1 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
+        D2 = smooth_divisors[randint(0, len(smooth_divisors)-1)]
+
+        enc1 = get_relation_row(D1, atom_to_idx, f_p, p)
+        enc2 = get_relation_row(D2, atom_to_idx, f_p, p)
+
+        if enc1 is None or enc2 is None:
+            raise RuntimeError("Stored smooth divisor failed to encode")
+
+        combined = {}
+        for k, v in enc1.items():
+            combined[k] = combined.get(k, 0) + v
+        for k, v in enc2.items():
+            combined[k] = combined.get(k, 0) + v
+        combined = {k: v for k, v in combined.items() if v}
+
+        # True Jacobian sum
+        Jsum = _dict_to_jac_helper(D1, J, R) + _dict_to_jac_helper(D2, J, R)
+
+        # Reconstructed Jacobian from atoms
+        Jrecon = reconstruct(combined)
+
+        if Jrecon != Jsum:
+            print("\nHOMOMORPHISM FAILURE")
+            print("enc(D1) =", enc1)
+            print("enc(D2) =", enc2)
+            print("reconstructed =", Jrecon)
+            print("actual sum   =", Jsum)
+            debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2)
+            return False
+
+    print(f"homomorphism_test: {trials}/{trials} passed")
+    return True
+
+
+# ============================================================================
+# UPDATE debug_homomorphism_failure to use helpers
+# ============================================================================
+
+def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2):
+    """
+    UPDATED: Uses extracted helper functions.
+    
+    Detailed diagnostics for a homomorphism failure.
+    """
+    from sage.all import GF, PolynomialRing
+    F = GF(int(p))
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
+
+    idx_to_atom = {int(idx): atom for atom, idx in atom_to_idx.items()}
+
+    print("\n=== HOMOMORPHISM DEBUG ===")
+    print("p =", p)
+    print("enc(D1) =", enc1)
+    print("enc(D2) =", enc2)
+    print("D1 keys:", sorted(D1.keys()))
+    print("D2 keys:", sorted(D2.keys()))
+    v1 = D1.get('vector')
+    v2 = D2.get('vector')
+    print("vector D1 (len):", (len(v1) if hasattr(v1, '__len__') else None))
+    print("vector D2 (len):", (len(v2) if hasattr(v2, '__len__') else None))
+    print("vector D1 sample:", v1[:20] if hasattr(v1, '__len__') else v1)
+    print("vector D2 sample:", v2[:20] if hasattr(v2, '__len__') else v2)
+
+    # Show atoms referenced by enc1/enc2
+    idxs = sorted(set(list(enc1.keys()) + list(enc2.keys())))
+    print("\nAtoms referenced (idx -> atom):")
+    for idx in idxs:
+        atom = idx_to_atom.get(int(idx), None)
+        print(f"  {idx:5d} -> {atom}")
+
+    # Reconstruct combined enc
+    combined = {}
+    for k, v in enc1.items():
+        combined[k] = combined.get(k, 0) + int(v)
+    for k, v in enc2.items():
+        combined[k] = combined.get(k, 0) + int(v)
+    combined = {int(k): int(v) for k, v in combined.items() if int(v) != 0}
+
+    # Reconstruct Jacobians using helpers
+    J_recon = J.zero()
+    for idx, mult in combined.items():
+        atom = idx_to_atom.get(int(idx))
+        if atom is None:
+            print("WARNING: no atom for idx", idx)
+            continue
+        atomJ = _atom_to_jac_helper(atom, J, R)
+        J_recon += int(mult) * atomJ
+
+    J_true = _dict_to_jac_helper(D1, J, R) + _dict_to_jac_helper(D2, J, R)
+
+    print("\nReconstructed (from atoms) Mumford:", J_recon)
+    print("Actual sum (from dicts) Mumford      :", J_true)
+
+    if J_recon == J_true:
+        print("=> They are equal (unexpected here).")
+        return
+
+    # Print explicit u,v polys for comparison
+    u_recon, v_recon = J_recon[0], J_recon[1]
+    u_true, v_true = J_true[0], J_true[1]
+    print("\nReconstructed u:", u_recon)
+    print("Actual        u:", u_true)
+    print("\nReconstructed v:", v_recon)
+    print("Actual        v:", v_true)
+
+    # Attempt to express difference as factor base combination
+    diff = J_recon - J_true
+    print("\nDifference (J_recon - J_true):", diff)
+    try:
+        enc_diff = get_relation_row(diff, atom_to_idx, f_p, p)
+        print("Difference is FB-smooth; encoding:", enc_diff)
+    except Exception as e:
+        print("Could not encode difference (get_relation_row raised):", repr(e))
+        raise
+
+    # For each d1 atom referenced, check canonical y vs evaluated v(x)
+    print("\nCanonical vs evaluated y checks for d1 atoms in enc:")
+    for idx in idxs:
+        atom = idx_to_atom.get(int(idx))
+        if atom is None:
+            continue
+        if atom[0] != 'd1':
+            continue
+        x0 = int(atom[1])
+        y_can = int(atom[2])
+        
+        v_eval_D1 = None
+        v_eval_D2 = None
+        try:
+            v_eval_D1 = int((R(D1['v_1'])*R(x0) + R(D1['v_0']))) % int(p)
+        except Exception:
+            raise
+        try:
+            v_eval_D2 = int((R(D2['v_1'])*R(x0) + R(D2['v_0']))) % int(p)
+        except Exception:
+            raise
+
+        print(f" idx {idx}: atom x={x0}, y_can={y_can}, v_eval_D1={v_eval_D1}, v_eval_D2={v_eval_D2}")
+        if fb_y_cache is not None:
+            print("   fb_y_cache[x]:", fb_y_cache.get(int(x0)))
+    
+    print("\n=== END DEBUG ===\n")
+
+
+# ============================================================================
+# FIX 2: Worker initialization without fragile error handling
+# ============================================================================
+
+def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int, 
+                 fb_y_cache, p_int, order_int, window_size, offset_coeffs, f_coeffs):
+    """
+    FIXED: Proper error handling without raise+continue pattern.
+    """
+    global _GLOBAL_GENERATOR, _GLOBAL_TARGET_POINT
+    global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
+    global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
+    global _GLOBAL_ATOM_TO_IDX
+    
+    _GLOBAL_ATOM_TO_IDX = atom_to_idx
+    _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
+    _GLOBAL_FB_Y_CACHE = fb_y_cache
+    _GLOBAL_P = int(p_int)
+    _GLOBAL_ORDER = int(order_int)
+    _GLOBAL_WINDOW_SIZE = int(window_size)
+    
+    # Reconstruct f_poly in worker process
+    K = GF(int(p_int))
+    R = PolynomialRing(K, 'x')
+    _GLOBAL_F_POLY = sage_poly_from_coeffs(f_coeffs, R)
+
+    # Reconstruct curve and Jacobian
+    C = HyperellipticCurve(_GLOBAL_F_POLY)
+    J = C.jacobian()
+    
+    # Reconstruct generator
+    if gen_mumford is not None:
+        gen_u_coeffs, gen_v_coeffs = gen_mumford
+        u_poly = R(gen_u_coeffs)
+        v_poly = R(gen_v_coeffs)
+        _GLOBAL_GENERATOR = J([u_poly, v_poly])
+    else:
+        _GLOBAL_GENERATOR = None
+    
+    # Reconstruct target
+    if target_mumford is not None:
+        target_u_coeffs, target_v_coeffs = target_mumford
+        u_poly = R(target_u_coeffs)
+        v_poly = R(target_v_coeffs)
+        _GLOBAL_TARGET_POINT = J([u_poly, v_poly])
+    else:
+        _GLOBAL_TARGET_POINT = None
+    
+    # Precompute baby steps
+    zero = J.zero()
+    _GLOBAL_BABY = [zero]
+    curr = zero
+    for _ in range(1, window_size):
+        curr = curr + _GLOBAL_GENERATOR
+        _GLOBAL_BABY.append(curr)
+    
+    # Reconstruct offset cache
+    _GLOBAL_OFFSET_CACHE = []
+    if offset_coeffs:
+        x = R.gen()
+        failed_offsets = []
+        for idx, (s, p_val, v0, v1) in enumerate(offset_coeffs):
+            try:
+                u_poly = x**2 - K(int(s))*x + K(int(p_val))
+                v_poly = K(int(v1))*x + K(int(v0))
+                _GLOBAL_OFFSET_CACHE.append(J([u_poly, v_poly]))
+            except Exception as e:
+                failed_offsets.append((idx, s, p_val, e))
+        
+        # Log failures but continue (offsets are optional heuristic)
+        if failed_offsets and len(failed_offsets) < len(offset_coeffs):
+            print(f"  [Worker] Warning: {len(failed_offsets)}/{len(offset_coeffs)} offset divisors failed reconstruction")
+        elif failed_offsets:
+            raise RuntimeError(f"_worker_init: ALL offset divisors failed reconstruction: {failed_offsets[0]}")
