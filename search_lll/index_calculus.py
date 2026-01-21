@@ -20,7 +20,7 @@ from sage.matrix.berlekamp_massey import berlekamp_massey
 # Local imports
 from search_common import SECRET_KEY, BLOCK_WIEDEMANN, FINITE_FIELD, PREFERRED_X_COORDS
 from .smoothness import tonelli_shanks, extract_factor_base
-from .sparse_linalg_modp import solve_dlp_mod_l_block_wiedemann
+from .sparse_linalg_modp import *
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -1328,22 +1328,6 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         print(f"  [Factor Base] Size: {len(atom_to_idx)}")
         sys.stdout.flush()
 
-    # === PROJECT HOMOGENEOUS RELATIONS TO ℓ-TORSION ===
-    # Multiply by h to kill cofactor component
-    projected_homogeneous = []
-    for row in homogeneous_rows:
-        new_row = {}
-        for k, v in row.items():
-            vk = int((Integer(v) * Integer(h)) % ell)
-            if vk:
-                new_row[k] = vk
-        if new_row:
-            projected_homogeneous.append(new_row)
-    
-    if verbose:
-        print(f"  [Projection] Projected {len(homogeneous_rows)} → {len(projected_homogeneous)} relations to J[ℓ]")
-        sys.stdout.flush()
-
     # === SMOOTH G AND Q (these are ALREADY ℓ-torsion by construction) ===
     row_g = None
     alpha_g = 0
@@ -1397,16 +1381,18 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     # Pass only homogeneous relations (already in ℓ-torsion)
     # G and Q rows are used for dlog extraction, NOT added to system
     
-    dlog = solve_dlp_mod_l_block_wiedemann(
-        projected_homogeneous,  # Homogeneous relations in J[ℓ]
-        row_g,                   # G encoding (for dlog extraction)
-        alpha_g,                 # G smoothing offset
-        row_q,                   # Q encoding (for dlog extraction)
-        beta_q,                  # Q smoothing offset
+
+    # Replace with:
+    dlog = solve_dlp_mod_l_cofactor_projection(
+        homogeneous_rows,  # FULL GROUP relations (NOT projected)
+        row_g,             # FULL GROUP G encoding
+        alpha_g,           # (ignored for ℓ-torsion points)
+        row_q,             # FULL GROUP Q encoding
+        beta_q,            # (ignored for ℓ-torsion points)
         full_order,
         G, Q,
-        atom_to_idx,             # Factor base atom map (for sanity checks)
-        J,                       # Jacobian (for relation reconstruction)
+        atom_to_idx,
+        J,
         verbose=verbose,
     )
 

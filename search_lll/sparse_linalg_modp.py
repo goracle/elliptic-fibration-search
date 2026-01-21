@@ -1389,3 +1389,336 @@ def solve_dlp_mod_l_block_wiedemann(
         sys.stdout.flush()
 
     return Integer(dlog)
+
+
+# ============================================================================
+# PATCH 1: Add new solver to sparse_linalg_modp.py
+# ============================================================================
+
+
+def solve_dlp_mod_l_cofactor_projection(
+    homogeneous_rows,
+    row_g_dict,
+    alpha_g,
+    row_q_dict,
+    beta_q,
+    full_order,
+    G, Q,
+    atom_to_idx,
+    J,
+    *,
+    verbose=True,
+    use_direct_solver=True,
+):
+    """
+    CORRECTED: Index Calculus with cofactor projection.
+    
+    Setup (from your discussion):
+    1. Build system in FULL group: R * x = g
+       - Homogeneous relations: Σ aᵢ·Pᵢ = 0  (RHS=0)
+       - Inhomogeneous G-row: G = Σ gᵢ·Pᵢ   (RHS=1)
+    2. Multiply BOTH sides by cofactor h
+    3. Solve in ℓ-torsion for same coefficients
+    4. Recover d from Q's encoding
+    
+    Critical insight: Since G and Q are ℓ-torsion, h·G = G and h·Q = Q.
+    The coefficients don't change - we're just doing arithmetic in a smaller group.
+    
+    Args:
+        homogeneous_rows: relations in FULL group (RHS=0)
+        row_g_dict: G's encoding in FULL group
+        alpha_g: G smoothing offset (ignored for ℓ-torsion points)
+        row_q_dict: Q's encoding in FULL group  
+        beta_q: Q smoothing offset (ignored for ℓ-torsion points)
+        full_order: |J|
+        G, Q: Jacobian elements (must be ℓ-torsion)
+        atom_to_idx: factor base map
+        J: Jacobian
+        verbose: diagnostics
+        use_direct_solver: use Sage direct solver (vs BW)
+    
+    Returns:
+        Integer: discrete log d where Q = d·G (mod ℓ)
+    """
+    from sage.all import Integer, factor, Zmod, matrix, vector
+    
+    J_order = Integer(full_order)
+    factors = factor(J_order)
+    ell = int(max(int(p) for p, _ in factors))
+    h = int(J_order // ell)
+
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"INDEX CALCULUS - COFACTOR PROJECTION METHOD")
+        print(f"{'='*70}")
+        print(f"Full order |J|: {J_order}")
+        print(f"Largest prime ℓ: {ell}")
+        print(f"Cofactor h: {h}")
+        sys.stdout.flush()
+    
+    # Verify G and Q are ℓ-torsion
+    if verbose:
+        print(f"  [Check] Verifying G and Q are ℓ-torsion...")
+        sys.stdout.flush()
+    
+    ell_G = Integer(ell) * G
+    ell_Q = Integer(ell) * Q
+    
+    if not ell_G.is_zero():
+        raise RuntimeError(f"G is NOT ℓ-torsion: ℓ·G = {ell_G} ≠ 0")
+    
+    if not ell_Q.is_zero():
+        raise RuntimeError(f"Q is NOT ℓ-torsion: ℓ·Q = {ell_Q} ≠ 0")
+    
+    if verbose:
+        print(f"  [Check] ✓ Both G and Q are in J[ℓ]")
+        sys.stdout.flush()
+    
+    # STEP 1: Build system in FULL group
+    if verbose:
+        print(f"\n  [Step 1] Building system in FULL group")
+        print(f"  Input: {len(homogeneous_rows)} homogeneous relations")
+        sys.stdout.flush()
+    
+    all_rows_full = list(homogeneous_rows)
+    rhs_full = [0] * len(homogeneous_rows)
+    
+    # Add G-row with RHS=1
+    all_rows_full.append(row_g_dict)
+    rhs_full.append(1)
+    
+    # Get dimensions
+    max_idx = -1
+    for r in all_rows_full:
+        if r:
+            max_idx = max(max_idx, max(r.keys()))
+    if row_q_dict:
+        max_idx = max(max_idx, max(row_q_dict.keys()))
+    
+    n_cols = max_idx + 1
+    n_rows = len(all_rows_full)
+    
+    if verbose:
+        print(f"  [Step 1] System: {n_rows} rows × {n_cols} cols")
+        print(f"           - {len(homogeneous_rows)} homogeneous (RHS=0)")
+        print(f"           - 1 G-row (RHS=1)")
+        sys.stdout.flush()
+    
+    # STEP 2: Apply cofactor h to BOTH sides
+    if verbose:
+        print(f"\n  [Step 2] Multiplying both sides by h={h}")
+        sys.stdout.flush()
+    
+    projected_rows = []
+    projected_rhs = []
+    
+    for row, rhs in zip(all_rows_full, rhs_full):
+        new_row = {}
+        for k, v in row.items():
+            new_val = int((Integer(v) * Integer(h)) % ell)
+            if new_val != 0:
+                new_row[k] = new_val
+        
+        new_rhs = int((Integer(rhs) * Integer(h)) % ell)
+        
+        if new_row or new_rhs != 0:
+            projected_rows.append(new_row)
+            projected_rhs.append(new_rhs)
+    
+    if verbose:
+        print(f"  [Step 2] After projection: {len(projected_rows)}/{n_rows} rows survived")
+        sys.stdout.flush()
+    
+    if not projected_rows:
+        raise RuntimeError("All rows vanished after h-projection!")
+    
+    # STEP 3: Prune to pivot columns
+    if verbose:
+        print(f"\n  [Step 3] Pruning to pivot columns...")
+        sys.stdout.flush()
+    
+    pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
+        projected_rows, 
+        projected_rhs, 
+        ell, 
+        verbose=verbose
+    )
+    
+    n_cols_pruned = len(pivot_cols)
+    
+    if verbose:
+        print(f"  [Step 3] Column pruning: {len(pruned_rows)} rows × {n_cols_pruned} cols")
+        sys.stdout.flush()
+    
+    # CRITICAL FIX: Reduce rows by random mixing to avoid rank() hanging
+    # We need ~n_cols rows, but we have way more - combine them down
+    if len(pruned_rows) > n_cols_pruned + 100:
+        if verbose:
+            print(f"  [Step 3] Row reduction via random mixing...")
+            sys.stdout.flush()
+        
+        # Separate G-row from homogeneous rows
+        g_row_idx = None
+        homo_rows = []
+        homo_rhs = []
+        
+        for i, (row, rhs) in enumerate(zip(pruned_rows, pruned_rhs)):
+            if rhs != 0:  # G-row has nonzero RHS
+                if g_row_idx is not None:
+                    raise RuntimeError("Multiple non-homogeneous rows found!")
+                g_row_idx = i
+                g_row = row
+                g_rhs = rhs
+            else:
+                homo_rows.append(row)
+                homo_rhs.append(rhs)
+        
+        if g_row_idx is None:
+            raise RuntimeError("G-row disappeared during projection!")
+        
+        # Mix homogeneous rows down to n_cols_pruned rows
+        # Use existing mix_rows_to_target_count function from sparse_linalg_modp
+        mixed_homo_rows = mix_rows_to_target_count(
+            homo_rows, 
+            ell, 
+            n_cols_pruned,  # Target exactly n_cols rows
+            mix_count=4,
+            verbose=verbose
+        )
+        
+        # Rebuild with mixed homogeneous rows + G-row
+        pruned_rows = list(mixed_homo_rows) + [g_row]
+        pruned_rhs = [0] * len(mixed_homo_rows) + [g_rhs]
+        
+        if verbose:
+            print(f"  [Step 3] Mixed {len(homo_rows)} → {len(mixed_homo_rows)} homogeneous rows")
+            print(f"  [Step 3] Total: {len(pruned_rows)} rows (includes 1 G-row)")
+            sys.stdout.flush()
+    
+    if verbose:
+        print(f"  [Step 3] Final: {len(pruned_rows)} rows × {n_cols_pruned} cols")
+        sys.stdout.flush()
+    
+    # STEP 4: Map Q to pruned coordinates
+    if verbose:
+        print(f"\n  [Step 4] Mapping Q to pruned coordinates...")
+        sys.stdout.flush()
+    
+    q_row_pruned = {}
+    for old_idx, val in row_q_dict.items():
+        if old_idx in col_map:
+            new_idx = col_map[old_idx]
+            val_mod = int((Integer(val) * Integer(h)) % ell)
+            if val_mod != 0:
+                q_row_pruned[new_idx] = val_mod
+    
+    if not q_row_pruned:
+        raise RuntimeError("Q encoding vanished after pruning!")
+    
+    if verbose:
+        print(f"  [Step 4] Q-row: {len(q_row_pruned)}/{len(row_q_dict)} coefficients survived")
+        sys.stdout.flush()
+    
+    # STEP 5: Solve the linear system
+    if verbose:
+        print(f"\n  [Step 5] Solving linear system mod ℓ={ell}")
+        sys.stdout.flush()
+    
+    if not use_direct_solver:
+        raise NotImplementedError("Block-Wiedemann not yet adapted")
+    
+    K = Zmod(ell)
+    entries = {}
+    for i, row in enumerate(pruned_rows):
+        for j, v in row.items():
+            val = K(int(v))
+            if val != 0:
+                entries[(i, j)] = val
+    
+    R_matrix = matrix(K, len(pruned_rows), n_cols_pruned, entries, sparse=True)
+    g_vec = vector(K, [K(int(v)) for v in pruned_rhs])
+    
+    if verbose:
+        print(f"  [Matrix] Built: {R_matrix.nrows()} × {R_matrix.ncols()}")
+        print(f"  [Matrix] Checking rank...")
+        sys.stdout.flush()
+    
+    rank = R_matrix.rank()
+    
+    if verbose:
+        print(f"  [Matrix] Rank: {rank}/{n_cols_pruned}")
+        sys.stdout.flush()
+    
+    if rank < n_cols_pruned:
+        raise RuntimeError(f"Rank deficient: {rank} < {n_cols_pruned}")
+    
+    if verbose:
+        print(f"  [Solve] Computing R * x = g...")
+        sys.stdout.flush()
+    
+    try:
+        x_solution = R_matrix.solve_right(g_vec)
+    except ValueError as e:
+        R_aug = R_matrix.augment(g_vec.column(), subdivide=False)
+        rank_aug = R_aug.rank()
+        raise RuntimeError(
+            f"System inconsistent!\n"
+            f"  Rank[R]   = {rank}\n"
+            f"  Rank[R|g] = {rank_aug}\n"
+            f"  Error: {e}"
+        )
+    
+    if verbose:
+        print(f"  [Solve] ✓ Solution found")
+        sys.stdout.flush()
+    
+    # STEP 6: Extract discrete log
+    if verbose:
+        print(f"\n  [Step 6] Extracting discrete log")
+        sys.stdout.flush()
+    
+    # Compute g·x
+    g_dot_x = K(0)
+    for old_idx, g_coeff in row_g_dict.items():
+        if old_idx in col_map:
+            new_idx = col_map[old_idx]
+            if new_idx < len(x_solution):
+                g_coeff_proj = int((Integer(g_coeff) * Integer(h)) % ell)
+                g_dot_x += K(g_coeff_proj) * x_solution[new_idx]
+    
+    # Compute q·x
+    q_dot_x = K(0)
+    for idx, q_coeff in q_row_pruned.items():
+        if idx < len(x_solution):
+            q_dot_x += K(int(q_coeff)) * x_solution[idx]
+    
+    if verbose:
+        print(f"  [Extraction] g·x = {g_dot_x}")
+        print(f"  [Extraction] q·x = {q_dot_x}")
+        sys.stdout.flush()
+    
+    if g_dot_x == K(0):
+        raise RuntimeError("Degenerate solution: g·x = 0")
+    
+    dlog = Integer(int(q_dot_x / g_dot_x))
+    
+    if verbose:
+        print(f"  [Result] d = (q·x) / (g·x) = {dlog} (mod ℓ)")
+        sys.stdout.flush()
+    
+    # STEP 7: Verification
+    if verbose:
+        print(f"\n  [Verify] Checking d·G == Q...")
+        sys.stdout.flush()
+    
+    D = Integer(dlog) * G - Q
+    
+    if not D.is_zero():
+        raise RuntimeError(f"Verification FAILED: {dlog}·G ≠ Q")
+    
+    if verbose:
+        print(f"  [Verify] ✓ Success: {dlog}·G = Q")
+        print(f"\n{'='*70}\n")
+        sys.stdout.flush()
+    
+    return Integer(dlog)
