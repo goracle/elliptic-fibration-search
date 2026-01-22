@@ -118,7 +118,7 @@ BUILDCD COMPLETE
 [auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.18s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.12s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 6)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
 [residue_counts] sample: [(33554467, 1)]
@@ -314,15 +314,7 @@ Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
 G has u(x) = x^2 + 11594546*x + 6954622 (splits)
 Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
 DATA_PTS_GENUS2 = [10598399, 18579300]
-Jacobian order: 1126029650170156
-Factorization: 2^2 * 289603 * 972045913
-Largest prime ℓ: 972045913
-Cofactor h: 1158412
-Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
-G has u(x) = x^2 + 11594546*x + 6954622 (splits)
-Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
-DATA_PTS_GENUS2 = [10598399, 18579300]
-[mumford] Residue computation took 126.59s
+[mumford] Residue computation took 83.37s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -331,27 +323,27 @@ availability_rate: 0.0 activation_rate: 0.0
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467) - PARALLEL) ===
   Harvesting initial solutions...
-  Harvest done (2.07s): 18025 unique relations.
+  Harvest done (1.40s): 18021 unique relations.
   Factor Base (Unique x): 6000
   Starting parallel structured random walk...
-  Target reached: 18025 relations > 6000 FB + 480 buffer.
-  Final Status: 18025 relations, 6000 factor base elements.
+  Target reached: 18021 relations > 6000 FB + 480 buffer.
+  Final Status: 18021 relations, 6000 factor base elements.
 
-Mumford search reconstructed 18025 divisors
-  18025 divisors had rational roots in u(x)
+Mumford search reconstructed 18021 divisors
+  18021 divisors had rational roots in u(x)
 
 [Preferred Coordinates Hit Rate]
   Target coordinates: 4
   Found in Factor Base: 4 / 4 (100.0%)
-  Divisors containing target: 32 / 18025 (0.2%)
+  Divisors containing target: 32 / 18021 (0.2%)
 
 ============================================================
  INDEX CALCULUS ATTACK DIAGNOSTIC
 ============================================================
  Target Field: GF(33554467)
- Relations:    18025
- Factor Base:  4504
- Matrix Rank:  4504
+ Relations:    18021
+ Factor Base:  4505
+ Matrix Rank:  4505
 ------------------------------------------------------------
  [OK] Generator G is smooth over factor base
  [OK] Target Q is smooth over factor base
@@ -360,13 +352,13 @@ Mumford search reconstructed 18025 divisors
           Both G and Q are expressible over factor base.
 ============================================================
 
-Total time: 175.11s
+Total time: 112.12s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 126.59s
-  prep_mod_data            : 7.08s
-  mumford_reconstruction   : 2.37s
+  mumford_residues         : 83.38s
+  prep_mod_data            : 4.00s
+  mumford_reconstruction   : 1.60s
   mumford_setup            : 0.00s
 
 Counters:
@@ -393,7 +385,7 @@ Successes: 0, Failures: 0
 Discard Reasons (Top 5):
   (None)
 --------------------------------
-[Factor Base] 4504 prime atoms
+[Factor Base] 4505 prime atoms
   [Setup] Curve: y^2 = x^5 + x + 2
 
 ======================================================================
@@ -413,12 +405,12 @@ Full Jacobian order |J|: 1126029650170156
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
   [Legacy] Building factor base and relations from Mumford divisors...
-  [Legacy->Relations] Building factor base from 18027 sample divisors...
-[Factor Base] 4504 prime atoms
-  [Legacy->Relations] Factor base size: 4504
-  [Relations] Built 18025 homogeneous relations (RHS=0, no rebasing)
-  [Relations] Loaded 18025 homogeneous relations
-  [Factor Base] Size: 4504
+  [Legacy->Relations] Building factor base from 18023 sample divisors...
+[Factor Base] 4505 prime atoms
+  [Legacy->Relations] Factor base size: 4505
+  [Relations] Built 18021 homogeneous relations (RHS=0, no rebasing)
+  [Relations] Loaded 18021 homogeneous relations
+  [Factor Base] Size: 4505
   [Smoothing] Generator G is already smooth.
   [Smoothing] Target Q is already smooth.
 
@@ -432,52 +424,54 @@ Cofactor h: 1158412
   [Check] ✓ Both G and Q are in J[ℓ]
 
   [Step 1] Building system in FULL group
-  Input: 18025 homogeneous relations
-  [Step 1] System: 18026 rows × 4504 cols
-           - 18025 homogeneous (RHS=0)
+  Input: 18021 homogeneous relations
+  [Step 1] System: 18022 rows × 4505 cols
+           - 18021 homogeneous (RHS=0)
            - 1 G-row (RHS=1)
 
   [Step 2] Multiplying both sides by h=1158412
-  [Step 2] After projection: 18026/18026 rows survived
+  [Step 2] After projection: 18022/18022 rows survived
 
   [Step 3] Pruning to pivot columns...
-  [Prune] Input: 18026 rows x 4504 cols
-  [Pivot] Incremental elimination on 18026 rows...
-    [Pivot] Processed 1000/18026 rows, found 252 pivots
-    [Pivot] Processed 2000/18026 rows, found 502 pivots
-    [Pivot] Processed 3000/18026 rows, found 752 pivots
-    [Pivot] Processed 4000/18026 rows, found 1003 pivots
-    [Pivot] Processed 5000/18026 rows, found 1253 pivots
-    [Pivot] Processed 6000/18026 rows, found 1503 pivots
-    [Pivot] Processed 7000/18026 rows, found 1753 pivots
-    [Pivot] Processed 8000/18026 rows, found 2003 pivots
-    [Pivot] Processed 9000/18026 rows, found 2253 pivots
-    [Pivot] Processed 10000/18026 rows, found 2503 pivots
-    [Pivot] Processed 11000/18026 rows, found 2753 pivots
-    [Pivot] Processed 12000/18026 rows, found 3003 pivots
-    [Pivot] Processed 13000/18026 rows, found 3253 pivots
-    [Pivot] Processed 14000/18026 rows, found 3503 pivots
-    [Pivot] Processed 15000/18026 rows, found 3750 pivots
-    [Pivot] Processed 16000/18026 rows, found 4000 pivots
-    [Pivot] Processed 17000/18026 rows, found 4249 pivots
-    [Pivot] Processed 18000/18026 rows, found 4499 pivots
-  [Pivot] Found 4504 exact pivot columns
-  [Prune] Pivot columns: 4504/4504
-  [Prune] Rank: 4504
+  [Prune] Input: 18022 rows x 4505 cols
+  [Pivot] Incremental elimination on 18022 rows...
+    [Pivot] Processed 1000/18022 rows, found 252 pivots
+    [Pivot] Processed 2000/18022 rows, found 502 pivots
+    [Pivot] Processed 3000/18022 rows, found 752 pivots
+    [Pivot] Processed 4000/18022 rows, found 1003 pivots
+    [Pivot] Processed 5000/18022 rows, found 1253 pivots
+    [Pivot] Processed 6000/18022 rows, found 1503 pivots
+    [Pivot] Processed 7000/18022 rows, found 1753 pivots
+    [Pivot] Processed 8000/18022 rows, found 2003 pivots
+    [Pivot] Processed 9000/18022 rows, found 2253 pivots
+    [Pivot] Processed 10000/18022 rows, found 2503 pivots
+    [Pivot] Processed 11000/18022 rows, found 2753 pivots
+    [Pivot] Processed 12000/18022 rows, found 3003 pivots
+    [Pivot] Processed 13000/18022 rows, found 3253 pivots
+    [Pivot] Processed 14000/18022 rows, found 3503 pivots
+    [Pivot] Processed 15000/18022 rows, found 3750 pivots
+    [Pivot] Processed 16000/18022 rows, found 4000 pivots
+    [Pivot] Processed 17000/18022 rows, found 4250 pivots
+    [Pivot] Processed 18000/18022 rows, found 4500 pivots
+  [Pivot] Found 4505 exact pivot columns
+  [Prune] Pivot columns: 4505/4505
+  [Prune] Rank: 4505
   [Prune] Pruned 0 redundant columns
-  [Prune] Output: 18026 rows x 4504 cols
-  [Step 3] Column pruning: 18026 rows × 4504 cols
-  [Step 3] Row reduction via random mixing...
-  [RowMix] Mixing 18025 rows down to EXACTLY 4504
-  [RowMix] Strategy: 1-dim kernel targeting (cols - 1)
-  [RowMix] Result: 4504 rows
-  [Step 3] Mixed 18025 → 4504 homogeneous rows
-  [Step 3] Total: 4505 rows (includes 1 G-row)
-  [Step 3] Final: 4505 rows × 4504 cols
+  [Prune] Output: 18022 rows x 4505 cols
+  [Step 3] After pruning: 18022 rows × 4505 cols
+  [Step 3] System is overdetermined - Sage will handle it
 
   [Step 4] Mapping Q to pruned coordinates...
   [Step 4] Q-row: 2/2 coefficients survived
 
-  [Step 5] Solving linear system mod ℓ=972045913
-  [Matrix] Built: 4505 × 4504
-  [Matrix] Checking rank...
+  [Step 5] Solving overdetermined system mod ℓ=972045913
+  [Matrix] Built: 18022 × 4505
+  [Matrix] Sparse entries: 36044
+  [Solve] Attempting solve (skipping rank check)...
+  [Solve] Failed - checking if system is inconsistent...
+Attack failed: System inconsistent!
+  Rank[R]   = 4505
+  Rank[R|g] = 4506
+  Rows: 18022, Cols: 4505
+  This means G is not in the span of homogeneous relations mod ℓ.
+  Error: matrix equation has no solutions
