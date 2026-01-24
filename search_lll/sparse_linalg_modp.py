@@ -8,9 +8,12 @@ import time
 import random
 from search_common import BLOCK_WIEDEMANN
 
+# sparse_linalg_modp.py
+
 
 # Tunable threshold for lazy reduction
-_LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
+# Safe headroom for Python 64-bit ints before needing to apply % mod
+_LAZY_LIMIT = (1 << 61) - 1  
 
 
 class SparseRelationMatrix:
@@ -42,240 +45,34 @@ class SparseRelationMatrix:
             for j, v in zip(idxs, vals):
                 self.packed_cols[j].append((i, v))
 
+    def __init__(self, rows, rhs, modulus):
+        """
+        rows: list of dicts {col: coeff}
+        rhs:  list of ints
+        modulus: prime ℓ
+        """
+        self.mod = int(modulus)
+        self.n_rows = len(rows)
+        # Find the max column index to determine matrix width
+        self.n_cols = max(
+            (max(r.keys()) if r else 0 for r in rows), default=0
+        ) + 1
 
-def parallel_matvec(packed_rows, vec, mod, pool):
-    nprocs = pool._processes
-    chunks = [[] for _ in range(nprocs)]
-    for i, r in enumerate(packed_rows):
-        chunks[i % nprocs].append((i, r))
+        # Pack rows as (indices, values) tuples for faster access during matvecs
+        self.packed_rows = []
+        for r in rows:
+            if r:
+                idxs = list(r.keys())
+                vals = [int(v) % self.mod for v in r.values()]
+                self.packed_rows.append((idxs, vals))
+            else:
+                self.packed_rows.append(([], []))
 
-    parts = pool.map(
-        _matvec_chunk,
-        [(chunk, vec, mod) for chunk in chunks]
-    )
-
-    out = [0] * len(packed_rows)
-    for chunk_idx, part in enumerate(parts):
-        chunk = chunks[chunk_idx]
-        for local_idx, v in enumerate(part):
-            if v:
-                actual_i = chunk[local_idx][0]
-                out[actual_i] = v
-    return out
-
-
-def _matvec_chunk(args):
-    rows, vec, mod = args
-    out = [0] * len(rows)
-    for local_idx, (i, (idxs, vals)) in enumerate(rows):
-        s = 0
-        for j, v in zip(idxs, vals):
-            s += v * vec[j]
-        out[local_idx] = s % mod
-    return out
-
-
-def parallel_transpose_matvec(packed_cols, vec, mod, n, pool):
-    nprocs = pool._processes
-    chunks = [[] for _ in range(nprocs)]
-    for j, col in enumerate(packed_cols):
-        chunks[j % nprocs].append((j, col))
-    
-    parts = pool.map(
-        _transpose_matvec_chunk,
-        [(chunk, vec, mod) for chunk in chunks]
-    )
-    
-    out = [0] * n
-    for chunk_idx, part in enumerate(parts):
-        chunk = chunks[chunk_idx]
-        for local_idx, v in enumerate(part):
-            if v:
-                actual_j = chunk[local_idx][0]
-                out[actual_j] = v
-    return out
-
-
-def _transpose_matvec_chunk(args):
-    cols, vec, mod = args
-    out = [0] * len(cols)
-    for local_idx, (j, col) in enumerate(cols):
-        s = 0
-        for i, c in col:
-            s += c * vec[i]
-        out[local_idx] = s % mod
-    return out
-
-
-def matvec_rows(packed_rows, vec, mod, lazy_limit=_LAZY_LIMIT):
-    """
-    Compute y = A * vec, where packed_rows is list of (idxs, vals).
-    Returns list length = number of rows.
-    Single-process, minimal overhead, lazy reduction.
-    """
-    m = len(packed_rows)
-    out = [0] * m
-    for i, (idxs, vals) in enumerate(packed_rows):
-        s = 0
-        for j, a in zip(idxs, vals):
-            s += a * vec[j]
-            if s > lazy_limit:
-                s %= mod
-        out[i] = s % mod
-    return out
-
-
-def at_a_v_from_packed(packed_rows, vec, n_cols, mod, lazy_limit=_LAZY_LIMIT):
-    """
-    Convenience: compute A^T(A v) without projection (if you need it).
-    """
-    # Reuse compute_proj_and_atav with a zero left_vec to avoid double code
-    zero_left = [0] * len(packed_rows)
-    _, atav = compute_proj_and_atav(packed_rows, vec, zero_left, n_cols, mod, lazy_limit)
-    return atav
-
-
-def compute_proj_and_atav(packed_rows, vec, left_vec_b, n_cols, mod, lazy_limit=_LAZY_LIMIT):
-    """
-    Fused computation of:
-      s = A * vec   (row-length vector)
-      proj = left_vec_b^T * s   (single scalar)
-      atav = A^T * s           (length n_cols vector)
-
-    NOTE: Computes v_next = A^T (A v), effectively iterating M = A^T A.
-    This is standard for rectangular matrices in Wiedemann algorithm.
-
-    Optimized with local variable binding for the hot loop.
-    """
-    # initialize A^T(A v) output
-    atav = [0] * n_cols
-    proj_acc = 0
-    
-    # Local bindings for speed in the tight loop
-    atav_loc = atav
-    mod_loc = mod
-    lazy_loc = lazy_limit
-    
-    for (idxs, vals), b_i in zip(packed_rows, left_vec_b):
-        # compute row-dot
-        s = 0
-        for j, a in zip(idxs, vals):
-            s += a * vec[j]
-            if s > lazy_loc:
-                s %= mod_loc
-        s %= mod_loc
-
-        # accumulate projection
-        if b_i:
-            proj_acc += b_i * s
-            if proj_acc > lazy_loc:
-                proj_acc %= mod_loc
-
-        # scatter into atav: out[j] += a * s
-        # Optimization: manual inline loop with local vars
-        for j, a in zip(idxs, vals):
-            val = atav_loc[j] + a * s
-            if val > lazy_loc:
-                val %= mod_loc
-            atav_loc[j] = val
-
-    proj = proj_acc % mod
-    # final modular reduction on atav
-    for j in range(n_cols):
-        if atav[j]:
-            atav[j] %= mod
-    return proj, atav
-
-
-def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
-    """
-    Solve for full discrete log d = d_mod_ell + t*ell with 0 <= t < h,
-    given G, Q in the Jacobian (Sage group elements).
-    Solves t*(ell*G) = R where R = Q - d_mod_ell*G using baby-step giant-step.
-
-    Returns full_d (int) if found, or None if not found.
-    """
-    # Compute the correction target R = Q - d_mod_ell * G
-    R = Q - Integer(d_mod_ell) * G
-    if R.is_zero():
-        if verbose:
-            print("[lift] Already exact: d_mod_ell is the full discrete log.")
-        return int(d_mod_ell)
-
-    H = Integer(ell) * G  # generator for the cofactor subgroup
-
-    # If H is zero then ell*G == 0, so no nontrivial cofactor subgroup; failure.
-    if H.is_zero():
-        if verbose:
-            print("[lift] ell * G is zero: cannot lift via BSGS (degenerate).")
-        return None
-
-    # Bound on t
-    bound = int(h)
-    m = int(ceil(sqrt(bound)))
-
-    if verbose:
-        print(f"[lift] Attempting BSGS: bound={bound}, m={m}")
-
-    # Baby steps: store j*H for j in [0, m-1]
-    baby = {}
-    cur = H.zero() if hasattr(H, 'zero') else H * 0  # identity element
-    # Build baby steps incrementally to avoid repeated scalar multiplications from scratch
-    cur = Integer(0) * H  # identity
-    for j in range(m):
-        key = str(cur)
-        # keep the smallest j for a given group element
-        if key not in baby:
-            baby[key] = j
-        cur = cur + H
-
-    # Giant steps: R - i*(m*H)
-    factor = Integer(m) * H
-    giant = R
-    for i in range(0, m + 1):
-        key = str(giant)
-        if key in baby:
-            j = baby[key]
-            t = i * m + j
-            if t < bound:
-                full_d = int((Integer(d_mod_ell) + Integer(t) * Integer(ell)))
-                # verify
-                if full_d * G == Q:
-                    if verbose:
-                        print(f"[lift] Found lift: t={t}, full_d={full_d}")
-                    return full_d
-                # else continue searching (rare)
-        giant = giant - factor
-
-    if verbose:
-        print("[lift] BSGS failed to find a lift in [0, h).")
-    return None
-
-
-def verify_matrix_solution(packed_rows, projected_rhs, solution, mod, verbose=True):
-    """
-    Check A * solution == b (mod mod) using packed_rows (list of (idxs, vals)).
-    Returns True if satisfied, else prints a failing row and returns False.
-    """
-    n = len(packed_rows)
-    # convert solution to plain ints
-    sol_ints = [int(solution[i]) for i in range(len(solution))]
-    for i, (idxs, vals) in enumerate(packed_rows):
-        s = 0
-        for j, a in zip(idxs, vals):
-            # defensive: guard out-of-range column indices
-            if j >= len(sol_ints):
-                print(f"[verify_matrix_solution] ERROR: solution length {len(sol_ints)} <= column index {j}")
-                return False
-            s += int(a) * sol_ints[j]
-        if (s - int(projected_rhs[i])) % mod != 0:
-            if verbose:
-                print(f"[verify_matrix_solution] Row {i} FAILED: sum={s % mod}, rhs={projected_rhs[i] % mod}, mod={mod}")
-                print(f"  row idxs sample: {idxs[:10]}, vals sample: {vals[:10]}")
-            return False
-    if verbose:
-        print(f"[verify_matrix_solution] OK: A * solution == b (mod {mod})")
-    return True
+        # Build column-wise view for transpose matvec (A^T * v)
+        self.packed_cols = [[] for _ in range(self.n_cols)]
+        for i, (idxs, vals) in enumerate(self.packed_rows):
+            for j, v in zip(idxs, vals):
+                self.packed_cols[j].append((i, v))
 
 
 def dump_group_torsion_info(G, Q, full_order, verbose=True):
@@ -365,150 +162,6 @@ def _matvec_mod(A, v, p):
     res = A * v
     # ensure reduction (Sage should handle it but be explicit)
     return vector([int(x) % p for x in list(res)])
-
-
-def solve_sparse_direct_mod_ell(A_sparse_matrix, b_list, mod, verbose=True):
-    """
-    Direct sparse solver - uses full matrix when already full rank from pruning.
-    
-    CRITICAL: After pruning guarantees full rank, we can use the entire system.
-    Greedy row selection can fail for columns that only appear as pivots in
-    linear combinations, not as leading entries in any single row.
-    """
-    # Extract rows in dict format
-    A_rows = []
-    for (idxs, vals) in A_sparse_matrix.packed_rows:
-        row_dict = {int(idx): int(val) for idx, val in zip(idxs, vals)}
-        A_rows.append(row_dict)
-    
-    n_cols = A_sparse_matrix.n_cols
-    n_rows = len(A_rows)
-    
-    if verbose:
-        print(f"  [Direct] Building full system: {n_rows} rows x {n_cols} cols")
-        sys.stdout.flush()
-    
-    K = GF(mod)
-    
-    # Check if system is already square or overdetermined
-    if n_rows < n_cols:
-        raise RuntimeError(
-            f"Underdetermined system after pruning:\n"
-            f"  {n_rows} rows < {n_cols} columns\n"
-            f"  Pruning should have reduced columns to match available rank."
-        )
-    
-    if verbose:
-        print(f"  [Direct] System is {'square' if n_rows == n_cols else 'overdetermined'}")
-        print(f"  [Direct] Using full matrix (pruning already guaranteed full rank)")
-        sys.stdout.flush()
-    
-    # Build full matrix - use ALL rows
-    M_sage = matrix(GF(mod), n_rows, n_cols, sparse=True)
-    b_sage = vector(GF(mod), b_list)
-    
-    for i, row_dict in enumerate(A_rows):
-        for col, val in row_dict.items():
-            M_sage[i, col] = val
-    
-    # Verify rank
-    if verbose:
-        print(f"  [Direct] Verifying rank...")
-        sys.stdout.flush()
-    
-    actual_rank = M_sage.rank()
-    
-    if actual_rank < n_cols:
-        raise RuntimeError(
-            f"RANK DEFICIT in full matrix:\n"
-            f"  Matrix size: {n_rows} x {n_cols}\n"
-            f"  Actual rank: {actual_rank}\n"
-            f"  Missing {n_cols - actual_rank} dimensions.\n"
-            f"  This should not happen after pruning claimed full rank!"
-        )
-    
-    if verbose:
-        print(f"  [Direct] ✓ Rank verified: {actual_rank}/{n_cols}")
-        print(f"  [Direct] Solving system...")
-        sys.stdout.flush()
-    
-    try:
-        solution = M_sage.solve_right(b_sage)
-    except ValueError as e:
-        # Inconsistent system
-        M_aug = M_sage.augment(b_sage.column(), subdivide=False)
-        rank_aug = M_aug.rank()
-        raise RuntimeError(
-            f"System INCONSISTENT:\n"
-            f"  Rank[A] = {actual_rank}\n"
-            f"  Rank[A|b] = {rank_aug}\n"
-            f"  The RHS is not in the column space.\n"
-            f"  Original error: {e}"
-        )
-    
-    if verbose:
-        print("  [Direct] ✓ Solve successful")
-        sys.stdout.flush()
-    
-    return solution
-
-
-def find_exact_pivot_columns_sparse(A_rows, mod, verbose=True):
-    """
-    Exact pivot column identification via sparse incremental Gaussian elimination.
-    Much faster than full RREF for sparse matrices.
-    
-    Returns: sorted list of pivot column indices
-    """
-    from sage.all import GF
-    
-    K = GF(mod)
-    
-    pivot_cols = []
-    row_echelon = []  # Store reduced rows for incremental reduction
-    
-    n_rows = len(A_rows)
-    
-    if verbose:
-        print(f"  [Pivot] Incremental elimination on {n_rows} rows...")
-        sys.stdout.flush()
-    
-    for i, row in enumerate(A_rows):
-        if not row:
-            continue
-        
-        # Reduce current row by previous pivot rows
-        current = dict(row)
-        
-        for pivot_col, pivot_row in zip(pivot_cols, row_echelon):
-            if pivot_col in current:
-                # Eliminate this column using the pivot row
-                multiplier = K(current[pivot_col]) / K(pivot_row[pivot_col])
-                for col, val in pivot_row.items():
-                    current[col] = K(current.get(col, 0) - multiplier * val)
-                    if current[col] == 0:
-                        del current[col]
-        
-        # Find leading column in reduced row
-        if current:
-            leading_col = min(current.keys())
-            
-            # Normalize so leading coefficient is 1
-            lead_inv = K(current[leading_col])**(-1)
-            current = {col: K(val * lead_inv) for col, val in current.items()}
-            
-            pivot_cols.append(leading_col)
-            row_echelon.append(current)
-        
-        if verbose and (i + 1) % 1000 == 0:
-            print(f"    [Pivot] Processed {i+1}/{n_rows} rows, found {len(pivot_cols)} pivots")
-            sys.stdout.flush()
-    
-    if verbose:
-        print(f"  [Pivot] Found {len(pivot_cols)} exact pivot columns")
-        sys.stdout.flush()
-    
-    return sorted(pivot_cols)
 
 
 def randomize_rows_for_bw(A_rows, b_list, mod, compression_factor=2, mix_count=3, verbose=True):
@@ -629,294 +282,6 @@ def solve_with_retry(A, b, max_attempts=3, **kwargs):
 # ============================================================================
 # FIX 3: Atom validation (unchanged, still valid)
 # ============================================================================
-
-def block_wiedemann_solve(A, iters=None, verbose=True, 
-                          ntrials=1, left_seed=None, right_seed=None,
-                          force_cols=None):  # <-- ADD THIS PARAMETER
-    """
-    CORRECTED: True scalar Wiedemann with single Krylov chain.
-    Uses Sage's berlekamp_massey on a valid linear recurrence sequence.
-    
-    CRITICAL: Explicit seed control for kernel diversity.
-    SOLVES: Kernel of A (homogeneous system only).
-
-    CRITICAL: This operates on M = A^T A (not A directly).
-    - The Krylov sequence is for the squared operator
-    - BM degree can be up to 2*rank(A)
-    - Sequence length must be >= 3*n to be safe
-
-    Use this for finding kernel of A (kernel(A) = kernel(A^T A)).
-    
-    Args:
-        A: SparseRelationMatrix
-        iters: number of Krylov iterations (default 3*n + 200)
-        left_seed: seed for left projection vector u (if None, use random)
-        right_seed: seed for right start vector v (if None, use random)
-        force_cols: list of column indices to force nonzero in initial v
-        
-    Returns:
-        (solution_vector, bm_degree) or (None, 0) if trivial kernel
-    """
-    from sage.matrix.berlekamp_massey import berlekamp_massey as sage_bm
-    
-    mod = int(A.mod)
-    m = len(A.packed_rows)
-    n = A.n_cols
-    
-    if iters is None:
-        iters = 3 * n + 200
-    
-    # CRITICAL: Sage BM requires even sequence length
-    if iters % 2 != 0:
-        iters += 1
-
-    if verbose:
-        print(f"[BW] Scalar Wiedemann: iters={iters}, nrows={m}, ncols={n}")
-        sys.stdout.flush()
-
-    # Generate seeds if not provided
-    if left_seed is None:
-        left_seed = random.randrange(1, mod)
-    if right_seed is None:
-        right_seed = random.randrange(1, mod)
-    
-    if verbose:
-        print(f"[BW] Seeds: left={left_seed}, right={right_seed}")
-    
-    # CRITICAL: Use local RNGs to avoid polluting global random state
-    rng_left = random.Random(left_seed)
-    rng_right = random.Random(right_seed)
-    
-    # Generate left projection vector from left_seed
-    left_vec_b = [rng_left.randrange(mod) for _ in range(m)]
-    if all(x == 0 for x in left_vec_b):
-        left_vec_b[0] = 1
-    
-    # Generate right start vector from right_seed  
-    v = [rng_right.randrange(mod) for _ in range(n)]
-    
-    # CRITICAL FIX: Force specific columns to be nonzero
-    if force_cols:
-        for col_idx in force_cols:
-            if col_idx < len(v):
-                v[col_idx] = rng_right.randrange(1, mod)  # nonzero
-    
-    # --- PASS 1: Generate Single Krylov Sequence ---
-    if verbose:
-        print("[BW] Pass 1: Generating Krylov Sequence s_t = <u, A^t v>")
-        sys.stdout.flush()
-    
-    seq = []
-    t_start = time.time()
-    last_print = t_start
-
-    for t in range(iters):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-            elapsed = now - t_start
-            rate = (t + 1) / max(1e-9, elapsed)
-            remaining = (iters - t) / rate if rate > 0 else 0
-            print(f"  [BW Pass 1] iter {t}/{iters} ({100.0*t/iters:.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-            sys.stdout.flush()
-            last_print = now
-
-        proj, v_next = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
-        seq.append(proj)
-        v = v_next
-
-    # --- POLYNOMIAL STEP: Use Sage Berlekamp-Massey ---
-    if verbose:
-        print(f"[BW] Computing Minimal Polynomial from {len(seq)} scalars (Sage BM)...")
-        sys.stdout.flush()
-    
-    # CRITICAL: Sage BM requires even-length sequences
-    if len(seq) % 2 != 0:
-        seq = seq[:-1]
-        if verbose:
-            print(f"[BW] Truncated sequence to even length: {len(seq)}")
-    
-    assert len(seq) % 2 == 0, "BM sequence must be even length for Sage"
-    
-    K = GF(mod)
-    seq_gf = [K(s) for s in seq]
-    
-    min_poly = sage_bm(seq_gf)
-    deg = min_poly.degree()
-    
-    if verbose:
-        print(f"[BW] Minimal polynomial degree: {deg}")
-        sys.stdout.flush()
-
-    if deg == 0:
-        if verbose:
-            print(f"  [BW] Degree 0: trivial kernel")
-        return None, 0
-
-    if deg < 100:
-        print(f"  [BW] WARNING: Degree {deg} is low for system size {n}")
-
-    coeffs = [int(min_poly[i]) for i in range(deg + 1)]
-
-    # --- PASS 2: Reconstruct Solution Vector ---
-    if verbose:
-        print(f"[BW] Pass 2: Reconstructing Solution (applying polynomial)")
-        sys.stdout.flush()
-
-    # Reinitialize with same right_seed to get same v
-    # CRITICAL: Use local RNG to avoid polluting global state
-    rng_right = random.Random(right_seed)
-    v = [rng_right.randrange(mod) for _ in range(n)]
-
-    x_accum = [0] * n
-    
-    t_start = time.time()
-    last_print = t_start
-    
-    for i, c in enumerate(coeffs):
-        now = time.time()
-        if verbose and (now - last_print > 5):
-            elapsed = now - t_start
-            rate = (i + 1) / max(1e-9, elapsed)
-            remaining = (len(coeffs) - i) / rate if rate > 0 else 0
-            print(f"  [BW Pass 2] coeff {i}/{len(coeffs)} ({100.0*i/len(coeffs):.1f}%) | elapsed {elapsed/60:.1f}m | ETA {remaining/60:.1f}m")
-            sys.stdout.flush()
-            last_print = now
-        
-        if c != 0:
-            for j in range(n):
-                if v[j]:
-                    x_accum[j] = (x_accum[j] + c * v[j]) % mod
-        
-        if i < len(coeffs) - 1:
-            v = at_a_v_from_packed(A.packed_rows, v, n, mod)
-
-    return vector(Zmod(mod), x_accum), deg
-
-
-def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
-    """
-    Prune factor base to pivot columns via sparse incremental Gaussian elimination.
-    
-    CRITICAL FIX: Preserves RHS alignment with pruned rows.
-    
-    Returns:
-        (pruned_rows, pruned_rhs, col_map, pivot_cols)
-    where:
-        - pruned_rows: rows with only pivot columns
-        - pruned_rhs: corresponding RHS values (properly aligned)
-        - col_map: dict mapping old_col_idx -> new_col_idx (or None if pruned)
-        - pivot_cols: list of original pivot column indices
-    """
-    from sage.all import GF
-    
-    K = GF(mod)
-    
-    # Find all columns that appear
-    all_cols = set()
-    for row in A_rows:
-        all_cols.update(row.keys())
-    n_cols_orig = max(all_cols) + 1 if all_cols else 0
-    
-    if verbose:
-        print(f"  [Prune] Input: {len(A_rows)} rows x {n_cols_orig} cols")
-        sys.stdout.flush()
-    
-    # Use sparse incremental elimination to find exact pivot columns
-    pivot_cols = find_exact_pivot_columns_sparse(A_rows, mod, verbose=verbose)
-    
-    if not pivot_cols:
-        raise RuntimeError("Pruning found zero pivot columns - system is trivial!")
-    
-    if verbose:
-        print(f"  [Prune] Pivot columns: {len(pivot_cols)}/{n_cols_orig}")
-        print(f"  [Prune] Rank: {len(pivot_cols)}")
-        print(f"  [Prune] Pruned {n_cols_orig - len(pivot_cols)} redundant columns")
-        sys.stdout.flush()
-    
-    # Build column mapping
-    col_map = {old_idx: new_idx for new_idx, old_idx in enumerate(pivot_cols)}
-    
-    # CRITICAL FIX: Preserve RHS alignment with rows
-    pruned_rows = []
-    pruned_rhs = []
-    for i, row in enumerate(A_rows):
-        pruned_row = {}
-        for old_idx, val in row.items():
-            if old_idx in col_map:
-                new_idx = col_map[old_idx]
-                pruned_row[new_idx] = int(val)
-        if pruned_row:
-            pruned_rows.append(pruned_row)
-            pruned_rhs.append(b_list[i])  # <-- Preserve corresponding RHS
-
-    assert len(pruned_rows) == len(pruned_rhs)
-    
-    if verbose:
-        print(f"  [Prune] Output: {len(pruned_rows)} rows x {len(pivot_cols)} cols")
-        assert len(pruned_rows) == len(pruned_rhs), "RHS count must match row count!"
-        sys.stdout.flush()
-    
-    return pruned_rows, pruned_rhs, col_map, pivot_cols
-
-
-def expand_solution_to_original(solution_vec, col_map):
-    """
-    Expand pruned solution vector back to original atom indexing.
-    
-    After pruning removes redundant columns, the solution vector uses
-    the new (compact) indices. This function maps it back to original
-    indices so it can be used with row_g_dict, row_q_dict.
-    
-    Args:
-        solution_vec: solution in pruned column space
-        col_map: dict {old_idx: new_idx} from pruning
-        
-    Returns:
-        solution in original column space (list of ints)
-    """
-    if not col_map:
-        # No pruning was done, return as-is
-        return [int(x) for x in solution_vec]
-    
-    # Find max original index
-    n_orig = max(col_map.keys()) + 1
-    
-    # Build solution in original indexing
-    sol_orig = [0] * n_orig
-    for old_idx, new_idx in col_map.items():
-        if new_idx < len(solution_vec):
-            sol_orig[old_idx] = int(solution_vec[new_idx])
-    
-    return sol_orig
-
-
-def reconstruct_d_from_solution(beta_q, row_q_dict, solution, mod):
-    """
-    Recompute d = beta - sum_{k} v_k * sol[k] (mod mod).
-    
-    CRITICAL: solution must be in the SAME indexing as row_q_dict keys.
-    If pruning was used, call expand_solution_to_original first.
-    
-    Args:
-        beta_q: scalar offset from Q smoothing
-        row_q_dict: Q's factor base encoding (original indices)
-        solution: solution vector (MUST be in original indexing)
-        mod: modulus
-        
-    Returns:
-        d (mod mod)
-    """
-    d = int(beta_q) % mod
-    for k, v in row_q_dict.items():
-        if k >= len(solution):
-            raise IndexError(
-                f"reconstruct_d_from_solution: solution length {len(solution)} <= index {k}\n"
-                f"This indicates solution indexing doesn't match row_q_dict!\n"
-                f"Did you forget to call expand_solution_to_original?"
-            )
-        coeff = int(solution[k])
-        d = int((d - int(v) * coeff) % mod)
-    return d
 
 
 def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5):
@@ -1396,6 +761,9 @@ def solve_dlp_mod_l_block_wiedemann(
 # ============================================================================
 
 
+# CORRECTED: sparse_linalg_modp.py - solve_dlp_mod_l_cofactor_projection
+# This replaces the existing function in your sparse_linalg_modp.py
+
 def solve_dlp_mod_l_cofactor_projection(
     homogeneous_rows,
     row_g_dict,
@@ -1413,32 +781,14 @@ def solve_dlp_mod_l_cofactor_projection(
     """
     CORRECTED: Index Calculus with cofactor projection.
     
-    Setup (from your discussion):
-    1. Build system in FULL group: R * x = g
-       - Homogeneous relations: Σ aᵢ·Pᵢ = 0  (RHS=0)
-       - Inhomogeneous G-row: G = Σ gᵢ·Pᵢ   (RHS=1)
-    2. Multiply BOTH sides by cofactor h
-    3. Solve in ℓ-torsion for same coefficients
-    4. Recover d from Q's encoding
+    KEY FIXES:
+    1. ALL relations (homogeneous + G-row) are h-projected TOGETHER
+    2. G-row RHS is h (mod ℓ), not 1, after h-projection  
+    3. Both matrix AND RHS are multiplied by h consistently
+    4. Final dlog extraction uses ORIGINAL (non-projected) encodings
     
-    Critical insight: Since G and Q are ℓ-torsion, h·G = G and h·Q = Q.
-    The coefficients don't change - we're just doing arithmetic in a smaller group.
-    
-    Args:
-        homogeneous_rows: relations in FULL group (RHS=0)
-        row_g_dict: G's encoding in FULL group
-        alpha_g: G smoothing offset (ignored for ℓ-torsion points)
-        row_q_dict: Q's encoding in FULL group  
-        beta_q: Q smoothing offset (ignored for ℓ-torsion points)
-        full_order: |J|
-        G, Q: Jacobian elements (must be ℓ-torsion)
-        atom_to_idx: factor base map
-        J: Jacobian
-        verbose: diagnostics
-        use_direct_solver: use Sage direct solver (vs BW)
-    
-    Returns:
-        Integer: discrete log d where Q = d·G (mod ℓ)
+    Solves: (h·R) * x = h·[0, ..., 0, 1]ᵀ  (mod ℓ)
+    Then recovers: d ≡ (q·x) / (g·x)  (mod ℓ)
     """
     from sage.all import Integer, factor, Zmod, matrix, vector
     
@@ -1474,17 +824,20 @@ def solve_dlp_mod_l_cofactor_projection(
         print(f"  [Check] ✓ Both G and Q are in J[ℓ]")
         sys.stdout.flush()
     
-    # STEP 1: Build system in FULL group
+    # ========================================================================
+    # STEP 1: Build combined system INCLUDING G-row from the start
+    # ========================================================================
+    
     if verbose:
-        print(f"\n  [Step 1] Building system in FULL group")
-        print(f"  Input: {len(homogeneous_rows)} homogeneous relations")
+        print(f"\n  [Step 1] Building combined system (homogeneous + G)")
         sys.stdout.flush()
     
+    # Combine homogeneous rows with G-row BEFORE projection
     all_rows_full = list(homogeneous_rows)
     rhs_full = [0] * len(homogeneous_rows)
     
-    # Add G-row with RHS=1
-    all_rows_full.append(row_g_dict)
+    # Add G-row with RHS = 1 (before h-projection)
+    all_rows_full.append(dict(row_g_dict))
     rhs_full.append(1)
     
     # Get dimensions
@@ -1499,26 +852,31 @@ def solve_dlp_mod_l_cofactor_projection(
     n_rows = len(all_rows_full)
     
     if verbose:
-        print(f"  [Step 1] System: {n_rows} rows × {n_cols} cols")
+        print(f"  [Step 1] Combined system: {n_rows} rows × {n_cols} cols")
         print(f"           - {len(homogeneous_rows)} homogeneous (RHS=0)")
         print(f"           - 1 G-row (RHS=1)")
         sys.stdout.flush()
     
-    # STEP 2: Apply cofactor h to BOTH sides
+    # ========================================================================
+    # STEP 2: Apply cofactor h to BOTH matrix AND RHS
+    # ========================================================================
+    
     if verbose:
-        print(f"\n  [Step 2] Multiplying both sides by h={h}")
+        print(f"\n  [Step 2] Applying h-projection: multiplying ALL rows by h={h}")
         sys.stdout.flush()
     
     projected_rows = []
     projected_rhs = []
     
     for row, rhs in zip(all_rows_full, rhs_full):
+        # Project row: multiply all coefficients by h (mod ℓ)
         new_row = {}
         for k, v in row.items():
             new_val = int((Integer(v) * Integer(h)) % ell)
             if new_val != 0:
                 new_row[k] = new_val
         
+        # Project RHS: multiply by h (mod ℓ)
         new_rhs = int((Integer(rhs) * Integer(h)) % ell)
         
         if new_row or new_rhs != 0:
@@ -1526,20 +884,49 @@ def solve_dlp_mod_l_cofactor_projection(
             projected_rhs.append(new_rhs)
     
     if verbose:
-        print(f"  [Step 2] After projection: {len(projected_rows)}/{n_rows} rows survived")
+        print(f"  [Step 2] After h-projection: {len(projected_rows)} rows")
+        nonzero_rhs_count = sum(1 for r in projected_rhs if r != 0)
+        print(f"    RHS values: {len(projected_rhs) - nonzero_rhs_count} zeros, {nonzero_rhs_count} nonzero")
+        print(f"    G-row RHS: {projected_rhs[-1]} (should be h mod ℓ = {h % ell})")
         sys.stdout.flush()
     
-    if not projected_rows:
-        raise RuntimeError("All rows vanished after h-projection!")
+    # ========================================================================
+    # CRITICAL CHECK: Verify G-row survived h-projection
+    # ========================================================================
     
-    # STEP 3: Prune to pivot columns ONLY
+    # The G-row should be the LAST row after projection
+    g_row_rhs = projected_rhs[-1] if projected_rhs else 0
+    
+    if g_row_rhs == 0:
+        raise RuntimeError(
+            f"CRITICAL: G-row RHS became zero after h-projection!\n"
+            f"  h = {h}, ℓ = {ell}\n"
+            f"  h mod ℓ = {h % ell}\n"
+            f"  This means h ≡ 0 (mod ℓ), which violates gcd(h, ℓ) = 1.\n"
+            f"  The factorization of |J| is incorrect or ℓ is not the largest prime."
+        )
+    
+    if g_row_rhs != (h % ell):
+        print(f"  [Warning] G-row RHS = {g_row_rhs}, expected {h % ell}")
+        print(f"           This can happen if G-row was modified during projection")
+    
     if verbose:
-        print(f"\n  [Step 3] Pruning to pivot columns...")
+        print(f"  [Check] ✓ G-row survived: RHS = {g_row_rhs}")
         sys.stdout.flush()
     
+    # ========================================================================
+    # STEP 3: Prune to pivot columns
+    # ========================================================================
+    
+    if verbose:
+        print(f"\n  [Step 3] Pruning to pivot columns")
+        print(f"  CRITICAL: Pruning ALL rows (including G-row) together")
+        sys.stdout.flush()
+    
+    # CRITICAL: Pass ALL projected rows (including G) to pruning
     pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
-        projected_rows, 
-        projected_rhs, 
+        projected_rows,
+        projected_rhs,
         ell, 
         verbose=verbose
     )
@@ -1548,314 +935,77 @@ def solve_dlp_mod_l_cofactor_projection(
     
     if verbose:
         print(f"  [Step 3] After pruning: {len(pruned_rows)} rows × {n_cols_pruned} cols")
-        print(f"  [Step 3] System is overdetermined - Sage will handle it")
         sys.stdout.flush()
     
-    # STEP 4: Map Q to pruned coordinates
-    if verbose:
-        print(f"\n  [Step 4] Mapping Q to pruned coordinates...")
-        sys.stdout.flush()
+    # ========================================================================
+    # CRITICAL CHECK: Verify system is still inhomogeneous after pruning
+    # ========================================================================
     
-    q_row_pruned = {}
-    for old_idx, val in row_q_dict.items():
-        if old_idx in col_map:
-            new_idx = col_map[old_idx]
-            val_mod = int((Integer(val) * Integer(h)) % ell)
-            if val_mod != 0:
-                q_row_pruned[new_idx] = val_mod
+    assert len(pruned_rows) == len(pruned_rhs), \
+        f"RHS count mismatch: {len(pruned_rows)} rows but {len(pruned_rhs)} RHS values"
     
-    if not q_row_pruned:
-        raise RuntimeError("Q encoding vanished after pruning!")
+    nonzero_rhs_indices = [i for i, rhs in enumerate(pruned_rhs) if rhs != 0]
     
-    if verbose:
-        print(f"  [Step 4] Q-row: {len(q_row_pruned)}/{len(row_q_dict)} coefficients survived")
-        sys.stdout.flush()
-    
-    # STEP 5: Solve the linear system
-    if verbose:
-        print(f"\n  [Step 5] Solving overdetermined system mod ℓ={ell}")
-        sys.stdout.flush()
-    
-    if not use_direct_solver:
-        raise NotImplementedError("Block-Wiedemann not yet adapted")
-    
-    K = Zmod(ell)
-    entries = {}
-    for i, row in enumerate(pruned_rows):
-        for j, v in row.items():
-            val = K(int(v))
-            if val != 0:
-                entries[(i, j)] = val
-    
-    R_matrix = matrix(K, len(pruned_rows), n_cols_pruned, entries, sparse=True)
-    g_vec = vector(K, [K(int(v)) for v in pruned_rhs])
-    
-    if verbose:
-        print(f"  [Matrix] Built: {R_matrix.nrows()} × {R_matrix.ncols()}")
-        print(f"  [Matrix] Sparse entries: {len(entries)}")
-        print(f"  [Solve] Attempting solve (skipping rank check)...")
-        sys.stdout.flush()
-    
-    try:
-        x_solution = R_matrix.solve_right(g_vec)
-    except ValueError as e:
-        # System is inconsistent
-        if verbose:
-            print(f"  [Solve] Failed - checking if system is inconsistent...")
-            sys.stdout.flush()
-        
-        # Only now check rank to diagnose
-        rank = R_matrix.rank()
-        R_aug = R_matrix.augment(g_vec.column(), subdivide=False)
-        rank_aug = R_aug.rank()
-        
+    if len(nonzero_rhs_indices) == 0:
         raise RuntimeError(
-            f"System inconsistent!\n"
-            f"  Rank[R]   = {rank}\n"
-            f"  Rank[R|g] = {rank_aug}\n"
-            f"  Rows: {R_matrix.nrows()}, Cols: {R_matrix.ncols()}\n"
-            f"  This means G is not in the span of homogeneous relations mod ℓ.\n"
-            f"  Error: {e}"
+            "CRITICAL: All RHS values are zero after pruning!\n"
+            "The G-row was eliminated during pivot selection.\n"
+            "This means G is a linear combination of homogeneous relations,\n"
+            "which violates the rank structure we need.\n"
+            "\n"
+            "Possible causes:\n"
+            "  - Homogeneous relations already span the full space\n"
+            "  - G-row became zero during h-projection (check gcd(h, ℓ) = 1)\n"
+            "  - Row operations reduced G-row RHS to zero mod ℓ"
         )
     
     if verbose:
-        print(f"  [Solve] ✓ Solution found")
+        print(f"\n  [Critical Check] ✓ System is still INHOMOGENEOUS")
+        print(f"    Found {len(nonzero_rhs_indices)} row(s) with nonzero RHS")
+        for idx in nonzero_rhs_indices[:5]:  # Show first 5
+            print(f"      Row {idx}: RHS = {pruned_rhs[idx]}")
         sys.stdout.flush()
     
-    # STEP 6: Extract discrete log
-    if verbose:
-        print(f"\n  [Step 6] Extracting discrete log")
-        sys.stdout.flush()
-    
-    # Compute g·x
-    g_dot_x = K(0)
-    for old_idx, g_coeff in row_g_dict.items():
-        if old_idx in col_map:
-            new_idx = col_map[old_idx]
-            if new_idx < len(x_solution):
-                g_coeff_proj = int((Integer(g_coeff) * Integer(h)) % ell)
-                g_dot_x += K(g_coeff_proj) * x_solution[new_idx]
-    
-    # Compute q·x
-    q_dot_x = K(0)
-    for idx, q_coeff in q_row_pruned.items():
-        if idx < len(x_solution):
-            q_dot_x += K(int(q_coeff)) * x_solution[idx]
-    
-    if verbose:
-        print(f"  [Extraction] g·x = {g_dot_x}")
-        print(f"  [Extraction] q·x = {q_dot_x}")
-        sys.stdout.flush()
-    
-    if g_dot_x == K(0):
-        raise RuntimeError("Degenerate solution: g·x = 0")
-    
-    dlog = Integer(int(q_dot_x / g_dot_x))
-    
-    if verbose:
-        print(f"  [Result] d = (q·x) / (g·x) = {dlog} (mod ℓ)")
-        sys.stdout.flush()
-    
-    # STEP 7: Verification
-    if verbose:
-        print(f"\n  [Verify] Checking d·G == Q...")
-        sys.stdout.flush()
-    
-    D = Integer(dlog) * G - Q
-    
-    if not D.is_zero():
-        raise RuntimeError(f"Verification FAILED: {dlog}·G ≠ Q")
-    
-    if verbose:
-        print(f"  [Verify] ✓ Success: {dlog}·G = Q")
-        print(f"\n{'='*70}\n")
-        sys.stdout.flush()
-    
-    return Integer(dlog)
-
-
-def solve_dlp_mod_l_cofactor_projection(
-    homogeneous_rows,
-    row_g_dict,
-    alpha_g,
-    row_q_dict,
-    beta_q,
-    full_order,
-    G, Q,
-    atom_to_idx,
-    J,
-    *,
-    verbose=True,
-    use_direct_solver=True,
-):
-    """
-    CORRECTED: Index Calculus with cofactor projection.
-    
-    Setup (from your discussion):
-    1. Build system in FULL group: R * x = g
-       - Homogeneous relations: Σ aᵢ·Pᵢ = 0  (RHS=0)
-       - Inhomogeneous G-row: G = Σ gᵢ·Pᵢ   (RHS=1)
-    2. Multiply BOTH sides by cofactor h
-    3. Solve in ℓ-torsion for same coefficients
-    4. Recover d from Q's encoding
-    
-    Critical insight: Since G and Q are ℓ-torsion, h·G = G and h·Q = Q.
-    The coefficients don't change - we're just doing arithmetic in a smaller group.
-    
-    Args:
-        homogeneous_rows: relations in FULL group (RHS=0)
-        row_g_dict: G's encoding in FULL group
-        alpha_g: G smoothing offset (ignored for ℓ-torsion points)
-        row_q_dict: Q's encoding in FULL group  
-        beta_q: Q smoothing offset (ignored for ℓ-torsion points)
-        full_order: |J|
-        G, Q: Jacobian elements (must be ℓ-torsion)
-        atom_to_idx: factor base map
-        J: Jacobian
-        verbose: diagnostics
-        use_direct_solver: use Sage direct solver (vs BW)
-    
-    Returns:
-        Integer: discrete log d where Q = d·G (mod ℓ)
-    """
-    from sage.all import Integer, factor, Zmod, matrix, vector
-    
-    J_order = Integer(full_order)
-    factors = factor(J_order)
-    ell = int(max(int(p) for p, _ in factors))
-    h = int(J_order // ell)
-
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS - COFACTOR PROJECTION METHOD")
-        print(f"{'='*70}")
-        print(f"Full order |J|: {J_order}")
-        print(f"Largest prime ℓ: {ell}")
-        print(f"Cofactor h: {h}")
-        sys.stdout.flush()
-    
-    # Verify G and Q are ℓ-torsion
-    if verbose:
-        print(f"  [Check] Verifying G and Q are ℓ-torsion...")
-        sys.stdout.flush()
-    
-    ell_G = Integer(ell) * G
-    ell_Q = Integer(ell) * Q
-    
-    if not ell_G.is_zero():
-        raise RuntimeError(f"G is NOT ℓ-torsion: ℓ·G = {ell_G} ≠ 0")
-    
-    if not ell_Q.is_zero():
-        raise RuntimeError(f"Q is NOT ℓ-torsion: ℓ·Q = {ell_Q} ≠ 0")
-    
-    if verbose:
-        print(f"  [Check] ✓ Both G and Q are in J[ℓ]")
-        sys.stdout.flush()
-    
-    # STEP 1: Build system in FULL group
-    if verbose:
-        print(f"\n  [Step 1] Building system in FULL group")
-        print(f"  Input: {len(homogeneous_rows)} homogeneous relations")
-        sys.stdout.flush()
-    
-    all_rows_full = list(homogeneous_rows)
-    rhs_full = [0] * len(homogeneous_rows)
-    
-    # Add G-row with RHS=1
-    all_rows_full.append(row_g_dict)
-    rhs_full.append(1)
-    
-    # Get dimensions
-    max_idx = -1
-    for r in all_rows_full:
-        if r:
-            max_idx = max(max_idx, max(r.keys()))
-    if row_q_dict:
-        max_idx = max(max_idx, max(row_q_dict.keys()))
-    
-    n_cols = max_idx + 1
-    n_rows = len(all_rows_full)
-    
-    if verbose:
-        print(f"  [Step 1] System: {n_rows} rows × {n_cols} cols")
-        print(f"           - {len(homogeneous_rows)} homogeneous (RHS=0)")
-        print(f"           - 1 G-row (RHS=1)")
-        sys.stdout.flush()
-    
-    # STEP 2: Apply cofactor h to BOTH sides
-    if verbose:
-        print(f"\n  [Step 2] Multiplying both sides by h={h}")
-        sys.stdout.flush()
-    
-    projected_rows = []
-    projected_rhs = []
-    
-    for row, rhs in zip(all_rows_full, rhs_full):
-        new_row = {}
-        for k, v in row.items():
-            new_val = int((Integer(v) * Integer(h)) % ell)
-            if new_val != 0:
-                new_row[k] = new_val
-        
-        new_rhs = int((Integer(rhs) * Integer(h)) % ell)
-        
-        if new_row or new_rhs != 0:
-            projected_rows.append(new_row)
-            projected_rhs.append(new_rhs)
-    
-    if verbose:
-        print(f"  [Step 2] After projection: {len(projected_rows)}/{n_rows} rows survived")
-        sys.stdout.flush()
-    
-    if not projected_rows:
-        raise RuntimeError("All rows vanished after h-projection!")
-    
-    # STEP 3: Prune to pivot columns ONLY
-    if verbose:
-        print(f"\n  [Step 3] Pruning to pivot columns...")
-        sys.stdout.flush()
-    
-    pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
-        projected_rows, 
-        projected_rhs, 
-        ell, 
-        verbose=verbose
-    )
-    
-    n_cols_pruned = len(pivot_cols)
-    
-    if verbose:
-        print(f"  [Step 3] After pruning: {len(pruned_rows)} rows × {n_cols_pruned} cols")
-        print(f"  [Step 3] System is overdetermined - Sage will handle it")
-        sys.stdout.flush()
-    
+    # ========================================================================
     # STEP 4: Map Q to pruned coordinates
+    # ========================================================================
+    
     if verbose:
         print(f"\n  [Step 4] Mapping Q to pruned coordinates...")
         sys.stdout.flush()
     
-    q_row_pruned = {}
+    # Apply h-projection to Q row (same as we did to all other rows)
+    q_row_projected = {}
     for old_idx, val in row_q_dict.items():
+        val_proj = int((Integer(val) * Integer(h)) % ell)
+        if val_proj != 0:
+            q_row_projected[old_idx] = val_proj
+    
+    # Map to pruned column indices
+    q_row_pruned = {}
+    for old_idx, val in q_row_projected.items():
         if old_idx in col_map:
             new_idx = col_map[old_idx]
-            val_mod = int((Integer(val) * Integer(h)) % ell)
-            if val_mod != 0:
-                q_row_pruned[new_idx] = val_mod
+            q_row_pruned[new_idx] = val
     
     if not q_row_pruned:
-        raise RuntimeError("Q encoding vanished after pruning!")
+        raise RuntimeError("Q encoding vanished after pruning and h-projection!")
     
     if verbose:
         print(f"  [Step 4] Q-row: {len(q_row_pruned)}/{len(row_q_dict)} coefficients survived")
         sys.stdout.flush()
     
+    # ========================================================================
     # STEP 5: Solve the linear system
+    # ========================================================================
+    
     if verbose:
-        print(f"\n  [Step 5] Solving overdetermined system mod ℓ={ell}")
+        print(f"\n  [Step 5] Solving system mod ℓ={ell}")
+        print(f"  System: R * x = g (INHOMOGENEOUS)")
         sys.stdout.flush()
     
     if not use_direct_solver:
-        raise NotImplementedError("Block-Wiedemann not yet adapted")
+        raise NotImplementedError("Block-Wiedemann not yet adapted for cofactor projection")
     
     K = Zmod(ell)
     entries = {}
@@ -1871,7 +1021,6 @@ def solve_dlp_mod_l_cofactor_projection(
     if verbose:
         print(f"  [Matrix] Built: {R_matrix.nrows()} × {R_matrix.ncols()}")
         print(f"  [Matrix] Sparse entries: {len(entries)}")
-        print(f"  [Note] Rank is guaranteed to be {n_cols_pruned} by pivot column selection")
         print(f"  [Solve] Computing R * x = g...")
         sys.stdout.flush()
     
@@ -1879,22 +1028,16 @@ def solve_dlp_mod_l_cofactor_projection(
         x_solution = R_matrix.solve_right(g_vec)
     except ValueError as e:
         # System is inconsistent - diagnose
-        if verbose:
-            print(f"  [Solve] Failed! Checking rank to diagnose...")
-            sys.stdout.flush()
-        
-        # Now check rank (this will be slow, but only on failure)
-        rank = R_matrix.rank()
+        rank_R = R_matrix.rank()
         R_aug = R_matrix.augment(g_vec.column(), subdivide=False)
         rank_aug = R_aug.rank()
         
         raise RuntimeError(
-            f"System inconsistent!\n"
-            f"  Rank[R]   = {rank}\n"
+            f"System inconsistent after pruning!\n"
+            f"  Rank[R]   = {rank_R}\n"
             f"  Rank[R|g] = {rank_aug}\n"
             f"  Rows: {R_matrix.nrows()}, Cols: {R_matrix.ncols()}\n"
-            f"  Difference: {rank_aug - rank}\n"
-            f"  This means G is not in the span of homogeneous relations mod ℓ.\n"
+            f"  This should not happen if pruning preserved row operations.\n"
             f"  Original error: {e}"
         )
     
@@ -1902,23 +1045,48 @@ def solve_dlp_mod_l_cofactor_projection(
         print(f"  [Solve] ✓ Solution found")
         sys.stdout.flush()
     
-    # STEP 6: Extract discrete log
+    # ========================================================================
+    # STEP 6: Extract discrete log (accounting for h-projection)
+    # ========================================================================
+    
     if verbose:
         print(f"\n  [Step 6] Extracting discrete log")
         sys.stdout.flush()
     
-    # Compute g·x
-    g_dot_x = K(0)
-    for old_idx, g_coeff in row_g_dict.items():
+    # We solved: (h·R) * x = h·g  where R is the homogeneous matrix, g is the G-row
+    # The solution x gives us: h·Q = (h·q)·x  and  h = (h·g)·x
+    # Therefore: d ≡ (h·q)·x / (h·g)·x ≡ (q·x) / (g·x) (mod ℓ)
+    
+    K = Zmod(ell)
+    
+    # We need ORIGINAL G encoding (not h-projected) to compute g·x
+    # Map original G-row to pruned coordinates
+    g_row_pruned_original = {}
+    for old_idx, val in row_g_dict.items():
         if old_idx in col_map:
             new_idx = col_map[old_idx]
-            if new_idx < len(x_solution):
-                g_coeff_proj = int((Integer(g_coeff) * Integer(h)) % ell)
-                g_dot_x += K(g_coeff_proj) * x_solution[new_idx]
+            val_mod = int(val) % ell
+            if val_mod != 0:
+                g_row_pruned_original[new_idx] = val_mod
     
-    # Compute q·x
+    # Compute g·x (using ORIGINAL G encoding)
+    g_dot_x = K(0)
+    for idx, coeff in g_row_pruned_original.items():
+        if idx < len(x_solution):
+            g_dot_x += K(int(coeff)) * x_solution[idx]
+    
+    # Compute q·x (using ORIGINAL Q encoding, which we h-projected then pruned)
+    # But we want the ORIGINAL q vector, so map from row_q_dict
+    q_row_pruned_original = {}
+    for old_idx, val in row_q_dict.items():
+        if old_idx in col_map:
+            new_idx = col_map[old_idx]
+            val_mod = int(val) % ell
+            if val_mod != 0:
+                q_row_pruned_original[new_idx] = val_mod
+    
     q_dot_x = K(0)
-    for idx, q_coeff in q_row_pruned.items():
+    for idx, q_coeff in q_row_pruned_original.items():
         if idx < len(x_solution):
             q_dot_x += K(int(q_coeff)) * x_solution[idx]
     
@@ -1928,15 +1096,23 @@ def solve_dlp_mod_l_cofactor_projection(
         sys.stdout.flush()
     
     if g_dot_x == K(0):
-        raise RuntimeError("Degenerate solution: g·x = 0")
+        raise RuntimeError(
+            "Degenerate solution: g·x = 0\n"
+            "This means the solution doesn't satisfy the G constraint.\n"
+            "The system may have become degenerate during pruning."
+        )
     
+    # d ≡ (q·x) / (g·x) (mod ℓ)
     dlog = Integer(int(q_dot_x / g_dot_x))
     
     if verbose:
-        print(f"  [Result] d = (q·x) / (g·x) = {dlog} (mod ℓ)")
+        print(f"  [DLog] d = (q·x) / (g·x) = {dlog} (mod ℓ)")
         sys.stdout.flush()
     
+    # ========================================================================
     # STEP 7: Verification
+    # ========================================================================
+    
     if verbose:
         print(f"\n  [Verify] Checking d·G == Q...")
         sys.stdout.flush()
@@ -1952,3 +1128,322 @@ def solve_dlp_mod_l_cofactor_projection(
         sys.stdout.flush()
     
     return Integer(dlog)
+
+
+def _matvec_chunk(args):
+    """Helper for parallel row-wise matrix-vector product."""
+    rows, vec, mod = args
+    out = [0] * len(rows)
+    for local_idx, (i, (idxs, vals)) in enumerate(rows):
+        s = 0
+        for j, v in zip(idxs, vals):
+            s += v * vec[j]
+        out[local_idx] = s % mod
+    return out
+
+
+def parallel_matvec(packed_rows, vec, mod, pool):
+    """Parallel implementation of A * vec."""
+    nprocs = pool._processes
+    chunks = [[] for _ in range(nprocs)]
+    for i, r in enumerate(packed_rows):
+        chunks[i % nprocs].append((i, r))
+
+    parts = pool.map(
+        _matvec_chunk,
+        [(chunk, vec, mod) for chunk in chunks]
+    )
+
+    out = [0] * len(packed_rows)
+    for chunk_idx, part in enumerate(parts):
+        chunk = chunks[chunk_idx]
+        for local_idx, v in enumerate(part):
+            if v:
+                actual_i = chunk[local_idx][0]
+                out[actual_i] = v
+    return out
+
+
+def _transpose_matvec_chunk(args):
+    """Helper for parallel column-wise (transpose) matrix-vector product."""
+    cols, vec, mod = args
+    out = [0] * len(cols)
+    for local_idx, (j, col) in enumerate(cols):
+        s = 0
+        for i, c in col:
+            s += c * vec[i]
+        out[local_idx] = s % mod
+    return out
+
+
+def parallel_transpose_matvec(packed_cols, vec, mod, n, pool):
+    """Parallel implementation of A^T * vec."""
+    nprocs = pool._processes
+    chunks = [[] for _ in range(nprocs)]
+    for j, col in enumerate(packed_cols):
+        chunks[j % nprocs].append((j, col))
+    
+    parts = pool.map(
+        _transpose_matvec_chunk,
+        [(chunk, vec, mod) for chunk in chunks]
+    )
+    
+    out = [0] * n
+    for chunk_idx, part in enumerate(parts):
+        chunk = chunks[chunk_idx]
+        for local_idx, v in enumerate(part):
+            if v:
+                actual_j = chunk[local_idx][0]
+                out[actual_j] = v
+    return out
+
+
+def matvec_rows(packed_rows, vec, mod, lazy_limit=_LAZY_LIMIT):
+    """Single-process, minimal overhead, lazy reduction matvec."""
+    m = len(packed_rows)
+    out = [0] * m
+    for i, (idxs, vals) in enumerate(packed_rows):
+        s = 0
+        for j, a in zip(idxs, vals):
+            s += a * vec[j]
+            if s > lazy_limit:
+                s %= mod
+        out[i] = s % mod
+    return out
+
+
+def compute_proj_and_atav(packed_rows, vec, left_vec_b, n_cols, mod, lazy_limit=_LAZY_LIMIT):
+    """
+    Fused computation of:
+      s = A * vec
+      proj = left_vec_b^T * s
+      atav = A^T * s
+    Iterates M = A^T * A. Essential for Wiedemann on rectangular matrices.
+    """
+    atav = [0] * n_cols
+    proj_acc = 0
+    
+    atav_loc = atav
+    mod_loc = mod
+    lazy_loc = lazy_limit
+    
+    for (idxs, vals), b_i in zip(packed_rows, left_vec_b):
+        s = 0
+        for j, a in zip(idxs, vals):
+            s += a * vec[j]
+            if s > lazy_loc:
+                s %= mod_loc
+        s %= mod_loc
+
+        if b_i:
+            proj_acc += b_i * s
+            if proj_acc > lazy_loc:
+                proj_acc %= mod_loc
+
+        for j, a in zip(idxs, vals):
+            val = atav_loc[j] + a * s
+            if val > lazy_loc:
+                val %= mod_loc
+            atav_loc[j] = val
+
+    proj = proj_acc % mod
+    for j in range(n_cols):
+        if atav[j]:
+            atav[j] %= mod
+    return proj, atav
+
+
+def at_a_v_from_packed(packed_rows, vec, n_cols, mod, lazy_limit=_LAZY_LIMIT):
+    zero_left = [0] * len(packed_rows)
+    _, atav = compute_proj_and_atav(packed_rows, vec, zero_left, n_cols, mod, lazy_limit)
+    return atav
+
+
+def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
+    """Baby-step Giant-step to lift d (mod ell) to the full discrete log."""
+    R = Q - Integer(d_mod_ell) * G
+    if R.is_zero():
+        return int(d_mod_ell)
+
+    H = Integer(ell) * G 
+    if H.is_zero():
+        return None
+
+    bound = int(h)
+    m = int(ceil(sqrt(bound)))
+
+    baby = {}
+    cur = Integer(0) * H
+    for j in range(m):
+        key = str(cur)
+        if key not in baby:
+            baby[key] = j
+        cur = cur + H
+
+    factor_gs = Integer(m) * H
+    giant = R
+    for i in range(0, m + 1):
+        key = str(giant)
+        if key in baby:
+            j = baby[key]
+            t = i * m + j
+            if t < bound:
+                full_d = int((Integer(d_mod_ell) + Integer(t) * Integer(ell)))
+                if full_d * G == Q:
+                    return full_d
+        giant = giant - factor_gs
+    return None
+
+
+def verify_matrix_solution(packed_rows, projected_rhs, solution, mod, verbose=True):
+    sol_ints = [int(solution[i]) for i in range(len(solution))]
+    for i, (idxs, vals) in enumerate(packed_rows):
+        s = 0
+        for j, a in zip(idxs, vals):
+            s += int(a) * sol_ints[j]
+        if (s - int(projected_rhs[i])) % mod != 0:
+            return False
+    return True
+
+
+def solve_sparse_direct_mod_ell(A_sparse_matrix, b_list, mod, verbose=True):
+    """Direct solver using Sage's internal solve_right for pruned/small systems."""
+    A_rows = []
+    for (idxs, vals) in A_sparse_matrix.packed_rows:
+        row_dict = {int(idx): int(val) for idx, val in zip(idxs, vals)}
+        A_rows.append(row_dict)
+    
+    n_cols = A_sparse_matrix.n_cols
+    n_rows = len(A_rows)
+    
+    if n_rows < n_cols:
+        raise RuntimeError("Underdetermined system after pruning.")
+    
+    M_sage = matrix(GF(mod), n_rows, n_cols, sparse=True)
+    b_sage = vector(GF(mod), b_list)
+    
+    for i, row_dict in enumerate(A_rows):
+        for col, val in row_dict.items():
+            M_sage[i, col] = val
+    
+    actual_rank = M_sage.rank()
+    if actual_rank < n_cols:
+        raise RuntimeError(f"Rank deficit: {actual_rank} < {n_cols}")
+    
+    return M_sage.solve_right(b_sage)
+
+
+def find_exact_pivot_columns_sparse(A_rows, mod, verbose=True):
+    """Incremental Gaussian elimination to find pivot columns."""
+    K = GF(mod)
+    pivot_cols = []
+    row_echelon = [] 
+    
+    for i, row in enumerate(A_rows):
+        if not row: continue
+        current = dict(row)
+        for pivot_col, pivot_row in zip(pivot_cols, row_echelon):
+            if pivot_col in current:
+                multiplier = K(current[pivot_col]) / K(pivot_row[pivot_col])
+                for col, val in pivot_row.items():
+                    current[col] = K(current.get(col, 0) - multiplier * val)
+                    if current[col] == 0: del current[col]
+        
+        if current:
+            leading_col = min(current.keys())
+            lead_inv = K(current[leading_col])**(-1)
+            current = {col: K(val * lead_inv) for col, val in current.items()}
+            pivot_cols.append(leading_col)
+            row_echelon.append(current)
+            
+    return sorted(pivot_cols)
+
+
+def block_wiedemann_solve(A, iters=None, verbose=True, left_seed=None, right_seed=None, force_cols=None):
+    """
+    Standard scalar Wiedemann algorithm using A^T * A.
+    Returns (solution_vector, bm_degree).
+    """
+    from sage.matrix.berlekamp_massey import berlekamp_massey as sage_bm
+    
+    mod = int(A.mod)
+    n = A.n_cols
+    m = len(A.packed_rows)
+    
+    if iters is None:
+        iters = 3 * n + 200
+    if iters % 2 != 0: iters += 1
+
+    left_seed = left_seed or random.randrange(1, mod)
+    right_seed = right_seed or random.randrange(1, mod)
+    
+    rng_left = random.Random(left_seed)
+    rng_right = random.Random(right_seed)
+    
+    left_vec_b = [rng_left.randrange(mod) for _ in range(m)]
+    v_start = [rng_right.randrange(mod) for _ in range(n)]
+    
+    if force_cols:
+        for col_idx in force_cols:
+            if col_idx < len(v_start):
+                v_start[col_idx] = rng_right.randrange(1, mod)
+    
+    # Pass 1: Krylov
+    seq = []
+    v = list(v_start)
+    for t in range(iters):
+        proj, v_next = compute_proj_and_atav(A.packed_rows, v, left_vec_b, n, mod)
+        seq.append(proj)
+        v = v_next
+
+    # Pass 2: Berlekamp-Massey
+    K = GF(mod)
+    min_poly = sage_bm([K(s) for s in seq])
+    deg = min_poly.degree()
+    
+    if deg == 0: return None, 0
+    coeffs = [int(min_poly[i]) for i in range(deg + 1)]
+
+    # Pass 3: Reconstruct
+    v = list(v_start)
+    x_accum = [0] * n
+    for i, c in enumerate(coeffs):
+        if c != 0:
+            for j in range(n):
+                x_accum[j] = (x_accum[j] + c * v[j]) % mod
+        if i < len(coeffs) - 1:
+            v = at_a_v_from_packed(A.packed_rows, v, n, mod)
+
+    return vector(Zmod(mod), x_accum), deg
+
+
+def prune_factor_base_to_pivot_columns(A_rows, b_list, mod, verbose=True):
+    pivot_cols = find_exact_pivot_columns_sparse(A_rows, mod, verbose=verbose)
+    col_map = {old_idx: new_idx for new_idx, old_idx in enumerate(pivot_cols)}
+    
+    pruned_rows = []
+    pruned_rhs = []
+    for i, row in enumerate(A_rows):
+        pruned_row = {col_map[k]: v for k, v in row.items() if k in col_map}
+        if pruned_row:
+            pruned_rows.append(pruned_row)
+            pruned_rhs.append(b_list[i])
+            
+    return pruned_rows, pruned_rhs, col_map, pivot_cols
+
+
+def expand_solution_to_original(solution_vec, col_map):
+    if not col_map: return [int(x) for x in solution_vec]
+    n_orig = max(col_map.keys()) + 1
+    sol_orig = [0] * n_orig
+    for old_idx, new_idx in col_map.items():
+        if new_idx < len(solution_vec):
+            sol_orig[old_idx] = int(solution_vec[new_idx])
+    return sol_orig
+
+
+def reconstruct_d_from_solution(beta_q, row_q_dict, solution, mod):
+    d = int(beta_q) % mod
+    for k, v in row_q_dict.items():
+        d = (d - int(v) * int(solution[k])) % mod
+    return d

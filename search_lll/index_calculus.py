@@ -21,6 +21,7 @@ from sage.matrix.berlekamp_massey import berlekamp_massey
 from search_common import SECRET_KEY, BLOCK_WIEDEMANN, FINITE_FIELD, PREFERRED_X_COORDS
 from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import *
+from .cofactor import *
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -617,115 +618,6 @@ def get_largest_prime_factor(n):
     if not primes:
         raise RuntimeError("No prime factors found")
     return max(primes)
-
-
-def project_relations_and_solve_mod_l(valid_rows, rhs_values, q_anchored, full_order, G, Q,
-                                      verbose=True):
-    """
-    Project the assembled relations system to the largest-prime-factor modulus ell,
-    solve A x = b (mod ell) and return x_log (Integer mod ell).
-
-    Arguments:
-      valid_rows   : list of sparse dicts {col_idx: coeff_int} representing homogeneous + G rows
-      rhs_values   : list of ints (RHS) aligned with valid_rows
-      q_anchored   : tuple (rq, row_q) where rq is int (beta_q) and row_q is sparse dict
-      full_order   : full Jacobian order |J|
-      G, Q         : Sage Jacobian elements (used only for final subgroup verification)
-    Returns:
-      (d_mod_ell : Integer)  discrete log modulo ell (i.e. in Z/ellZ)
-    Raises:
-      RuntimeError on failure; instructs to consider block Wiedemann if direct solve fails.
-    """
-    # --- 1. compute ell and cofactor h ---
-    ell = int(get_largest_prime_factor(full_order))
-    h = int(Integer(full_order) // Integer(ell))
-
-    if verbose:
-        print(f"  [Project] Full order: {full_order}")
-        print(f"  [Project] Largest prime ℓ: {ell}, cofactor h: {h}")
-        sys.stdout.flush()
-
-    # --- 2. construct sparse matrix over Z/ellZ ---
-    K = Zmod(ell)
-    num_rels = len(valid_rows)
-    max_idx = -1
-    for r in valid_rows:
-        if r:
-            max_idx = max(max_idx, max(r.keys()))
-    rq, row_q = q_anchored
-    if row_q:
-        max_idx = max(max_idx, max(row_q.keys()))
-    num_vars = max_idx + 1
-
-    if verbose:
-        print(f"  [Matrix] Building A (mod {ell}): {num_rels} x {num_vars}")
-        sys.stdout.flush()
-
-    entries = {}
-    nonzero = 0
-    for i, rel in enumerate(valid_rows):
-        for idx, count in rel.items():
-            if idx < 0:
-                continue
-            val = K(int(count) % ell)
-            if val != 0:
-                entries[(i, idx)] = val
-                nonzero += 1
-
-    # RHS vector mod ell
-    b_vec = vector(K, [K(int(v) % ell) for v in rhs_values])
-
-    # build sparse matrix
-    A_mod_ell = matrix(K, num_rels, num_vars, entries, sparse=True)
-
-    if verbose:
-        print(f"  [Matrix] Non-zero entries: {nonzero}")
-        sys.stdout.flush()
-
-    # --- 3. Attempt direct solve over Z/ellZ ---
-    try:
-        if verbose:
-            print(f"  [Solver] Attempting direct solve over Z/{ell}Z ...")
-            sys.stdout.flush()
-        sol = A_mod_ell.solve_right(b_vec)  # may raise ValueError if inconsistent or undetermined
-    except ValueError as e:
-        # Direct dense/sparse solve failed — recommend block Wiedemann (sparse iterative)
-        raise RuntimeError(
-            f"Direct solve over Z/{ell}Z failed: {e}. "
-            "Consider running a Block-Wiedemann solver on the projected system (mod ℓ)."
-        )
-
-    # --- 4. compute discrete-log from solution (mod ell) ---
-    sum_logs = K(0)
-    for idx, count in (row_q or {}).items():
-        if idx < len(sol):
-            sum_logs += K(int(count) % ell) * sol[idx]
-
-    log_val_mod_ell = (sum_logs - K(int(rq) % ell))  # this is element of Zmod(ell)
-
-    # convert to Integer in [0, ell-1]
-    d_mod_ell = Integer(int(log_val_mod_ell))
-
-    if verbose:
-        print(f"  [Solver] Candidate discrete-log (mod ℓ): {d_mod_ell}")
-        sys.stdout.flush()
-
-    # --- 5. Verify inside ℓ-subgroup: compare h*Q and (d_mod_ell) * h*G ---
-    hG = Integer(h) * G
-    hQ = Integer(h) * Q
-    verification = Integer(d_mod_ell) * hG
-
-    if verification == hQ:
-        if verbose:
-            print("  [Verify] ✓ Discrete log verified inside ℓ-subgroup: d (mod ℓ) is correct")
-        return d_mod_ell
-    else:
-        # It's possible the solution solved a different representative (rare). Fail clearly.
-        raise RuntimeError(
-            "Projected-solution did not verify inside ℓ-subgroup: "
-            f"{d_mod_ell} * (h*G) != (h*Q). "
-            "Either the system is inconsistent mod ℓ or the factor base / rows are misaligned."
-        )
 
 
 # ============================================================================
@@ -1380,22 +1272,74 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     # === CALL KERNEL SOLVER ===
     # Pass only homogeneous relations (already in ℓ-torsion)
     # G and Q rows are used for dlog extraction, NOT added to system
-    
 
-    # Replace with:
-    dlog = solve_dlp_mod_l_cofactor_projection(
-        homogeneous_rows,  # FULL GROUP relations (NOT projected)
-        row_g,             # FULL GROUP G encoding
-        alpha_g,           # (ignored for ℓ-torsion points)
-        row_q,             # FULL GROUP Q encoding
-        beta_q,            # (ignored for ℓ-torsion points)
-        full_order,
-        G, Q,
-        atom_to_idx,
-        J,
-        verbose=verbose,
+
+    # === NEW: COFACTOR PROJECTION PRE-CHECK ===
+    # Run pre-check before attempting ℓ-torsion solve
+    precheck = precheck_cofactor_projection(
+        atom_to_idx=atom_to_idx,
+        homogeneous_rows=homogeneous_rows,
+        row_g=row_g,
+        row_q=row_q,
+        full_order=full_order,
+        J=J,
+        f_coeffs=f_coeffs,
+        p=p,
+        verbose=verbose
     )
 
+    char_res = detect_nontrivial_character_from_projection(
+        precheck['filtered_rows'], 
+        precheck['alive_fb_indices'], 
+        precheck['ell'], 
+        verbose=True)
+    if char_res['found']:
+        verify_character_vectors(precheck, char_res, ell=precheck['ell'])
+    else:
+        print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
+
+    
+    if precheck['safe_to_project']:
+        # Apply filtering to remove dead FB elements and relations
+        filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q = apply_cofactor_filter(
+            precheck, atom_to_idx, homogeneous_rows, row_g, row_q, verbose=verbose
+        )
+        
+        # Use filtered data for ℓ-torsion solve
+        if verbose:
+            print(f"\n[Strategy] Using FILTERED ℓ-torsion solve")
+            print(f"  Filtered FB: {len(filtered_atom_to_idx)} elements")
+            print(f"  Filtered relations: {len(filtered_rows)}")
+            sys.stdout.flush()
+        
+        try:
+            dlog = solve_dlp_mod_l_cofactor_projection(
+                filtered_rows,
+                filtered_row_g,
+                0,  # alpha_g (unused for ℓ-torsion)
+                filtered_row_q,
+                0,  # beta_q (unused for ℓ-torsion)
+                full_order,
+                G, Q,
+                filtered_atom_to_idx,
+                J,
+                verbose=verbose,
+            )
+        except Exception as e:
+            if verbose:
+                print(f"  ! Filtered ℓ-torsion solve failed: {e}")
+                print(f"  Falling back to full Jacobian solve...")
+            raise  # Let caller handle fallback
+    else:
+        # Pre-check failed - projection would lose rank
+        if verbose:
+            print(f"\n[Strategy] Pre-check FAILED: {precheck['reason']}")
+            print(f"  Skipping ℓ-torsion solve")
+            print(f"  Using full Jacobian solve instead")
+            sys.stdout.flush()
+        
+        raise RuntimeError(f"Cofactor projection unsafe: {precheck['reason']}")
+    
     if verbose:
         print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
 
@@ -2004,3 +1948,135 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
             raise RuntimeError(f"_worker_init: ALL offsets failed: {failed_offsets[0]}")
 
 
+# ---------------------------------------------------------------------
+# REPLACE project_relations_and_solve_mod_l (NO anchoring; accept row_q mapping)
+# ---------------------------------------------------------------------
+def project_relations_and_solve_mod_l(valid_rows, rhs_values, row_q_map, full_order, G, Q,
+                                      verbose=True):
+    from sage.all import Integer, Zmod, matrix, vector
+
+    # get ell and h
+    fac = full_order.factor() if hasattr(full_order, "factor") else None
+    # best-effort: factor may not be available; fall back to integer arithmetic
+    if fac:
+        ell = int(max(int(pr) for pr, _ in fac))
+    else:
+        # naive largest prime factor (fallback)
+        n = int(full_order)
+        ell = 2
+        p_temp = ell
+        while p_temp * p_temp <= n:
+            if n % p_temp == 0:
+                ell = p_temp
+                while n % p_temp == 0:
+                    n //= p_temp
+            p_temp += 1 if p_temp == 2 else 2
+        if n > 1:
+            ell = int(n)
+    h = int(Integer(full_order) // Integer(ell))
+
+    if verbose:
+        print(f"  [Project] |J|={full_order}  ℓ={ell}  h={h}")
+
+    Zell = Zmod(ell)
+
+    num_rels = len(valid_rows)
+    if len(rhs_values) != num_rels:
+        raise RuntimeError("Mismatch: len(valid_rows) != len(rhs_values)")
+
+    # determine num_vars (max index + 1)
+    max_idx = -1
+    for r in valid_rows:
+        if r:
+            max_idx = max(max_idx, max(r.keys()))
+    if row_q_map:
+        max_idx = max(max_idx, max(row_q_map.keys()))
+    num_vars = max_idx + 1
+
+    if verbose:
+        print(f"  [Matrix] Building projected system: {num_rels} rows x {num_vars} cols")
+
+    hom_rows = []
+    hom_rhs = []
+    inhom_rows = []
+    inhom_rhs = []
+
+    for r, b in zip(valid_rows, rhs_values):
+        b_mod = int(b) % ell
+        if b_mod == 0:
+            hom_rows.append(r)
+            hom_rhs.append(0)
+        else:
+            inhom_rows.append(r)
+            inhom_rhs.append(b_mod)
+
+    if len(inhom_rows) != 1:
+        raise RuntimeError(f"Expected exactly one inhomogeneous G-row after projection; found {len(inhom_rows)}")
+
+    row_g = inhom_rows[0]
+    rhs_g_val = int(h % ell)  # normalization: solving logs w.r.t. G -> RHS = h
+
+    entries_hom = {}
+    for i, row in enumerate(hom_rows):
+        for j, mult in row.items():
+            val = Zell(int(mult) % ell)
+            if val != 0:
+                entries_hom[(i, j)] = val
+
+    A_hom = matrix(Zell, len(hom_rows), num_vars, entries_hom, sparse=True)
+    rank_A = A_hom.rank()
+
+    if verbose:
+        print(f"  [Project] A_hom: {A_hom.nrows()} x {A_hom.ncols()}, rank = {rank_A}")
+
+    g_row_entries = {}
+    for j, mult in row_g.items():
+        v = Zell(int(mult) % ell)
+        if int(v) != 0:
+            g_row_entries[j] = v
+
+    entries_aug = dict(entries_hom)
+    for j, val in g_row_entries.items():
+        entries_aug[(len(hom_rows), j)] = val
+
+    M_aug = matrix(Zell, len(hom_rows) + 1, num_vars, entries_aug, sparse=True)
+    b_aug = vector(Zell, [Zell(0)] * len(hom_rows) + [Zell(rhs_g_val)])
+
+    rank_A_aug = M_aug.rank()
+    if verbose:
+        print(f"  [Project] rank(A_hom) = {rank_A}  rank(A_hom + G-row) = {rank_A_aug}")
+
+    # invariants: homogeneous must be n_cols-1, augmented full rank
+    if rank_A != max(0, num_vars - 1):
+        raise RuntimeError(f"Homogeneous projected matrix has unexpected rank: {rank_A} (expected {max(0, num_vars - 1)})")
+    if rank_A_aug != num_vars:
+        try:
+            _ = M_aug.solve_right(b_aug)
+        except Exception as e:
+            raise RuntimeError("Augmented projected system is inconsistent or underdetermined: " + str(e))
+        raise RuntimeError("Augmented projected system did not achieve full rank after adding G-row.")
+
+    sol = M_aug.solve_right(b_aug)  # vector length = num_vars
+
+    # compute d modulo ell from Q-decomposition (no anchoring scalar)
+    if not row_q_map:
+        raise RuntimeError("Cannot compute discrete log: Q is not expressed over the factor base (row_q missing).")
+
+    sum_logs = Zell(0)
+    for idx, coeff in row_q_map.items():
+        if idx >= len(sol):
+            raise RuntimeError("row_q index out of range for solved variable vector")
+        sum_logs += Zell(int(coeff) % ell) * sol[idx]
+
+    d_mod_ell = int(sum_logs)  # integer in 0..ell-1
+
+    # verify in ℓ-subgroup
+    hG = Integer(h) * G
+    hQ = Integer(h) * Q
+    if Integer(d_mod_ell) * hG != hQ:
+        raise RuntimeError("Projected solution failed verification in the ℓ-subgroup: computed d does not satisfy d*h*G == h*Q")
+
+    if verbose:
+        print(f"  [Solver] Candidate d (mod ℓ): {d_mod_ell}  ✓ verified")
+
+    return Integer(d_mod_ell)

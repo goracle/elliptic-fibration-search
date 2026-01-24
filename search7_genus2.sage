@@ -454,6 +454,7 @@ class SpamFilter:
             line, self._buffer = self._buffer.split("\n", 1)
             if "Returning ambiguous form of degree genus+1." not in line:
                 self.stream.write(line + "\n")
+                self.stream.flush()
 
     def flush(self):
         if self._buffer:

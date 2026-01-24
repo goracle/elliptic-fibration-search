@@ -539,6 +539,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 raise
 
         return found_xs, [], mumford_residues, stats
+
     # === UNPACK: SCONF ===
     min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
     min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
