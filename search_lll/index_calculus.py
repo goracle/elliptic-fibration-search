@@ -1215,6 +1215,20 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     if not homogeneous_rows:
         raise RuntimeError("No valid homogeneous relations available")
 
+    # === NEW: FILTER FORBIDDEN RELATIONS (G/Q) ===
+    # Explicitly check for and remove vectors linearly dependent on G or Q
+    homogeneous_rows = filter_forbidden_relations(
+        homogeneous_rows, atom_to_idx, f_p, p, G, Q, verbose=verbose
+    )
+
+    if not homogeneous_rows:
+         raise RuntimeError("All relations were filtered out (they were all G or Q dependent!)")
+
+    if verbose:
+        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
+        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
+        sys.stdout.flush()
+
     if verbose:
         print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
         print(f"  [Factor Base] Size: {len(atom_to_idx)}")
@@ -1294,7 +1308,13 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         precheck['ell'], 
         verbose=True)
     if char_res['found']:
-        verify_character_vectors(precheck, char_res, ell=precheck['ell'])
+        verify_character_vectors(
+            precheck['filtered_rows'],
+            char_res['alive_idx_list'],
+            char_res['basis'],
+            precheck['ell'],
+            verbose=True
+        )
     else:
         print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
 
@@ -2080,3 +2100,146 @@ def project_relations_and_solve_mod_l(valid_rows, rhs_values, row_q_map, full_or
         print(f"  [Solver] Candidate d (mod ℓ): {d_mod_ell}  ✓ verified")
 
     return Integer(d_mod_ell)
+
+
+def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
+    """
+    Explicitly remove G and Q (and -G, -Q) from the list of divisors.
+    Used to sanitize the factor base / relation pool.
+    """
+    if not div_list:
+        return []
+
+    # If we aren't in a mode with G/Q, nothing to filter
+    if G is None and Q is None:
+        return div_list
+
+    print(f"  [Filter] Checking {len(div_list)} divisors against G and Q...")
+
+    # We need the Jacobian to perform comparisons
+    K = GF(int(p))
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+    
+    # Comparison targets (pre-compute negation)
+    targets = []
+    if G is not None:
+        targets.append(G)
+        targets.append(-G)
+    if Q is not None:
+        targets.append(Q)
+        targets.append(-Q)
+    
+    clean_list = []
+    incinerated_count = 0
+
+    # Helper to convert dict to J element
+    def _to_J(d):
+        u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
+        v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
+        return J([u_poly, v_poly])
+
+    for d in div_list:
+        try:
+            val_J = _to_J(d)
+        except Exception:
+            # Per aimist.txt, allow exceptions to propagate if logic/data is fundamentally broken
+            raise
+
+        is_forbidden = False
+        for T in targets:
+            if val_J == T:
+                is_forbidden = True
+                break
+        
+        if is_forbidden:
+            incinerated_count += 1
+        else:
+            clean_list.append(d)
+
+    if incinerated_count > 0:
+        print(f"  [Filter] 🔥 INCINERATED {incinerated_count} divisors matching BASE/TARGET or inverses.")
+    else:
+        print(f"  [Filter] ✓ No forbidden divisors found (G/Q clean).")
+
+    return clean_list
+
+
+def are_sparse_vectors_dependent(v1, v2):
+    """
+    Check if v1 = k * v2 for some scalar k (integer/rational).
+    v1, v2 are dicts {idx: val}.
+    """
+    if len(v1) != len(v2):
+        return False
+    if len(v1) == 0:
+        return True # 0 and 0 are dependent
+    
+    keys1 = set(v1.keys())
+    keys2 = set(v2.keys())
+    if keys1 != keys2:
+        return False
+        
+    # Pick a pivot to calculate ratio v1[i] / v2[i]
+    pivot = next(iter(keys1))
+    val1 = v1[pivot]
+    val2 = v2[pivot]
+    
+    # Check cross-product v1[i]*val2 == v2[i]*val1 for all i
+    # This avoids floating point issues and handles integer scaling
+    for k in keys1:
+        if v1[k] * val2 != v2[k] * val1:
+            return False
+            
+    return True
+
+def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
+    """
+    Filters out relations that are linearly dependent on G or Q vectors.
+    Uses vector space dependence check (scalar multiples).
+    """
+    if not rows:
+        return rows
+        
+    targets = []
+    
+    # Generate factor base vectors for G and Q
+    # We use get_relation_row to get the exact FB representation (including signs)
+    for name, Div in [("G", G), ("Q", Q)]:
+        if Div is not None:
+            try:
+                r = get_relation_row(Div, atom_to_idx, f_p, p)
+                if r:
+                    targets.append(r)
+            except Exception:
+                # If G/Q fail to encode (e.g. not smooth), they can't be in the relations anyway
+                raise # but we anyway raise, just to be safe.
+                
+    if not targets:
+        return rows
+        
+    clean_rows = []
+    incinerated = 0
+    
+    for row in rows:
+        hit = False
+        for t in targets:
+            # Check for linear dependence (row = k * target)
+            if are_sparse_vectors_dependent(row, t):
+                hit = True
+                break
+        
+        if hit:
+            incinerated += 1
+        else:
+            clean_rows.append(row)
+            
+    if verbose:
+        if incinerated > 0:
+            print(f"  [Filter] 🔥 INCINERATED {incinerated} relations dependent on G or Q.")
+        else:
+            print(f"  [Filter] ✓ Relation vectors are clean (no linear dependence on G/Q).")
+        
+    return clean_rows

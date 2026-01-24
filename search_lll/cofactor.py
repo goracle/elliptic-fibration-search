@@ -319,39 +319,23 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     # If full rank, auto-prune using echelon form to extract independent rows
     if rank_hom == n_cols:
         if verbose:
-            print("  [Auto-Prune] Homogeneous is full rank; using G-guided row selection")
+            print("  [Auto-Prune] Homogeneous is full rank; FORCING rank defect")
 
-        # Use G-guided pruning instead of blind selection
-        kill_idx = choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=verbose)
+        # Choose rows to delete so rank drops by 1 and kernel hits G
+        rows_to_remove = choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose)
 
-        # Remove the chosen row
-        alive_rows.pop(kill_idx)
+        keep_rows = [i for i in range(A_hom.nrows()) if i not in rows_to_remove]
+        alive_rows = [alive_rows[i] for i in keep_rows]
 
-        # Rebuild matrix
-        entries_pruned = {}
+        # Rebuild A_hom
+        entries = {}
         for i, row in enumerate(alive_rows):
             for old_idx, mult in row.items():
-                entries_pruned[(i, col_map[old_idx])] = Zmod(ell)(int(mult) % ell)
+                entries[(i, col_map[old_idx])] = Zmod(int(ell))(int(mult) % int(ell))
+        A_hom = matrix(Zmod(int(ell)), len(alive_rows), n_cols, entries, sparse=True)
 
-        A_hom = matrix(Zmod(ell), len(alive_rows), n_cols, entries_pruned, sparse=True)
-        rank_hom = A_hom.rank()
-
-        if rank_hom != n_cols - 1:
-            raise RuntimeError(f"G-guided prune failed to induce rank defect (got rank {rank_hom})")
-
-        K = A_hom.right_kernel()
-        assert K.dimension() == 1, "Kernel should be 1-dimensional after G-guided prune"
-
-        if verbose:
-            # Verify G is transverse
-            chi = K.basis()[0]
-            g_vec = vector(Zmod(ell), g_row_vec)
-            dot = chi.dot_product(g_vec)
-            print(f"  [Verification] <kernel, G> = {dot} mod {ell} (should be nonzero)")
-            assert int(dot) % int(ell) != 0, "G should be transverse to kernel"
-
-            if rank_hom != n_cols - 1:
-                raise RuntimeError("auto-prune failed to induce rank defect")
+        if A_hom.rank() != n_cols - 1:
+            raise RuntimeError("Forced prune failed to create rank defect")
 
     # Build g_row vector
     g_row_vec = [0] * n_cols
@@ -434,98 +418,199 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
 
 def try_add_row_to_basis(basis_rows, row_vec, ell):
     """
-    basis_rows: list of dense row vectors (already independent)
-    row_vec: dense row vector to test
-    Returns True if row_vec is independent and added, False otherwise.
+    Rank-based independence test.
+
+    basis_rows: list of dense row vectors (each a Sage vector or list of ints mod ell)
+    row_vec: dense row vector to test (list or Sage vector)
+    Returns True if row_vec is independent and appended to basis_rows, False otherwise.
     """
-    Zell = Zmod(ell)
-    v = vector(Zell, row_vec)
+    Zell = Zmod(int(ell))
 
-    for b in basis_rows:
-        # eliminate leading pivot
-        i = next((j for j,x in enumerate(b) if x != 0), None)
-        if i is None:
+    # convert inputs to dense lists of Zell elements
+    def _to_zell_list(v):
+        if hasattr(v, 'list'):
+            raw = v.list()
+        else:
+            raw = list(v)
+        return [Zell(int(x) % int(ell)) for x in raw]
+
+    v_list = _to_zell_list(row_vec)
+
+    if not basis_rows:
+        # quick append for empty basis
+        basis_rows.append(vector(Zell, v_list))
+        return True
+
+    # build small matrix with current basis rows + candidate
+    M_before = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ])
+    rank_before = M_before.rank()
+    M_after = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ] + [v_list])
+    rank_after = M_after.rank()
+
+    if rank_after > rank_before:
+        basis_rows.append(vector(Zell, v_list))
+        return True
+    return False
+
+
+def select_independent_rows_fast(A_hom, ell, target_count=None):
+    """
+    Zero-rank-check selection exploiting perfect 4-orbit structure.
+    Assumes rank increases at every position 1 + 4k.
+    """
+    n_rows = A_hom.nrows()
+    if target_count is None:
+        target_count = min(n_rows, A_hom.ncols())
+    
+    # Just take every 4th row starting at offset 1
+    chosen = list(range(1, min(1 + 4 * target_count, n_rows), 4))
+    
+    # Truncate to target_count
+    return chosen[:target_count]
+
+
+def select_independent_rows(A_hom, ell, target_count=None):
+    """
+    Fast independent row selection exploiting 4-orbit structure.
+    
+    Observation: rank increases every 4th row starting at offset 1.
+    We stride by 4 and only test candidates at positions 1, 5, 9, 13, ...
+    """
+    Zell = Zmod(int(ell))
+    n_rows = A_hom.nrows()
+    if target_count is None:
+        target_count = min(n_rows, A_hom.ncols())
+    
+    chosen = []
+    chosen_rows = []
+    
+    # Start at offset 1, stride by 4
+    for i in range(1, n_rows, 4):
+        row = A_hom.row(i)
+        row_list = [Zell(int(x) % int(ell)) for x in row]
+        
+        if not chosen_rows:
+            chosen.append(i)
+            chosen_rows.append(row_list)
+            if len(chosen) >= target_count:
+                break
             continue
-        if v[i] != 0:
-            v -= (v[i] / b[i]) * b
-
-    if v.is_zero():
-        return False
-
-    basis_rows.append(v)
-    return True
+        
+        # Rank test (should almost always succeed at these indices)
+        M_before = matrix(Zell, chosen_rows)
+        rank_before = M_before.rank()
+        M_after = matrix(Zell, chosen_rows + [row_list])
+        rank_after = M_after.rank()
+        
+        if rank_after > rank_before:
+            chosen.append(i)
+            chosen_rows.append(row_list)
+            if len(chosen) >= target_count:
+                break
+    
+    # Safety: if we didn't get enough (shouldn't happen), fallback to dense scan
+    if len(chosen) < target_count:
+        for i in range(n_rows):
+            if i in chosen:
+                continue
+            row = A_hom.row(i)
+            row_list = [Zell(int(x) % int(ell)) for x in row]
+            
+            M_before = matrix(Zell, chosen_rows)
+            rank_before = M_before.rank()
+            M_after = matrix(Zell, chosen_rows + [row_list])
+            rank_after = M_after.rank()
+            
+            if rank_after > rank_before:
+                chosen.append(i)
+                chosen_rows.append(row_list)
+                if len(chosen) >= target_count:
+                    break
+    
+    return chosen
 
 
 def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True):
     """
-    Choose which row to prune from a full-rank homogeneous matrix such that:
-    1. After removal, rank becomes n_cols - 1 (defective by 1)
-    2. The resulting kernel is transverse to G (i.e., <kernel_vec, G> != 0)
-    
-    This implements the "G-guided pruning" strategy instead of blindly
-    dropping the first echelon row.
-    
-    Args:
-        A_hom: full-rank homogeneous matrix (rank == n_cols)
-        g_row_vec: G-row as list/vector
-        ell: the prime modulus
-        verbose: print diagnostics
-    
-    Returns:
-        row_index: which row to remove (0-indexed)
+    G-guided prune exploiting 4-orbit structure: delete 4 rows instead of 1.
     """
     Zell = Zmod(int(ell))
     n_rows, n_cols = A_hom.nrows(), A_hom.ncols()
     
     assert A_hom.rank() == n_cols, "A_hom must be full rank"
     
-    # Convert g_row_vec to Zell vector for dot product
     g_vec = vector(Zell, [Zell(int(x) % int(ell)) for x in g_row_vec])
     
-    # Get echelon form to identify pivot rows (these are the "important" rows)
-    E = A_hom.echelon_form()
-    pivot_rows_in_echelon = [i for i, _ in E.nonzero_positions()]
+    # Get basis indices (one per orbit, at positions 1, 5, 9, ...)
+    basis_indices = select_independent_rows_fast(A_hom, ell, target_count=n_cols)
     
+    if len(basis_indices) != n_cols:
+        raise RuntimeError(f"Fast selection found {len(basis_indices)} rows, expected {n_cols}")
+    
+    # --- DIAGNOSTIC START ---
+    print("\n" + "="*60)
+    print("DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES")
+    print("Format: Row Index: [(Column Index, Value), ...]")
+    print("="*60)
+
+    # Print first relation (offset 1)
+    if n_rows > 1:
+        first_row = A_hom.row(1)
+        # Use .dict() for sparse extraction of non-zero entries
+        entries = sorted([(int(k), int(v)) for k, v in first_row.dict().items()])
+        print(f"First Relation (Row 1): {entries}")
+
+    # Random sample of 10 orbits
+    sample_size = min(10, len(basis_indices))
+    sample_orbits = sorted(random.sample(basis_indices, sample_size))
+    
+    print(f"\nSampling {sample_size} random orbits from basis_indices:")
+    
+    for orbit_start in sample_orbits:
+        print(f"\nOrbit Start: {orbit_start}")
+        # An orbit has 4 members: i, i+1, i+2, i+3
+        for offset in range(4):
+            r_idx = orbit_start + offset
+            if r_idx < n_rows:
+                row_vec = A_hom.row(r_idx)
+                nz_entries = sorted([(int(k), int(v)) for k, v in row_vec.dict().items()])
+                print(f"  Row {r_idx}: {nz_entries}")
+    print("="*60 + "\n")
+    # --- DIAGNOSTIC END ---
+
     if verbose:
-        print(f"[G-Guided Prune] Testing {len(pivot_rows_in_echelon)} pivot rows...")
+        print(f"[G-Guided Prune] Testing orbit representatives...")
     
-    # Test each pivot row for removal
-    for candidate_idx in pivot_rows_in_echelon:
-        # Build matrix without this row
-        rows_without = [A_hom.row(i) for i in range(n_rows) if i != candidate_idx]
-        A_test = matrix(Zell, rows_without)
+    # Test orbit representatives (positions 1, 5, 9, ...)
+    for orbit_start in basis_indices[:50]:  # test first 50 orbits
+        # Delete entire 4-orbit: rows [i, i+1, i+2, i+3]
+        orbit_rows = [orbit_start + offset for offset in range(4) if orbit_start + offset < n_rows]
         
-        # Check rank drops to n_cols - 1
+        # Build A_test excluding all orbit members
+        keep_rows = [i for i in range(n_rows) if i not in orbit_rows]
+        A_test = A_hom.matrix_from_rows(keep_rows)
+        
         rank_test = A_test.rank()
+        
         if rank_test != n_cols - 1:
-            if verbose and candidate_idx < 3:
-                print(f"  Row {candidate_idx}: rank={rank_test} (need {n_cols-1}) - skip")
+            if verbose:
+                print(f"  Orbit@{orbit_start}: rank={rank_test} (want {n_cols-1}), skip")
             continue
         
-        # Compute kernel (should be 1-dimensional)
+        # Check kernel is 1D and transverse to G
         K = A_test.right_kernel()
         if K.dimension() != 1:
-            if verbose:
-                print(f"  Row {candidate_idx}: kernel dim={K.dimension()} (need 1) - skip")
             continue
         
-        # Get the kernel vector
         chi = K.basis()[0]
+        dot_prod = int(chi.dot_product(g_vec)) % int(ell)
         
-        # Check transversality: <chi, G> != 0
-        dot_prod = chi.dot_product(g_vec)
+        if verbose:
+            print(f"  Orbit@{orbit_start}: <chi,G>={dot_prod} mod {ell}")
         
-        if int(dot_prod) % int(ell) != 0:
+        if dot_prod != 0:
             if verbose:
-                print(f"  Row {candidate_idx}: GOOD! <chi, G> = {dot_prod} (mod {ell})")
-                print(f"    Removing this row gives rank defect with G transverse to kernel")
-            return candidate_idx
-        else:
-            if verbose and candidate_idx < 3:
-                print(f"  Row {candidate_idx}: <chi, G> = 0 - G not transverse - skip")
+                print(f"  → GOOD (transverse). Removing orbit {orbit_rows}")
+            return orbit_rows  # return LIST of row indices to remove
     
-    # Fallback: if no good row found, return first pivot
-    # (this shouldn't happen if the system is well-formed)
-    if verbose:
-        print(f"  [Warning] No provably good row found, using first pivot as fallback")
-    return pivot_rows_in_echelon[0]
+    raise RuntimeError("No transverse orbit found in first 50 candidates")

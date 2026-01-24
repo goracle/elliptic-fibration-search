@@ -391,6 +391,16 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         )
         stats.end_phase('mumford_reconstruction')
 
+        # === EXPLICIT FILTERING OF G/Q ===
+        if FINITE_FIELD:
+             mumford_divisors = filter_g_q_from_list(
+                 mumford_divisors, 
+                 BASE_DIVISOR, 
+                 TARGET_DIVISOR, 
+                 FINITE_FIELD, 
+                 coeffs_genus2
+             )
+
         print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
         if mumford_divisors:
             rational_roots_count = sum(1 for div in mumford_divisors 

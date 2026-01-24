@@ -118,7 +118,7 @@ BUILDCD COMPLETE
 [auto_cfg] Height Bound: 1809 (derived from h_can=log(2) + 10.16434026363854)
 [residue_counts] Using split_poly degree=8
 [galois] Attempting poly.galois_group() (may be slow)...
-[galois] poly.galois_group() took 0.10s, info=Transitive group number 50 of degree 8
+[galois] poly.galois_group() took 0.11s, info=Transitive group number 50 of degree 8
 [galois/empirical] Tested 1 primes -> avg_roots=1, patterns_sample=[(1, 6)]
 [residue_counts] exact count failed mod 33554467: INF is not a variable of Univariate Polynomial Ring in m over Rational Field; using fallback
 [residue_counts] sample: [(33554467, 1)]
@@ -194,3 +194,312 @@ Building 5-equation Mumford system from fibration...
 [mumford] Generating tasks for 1 primes...
 [mumford] Task degrees: min=1, max=8533, median=2241
 [mumford] Generated 80 tasks for 16 workers (5.0 tasks per worker)
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+[mumford] Residue computation took 93.97s
+PRIME: 33554467
+generated: 1 available: 0 active: 0
+raw_solutions: 0 unique_supports: 0 duplicates: 0
+availability_rate: 0.0 activation_rate: 0.0
+{'prime': 33554467, 'generated_count': 1, 'available_count': 0, 'active_count': 0, 'raw_solutions_processed': 0, 'unique_supports': 0, 'duplicates_rejected': 0, 'availability_rate': 0.0, 'activation_rate': 0.0}
+
+=== MUMFORD SEARCH (FINITE FIELD GF(33554467) - PARALLEL) ===
+  Harvesting initial solutions...
+  Harvest done (1.34s): 18017 unique relations.
+  Factor Base (Unique x): 6000
+  Starting parallel structured random walk...
+  Target reached: 18017 relations > 6000 FB + 480 buffer.
+  Final Status: 18017 relations, 6000 factor base elements.
+  [Filter] Checking 18017 divisors against G and Q...
+  [Filter] ✓ No forbidden divisors found (G/Q clean).
+
+Mumford search reconstructed 18017 divisors
+  18017 divisors had rational roots in u(x)
+
+[Preferred Coordinates Hit Rate]
+  Target coordinates: 4
+  Found in Factor Base: 4 / 4 (100.0%)
+  Divisors containing target: 32 / 18017 (0.2%)
+
+============================================================
+ INDEX CALCULUS ATTACK DIAGNOSTIC
+============================================================
+ Target Field: GF(33554467)
+ Relations:    18017
+ Factor Base:  4504
+ Matrix Rank:  4504
+------------------------------------------------------------
+ [OK] Generator G is smooth over factor base
+ [OK] Target Q is smooth over factor base
+------------------------------------------------------------
+ SUCCESS: Matrix is full rank. Ready for Linear Algebra.
+          Both G and Q are expressible over factor base.
+============================================================
+
+Total time: 126.21s
+Total Rational Points Found (Unique x): 0
+
+Phases (s):
+  mumford_residues         : 93.97s
+  prep_mod_data            : 3.98s
+  mumford_reconstruction   : 1.52s
+  mumford_setup            : 0.00s
+
+Counters:
+  crt_candidates_found          : 0
+  crt_lift_attempts             : 0
+  modular_checks                : 0
+  modular_mults                 : 79
+  multiply_ops                  : 0
+  new_sections_unique           : 0
+  rational_points_unique        : 0
+  rational_recon_attempts_worker: 0
+  rational_recon_failure_worker : 0
+  rational_recon_success_worker : 0
+  rationality_tests_failure     : 0
+  rationality_tests_success     : 0
+  rationality_tests_total       : 0
+  subsets_filtered_out_combo    : 0
+  subsets_generated_initial     : 0
+  subsets_processed             : 0
+  symbolic_solves_attempted     : 0
+  symbolic_solves_success       : 0
+
+Successes: 0, Failures: 0
+Discard Reasons (Top 5):
+  (None)
+--------------------------------
+[Factor Base] 4504 prime atoms
+  [Setup] Curve: y^2 = x^5 + x + 2
+
+======================================================================
+TESTING FACTOR BASE HOMOMORPHISM PROPERTY
+======================================================================
+homomorphism_test: 200/200 passed
+ Homomorphism test PASSED
+======================================================================
+
+  [Phase 0] Attempting RR-Localization for target Q (Parallel)...
+  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.
+
+======================================================================
+INDEX CALCULUS DLP ATTACK (Full Jacobian Group)
+======================================================================
+Full Jacobian order |J|: 1126029650170156
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+  [Legacy] Building factor base and relations from Mumford divisors...
+  [Legacy->Relations] Building factor base from 18019 sample divisors...
+[Factor Base] 4504 prime atoms
+  [Legacy->Relations] Factor base size: 4504
+  [Relations] Built 18017 homogeneous relations (RHS=0, no rebasing)
+  [Filter] ✓ Relation vectors are clean (no linear dependence on G/Q).
+  [Relations] Loaded 18017 homogeneous relations
+  [Factor Base] Size: 4504
+  [Relations] Loaded 18017 homogeneous relations
+  [Factor Base] Size: 4504
+  [Smoothing] Generator G is already smooth.
+  [Smoothing] Target Q is already smooth.
+
+====================================================================
+COFACTOR PROJECTION PRE-CHECK (Rank Defective Check)
+====================================================================
+  |J| = 1126029650170156, ℓ = 972045913, h = 1158412
+  Alive FB: 4504  Dead FB: 0
+  [Rank Check] N_Cols (Alive Atoms): 4504
+  [Rank Check] Hom. Rank (before prune): 4504
+  [Auto-Prune] Homogeneous is full rank; FORCING rank defect
+
+============================================================
+DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES
+Format: Row Index: [(Column Index, Value), ...]
+============================================================
+First Relation (Row 1): [(5, 1), (6, 1)]
+
+Sampling 10 random orbits from basis_indices:
+
+Orbit Start: 1205
+  Row 1205: [(5, 1), (307, 1)]
+  Row 1206: [(5, 1), (307, 972045912)]
+  Row 1207: [(5, 972045912), (307, 1)]
+  Row 1208: [(5, 972045912), (307, 972045912)]
+
+Orbit Start: 1457
+  Row 1457: [(5, 1), (370, 1)]
+  Row 1458: [(5, 1), (370, 972045912)]
+  Row 1459: [(5, 972045912), (370, 1)]
+  Row 1460: [(5, 972045912), (370, 972045912)]
+
+Orbit Start: 6477
+  Row 6477: [(1005, 1), (1622, 1)]
+  Row 6478: [(1005, 1), (1622, 972045912)]
+  Row 6479: [(1005, 972045912), (1622, 1)]
+  Row 6480: [(1005, 972045912), (1622, 972045912)]
+
+Orbit Start: 9201
+  Row 9201: [(1005, 1), (2303, 1)]
+  Row 9202: [(1005, 1), (2303, 972045912)]
+  Row 9203: [(1005, 972045912), (2303, 1)]
+  Row 9204: [(1005, 972045912), (2303, 972045912)]
+
+Orbit Start: 9733
+  Row 9733: [(1005, 1), (2436, 1)]
+  Row 9734: [(1005, 1), (2436, 972045912)]
+  Row 9735: [(1005, 972045912), (2436, 1)]
+  Row 9736: [(1005, 972045912), (2436, 972045912)]
+
+Orbit Start: 10717
+  Row 10717: [(1005, 1), (2682, 1)]
+  Row 10718: [(1005, 1), (2682, 972045912)]
+  Row 10719: [(1005, 972045912), (2682, 1)]
+  Row 10720: [(1005, 972045912), (2682, 972045912)]
+
+Orbit Start: 11013
+  Row 11013: [(1005, 1), (2756, 1)]
+  Row 11014: [(1005, 1), (2756, 972045912)]
+  Row 11015: [(1005, 972045912), (2756, 1)]
+  Row 11016: [(1005, 972045912), (2756, 972045912)]
+
+Orbit Start: 12001
+  Row 12001: [(1005, 1), (3003, 1)]
+  Row 12002: [(1005, 1), (3003, 972045912)]
+  Row 12003: [(1005, 972045912), (3003, 1)]
+  Row 12004: [(1005, 972045912), (3003, 972045912)]
+
+Orbit Start: 13169
+  Row 13169: [(1005, 1), (3295, 1)]
+  Row 13170: [(1005, 1), (3295, 972045912)]
+  Row 13171: [(1005, 972045912), (3295, 1)]
+  Row 13172: [(1005, 972045912), (3295, 972045912)]
+
+Orbit Start: 15905
+  Row 15905: [(3502, 1), (3976, 1)]
+  Row 15906: [(3502, 1), (3976, 972045912)]
+  Row 15907: [(3502, 972045912), (3976, 1)]
+  Row 15908: [(3502, 972045912), (3976, 972045912)]
+============================================================
+
+[G-Guided Prune] Testing orbit representatives...
+  Orbit@1: <chi,G>=0 mod 972045913
+  Orbit@5: <chi,G>=0 mod 972045913
+  Orbit@9: <chi,G>=0 mod 972045913
+  Orbit@13: <chi,G>=0 mod 972045913
+  Orbit@17: <chi,G>=0 mod 972045913
