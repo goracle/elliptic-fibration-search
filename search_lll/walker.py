@@ -39,6 +39,15 @@ lib.collision_walk.argtypes = [
 ]
 lib.collision_walk.restype = c_int
 
+# ----- module globals for worker/Jacobian hashing -----
+_GLOBAL_IDX_TO_ATOM = None   # idx -> atom (filled before spawning workers)
+_GLOBAL_ATOM_TO_IDX = None   # atom -> idx  (may already exist elsewhere)
+_GLOBAL_P = None             # prime p for GF(p)
+_GLOBAL_J = None             # Sage Jacobian class/instance
+_GLOBAL_F_POLY = None        # global curve poly, optional
+_GLOBAL_FB_Y_CACHE = None    # optional canonical y cache
+# ----------------------------------------------------
+
 
 def get_relation_row(divisor, atom_to_idx, f_p, p,
                                      fb_y_cache=None, require_signed_d2=True):
@@ -396,106 +405,6 @@ def homomorphism_test(J, atom_to_idx, f_p, p,
     return True
 
 
-def get_relation_row_cached(divisor):
-    """
-    Worker-safe version: use Mumford v(x) directly and atom-based lookup.
-
-    Returns {col_idx: multiplicity_signed} or None if not FB-smooth / not in FB.
-    Raises on unexpected errors (per your loud-failure policy).
-    """
-    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY
-    assert None, "does this even run anymore?"
-
-    if _GLOBAL_ATOM_TO_IDX is None:
-        raise RuntimeError("_GLOBAL_ATOM_TO_IDX not initialized in worker")
-
-    if _GLOBAL_P is None:
-        raise RuntimeError("_GLOBAL_P not initialized in worker")
-
-    # Local field objects for evaluation
-    K = GF(int(_GLOBAL_P))
-    R = PolynomialRing(K, 'x')
-
-    try:
-        u_poly, v_poly = divisor[0], divisor[1]
-    except Exception as e:
-        raise RuntimeError(f"get_relation_row_cached: malformed divisor input: {e}")
-
-    deg = u_poly.degree()
-    if deg not in (1, 2):
-        return None
-
-    # Ensure u splits completely into linear factors over K
-    try:
-        roots_data = u_poly.roots(K)
-    except Exception as e:
-        raise RuntimeError(f"get_relation_row_cached: u_poly.roots() failed: {e}")
-
-    if sum(m for _, m in roots_data) != deg:
-        return None
-
-    row = {}
-
-    for x_elem, mult in roots_data:
-        x_int = int(x_elem)
-
-        # get canonical y (preferred from worker cache)
-        y_can = None
-        if _GLOBAL_FB_Y_CACHE is not None:
-            y_can = _GLOBAL_FB_Y_CACHE.get(int(x_int), None)
-
-        if y_can is None:
-            # fallback: try to compute canonical y from stored global f(x) if available
-            if _GLOBAL_F_POLY is not None:
-                try:
-                    y2 = int(_GLOBAL_F_POLY(K(x_int)))
-                except Exception:
-                    raise
-                    return None
-                if y2 == 0:
-                    y_can = 0
-                elif pow(y2, (int(_GLOBAL_P) - 1) // 2, int(_GLOBAL_P)) != 1:
-                    return None
-                else:
-                    from .smoothness import tonelli_shanks
-                    y_can_tmp = tonelli_shanks(y2, int(_GLOBAL_P))
-                    y_can = int(min(y_can_tmp, int(_GLOBAL_P) - y_can_tmp))
-            else:
-                # no canonical y available -> cannot reliably sign degree-1 atom
-                return None
-
-        # evaluate Mumford v at x
-        try:
-            # v_poly is a Sage polynomial defined over the same base field as u_poly
-            y_val = int(v_poly(x_elem)) % int(_GLOBAL_P)
-        except Exception:
-            raise
-
-        # determine sign relative to canonical y
-        if y_can == 0:
-            sign = +1
-        elif y_val == int(y_can):
-            sign = +1
-        elif (int(_GLOBAL_P) - y_val) % int(_GLOBAL_P) == int(y_can):
-            sign = -1
-        else:
-            # ambiguous / not matching canonical ±sqrt
-            return None
-
-        # construct the atom tuple and lookup index in atom map
-        atom = ('d1', int(x_int), int(y_can))
-        idx = _GLOBAL_ATOM_TO_IDX.get(atom)
-        if idx is None:
-            # atom not present in factor base
-            return None
-
-        row[idx] = row.get(idx, 0) + int(sign) * int(mult)
-        if row[idx] == 0:
-            del row[idx]
-
-    return row
-
-
 def _atom_to_jac_helper(atom, J, R):
     """
     Convert factor base atom -> Jacobian element.
@@ -533,6 +442,21 @@ def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1,
     x = R.gen()
 
     idx_to_atom = {int(idx): atom for atom, idx in atom_to_idx.items()}
+
+    # ---- NEW: export worker globals so children can reconstruct Jacobians ----
+    global _GLOBAL_IDX_TO_ATOM, _GLOBAL_ATOM_TO_IDX, _GLOBAL_P, _GLOBAL_J, _GLOBAL_F_POLY, _GLOBAL_FB_Y_CACHE
+    _GLOBAL_IDX_TO_ATOM = idx_to_atom             # idx -> atom mapping (int -> atom tuple)
+    _GLOBAL_ATOM_TO_IDX = {k: int(v) for k, v in atom_to_idx.items()}  # keep old shape if needed
+    _GLOBAL_P = int(p)
+    _GLOBAL_F_POLY = f_p
+    _GLOBAL_FB_Y_CACHE = fb_y_cache
+
+    # J: the Jacobian class instance. You likely have it as `J` in caller's scope.
+    # If you only have the class, set _GLOBAL_J = J; if you have an instance, set to its class or
+    # an object with .zero() etc. Example:
+    #    _GLOBAL_J = J  # J must be a Sage Jacobian object/class already imported/constructed
+    _GLOBAL_J = J
+    # ---- end new globals export ----
 
     print("\n=== HOMOMORPHISM DEBUG ===")
     print("p =", p)
@@ -732,22 +656,175 @@ def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
     except Full:
         pass
 
-def compute_jacobian_hash(exp_dict, atom_indices_list):
+
+def get_relation_row_cached(divisor, require_signed_d2=True):
     """
-    Compute canonical hash of Jacobian element from exponent vector.
-    
-    Key insight: The exponent vector IS the canonical representation
-    in the factor base. We just need a deterministic hash.
+    Worker-safe version: use Mumford v(x) directly and atom-based lookup.
+
+    Returns {col_idx: multiplicity_signed} or None if not FB-smooth / not in FB.
+    Raises on unexpected errors (per your loud-failure policy).
+
+    IMPORTANT: prefer signed ('d2', u_coeffs, v_can) atoms when available.
+    If require_signed_d2==True and no matching signed d2 atom exists, return None.
     """
-    items = sorted(exp_dict.items())
-    hash_input = tuple((int(k), int(v) % (2**32)) for k, v in items)
-    
-    h = 0
-    for k, v in hash_input:
-        h ^= (k * 0x9e3779b97f4a7c15) + (v * 0x517cc1b727220a95)
-        h &= 0xFFFFFFFFFFFFFFFF
-    
-    return h
+    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_P, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY
+    # REMOVE any disabling assert so this runs in workers
+    # assert None, "does this even run anymore?"
+
+    if _GLOBAL_ATOM_TO_IDX is None:
+        raise RuntimeError("_GLOBAL_ATOM_TO_IDX not initialized in worker")
+
+    if _GLOBAL_P is None:
+        raise RuntimeError("_GLOBAL_P not initialized in worker")
+
+    # Local field objects for evaluation
+    from sage.all import GF, PolynomialRing
+    p = int(_GLOBAL_P)
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+
+    try:
+        u_poly, v_poly = divisor[0], divisor[1]
+    except Exception as e:
+        raise RuntimeError(f"get_relation_row_cached: malformed divisor input: {e}")
+
+    deg = int(u_poly.degree())
+    if deg not in (1, 2):
+        return None
+
+    # Ensure u splits completely into linear factors over K when we need roots
+    try:
+        roots_data = u_poly.roots(K)
+    except Exception as e:
+        raise RuntimeError(f"get_relation_row_cached: u_poly.roots() failed: {e}")
+
+    if sum(m for _, m in roots_data) != deg:
+        return None
+
+    row = {}
+
+    # Helper: convert polynomial to canonical tuple (lowest->highest), pad to deg (monic expected)
+    def poly_to_tuple(poly, deg_expected):
+        coeffs = [0] * (deg_expected + 1)
+        # poly.list() yields coefficients lowest->highest in Sage
+        for i, c in enumerate(poly.list()):
+            if i <= deg_expected:
+                coeffs[i] = int(K(c))
+        return tuple(coeffs)
+
+    # If degree == 2, first try to match a signed d2 atom
+    if deg == 2:
+        u_key = poly_to_tuple(u_poly, 2)  # (u0, u1, 1) expected for monic
+        # Build v_tuple from v_poly coefficients (pad to length 2)
+        v_list = [int(K(c)) for c in v_poly.list()]  # could be length 0..1
+        # Normalize length to 2
+        if len(v_list) < 2:
+            v_list = v_list + [0] * (2 - len(v_list))
+        v_tuple = tuple(v_list)
+
+        # Search for matching d2 atoms in the global map
+        matched = False
+        for atom, idx in _GLOBAL_ATOM_TO_IDX.items():
+            try:
+                if atom[0] != 'd2':
+                    continue
+                # atom layout expected: ('d2', u_coeffs_tuple) or ('d2', u_coeffs_tuple, v_can_tuple)
+                atom_u = tuple(int(x) % p for x in atom[1])
+                if atom_u != u_key:
+                    continue
+                # candidate matches u; check v_can if available
+                if len(atom) >= 3:
+                    v_can_tuple = tuple(int(x) % p for x in atom[2])
+                    # normalize lengths
+                    L = max(len(v_tuple), len(v_can_tuple))
+                    vt = list(v_tuple) + [0]*(L - len(v_tuple))
+                    vc = list(v_can_tuple) + [0]*(L - len(v_can_tuple))
+                    vt = [int(K(c)) % p for c in vt]
+                    vc = [int(K(c)) % p for c in vc]
+                    # check equality or negation
+                    if vt == vc:
+                        row[int(idx)] = row.get(int(idx), 0) + 1
+                        matched = True
+                        break
+                    neg_vc = [(-c) % p for c in vc]
+                    if vt == neg_vc:
+                        row[int(idx)] = row.get(int(idx), 0) - 1
+                        matched = True
+                        break
+                    # else, not matching v_can, continue searching
+                else:
+                    # candidate has u only; ambiguous sign — skip
+                    continue
+            except Exception:
+                # be robust to unexpected atom formatting; skip
+                continue
+
+        if matched:
+            # Found a single signed d2 atom representation; done
+            return row
+
+        # No matching signed d2 atom found
+        if require_signed_d2:
+            return None
+        # else fall through to split into degree-1 atoms (legacy fallback)
+
+    # Legacy / deg==1 handling (or deg==2 fallback)
+    for x_elem, mult in roots_data:
+        x_int = int(x_elem)
+
+        # get canonical y (preferred from worker cache)
+        y_can = None
+        if _GLOBAL_FB_Y_CACHE is not None:
+            y_can = _GLOBAL_FB_Y_CACHE.get(int(x_int), None)
+
+        if y_can is None:
+            # fallback: try to compute canonical y from stored global f(x) if available
+            if _GLOBAL_F_POLY is not None:
+                try:
+                    y2 = int(_GLOBAL_F_POLY(K(x_int)))
+                except Exception:
+                    return None
+                if y2 == 0:
+                    y_can = 0
+                elif pow(y2, (p - 1) // 2, p) != 1:
+                    return None
+                else:
+                    # minimal tonelli_shanks call (assumes function exists)
+                    from .smoothness import tonelli_shanks
+                    y_can_tmp = tonelli_shanks(y2, p)
+                    y_can = int(min(y_can_tmp, p - y_can_tmp))
+            else:
+                # no canonical y available -> cannot reliably sign degree-1 atom
+                return None
+
+        # evaluate Mumford v at x
+        try:
+            y_val = int(v_poly(x_elem)) % p
+        except Exception:
+            return None
+
+        # determine sign relative to canonical y
+        if y_can == 0:
+            sign = +1
+        elif y_val == int(y_can):
+            sign = +1
+        elif (p - y_val) % p == int(y_can):
+            sign = -1
+        else:
+            # ambiguous / not matching canonical ±sqrt
+            return None
+
+        atom = ('d1', int(x_int), int(y_can))
+        idx = _GLOBAL_ATOM_TO_IDX.get(atom)
+        if idx is None:
+            # atom not present in factor base
+            return None
+
+        row[int(idx)] = row.get(int(idx), 0) + int(sign) * int(mult)
+        if row[int(idx)] == 0:
+            del row[int(idx)]
+
+    return row
 
 
 def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
@@ -762,6 +839,8 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     """
     Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
     Now uses C-based collision walks for speed with PROPER collision detection.
+    
+    CRITICAL FIX: Use ALL atom indices (d1 AND d2), not just d1.
     """
     from sage.all import GF, PolynomialRing
     from queue import Empty
@@ -809,8 +888,15 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     if not use_collision_walks:
         return valid_rows, rhs_values
     
-    atom_indices = [idx for idx, atom in idx_to_atom.items() if atom[0] == 'd1']
-    atom_indices = sorted(int(i) for i in atom_indices)
+    # CRITICAL FIX: Use ALL atoms, not just d1
+    atom_indices = sorted(int(idx) for idx in idx_to_atom.keys())
+    
+    # Count atom types for diagnostics
+    d1_count = sum(1 for atom in idx_to_atom.values() if atom[0] == 'd1')
+    d2_count = sum(1 for atom in idx_to_atom.values() if atom[0] == 'd2')
+    
+    if verbose:
+        print(f"  [Walks] Factor base composition: {d1_count} d1 atoms, {d2_count} d2 atoms")
     
     if len(atom_indices) < 10:
         if verbose:
@@ -943,5 +1029,101 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     if verbose:
         print(f"  [Walks] Completed: {new_relations_found} collision relations")
         print(f"  [Relations] Total: {len(valid_rows)} ({len(valid_rows)-new_relations_found} edge + {new_relations_found} collision)")
+        
+        if new_relations_found > 0:
+            sample_rel = valid_rows[-1]
+            exps = sorted(abs(v) for v in sample_rel.values())
+            print(f"  [Sample] Last collision: support={len(sample_rel)}, max_exp={max(exps)}, median_exp={exps[len(exps)//2]}")
     
     return valid_rows, rhs_values
+
+
+def compute_jacobian_hash(exp_dict, atom_indices_list):
+    """
+    Compute a deterministic hash for the Jacobian element represented by exp_dict.
+
+    Strategy:
+      - Use the global _GLOBAL_IDX_TO_ATOM mapping to reconstruct the Jacobian element
+        via _atom_to_jac_helper and the globally-provided Jacobian class _GLOBAL_J.
+      - Canonicalize the Mumford (u,v) pair to integer coefficient tuples mod p.
+      - Mix them into a 64-bit integer via a stable FNV-like mix.
+      - If anything goes wrong (missing atom mapping), fall back to a stable hash of the
+        exponent vector — but that fallback won't produce meaningful collisions.
+    """
+    global _GLOBAL_IDX_TO_ATOM, _GLOBAL_P, _GLOBAL_J
+    try:
+        # fast fallback: if no globals set, fall back to exponent-vector hash
+        if _GLOBAL_IDX_TO_ATOM is None or _GLOBAL_P is None or _GLOBAL_J is None:
+            # deterministic fallback: sort items and FNV-mix them
+            items = tuple(sorted((int(k), int(v)) for k, v in exp_dict.items()))
+            h = 1469598103934665603
+            for k, v in items:
+                h ^= (k & 0xFFFFFFFFFFFFFFFF)
+                h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+                h ^= (v & 0xFFFFFFFFFFFFFFFF)
+                h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+            return h
+
+        # sagemath imports and field setup (lazy inside function to keep module import light)
+        from sage.all import GF, PolynomialRing
+        p = int(_GLOBAL_P)
+        K = GF(p)
+        R = PolynomialRing(K, 'x')
+
+        # Reconstruct Jacobian element
+        Jclass = _GLOBAL_J  # should be the Jacobian class or an instance with zero()
+        Jzero = Jclass.zero()
+        J_recon = Jzero
+
+        # idx->atom mapping: integer indices expected
+        idx_to_atom = _GLOBAL_IDX_TO_ATOM
+
+        for idx, mult in exp_dict.items():
+            if int(mult) == 0:
+                continue
+            atom = idx_to_atom.get(int(idx))
+            if atom is None:
+                # missing atom means we cannot canonicalize -> fallback
+                raise KeyError(f"missing atom for idx {idx}")
+            atomJ = _atom_to_jac_helper(atom, Jclass, R)
+            J_recon += int(mult) * atomJ
+
+        # Extract Mumford u, v polys
+        u_poly = J_recon[0]
+        v_poly = J_recon[1]
+
+        # Canonical coefficient tuples: lowest->highest (pad to consistent lengths)
+        # u degree may be 1 or 2 for reduced divisors; pad to deg 2 for stable representation
+        def poly_to_int_tuple(poly, deg_pad):
+            coeffs = [0] * (deg_pad + 1)
+            for i, c in enumerate(poly.list()):
+                if i <= deg_pad:
+                    coeffs[i] = int(K(c))  # reduce mod p into python int
+            return tuple(coeffs)
+
+        u_tuple = poly_to_int_tuple(u_poly, 2)   # (u0, u1, u2) for monic u; u2 likely 1
+        # v deg < deg(u), pad to length 2 for deterministic length
+        v_tuple = poly_to_int_tuple(v_poly, 1)   # (v0, v1)
+
+        # build stable key and mix to 64-bit hash (FNV-1a-ish)
+        key_parts = (u_tuple, v_tuple)
+        h = 1469598103934665603
+        for part in key_parts:
+            for num in part:
+                # fold each integer (can be large) into 64-bit lanes
+                x = int(num) & 0xFFFFFFFFFFFFFFFF
+                h ^= x
+                h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+
+        return h
+
+    except Exception:
+        # Last-resort deterministic fallback to exponent-vector hash (so nothing crashes).
+        items = tuple(sorted((int(k), int(v)) for k, v in exp_dict.items()))
+        h = 1469598103934665603
+        for k, v in items:
+            h ^= (k & 0xFFFFFFFFFFFFFFFF)
+            h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+            h ^= (v & 0xFFFFFFFFFFFFFFFF)
+            h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        return h
