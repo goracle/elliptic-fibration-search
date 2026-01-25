@@ -17,9 +17,8 @@ static inline uint64_t mix64(uint64_t x) {
 
 // Return codes:
 //  1 -> found distinguished point
-//  0 -> abandoned (too many terms)
+//  0 -> abandoned (too many terms or max steps)
 // -1 -> error
-// ... keep mix64 and headers the same ...
 
 int collision_walk(
     const uint32_t *atom_indices,   // length n_atoms (pos -> global atom idx)
@@ -32,7 +31,8 @@ int collision_walk(
     uint32_t *counts,               // out: counts for touched (counts per pos)
     uint32_t *exps,                 // scratch: length n_atoms (must be zeroed by caller)
     uint32_t *out_len,              // out
-    uint64_t *out_state             // out
+    uint64_t *out_state,            // out
+    uint64_t max_steps              // ADDED: hard step limit
 ) {
     if (!atom_indices || !rand_table || !touched || !counts || !exps || !out_len || !out_state)
         return -1;
@@ -41,10 +41,22 @@ int collision_walk(
 
     uint64_t state = seed;
     uint32_t touched_len = 0;
+    uint64_t steps = 0;
 
     while (1) {
+        steps++;
+        
+        // HARD STEP LIMIT
+        if (steps > max_steps) {
+            // cleanup and abandon
+            for (uint32_t i = 0; i < touched_len; i++) {
+                exps[touched[i]] = 0;
+            }
+            *out_len = 0;
+            return 0;  // timeout/abandon
+        }
+
         uint32_t pos = (uint32_t)(state % n_atoms);
-        uint32_t aidx = atom_indices[pos]; // if you need it elsewhere
 
         if (exps[pos] == 0) {
             if (touched_len >= max_terms) {
@@ -60,9 +72,11 @@ int collision_walk(
 
         exps[pos]++;
 
-        state = mix64(state + rand_table[pos]);
+        // FIXED: Use high bits for DP check + inject Weyl sequence to avoid short cycles
+        state = mix64(state + rand_table[pos] + 0x9e3779b97f4a7c15ULL);
 
-        if ((state & target_mask) == 0) {
+        // FIXED: Check high bits, not low bits
+        if ((state >> (64 - __builtin_ctzll(target_mask + 1))) == 0) {
             // DP hit
             for (uint32_t i = 0; i < touched_len; i++) {
                 uint32_t a = touched[i];

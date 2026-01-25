@@ -6,6 +6,15 @@ from ctypes import c_uint32, c_uint64, c_int, POINTER, byref
 from multiprocessing import Process, Queue, Event, cpu_count
 from queue import Full
 import random
+from multiprocessing import set_start_method
+import psutil
+import time
+
+# CRITICAL: Force spawn mode to prevent fork-based RAM explosion
+try:
+    set_start_method("spawn", force=True)
+except RuntimeError:
+    pass  # already set
 
 # Load C library
 _lib_path = os.path.join(os.path.dirname(__file__), "libwalk.so")
@@ -26,169 +35,9 @@ lib.collision_walk.argtypes = [
     POINTER(c_uint32),  # exps (scratch)
     POINTER(c_uint32),  # out_len (out)
     POINTER(c_uint64),  # out_state (out)
+    c_uint64,           # max_steps
 ]
 lib.collision_walk.restype = c_int
-
-
-def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
-                                         verbose=True,
-                                         use_collision_walks=True,
-                                         target_new_relations=500,
-                                         max_walk_steps=200000,
-                                         avg_walk_len=300,
-                                         distinguished_bits=15,
-                                         num_walk_workers=None):
-    """
-    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
-    Now uses C-based collision walks for speed.
-    """
-    from sage.all import GF, PolynomialRing
-    
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    
-    idx_to_atom = {int(v): k for k, v in atom_to_idx.items()}
-    
-    valid_rows = []
-    rhs_values = []
-    skipped_no_row = 0
-    
-    for d in smooth_divs:
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        elif 's' in d and 'p' in d:
-            x = R.gen()
-            u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
-            v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
-        else:
-            continue
-        
-        row = get_relation_row(
-            [u_poly, v_poly], 
-            atom_to_idx, 
-            f_p, 
-            p,
-            require_signed_d2=False
-        )
-        
-        if not row:
-            skipped_no_row += 1
-            continue
-        
-        valid_rows.append({int(k): int(v) for k, v in row.items()})
-        rhs_values.append(0)
-    
-    if verbose:
-        print(f"  [Relations] Built {len(valid_rows)} homogeneous edge-relations (RHS=0)")
-        if skipped_no_row > 0:
-            print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
-    
-    if not use_collision_walks:
-        return valid_rows, rhs_values
-    
-    atom_indices = [idx for idx, atom in idx_to_atom.items() if atom[0] == 'd1']
-    atom_indices = sorted(int(i) for i in atom_indices)
-    
-    if len(atom_indices) < 10:
-        if verbose:
-            print(f"  [Walks] Only {len(atom_indices)} atoms - skipping walks")
-        return valid_rows, rhs_values
-    
-    n_atoms = len(atom_indices)
-    if (n_atoms & (n_atoms - 1)) != 0:
-        next_pow2 = 1 << (n_atoms.bit_length())
-        padding_needed = next_pow2 - n_atoms
-        atom_indices = atom_indices + [atom_indices[0]] * padding_needed
-        if verbose:
-            print(f"  [Walks] Padded atom table to power-of-two: {len(atom_indices)}")
-    n_atoms = len(atom_indices)
-    
-    if verbose:
-        print(f"  [Walks] Starting C-based collision walks with {n_atoms} atoms...")
-    
-    rng_hash = random.Random(123456)
-    random_hash_table = {idx: rng_hash.getrandbits(64) for idx in atom_indices}
-    
-    if num_walk_workers is None:
-        num_walk_workers = max(1, cpu_count() - 1)
-    
-    target_mask = (1 << distinguished_bits) - 1
-    expected_steps_per_dp = 1 << distinguished_bits
-    
-    if verbose:
-        print(f"  [Walks] Using {num_walk_workers} parallel workers")
-        print(f"  [Walks] Distinguished bits: {distinguished_bits}")
-        print(f"  [Walks] Expected steps per DP: {expected_steps_per_dp}")
-    
-    out_queue = Queue(maxsize=num_walk_workers)
-    stop_event = Event()
-    
-    processes = []
-    for worker_id in range(num_walk_workers):
-        p_proc = Process(target=_c_collision_walk_worker, args=(
-            worker_id,
-            atom_indices,
-            random_hash_table,
-            target_mask,
-            out_queue,
-            stop_event
-        ))
-        p_proc.daemon = True
-        p_proc.start()
-        processes.append(p_proc)
-    
-    new_relations_found = 0
-    workers_done = 0
-    distinguished_table = {}
-    
-    while workers_done < num_walk_workers and new_relations_found < target_new_relations:
-        msg = out_queue.get()
-        if msg is None:
-            workers_done += 1
-            continue
-        
-        for key, exp_dict in msg:
-            exp_copy = dict(exp_dict)
-            
-            if key in distinguished_table:
-                prev_exp = distinguished_table.pop(key)
-                
-                if prev_exp != exp_copy:
-                    rel = dict(prev_exp)
-                    for idx, e in exp_copy.items():
-                        rel[idx] = rel.get(idx, 0) - e
-                    
-                    row = {int(k): int(v) for k, v in rel.items() if v != 0}
-                    if row:
-                        valid_rows.append(row)
-                        rhs_values.append(0)
-                        new_relations_found += 1
-                        
-                        if verbose and (new_relations_found % 50 == 0):
-                            print(f"  [Walks] Found {new_relations_found} collision relations")
-                        
-                        if new_relations_found >= target_new_relations:
-                            stop_event.set()
-                            break
-            else:
-                distinguished_table[key] = exp_copy
-        
-        if new_relations_found >= target_new_relations:
-            break
-    
-    stop_event.set()
-    for p_proc in processes:
-        p_proc.join(timeout=5)
-        if p_proc.is_alive():
-            p_proc.terminate()
-            p_proc.join()
-    
-    if verbose:
-        print(f"  [Walks] Completed: {new_relations_found} collision relations")
-        print(f"  [Relations] Total: {len(valid_rows)} ({len(valid_rows)-new_relations_found} edge + {new_relations_found} collision)")
-    
-    return valid_rows, rhs_values
 
 
 def get_relation_row(divisor, atom_to_idx, f_p, p,
@@ -794,7 +643,186 @@ def _dict_to_jac_helper(div, J, R):
     return J([u, v])
 
 
-def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, seed, exps_np):
+def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
+                                         verbose=True,
+                                         use_collision_walks=True,
+                                         target_new_relations=500,
+                                         max_walk_steps=200000,
+                                         avg_walk_len=300,
+                                         distinguished_bits=15,
+                                         num_walk_workers=None,
+                                         max_dp_table_size=100000):
+    """
+    Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
+    Now uses C-based collision walks for speed.
+    """
+    from sage.all import GF, PolynomialRing
+    
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    
+    idx_to_atom = {int(v): k for k, v in atom_to_idx.items()}
+    
+    valid_rows = []
+    rhs_values = []
+    skipped_no_row = 0
+    
+    for d in smooth_divs:
+        if 'u_coeffs' in d:
+            u_poly = R(d['u_coeffs'])
+            v_poly = R(d['v_coeffs'])
+        elif 's' in d and 'p' in d:
+            x = R.gen()
+            u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
+            v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
+        else:
+            continue
+        
+        row = get_relation_row(
+            [u_poly, v_poly], 
+            atom_to_idx, 
+            f_p, 
+            p,
+            require_signed_d2=False
+        )
+        
+        if not row:
+            skipped_no_row += 1
+            continue
+        
+        valid_rows.append({int(k): int(v) for k, v in row.items()})
+        rhs_values.append(0)
+    
+    if verbose:
+        print(f"  [Relations] Built {len(valid_rows)} homogeneous edge-relations (RHS=0)")
+        if skipped_no_row > 0:
+            print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
+    
+    if not use_collision_walks:
+        return valid_rows, rhs_values
+    
+    atom_indices = [idx for idx, atom in idx_to_atom.items() if atom[0] == 'd1']
+    atom_indices = sorted(int(i) for i in atom_indices)
+    
+    if len(atom_indices) < 10:
+        if verbose:
+            print(f"  [Walks] Only {len(atom_indices)} atoms - skipping walks")
+        return valid_rows, rhs_values
+    
+    n_atoms = len(atom_indices)
+    if (n_atoms & (n_atoms - 1)) != 0:
+        next_pow2 = 1 << (n_atoms.bit_length())
+        padding_needed = next_pow2 - n_atoms
+        atom_indices = atom_indices + [atom_indices[0]] * padding_needed
+        if verbose:
+            print(f"  [Walks] Padded atom table to power-of-two: {len(atom_indices)}")
+    n_atoms = len(atom_indices)
+    
+    if verbose:
+        print(f"  [Walks] Starting C-based collision walks with {n_atoms} atoms...")
+    
+    rng_hash = random.Random(123456)
+    random_hash_table = {idx: rng_hash.getrandbits(64) for idx in atom_indices}
+    
+    if num_walk_workers is None:
+        num_walk_workers = min(4, max(1, cpu_count() - 1))
+        if verbose:
+            print(f"  [Walks] Auto-selected {num_walk_workers} workers (conservative)")
+    
+    target_mask = (1 << distinguished_bits) - 1
+    expected_steps_per_dp = 1 << distinguished_bits
+    
+    if verbose:
+        print(f"  [Walks] Using {num_walk_workers} parallel workers")
+        print(f"  [Walks] Distinguished bits: {distinguished_bits}")
+        print(f"  [Walks] Expected steps per DP: {expected_steps_per_dp}")
+        print(f"  [Walks] Max steps per walk: {max_walk_steps}")
+    
+    out_queue = Queue(maxsize=num_walk_workers)
+    stop_event = Event()
+    
+    processes = []
+    for worker_id in range(num_walk_workers):
+        p_proc = Process(target=_c_collision_walk_worker, args=(
+            worker_id,
+            atom_indices,
+            random_hash_table,
+            target_mask,
+            out_queue,
+            stop_event,
+            max_walk_steps
+        ))
+        p_proc.daemon = True
+        p_proc.start()
+        processes.append(p_proc)
+    
+    new_relations_found = 0
+    workers_done = 0
+    distinguished_table = {}
+    last_memory_check = time.time()
+    
+    while workers_done < num_walk_workers and new_relations_found < target_new_relations:
+        if time.time() - last_memory_check > 5.0:
+            rss_mb = psutil.Process(os.getpid()).memory_info().rss / (2**20)
+            if verbose:
+                print(f"  [MEM] Current RSS: {rss_mb:.1f} MB, DPs in table: {len(distinguished_table)}")
+            last_memory_check = time.time()
+        
+        msg = out_queue.get()
+        if msg is None:
+            workers_done += 1
+            continue
+        
+        for key, exp_dict in msg:
+            exp_copy = dict(exp_dict)
+            
+            if len(distinguished_table) >= max_dp_table_size:
+                if verbose:
+                    print(f"  [Walks] DP table full ({max_dp_table_size}), stopping")
+                stop_event.set()
+                break
+            
+            if key in distinguished_table:
+                prev_exp = distinguished_table.pop(key)
+                
+                if prev_exp != exp_copy:
+                    rel = dict(prev_exp)
+                    for idx, e in exp_copy.items():
+                        rel[idx] = rel.get(idx, 0) - e
+                    
+                    row = {int(k): int(v) for k, v in rel.items() if v != 0}
+                    if row:
+                        valid_rows.append(row)
+                        rhs_values.append(0)
+                        new_relations_found += 1
+                        
+                        if verbose and (new_relations_found % 50 == 0):
+                            print(f"  [Walks] Found {new_relations_found} collision relations")
+                        
+                        if new_relations_found >= target_new_relations:
+                            stop_event.set()
+                            break
+            else:
+                distinguished_table[key] = exp_copy
+        
+        if new_relations_found >= target_new_relations:
+            break
+    
+    stop_event.set()
+    for p_proc in processes:
+        p_proc.join(timeout=5)
+        if p_proc.is_alive():
+            p_proc.terminate()
+            p_proc.join()
+    
+    if verbose:
+        print(f"  [Walks] Completed: {new_relations_found} collision relations")
+        print(f"  [Relations] Total: {len(valid_rows)} ({len(valid_rows)-new_relations_found} edge + {new_relations_found} collision)")
+    
+    return valid_rows, rhs_values
+
+
+def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, seed, exps_np, max_steps):
     """
     Call C collision walk kernel.
     Returns: (retcode, state, touched_indices, counts)
@@ -817,7 +845,8 @@ def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, see
         counts.ctypes.data_as(POINTER(c_uint32)),
         exps_np.ctypes.data_as(POINTER(c_uint32)),
         byref(out_len),
-        byref(out_state)
+        byref(out_state),
+        c_uint64(max_steps)
     )
 
     if ret == 1:
@@ -828,37 +857,33 @@ def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, see
 
 
 def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
-                             target_mask, out_queue, stop_event,
+                             target_mask, out_queue, stop_event, max_walk_steps,
                              max_terms=256, batch_size=16):
     rng = random.Random(worker_id * 1337 + 42)
 
-    # keep original atom index list (pos -> global_idx)
     atom_indices = np.ascontiguousarray(atom_indices_list, dtype=np.uint32)
     n_atoms = atom_indices.shape[0]
 
-    # rand_table must be per-position in same order
     rand_table = np.empty(n_atoms, dtype=np.uint64)
     for i, orig_idx in enumerate(atom_indices_list):
         rand_table[i] = random_hash_table[int(orig_idx)]
     rand_table = np.ascontiguousarray(rand_table, dtype=np.uint64)
 
-    # exps must be length n_atoms (per-position)
     exps = np.zeros(n_atoms, dtype=np.uint32)
 
     batch = []
     while not stop_event.is_set():
         seed = rng.getrandbits(64)
         ret, state, touched, counts = collision_walk_c(
-            atom_indices, rand_table, target_mask, max_terms, seed, exps
+            atom_indices, rand_table, target_mask, max_terms, seed, exps, max_walk_steps
         )
 
         if ret == 1:
             exp_dict = {}
-            # touched contains positions -> map to actual atom index
             for i in range(len(touched)):
                 pos = int(touched[i])
                 cnt = int(counts[i])
-                actual_idx = int(atom_indices[pos])   # global idx
+                actual_idx = int(atom_indices[pos])
                 exp_dict[actual_idx] = cnt
 
             batch.append((state, exp_dict))
