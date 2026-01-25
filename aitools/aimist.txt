@@ -110,3 +110,5 @@ we're not looking for rational points here.  that doesn't matter at all.  we're 
 - anchored relations are WRONG in genus 2 index calculus, which is what we are doing.  do not apply genus 1 index calculus assumptions to genus 2!
 - if you see a function defined in multiple files, this is BAD NEWS BEARS and needs to be pointed out!  i sometimes paste in ai code into the wrong file.  please help me find these, when you see them.
 - anchoring divisors, as we do in genus 1 index calculus, is not appropriate for our genus 2 index calculus here!  do not use that!  mumford divisors are already anchored!
+- (to gemini in particular:) do not give me a json patch file of python code.  just give the pure python code.  i have my own patch/deduplication script.
+- fear not the ai who writes good code.  fear the ai who writes decent code with lots of diagnostics, because that expands into good code pretty much instantly.  be that second ai.

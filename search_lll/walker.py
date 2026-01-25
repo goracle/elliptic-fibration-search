@@ -643,6 +643,113 @@ def _dict_to_jac_helper(div, J, R):
     return J([u, v])
 
 
+def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, seed, exps_np, max_steps):
+    """
+    Call C collision walk kernel.
+    Returns: (retcode, state, touched_indices, counts)
+    retcode: 1 => DP found, 0 => abandoned, -1 => error
+    """
+    n_atoms = atom_indices_np.shape[0]
+    touched = np.empty(max_terms, dtype=np.uint32)
+    counts = np.empty(max_terms, dtype=np.uint32)
+    out_len   = c_uint32()
+    out_state = c_uint64()
+
+    ret = lib.collision_walk(
+        atom_indices_np.ctypes.data_as(POINTER(c_uint32)),
+        c_uint32(n_atoms),
+        rand_table_np.ctypes.data_as(POINTER(c_uint64)),
+        c_uint64(int(target_mask)),
+        c_uint32(max_terms),
+        c_uint64(seed),
+        touched.ctypes.data_as(POINTER(c_uint32)),
+        counts.ctypes.data_as(POINTER(c_uint32)),
+        exps_np.ctypes.data_as(POINTER(c_uint32)),
+        byref(out_len),
+        byref(out_state),
+        c_uint64(max_steps)
+    )
+
+    if ret == 1:
+        L = int(out_len.value)
+        return 1, int(out_state.value), touched[:L].copy(), counts[:L].copy()
+    else:
+        return int(ret), None, None, None
+
+
+def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
+                             target_mask, out_queue, stop_event, max_walk_steps,
+                             max_terms=256, batch_size=16):
+    rng = random.Random(worker_id * 1337 + 42)
+
+    atom_indices = np.ascontiguousarray(atom_indices_list, dtype=np.uint32)
+    n_atoms = atom_indices.shape[0]
+
+    rand_table = np.empty(n_atoms, dtype=np.uint64)
+    for i, orig_idx in enumerate(atom_indices_list):
+        rand_table[i] = random_hash_table[int(orig_idx)]
+    rand_table = np.ascontiguousarray(rand_table, dtype=np.uint64)
+
+    exps = np.zeros(n_atoms, dtype=np.uint32)
+
+    batch = []
+    while not stop_event.is_set():
+        seed = rng.getrandbits(64)
+        a_scalar = rng.getrandbits(32)
+        b_scalar = rng.getrandbits(32)
+        
+        ret, state, touched, counts = collision_walk_c(
+            atom_indices, rand_table, target_mask, max_terms, seed, exps, max_walk_steps
+        )
+
+        if ret == 1:
+            exp_dict = {}
+            for i in range(len(touched)):
+                pos = int(touched[i])
+                cnt = int(counts[i])
+                actual_idx = int(atom_indices[pos])
+                exp_dict[actual_idx] = cnt
+
+            jacobian_key = compute_jacobian_hash(exp_dict, atom_indices_list)
+            
+            batch.append((jacobian_key, exp_dict, a_scalar, b_scalar))
+
+            if len(batch) >= batch_size:
+                try:
+                    out_queue.put_nowait(batch)
+                except Full:
+                    pass
+                batch = []
+        elif ret == 0:
+            continue
+        else:
+            break
+
+    try:
+        if batch:
+            out_queue.put_nowait(batch)
+        out_queue.put_nowait(None)
+    except Full:
+        pass
+
+def compute_jacobian_hash(exp_dict, atom_indices_list):
+    """
+    Compute canonical hash of Jacobian element from exponent vector.
+    
+    Key insight: The exponent vector IS the canonical representation
+    in the factor base. We just need a deterministic hash.
+    """
+    items = sorted(exp_dict.items())
+    hash_input = tuple((int(k), int(v) % (2**32)) for k, v in items)
+    
+    h = 0
+    for k, v in hash_input:
+        h ^= (k * 0x9e3779b97f4a7c15) + (v * 0x517cc1b727220a95)
+        h &= 0xFFFFFFFFFFFFFFFF
+    
+    return h
+
+
 def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, 
                                          verbose=True,
                                          use_collision_walks=True,
@@ -654,9 +761,10 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
                                          max_dp_table_size=100000):
     """
     Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
-    Now uses C-based collision walks for speed.
+    Now uses C-based collision walks for speed with PROPER collision detection.
     """
     from sage.all import GF, PolynomialRing
+    from queue import Empty
     
     K = GF(p)
     R = PolynomialRing(K, 'x')
@@ -768,22 +876,29 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
                 print(f"  [MEM] Current RSS: {rss_mb:.1f} MB, DPs in table: {len(distinguished_table)}")
             last_memory_check = time.time()
         
-        msg = out_queue.get()
+        try:
+            msg = out_queue.get(timeout=0.5)
+        except Empty:
+            if stop_event.is_set():
+                break
+            continue
+        
         if msg is None:
             workers_done += 1
             continue
         
-        for key, exp_dict in msg:
+        for jacobian_key, exp_dict, a_scalar, b_scalar in msg:
             exp_copy = dict(exp_dict)
             
             if len(distinguished_table) >= max_dp_table_size:
                 if verbose:
                     print(f"  [Walks] DP table full ({max_dp_table_size}), stopping")
                 stop_event.set()
+                workers_done = num_walk_workers
                 break
             
-            if key in distinguished_table:
-                prev_exp = distinguished_table.pop(key)
+            if jacobian_key in distinguished_table:
+                prev_exp, prev_a, prev_b = distinguished_table.pop(jacobian_key)
                 
                 if prev_exp != exp_copy:
                     rel = dict(prev_exp)
@@ -796,19 +911,29 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
                         rhs_values.append(0)
                         new_relations_found += 1
                         
-                        if verbose and (new_relations_found % 50 == 0):
-                            print(f"  [Walks] Found {new_relations_found} collision relations")
+                        if verbose:
+                            print(f"  [Walks] 🎉 COLLISION! Found relation #{new_relations_found}")
+                            print(f"           Jacobian hash: {jacobian_key:016x}")
+                            print(f"           Exponent diff has {len(row)} nonzero entries")
                         
                         if new_relations_found >= target_new_relations:
                             stop_event.set()
+                            workers_done = num_walk_workers
                             break
             else:
-                distinguished_table[key] = exp_copy
+                distinguished_table[jacobian_key] = (exp_copy, a_scalar, b_scalar)
         
-        if new_relations_found >= target_new_relations:
+        if new_relations_found >= target_new_relations or len(distinguished_table) >= max_dp_table_size:
             break
     
     stop_event.set()
+    
+    while not out_queue.empty():
+        try:
+            out_queue.get_nowait()
+        except Empty:
+            break
+    
     for p_proc in processes:
         p_proc.join(timeout=5)
         if p_proc.is_alive():
@@ -820,88 +945,3 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
         print(f"  [Relations] Total: {len(valid_rows)} ({len(valid_rows)-new_relations_found} edge + {new_relations_found} collision)")
     
     return valid_rows, rhs_values
-
-
-def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, seed, exps_np, max_steps):
-    """
-    Call C collision walk kernel.
-    Returns: (retcode, state, touched_indices, counts)
-    retcode: 1 => DP found, 0 => abandoned, -1 => error
-    """
-    n_atoms = atom_indices_np.shape[0]
-    touched = np.empty(max_terms, dtype=np.uint32)
-    counts = np.empty(max_terms, dtype=np.uint32)
-    out_len   = c_uint32()
-    out_state = c_uint64()
-
-    ret = lib.collision_walk(
-        atom_indices_np.ctypes.data_as(POINTER(c_uint32)),
-        c_uint32(n_atoms),
-        rand_table_np.ctypes.data_as(POINTER(c_uint64)),
-        c_uint64(int(target_mask)),
-        c_uint32(max_terms),
-        c_uint64(seed),
-        touched.ctypes.data_as(POINTER(c_uint32)),
-        counts.ctypes.data_as(POINTER(c_uint32)),
-        exps_np.ctypes.data_as(POINTER(c_uint32)),
-        byref(out_len),
-        byref(out_state),
-        c_uint64(max_steps)
-    )
-
-    if ret == 1:
-        L = int(out_len.value)
-        return 1, int(out_state.value), touched[:L].copy(), counts[:L].copy()
-    else:
-        return int(ret), None, None, None
-
-
-def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
-                             target_mask, out_queue, stop_event, max_walk_steps,
-                             max_terms=256, batch_size=16):
-    rng = random.Random(worker_id * 1337 + 42)
-
-    atom_indices = np.ascontiguousarray(atom_indices_list, dtype=np.uint32)
-    n_atoms = atom_indices.shape[0]
-
-    rand_table = np.empty(n_atoms, dtype=np.uint64)
-    for i, orig_idx in enumerate(atom_indices_list):
-        rand_table[i] = random_hash_table[int(orig_idx)]
-    rand_table = np.ascontiguousarray(rand_table, dtype=np.uint64)
-
-    exps = np.zeros(n_atoms, dtype=np.uint32)
-
-    batch = []
-    while not stop_event.is_set():
-        seed = rng.getrandbits(64)
-        ret, state, touched, counts = collision_walk_c(
-            atom_indices, rand_table, target_mask, max_terms, seed, exps, max_walk_steps
-        )
-
-        if ret == 1:
-            exp_dict = {}
-            for i in range(len(touched)):
-                pos = int(touched[i])
-                cnt = int(counts[i])
-                actual_idx = int(atom_indices[pos])
-                exp_dict[actual_idx] = cnt
-
-            batch.append((state, exp_dict))
-
-            if len(batch) >= batch_size:
-                try:
-                    out_queue.put_nowait(batch)
-                except Full:
-                    pass
-                batch = []
-        elif ret == 0:
-            continue
-        else:
-            break
-
-    try:
-        if batch:
-            out_queue.put_nowait(batch)
-        out_queue.put_nowait(None)
-    except Full:
-        pass
