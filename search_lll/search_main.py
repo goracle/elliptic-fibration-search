@@ -471,7 +471,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print("="*70)
             C = HyperellipticCurve(f_poly)
             J = C.jacobian()
-            if not homomorphism_test(J, atom_to_idx, f_poly, p, mumford_divisors, fb_y_cache):
+            if not homomorphism_test(J, atom_to_idx, f_poly, p, check_divisors=mumford_divisors):
                 print("CRITICAL: Homomorphism test FAILED!")
                 print("The factor base encoding is not preserving group structure.")
                 print("Attack will likely fail. Aborting.")

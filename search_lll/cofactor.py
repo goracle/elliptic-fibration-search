@@ -174,6 +174,120 @@ def verify_character_vectors(filtered_rows, alive_idx_list, basis_vectors, ell, 
     return ok_list
 
 
+def try_add_row_to_basis(basis_rows, row_vec, ell):
+    """
+    Rank-based independence test.
+
+    basis_rows: list of dense row vectors (each a Sage vector or list of ints mod ell)
+    row_vec: dense row vector to test (list or Sage vector)
+    Returns True if row_vec is independent and appended to basis_rows, False otherwise.
+    """
+    Zell = Zmod(int(ell))
+
+    # convert inputs to dense lists of Zell elements
+    def _to_zell_list(v):
+        if hasattr(v, 'list'):
+            raw = v.list()
+        else:
+            raw = list(v)
+        return [Zell(int(x) % int(ell)) for x in raw]
+
+    v_list = _to_zell_list(row_vec)
+
+    if not basis_rows:
+        # quick append for empty basis
+        basis_rows.append(vector(Zell, v_list))
+        return True
+
+    # build small matrix with current basis rows + candidate
+    M_before = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ])
+    rank_before = M_before.rank()
+    M_after = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ] + [v_list])
+    rank_after = M_after.rank()
+
+    if rank_after > rank_before:
+        basis_rows.append(vector(Zell, v_list))
+        return True
+    return False
+
+
+def select_independent_rows_fast(A_hom, ell, target_count=None):
+    """
+    Zero-rank-check selection exploiting perfect 4-orbit structure.
+    Assumes rank increases at every position 1 + 4k.
+    """
+    n_rows = A_hom.nrows()
+    if target_count is None:
+        target_count = min(n_rows, A_hom.ncols())
+    
+    # Just take every 4th row starting at offset 1
+    chosen = list(range(1, min(1 + 4 * target_count, n_rows), 4))
+    
+    # Truncate to target_count
+    return chosen[:target_count]
+
+
+def select_independent_rows(A_hom, ell, target_count=None):
+    """
+    Fast independent row selection exploiting 4-orbit structure.
+    
+    Observation: rank increases every 4th row starting at offset 1.
+    We stride by 4 and only test candidates at positions 1, 5, 9, 13, ...
+    """
+    Zell = Zmod(int(ell))
+    n_rows = A_hom.nrows()
+    if target_count is None:
+        target_count = min(n_rows, A_hom.ncols())
+    
+    chosen = []
+    chosen_rows = []
+    
+    # Start at offset 1, stride by 4
+    for i in range(1, n_rows, 4):
+        row = A_hom.row(i)
+        row_list = [Zell(int(x) % int(ell)) for x in row]
+        
+        if not chosen_rows:
+            chosen.append(i)
+            chosen_rows.append(row_list)
+            if len(chosen) >= target_count:
+                break
+            continue
+        
+        # Rank test (should almost always succeed at these indices)
+        M_before = matrix(Zell, chosen_rows)
+        rank_before = M_before.rank()
+        M_after = matrix(Zell, chosen_rows + [row_list])
+        rank_after = M_after.rank()
+        
+        if rank_after > rank_before:
+            chosen.append(i)
+            chosen_rows.append(row_list)
+            if len(chosen) >= target_count:
+                break
+    
+    # Safety: if we didn't get enough (shouldn't happen), fallback to dense scan
+    if len(chosen) < target_count:
+        for i in range(n_rows):
+            if i in chosen:
+                continue
+            row = A_hom.row(i)
+            row_list = [Zell(int(x) % int(ell)) for x in row]
+            
+            M_before = matrix(Zell, chosen_rows)
+            rank_before = M_before.rank()
+            M_after = matrix(Zell, chosen_rows + [row_list])
+            rank_after = M_after.rank()
+            
+            if rank_after > rank_before:
+                chosen.append(i)
+                chosen_rows.append(row_list)
+                if len(chosen) >= target_count:
+                    break
+    
+    return chosen
+
+
 def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
                                   full_order, J, f_coeffs, p, verbose=True):
     """
@@ -302,6 +416,12 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     for old_idx, mult in row_g_proj.items():
         g_row_vec[col_map[old_idx]] = int(mult) % int(ell)
 
+    # Build q_row vector EARLY (if present) for diagnostics/pruning
+    q_row_vec = None
+    if row_q is not None:
+        q_row_vec = [0] * n_cols
+        for old_idx, mult in row_q_proj.items():
+            q_row_vec[col_map[old_idx]] = int(mult) % int(ell)
 
     # Build A_hom for initial rank check
     entries_hom = {}
@@ -322,7 +442,7 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
             print("  [Auto-Prune] Homogeneous is full rank; FORCING rank defect")
 
         # Choose rows to delete so rank drops by 1 and kernel hits G
-        rows_to_remove = choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose)
+        rows_to_remove = choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose, q_row_vec=q_row_vec)
 
         keep_rows = [i for i in range(A_hom.nrows()) if i not in rows_to_remove]
         alive_rows = [alive_rows[i] for i in keep_rows]
@@ -337,7 +457,7 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
         if A_hom.rank() != n_cols - 1:
             raise RuntimeError("Forced prune failed to create rank defect")
 
-    # Build g_row vector
+    # Build g_row vector (ensure it's fresh if needed, though established above)
     g_row_vec = [0] * n_cols
     for old_idx, mult in row_g_proj.items():
         g_row_vec[col_map[old_idx]] = int(mult) % int(ell)
@@ -353,15 +473,8 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     if verbose:
         print(f"  [Rank Check] Hom Rank: {rank_hom}, Rank with G-row: {rank_aug}")
 
-    # Build Q row vector if needed
-    q_row_vec = None
-    if row_q is not None:
-        q_row_vec = [0] * n_cols
-        for old_idx, mult in row_q_proj.items():
-            q_row_vec[col_map[old_idx]] = int(mult) % int(ell)
-
     if rank_aug != n_cols:
-        # G failed. Try G+Q
+        # G failed. Try G+Q using the precomputed q_row_vec if available
         if q_row_vec is not None:
             entries_gq = dict(entries_aug)
             for j, val in enumerate(q_row_vec):
@@ -416,121 +529,7 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     }
 
 
-def try_add_row_to_basis(basis_rows, row_vec, ell):
-    """
-    Rank-based independence test.
-
-    basis_rows: list of dense row vectors (each a Sage vector or list of ints mod ell)
-    row_vec: dense row vector to test (list or Sage vector)
-    Returns True if row_vec is independent and appended to basis_rows, False otherwise.
-    """
-    Zell = Zmod(int(ell))
-
-    # convert inputs to dense lists of Zell elements
-    def _to_zell_list(v):
-        if hasattr(v, 'list'):
-            raw = v.list()
-        else:
-            raw = list(v)
-        return [Zell(int(x) % int(ell)) for x in raw]
-
-    v_list = _to_zell_list(row_vec)
-
-    if not basis_rows:
-        # quick append for empty basis
-        basis_rows.append(vector(Zell, v_list))
-        return True
-
-    # build small matrix with current basis rows + candidate
-    M_before = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ])
-    rank_before = M_before.rank()
-    M_after = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ] + [v_list])
-    rank_after = M_after.rank()
-
-    if rank_after > rank_before:
-        basis_rows.append(vector(Zell, v_list))
-        return True
-    return False
-
-
-def select_independent_rows_fast(A_hom, ell, target_count=None):
-    """
-    Zero-rank-check selection exploiting perfect 4-orbit structure.
-    Assumes rank increases at every position 1 + 4k.
-    """
-    n_rows = A_hom.nrows()
-    if target_count is None:
-        target_count = min(n_rows, A_hom.ncols())
-    
-    # Just take every 4th row starting at offset 1
-    chosen = list(range(1, min(1 + 4 * target_count, n_rows), 4))
-    
-    # Truncate to target_count
-    return chosen[:target_count]
-
-
-def select_independent_rows(A_hom, ell, target_count=None):
-    """
-    Fast independent row selection exploiting 4-orbit structure.
-    
-    Observation: rank increases every 4th row starting at offset 1.
-    We stride by 4 and only test candidates at positions 1, 5, 9, 13, ...
-    """
-    Zell = Zmod(int(ell))
-    n_rows = A_hom.nrows()
-    if target_count is None:
-        target_count = min(n_rows, A_hom.ncols())
-    
-    chosen = []
-    chosen_rows = []
-    
-    # Start at offset 1, stride by 4
-    for i in range(1, n_rows, 4):
-        row = A_hom.row(i)
-        row_list = [Zell(int(x) % int(ell)) for x in row]
-        
-        if not chosen_rows:
-            chosen.append(i)
-            chosen_rows.append(row_list)
-            if len(chosen) >= target_count:
-                break
-            continue
-        
-        # Rank test (should almost always succeed at these indices)
-        M_before = matrix(Zell, chosen_rows)
-        rank_before = M_before.rank()
-        M_after = matrix(Zell, chosen_rows + [row_list])
-        rank_after = M_after.rank()
-        
-        if rank_after > rank_before:
-            chosen.append(i)
-            chosen_rows.append(row_list)
-            if len(chosen) >= target_count:
-                break
-    
-    # Safety: if we didn't get enough (shouldn't happen), fallback to dense scan
-    if len(chosen) < target_count:
-        for i in range(n_rows):
-            if i in chosen:
-                continue
-            row = A_hom.row(i)
-            row_list = [Zell(int(x) % int(ell)) for x in row]
-            
-            M_before = matrix(Zell, chosen_rows)
-            rank_before = M_before.rank()
-            M_after = matrix(Zell, chosen_rows + [row_list])
-            rank_after = M_after.rank()
-            
-            if rank_after > rank_before:
-                chosen.append(i)
-                chosen_rows.append(row_list)
-                if len(chosen) >= target_count:
-                    break
-    
-    return chosen
-
-
-def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True):
+def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True, q_row_vec=None):
     """
     G-guided prune exploiting 4-orbit structure: delete 4 rows instead of 1.
     """
@@ -552,6 +551,17 @@ def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True):
     print("DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES")
     print("Format: Row Index: [(Column Index, Value), ...]")
     print("="*60)
+
+    # Print G Row
+    g_entries = sorted([(i, int(val)) for i, val in enumerate(g_row_vec) if val != 0])
+    print(f"G Row (BASE_DIVISOR): {g_entries}")
+
+    # Print Q Row
+    if q_row_vec is not None:
+        q_entries = sorted([(i, int(val)) for i, val in enumerate(q_row_vec) if val != 0])
+        print(f"Q Row (TARGET_DIVISOR): {q_entries}")
+    else:
+        print("Q Row (TARGET_DIVISOR): None")
 
     # Print first relation (offset 1)
     if n_rows > 1:

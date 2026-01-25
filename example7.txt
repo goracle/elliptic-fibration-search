@@ -314,7 +314,15 @@ Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
 G has u(x) = x^2 + 11594546*x + 6954622 (splits)
 Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
 DATA_PTS_GENUS2 = [10598399, 18579300]
-[mumford] Residue computation took 93.97s
+Jacobian order: 1126029650170156
+Factorization: 2^2 * 289603 * 972045913
+Largest prime ℓ: 972045913
+Cofactor h: 1158412
+Generated 4 preferred x-coordinates: {15816859, 4178732, 6143062, 20440375}
+G has u(x) = x^2 + 11594546*x + 6954622 (splits)
+Q has u(x) = x^2 + 8935360*x + 7196914 (splits)
+DATA_PTS_GENUS2 = [10598399, 18579300]
+[mumford] Residue computation took 80.98s
 PRIME: 33554467
 generated: 1 available: 0 active: 0
 raw_solutions: 0 unique_supports: 0 duplicates: 0
@@ -323,27 +331,27 @@ availability_rate: 0.0 activation_rate: 0.0
 
 === MUMFORD SEARCH (FINITE FIELD GF(33554467) - PARALLEL) ===
   Harvesting initial solutions...
-  Harvest done (1.34s): 18017 unique relations.
+  Harvest done (1.75s): 18021 unique relations.
   Factor Base (Unique x): 6000
   Starting parallel structured random walk...
-  Target reached: 18017 relations > 6000 FB + 480 buffer.
-  Final Status: 18017 relations, 6000 factor base elements.
-  [Filter] Checking 18017 divisors against G and Q...
+  Target reached: 18021 relations > 6000 FB + 480 buffer.
+  Final Status: 18021 relations, 6000 factor base elements.
+  [Filter] Checking 18021 divisors against G and Q...
   [Filter] ✓ No forbidden divisors found (G/Q clean).
 
-Mumford search reconstructed 18017 divisors
-  18017 divisors had rational roots in u(x)
+Mumford search reconstructed 18021 divisors
+  18021 divisors had rational roots in u(x)
 
 [Preferred Coordinates Hit Rate]
   Target coordinates: 4
   Found in Factor Base: 4 / 4 (100.0%)
-  Divisors containing target: 32 / 18017 (0.2%)
+  Divisors containing target: 32 / 18021 (0.2%)
 
 ============================================================
  INDEX CALCULUS ATTACK DIAGNOSTIC
 ============================================================
  Target Field: GF(33554467)
- Relations:    18017
+ Relations:    18021
  Factor Base:  4504
  Matrix Rank:  4504
 ------------------------------------------------------------
@@ -354,13 +362,13 @@ Mumford search reconstructed 18017 divisors
           Both G and Q are expressible over factor base.
 ============================================================
 
-Total time: 126.21s
+Total time: 114.08s
 Total Rational Points Found (Unique x): 0
 
 Phases (s):
-  mumford_residues         : 93.97s
-  prep_mod_data            : 3.98s
-  mumford_reconstruction   : 1.52s
+  mumford_residues         : 80.98s
+  prep_mod_data            : 3.99s
+  mumford_reconstruction   : 1.96s
   mumford_setup            : 0.00s
 
 Counters:
@@ -393,7 +401,8 @@ Discard Reasons (Top 5):
 ======================================================================
 TESTING FACTOR BASE HOMOMORPHISM PROPERTY
 ======================================================================
-homomorphism_test: 200/200 passed
+homomorphism_test: 200/200 atom-based encodable pairs tested, all passed
+homomorphism_test: checked 0 explicit divisors (encodable ones)
  Homomorphism test PASSED
 ======================================================================
 
@@ -407,99 +416,12 @@ Full Jacobian order |J|: 1126029650170156
 Largest prime ℓ: 972045913
 Cofactor h: 1158412
   [Legacy] Building factor base and relations from Mumford divisors...
-  [Legacy->Relations] Building factor base from 18019 sample divisors...
+  [Legacy->Relations] Building factor base from 18023 sample divisors...
 [Factor Base] 4504 prime atoms
   [Legacy->Relations] Factor base size: 4504
-  [Relations] Built 18017 homogeneous relations (RHS=0, no rebasing)
-  [Filter] ✓ Relation vectors are clean (no linear dependence on G/Q).
-  [Relations] Loaded 18017 homogeneous relations
-  [Factor Base] Size: 4504
-  [Relations] Loaded 18017 homogeneous relations
-  [Factor Base] Size: 4504
-  [Smoothing] Generator G is already smooth.
-  [Smoothing] Target Q is already smooth.
-
-====================================================================
-COFACTOR PROJECTION PRE-CHECK (Rank Defective Check)
-====================================================================
-  |J| = 1126029650170156, ℓ = 972045913, h = 1158412
-  Alive FB: 4504  Dead FB: 0
-  [Rank Check] N_Cols (Alive Atoms): 4504
-  [Rank Check] Hom. Rank (before prune): 4504
-  [Auto-Prune] Homogeneous is full rank; FORCING rank defect
-
-============================================================
-DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES
-Format: Row Index: [(Column Index, Value), ...]
-============================================================
-First Relation (Row 1): [(5, 1), (6, 1)]
-
-Sampling 10 random orbits from basis_indices:
-
-Orbit Start: 1205
-  Row 1205: [(5, 1), (307, 1)]
-  Row 1206: [(5, 1), (307, 972045912)]
-  Row 1207: [(5, 972045912), (307, 1)]
-  Row 1208: [(5, 972045912), (307, 972045912)]
-
-Orbit Start: 1457
-  Row 1457: [(5, 1), (370, 1)]
-  Row 1458: [(5, 1), (370, 972045912)]
-  Row 1459: [(5, 972045912), (370, 1)]
-  Row 1460: [(5, 972045912), (370, 972045912)]
-
-Orbit Start: 6477
-  Row 6477: [(1005, 1), (1622, 1)]
-  Row 6478: [(1005, 1), (1622, 972045912)]
-  Row 6479: [(1005, 972045912), (1622, 1)]
-  Row 6480: [(1005, 972045912), (1622, 972045912)]
-
-Orbit Start: 9201
-  Row 9201: [(1005, 1), (2303, 1)]
-  Row 9202: [(1005, 1), (2303, 972045912)]
-  Row 9203: [(1005, 972045912), (2303, 1)]
-  Row 9204: [(1005, 972045912), (2303, 972045912)]
-
-Orbit Start: 9733
-  Row 9733: [(1005, 1), (2436, 1)]
-  Row 9734: [(1005, 1), (2436, 972045912)]
-  Row 9735: [(1005, 972045912), (2436, 1)]
-  Row 9736: [(1005, 972045912), (2436, 972045912)]
-
-Orbit Start: 10717
-  Row 10717: [(1005, 1), (2682, 1)]
-  Row 10718: [(1005, 1), (2682, 972045912)]
-  Row 10719: [(1005, 972045912), (2682, 1)]
-  Row 10720: [(1005, 972045912), (2682, 972045912)]
-
-Orbit Start: 11013
-  Row 11013: [(1005, 1), (2756, 1)]
-  Row 11014: [(1005, 1), (2756, 972045912)]
-  Row 11015: [(1005, 972045912), (2756, 1)]
-  Row 11016: [(1005, 972045912), (2756, 972045912)]
-
-Orbit Start: 12001
-  Row 12001: [(1005, 1), (3003, 1)]
-  Row 12002: [(1005, 1), (3003, 972045912)]
-  Row 12003: [(1005, 972045912), (3003, 1)]
-  Row 12004: [(1005, 972045912), (3003, 972045912)]
-
-Orbit Start: 13169
-  Row 13169: [(1005, 1), (3295, 1)]
-  Row 13170: [(1005, 1), (3295, 972045912)]
-  Row 13171: [(1005, 972045912), (3295, 1)]
-  Row 13172: [(1005, 972045912), (3295, 972045912)]
-
-Orbit Start: 15905
-  Row 15905: [(3502, 1), (3976, 1)]
-  Row 15906: [(3502, 1), (3976, 972045912)]
-  Row 15907: [(3502, 972045912), (3976, 1)]
-  Row 15908: [(3502, 972045912), (3976, 972045912)]
-============================================================
-
-[G-Guided Prune] Testing orbit representatives...
-  Orbit@1: <chi,G>=0 mod 972045913
-  Orbit@5: <chi,G>=0 mod 972045913
-  Orbit@9: <chi,G>=0 mod 972045913
-  Orbit@13: <chi,G>=0 mod 972045913
-  Orbit@17: <chi,G>=0 mod 972045913
+  [Relations] Built 18021 homogeneous edge-relations (RHS=0)
+  [Walks] Padded atom table to power-of-two: 8192
+  [Walks] Starting C-based collision walks with 8192 atoms...
+  [Walks] Using 19 parallel workers
+  [Walks] Distinguished bits: 15
+  [Walks] Expected steps per DP: 32768
