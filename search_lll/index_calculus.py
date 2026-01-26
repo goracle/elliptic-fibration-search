@@ -837,6 +837,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
 
     # Extract factor base - returns (atom_to_idx, fb_y_cache)
     atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=True)
+    initialize_global_factor_base(atom_to_idx)
     
     # Extract fb_roots from degree-1 atoms (for backward compatibility with diagnostics)
     fb_roots = []
@@ -855,7 +856,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     # Build homogeneous relations using corrected homomorphism
     # CRITICAL: Pass atom_to_idx directly (NOT r_to_idx)
     valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
-        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, verbose=verbose
+        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs, verbose=verbose
     )
 
     if not valid_rows:
