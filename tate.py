@@ -1,3 +1,20 @@
+import sys
+import random
+from collections import namedtuple
+from tqdm import tqdm
+import re
+from sage.all import QQ, ZZ, GF, PolynomialRing, LaurentSeriesRing, PowerSeriesRing, matrix, Matrix, vector, sqrt, floor, var, lcm, gcd, EllipticCurve, Curve, Jacobian
+from sage.rings.fraction_field_element import FractionFieldElement
+from sage.all import QQbar, parent
+from diagnostics2 import *
+import numpy as np
+from sage.all import QQ, CC, AA, QQbar, PolynomialRing, ComplexField, RealField, AlgebraicField, numerical_approx, factor, gcd
+from functools import reduce
+from math import gcd as _gcd
+from sage.all import ZZ, PolynomialRing
+from math import floor
+from sage.all import QQ, PolynomialRing
+
 """
 Tate's Algorithm Implementation for Elliptic Curve Fibrations
 
@@ -5,20 +22,8 @@ This module implements Tate's algorithm for classifying singular fibers
 of elliptic curves over function fields, along with height pairing computations.
 """
 
-import sys
-import random
-from collections import namedtuple
-from tqdm import tqdm
-import re
 
 # SageMath imports
-from sage.all import (
-    QQ, ZZ, GF, PolynomialRing, LaurentSeriesRing, PowerSeriesRing,
-    matrix, Matrix, vector, sqrt, floor, var, lcm, gcd,
-    EllipticCurve, Curve, Jacobian
-)
-from sage.rings.fraction_field_element import FractionFieldElement
-from sage.all import QQbar, parent
 
 # Profile decorator fallback for when line_profiler is not available
 try:
@@ -29,7 +34,6 @@ except NameError:
         return func
     PROFILE = profile
 
-from diagnostics2 import *
 
 
 # Kodaira symbol classification constants
@@ -766,12 +770,6 @@ Complete singular fiber detection for elliptic surfaces.
 Finds all singular fibers including those with irrational/complex centers.
 """
 
-import numpy as np
-from sage.all import (
-    QQ, CC, AA, QQbar, PolynomialRing, 
-    ComplexField, RealField, AlgebraicField,
-    numerical_approx, factor, gcd
-)
 
 
 def compute_euler_characteristic(fibers):
@@ -989,9 +987,6 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
 
 # Put near top of tate.py (imports already in your file assumed)
 # add near top of file
-from functools import reduce
-from math import gcd as _gcd
-from sage.all import ZZ, PolynomialRing
 
 def _lcm(a, b):
     if a == 0 or b == 0:
@@ -1062,8 +1057,6 @@ def kodaira_euler_number(s):
     raise ValueError(f"Unknown Kodaira symbol: {s}")
 
 
-from math import floor
-from sage.all import QQ, PolynomialRing
 
 def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagnostics=False, clamp_negative=False, allow_auto_rho=False):
     """

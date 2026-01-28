@@ -1,3 +1,11 @@
+from sage.all import SR, QQ, EllipticCurve
+from math import lcm, gcd
+from functools import reduce
+import random
+from diagnostics2 import *
+from sage.all import QQ, SR, Rational
+from fractions import Fraction
+
 # -------------------------
 # Sage script for torsion analysis
 # -------------------------
@@ -6,12 +14,7 @@
 #   base_sections: list of known sections [(x(m), y(m)), ...] as SR expressions
 #   m_sym: symbolic variable representing the base (usually QQ['m'] or SR.var('m'))
 
-from sage.all import SR, QQ, EllipticCurve
-from math import lcm, gcd
-from functools import reduce
-import random
 
-from diagnostics2 import *
 
 # -------------------------
 # Step A: Compute component counts / theoretical lcm bound
@@ -28,8 +31,6 @@ from diagnostics2 import *
 # Step C: Slow / exact division polynomial method
 # -------------------------
 
-from sage.all import QQ, SR, Rational
-from fractions import Fraction
 
 
 # Add this near the top of torsion.py, after imports:

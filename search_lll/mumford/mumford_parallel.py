@@ -17,6 +17,7 @@ from itertools import islice, product
 from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check, RationalReconstructionError
 
 
+
 MAX_TASK_DEGREE = 200
 
 

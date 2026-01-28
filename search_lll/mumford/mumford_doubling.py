@@ -2,6 +2,7 @@ from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
 from collections import defaultdict
 from .mumford_core import _poly_from_coeffs_qq, make_monic, reduce_v_mod_u, is_divisor_on_curve
 from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 
 def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list, debug=False):

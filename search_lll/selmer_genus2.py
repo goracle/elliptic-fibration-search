@@ -1,12 +1,6 @@
-# selmer_genus2.py
-"""
-2-Selmer rank bounds for genus 2 curves.
-Uses Jacobian structure and local solubility analysis.
-"""
-
 from sage.all import QQ, ZZ, GF, HyperellipticCurve, primes, gcd, legendre_symbol, Integer
 from sage.all import PolynomialRing, factor, sqrt
-
+from sage.all import PolynomialRing, factor, sqrt, is_prime
 
 # selmer_genus2.py
 """
@@ -14,7 +8,13 @@ from sage.all import PolynomialRing, factor, sqrt
 Uses Jacobian structure and local solubility analysis.
 """
 
-from sage.all import PolynomialRing, factor, sqrt, is_prime
+
+
+"""
+2-Selmer rank bounds for genus 2 curves.
+Uses Jacobian structure and local solubility analysis.
+"""
+
 
 
 def _check_local_solubility_genus2(f, p):

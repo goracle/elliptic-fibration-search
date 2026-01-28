@@ -4,6 +4,7 @@ import math
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 
 
+
 def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     """
     Compute naive height from Mumford representation without building Jacobian.

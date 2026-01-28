@@ -1,10 +1,11 @@
-"""Local (p-adic) height functions."""
-
 import math
 import warnings
 from sage.all import QQ, Qp, PolynomialRing, HyperellipticCurve
-
 from search_common import NUM_DOUBLINGS
+
+"""Local (p-adic) height functions."""
+
+
 
 
 """Local (p-adic) height functions."""

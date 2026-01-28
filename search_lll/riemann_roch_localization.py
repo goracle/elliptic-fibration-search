@@ -1,15 +1,15 @@
-# search_lll/riemann_roch_localization.py
 from sage.all import Matrix, vector, ZZ, QQ, GF, PolynomialRing
-
-
 import sys
 import itertools
-
-
 from sage.all import Matrix, vector, ZZ, GF, PolynomialRing
 
-
 # search_lll/riemann_roch_localization.py
+
+
+
+
+
+
 
 
 def get_rr_basis(n_pole, f_poly, p):

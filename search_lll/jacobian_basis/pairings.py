@@ -1,16 +1,15 @@
-"""Neron-Tate pairing computations."""
-
 import numpy as np
 import math
-from sage.all import (
-    QQ, ZZ, RealField, ComplexField,
-    PolynomialRing, HyperellipticCurve, Matrix, vector
-)
+from sage.all import QQ, ZZ, RealField, ComplexField, PolynomialRing, HyperellipticCurve, Matrix, vector
 from multiprocessing import Pool
-
 from .heights import arakelov_canonical_height
 from .parallel import compute_pairing_worker
 from .utilities import *
+from .utilities import normalize_gram_for_basis
+
+"""Neron-Tate pairing computations."""
+
+
 
 # Functions: get_pairing, neron_tate_height_pairing,
 # precompute_pairings_parallel, gram_logdet_and_cond
@@ -19,8 +18,6 @@ from .utilities import *
 """Neron-Tate pairing computations."""
 
 
-# Functions: get_pairing, neron_tate_height_pairing,
-# precompute_pairings_parallel, gram_logdet_and_cond
 
 def get_pairing(i, j, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):
     if i > j:
@@ -132,7 +129,6 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
     return {"n": n, "svals": svals, "log10_abs_det": log10_abs_det, "log10_cond": log10_cond, "numeric_rank": numeric_rank}
 
 
-from .utilities import normalize_gram_for_basis
 
 
 def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs, prec, height_cache, n_jobs):

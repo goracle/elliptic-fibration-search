@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+
 def mumford_timer_add(name, elapsed):
     _MUMFORD_TIMERS[name] += elapsed
 

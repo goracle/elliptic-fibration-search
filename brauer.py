@@ -1,6 +1,8 @@
 from sage.all import QQ, ZZ
 from collections import Counter
 from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd, GF
+from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
+
 
 # ---------------------------
 # Helper / sanity utilities
@@ -133,11 +135,7 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
     print("="*70)
 
 
-from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
 
-# ---------------------------
-# Helper / sanity utilities
-# ---------------------------
 
 def _coerce_rational(m):
     """
@@ -198,7 +196,6 @@ def prime_survival_fraction_from_residues(precomputed_residues, prime):
 
 # ---------------------------
 # Estimate global completeness
-# ---------------------------
 
 def estimate_completeness_probability(precomputed_residues, prime_pool, primes_for_model=None):
     """
@@ -239,7 +236,6 @@ def estimate_completeness_probability(precomputed_residues, prime_pool, primes_f
 
 # ---------------------------
 # Targeted test: is an m killed?
-# ---------------------------
 
 def m_is_locally_allowed(m, precomputed_residues, prime_pool, v_tuple=None):
     """
@@ -306,7 +302,6 @@ def m_is_locally_allowed(m, precomputed_residues, prime_pool, v_tuple=None):
 
 # ---------------------------
 # Diagnostic: find prime contributors to any blockade
-# ---------------------------
 
 def blocking_primes_for_m(m, precomputed_residues, prime_pool, v_tuple=None):
     """
@@ -319,7 +314,6 @@ def blocking_primes_for_m(m, precomputed_residues, prime_pool, v_tuple=None):
 
 # ---------------------------
 # Heuristic "algebraic Brauer" probe
-# ---------------------------
 
 def probe_algebraic_brauer_obstructions(precomputed_residues, prime_pool,
                                        candidate_ms=None, sample_size=500, v_tuple=None):

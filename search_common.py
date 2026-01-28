@@ -18,6 +18,7 @@ from parse_genus3 import *
 from tate import *
 from sage.all import valuation, gcd
 
+
 # === imports ===
 
 # local modules

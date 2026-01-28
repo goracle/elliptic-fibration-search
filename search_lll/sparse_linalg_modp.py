@@ -1,4 +1,3 @@
-# Keep at top only:
 from sage.all import Integer, Zmod, vector, GF, PolynomialRing, matrix, factor
 from sage.matrix.berlekamp_massey import berlekamp_massey
 from multiprocessing import Pool, cpu_count
@@ -7,6 +6,8 @@ import sys
 import time
 import random
 from search_common import BLOCK_WIEDEMANN
+
+# Keep at top only:
 
 # sparse_linalg_modp.py
 

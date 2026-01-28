@@ -10,11 +10,12 @@ from multiprocessing import set_start_method
 import psutil
 import time
 from multiprocessing import Manager
-import queue  # for catching queue.Full
+import queue
 from search_common import FINITE_FIELD, sage_poly_from_coeffs
 from sage.all import GF, PolynomialRing, ZZ
 import os, time, random
 from sage.all import GF, PolynomialRing, HyperellipticCurve
+
 
 # CRITICAL: Force spawn mode to prevent fork-based RAM explosion
 try:

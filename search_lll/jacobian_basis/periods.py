@@ -1,12 +1,10 @@
-"""Period matrix and Abel-Jacobi map computations."""
-
-from sage.all import (
-    ComplexField, RealField, PolynomialRing,
-    Matrix, vector, QQ, ZZ
-)
+from sage.all import ComplexField, RealField, PolynomialRing, Matrix, vector, QQ, ZZ
 from sage.all import ComplexField, PolynomialRing, matrix
 from .integration import *
 
+"""Period matrix and Abel-Jacobi map computations."""
+
+
 # Functions: choose_numerical_base_point, abel_jacobi_mumford,
 # normalize_periods_and_z
 
@@ -14,8 +12,6 @@ from .integration import *
 """Period matrix and Abel-Jacobi map computations."""
 
 
-# Functions: choose_numerical_base_point, abel_jacobi_mumford,
-# normalize_periods_and_z
 
 def choose_numerical_base_point(f_coeffs, prec=300):
     """

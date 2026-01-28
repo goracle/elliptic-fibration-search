@@ -1,3 +1,13 @@
+from math import gcd
+from sage.all import PolynomialRing, FractionField, QQ, GF, is_prime
+from sage.all import matrix, ZZ, EllipticCurve, Integer
+from itertools import product
+from sage.all import randint
+from tate import *
+from search_common import to_mod_poly, is_good_prime_for_surface, reduce_cd_mod_ell
+from search_common import compute_canonical_height_matrix
+from search_common import DEBUG
+
 # ========= Picard Number via Van Luijk (minimal viable pipeline) =========
 # Assumes: Sage 10.x, your existing cd object shape, and:
 #   - find_singular_fibers(cd, ...)
@@ -9,19 +19,10 @@
 #   - Lower bound from char 0 Shioda–Tate.
 #   - Upper bound(s) from reductions modulo good primes using Shioda–Tate over F_ell.
 #   - Optional Van Luijk square-class check (stub included, see TODO).
-from math import gcd
-from sage.all import PolynomialRing, FractionField, QQ, GF, is_prime
-from sage.all import matrix, ZZ, EllipticCurve, Integer
-from itertools import product
-from sage.all import randint
 
 # Import placeholder for required but external functions.
 # These would need to be defined in `tate`, `sat`, `search_common` for the full pipeline to work.
-from tate import *
-from search_common import to_mod_poly, is_good_prime_for_surface, reduce_cd_mod_ell
-from search_common import compute_canonical_height_matrix
 
-from search_common import DEBUG
 
 
 def reduce_section_mod_ell(sec, cd_ell, debug=False):

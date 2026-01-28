@@ -1,11 +1,4 @@
-"""
-Main entry point for Mumford divisor search.
-Re-exports key functions for backward compatibility.
-"""
-
 from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
-
-# Core imports
 from .mumford_core import *
 from .mumford_solver import solve_mumford_mod_p, solve_mumford_mod_p_optimized
 from .mumford_verification import verify_mumford_pair, canonicalize_and_dedup
@@ -15,9 +8,18 @@ from .mumford_reconstruction import reconstruct_and_verify_mumford
 from .mumford_parallel import mumford_precompute_residues_parallel
 from .mumford_timing import mumford_timers_print, mumford_timers_reset
 from .mumford_equations import build_mumford_equations_from_fibration
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
+from .smoothness import *
+
+"""
+Main entry point for Mumford divisor search.
+Re-exports key functions for backward compatibility.
+"""
+
+
+# Core imports
 
 # Constants
-from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
 
 # Try to import Arakelov
 try:
@@ -27,7 +29,6 @@ except ImportError:
     ARAKELOV_AVAILABLE = False
     print("[mumford] Warning: arakelov.py not available, using fallback methods")
 
-from .smoothness import *
 
 # Module constants
 RECON_EXPONENT = 0.55

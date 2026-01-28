@@ -1,3 +1,7 @@
+from sage.all import *
+from collections import defaultdict
+from search_common import DEBUG
+
 # diagnostics_univariate.py
 """
 Univariate search equation diagnostics.
@@ -5,12 +9,8 @@ Analyzes why symbolic search may fail while modular search succeeds.
 Checks for Galois obstructions on the torsor equations x([n]P)(m) = -m + x1.
 """
 
-from sage.all import *
-from collections import defaultdict
-from search_common import DEBUG
 
 
-# diagnostics_univariate.py
 """
 Univariate search equation diagnostics.
 Analyzes why symbolic search may fail while modular search succeeds.

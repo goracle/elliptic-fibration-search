@@ -11,6 +11,7 @@ from sage.all import GF, PolynomialRing, HyperellipticCurve, Integer
 from prime_subgroup_projection import *
 
 
+
 assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
 
 

@@ -1,8 +1,3 @@
-# arakelov.py
-#
-# Arakelov height computations for genus-2 hyperelliptic Jacobian elements.
-# Faster and more reliable than repeated doubling for height pairings.
-
 from mpmath import pslq
 from sage.all import QQ, ZZ, RR, CC, RDF, CDF, log, sqrt, exp, pi, I
 from sage.all import PolynomialRing, HyperellipticCurve, Matrix, vector
@@ -14,9 +9,18 @@ from sage.all import ComplexField, RealField
 from sage.all import parallel
 import time
 from collections import defaultdict
-
 from search_common import *
 from search_lll.jacobian_basis import *
+from sage.all import QQ, ZZ, RR, CC, RDF, CDF, ComplexField, log, sqrt, exp, pi, I, sinh, cosh, tanh
+from sage.all import *
+import cmath
+
+# arakelov.py
+#
+# Arakelov height computations for genus-2 hyperelliptic Jacobian elements.
+# Faster and more reliable than repeated doubling for height pairings.
+
+
 
 # Global cache for period matrices
 _PERIOD_MATRIX_CACHE = {}
@@ -57,7 +61,6 @@ def compute_height_worker(div_data):
         return idx, None
 
 
-from sage.all import QQ, ZZ, RR, CC, RDF, CDF, ComplexField, log, sqrt, exp, pi, I, sinh, cosh, tanh
 
 
 def get_timer(name):
@@ -494,8 +497,6 @@ def get_period_matrix_bad_cycle_choices(f_coeffs, prec=300):
     return tau
 
 
-from sage.all import *
-import cmath
 
 def _continuous_sqrt_values(fvals, CC_prec):
     """

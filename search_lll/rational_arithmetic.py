@@ -1,10 +1,8 @@
+from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt
+
 """
 rational_arithmetic.py: Core number theory utilities.
 """
-from .search_config import (
-    gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE,
-    floor, sqrt, QQ, crt
-)
 
 @lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
 def crt_cached(residues, moduli):

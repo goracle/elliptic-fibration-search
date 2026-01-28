@@ -1,7 +1,8 @@
-"""Diagnostic tools for debugging local height computations."""
-
 from sage.all import QQ, Qp, PolynomialRing, HyperellipticCurve
 import math
+
+"""Diagnostic tools for debugging local height computations."""
+
 
 def diagnose_local_height(div, p, f_coeffs, num_doublings=10, padic_prec=1024):
     """

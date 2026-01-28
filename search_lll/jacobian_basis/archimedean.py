@@ -1,24 +1,18 @@
-"""Archimedean height corrections."""
-
-from sage.all import (
-    QQ, ZZ, RealField, ComplexField,
-    Matrix, vector, pi
-)
+from sage.all import QQ, ZZ, RealField, ComplexField, Matrix, vector, pi
 from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 from sage.all import QQ, QQbar, log
 from sage.all import diagonal_matrix
-
-
 from .theta import *
-from .periods import (
-    choose_numerical_base_point,
-    abel_jacobi_mumford,
-    normalize_periods_and_z
-)
-
+from .periods import choose_numerical_base_point, abel_jacobi_mumford, normalize_periods_and_z
 import math
-# Suppress Sage's inexact ring eigenvalue warnings - we know what we're doing
 import warnings
+
+"""Archimedean height corrections."""
+
+
+
+
+# Suppress Sage's inexact ring eigenvalue warnings - we know what we're doing
 warnings.filterwarnings('ignore', message='Using generic algorithm for an inexact ring')
 
 

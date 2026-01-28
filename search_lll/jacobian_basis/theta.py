@@ -1,8 +1,9 @@
-"""Hardened Riemann theta function with multiple convergence strategies."""
-
 import math
 from sage.all import ComplexField, RealField, exp, pi, log, Matrix, vector, IntegerRing
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+"""Hardened Riemann theta function with multiple convergence strategies."""
+
 
 # tuning knobs (module-level; change at runtime if needed)
 THETA_RADIUS_CAP = 18        # default cap (conservative)

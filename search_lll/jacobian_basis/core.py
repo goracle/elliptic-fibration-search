@@ -1,3 +1,20 @@
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, RealField, ComplexField, Matrix, vector
+from multiprocessing import Pool
+import traceback
+import numpy as np
+import math
+from sage.all import QQ, ZZ, RR, RealField, ComplexField, PolynomialRing, HyperellipticCurve, Matrix, vector
+from multiprocessing import Pool, cpu_count
+from .pairings import precompute_pairings_parallel, gram_logdet_and_cond
+from .heights import arakelov_canonical_height
+from .utilities import make_matrix_numerically_positive_definite, sanity_check_pairings
+from .parallel import compute_height_worker, compute_pairing_worker
+import warnings
+from sage.all import RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ
+from multiprocessing import cpu_count
+from search_lll.homology import *
+from sage.all import QQ, GF, Integer, PolynomialRing, gcd
+
 """core.py
 
 Precision-hardened and robust replacements for pairing/height workers and
@@ -23,30 +40,9 @@ most Gram/regulator work (neron_tate_height_pairing) — this file provides
 robust fallbacks when analytic AJ is not available.
 """
 
-from sage.all import (
-    QQ, PolynomialRing, HyperellipticCurve, RealField, ComplexField, Matrix, vector
-)
-from multiprocessing import Pool
-import traceback
 
 
-import numpy as np
-import math
-from sage.all import (
-    QQ, ZZ, RR, RealField, ComplexField,
-    PolynomialRing, HyperellipticCurve, Matrix, vector
-)
-from multiprocessing import Pool, cpu_count
 
-from .pairings import precompute_pairings_parallel, gram_logdet_and_cond
-from .heights import arakelov_canonical_height
-from .utilities import make_matrix_numerically_positive_definite, sanity_check_pairings
-from .parallel import compute_height_worker, compute_pairing_worker
-import warnings
-from sage.all import (RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ)
-from multiprocessing import cpu_count
-from search_lll.homology import *
-from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 
 
 def dedupe_basis(basis, basis_indices, debug=False):

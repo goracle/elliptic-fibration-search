@@ -1,22 +1,17 @@
-# Add to index_calculus.py
 import sys
-# Standard library
 import time
 import random
 from math import ceil, sqrt, gcd
 from multiprocessing import Pool, cpu_count
 from collections import Counter
-
-# Sage imports (consolidated)
-from sage.all import (
-    Integer, Zmod, GF, ZZ,
-    matrix, vector,
-    PolynomialRing,
-    factor, crt, prime_factors,
-    set_random_seed
-)
+from sage.all import Integer, Zmod, GF, ZZ, matrix, vector, PolynomialRing, factor, crt, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from sage.matrix.berlekamp_massey import berlekamp_massey
+
+# Add to index_calculus.py
+# Standard library
+
+# Sage imports (consolidated)
 
 
 def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows, 

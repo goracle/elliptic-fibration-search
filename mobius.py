@@ -1,3 +1,6 @@
+from sage.all import QQ, PolynomialRing, factor, SR, var, Integer
+import itertools
+
 # mobius.py
 #
 # Möbius transformation utilities for elliptic-fibration experiments.
@@ -16,8 +19,6 @@
 # The returned transform can be used to drive tower.sage’s iterate_tower.
 #
 
-from sage.all import QQ, PolynomialRing, factor, SR, var, Integer
-import itertools
 
 
 class MobiusTransform:
@@ -126,10 +127,8 @@ def prime_support(expr):
 # Replace choose_transform with this exact function body (only changed to handle the new error)
 
 
-# Replace apply_to_poly with this exact function
 
 
-# Replace choose_transform with this exact function body (only changed to handle the new error)
 
 
 def test_transform_on_points(fx, T, test_points, verbose=False):

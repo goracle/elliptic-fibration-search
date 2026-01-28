@@ -1,4 +1,3 @@
-# Revised: use RiemannSurface for topology, but integrate ourselves at high precision.
 from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix
 import math
 import itertools
@@ -6,6 +5,8 @@ from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
 from sage.all import ComplexField, RealField, Matrix, identity_matrix
 from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix
 from sage.all import ZZ, RR
+
+# Revised: use RiemannSurface for topology, but integrate ourselves at high precision.
 
 
 class HomologyExtractionError(Exception):

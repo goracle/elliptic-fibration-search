@@ -1,3 +1,12 @@
+import sys
+import os
+import ast
+import shutil
+import argparse
+import tempfile
+import re
+from collections import defaultdict
+
 #!/usr/bin/env python3
 """
 dedup.py - Advanced Python deduplication with Class Merging, AST parsing, and Auto-Healing.
@@ -14,14 +23,6 @@ Features:
 - Preserves file permissions and creates backups.
 """
 
-import sys
-import os
-import ast
-import shutil
-import argparse
-import tempfile
-import re
-from collections import defaultdict
 
 # ---------------------------------------------------------------------
 # AST Analyzers

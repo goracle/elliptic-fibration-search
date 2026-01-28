@@ -1,8 +1,6 @@
-# bounds.py - Heuristics for prime pool selection and search bounds.
 from sage.all import *
 import math
 import random
-# === safe_splitting_field wrapper ===
 import subprocess
 import tempfile
 import os
@@ -14,6 +12,12 @@ from operator import mul
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
 from search_common import MAX_MODULUS, PRIME_POOL, USE_CONSENSUS_FILTER
+from sage.all import primes, GF, PolynomialRing, QQ
+import time
+from sage.all import next_prime
+
+# bounds.py - Heuristics for prime pool selection and search bounds.
+# === safe_splitting_field wrapper ===
 
 
 def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
@@ -409,8 +413,6 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
 
 # ========== Galois + Chebotarev-informed residue estimation ==========
 
-from sage.all import primes, GF, PolynomialRing, QQ
-import time
 
 def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_primes=50, debug=DEBUG):
     """
@@ -620,7 +622,6 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
 
     return residue_counts
 
-from sage.all import next_prime
 
 def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
                                                   target_survivors=1.0,

@@ -1,8 +1,5 @@
-"""Height computation functions."""
-
 import warnings
 from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve
-
 from .archimedean import archimedean_height_correction
 from .periods import choose_numerical_base_point
 from .theta import *
@@ -13,6 +10,11 @@ from sage.all import PolynomialRing, QQ, HyperellipticCurve
 from sage.all import PolynomialRing, QQ, HyperellipticCurve, Integer
 from sage.all import QQ
 import logging
+from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve, QQbar
+
+"""Height computation functions."""
+
+
 
 logger = logging.getLogger("mumford_adapter")
 
@@ -24,7 +26,6 @@ logger = logging.getLogger("mumford_adapter")
 
 """Height computation functions."""
 
-from sage.all import QQ, RealField, PolynomialRing, HyperellipticCurve, QQbar
 
 
 logger = logging.getLogger("mumford_adapter")
@@ -216,9 +217,6 @@ points appear in the support, not on the divisor class itself.
 
 logger = logging.getLogger("mumford_adapter")
 
-# -------------------------------------------------------------------------
-# Helper Functions
-# -------------------------------------------------------------------------
 
 def get_weierstrass_points(f_coeffs, prec=300):
     """

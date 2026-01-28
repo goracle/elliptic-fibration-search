@@ -6,7 +6,6 @@ from search_lll.smoothness import *
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, VERIFY_INDEPENDENCE_MOD_P
 import math
 import sys
-# Try to import Arakelov
 from collections import defaultdict
 from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 from sage.all import QQ, log
@@ -18,6 +17,17 @@ from pprint import pprint
 import multiprocessing
 import itertools
 from sage.misc.verbose import set_verbose
+from sage.all import QQ, GF, Integer, PolynomialRing, HyperellipticCurve, Matrix, ZZ
+from collections import defaultdict, Counter
+from sage.all import GF, ZZ, Matrix, primes
+from sage.all import ZZ
+from sage.schemes.hyperelliptic_curves.monsky_washnitzer import matrix_of_frobenius_hyperelliptic
+from sage.schemes.hyperelliptic_curves.monsky_washnitzer import matrix_of_frobenius_hyperelliptic, adjusted_prec
+from sage.all import ZZ, Integer
+from sage.all import ZZ, Integer, Matrix
+from search_common import FINITE_FIELD
+
+# Try to import Arakelov
 set_verbose(0)
 
 
@@ -1357,8 +1367,6 @@ FIXES:
 4. Frequency distribution tracking for robustness
 """
 
-from sage.all import QQ, GF, Integer, PolynomialRing, HyperellipticCurve, Matrix, ZZ
-from collections import defaultdict, Counter
 
 
 # ============================================================================
@@ -1659,7 +1667,6 @@ def compute_subgroup_rank_via_projection(elements_p, J_p, num_projections=30, de
     if not elements_p:
         return 0
     
-    # Remove zeros
     nonzero = [D for D in elements_p if not D.is_zero()]
     if not nonzero:
         return 0
@@ -2127,7 +2134,6 @@ def diagnose_mod_p_behavior(divisors, f_coeffs, primes=None, debug=True):
     return results
 
 
-from sage.all import GF, ZZ, Matrix, primes
 
 
 def _shares_root_mod_p(div, f_coeffs, p):
@@ -2175,7 +2181,6 @@ def _shares_root_mod_p(div, f_coeffs, p):
         return False
 
 
-from sage.all import ZZ
 
 def compute_rank_via_bruteforce_linalg(elements_p, J_p, debug=False):
     """
@@ -2279,9 +2284,6 @@ def compute_subgroup_rank_mod_p(divisors, J_p, p, debug=False):
     return rank, valid_divs, reductions
 
 
-from sage.schemes.hyperelliptic_curves.monsky_washnitzer import (
-    matrix_of_frobenius_hyperelliptic
-)
 
 def jacobian_group_order_kedlaya(f, p, prec=2):
     """
@@ -2293,13 +2295,8 @@ def jacobian_group_order_kedlaya(f, p, prec=2):
     return ZZ(P(1))
 
 
-from sage.schemes.hyperelliptic_curves.monsky_washnitzer import (
-    matrix_of_frobenius_hyperelliptic, adjusted_prec
-)
-from sage.all import ZZ, Integer
 
 
-from sage.all import ZZ, Integer, Matrix
 
 # ---------- Kedlaya-backed group order (robust, monic normalization) ----------
 
@@ -2602,7 +2599,6 @@ def jacobian_group_order(J_p):
     )
 
 
-from search_common import FINITE_FIELD
 
 def _build_curve_from_coeffs(f_coeffs):
     """

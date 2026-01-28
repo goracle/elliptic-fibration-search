@@ -1,31 +1,25 @@
-"""
-modular_workers.py: Parallel worker functions and modular reduction setup.
-"""
-
-# Standard library and external imports
 import multiprocessing
 import itertools
 from operator import mul
 from functools import reduce, partial
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from collections import namedtuple, Counter # <-- IMPORTED COUNTER
-
-# SageMath imports
-from sage.all import (
-    QQ, ZZ, GF, EllipticCurve, Integer, vector, PolynomialRing, var,
-    matrix, identity_matrix, lcm, SR, Zmod
-)
-
-# Local Configuration Imports
-from .search_config import (
-    DEBUG, MIN_PRIME_SUBSET_SIZE, MAX_MODULUS, ROOTS_THRESHOLD,
-    MAX_K_ABS, LLL_DELTA, BKZ_BLOCK, TRUNCATE_MAX_DEG, TMAX,
-    HENSEL_SLOPPY, TORSION_SLOPPY, MAX_TORSION_ORDER_TO_FILTER
-)
-
+from collections import namedtuple, Counter
+from sage.all import QQ, ZZ, GF, EllipticCurve, Integer, vector, PolynomialRing, var, matrix, identity_matrix, lcm, SR, Zmod
+from .search_config import DEBUG, MIN_PRIME_SUBSET_SIZE, MAX_MODULUS, ROOTS_THRESHOLD, MAX_K_ABS, LLL_DELTA, BKZ_BLOCK, TRUNCATE_MAX_DEG, TMAX, HENSEL_SLOPPY, TORSION_SLOPPY, MAX_TORSION_ORDER_TO_FILTER
 from .rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from .ll_utilities import _trim_poly_coeffs, _compute_column_norms, _scale_matrix_columns_int, _compute_integer_scales_for_columns
 from .archimedean_optim import minimize_archimedean_t_linear_const
+
+"""
+modular_workers.py: Parallel worker functions and modular reduction setup.
+"""
+
+# Standard library and external imports
+
+# SageMath imports
+
+# Local Configuration Imports
+
 
 # --- IMPORT FIX: Use relative import to get modules from parent directory ---
 try:

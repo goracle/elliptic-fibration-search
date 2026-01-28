@@ -9,11 +9,10 @@ from .modularthread import _process_prime_subset_precomputed
 from .modularthread import _batch_check_rationality
 from .ll_utilities import *
 from .diagnostics_univariate import *
-from collections import namedtuple, Counter # <-- IMPORTED COUNTER
+from collections import namedtuple, Counter
 from .mumford import *
 from .mumford import analyze_active_dead_vectors
 from .selmer_genus2 import *
-# After your Mumford search in FINITE_FIELD mode:
 from .smoothness import *
 from .smoothness import extract_factor_base
 from .index_calculus import *
@@ -21,6 +20,8 @@ from sage.all import QQ, PolynomialRing
 from sage.all import PolynomialRing, SR, QQ
 from .riemann_roch_localization import localize_target_via_rr
 from search_common import *
+
+# After your Mumford search in FINITE_FIELD mode:
 
 def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
                             all_found_x, rationality_test_func, stats):

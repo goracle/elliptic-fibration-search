@@ -1,6 +1,5 @@
 from functools import lru_cache
 from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
-#from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 from .mumford_verification import *
 from itertools import product, islice
@@ -18,8 +17,9 @@ from sage.all import QQ, ZZ, gcd, PolynomialRing
 from .mumford_verification import verify_mumford_pair
 from search_common import DATA_PTS_GENUS2, FINITE_FIELD
 
-
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+
+
 
 
 def rational_reconstruct_fast(c, N, max_den=None, max_num=None):

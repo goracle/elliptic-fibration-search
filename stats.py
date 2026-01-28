@@ -1,4 +1,3 @@
-# stats.py
 import time
 import json
 import math
@@ -9,9 +8,11 @@ from operator import mul
 from datetime import datetime
 from fractions import Fraction
 import numpy as np
+from sage.all import QQ, crt, exp, log, oo, RDF, Integer, RealNumber
+
+# stats.py
 
 # Sage imports
-from sage.all import QQ, crt, exp, log, oo, RDF, Integer, RealNumber
 
 # Local imports (assumed available in python path)
 try:

@@ -1,3 +1,8 @@
+from sage.all import GF, PolynomialRing, HyperellipticCurve, factor, Integer, QQ
+from time import sleep
+from sage.all import Integer, factor
+from math import ceil, sqrt
+
 # === prime_subgroup_projection.py ===
 """
 Projects the hyperelliptic curve Jacobian setup into its largest prime-order subgroup.
@@ -5,8 +10,6 @@ For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning,
 not in the full J(F_p) and project later.
 """
 
-from sage.all import GF, PolynomialRing, HyperellipticCurve, factor, Integer, QQ
-from time import sleep
 
 # [Deleted unused/duplicate setup_prime_subgroup_system function]
 
@@ -36,14 +39,12 @@ def sage_poly_from_coeffs(coeffs, R):
     return poly
 
 
-# === prime_subgroup_projection.py ===
 """
 Projects the hyperelliptic curve Jacobian setup into its largest prime-order subgroup.
 For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning.
 """
 
 
-# === prime_subgroup_projection.py ===
 """
 Projects the hyperelliptic curve Jacobian setup into its largest prime-order subgroup.
 For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning.
@@ -140,8 +141,6 @@ def generate_random_curve_point(f_poly, p):
 
 
 # Put at top of file (if not already imported)
-from sage.all import Integer, factor
-from math import ceil, sqrt
 
 # ---------------------------------------------------------------------
 # Helper: ensure G and Q are in the ℓ-subgroup (or project them)

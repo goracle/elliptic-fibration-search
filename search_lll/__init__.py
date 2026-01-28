@@ -1,7 +1,3 @@
-"""
-__init__.py: Exposes key functions from the submodules.
-"""
-# Expose core configuration and exceptions
 from .search_config import *
 from .modularthread import *
 from .rational_arithmetic import *
@@ -13,6 +9,11 @@ from . import mumford
 from . import jacobian_basis
 from .homology import *
 from .selmer_genus2 import *
+
+"""
+__init__.py: Exposes key functions from the submodules.
+"""
+# Expose core configuration and exceptions
 
 # Expose main execution functions
 # Expose main utilities (as needed by the parent scripts)

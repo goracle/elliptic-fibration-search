@@ -1,8 +1,9 @@
+from .search_config import math, Integer, QQ, TMAX, DEBUG
+from sage.all import QQ
+
 """
 archimedean_optim.py: Logic for archimedean height minimization.
 """
-from .search_config import math, Integer, QQ, TMAX, DEBUG
-from sage.all import QQ
 
 def archimedean_height_QQ(x):
     """

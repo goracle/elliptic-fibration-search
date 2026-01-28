@@ -1,7 +1,11 @@
-"""Utility functions for matrix operations and validation."""
-
 import numpy as np
 from sage.all import Matrix, RR, identity_matrix
+from sage.all import Matrix, RR, identity_matrix, vector
+from .utilities import normalize_gram_for_basis
+from sage.all import Matrix
+
+"""Utility functions for matrix operations and validation."""
+
 
 
 def robust_eig_clip(Im, min_eig_tol=1e-30):
@@ -73,7 +77,6 @@ Design goals:
 - remove affine/null directions automatically
 """
 
-from sage.all import Matrix, RR, identity_matrix, vector
 
 
 # ----------------------------------------------------------------------
@@ -205,8 +208,6 @@ def rank_increases(G_old, G_new, prec, tol=1e-12):
     return numerical_rank(G_new, tol) > numerical_rank(G_old, tol)
 
 
-from .utilities import normalize_gram_for_basis
-from sage.all import Matrix
 
 def sanity_check_pairings(pairing_cache, k, prec=1024):
     """

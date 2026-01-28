@@ -4,6 +4,7 @@ import math
 from collections import Counter, defaultdict
 
 
+
 # DEPRECATED / COMPATIBILITY FUNCTIONS
 def compute_consensus_residues(precomputed_residues_list, prime_pool, consensus_threshold=0.7, debug=False):
     print("WARNING: calling deprecated compute_consensus_residues")

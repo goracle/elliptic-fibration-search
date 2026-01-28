@@ -1,12 +1,14 @@
-"""Integration of differentials along paths."""
-
 import math
 from sage.all import ComplexField, PolynomialRing
+from sage.all import ComplexField, RealField
+from sage.all import ComplexField, PolynomialRing, RealField
+
+"""Integration of differentials along paths."""
+
 
 
 """Integration of differentials along paths. — more robust branch handling"""
 
-from sage.all import ComplexField, RealField
 
 
 # initialize cache
@@ -14,7 +16,6 @@ from sage.all import ComplexField, RealField
 
 """Integration of differentials along paths."""
 
-from sage.all import ComplexField, PolynomialRing, RealField
 
 def _round_for_cache(x, prec):
     try:

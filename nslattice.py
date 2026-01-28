@@ -1,13 +1,12 @@
-# Run inside Sage (sage -python or a Sage notebook)
-from sage.all import (
-    matrix, vector, QQ, ZZ, sqrt, ceil, floor, gcd, Integer, Matrix
-)
+from sage.all import matrix, vector, QQ, ZZ, sqrt, ceil, floor, gcd, Integer, Matrix
 import itertools, math
 from search_common import *
 from yau import *
+from sage.all import gcd as _gcd
+
+# Run inside Sage (sage -python or a Sage notebook)
 
 # --- NEW: find isotropic fibrations and test height improvements ---
-from sage.all import gcd as _gcd
 
 def _is_primitive_tuple(tpl):
     """Return True if integer tuple tpl is primitive (gcd == 1)."""

@@ -3,11 +3,13 @@ from sage.rings.fraction_field_element import FractionFieldElement
 from sage.all import QQ, PolynomialRing, Integer
 from sage.rings.integer import Integer
 from sage.rings.rational import Rational
-# Unified singular fiber finder (replacement for two older functions)
 from sage.all import PolynomialRing, QQ, ZZ, floor, CC, sqrt, Integer
 from math import prod
 from sage.all import gcd, Integer
 from math import isclose
+from sage.all import QQ
+
+# Unified singular fiber finder (replacement for two older functions)
 
 def _remove_global_m_power(rf):
     """
@@ -604,7 +606,6 @@ def mult_of(g, S, max_iter=None):
 
     return k, q
 
-from sage.all import QQ
 
 def compute_euler_and_chi(cd_or_finder_result):
     """

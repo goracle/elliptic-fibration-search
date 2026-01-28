@@ -1,16 +1,16 @@
-from sage.all import (
-    QQ, ZZ, SR, var, Matrix, QuadraticForm,
-    vector, lcm, sqrt, Integer, EllipticCurve
-)
+from sage.all import QQ, ZZ, SR, var, Matrix, QuadraticForm, vector, lcm, sqrt, Integer, EllipticCurve
 from sage.modules.free_module_integer import IntegerLattice
 from math import gcd as _py_gcd
 from math import gcd, ceil
 from itertools import product as iter_product
 import multiprocessing
 import os
-
 from diagnostics2 import *
 from search_common import DEBUG, build_ns_basis_and_Q
+from sage.all import QQ, Integer, Matrix
+from math import isclose
+
+
 
 
 # Try to import sympy for q-series construction, but don't fail if it's not present.
@@ -511,8 +511,6 @@ def _canonicalize_vector_list(vec, require_S_coeff='positive'):
     return None
 
 
-from sage.all import QQ, Integer, Matrix
-from math import isclose
 
 def _estimate_local_correction_I_n(symbol, m_v, comp_index):
     """Compute local c_v for multiplicative I_n where possible:

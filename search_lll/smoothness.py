@@ -4,6 +4,8 @@ from sage.all import matrix, GF, vector
 from collections import Counter, defaultdict
 from sage.all import matrix, GF, vector, Integer, gcd, factor, ZZ, sqrt as sage_sqrt
 from search_common import *
+from sage.all import GF, PolynomialRing
+
 
 # ============================================================================
 # ORIGINAL DIAGNOSTICS (kept for Q mode)
@@ -487,7 +489,6 @@ def analyze_preferred_hit_rate(divisors, preferred_set, p=None):
 
 
 # --- start patch (put in smoothness.py) ---
-from sage.all import GF, PolynomialRing
 
 def _canonical_y_at_x(v_poly, x_elem, f_p, p):
     """

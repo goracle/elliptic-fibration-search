@@ -1,15 +1,13 @@
+from sage.all import QQ, GF, EllipticCurve, prime_range, PolynomialRing, FractionField, is_prime, matrix, ZZ, next_prime, factor
+from itertools import product
+from search_common import DEBUG, to_mod_poly
+
 # -------------------------
 # p-saturation / specialization checks
 # -------------------------
 # Note: This module expects `find_singular_fibers` and `find_cm_fibers`
 # to be provided by the calling environment.
 
-from sage.all import (
-    QQ, GF, EllipticCurve, prime_range, PolynomialRing, FractionField, is_prime,
-    matrix, ZZ, next_prime, factor
-)
-from itertools import product
-from search_common import DEBUG, to_mod_poly
 
 
 # --- Helper Functions ---

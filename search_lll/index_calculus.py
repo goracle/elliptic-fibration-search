@@ -1,4 +1,3 @@
-# Standard library
 import sys
 import time
 import random
@@ -9,24 +8,20 @@ from copy import deepcopy
 from multiprocessing import Process, SimpleQueue, Event, cpu_count
 import multiprocessing
 from queue import Full
-
-# Sage imports (consolidated)
-from sage.all import (
-    Integer, Zmod, GF, ZZ,
-    matrix, vector,
-    PolynomialRing,
-    factor, crt, prime_factors,
-    set_random_seed
-)
+from sage.all import Integer, Zmod, GF, ZZ, matrix, vector, PolynomialRing, factor, crt, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from sage.matrix.berlekamp_massey import berlekamp_massey
-
-# Local imports
 from search_common import SECRET_KEY, BLOCK_WIEDEMANN, FINITE_FIELD, PREFERRED_X_COORDS
 from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import *
 from .cofactor import *
 from .walker import *
+
+# Standard library
+
+# Sage imports (consolidated)
+
+# Local imports
 
 # ============================================================================
 # WORKER GLOBALS & INITIALIZATION
@@ -409,9 +404,6 @@ Only G and Q (after smoothing) give us actual scalar equations.
 """
 
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
 
 def _is_quadratic_residue(a_int, p_int):
     return pow(a_int % p_int, (p_int - 1) // 2, p_int) == 1

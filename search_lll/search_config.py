@@ -1,11 +1,3 @@
-"""
-search_config.py: Central config for the search_lll package.
-
-Imports global run constants (DEBUG, PRIME_POOL, etc.) from search_common.py
-and defines LLL-specific algorithmic constants (LLL_DELTA, TMAX, etc.).
-"""
-
-# === 1. Standard library imports ===
 import sys
 import random
 import itertools
@@ -15,21 +7,28 @@ from math import floor, sqrt, gcd, ceil, log
 from fractions import Fraction
 from functools import reduce, lru_cache, partial
 from operator import mul
-from collections import namedtuple, Counter 
+from collections import namedtuple, Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-
-# === 2. Third-party imports ===
 from tqdm import tqdm
 from colorama import Fore, Style
-
-# === 3. SageMath imports ===
-from sage.all import (
-    QQ, ZZ, GF, PolynomialRing, EllipticCurve,
-    matrix, vector, identity_matrix, zero_matrix, diagonal_matrix,
-    crt, lcm, sqrt, polygen, Integer, ceil, SR, var
-)
+from sage.all import QQ, ZZ, GF, PolynomialRing, EllipticCurve, matrix, vector, identity_matrix, zero_matrix, diagonal_matrix, crt, lcm, sqrt, polygen, Integer, ceil, SR, var
 from sage.rings.rational import Rational
 from sage.rings.fraction_field_element import FractionFieldElement
+from stats import *
+from brauer import *
+
+"""
+search_config.py: Central config for the search_lll package.
+
+Imports global run constants (DEBUG, PRIME_POOL, etc.) from search_common.py
+and defines LLL-specific algorithmic constants (LLL_DELTA, TMAX, etc.).
+"""
+
+# === 1. Standard library imports ===
+
+# === 2. Third-party imports ===
+
+# === 3. SageMath imports ===
 
 # === 4. Global Config Import ===
 # Import global run constants from search_common.py in the parent directory
@@ -56,8 +55,6 @@ except ImportError:
     MAX_MODULUS = 10**30
     raise
 
-from stats import *
-from brauer import *
 
 
 # === 5. LLL-Package Specific Constants ===

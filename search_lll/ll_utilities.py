@@ -1,33 +1,34 @@
-"""
-ll_utilities.py: Matrix and lattice reduction helpers.
-"""
 from sage.all import ZZ, diagonal_matrix
 from .search_config import *
 from search_common import *
+from search_common import NUM_PRIME_SUBSETS
+from collections import defaultdict, Counter
+from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
+from sage.all import gcd
+from collections import Counter
+import math
+from sage.all import Zmod, Integer
+from sage.all import Zmod, Integer, QQ, var
+
+"""
+ll_utilities.py: Matrix and lattice reduction helpers.
+"""
 
 
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
-from search_common import NUM_PRIME_SUBSETS
 
 
 # Add near other helpers in search_lll.py (no leading underscores)
-from collections import defaultdict, Counter
-from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
 
 
-from sage.all import gcd
 
-from collections import Counter
-import math
-from sage.all import Zmod, Integer
 
 # ----------------------------------------
 # helpers for residue orders
 # ----------------------------------------
 
-from collections import Counter, defaultdict
 
 
 """
@@ -35,7 +36,6 @@ Complete residue analysis with proper diagnostics.
 Add this to ll_utilities.py, replacing the incomplete versions.
 """
 
-from sage.all import Zmod, Integer, QQ, var
 
 # ============================================================================
 # HELPER FUNCTIONS (keep existing ones, add these)

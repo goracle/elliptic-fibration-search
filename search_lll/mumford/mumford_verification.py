@@ -7,6 +7,11 @@ from sage.all import PolynomialRing, QQ, Integer
 import math
 import logging
 from sage.all import QQ, Integer
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, Integer
+import os
+import sys
+from contextlib import contextmanager
+
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 logger.setLevel(logging.WARNING)
@@ -45,7 +50,6 @@ def check_2torsion_difference(div1, div2, f_coeffs):
         return False
 
 
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, Integer
 
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
@@ -196,17 +200,14 @@ _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
-# candidate scales we try (including reciprocals)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
 
-# canonicalize_and_dedup.py  -- improved infinity-aware canonicalization
 
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
-# small rational scales to try
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
@@ -593,9 +594,6 @@ def quick_dependence_check(div1, div2):
     return False
 
 
-import os
-import sys
-from contextlib import contextmanager
 
 @contextmanager
 def silence_stdout_stderr():

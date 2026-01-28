@@ -1,3 +1,9 @@
+from sage.all import QQ, PolynomialRing, SR, var, Infinity, solve, Integer, Matrix, QuadraticForm, vector, ZZ
+import itertools
+import time
+from diagnostics2 import *
+from sage.all import SR, Infinity, QQ, Integer, var
+
 # autos_k3.sage
 # Compute candidate automorphisms of an elliptic K3 surface (preserving the elliptic fibration)
 # Uses exact arithmetic over QQ and rational function field QQ(m).
@@ -22,22 +28,6 @@
 # Computes candidate automorphisms of an elliptic K3 surface.
 # Uses exact arithmetic over QQ and the rational function field QQ(m).
 
-from sage.all import (
-    QQ,
-    PolynomialRing,
-    SR,
-    var,
-    Infinity,
-    solve,
-    Integer,
-    Matrix,
-    QuadraticForm,
-    vector,
-    ZZ,
-)
-import itertools
-import time
-from diagnostics2 import *
 
 # NOTE: The following dependencies are assumed to be available
 # from diagnostics2 import find_singular_fibers, build_ns_gram
@@ -400,7 +390,6 @@ def _is_QQ_constant_rational_in_QQm(expr, m_sym, test_vals=None):
     return False, None
 
 # --- imports used by these helpers ---
-from sage.all import SR, Infinity, QQ, Integer, var
 
 # --- safe projective evaluation of mobius map ---
 def _eval_mobius_at(mobius_tuple, center):

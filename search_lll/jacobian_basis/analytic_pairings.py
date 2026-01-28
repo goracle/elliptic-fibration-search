@@ -1,17 +1,17 @@
+from sage.all import QQ, ComplexField, RealField, Matrix, vector
+import math, traceback
+from multiprocessing import Pool
+from .periods import abel_jacobi_mumford, normalize_periods_and_z, choose_numerical_base_point
+from .integration import integrate_differential_path_joint
+from .utilities import *
+from sage.all import Matrix
+
 # --- analytic_pairings.py (drop-in replacements) ---------------------------
 # Replaces compute_pairing_worker, precompute_pairings_parallel and related wiring
 # Uses abel_jacobi_mumford(...) and normalize_periods_and_z(...) from your periods module.
 
-from sage.all import (
-    QQ, ComplexField, RealField, Matrix, vector
-)
-import math, traceback
-from multiprocessing import Pool
 
 # Import your existing AJ/integration helpers
-from .periods import abel_jacobi_mumford, normalize_periods_and_z, choose_numerical_base_point
-from .integration import integrate_differential_path_joint  # used implicitly by abel_jacobi_mumford
-from .utilities import *  # keep import placeholder if needed elsewhere
 
 # Module-level AJ context and cache. Call set_aj_context(...) before bulk pairing.
 _AJ_CONTEXT = {
@@ -410,7 +410,6 @@ def build_analytic_gram_matrix(indices):
     return make_matrix_numerically_positive_definite(G)
 
 
-from sage.all import Matrix
 
 def build_Im_tau_from_tau(tau, RR, CC):
     """

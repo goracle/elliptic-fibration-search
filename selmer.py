@@ -1,3 +1,19 @@
+from sage.all import *
+from functools import lru_cache
+import itertools
+from collections import defaultdict
+import re
+from diagnostics2 import find_singular_fibers, compute_euler_and_chi, _kodaira_from_min_vals, component_order_from_symbol
+from tate import ord_at_prime, kodaira_components_count, kodaira_euler_number, local_pairing_contribution, FIBER_LOCAL_CORRECTION, local_correction_value
+from sage.all import QQ, ZZ, GF, PolynomialRing, var, sqrt, lcm, gcd, EllipticCurve, matrix, vector, Matrix, crt, primes, floor, ceil, log, exp, pi, I, CC, AA, QQbar, Integer, Rational, next_prime
+from math import prod
+from diagnostics2 import find_singular_fibers, compute_euler_and_chi
+from tate import kodaira_components_count, kodaira_euler_number, FIBER_LOCAL_CORRECTION, local_correction_value
+from sage.all import QQ, ZZ, EllipticCurve, var, sqrt, crt, primes, gcd, lcm, SR, Integer, Rational
+from tate import kodaira_components_count, kodaira_euler_number
+from torsion import good_specializations, torsion_test, compute_fiber_lcm
+from sage.all import QQ, gcd
+
 # selmer_2descent.py (refined version)
 """
 2-Selmer Group S²(E/ℚ) Computation for Elliptic Surfaces
@@ -8,22 +24,8 @@ Uses your existing infrastructure:
   - diagnostics2.py for Euler characteristic and component analysis
 """
 
-from sage.all import *
-from functools import lru_cache
-import itertools
-from collections import defaultdict
-import re
 
 # Import from your existing modules
-from diagnostics2 import (
-    find_singular_fibers, compute_euler_and_chi, 
-    _kodaira_from_min_vals, component_order_from_symbol
-)
-from tate import (
-    ord_at_prime, kodaira_components_count, kodaira_euler_number,
-    local_pairing_contribution, FIBER_LOCAL_CORRECTION,
-    local_correction_value
-)
 
 
 class TwoSelmerComputation:
@@ -440,19 +442,7 @@ Extended 2-Selmer computation with:
   3. Faltings-Serre bounds on Selmer rank
 """
 
-from sage.all import (
-    QQ, ZZ, GF, PolynomialRing, var, sqrt, lcm, gcd,
-    EllipticCurve, matrix, vector, Matrix, crt, primes,
-    floor, ceil, log, exp, pi, I, CC, AA, QQbar,
-    Integer, Rational, next_prime
-)
-from math import prod
 
-from diagnostics2 import find_singular_fibers, compute_euler_and_chi
-from tate import (
-    kodaira_components_count, kodaira_euler_number,
-    FIBER_LOCAL_CORRECTION, local_correction_value
-)
 
 
 # ============================================================================
@@ -1033,13 +1023,7 @@ Practical 2-Selmer computation pipeline.
 Integrates: descent homomorphism, Heegner points, Faltings-Serre bounds, torsion analysis.
 """
 
-from sage.all import (
-    QQ, ZZ, EllipticCurve, var, sqrt, crt, primes,
-    gcd, lcm, SR, Integer, Rational
-)
 
-from tate import kodaira_components_count, kodaira_euler_number
-from torsion import good_specializations, torsion_test, compute_fiber_lcm
 
 
 # ============================================================================
@@ -1620,7 +1604,6 @@ Practical 2-Selmer bounds for elliptic surfaces.
 Computes rank bounds via Tamagawa numbers and fiber analysis.
 """
 
-from sage.all import QQ, gcd
 
 def compute_selmer_rank_bounds(cd, mw_rank, verbose=True):
     """

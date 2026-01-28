@@ -1,6 +1,7 @@
 import re
 from sage.all import PolynomialRing, QQ
 
+
 def parse_hyperelliptic_db_entry(db_string):
     """
     Parse a hyperelliptic curve entry from the MIT database and extract coefficients.
