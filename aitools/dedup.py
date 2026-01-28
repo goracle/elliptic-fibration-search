@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-import ast, argparse, os, re, shutil, sys, tempfile, textwrap
-from __future__ import annotations
-from collections import defaultdict
-from pathlib import Path
-from typing import Dict, List, Set, Tuple
-
 """
 dedup.py - Advanced Python deduplication with Class Merging, AST parsing, and Auto-Healing.
 
@@ -20,6 +14,18 @@ Features:
 - Preserves file permissions and creates backups.
 - Conservative: raises on unexpected AST limitations.
 """
+from __future__ import annotations
+import ast
+import argparse
+import os
+import re
+import shutil
+import sys
+import tempfile
+import textwrap
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Set, Tuple
 
 # -------------------------
 # Exceptions & Utilities
