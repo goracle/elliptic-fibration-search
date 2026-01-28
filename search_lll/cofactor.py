@@ -1,6 +1,4 @@
-import sys
-import time
-import random
+import sys, time, random
 from math import ceil, sqrt, gcd
 from multiprocessing import Pool, cpu_count
 from collections import Counter
@@ -13,21 +11,20 @@ from sage.matrix.berlekamp_massey import berlekamp_massey
 
 # Sage imports (consolidated)
 
-
-def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows, 
+def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows,
                           row_g, row_q, verbose=True):
     """
     Apply the filtering from precheck_cofactor_projection results.
-    
+
     Returns filtered data structures with dead FB elements removed.
-    
+
     Args:
         precheck_result: output from precheck_cofactor_projection
         atom_to_idx: original factor base
         homogeneous_rows: original relations
         row_g, row_q: original G and Q rows
         verbose: print stats
-    
+
     Returns:
         (filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q)
     """
@@ -35,31 +32,31 @@ def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows,
         raise RuntimeError(
             f"Cannot apply filter: projection is unsafe. Reason: {precheck_result['reason']}"
         )
-    
+
     alive_indices = precheck_result['alive_fb_indices']
-    
+
     # Rebuild atom_to_idx with only alive elements
     # Remap indices to be contiguous starting from 0
     idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items() if idx in alive_indices}
-    
+
     old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(alive_indices))}
-    
+
     filtered_atom_to_idx = {
-        atom: old_to_new[old_idx] 
+        atom: old_to_new[old_idx]
         for old_idx, atom in idx_to_atom.items()
     }
-    
+
     # Remap relation rows
     filtered_rows = []
     for row in precheck_result['filtered_rows']:
         new_row = {old_to_new[idx]: mult for idx, mult in row.items() if idx in alive_indices}
         if new_row:
             filtered_rows.append(new_row)
-    
+
     # Remap G and Q rows
     filtered_row_g = {old_to_new[idx]: mult for idx, mult in precheck_result['filtered_row_g'].items()}
     filtered_row_q = {old_to_new[idx]: mult for idx, mult in precheck_result['filtered_row_q'].items()}
-    
+
     if verbose:
         print(f"\n[Filter Applied]")
         print(f"  Original FB size: {len(atom_to_idx)}")
@@ -68,14 +65,12 @@ def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows,
         print(f"  Filtered relations: {len(filtered_rows)}")
         print(f"  Removed {len(atom_to_idx) - len(filtered_atom_to_idx)} dead FB elements")
         print(f"  Removed {len(homogeneous_rows) - len(filtered_rows)} dead relations")
-    
-    return filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q
 
+    return filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q
 
 # === Minimal detection function: compute right-kernel of the projected homogeneous matrix ===
 
 # === Sanity-check routine: verify basis vectors annihilate each relation ===
-
 
 # ===== helpers to add near top of file =====
 
@@ -141,7 +136,7 @@ def is_vector_in_rowspace(A, vec, verbose=False):
         return False, None
 
 def verify_character_vectors(filtered_rows, alive_idx_list, basis_vectors, ell, verbose=True):
-    col_map = {old_idx: col for col, old_idx in enumerate(alive_idx_list)} 
+    col_map = {old_idx: col for col, old_idx in enumerate(alive_idx_list)}
     Zell = Zmod(int(ell))
     ok_list = []
     for v in basis_vectors:
@@ -165,9 +160,7 @@ def verify_character_vectors(filtered_rows, alive_idx_list, basis_vectors, ell, 
         for i, ok in enumerate(ok_list):
             print(f"  char basis #{i} verifies relations: {ok}")
 
-
     return ok_list
-
 
 def try_add_row_to_basis(basis_rows, row_vec, ell):
     """
@@ -205,7 +198,6 @@ def try_add_row_to_basis(basis_rows, row_vec, ell):
         return True
     return False
 
-
 def select_independent_rows_fast(A_hom, ell, target_count=None):
     """
     Zero-rank-check selection exploiting perfect 4-orbit structure.
@@ -214,18 +206,17 @@ def select_independent_rows_fast(A_hom, ell, target_count=None):
     n_rows = A_hom.nrows()
     if target_count is None:
         target_count = min(n_rows, A_hom.ncols())
-    
+
     # Just take every 4th row starting at offset 1
     chosen = list(range(1, min(1 + 4 * target_count, n_rows), 4))
-    
+
     # Truncate to target_count
     return chosen[:target_count]
-
 
 def select_independent_rows(A_hom, ell, target_count=None):
     """
     Fast independent row selection exploiting 4-orbit structure.
-    
+
     Observation: rank increases every 4th row starting at offset 1.
     We stride by 4 and only test candidates at positions 1, 5, 9, 13, ...
     """
@@ -233,34 +224,34 @@ def select_independent_rows(A_hom, ell, target_count=None):
     n_rows = A_hom.nrows()
     if target_count is None:
         target_count = min(n_rows, A_hom.ncols())
-    
+
     chosen = []
     chosen_rows = []
-    
+
     # Start at offset 1, stride by 4
     for i in range(1, n_rows, 4):
         row = A_hom.row(i)
         row_list = [Zell(int(x) % int(ell)) for x in row]
-        
+
         if not chosen_rows:
             chosen.append(i)
             chosen_rows.append(row_list)
             if len(chosen) >= target_count:
                 break
             continue
-        
+
         # Rank test (should almost always succeed at these indices)
         M_before = matrix(Zell, chosen_rows)
         rank_before = M_before.rank()
         M_after = matrix(Zell, chosen_rows + [row_list])
         rank_after = M_after.rank()
-        
+
         if rank_after > rank_before:
             chosen.append(i)
             chosen_rows.append(row_list)
             if len(chosen) >= target_count:
                 break
-    
+
     # Safety: if we didn't get enough (shouldn't happen), fallback to dense scan
     if len(chosen) < target_count:
         for i in range(n_rows):
@@ -268,33 +259,32 @@ def select_independent_rows(A_hom, ell, target_count=None):
                 continue
             row = A_hom.row(i)
             row_list = [Zell(int(x) % int(ell)) for x in row]
-            
+
             M_before = matrix(Zell, chosen_rows)
             rank_before = M_before.rank()
             M_after = matrix(Zell, chosen_rows + [row_list])
             rank_after = M_after.rank()
-            
+
             if rank_after > rank_before:
                 chosen.append(i)
                 chosen_rows.append(row_list)
                 if len(chosen) >= target_count:
                     break
-    
-    return chosen
 
+    return chosen
 
 def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
                                   full_order, J, f_coeffs, p, verbose=True):
     """
     Checks if the system is solvable after projecting to J[ell] via cofactor h.
-    
+
     STRICT RANK REQUIREMENTS:
     1. Homogeneous relations must have rank = n_cols - 1 (Defective by 1).
     2. Augmented system (with G-row) must have rank = n_cols (Full Rank).
-    
+
     AUTO-PRUNING:
-    If the homogeneous system is full rank (rank == n_cols), this function will 
-    automatically select a subset of linearly independent rows of size n_cols-1 
+    If the homogeneous system is full rank (rank == n_cols), this function will
+    automatically select a subset of linearly independent rows of size n_cols-1
     to enforce the 1-dimensional kernel requirement.
     """
     if verbose:
@@ -327,12 +317,12 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     # --- STEP 1: Project Factor Base Atoms by h ---
     for idx, atom in idx_to_atom.items():
         F_i = None
-        
+
         if atom[0] == 'd1':
             _, x_val, y_val = atom
             try:
                 u = x - K(x_val)
-                v = R(K(y_val)) 
+                v = R(K(y_val))
                 F_i = J([u, v])
             except Exception as e:
                 if verbose and len(dead_fb_indices) < 5:
@@ -423,7 +413,7 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
     for i, row in enumerate(alive_rows):
         for old_idx, mult in row.items():
             entries_hom[(i, col_map[old_idx])] = Zmod(int(ell))(int(mult) % int(ell))
-    
+
     A_hom = matrix(Zmod(int(ell)), len(alive_rows), n_cols, entries_hom, sparse=True)
     rank_hom = A_hom.rank()
 
@@ -523,24 +513,23 @@ def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
         'reason': 'Rank structure verified (Defective-by-1 + G-Fix)'
     }
 
-
 def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True, q_row_vec=None):
     """
     G-guided prune exploiting 4-orbit structure: delete 4 rows instead of 1.
     """
     Zell = Zmod(int(ell))
     n_rows, n_cols = A_hom.nrows(), A_hom.ncols()
-    
+
     assert A_hom.rank() == n_cols, "A_hom must be full rank"
-    
+
     g_vec = vector(Zell, [Zell(int(x) % int(ell)) for x in g_row_vec])
-    
+
     # Get basis indices (one per orbit, at positions 1, 5, 9, ...)
     basis_indices = select_independent_rows_fast(A_hom, ell, target_count=n_cols)
-    
+
     if len(basis_indices) != n_cols:
         raise RuntimeError(f"Fast selection found {len(basis_indices)} rows, expected {n_cols}")
-    
+
     # --- DIAGNOSTIC START ---
     print("\n" + "="*60)
     print("DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES")
@@ -568,9 +557,9 @@ def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True, q_row_vec=
     # Random sample of 10 orbits
     sample_size = min(10, len(basis_indices))
     sample_orbits = sorted(random.sample(basis_indices, sample_size))
-    
+
     print(f"\nSampling {sample_size} random orbits from basis_indices:")
-    
+
     for orbit_start in sample_orbits:
         print(f"\nOrbit Start: {orbit_start}")
         # An orbit has 4 members: i, i+1, i+2, i+3
@@ -585,37 +574,37 @@ def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True, q_row_vec=
 
     if verbose:
         print(f"[G-Guided Prune] Testing orbit representatives...")
-    
+
     # Test orbit representatives (positions 1, 5, 9, ...)
     for orbit_start in basis_indices[:50]:  # test first 50 orbits
         # Delete entire 4-orbit: rows [i, i+1, i+2, i+3]
         orbit_rows = [orbit_start + offset for offset in range(4) if orbit_start + offset < n_rows]
-        
+
         # Build A_test excluding all orbit members
         keep_rows = [i for i in range(n_rows) if i not in orbit_rows]
         A_test = A_hom.matrix_from_rows(keep_rows)
-        
+
         rank_test = A_test.rank()
-        
+
         if rank_test != n_cols - 1:
             if verbose:
                 print(f"  Orbit@{orbit_start}: rank={rank_test} (want {n_cols-1}), skip")
             continue
-        
+
         # Check kernel is 1D and transverse to G
         K = A_test.right_kernel()
         if K.dimension() != 1:
             continue
-        
+
         chi = K.basis()[0]
         dot_prod = int(chi.dot_product(g_vec)) % int(ell)
-        
+
         if verbose:
             print(f"  Orbit@{orbit_start}: <chi,G>={dot_prod} mod {ell}")
-        
+
         if dot_prod != 0:
             if verbose:
                 print(f"  → GOOD (transverse). Removing orbit {orbit_rows}")
             return orbit_rows  # return LIST of row indices to remove
-    
+
     raise RuntimeError("No transverse orbit found in first 50 candidates")

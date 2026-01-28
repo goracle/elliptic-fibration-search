@@ -1,15 +1,13 @@
-from sage.all import QQ, ComplexField, RealField, Matrix, vector
 import math, traceback
+from sage.all import QQ, ComplexField, RealField, Matrix, vector
 from multiprocessing import Pool
 from .periods import abel_jacobi_mumford, normalize_periods_and_z, choose_numerical_base_point
 from .integration import integrate_differential_path_joint
 from .utilities import *
-from sage.all import Matrix
 
 # --- analytic_pairings.py (drop-in replacements) ---------------------------
 # Replaces compute_pairing_worker, precompute_pairings_parallel and related wiring
 # Uses abel_jacobi_mumford(...) and normalize_periods_and_z(...) from your periods module.
-
 
 # Import your existing AJ/integration helpers
 
@@ -336,7 +334,6 @@ def setup_analytic_pairing_context(
 
     return tau, Im_tau
 
-
 def precompute_abel_jacobi_images(
     indices,
     jac_elements,
@@ -388,7 +385,6 @@ def precompute_abel_jacobi_images(
 
     return ctx["aj_cache"]
 
-
 def build_analytic_gram_matrix(indices):
     """
     Build symmetric Gram matrix using analytic Néron–Tate pairing.
@@ -409,8 +405,6 @@ def build_analytic_gram_matrix(indices):
 
     return make_matrix_numerically_positive_definite(G)
 
-
-
 def build_Im_tau_from_tau(tau, RR, CC):
     """
     Construct Im(tau) as a real symmetric matrix over RR.
@@ -428,7 +422,6 @@ def build_Im_tau_from_tau(tau, RR, CC):
             Im_tau[i, j] = RR(tau[i, j].imag())
 
     return Im_tau
-
 
 def get_analytic_pairing(i, j):
     """

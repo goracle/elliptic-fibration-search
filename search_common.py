@@ -1,23 +1,13 @@
-import sys
-import os
-import subprocess
-import warnings
+import sys, os, subprocess, warnings, itertools, multiprocessing, random, traceback, math
 from typing import NamedTuple
 from functools import lru_cache
-import itertools
-import multiprocessing
 from multiprocessing import TimeoutError
-from sage.all import QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor, Curve, Jacobian, sqrt, CRT, lcm, primes, QuadraticForm, ceil, is_prime, Integer, log, next_prime, HyperellipticCurve, sage_eval, PolynomialRing, EllipticCurve, set_random_seed
+from sage.all import QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor, Curve, Jacobian, sqrt, CRT, lcm, primes, QuadraticForm, ceil, is_prime, Integer, log, next_prime, HyperellipticCurve, sage_eval, EllipticCurve, set_random_seed, valuation, gcd
 from math import gcd, log
 from cysignals.signals import SignalError
-import random
-import traceback
-import math
 from prime_subgroup_projection import *
 from parse_genus3 import *
 from tate import *
-from sage.all import valuation, gcd
-
 
 # === imports ===
 
@@ -48,9 +38,7 @@ COEFFS = [A1, A2, A3, A4, A5, A6]
 DATA_PTS = [(QQ(0), QQ(1))] # finds all known rational points
 TERMINATE_WHEN = 4
 
-
 ##### TEST CURVES (from lmfdb.org) ######
-
 
 # --- Configuration, deg x = 6---
 # y^2 = a0*x^6 + a1*x^5 + ... + a6
@@ -68,7 +56,6 @@ TERMINATE_WHEN_6 = 11
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(12), QQ(16), QQ(-12), QQ(-20), QQ(12)]
 DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
 TERMINATE_WHEN_6 = 2
-
 
 COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-12), QQ(-4), QQ(12), QQ(8), QQ(-7)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
@@ -102,7 +89,6 @@ TERMINATE_WHEN_6 = 3
 COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
-
 
 # genus 3 test curve
 COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(0), QQ(0), QQ(2), QQ(0), QQ(-4), QQ(0), QQ(1)]
@@ -200,7 +186,6 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 3
 
-
 db_entry = '9995167:9995167:[-x^7+5*x^6-4*x^5-12*x^4+6*x^3+8*x^2+2*x,x^3+x+1]'
 db_entry = '9995087:9995087:[-x^7-x^6-2*x^5+x^2,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
@@ -217,7 +202,6 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 2
 
-
 db_entry = '9997263:3332421:[x^7+x^6-4*x^5-2*x^4+x^3-x,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
@@ -227,7 +211,6 @@ db_entry = '9994635:3331545:[x^7+2*x^6-x^5+8*x^3+3*x^2-5*x-2,x^4+x^3+x+1]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 4
-
 
 db_entry = '9996912:3332304:[x^5+2*x^4+x^3-x^2-2*x-1,x^4+x^3+x^2]'
 COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
@@ -245,7 +228,6 @@ COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values
 TERMINATE_WHEN_6 = 3
 
-
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 4
@@ -256,7 +238,6 @@ TERMINATE_WHEN_6 = 3
 
 COEFFS_GENUS2 = [QQ(4), QQ(-8), QQ(-20), QQ(0), QQ(16), QQ(8), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
-
 
 COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
 DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
@@ -299,8 +280,8 @@ TERMINATE_WHEN_6 = 2
 
 # y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4
 COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
-DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] 
-DATA_PTS_GENUS2 = [457208] 
+DATA_PTS_GENUS2 = [QQ(0)/QQ(1)]
+DATA_PTS_GENUS2 = [457208]
 TERMINATE_WHEN_6 = 3
 
 # $$y^2 = x^5 + x + 2$$
@@ -312,7 +293,6 @@ DATA_PTS_GENUS2 = [QQ(10598399), QQ(18579300)]
 TERMINATE_WHEN_6 = 3
 
 ##### END TEST CURVES ######
-
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
@@ -333,14 +313,12 @@ BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructe
 BLOCK_WIEDEMANN = False   # set True to always use block Wiedemann in the final solve
 BLOCK_WIEDEMANN = True   # set True to always use block Wiedemann in the final solve
 
-
 # 1) Generate the random point if requested
 if DATA_PTS_GENUS2 is None:
     # Ensure we use the prime currently active in your pool
     _p_init = FINITE_FIELD
     DATA_PTS_GENUS2 = [get_random_x_on_hyperelliptic(COEFFS_GENUS2, _p_init)]
     print("after random:", DATA_PTS_GENUS2)
-
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"
@@ -363,7 +341,6 @@ MAX_TORSION_ORDER_TO_FILTER = -1 # what ord_p max to filter out.  -1 means only 
 TORSION_SLOPPY = False
 ###### END STATIC CONFIG
 
-
 # random seed for reproducibility.
 SEED_INT = random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT           # Seed for reproducible anchor point generation
@@ -385,7 +362,6 @@ MUMFORD_SEARCH = True # look for elements of J(C); only supports genus 2 right n
 AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like, for MOBIUS_TRANS mode, avoid primes
 PREFER =  {31,37,41,43,47,53}   # or {23,29} if you want to force primes upward, for MOBIUS_TRANS
 
-
 # Add to search_common.py or search_config.py
 USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
 USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
@@ -400,11 +376,10 @@ USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = us
 USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
 NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
-
 # project into mod ell subgroup to remove torsion/cofactor complications
 # project into mod ell subgroup to remove torsion/cofactor complications
 if FINITE_FIELD is not None:
-    
+
     # Fix: Force deterministic generation of the cryptosystem parameters (G, Q)
     # so they are identical across all worker processes.
     set_random_seed(12345)
@@ -424,11 +399,10 @@ if FINITE_FIELD is not None:
 
     # Re-randomize the seed so that subsequent operations (like random walks in workers)
     # are not identical across processes.
-    
+
     set_random_seed()
 else:
     BASE_DIVISOR = TARGET_DIVISOR = PREFERRED_X_COORDS = None
-
 
 try:
     PROFILE = profile
@@ -437,7 +411,6 @@ except NameError:
         """Line profiler default."""
         return arg2
     PROFILE = profile
-
 
 class CurveDataExt(NamedTuple):
     E_curve: object
@@ -460,7 +433,6 @@ class CurveDataExt(NamedTuple):
     SR_phi_x: object
     SR_m: object
     base_field: object
-
 
 # --- START: Modular Reduction Helpers (centralized from picard.py) ---
 
@@ -507,7 +479,6 @@ def to_mod_poly(poly_q, R, debug=False):
         res *= inv_lcm
 
     return res
-
 
 def reduce_cd_mod_ell(cd, ell, debug=False):
     """
@@ -560,7 +531,6 @@ def reduce_cd_mod_ell(cd, ell, debug=False):
     cd_ell.m_symbol = mF
     return cd_ell
 
-
 def is_good_prime_for_surface(cd, ell):
     """
     Check whether `ell` is a usable prime for reduction of the surface `cd`.
@@ -573,7 +543,7 @@ def is_good_prime_for_surface(cd, ell):
 
     if ell_int < 2 or not is_prime(ell_int):
         return False
-        
+
     try:
         for ff in (cd.a4, cd.a6):
             den = ff.denominator()
@@ -582,7 +552,7 @@ def is_good_prime_for_surface(cd, ell):
                     return False
     except Exception:
         return False
-        
+
     try:
         cd_ell = reduce_cd_mod_ell(cd, ell_int, debug=False)
     except Exception:
@@ -598,7 +568,6 @@ def is_good_prime_for_surface(cd, ell):
     return True
 
 # --- END: Modular Reduction Helpers ---
-
 
 # Put these functions near the top-level of your script (so they are picklable).
 
@@ -698,7 +667,6 @@ def _worker_build_spec_from_serial(a4_str, a6_str, sect_triples_strs, m_val, pre
         traceback.print_exc()
         raise
 
-
 def compute_coarse_height_matrix_serializable(cd, sections,
                                               num_samples=NUM_SAMPLES_HEIGHT_MAT, max_coord=200,
                                               decimal_places=2, min_integer_samples=3):
@@ -742,7 +710,6 @@ def compute_coarse_height_matrix_serializable(cd, sections,
             break
 
     # add some random rationals if needed
-    import random
     while len(m_candidates) < (num_samples + min_integer_samples):
         rn = random.randint(-max_coord, max_coord)
         rd = random.randint(1, max(1, max_coord))
@@ -784,7 +751,6 @@ def compute_coarse_height_matrix_serializable(cd, sections,
         print(f"compute_coarse_height_matrix_serializable: built coarse H from {valid_samples} samples")
     return H_avg
 
-
 @PROFILE
 def deg_height(P):
     """
@@ -801,7 +767,6 @@ def naive_pairing(P, Q):
     H_Q  = deg_height(Q)
     H_PQ = deg_height(P + Q)
     return (H_PQ - H_P - H_Q) // 2
-
 
 @PROFILE
 def effective_degree(rational_expr, m):
@@ -853,7 +818,6 @@ def _refresh_state(a4_final, a6_final, Fm):
     ret = [E_weier_final, Delta_final, deg_delta_raw, deg_delta_effective, fiber_info, euler_sum, sigma_sum]
     return deg_delta_raw, deg_delta_effective, euler_sum, sigma_sum, ret
 
-
 # Small helper: raw effective degree (no global cancellation)
 def _effective_degree_raw(rational_expr, m_sym):
     """
@@ -866,7 +830,6 @@ def _effective_degree_raw(rational_expr, m_sym):
         return int(num.degree()) - int(den.degree())
     except Exception as exc:
         raise RuntimeError("_effective_degree_raw: degree extraction failed") from exc
-
 
 # At the end of buildcd, just before returning cd:
 # -------------------------------------------------
@@ -933,7 +896,6 @@ def get_primes_from_poly(ff):
     primes = {p for p in primes if isinstance(p, int) and p > 1}
     return primes
 
-
 # ---- buildcd replacement ----
 
 def to_rational(c):
@@ -943,14 +905,13 @@ def to_rational(c):
         return QQ(c[0]) / QQ(c[1])
     return QQ(c)
 
-
 def min_order_in_m(expr, m):
     """
     Find the minimum order of m in an expression using Sage's valuation.
     """
     if expr.is_zero():
         return float('inf')
-    
+
     try:
         return expr.valuation(m)
     except:
@@ -964,7 +925,6 @@ def min_order_in_m(expr, m):
         except:
             print(f"WARNING: Could not compute valuation of {expr}")
             return 0
-
 
 # The rationality test stays the same (cached)
 
@@ -984,7 +944,6 @@ def compute_morphism(E_rhs):
         print("E_curve which is giving problem:", E_curve)
         raise
     return E_curve, one, two, three
-
 
 class MorphismWrapper:
     """
@@ -1008,7 +967,6 @@ class MorphismWrapper:
         val_sym = SR(val)
         val_bc = val_sym.subs({m: m**self.k})
         return val_bc * self.scale
-
 
 @PROFILE
 def find_cm_fibers(cd):
@@ -1110,9 +1068,7 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
             continue
     return found
 
-
 # pseudo-code sketch (raise on unexpected failure)
-
 
 @PROFILE
 def suggest_height_bound(H_ref, H_used, base_bound, safety=1.10, method='det'):
@@ -1135,7 +1091,6 @@ def suggest_height_bound(H_ref, H_used, base_bound, safety=1.10, method='det'):
 
     used_bound = int(ceil(base_bound * alpha * safety))
     return used_bound, alpha
-
 
 def sections_to_ns_vectors(cd, sections, rho, mw_rank, chi):
     """
@@ -1165,7 +1120,7 @@ def sections_to_ns_vectors(cd, sections, rho, mw_rank, chi):
         if 'S' in basis_labels:
             v[basis_labels.index('S')] = 1
 
-        # Fiber F has index 1  
+        # Fiber F has index 1
         if 'F' in basis_labels:
             v[basis_labels.index('F')] = 1  # sections intersect fiber once
 
@@ -1175,25 +1130,24 @@ def sections_to_ns_vectors(cd, sections, rho, mw_rank, chi):
             m_v = fiber_data.get('m_v', 1)  # number of components
             if m_v is None or m_v <= 1:
                 continue  # smooth fiber, no components to process
-                
+
             # For reducible fibers with multiple components (m_v > 1)
             for j in range(m_v):
                 comp_label = f"fib{i}_c{j}"
                 if comp_label in basis_labels:
                     comp_idx = basis_labels.index(comp_label)
-                    # Default intersection pattern: sections typically avoid 
+                    # Default intersection pattern: sections typically avoid
                     # the zero component (j=0) and may intersect others
                     # This is a geometric placeholder - actual logic depends on
                     # the specific section and fiber geometry
                     if j == 0:  # zero/identity component
                         v[comp_idx] = 0
-                    else:  # non-identity components  
+                    else:  # non-identity components
                         v[comp_idx] = 0  # conservatively assume no intersection
 
         ns_vectors.append(vector(QQ, v))
 
     return ns_vectors
-
 
 def solve_shioda_image(sect_vec, Q, S_vec, F_vec, Theta_vecs):
     """
@@ -1226,11 +1180,11 @@ def solve_shioda_image(sect_vec, Q, S_vec, F_vec, Theta_vecs):
         # For a section class sect, (sect - S)·F should be 0 (sections intersect fiber once)
         # Then φ = sect - S is already orthogonal to F (and there are no Theta constraints).
         phi = sect - S
-        
+
         # Verify that φ·F = 0 (should be true for sections)
         dot_product = (phi.transpose() * Q * F)[0,0]
         print(f"DEBUG: φ·F = {dot_product} (should be 0 for sections)")
-        
+
         return phi
 
     # Build constraint vectors W = [F] + Theta_vecs
@@ -1269,7 +1223,6 @@ def solve_shioda_image(sect_vec, Q, S_vec, F_vec, Theta_vecs):
             raise AssertionError("Shioda projection failed orthogonality check (nonzero dot).")
 
     return phi
-
 
 def construct_NS_from_cd(cd, current_sections, rho, mw_rank, chi, max_search_degree=4,
                          height_bound=20, max_coord=3):
@@ -1311,7 +1264,6 @@ def construct_NS_from_cd(cd, current_sections, rho, mw_rank, chi, max_search_deg
             Gram[j, i] = val
     return basis_labels, Q, h_vec, gen_labels, gen_vectors, Gram
 
-
 def build_ns_basis_and_Q(cd, rho, mw_rank, chi):
     """
     Build NS basis labels, intersection matrix Q, and height vector h_vec for an elliptic surface.
@@ -1330,7 +1282,6 @@ def build_ns_basis_and_Q(cd, rho, mw_rank, chi):
 
     fiber_data = find_singular_fibers(cd)
     sum_fiber_contrib = fiber_data['sigma_sum']
-
 
     # basic feasibility
     min_possible = 2 + mw_rank
@@ -1403,7 +1354,6 @@ def build_ns_basis_and_Q(cd, rho, mw_rank, chi):
 
     return basis_labels, Q, h_vec
 
-
 @PROFILE
 def compute_canonical_height_matrix(sections, cd):
     """
@@ -1473,7 +1423,6 @@ def compute_canonical_height_matrix(sections, cd):
 # === Internal Implementation ==================================================
 # ==============================================================================
 
-
 # --- Kodaira Adjacency Builders ---
 def _adjacency_In(n):
     if n <= 1: return {i: [] for i in range(n)}
@@ -1503,7 +1452,7 @@ def _adjacency_IVstar():
 
 def _adjacency_IIIstar():
     return {0:[4], 1:[3], 2:[3], 3:[1,2,4], 4:[0,3,5], 5:[4,6], 6:[5,7], 7:[6]}
-    
+
 def _adjacency_IIstar():
     return {0:[6], 1:[2], 2:[1,3], 3:[2,4], 4:[3,5], 5:[4,6], 6:[0,5,7], 7:[6,8], 8:[7]}
 
@@ -1579,7 +1528,6 @@ def get_data_pts(known_pts, excluded):
     # If all combinations have been checked and excluded
     return None
 
-
 def sample_rationals_by_height_random(N, B):
     """
     Return list of N rationals QQ(a)/QQ(b) with gcd(a,b)=1, 1 <= b <= B, |a| <= B.
@@ -1601,7 +1549,6 @@ def sample_rationals_by_height_random(N, B):
         # allow loop to raise naturally if something extremely odd happens
     return out
 
-
 def enumerate_rationals_height_bound(B):
     """
     Deterministic list of rationals QQ(a)/QQ(b) with 1 <= b <= B and |a| <= B,
@@ -1616,24 +1563,22 @@ def enumerate_rationals_height_bound(B):
             out.append(QQ(a) / QQ(b))
     return out
 
-
 def get_sections_for_fibration(cd, base_pts):
     """
     Compute and reduce base sections for a specific fibration geometry.
     """
     # Compute raw sections from base points
     raw_sections = compute_base_sections_m(cd, base_pts)
-    
+
     if not raw_sections:
         return []
 
     # Reduce them (LLL) to get a nice basis
     reduced_sections = lll_reduce_mw_basis(cd, raw_sections)
-    
+
     # Ensure uniqueness
     unique_sections = list(set(reduced_sections))
     return unique_sections
-
 
 def try_scale_out_power_of_two(cd, max_t=2, debug=False):
     """
@@ -1768,11 +1713,9 @@ def try_scale_out_power_of_two(cd, max_t=2, debug=False):
     # If reached, scaling didn't remove the mod-2 collapse up to max_t
     raise RuntimeError(f"Failed to remove 2-adic global factor up to u=2^{max_t}.")
 
-
 # ---------------------------
 # Finite-field aware section helpers
 # ---------------------------
-
 
 def compute_base_sections_m_direct(cd, quartic_pts):
     """Apply Weierstrass morphism to points already on the quartic."""
@@ -1780,11 +1723,11 @@ def compute_base_sections_m_direct(cd, quartic_pts):
     ret = []
     seen = set()
     base_field = getattr(cd, 'base_field', None)
-    
+
     for xi, yi in quartic_pts:
         if (xi, yi) in seen or xi is None:
             continue
-            
+
         if base_field is not None:
             F = base_field
             xi_f = F(xi)
@@ -1797,7 +1740,7 @@ def compute_base_sections_m_direct(cd, quartic_pts):
             X_aff = one_use(x=xi, y=yi)
             Y_aff = two_use(x=xi, y=yi)
             Z_aff = three_use(x=xi, y=yi)
-            
+
             if DEBUG:
                 print(f"\n--- DEBUGGING POINT CONSTRUCTION ---")
                 print(f"Quartic point: ({xi}, {yi})")
@@ -1809,21 +1752,20 @@ def compute_base_sections_m_direct(cd, quartic_pts):
                 except Exception as e:
                     print(f"Verification failed: {e}")
                     raise
-            
+
             P = cd.E_weier([X_aff, Y_aff, Z_aff])
-        
+
         ret.append(P)
         seen.add((xi, yi))
-    
-    return ret
 
+    return ret
 
 # Finite-field compatible rationality test
 @lru_cache(maxsize=None)
 def get_y_unshifted_genus2(x):
     """
     Test if x gives a y-coordinate on the genus-2 curve y^2 = G(x).
-    
+
     - In QQ mode: Returns y if rational, None otherwise.
     - In finite field mode: Returns y in GF(p) if it exists, None otherwise.
     """
@@ -1831,42 +1773,41 @@ def get_y_unshifted_genus2(x):
         # Finite field mode
         F = GF(FINITE_FIELD)
         x_f = F(x)
-        
+
         # Evaluate G(x) in F using Horner's method
         rhs = F(COEFFS_GENUS2[0])
         for coeff in COEFFS_GENUS2[1:]:
             rhs = rhs * x_f + F(coeff)
-        
+
         # Check if rhs is a perfect square in F
         if not rhs.is_square():
             return None
-        
+
         return rhs.sqrt()
-    
+
     else:
         # Rational (QQ) mode - original logic
         x = QQ(x)
-        
+
         # Evaluate G(x) = sum of coeffs * x^i
         # Horner's method is faster than repeated exponentiation
         rhs = COEFFS_GENUS2[0]
         for coeff in COEFFS_GENUS2[1:]:
             rhs = rhs * x + coeff
-        
+
         # Quick checks before expensive square root test
         num = ZZ(rhs.numerator())
         den = ZZ(rhs.denominator())
-        
+
         if num < 0 or den <= 0:
             return None
-        
+
         # Check if num and den are both perfect squares
         # Use Sage's is_square() which is optimized
         if not num.is_square() or not den.is_square():
             return None
-        
-        return QQ(num.sqrt()) / QQ(den.sqrt())
 
+        return QQ(num.sqrt()) / QQ(den.sqrt())
 
 # === Refactored Functions for search_common.py ===
 
@@ -1875,11 +1816,11 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             verify=True, compute_minimal=USE_MINIMAL_MODEL):
     """
     Builds the CurveDataExt object for the fibration.
-    
+
     Bimodal operation:
     - FINITE_FIELD mode: builds over GF(p)(m)
     - QQ mode: builds over QQ(m) with minimal model computation
-    
+
     Args:
         E_curve: Quartic curve object
         phi_x: x-coordinate morphism
@@ -1888,7 +1829,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         morph_triplet: (one, two, three) coordinate maps
         verify: Run geometric validation
         compute_minimal: Compute minimal Weierstrass model
-    
+
     Returns:
         CurveDataExt object with all fibration data
     """
@@ -1896,17 +1837,17 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     print("BUILDCD: Constructing Fibration Data")
     print("="*70)
     sys.stdout.flush()
-    
+
     # ========================================================================
     # MODE DETECTION AND FIELD SETUP
     # ========================================================================
-    
+
     ff_mode = (FINITE_FIELD is not None)
-    
+
     if ff_mode:
         base_field = GF(FINITE_FIELD)
         print(f"[buildcd] Mode: FINITE_FIELD GF({FINITE_FIELD})")
-        
+
         # Build function field over finite field
         Pm_base = PolynomialRing(base_field, 'm')
         Fm = FractionField(Pm_base)
@@ -1914,110 +1855,110 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     else:
         base_field = QQ
         print("[buildcd] Mode: RATIONAL (QQ)")
-        
+
         # Build function field over QQ
         Pm_base = PolynomialRing(QQ, 'm')
         Fm = FractionField(Pm_base)
         m = Fm.gen()
-    
+
     sys.stdout.flush()
-    
+
     # ========================================================================
     # EXTRACT RAW WEIERSTRASS MODEL
     # ========================================================================
-    
+
     print("[buildcd] Extracting Weierstrass coefficients...")
     sys.stdout.flush()
-    
+
     try:
         E_weier_raw = Jacobian(E_curve)
         a4_raw = E_weier_raw.a4()
         a6_raw = E_weier_raw.a6()
     except Exception as e:
         raise RuntimeError(f"buildcd: failed to extract Jacobian coefficients: {e}")
-    
+
     # Coerce into function field
     try:
         a4_raw = Fm(a4_raw)
         a6_raw = Fm(a6_raw)
     except Exception as e:
         raise RuntimeError(f"buildcd: failed to coerce a4/a6 into Fm: {e}")
-    
+
     print(f"[buildcd] Raw a4 degree: {a4_raw.numerator().degree() if hasattr(a4_raw.numerator(), 'degree') else 'unknown'}")
     print(f"[buildcd] Raw a6 degree: {a6_raw.numerator().degree() if hasattr(a6_raw.numerator(), 'degree') else 'unknown'}")
     sys.stdout.flush()
-    
+
     # ========================================================================
     # MINIMAL MODEL COMPUTATION (QQ mode only)
     # ========================================================================
-    
+
     one, two, three = morph_triplet
-    
+
     if compute_minimal and not ff_mode:
         print("\n" + "="*70)
         print("MINIMAL MODEL COMPUTATION")
         print("="*70)
         sys.stdout.flush()
-        
+
         a4_final = a4_raw
         a6_final = a6_raw
         phi_x_final = phi_x
         blowup_factor = 0
         blowdown_0 = 0
-        
+
         # --------------------------------------------------------------------
         # STEP 1: Handle poles at m=0 (blow-up)
         # --------------------------------------------------------------------
-        
+
         print("\n[Step 1] Checking for poles at m=0...")
         sys.stdout.flush()
-        
+
         try:
             v4 = min_order_in_m(a4_raw, m)
             v6 = min_order_in_m(a6_raw, m)
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to compute m-valuations: {e}")
-        
+
         print(f"  v_m(a4) = {v4}")
         print(f"  v_m(a6) = {v6}")
         sys.stdout.flush()
-        
+
         if v4 < 0 or v6 < 0:
             k_for_a4 = ceil(-v4 / 4) if v4 < 0 else 0
             k_for_a6 = ceil(-v6 / 6) if v6 < 0 else 0
             blowup_factor = int(max(k_for_a4, k_for_a6))
-            
+
             assert blowup_factor > 0, "buildcd: computed blowup_factor <= 0 despite negative valuations"
-            
+
             print(f"Poles detected! Applying blow-up with k={blowup_factor}")
             sys.stdout.flush()
-            
+
             try:
                 a4_final = a4_raw * m**(4 * blowup_factor)
                 a6_final = a6_raw * m**(6 * blowup_factor)
                 phi_x_final = phi_x / (m**(2 * blowup_factor))
             except Exception as e:
                 raise RuntimeError(f"buildcd: blow-up transformation failed: {e}")
-            
+
             # Verify poles removed
             v4_new = min_order_in_m(a4_final, m)
             v6_new = min_order_in_m(a6_final, m)
             assert v4_new >= 0 and v6_new >= 0, \
                 f"buildcd: blow-up failed to remove poles (v4={v4_new}, v6={v6_new})"
-            
+
             print(f"Blow-up complete: v_m(a4')={v4_new}, v_m(a6')={v6_new}")
             sys.stdout.flush()
         else:
             print("No poles at m=0")
             sys.stdout.flush()
-        
+
         # --------------------------------------------------------------------
         # STEP 2: Handle common zeros at m=0 (blow-down)
         # --------------------------------------------------------------------
-        
+
         print("\n[Step 2] Checking for common zeros at m=0...")
         sys.stdout.flush()
-        
+
         blowdown_rounds = 0
         while True:
             try:
@@ -2025,47 +1966,47 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
                 v6_0 = min_order_in_m(a6_final, m)
             except Exception as e:
                 raise RuntimeError(f"buildcd: failed to compute valuations in blow-down: {e}")
-            
+
             k0 = int(min(v4_0 // 4, v6_0 // 6)) if (v4_0 > 0 and v6_0 > 0) else 0
-            
+
             if k0 <= 0:
                 break
-            
+
             print(f"  Round {blowdown_rounds + 1}: Applying blow-down with k={k0}")
             sys.stdout.flush()
-            
+
             try:
                 a4_final = a4_final / (m**(4 * k0))
                 a6_final = a6_final / (m**(6 * k0))
                 phi_x_final = phi_x_final * (m**(2 * k0))
             except Exception as e:
                 raise RuntimeError(f"buildcd: blow-down transformation failed: {e}")
-            
+
             blowdown_0 += k0
             blowdown_rounds += 1
-            
+
             # Safety check: prevent infinite loops
             assert blowdown_rounds < 100, \
                 "buildcd: blow-down exceeded 100 iterations (likely infinite loop)"
-        
+
         if blowdown_0 > 0:
             print(f"Blow-down complete: removed m^({4*blowdown_0}) from a4, m^({6*blowdown_0}) from a6")
         else:
             print("No common zeros at m=0")
         sys.stdout.flush()
-        
+
         # --------------------------------------------------------------------
         # STEP 3: Build minimal Weierstrass model and wrap morphisms
         # --------------------------------------------------------------------
-        
+
         print("\n[Step 3] Building minimal Weierstrass model...")
         sys.stdout.flush()
-        
+
         try:
             E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to construct minimal Weierstrass curve: {e}")
-        
+
         # Verify discriminant non-zero
         try:
             Delta_final = E_weier_final.discriminant()
@@ -2073,18 +2014,18 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
                 "buildcd: minimal model has zero discriminant"
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to verify discriminant: {e}")
-        
+
         print(f"Minimal model constructed")
         sys.stdout.flush()
-        
+
         # Compute net scaling for morphisms
         net_k = int(blowup_factor - blowdown_0)
         print(f"  Net scaling exponent: {net_k} (blow-up: {blowup_factor}, blow-down: {blowdown_0})")
         sys.stdout.flush()
-        
+
         x_morphism_scale = m**(2 * net_k)
         y_morphism_scale = m**(3 * net_k)
-        
+
         # Wrap morphisms with scaling
         try:
             one_s = MorphismWrapper(one, 1, x_morphism_scale, a4_final)
@@ -2092,7 +2033,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             three_s = MorphismWrapper(three, 1, 1, a4_final)
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to create morphism wrappers: {e}")
-        
+
         print("="*70)
         print("MINIMAL MODEL SUMMARY")
         print("="*70)
@@ -2103,28 +2044,28 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         print(f"Y-coord scale:    m^{3*net_k}")
         print("="*70)
         sys.stdout.flush()
-        
+
     else:
         # ====================================================================
         # NON-MINIMAL OR FINITE FIELD MODE
         # ====================================================================
-        
+
         if ff_mode:
             print("\n[buildcd] Finite field mode: using raw model (no minimization)")
         else:
             print("\n[buildcd] Non-minimal mode: using raw model")
         sys.stdout.flush()
-        
+
         a4_final = a4_raw
         a6_final = a6_raw
         phi_x_final = phi_x
         blowup_factor = 0
-        
+
         try:
             E_weier_final = EllipticCurve(Fm, [0, 0, 0, a4_final, a6_final])
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to construct Weierstrass curve: {e}")
-        
+
         # No scaling - identity wrappers
         try:
             one_s = MorphismWrapper(one, 1, 1, a4_final)
@@ -2132,11 +2073,11 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             three_s = MorphismWrapper(three, 1, 1, a4_final)
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to create morphism wrappers: {e}")
-    
+
     # ========================================================================
     # SR COERCION (QQ mode only)
     # ========================================================================
-    
+
     if ff_mode:
         # No SR in finite field mode
         SR_a4 = a4_final
@@ -2148,7 +2089,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         # Coerce to SR for symbolic manipulation
         print("[buildcd] Coercing to SR for symbolic operations...")
         sys.stdout.flush()
-        
+
         try:
             SR_m = var('m')
             SR_a4 = SR(a4_final)
@@ -2156,18 +2097,18 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             SR_phi_x = SR(phi_x_final)
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to coerce to SR: {e}")
-        
+
         print("SR coercion complete")
-    
+
     sys.stdout.flush()
-    
+
     # ========================================================================
     # COMPUTE BAD PRIMES
     # ========================================================================
-    
+
     print("\n[buildcd] Computing bad primes...")
     sys.stdout.flush()
-    
+
     if ff_mode:
         # Only characteristic is bad in finite field mode
         bad_primes = [FINITE_FIELD]
@@ -2177,44 +2118,44 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         class TempCD:
             def __init__(self, a4, a6):
                 self.a4, self.a6 = a4, a6
-        
+
         temp_cd = TempCD(a4_final, a6_final)
-        
+
         try:
             bad_primes = [p for p in PRIME_POOL if not is_good_prime_for_surface(temp_cd, p)]
         except Exception as e:
             raise RuntimeError(f"buildcd: failed to compute bad primes: {e}")
-        
+
         print(f"Found {len(bad_primes)} bad primes: {sorted(bad_primes)[:10]}{'...' if len(bad_primes) > 10 else ''}")
-    
+
     sys.stdout.flush()
-    
+
     # ========================================================================
     # COMPUTE SINGULAR FIBERS (QQ mode only)
     # ========================================================================
-    
+
     if ff_mode:
         print("\n[buildcd] Skipping singular fiber analysis (finite field mode)")
         singfibs = {'fibers': [], 'euler_characteristic': 0, 'sigma_sum': 0}
     else:
         print("\n[buildcd] Computing singular fibers...")
         sys.stdout.flush()
-        
+
         try:
             singfibs = find_singular_fibers(a4=a4_final, a6=a6_final, verbose=DEBUG)
         except Exception as e:
             raise RuntimeError(f"buildcd: singular fiber computation failed: {e}")
-        
+
         print(f"  Found {len(singfibs.get('fibers', []))} singular fibers")
         print(f"  Euler characteristic: {singfibs.get('euler_characteristic', 'unknown')}")
         print(f"  Sigma sum: {singfibs.get('sigma_sum', 'unknown')}")
-    
+
     sys.stdout.flush()
-    
+
     # ========================================================================
     # BUILD E_RHS (for compatibility)
     # ========================================================================
-    
+
     if ff_mode:
         E_rhs_final = E_rhs
     else:
@@ -2223,14 +2164,14 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
             E_rhs_final = y**2 - x**3 - a4_final * x - a6_final
         except Exception:
             E_rhs_final = E_rhs
-    
+
     # ========================================================================
     # PACKAGE CURVE DATA
     # ========================================================================
-    
+
     print("\n[buildcd] Packaging CurveDataExt...")
     sys.stdout.flush()
-    
+
     cd = CurveDataExt(
         E_curve=E_curve,
         E_weier=E_weier_final,
@@ -2252,36 +2193,36 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         SR_m=SR_m,
         base_field=base_field if ff_mode else None
     )
-    
+
     # ========================================================================
     # POST-PROCESSING: 2-adic scaling (QQ mode only)
     # ========================================================================
-    
+
     if not ff_mode:
         print("\n[buildcd] Attempting 2-adic scaling...")
         sys.stdout.flush()
-        
+
         try:
             cd = try_scale_out_power_of_two(cd, max_t=2, debug=DEBUG)
             print("2-adic scaling complete")
         except Exception as e:
             print(f"2-adic scaling failed (continuing anyway): {e}")
-    
+
     sys.stdout.flush()
-    
+
     # ========================================================================
     # VERIFICATION
     # ========================================================================
-    
+
     if verify and DEBUG and not ff_mode:
         print("\n[buildcd] Running geometric validation...")
         sys.stdout.flush()
-        
+
         try:
             validate_fibration_geometry(cd)
         except Exception as e:
             raise RuntimeError(f"buildcd: geometric validation failed: {e}")
-        
+
         # Final discriminant check
         try:
             Delta_check = cd.E_weier.discriminant()
@@ -2289,43 +2230,42 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
                 "buildcd: final discriminant is zero"
         except Exception as e:
             raise RuntimeError(f"buildcd: final discriminant check failed: {e}")
-    
+
     print("\n" + "="*70)
     print("BUILDCD COMPLETE")
     print("="*70)
     sys.stdout.flush()
-    
-    return cd
 
+    return cd
 
 @PROFILE
 def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
     """
     Compute phi_x = X/Z on the Weierstrass model.
-    
+
     Bimodal operation:
     - FINITE_FIELD mode: works in GF(p)(m), handles sqrt via extension
     - QQ mode: symbolic computation with SR
-    
+
     Args:
         one, two, three: Morphism coordinate functions
         x_coord_func: x-coordinate (in function field or QQ)
         quartic_rhs: RHS of quartic equation y^2 = quartic_rhs
-    
+
     Returns:
         phi_x = X/Z (rational function in m) or "INF" if Z=0
     """
     ff_mode = (FINITE_FIELD is not None)
-    
+
     if ff_mode:
         # ====================================================================
         # FINITE FIELD MODE
         # ====================================================================
-        
+
         F = GF(FINITE_FIELD)
         PR_m = PolynomialRing(F, 'm')
         K = PR_m.fraction_field()
-        
+
         # Step 1: Coerce x into K
         try:
             xK = K(x_coord_func)
@@ -2337,7 +2277,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                     xK = K(QQ(str(x_coord_func)))
             except Exception as e:
                 raise RuntimeError(f"get_phi_x (FF): cannot coerce x to K: {e}")
-        
+
         # Step 2: Substitute x into quartic_rhs
         try:
             quartic_at_x = quartic_rhs.subs(x=xK)
@@ -2346,7 +2286,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 quartic_at_x = quartic_rhs(x=xK)
             except Exception as e:
                 raise RuntimeError(f"get_phi_x (FF): substitution failed: {e}")
-        
+
         # Step 3: Coerce result into K
         try:
             y_poly = K(quartic_at_x)
@@ -2356,7 +2296,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 y_poly = K(y_poly)
             except Exception as e:
                 raise RuntimeError(f"get_phi_x (FF): coercion to K failed: {e}")
-        
+
         # Step 4: Try to extract sqrt if it exists in K
         y_val_sqrt = None
         try:
@@ -2364,9 +2304,9 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
             if hasattr(y_poly, 'is_constant'):
                 is_const = y_poly.is_constant()
             elif hasattr(y_poly, 'numerator') and hasattr(y_poly, 'denominator'):
-                is_const = (y_poly.numerator().degree() <= 0 and 
+                is_const = (y_poly.numerator().degree() <= 0 and
                            y_poly.denominator().degree() <= 0)
-            
+
             if is_const:
                 const = F(y_poly)
                 if const.is_square():
@@ -2376,7 +2316,7 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                     y_val_sqrt = y_poly.sqrt()
         except Exception:
             y_val_sqrt = None
-        
+
         # Step 5: If sqrt exists in K, use it directly
         if y_val_sqrt is not None:
             try:
@@ -2384,91 +2324,90 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
                 X_sub = one.subs(x=xK, y=y_val_sqrt)
             except Exception as e:
                 raise RuntimeError(f"get_phi_x (FF): morphism evaluation failed: {e}")
-            
+
             if Z_sub == 0:
                 return "INF"
             return X_sub / Z_sub
-        
+
         # Step 6: Try rationalization (eliminate sqrt by algebra)
         try:
             PR_Y = PolynomialRing(K, 'Y')
             Y = PR_Y.gen()
-            
+
             X_as_poly = PR_Y(one.subs(x=xK, y=Y))
             Z_as_poly = PR_Y(three.subs(x=xK, y=Y))
-            
+
             # Extract linear coefficients: a0 + a1*Y
             a0 = X_as_poly.coefficient(0) if X_as_poly.degree() >= 0 else K(0)
             a1 = X_as_poly.coefficient(1) if X_as_poly.degree() >= 1 else K(0)
             b0 = Z_as_poly.coefficient(0) if Z_as_poly.degree() >= 0 else K(0)
             b1 = Z_as_poly.coefficient(1) if Z_as_poly.degree() >= 1 else K(0)
-            
+
             # Rationalize: (a0 + a1*Y)/(b0 + b1*Y) * (b0 - b1*Y)/(b0 - b1*Y)
             numerator_0 = a0 * b0 - a1 * b1 * y_poly
             numerator_1 = a1 * b0 - a0 * b1
             denominator = b0 * b0 - b1 * b1 * y_poly
-            
+
             if denominator == 0:
                 return "INF"
-            
+
             # If numerator_1 = 0, result is rational
             if numerator_1 == 0:
                 return K(numerator_0) / K(denominator)
-        
+
         except Exception:
             pass  # Fall through to extension
-        
+
         # Step 7: Last resort - quadratic extension
         try:
             T = PolynomialRing(K, 'T').gen()
             minimal = T**2 - K(y_poly)
             L = K.extension(minimal, 'Y')
             Y_L = L.gen()
-            
+
             X_sub_L = L(one.subs(x=xK, y=Y_L))
             Z_sub_L = L(three.subs(x=xK, y=Y_L))
-            
+
             if Z_sub_L == 0:
                 return "INF"
-            
+
             phiL = X_sub_L / Z_sub_L
-            
+
             # Try to bring back to K
             try:
                 return K(phiL)
             except Exception:
                 return phiL
-        
+
         except Exception as e:
             raise RuntimeError(f"get_phi_x (FF): extension construction failed: {e}")
-    
+
     else:
         # ====================================================================
         # QQ / SR MODE
         # ====================================================================
-        
+
         try:
             y_val_sqrt = sqrt(quartic_rhs)
             Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
             X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
         except Exception as e:
             raise RuntimeError(f"get_phi_x (QQ): symbolic computation failed: {e}")
-        
+
         if Z_sub == 0:
             return "INF"
-        
-        return X_sub / Z_sub
 
+        return X_sub / Z_sub
 
 @PROFILE
 def check_independence(sections, curve, cd):
     """
     Check linear independence of sections.
-    
+
     Bimodal operation:
     - FINITE_FIELD mode: probabilistic group-law test
     - QQ mode: height pairing matrix determinant
-    
+
     Returns:
         (bool, Matrix or None): (independent, height_matrix)
     """
@@ -2479,16 +2418,15 @@ def check_independence(sections, curve, cd):
     if n == 1:
         return True, None
 
-    
     ff_mode = (FINITE_FIELD is not None)
-    
+
     print(f"\n[check_independence] Testing {n} sections (mode={'FF' if ff_mode else 'QQ'})")
     sys.stdout.flush()
-    
+
     # ========================================================================
     # Helper: robust identity test
     # ========================================================================
-    
+
     def point_is_identity(P):
         """Test if P is the identity/zero element."""
         # Try is_zero method
@@ -2497,28 +2435,28 @@ def check_independence(sections, curve, cd):
                 return bool(P.is_zero())
         except Exception:
             raise
-        
+
         # Try is_infinite method
         try:
             if hasattr(P, "is_infinite"):
                 return bool(P.is_infinite())
         except Exception:
             raise
-        
+
         # Try equality with curve(0)
         try:
             O = curve(0)
             return P == O
         except Exception:
             raise
-        
+
         # Try is_identity method
         try:
             if hasattr(P, "is_identity") and callable(P.is_identity):
                 return bool(P.is_identity())
         except Exception:
             raise
-        
+
         # Check coordinates for None (infinity convention)
         try:
             coords = P.coordinates() if hasattr(P, "coordinates") else None
@@ -2528,46 +2466,45 @@ def check_independence(sections, curve, cd):
                 return any(c is None for c in coords)
         except Exception:
             raise
-        
+
         # Conservative: assume not identity
         return False
-    
+
     # ========================================================================
     # FINITE FIELD MODE: Probabilistic Group-Law Test
     # ========================================================================
-    
+
     if ff_mode:
         print("[check_independence FF] Using probabilistic linear combination test")
         sys.stdout.flush()
-        
+
         # Quick check: no identity sections
         for i, P in enumerate(sections):
             if point_is_identity(P):
                 print(f"  Section {i} is identity -> dependent")
                 sys.stdout.flush()
                 return False, None
-        
+
         # Probabilistic test: find nontrivial relation
-        import random
         NUM_TRIALS = 60 if n > 1 else 0
         MAX_ABS_COEFF = 15
-        
+
         if n > 1:
             print(f"  Running {NUM_TRIALS} random linear combination tests...")
         sys.stdout.flush()
-        
+
         for trial in range(NUM_TRIALS):
             coeffs = [random.randint(-MAX_ABS_COEFF, MAX_ABS_COEFF) for _ in range(n)]
-            
+
             if all(c == 0 for c in coeffs):
                 continue
-            
+
             # Compute S = sum(c_i * P_i)
             S = None
             for c, P in zip(coeffs, sections):
                 if c == 0:
                     continue
-                
+
                 try:
                     term = c * P
                 except Exception:
@@ -2576,54 +2513,54 @@ def check_independence(sections, curve, cd):
                     except Exception as e:
                         raise RuntimeError(f"check_independence (FF): scalar multiplication failed: {e}")
                     raise
-                
+
                 if S is None:
                     S = term
                 else:
                     S = S + term
-            
+
             if S is None:
                 continue
-            
+
             if point_is_identity(S):
                 print(f"  âŒ Dependent: found relation {coeffs}")
                 sys.stdout.flush()
                 return False, None
-        
+
         if n > 1:
             print(f"No relations found in {NUM_TRIALS} trials -> independent (probabilistic)")
         sys.stdout.flush()
         return True, None
-    
+
     # ========================================================================
     # QQ MODE: Height Pairing Matrix
     # ========================================================================
-    
+
     print("[check_independence QQ] Computing height pairing matrix")
     sys.stdout.flush()
-    
+
     H = None
-    
+
     if USE_MINIMAL_MODEL:
         print("Using canonical height pairing (minimal model)")
         sys.stdout.flush()
-        
+
         try:
             H = compute_canonical_height_matrix(sections, cd)
         except Exception as e:
             raise RuntimeError(f"check_independence (QQ): canonical height computation failed: {e}")
-    
+
     else:
         print("  Using coarse height sampling (non-minimal model)")
         sys.stdout.flush()
-        
+
         try:
             H = compute_coarse_height_matrix_serializable(cd, sections)
         except Exception as e:
             print(f"  Coarse sampling failed: {e}")
             print("  Falling back to naive pairing...")
             sys.stdout.flush()
-            
+
             try:
                 H = matrix(QQ, n)
                 for i in range(n):
@@ -2653,40 +2590,39 @@ def check_independence(sections, curve, cd):
 
     return independent, H
 
-
 @PROFILE
 def lll_reduce_mw_basis(cd, P_list):
     """
     Reduce a Mordell-Weil basis using LLL.
-    
+
     Bimodal operation:
     - FINITE_FIELD mode: No LLL (no heights), just clean duplicates
     - QQ mode: True LLL reduction on height lattice
-    
+
     Args:
         cd: CurveDataExt object
         P_list: List of section points
-    
+
     Returns:
         List of reduced sections
     """
     r = len(P_list)
     if r == 0:
         return []
-    
+
     ff_mode = (FINITE_FIELD is not None)
-    
+
     print(f"\n[lll_reduce] Processing {r} sections (mode={'FF' if ff_mode else 'QQ'})")
     sys.stdout.flush()
-    
+
     # ========================================================================
     # FINITE FIELD MODE: No LLL available
     # ========================================================================
-    
+
     if ff_mode:
         print("[lll_reduce FF] Skipping LLL (no height structure)")
         sys.stdout.flush()
-        
+
         # Light cleaning: remove identity and duplicates
         cleaned = []
         for P in P_list:
@@ -2696,56 +2632,56 @@ def lll_reduce_mw_basis(cd, P_list):
                     continue
             except Exception:
                 pass
-            
+
             # Check if already present
             if P not in cleaned:
                 cleaned.append(P)
-        
+
         print(f"[lll_reduce FF] Cleaned: {r} -> {len(cleaned)} sections")
         sys.stdout.flush()
         return cleaned
-    
+
     # ========================================================================
     # QQ MODE: True LLL Reduction
     # ========================================================================
-    
+
     print("[lll_reduce QQ] Computing height matrix for LLL")
     sys.stdout.flush()
-    
+
     # Check independence and get height matrix
     try:
         is_independent, H = check_independence(P_list, cd.E_curve, cd)
     except Exception as e:
         raise RuntimeError(f"lll_reduce: independence check failed: {e}")
-    
+
     if not is_independent:
         print("[lll_reduce QQ] WARNING: sections not independent, skipping LLL")
         sys.stdout.flush()
         return P_list
-    
+
     if H is None or H.nrows() != r:
         print("[lll_reduce QQ] WARNING: invalid height matrix, skipping LLL")
         sys.stdout.flush()
         return P_list
-    
+
     # Clear denominators to get integer Gram matrix
     print("[lll_reduce QQ] Clearing denominators...")
     sys.stdout.flush()
-    
+
     try:
         denoms = [H[i, j].denominator() for i in range(r) for j in range(r)]
         D = lcm(denoms) if denoms else 1
         H_int = (H * D).change_ring(ZZ)
     except Exception as e:
         raise RuntimeError(f"lll_reduce: failed to clear denominators: {e}")
-    
+
     print(f"[lll_reduce QQ] Cleared with LCM = {D}")
     sys.stdout.flush()
-    
+
     # Perform LLL
     print("[lll_reduce QQ] Running LLL algorithm...")
     sys.stdout.flush()
-    
+
     try:
         U = H_int.LLL_gram()
     except Exception as e:
@@ -2753,10 +2689,10 @@ def lll_reduce_mw_basis(cd, P_list):
         print("[lll_reduce QQ] Returning unreduced basis")
         sys.stdout.flush()
         return P_list
-    
+
     print("[lll_reduce QQ] LLL complete, applying transformation...")
     sys.stdout.flush()
-    
+
     # Apply unimodular transformation
     new_Ps = []
     for i in range(r):
@@ -2765,65 +2701,64 @@ def lll_reduce_mw_basis(cd, P_list):
             c = U[j, i]
             if c == 0:
                 continue
-            
+
             try:
                 term = c * P_list[j]
             except Exception as e:
                 raise RuntimeError(f"lll_reduce: scalar multiplication failed: {e}")
-            
+
             if comb is None:
                 comb = term
             else:
                 comb = comb + term
-        
+
         assert comb is not None, "lll_reduce: transformation produced null combination"
         new_Ps.append(comb)
-    
+
     print(f"[lll_reduce QQ] Reduced basis has {len(new_Ps)} sections")
     sys.stdout.flush()
-    
-    return new_Ps
 
+    return new_Ps
 
 @PROFILE
 def compute_base_sections_m(cd, base_pts, tower=None):
     """
     Map hyperelliptic points to Weierstrass sections.
-    
+
     Bimodal operation:
     - FINITE_FIELD mode: evaluation stays in GF(p)(m)
     - QQ mode: evaluation in QQ(m)
-    
+
     Args:
         cd: CurveDataExt object with morphisms
         base_pts: List of (x, y) points on hyperelliptic curve
         tower: Optional tower data (unused currently)
-    
+
     Returns:
         List of Weierstrass points (sections)
     """
     if not base_pts:
         return []
-    
+
     ff_mode = (FINITE_FIELD is not None)
-    
+
     print(f"\n[compute_base_sections] Mapping {len(base_pts)} points (mode={'FF' if ff_mode else 'QQ'})")
     sys.stdout.flush()
-    
+
     one_use, two_use, three_use = cd.morphs
-    
+
     # ========================================================================
     # FINITE FIELD MODE: Ensure morphisms work in GF(p)(m)
     # ========================================================================
-    
+
     if ff_mode:
         print("[compute_base_sections FF] Setting up GF(p)(m) arithmetic")
         sys.stdout.flush()
-        
+
         Fp = GF(FINITE_FIELD)
         Pm_p = PolynomialRing(Fp, 'm')
         Km_p = FractionField(Pm_p)
-        
+
         # Helper to map QQ(m) polynomials to Fp(m)
         def map_to_fp(poly):
             """Map polynomial from QQ(m) to Fp(m)."""
@@ -2839,7 +2774,7 @@ def compute_base_sections_m(cd, base_pts, tower=None):
                 return new_parent(new_d)
             except Exception as e:
                 raise RuntimeError(f"map_to_fp failed: {e}")
-        
+
         def map_scale(scale_expr):
             """Map scaling expression from QQ(m) to Fp(m)."""
             if scale_expr == 1:
@@ -2850,48 +2785,48 @@ def compute_base_sections_m(cd, base_pts, tower=None):
                 return Km_p(num) / Km_p(den)
             except Exception as e:
                 raise RuntimeError(f"map_scale failed: {e}")
-        
+
         # Extract and map the morphism polynomials
         try:
             one_poly = one_use.callable_obj
             two_poly = two_use.callable_obj
             three_poly = three_use.callable_obj
-            
+
             one_mapped = map_to_fp(one_poly)
             two_mapped = map_to_fp(two_poly)
             three_mapped = map_to_fp(three_poly)
-            
+
             one_scale = map_scale(one_use.scale)
             two_scale = map_scale(two_use.scale)
             three_scale = map_scale(three_use.scale)
-            
+
             # Create new wrappers over Fp(m)
             one_use = MorphismWrapper(one_mapped, one_use.k, one_scale, Pm_p(cd.a4))
             two_use = MorphismWrapper(two_mapped, two_use.k, two_scale, Pm_p(cd.a4))
             three_use = MorphismWrapper(three_mapped, three_use.k, three_scale, Pm_p(cd.a4))
         except Exception as e:
             raise RuntimeError(f"compute_base_sections (FF): morphism mapping failed: {e}")
-        
+
         # Ensure Weierstrass curve is over correct field
         try:
             if hasattr(cd, 'E_weier') and cd.E_weier.base_ring() != Km_p:
                 cd.E_weier = cd.E_weier.change_ring(Km_p)
         except Exception as e:
             raise RuntimeError(f"compute_base_sections (FF): curve base change failed: {e}")
-        
+
         print("[compute_base_sections FF] Morphisms mapped to Fp(m)")
         sys.stdout.flush()
-    
+
     # ========================================================================
     # COMMON: Apply morphisms to all points
     # ========================================================================
-    
+
     ret = []
     seen = set()
-    
+
     for idx, pt in enumerate(base_pts):
         xi_raw, yi_raw = pt[0], pt[1]
-        
+
         # Coerce to appropriate field
         if ff_mode:
             Fp = GF(FINITE_FIELD)
@@ -2902,10 +2837,10 @@ def compute_base_sections_m(cd, base_pts, tower=None):
                 raise RuntimeError(f"compute_base_sections (FF): point {idx} coercion failed: {e}")
         else:
             xi, yi = xi_raw, yi_raw
-        
+
         if (xi, yi) in seen:
             continue
-        
+
         # Apply morphism
         try:
             X_aff = one_use(x=xi, y=yi)
@@ -2913,43 +2848,42 @@ def compute_base_sections_m(cd, base_pts, tower=None):
             Z_aff = three_use(x=xi, y=yi)
         except Exception as e:
             raise RuntimeError(f"compute_base_sections: morphism evaluation failed at point {idx}: {e}")
-        
+
         # Construct Weierstrass point
         try:
             P = cd.E_weier([X_aff, Y_aff, Z_aff])
         except Exception as e:
             raise RuntimeError(f"compute_base_sections: point construction failed at point {idx}: {e}")
-        
+
         ret.append(P)
         seen.add((xi, yi))
-    
+
     print(f"[compute_base_sections] Mapped to {len(ret)} sections")
     sys.stdout.flush()
-    
-    return ret
 
+    return ret
 
 @PROFILE
 def verify_morphism_on_samples(cd, base_pts):
     """
     Verify that morphism images lie on Weierstrass curve.
-    
+
     Tests each base point to ensure X,Y,Z satisfy the Weierstrass equation.
-    
+
     Args:
         cd: CurveDataExt with morphs and E_weier
         base_pts: List of (x,y) points to test
-    
+
     Returns:
         True if all points verify (raises on failure)
     """
     one_s, two_s, three_s = cd.morphs
     E_min = cd.E_weier
     base_field = getattr(cd, 'base_field', None)
-    
+
     print(f"\n[verify_morphism] Testing {len(base_pts)} sample points")
     sys.stdout.flush()
-    
+
     for idx, (xi, yi) in enumerate(base_pts):
         try:
             if base_field is not None:
@@ -2967,106 +2901,105 @@ def verify_morphism_on_samples(cd, base_pts):
                 P = E_min([X, Y, Z])
         except Exception as e:
             raise RuntimeError(f"verify_morphism: verification failed at point {idx} ({xi}, {yi}): {e}")
-    
+
     print("[verify_morphism] All sample points verified")
     sys.stdout.flush()
-    
-    return True
 
+    return True
 
 @PROFILE
 def compute_search_vectors(H, height_bound):
     """
     Enumerate short vectors in the height lattice.
-    
+
     Uses LLL on the Gram matrix to find all vectors with height <= bound.
-    
+
     Args:
         H: Height pairing matrix (symmetric, positive definite)
         height_bound: Maximum height for enumeration
-    
+
     Returns:
         List of tuples representing short vectors
     """
     print(f"\n[compute_search_vectors] Enumerating vectors with height <= {height_bound}")
     sys.stdout.flush()
-    
+
     H_matrix = matrix(H)
     n = H_matrix.nrows()
-    
+
     assert n > 0, "compute_search_vectors: empty height matrix"
-    
+
     # Clear denominators
     print("[compute_search_vectors] Clearing denominators...")
     sys.stdout.flush()
-    
+
     try:
         denominators = [H_matrix[i,j].denominator()
                        for i in range(n) for j in range(n)]
         lcm_denom = lcm(denominators) if denominators else 1
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: denominator extraction failed: {e}")
-    
+
     print(f"[compute_search_vectors] LCM of denominators: {lcm_denom}")
     sys.stdout.flush()
-    
+
     # Scale to integer matrix with even diagonal
     try:
         H_scaled = lcm_denom * H_matrix
         H_even = 2 * H_scaled
-        
+
         # Ensure exact symmetry
         H_even = (H_even + H_even.transpose())
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: scaling failed: {e}")
-    
+
     # Check positive definiteness
     print("[compute_search_vectors] Checking positive definiteness...")
     sys.stdout.flush()
-    
+
     try:
         is_pd = H_even.is_positive_definite()
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: PD check failed: {e}")
-    
+
     if not is_pd:
         det = H_even.det()
         print(f"[compute_search_vectors] WARNING: Not PD (det={det}, rank={H_even.rank()})")
-        
+
         try:
             evals = H_even.eigenvalues()
             min_ev = min([RR(ev) for ev in evals])
             print(f"[compute_search_vectors] Min eigenvalue (approx): {min_ev}")
         except Exception:
             print("[compute_search_vectors] Could not compute eigenvalues")
-        
+
         sys.stdout.flush()
-        
+
         # Regularize by adding eps*I
         print("[compute_search_vectors] Regularizing with diagonal shift...")
         sys.stdout.flush()
-        
+
         eps = Integer(1)
         H_try = H_even + eps * Matrix.identity(n)
         attempts = 0
-        
+
         while not H_try.is_positive_definite():
             eps *= 2
             H_try = H_even + eps * Matrix.identity(n)
             attempts += 1
-            
+
             assert attempts < 60, "compute_search_vectors: regularization exceeded 60 iterations"
-        
+
         # Make eps even (QuadraticForm requires even diagonal)
         if eps % 2 == 1:
             eps += 1
             H_try = H_even + eps * Matrix.identity(n)
-        
+
         # Ensure still PD after rounding
         while not H_try.is_positive_definite():
             eps += 2
             H_try = H_even + eps * Matrix.identity(n)
-        
+
         # Binary search to minimize eps
         lo = Integer(0)
         hi = Integer(eps)
@@ -3079,114 +3012,112 @@ def compute_search_vectors(H, height_bound):
             else:
                 lo = mid
         eps = hi
-        
+
         H_even = H_even + eps * Matrix.identity(n)
         print(f"[compute_search_vectors] Added eps*I with eps={eps}")
-        
+
         try:
             evals_new = H_even.eigenvalues()
             min_ev_new = min([RR(ev) for ev in evals_new])
             print(f"[compute_search_vectors] New min eigenvalue (approx): {min_ev_new}")
         except Exception:
             pass
-        
+
         sys.stdout.flush()
-    
+
     # Convert to integer matrix over ZZ
     try:
         H_even = matrix(ZZ, H_even)
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: ZZ conversion failed: {e}")
-    
+
     # Verify diagonal is even
     for i in range(n):
         assert int(H_even[i,i]) % 2 == 0, \
             f"compute_search_vectors: diagonal entry H[{i},{i}]={H_even[i,i]} is odd"
-    
+
     # Build quadratic form and enumerate
     print("[compute_search_vectors] Building quadratic form...")
     sys.stdout.flush()
-    
+
     try:
         Q = QuadraticForm(ZZ, H_even)
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: QuadraticForm construction failed: {e}")
-    
+
     scaled_height_bound = 2 * lcm_denom * height_bound
     print(f"[compute_search_vectors] Enumerating up to scaled bound {scaled_height_bound}")
     sys.stdout.flush()
-    
+
     try:
         vecs = Q.short_vector_list_up_to_length(scaled_height_bound)
         vecs = [v for sublist in vecs for v in sublist]
     except Exception as e:
         raise RuntimeError(f"compute_search_vectors: enumeration failed: {e}")
-    
+
     print(f"[compute_search_vectors] Found {len(vecs)} vectors")
     sys.stdout.flush()
-    
-    return vecs
 
+    return vecs
 
 @PROFILE
 def canonicalize_by_sign(vecs):
     """
     Canonicalize vectors by making first non-zero element positive.
-    
+
     Removes duplicates modulo sign: (4,) and (-4,) both map to (4,).
-    
+
     Args:
         vecs: List of vectors (tuples or lists)
-    
+
     Returns:
         List of canonical tuples (first nonzero positive)
     """
     seen = set()
     out = []
-    
+
     for v in vecs:
         vt = tuple(int(x) for x in v)
-        
+
         # Skip zero vector
         if all(x == 0 for x in vt):
             continue
-        
+
         # Find first non-zero element
         first_nonzero_idx = None
         for i, x in enumerate(vt):
             if x != 0:
                 first_nonzero_idx = i
                 break
-        
+
         if first_nonzero_idx is None:
             continue  # All zeros (shouldn't happen due to check above)
-        
+
         # Canonicalize: make first non-zero positive
         if vt[first_nonzero_idx] < 0:
             can = tuple(-x for x in vt)
         else:
             can = vt
-        
+
         if can not in seen:
             seen.add(can)
             out.append(can)
-    
-    return out
 
+    return out
 
 @PROFILE
 def validate_fibration_geometry(cd):
     """
     Run geometric validation checks on the fibration.
-    
+
     Verifies:
     - Discriminant is non-zero
     - Discriminant degree matches expectations
     - Weierstrass scaling is consistent
-    
+
     Args:
         cd: CurveDataExt object
-    
+
     Returns:
         True (raises on validation failure)
     """
@@ -3194,65 +3125,64 @@ def validate_fibration_geometry(cd):
     print("GEOMETRIC VALIDATION")
     print("="*70)
     sys.stdout.flush()
-    
+
     try:
         a4 = cd.a4
         a6 = cd.a6
         m_var = a4.parent().gen() if hasattr(a4, 'parent') else None
     except Exception as e:
         raise RuntimeError(f"validate_fibration: failed to extract coefficients: {e}")
-    
+
     # Compute discriminant
     try:
         Delta = -16 * (4 * a4**3 + 27 * a6**2)
     except Exception as e:
         raise RuntimeError(f"validate_fibration: discriminant computation failed: {e}")
-    
+
     # Check non-zero
     if Delta.is_zero():
         print("[validate_fibration] FAIL: Discriminant is identically zero")
         sys.stdout.flush()
         raise ValueError("validate_fibration: discriminant is zero")
-    
+
     print("[validate_fibration] Discriminant is non-zero")
     sys.stdout.flush()
-    
+
     # Compute effective degree
     try:
         effective_degree_val = effective_degree(Delta, m_var)
     except Exception as e:
         print(f"[validate_fibration] WARNING: Could not compute effective degree: {e}")
         effective_degree_val = "unknown"
-    
+
     print(f"[validate_fibration] Discriminant: {Delta}")
     print(f"[validate_fibration] Effective degree: {effective_degree_val}")
-    
+
     stored_n = getattr(cd, 'tate_exponent', 'unknown')
     print(f"[validate_fibration] Stored Weierstrass exponent: {stored_n}")
-    
+
     if effective_degree_val == 12:
         print("[validate_fibration] PASS: Discriminant degree is 12 (standard)")
     else:
         print(f"[validate_fibration] NOTICE: Discriminant degree is {effective_degree_val}, not 12")
         print("[validate_fibration]         (non-minimal or different parameterization)")
-    
+
     print("="*70)
     sys.stdout.flush()
-    
-    return True
 
+    return True
 
 @PROFILE
 def summarize_fibration_info(cd, data_pts, base_pts):
     """
     Print diagnostic summary of the fibration.
-    
+
     Shows:
     - Data points used
     - Quartic and Weierstrass equations
     - Discriminants
     - Section information
-    
+
     Args:
         cd: CurveDataExt object
         data_pts: Original input points
@@ -3262,15 +3192,15 @@ def summarize_fibration_info(cd, data_pts, base_pts):
     print("FIBRATION SUMMARY")
     print("="*70)
     sys.stdout.flush()
-    
+
     print(f"Data points: {data_pts}")
     print(f"Base points: {base_pts}")
     sys.stdout.flush()
-    
+
     # Quartic curve
     print(f"\nQuartic curve: {cd.E_curve}")
     sys.stdout.flush()
-    
+
     # Get defining polynomial
     try:
         polys = cd.E_curve.defining_polynomials()
@@ -3278,10 +3208,10 @@ def summarize_fibration_info(cd, data_pts, base_pts):
         f = polys[0]
     except Exception as e:
         raise RuntimeError(f"summarize_fibration: failed to extract defining polynomial: {e}")
-    
+
     print(f"Defining polynomial: {f}")
     sys.stdout.flush()
-    
+
     # Compute quartic discriminant
     try:
         vars_list = f.parent().gens()
@@ -3290,49 +3220,48 @@ def summarize_fibration_info(cd, data_pts, base_pts):
     except Exception as e:
         print(f"WARNING: Could not compute quartic discriminant: {e}")
         disc = "unknown"
-    
+
     print(f"Quartic discriminant: {disc}")
     sys.stdout.flush()
-    
+
     # Weierstrass discriminant
     try:
         disc2 = cd.E_weier.discriminant()
     except Exception as e:
         print(f"WARNING: Could not compute Weierstrass discriminant: {e}")
         disc2 = "unknown"
-    
+
     print(f"\nWeierstrass discriminant: {disc2}")
     sys.stdout.flush()
-    
+
     # Weierstrass coefficients
     print("\nWeierstrass model coefficients:")
     print(f"  a4(m): {cd.a4}")
     print(f"  a6(m): {cd.a6}")
     sys.stdout.flush()
-    
+
     # Sections (if provided in base_pts)
     if hasattr(base_pts, '__iter__'):
         print(f"\nBase sections ({len(base_pts)} total):")
         for i, P in enumerate(base_pts, 1):
             print(f"  P{i}: {P}")
         sys.stdout.flush()
-    
+
     print("="*70)
     sys.stdout.flush()
-
 
 @PROFILE
 def augment_known(known_pts, found, deg6=False):
     """
     Augment known points with newly found x-coordinates.
-    
+
     Computes y-coordinates for new x values and adds (x,±y) to known set.
-    
+
     Args:
         known_pts: Set of (x,y) tuples
         found: Set of x-coordinates
         deg6: If True, use genus 2 rationality test
-    
+
     Returns:
         Updated set of (x,y) tuples
     """
@@ -3340,17 +3269,17 @@ def augment_known(known_pts, found, deg6=False):
         print(f"\n[augment_known] Starting with {len(known_pts)} known points")
         print(f"[augment_known] Processing {len(found)} found x-coordinates")
         sys.stdout.flush()
-    
+
     ret = set(known_pts)
     known_x = set([i for i, _ in known_pts])
-    
+
     for x_val in found:
         if x_val in known_x:
             continue
-        
+
         print(f"[augment_known] New x: {x_val}")
         sys.stdout.flush()
-        
+
         # Compute y
         try:
             if deg6:
@@ -3361,20 +3290,19 @@ def augment_known(known_pts, found, deg6=False):
             print(f"[augment_known] WARNING: Failed to compute y for x={x_val}: {e}")
             sys.stdout.flush()
             continue
-        
+
         if rhsy is None:
             print(f"[augment_known] WARNING: x={x_val} does not give rational y")
             sys.stdout.flush()
             continue
-        
+
         ret.add((x_val, rhsy))
         if rhsy != 0:
             ret.add((x_val, -rhsy))
-    
+
     print(f"[augment_known] Result: {len(ret)} total points")
     sys.stdout.flush()
-    
-    return ret
 
+    return ret
 
 print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)

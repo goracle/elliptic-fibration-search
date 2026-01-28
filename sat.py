@@ -8,10 +8,7 @@ from search_common import DEBUG, to_mod_poly
 # Note: This module expects `find_singular_fibers` and `find_cm_fibers`
 # to be provided by the calling environment.
 
-
-
 # --- Helper Functions ---
-
 
 def eval_rational_mod(rf, m0, ell):
     """
@@ -37,7 +34,6 @@ def eval_rational_mod(rf, m0, ell):
     F = GF(ell)
     return F(num) / F(den)
 
-
 def discriminant_divisible_by_ell(a4, a6, m0, ell):
     """
     Check if the discriminant Delta = -16*(4*a4^3 + 27*a6^2) at m0
@@ -54,7 +50,6 @@ def discriminant_divisible_by_ell(a4, a6, m0, ell):
     # Now compute Delta in the finite field.
     delta_mod = -16 * (4 * a4_mod**3 + 27 * a6_mod**2)
     return delta_mod == 0
-
 
 def reduce_section_at_m0(section, m0, ell, a4, a6):
     """
@@ -101,7 +96,7 @@ def _subgroup_generated_by(points_mod, E_mod):
     subgroup = {E_mod(0)}
     points_to_add = {p for p in points_mod if p is not None}
     frontier = points_to_add - subgroup
-    
+
     while frontier:
         new_frontier = set()
         for g in frontier:
@@ -115,7 +110,6 @@ def _subgroup_generated_by(points_mod, E_mod):
         frontier = new_frontier
     return subgroup
 
-
 def _is_subgroup_contained_in_pE(E_mod, subgroup, p):
     """
     Checks if a subgroup is contained in p * E_mod by checking if
@@ -125,7 +119,6 @@ def _is_subgroup_contained_in_pE(E_mod, subgroup, p):
         if Q != E_mod(0) and not Q.is_divisible_by(p):
             return False
     return True
-
 
 def p_saturate_basis(cd, basis_sections, primes_to_check,
                      m_samples=None, ell_candidates=None,
@@ -214,7 +207,6 @@ def p_saturate_basis(cd, basis_sections, primes_to_check,
 
     return results
 
-
 # --- Constructive p-Division Search ---
 
 def get_fp_vectors(r, p):
@@ -244,7 +236,6 @@ def get_fp_vectors(r, p):
     # Otherwise, enumerate all non-zero vectors.
     return [tup for tup in product(range(p), repeat=r) if any(c != 0 for c in tup)]
 
-
 def specialize_sum(ci_vec, m0, ell, cd, current_sections, p):
     """
     Specialize the F_p-linear combination (sum ci * Si) at (m0, ell).
@@ -269,15 +260,14 @@ def specialize_sum(ci_vec, m0, ell, cd, current_sections, p):
         if E0 is None:
             E0 = E0_candidate
             S_sum = E0(0)  # Initialize sum to the identity.
-        
+
         S_sum += ci * P_mod
 
     if E0 is None:
         # This case happens if the ci_vec was all zeros.
         return None
-    
-    return E0, S_sum
 
+    return E0, S_sum
 
 def find_p_division_section(cd, current_sections, p,
                             m0_pool=None,
@@ -312,7 +302,7 @@ def find_p_division_section(cd, current_sections, p,
             for ell in ell_list:
                 if tests_done >= max_tests_per_relation:
                     break
-                
+
                 res = specialize_sum(ci_vec, m0, ell, cd, current_sections, p)
                 if res is None:
                     continue
@@ -329,7 +319,6 @@ def find_p_division_section(cd, current_sections, p,
         print(f"[find_p_division_section] Tried all relations for p={p}, no constructive evidence found.")
     return None, {'p': p, 'status': 'not_found'}
 
-
 def _primes_from(start=101):
     """Generator of primes starting from `start` (inclusive if prime)."""
     p = int(start)
@@ -338,7 +327,6 @@ def _primes_from(start=101):
     while True:
         yield p
         p = int(next_prime(p))
-
 
 def choose_good_ell_candidates(cd, required=5, start=11, max_trial=200, verbose=False):
     """
@@ -408,7 +396,6 @@ def choose_good_ell_candidates(cd, required=5, start=11, max_trial=200, verbose=
         print(f"[choose_ell] Selected {len(chosen)} primes: {chosen}")
     return chosen
 
-
 def run_saturation_checks(cd, current_sections, prime_pool):
     """
     Performs and reports on p-saturation checks for p in prime_pool.
@@ -418,7 +405,7 @@ def run_saturation_checks(cd, current_sections, prime_pool):
     searches for local evidence of a p-divisible section.
     """
     print("\n--- Running Saturation Diagnostics ---")
-    
+
     sat_report = p_saturate_basis(cd, current_sections, prime_pool)
 
     for p, (is_saturated, witness) in sat_report.items():
@@ -427,7 +414,7 @@ def run_saturation_checks(cd, current_sections, prime_pool):
             continue
 
         print(f"⚠️ p={p} saturation uncertain. Searching for evidence of p-division...")
-        
+
         _, report = find_p_division_section(
             cd,
             current_sections,
@@ -442,7 +429,6 @@ def run_saturation_checks(cd, current_sections, prime_pool):
         else:
             print(f"  -> No evidence found for p={p} division. The lattice may be p-saturated.")
 
-
 def reduce_cd_mod_ell(cd, ell, debug=False):
     """
     Robust reduction of cd.a4, cd.a6 to GF(ell)(m) rational functions.
@@ -451,14 +437,14 @@ def reduce_cd_mod_ell(cd, ell, debug=False):
       - a4, a6 : elements of GF(ell)(m) (a fraction field)
       - base_field : GF(ell)
       - m_symbol : generator of the polynomial ring
-    
+
     Raises RuntimeError for failure with a descriptive message.
     """
     try:
         ell_int = int(ell)
     except (ValueError, TypeError):
         raise ValueError(f"Cannot interpret ell={ell!r} as an integer prime.")
-    
+
     if ell_int < 2 or not is_prime(ell_int):
         raise ValueError(f"ell must be a prime; got {ell_int!r}")
 

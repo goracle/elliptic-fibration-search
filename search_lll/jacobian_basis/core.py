@@ -1,19 +1,11 @@
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, RealField, ComplexField, Matrix, vector
-from multiprocessing import Pool
-import traceback
-import numpy as np
-import math
-from sage.all import QQ, ZZ, RR, RealField, ComplexField, PolynomialRing, HyperellipticCurve, Matrix, vector
+import traceback, numpy as np, math, warnings
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, RealField, ComplexField, Matrix, vector, ZZ, RR, GF, Integer, gcd
 from multiprocessing import Pool, cpu_count
 from .pairings import precompute_pairings_parallel, gram_logdet_and_cond
 from .heights import arakelov_canonical_height
 from .utilities import make_matrix_numerically_positive_definite, sanity_check_pairings
 from .parallel import compute_height_worker, compute_pairing_worker
-import warnings
-from sage.all import RealField, PolynomialRing, Matrix, HyperellipticCurve, QQ
-from multiprocessing import cpu_count
 from search_lll.homology import *
-from sage.all import QQ, GF, Integer, PolynomialRing, gcd
 
 """core.py
 
@@ -40,11 +32,6 @@ most Gram/regulator work (neron_tate_height_pairing) — this file provides
 robust fallbacks when analytic AJ is not available.
 """
 
-
-
-
-
-
 def dedupe_basis(basis, basis_indices, debug=False):
     """
     Remove duplicated divisors (preserve order). Returns (basis_u, basis_indices_u).
@@ -62,7 +49,6 @@ def dedupe_basis(basis, basis_indices, debug=False):
         basis_indices_u.append(idx)
     return basis_u, basis_indices_u
 
-
 def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
                                      prec=300, debug=False,
                                      rel_eig_tol=1e-8, abs_eig_tol=1e-12):
@@ -71,7 +57,6 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
     Never returns ambiguous states; ambiguous states default to dependent unless
     residuals are strong.
     """
-    import numpy as np
     from math import isfinite
 
     info = {}
@@ -81,7 +66,6 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         return True, info
 
     from .analytic_pairings import get_analytic_pairing
-
 
     try:
         G_np = np.zeros((k, k), dtype=float)
@@ -187,11 +171,8 @@ def is_independent_by_projection_log(basis_indices, cand_idx, get_pairing,
         raise
         return False, info
 
-
 def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
                                          rel_sv_tol=1e-12, pivot_tol_factor=1e-9, debug=False):
-    import numpy as np
-    import math
 
     if hasattr(G, "nrows"):
         n = int(G.nrows())
@@ -353,33 +334,31 @@ def select_independent_indices_from_gram(G, prec_bits=2048, safety_digits=10,
 
     return selected, info
 
-
 def check_2torsion_equivalence(new_div, basis_divs, C):
     """
     Check if new_div ≡ existing_div (mod 2-torsion).
     For genus-2, efficiently check via reduction.
     """
     J = C.jacobian()
-    
+
     # Convert to Jacobian elements
-    new_elem = mumford_to_jacobian_element(new_div['s'], new_div['p'], 
+    new_elem = mumford_to_jacobian_element(new_div['s'], new_div['p'],
                                            new_div['v_0'], new_div['v_1'], C)
-    
+
     for old_div in basis_divs:
         old_elem = mumford_to_jacobian_element(old_div['s'], old_div['p'],
                                                old_div['v_0'], old_div['v_1'], C)
-        
+
         diff = new_elem - old_elem
-        
+
         # Check if diff is 2-torsion: is 2*diff = 0?
         try:
             if (2 * diff).is_zero():
                 return True, old_div
         except Exception:
             raise
-            
-    return False, None
 
+    return False, None
 
 def check_torsion_equivalence(new_jac, basis_jacs, max_order=32):
     """
@@ -388,18 +367,18 @@ def check_torsion_equivalence(new_jac, basis_jacs, max_order=32):
     """
     if not basis_jacs:
         return False, None
-        
+
     for i, old_jac in enumerate(basis_jacs):
         # Check Difference: D_new - D_old = Torsion?
         diff = new_jac - old_jac
         if diff.is_zero():
              return True, i
-             
+
         # Check Sum: D_new + D_old = Torsion?
         summ = new_jac + old_jac
         if summ.is_zero():
              return True, i
-             
+
         # Check higher orders (up to max_order)
         # We check m * diff and m * summ
         for m in range(2, max_order + 1):
@@ -407,19 +386,18 @@ def check_torsion_equivalence(new_jac, basis_jacs, max_order=32):
                  return True, i
              if (m * summ).is_zero():
                  return True, i
-                 
-    return False, None
 
+    return False, None
 
 def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=False,
                                       test_normalization=None, n_jobs=-1):
     """
     Incremental basis builder: compute period matrix once, precompute heights,
     precompute pairings for a small prefix, and compute pairings on-demand.
-    
+
     Robustness:
       - Uses a strictly raising height implementation.
-      - If height/pairing computations fail, the candidate divisor is REJECTED 
+      - If height/pairing computations fail, the candidate divisor is REJECTED
         rather than poisoning the basis with 0.0.
       - Explicitly checks for torsion equivalence (all orders) to avoid rank inflation.
     """
@@ -447,7 +425,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         print(f"\n[arakelov] Building basis from {len(all_divisors)} divisors")
         print(f"[arakelov] Using precision: {prec} bits")
 
-
     Rq_QQ = PolynomialRing(QQ, 'x')
     x_QQ = Rq_QQ.gen()
     f_poly_QQ = sum(QQ(c) * x_QQ**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
@@ -472,7 +449,6 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
         prec=prec,
         debug=debug
     )
-
 
     if n == 0:
         return [], 0, None
@@ -525,10 +501,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             except Exception as e:
                 if debug:
                     warnings.warn(f"[arakelov] pairing precompute failed for ({i},{j}): {e}. Ignoring.", RuntimeWarning)
-                import numpy as np
                 pairing_cache[(i, j)] = pairing_cache[(j, i)] = np.nan
-
-    from .analytic_pairings import get_analytic_pairing
 
     def get_pairing_lazy(i, j):
         return get_analytic_pairing(i, j)
@@ -539,7 +512,7 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
     basis_indices = []
 
     for cand_idx in range(n):
-            
+
         if cand_idx not in height_cache:
             if debug:
                 print(f"  Skipping divisor {cand_idx}: invalid height")
@@ -557,13 +530,13 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             continue
 
         cand_jac = jac_elements[cand_idx][1]
-        
+
         # Gather current basis elements as Jacobian objects
         basis_jacs = [jac_elements[b][1] for b in basis_indices]
-        
+
         # Check for torsion equivalence (all orders)
         is_equiv, match_idx = check_torsion_equivalence(cand_jac, basis_jacs, max_order=32)
-        
+
         if is_equiv:
             if debug:
                 match_real_idx = basis_indices[match_idx]
@@ -601,27 +574,27 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
                     pv = get_pairing_lazy(indices_to_fill[r], indices_to_fill[c])
                     G_test[r, c] = RR_Gram(pv)
                     G_test[c, r] = G_test[r, c]
-            
+
             det_val = float(G_test.determinant())
-            
+
             # Compute eigenvalues to check condition number
             eigs = [float(e) for e in G_test.eigenvalues()]
             eigs_sorted = sorted([abs(e) for e in eigs], reverse=True)
             min_eig = eigs_sorted[-1]
             max_eig = eigs_sorted[0]
-            
+
             # Reject if any eigenvalue is too small (relative to max)
             if min_eig < 1e-6 * max_eig:
                 if debug:
                     print(f"  Rejected divisor {cand_idx}: matrix too ill-conditioned (min_eig={min_eig:.3e}, max_eig={max_eig:.3e})")
                 continue
-                
+
             # Also reject if smallest eigenvalue is absolutely tiny
             if min_eig < 1e-9:
                 if debug:
                     print(f"  Rejected divisor {cand_idx}: smallest eigenvalue too small ({min_eig:.3e})")
                 continue
-            
+
         except Exception as e:
             if debug:
                 print(f"  Rejected divisor {cand_idx}: Gram check failed ({e})")
@@ -675,17 +648,16 @@ def arakelov_build_basis_with_heights(all_divisors, f_coeffs, prec=200, debug=Fa
             if debug:
                 print("eigenvalues (float):", eigs)
                 print("determinant:", det_final)
-            
+
             # Final sanity check: matrix must be positive definite
             assert det_final > 0, f"Gram matrix has negative determinant {det_final} - basis is dependent!"
             assert all(e > -1e-12 for e in eigs), f"Gram matrix has negative eigenvalue - not positive definite!"
-            
+
         except Exception as e:
              warnings.warn(f"[arakelov] final Gram diagnostics failed: {e}", RuntimeWarning)
              raise
 
     return basis, final_rank, H_final
-
 
 # --- Worker replacements --------------------------------------------------
 
@@ -698,7 +670,6 @@ def _adaptive_guard_bits(prec_bits: int) -> int:
     so for very large `prec` we still cap at 512 extra bits.
     """
     return min(max(32, prec_bits // 8), 512)
-
 
 def compute_pairing_worker(args):
     """Robust worker function to compute a single N\'eron--Tate pairing.
@@ -817,7 +788,6 @@ def compute_pairing_worker(args):
         raise
         return ((i, j), float('nan'), f"combine_failed: {e}")
 
-
 def compute_height_worker(args):
     """Worker function to compute a single (self-)height. Returns (i, float_h, err_or_None)."""
     try:
@@ -849,7 +819,6 @@ def compute_height_worker(args):
         tb = traceback.format_exc()
         raise
         return (i, float('nan'), tb.splitlines()[-1][:200])
-
 
 # --- Simple analytic pairing primitive -----------------------------------
 
@@ -889,7 +858,6 @@ def neron_tate_height_pairing(z1, z2, Im_tau, prec=300, normalization_factor=1.0
     result = z1_conj[0] * temp[0] + z1_conj[1] * temp[1]
     real_part = RR(result.real()) * RR(normalization_factor)
     return float(real_part)
-
 
 # --- Parallel precompute helper -----------------------------------------
 
@@ -952,6 +920,5 @@ def precompute_pairings_parallel(indices, jac_elements, pairing_cache, f_coeffs,
             continue
 
     return pairing_cache
-
 
 # End of core_fixed.py

@@ -1,21 +1,12 @@
-from sage.all import QQ, PolynomialRing
+import math, logging, os, sys
+from sage.all import QQ, PolynomialRing, GF, HyperellipticCurve, Matrix, CDF, RealField, Integer
 from .mumford_core import make_monic, reduce_v_mod_u, is_divisor_on_curve
 from math import isqrt
-from sage.all import GF, QQ
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField
-from sage.all import PolynomialRing, QQ, Integer
-import math
-import logging
-from sage.all import QQ, Integer
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, Integer
-import os
-import sys
 from contextlib import contextmanager
 
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 logger.setLevel(logging.WARNING)
-
 
 # canonicalize_and_dedup.py  -- improved infinity-aware canonicalization
 
@@ -25,7 +16,6 @@ logger.setLevel(logging.INFO)
 # small rational scales to try
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
 
 def check_2torsion_difference(div1, div2, f_coeffs):
     """
@@ -49,8 +39,6 @@ def check_2torsion_difference(div1, div2, f_coeffs):
         raise
         return False
 
-
-
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
@@ -58,12 +46,10 @@ logger.setLevel(logging.INFO)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
-
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 logger.setLevel(logging.WARNING)
 
-# candidate scales we try (including reciprocals)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4), QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
 def _make_f_poly(R, f_coeffs):
@@ -85,12 +71,10 @@ def _make_f_poly(R, f_coeffs):
         f = f * R.gen() + QQ(c)
     return f
 
-
 def validate_mumford_solver():
     """Simple test function (placeholder)."""
     print("Use verify_mumford_pair directly for testing.")
     return True
-
 
 def discriminant_has_nonqr_s_p(s, p, primes_nr):
     """
@@ -125,7 +109,6 @@ def discriminant_has_nonqr_s_p(s, p, primes_nr):
 
     return True
 
-
 def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
     """
     Try small scale factors lam in _SCALE_TRIALS so that (lam*v)^2 - f is divisible by u.
@@ -138,12 +121,12 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
                 v_candidate = v_candidate.change_ring(QQ)
             except Exception:
                 raise
-            
+
             # Note: v_candidate is already normalized for parity by caller before this check
-            # if we are in the main path, but for fallback loops it might not be. 
-            # However, logic in canonicalize_and_dedup applies normalize_infinity_parity 
+            # if we are in the main path, but for fallback loops it might not be.
+            # However, logic in canonicalize_and_dedup applies normalize_infinity_parity
             # usually before calling this or relies on this to find the match.
-            
+
             if (v_candidate**2 - f_poly) % u == 0:
                 key = _canon_key_from_polys(u, v_candidate)
                 if key not in seen:
@@ -170,15 +153,12 @@ def _try_scale_and_accept(u, v, f_poly, s_q, p_q, orig_tup, seen, R, out):
             continue
     return False
 
-
 # Set up logging once
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
-# candidate scales we try (including reciprocals)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
 
 def build_curve_from_coeffs(f_coeffs):
     """Return (C, R, x) from f_coeffs."""
@@ -188,22 +168,11 @@ def build_curve_from_coeffs(f_coeffs):
     C = HyperellipticCurve(f_poly)
     return C, R, x
 
-
-logger = logging.getLogger("canonicalize_and_dedup")
-logger.setLevel(logging.INFO)
-
-# candidate scales we try (including reciprocals)
-_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
-                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
-
-
 
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
@@ -211,6 +180,11 @@ logger.setLevel(logging.INFO)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
+logger = logging.getLogger("canonicalize_and_dedup")
+logger.setLevel(logging.INFO)
+
+_SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
+                 QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
 def _rational_is_square(q):
     """
@@ -227,7 +201,6 @@ def _rational_is_square(q):
         return True, QQ(s_num) / QQ(s_den)
     return False, None
 
-
 def check_torsion_difference(div1, div2, f_coeffs, max_order=32):
     """
     Optional heavy check: see whether m*(D1-D2) == 0 in J(Q) for m up to max_order.
@@ -243,7 +216,7 @@ def check_torsion_difference(div1, div2, f_coeffs, max_order=32):
         D1 = J([u1, v1])
         D2 = J([u2, v2])
         diff = D1 - D2
-        
+
         # Check orders up to max_order
         for m in range(1, max_order + 1):
              if (m * diff).is_zero():
@@ -253,11 +226,9 @@ def check_torsion_difference(div1, div2, f_coeffs, max_order=32):
         raise
         return False
 
-
 logger = logging.getLogger("canonicalize_and_dedup")
 logger.setLevel(logging.INFO)
 
-# candidate scales we try (including reciprocals)
 _SCALE_TRIALS = [QQ(1), QQ(2), QQ(4), QQ(-1), QQ(-2), QQ(-4),
                  QQ(1)/QQ(2), QQ(1)/QQ(4), QQ(-1)/QQ(2), QQ(-1)/QQ(4)]
 
@@ -325,7 +296,6 @@ def normalize_infinity_parity(v_poly, f_poly):
         return -v_poly
     return v_poly
 
-
 def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
     """
     Main entry point: returns canonicalized, deduplicated divisors (list of dicts).
@@ -352,7 +322,7 @@ def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
             seed_x_q = QQ(seed_x)
             if seed_x_q in weierstrass_points:
                 continue
-            
+
             f_at_seed = f_poly(seed_x_q)
             sqrt_f_seed = rational_sqrt(f_at_seed)
             if sqrt_f_seed is not None:
@@ -363,7 +333,7 @@ def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
                 break
             else:
                 logger.warning("f(%s) = %s is not a rational square, trying next seed", seed_x_q, f_at_seed)
-    
+
     seen = set()
     seen_u = dict()
     out = []
@@ -373,7 +343,7 @@ def canonicalize_and_dedup(divisors, f_coeffs, seed_x_coords=None):
 
     def u_key_from_poly(u_poly):
         return tuple(rational_pair_key(c) for c in u_poly.list())
-    
+
     def has_weierstrass_support(u_poly):
         for wp in weierstrass_points:
             if u_poly(wp) == 0:
@@ -585,15 +555,13 @@ def quick_dependence_check(div1, div2):
     """Check if two divisors with same u are dependent"""
     if (div1['s'], div1['p']) != (div2['s'], div2['p']):
         return False
-    
+
     if (div1['v_0'] == div2['v_0'] and div1['v_1'] == div2['v_1']):
         return True
     if (div1['v_0'] == -div2['v_0'] and div1['v_1'] == -div2['v_1']):
         return True
-    
+
     return False
-
-
 
 @contextmanager
 def silence_stdout_stderr():
@@ -604,25 +572,25 @@ def silence_stdout_stderr():
     # Save original streams
     original_stdout = sys.stdout
     original_stderr = sys.stderr
-    
+
     # Open a null device
     null_file = open(os.devnull, 'w')
-    
+
     try:
         # Redirect Python streams
         sys.stdout = null_file
         sys.stderr = null_file
-        
+
         # Redirect C-level file descriptors (if possible/needed)
         # (This catches prints from C libraries wrapped by Python)
         try:
             fd_out = original_stdout.fileno()
             fd_err = original_stderr.fileno()
-            
+
             # Save original fds
             saved_out_fd = os.dup(fd_out)
             saved_err_fd = os.dup(fd_err)
-            
+
             try:
                 os.dup2(null_file.fileno(), fd_out)
                 os.dup2(null_file.fileno(), fd_err)
@@ -641,7 +609,6 @@ def silence_stdout_stderr():
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         null_file.close()
-
 
 def _attempt_scale_and_save(u, v_candidate, f_poly, s_q, p_q, orig_tup, seen_keys, seen_u_map, out_list, C=None, J=None, jac_points=None):
     """

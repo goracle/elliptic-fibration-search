@@ -1,19 +1,12 @@
-import time
-import sys
-from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve
-from sage.all import Integer
+import time, sys
+from sage.all import QQ, ZZ, GF, PolynomialRing, HyperellipticCurve, Integer
 from search_common import DEBUG, FINITE_FIELD, PREFERRED_X_COORDS
 from .mumford_core import _poly_mod_quad_fast
 from .mumford_verification import verify_mumford_pair
-from sage.all import GF, PolynomialRing
 from random import randrange
-from sage.all import GF, PolynomialRing, HyperellipticCurve, Integer
 from prime_subgroup_projection import *
 
-
-
 assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
-
 
 # ============================================================
 # Mumford Doubling (STRICT)
@@ -58,16 +51,13 @@ def _mumford_doubling_mod_p_internal(u_coeffs, v_coeffs, f_coeffs, p, debug=Fals
         [int(c) for c in (v2 % u2).list()][::-1]
     )
 
-
 # ============================================================
 # Algebraic Prefilter (NO SILENCE)
 # ============================================================
 
-
 # ============================================================
 # Prime Filter (STRICT DENOM CHECK)
 # ============================================================
-
 
 # ============================================================
 # Batch Solver (STRICT)
@@ -138,11 +128,9 @@ def solve_mumford_batch_sage(f_coeffs, p, x_residues_list, const_val=0, max_solu
 
     return all_solutions
 
-
 # ============================================================
 # Optimized Dispatcher (NO FALLBACKS)
 # ============================================================
-
 
 """
 CRITICAL FIXES for mumford_solver.py
@@ -156,7 +144,6 @@ Add these changes to project divisors into J[ℓ] immediately after generation.
 
 # ... keep existing imports ...
 
-
 # ============================================================
 # 2. ADD PROJECTION HELPER FUNCTIONS
 # ============================================================
@@ -167,42 +154,41 @@ def get_projection_params(p, f_coeffs):
     """
     Get or compute projection parameters for J[ℓ].
     Uses GROUP_MODULUS from search_common.
-    
+
     Returns:
         (C, J, h) where h is the cofactor, or None if no projection needed.
     """
     if GROUP_MODULUS is None:
         return None
-    
+
     cache_key = (p, tuple(f_coeffs))
     if cache_key in _PROJECTION_CACHE:
         return _PROJECTION_CACHE[cache_key]
-    
+
     F = GF(p)
     R = PolynomialRing(F, 'x')
     f_poly = R([F(c) for c in reversed(f_coeffs)])
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
-    
+
     J_order = compute_jacobian_order(f_coeffs, p)
     h = int(J_order // GROUP_MODULUS)
-    
+
     result = (C, J, h)
     _PROJECTION_CACHE[cache_key] = result
     return result
 
-
 def project_and_extract_mumford(u_poly, v_poly, C, J, h):
     """
     Project divisor into J[ℓ] and extract Mumford representation.
-    
+
     Args:
         u_poly: u polynomial (degree 2, monic)
         v_poly: v polynomial
         C: HyperellipticCurve
         J: Jacobian
         h: cofactor for projection
-    
+
     Returns:
         (s, p, v0, v1) tuple as ints, or None if projection kills the divisor
     """
@@ -212,53 +198,49 @@ def project_and_extract_mumford(u_poly, v_poly, C, J, h):
     except Exception:
         raise
         return None
-    
+
     # Project: multiply by cofactor
     div_projected = Integer(h) * div_J
-    
+
     # Check if killed (sent to identity)
     if div_projected.is_zero():
         return None
-    
+
     # Extract projected polynomials
     u_proj = div_projected[0]
     v_proj = div_projected[1]
-    
+
     # Must be degree 2
     if u_proj.degree() != 2:
         return None
-    
+
     # Extract Mumford coefficients from projected divisor
     # u(x) = x^2 - s*x + p (monic)
     coeffs_u = u_proj.list()
     if len(coeffs_u) < 3:
         return None
-    
+
     s_val = -coeffs_u[1]
     p_val = coeffs_u[0]
-    
+
     # v(x) = v1*x + v0
     coeffs_v = v_proj.list()
     v0_val = coeffs_v[0] if len(coeffs_v) >= 1 else 0
     v1_val = coeffs_v[1] if len(coeffs_v) >= 2 else 0
-    
-    return (int(s_val), int(p_val), int(v0_val), int(v1_val))
 
+    return (int(s_val), int(p_val), int(v0_val), int(v1_val))
 
 # ============================================================
 # 3. MODIFY solve_mumford_mod_p_sage_native_BIASED
 # ============================================================
 
-
 # ============================================================
 # 4. MODIFY solve_mumford_mod_p_sage_native_RANDOM (for QQ mode)
 # ============================================================
 
-
 # ============================================================================
 # COMPLETE mumford_solver.py with dead code removed and assertions added
 # ============================================================================
-
 
 assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
 
@@ -272,17 +254,17 @@ def get_sqrt_data_sage(p):
     MEMORY FIX: Only cache for small primes (p < 2^20).
     """
     assert p is not None and isinstance(p, int), "p must be a positive integer"
-    
+
     if p > 1048576:
         return None
 
     key = p
     if key in get_sqrt_data_sage.cache:
         return get_sqrt_data_sage.cache[key]
-    
+
     Fp = GF(p)
     sqrt_map = {}
-    
+
     for i in range((p // 2) + 1):
         sq = int(Fp(i)**2)
         if sq not in sqrt_map:
@@ -290,12 +272,11 @@ def get_sqrt_data_sage(p):
         sqrt_map[sq].append(i)
         if i != 0 and (p - i) != i:
             sqrt_map[sq].append(p - i)
-    
+
     get_sqrt_data_sage.cache[key] = sqrt_map
     return sqrt_map
 
 get_sqrt_data_sage.cache = {}
-
 
 # ============================================================================
 # Bias Statistics Tracker
@@ -318,7 +299,7 @@ class BiasStatistics:
         preferred_x_set: set of python ints
         """
         self.total_candidates += 1
-        
+
         # Robust type conversion
         current_roots_ints = []
         for r in roots:
@@ -335,7 +316,7 @@ class BiasStatistics:
             for r_int in current_roots_ints:
                 if r_int in preferred_x_set:
                     hit_count += 1
-        
+
         self.preferred_hits += hit_count
         safe_hit_count = min(hit_count, 2)
         self.preferred_histogram[safe_hit_count] = self.preferred_histogram.get(safe_hit_count, 0) + 1
@@ -343,10 +324,10 @@ class BiasStatistics:
     def report(self):
         if self.total_candidates == 0:
             return {"status": "no_candidates"}
-        
+
         split_rate = self.split_count / self.total_candidates
         hit_rate = (self.preferred_hits / max(1, self.split_count))
-        
+
         return {
             "total": self.total_candidates,
             "split_rate": split_rate,
@@ -354,7 +335,6 @@ class BiasStatistics:
             "preferred_hits": self.preferred_hits,
             "hit_rate": hit_rate
         }
-
 
 # ============================================================================
 # Scoring and Recording
@@ -367,7 +347,7 @@ def score_and_record_candidate(u_poly, Fp, preferred_x_coords, bias_stats):
 
     pref = set(int(x) for x in preferred_x_coords)
     roots = []
-    
+
     try:
         for r, mult in u_poly.roots(Fp):
             for _ in range(mult):
@@ -384,7 +364,6 @@ def score_and_record_candidate(u_poly, Fp, preferred_x_coords, bias_stats):
     assert preferred_count in (0, 1, 2), f"Invalid preferred_count: {preferred_count}"
 
     return (preferred_count >= 1), roots
-
 
 # ============================================================================
 # Entry Point
@@ -411,7 +390,6 @@ def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
         const_val=const_val
     )
 
-
 # ============================================================================
 # Optimized Dispatcher
 # ============================================================================
@@ -419,7 +397,7 @@ def solve_mumford_mod_p(eqs_dict, p, x_residue, debug=DEBUG):
 def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solutions=500):
     """
     Dispatcher that routes to BIASED (FF mode) or RANDOM (QQ mode) solver.
-    
+
     CRITICAL: In FF mode, we pass PREFERRED_X_COORDS (the actual target coordinates),
     NOT const_val (which is just a shift parameter).
     """
@@ -435,7 +413,6 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
             f_coeffs, p, x_residue, const_val, max_solutions
         )
 
-
 # ============================================================================
 # BIASED Solver (FF Mode - No Projection)
 # ============================================================================
@@ -443,15 +420,15 @@ def solve_mumford_mod_p_optimized(f_coeffs, p, x_residue, const_val=0, max_solut
 def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_ints, max_solutions=500):
     """
     Optimized Mumford solver with coordinate bias.
-    
+
     CRITICAL: We DO NOT apply J[ℓ] projection here.
     The divisors must remain in the full Jacobian J(F_p) to preserve
     their x-coordinate support (which is the whole point of the bias).
-    
+
     Applying h-multiplication would scramble the roots, destroying the bias.
     """
     assert pref_ints is not None, "pref_ints must be provided in BIASED mode"
-    
+
     # Normalize to list
     if isinstance(pref_ints, (int, Integer)):
         targets = [pref_ints]
@@ -462,26 +439,26 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
 
     Fp = GF(p)
     x_res = Fp(x_res_int)
-    
+
     # Precompute y_1 = sqrt(f(x_res))
     y1_sq = Fp(0)
     for c in f_coeffs_ints:
         y1_sq = y1_sq * x_res + Fp(c)
-    
+
     if not y1_sq.is_square():
         return []
-    
+
     y1_roots = [y1_sq.sqrt(), -y1_sq.sqrt()]
-    
+
     solutions = []
     seen_solutions = set()
-    
+
     def s_candidate_generator():
         """Priority generator: preferred coordinates first, then random."""
         # Priority 1: Target coordinates (coordinates we WANT in the support)
         for x_pref in targets:
             yield int(x_res + Fp(x_pref))
-        
+
         # Priority 2: Random search
         import random
         for _ in range(10000):
@@ -490,37 +467,37 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
     for s_int in s_candidate_generator():
         s_val = Fp(s_int)
         r2 = s_val - x_res
-        
+
         # Fast evaluation of f(r2)
         y2_sq = Fp(0)
         for c in f_coeffs_ints:
             y2_sq = y2_sq * r2 + Fp(c)
-            
+
         if not y2_sq.is_square():
             continue
-            
+
         y2_val = y2_sq.sqrt()
         y2_roots = [y2_val, -y2_val]
-        
+
         # Handle double root case (r1 = r2)
         if s_val == 2 * x_res:
             if y1_sq == 0:
-                continue 
-            
+                continue
+
             # Derivative evaluation
             f_prime_x = Fp(0)
             deg = len(f_coeffs_ints) - 1
             for i, c in enumerate(f_coeffs_ints[:-1]):
                 f_prime_x = f_prime_x * x_res + Fp(c * (deg - i))
-            
+
             for y1 in y1_roots:
                 if y1 == 0:
                     continue
                 v1 = f_prime_x / (2 * y1)
                 v0 = y1 - v1 * x_res
-                
+
                 sol = (int(s_val), int(x_res * r2), int(v0), int(v1))
-                
+
                 if sol not in seen_solutions:
                     solutions.append(sol)
                     seen_solutions.add(sol)
@@ -531,18 +508,17 @@ def solve_mumford_mod_p_sage_native_BIASED(f_coeffs_ints, p, x_res_int, pref_int
                 for y2 in y2_roots:
                     v1 = (y1 - y2) * inv_denom
                     v0 = y1 - v1 * x_res
-                    
+
                     sol = (int(s_val), int(x_res * r2), int(v0), int(v1))
-                    
+
                     if sol not in seen_solutions:
                         solutions.append(sol)
                         seen_solutions.add(sol)
-        
+
         if len(solutions) >= max_solutions:
             break
-    
-    return solutions
 
+    return solutions
 
 # ============================================================================
 # RANDOM Solver (QQ Mode - No Projection Needed)
@@ -554,36 +530,36 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
     Uses random s-value sampling for large primes.
     """
     assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
-    
+
     Fp = GF(p)
     R = PolynomialRing(Fp, 'x')
     x = R.gen()
-    
+
     f_poly = R([Fp(c) for c in reversed(f_coeffs)])
     x_res = Fp(x_residue)
     x_sq = x_res * x_res
-    
+
     solutions = []
     sqrt_map = get_sqrt_data_sage(p)
     use_cached = (sqrt_map is not None)
-    
+
     # Adaptive sampling for large primes
     if p > 100000:
         sample_size = min(10000, p)
         s_range = [randrange(p) for _ in range(sample_size)]
     else:
         s_range = range(p)
-    
+
     for s_int in s_range:
         if len(solutions) >= max_solutions:
             break
-        
+
         s_val = Fp(s_int)
         p_val = x_res * s_val - x_sq
-        
+
         disc = s_val * s_val - 4 * p_val
         disc_int = int(disc)
-        
+
         # Check if discriminant is a square
         if use_cached:
             if disc_int not in sqrt_map:
@@ -591,21 +567,21 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
         else:
             if not Fp(disc_int).is_square():
                 continue
-        
+
         # Build u(x) and compute remainder f(x) mod u(x)
         u_poly = x**2 - s_val*x + p_val
         remainder = f_poly % u_poly
-        
+
         rem_coeffs = remainder.list()
         B = rem_coeffs[0] if len(rem_coeffs) > 0 else Fp(0)
         A = rem_coeffs[1] if len(rem_coeffs) > 1 else Fp(0)
-        
+
         # Solve for Z where v(x) = v1*x + v0 satisfies v^2 ≡ f (mod u)
         # This gives: v1^2 * Z = v^2 where Z is auxiliary variable
         a_q = disc
         b_q = -2 * (A * s_val + 2 * B)
         c_q = A * A
-        
+
         Z_roots = []
         if a_q == 0:
             if b_q != 0:
@@ -615,7 +591,7 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
         else:
             disc_q = b_q * b_q - 4 * a_q * c_q
             disc_q_int = int(disc_q)
-            
+
             if use_cached:
                 if disc_q_int in sqrt_map:
                     inv_2a = 1 / (2 * a_q)
@@ -628,21 +604,21 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
                     inv_2a = 1 / (2 * a_q)
                     Z_roots.append((-b_q + sqrt_disc_q) * inv_2a)
                     Z_roots.append((-b_q - sqrt_disc_q) * inv_2a)
-        
+
         # Extract v0, v1 from each Z
         for Z in set(Z_roots):
             Z_int = int(Z)
-            
+
             if use_cached:
                 if Z_int in sqrt_map:
                     for v1_int in sqrt_map[Z_int]:
                         v1_val = Fp(v1_int)
-                        
+
                         if v1_val != 0:
                             v0_val = (A - s_val * Z) / (2 * v1_val)
                             # Verify: v0^2 - p*Z = B
                             if v0_val * v0_val - p_val * Z == B:
-                                solutions.append((int(s_val), int(p_val), 
+                                solutions.append((int(s_val), int(p_val),
                                                 int(v0_val), int(v1_val)))
                         else:
                             # v1 = 0 case
@@ -652,12 +628,12 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
             else:
                 if Fp(Z_int).is_square():
                     sqrt_Z = Fp(Z_int).sqrt()
-                    
+
                     for v1_val in [sqrt_Z, -sqrt_Z]:
                         if v1_val != 0:
                             v0_val = (A - s_val * Z) / (2 * v1_val)
                             if v0_val * v0_val - p_val * Z == B:
-                                solutions.append((int(s_val), int(p_val), 
+                                solutions.append((int(s_val), int(p_val),
                                                 int(v0_val), int(v1_val)))
                 else:
                     if A == 0 and Z_int == 0:
@@ -665,10 +641,9 @@ def solve_mumford_mod_p_sage_native_RANDOM(f_coeffs, p, x_residue, const_val=0, 
                             sqrt_B = Fp(int(B)).sqrt()
                             for v0_val in [sqrt_B, -sqrt_B]:
                                 solutions.append((int(s_val), int(p_val), int(v0_val), 0))
-    
+
     # Deduplicate
     return list(set(solutions))
-
 
 # ============================================================================
 # Legacy/Utility Functions (kept for backward compatibility)
@@ -695,7 +670,6 @@ def get_sqrt_data(p):
 
 get_sqrt_data.cache = {}
 
-
 def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
     """Algebraic prefilter (used in reconstruction phase)."""
     assert isinstance(prime, int) and prime > 2, "prime must be an odd prime"
@@ -717,7 +691,6 @@ def prefilter_solutions_algebraic(sol_list, prime, f_coeffs):
             filtered.append(tup)
 
     return filtered
-
 
 def filter_primes_avoiding_denoms(primes_list, divisors):
     """Filter primes that divide denominators of any divisor coordinate."""

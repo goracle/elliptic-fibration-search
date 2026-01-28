@@ -1,28 +1,20 @@
-from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix
-import math
-import itertools
+import math, itertools
+from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix, ZZ, RR
 from sage.schemes.riemann_surfaces.riemann_surface import RiemannSurface
-from sage.all import ComplexField, RealField, Matrix, identity_matrix
-from sage.all import ComplexField, RealField, PolynomialRing, QQ, Matrix, identity_matrix
-from sage.all import ZZ, RR
 
 # Revised: use RiemannSurface for topology, but integrate ourselves at high precision.
-
 
 class HomologyExtractionError(Exception):
     """Raised when homology cycle extraction fails."""
     pass
 
-
 class IntersectionError(Exception):
     """Raised when intersection computation fails."""
     pass
 
-
 class CanonizalizationError(Exception):
     """Raised when cycle canonicalization fails."""
     pass
-
 
 def tanh_sinh_nodes(N):
     """Generate N Tanh-Sinh quadrature nodes and weights on [-1, 1]."""
@@ -37,7 +29,6 @@ def tanh_sinh_nodes(N):
         w = dx_dt * h
         nodes.append((t, x_mapped, w))
     return nodes
-
 
 def to_complex(z, CC):
     """Robust conversion to ComplexField."""
@@ -54,7 +45,6 @@ def to_complex(z, CC):
             raise
         raise
 
-
 def compute_intersection_matrix(A_cycles, B_cycles):
     """Compute 2x2 intersection matrix for genus-2 surface (geometric fallback)."""
     I = [[0, 0], [0, 0]]
@@ -63,34 +53,32 @@ def compute_intersection_matrix(A_cycles, B_cycles):
             I[i][j] = compute_intersection_number(A_cycles[i], B_cycles[j])
     return I
 
-
 def integrate_chain(weighted_paths, f_coeffs, nodes, CC, tiny, max_depth=8):
     """Integrate a chain (sum of weighted paths)."""
     total_I0 = CC(0)
     total_I1 = CC(0)
-    
+
     for coeff, path in weighted_paths:
         path_I0 = CC(0)
         path_I1 = CC(0)
         y_prev = None
-        
+
         for i in range(len(path) - 1):
             p_curr, s_curr = path[i]
             p_next, _ = path[i+1]
-            
+
             seg_I0, seg_I1, y_end = integrate_segment(
                 p_curr, p_next, s_curr, y_prev, f_coeffs, nodes, CC, tiny, max_depth
             )
-            
+
             path_I0 += seg_I0
             path_I1 += seg_I1
             y_prev = y_end
-        
+
         total_I0 += coeff * path_I0
         total_I1 += coeff * path_I1
-    
-    return total_I0, total_I1
 
+    return total_I0, total_I1
 
 def complex_of_sage(z, CC):
     """
@@ -111,7 +99,6 @@ def complex_of_sage(z, CC):
             raise
         raise
 
-
 def build_Im_tau_from_tau(tau, RR, CC):
     """
     Build a RealField matrix Im(tau) robustly from tau (a CC matrix).
@@ -124,7 +111,6 @@ def build_Im_tau_from_tau(tau, RR, CC):
             c = complex_of_sage(tau[i, j], CC)
             Im[i, j] = RR(c.imag)
     return Im
-
 
 def make_matrix_numerically_positive_definite(M, tol=None):
     """
@@ -149,39 +135,35 @@ def make_matrix_numerically_positive_definite(M, tol=None):
         M = M + shift * identity_matrix(RR, M.nrows())
     return M
 
-
 def test_period_matrix_pos_def_auto(f_coeffs, prec=2048):
     """Test that the period matrix is positive definite."""
     print(f"\n--- Period Matrix Test (prec={prec}) ---")
     tau = get_period_matrix_auto_B(f_coeffs, prec=prec)
-    
+
     RRp = RealField(prec)
     Im_tau = Matrix(RRp, 2, 2, [[RRp(tau[i, j].imag()) for j in range(2)] for i in range(2)])
     evals = Im_tau.eigenvalues()
     det = Im_tau.determinant()
     sym_err = abs(tau[0, 1] - tau[1, 0])
     is_pd = all(ev > RRp(0) for ev in evals)
-    
+
     print("Result summary:")
     print("  Symmetry error:", sym_err)
     print("  Im(tau) determinant:", det)
     print("  Eigenvalues:", evals)
     print("  Positive definite:", is_pd)
-    
+
     if not is_pd:
         raise AssertionError("Period matrix is not positive definite")
-    
+
     return True
 
-
 # --- Robust vertex extraction -------------------------------------------------
-
 
 # --- Segment intersection helpers (robust) -----------------------------------
 def seg_orient(a, b, c):
     """Compute orientation scalar (signed area*2) of triangle (a,b,c)."""
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
 
 def segments_intersect_signed(a1, a2, b1, b2, eps=1e-12):
     """
@@ -200,7 +182,6 @@ def segments_intersect_signed(a1, a2, b1, b2, eps=1e-12):
         return 1 if o1 > 0 else -1
     return 0
 
-
 def weighted_path_to_segments(weighted_path):
     """Convert weighted path to a list of (coeff, p1, p2) with float tuples for intersection tests."""
     segments = []
@@ -215,7 +196,6 @@ def weighted_path_to_segments(weighted_path):
             segments.append((coeff, p1, p2))
     return segments
 
-
 def compute_intersection_number(chain1, chain2):
     """
     Compute algebraic intersection number between two chains (lists of weighted paths).
@@ -228,7 +208,6 @@ def compute_intersection_number(chain1, chain2):
         for c2, b1, b2 in segs2:
             total += c1 * c2 * segments_intersect_signed(a1, a2, b1, b2)
     return int(total)
-
 
 # --- Intersection matrix using coordinate cycles (safe) -----------------------
 def compute_intersection_matrix_combinatorial(A_cycles, B_cycles, RS=None):
@@ -251,7 +230,6 @@ def compute_intersection_matrix_combinatorial(A_cycles, B_cycles, RS=None):
     except Exception as e:
         raise IntersectionError(f"Failed combinatorial intersection computation: {e}")
     return I
-
 
 # --- Canonicalize cycles to symplectic intersection (robust) -----------------
 def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
@@ -276,7 +254,6 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
     if verbose:
         print("Intersection pairing computed:")
         try:
-            from sage.all import Matrix as sMatrix
             print(sMatrix(I))
         except Exception:
             print(I)
@@ -287,7 +264,6 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
         return True, A_cycles, B_cycles, I
 
     # Try permutations and sign flips
-    import itertools
     for permA in itertools.permutations([0, 1]):
         for permB in itertools.permutations([0, 1]):
             for signA in [(1, 1), (1, -1), (-1, 1), (-1, -1)]:
@@ -314,7 +290,6 @@ def canonicalize_cycles(A_cycles, B_cycles, RS=None, verbose=False):
         print("Warning: Could not canonicalize cycles into identity intersection matrix.")
     return False, A_cycles, B_cycles, I
 
-
 # --- Integration: robust, branch-continuous per-path segments -----------------
 def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes, CC, tiny, max_depth=8, depth=0):
     """
@@ -339,12 +314,6 @@ def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes,
 
     # pre-convert f coefficients for Horner
     f_coeffs_cc = [CC(c) for c in f_coeffs]
-
-    def f_eval(z):
-        r = f_coeffs_cc[0]
-        for c in f_coeffs_cc[1:]:
-            r = r * z + c
-        return r
 
     # initial y selection: use y_prev_hint if provided to ensure continuity
     y_prev = None
@@ -401,7 +370,6 @@ def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes,
     # return integrals and final y for continuity into next segment
     return I0, I1, y_prev
 
-
 # --- Small adjustment in get_period_matrix_auto_B usage (call canonicalize_cycles with actual cycles) ---
 # In your get_period_matrix_auto_B function, when you canonicalize, replace:
 #   success, A_final, B_final, I_matrix = canonicalize_cycles(A_cycles, B_cycles, RS=RS, verbose=verbose)
@@ -409,7 +377,6 @@ def integrate_segment(p_start, p_end, sheet_start, y_prev_hint, f_coeffs, nodes,
 #
 # The rest of get_period_matrix_auto_B may remain unchanged, but ensure that the A/B cycles
 # you pass into canonicalize_cycles are those returned by extract_cycle_paths (i.e., coordinate-based).
-
 
 def get_vertex_source(RS):
     """
@@ -445,7 +412,6 @@ def get_vertex_source(RS):
 
     return out
 
-
 def extract_cycle_paths(cycle, vertex_source, CC):
     """
     Convert a Sage homology cycle into coordinate paths using
@@ -468,12 +434,10 @@ def extract_cycle_paths(cycle, vertex_source, CC):
 
     return weighted_paths
 
-
 # Example usage
 if __name__ == "__main__":
     f_coeffs = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)]  # rank 4
     test_period_matrix_pos_def_auto(f_coeffs, prec=200)
-
 
 # Positive–definiteness test for Im(tau)
 def is_pd(tau, prec=200):
@@ -484,18 +448,16 @@ def is_pd(tau, prec=200):
     # require strictly positive (tolerance chosen relative to precision)
     return all(e > 2**(-prec//3) for e in evals)
 
-
 def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, perturb_attempts=5):
     """
     Robust genus-2 period matrix builder for y^2 = f(x).
-    
+
     - Computes period integrals using high-precision tanh-sinh quadrature.
     - robustly handles root finding and branch cut construction.
     - Automatically searches for a symplectic homology basis to ensure Im(tau) is positive definite.
     """
     from sage.all import PolynomialRing, QQ, ComplexField, RealField, matrix, identity_matrix
     import random
-    import itertools
     verbose = True
 
     CC = ComplexField(prec)
@@ -518,14 +480,14 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
                 roots_mults = poly_cc.roots(multiplicities=True)
                 roots = [CC(r) for r, m in roots_mults]
                 mults = [m for r, m in roots_mults]
-                
+
                 # Check if we have enough distinct roots
                 if len(roots) >= (6 if n == 6 else 5):
                     # Check for singularities (approximate collision check)
                     min_dist = min(abs(roots[i] - roots[j]) for i in range(len(roots)) for j in range(i + 1, len(roots)))
                     if min_dist > CC(2)**(-prec//2):
                          return roots, mults
-                
+
                 # Perturb if failed
                 if attempt < attempts - 1:
                     eps = CC(10) ** (-max(10, prec // 8))
@@ -540,10 +502,10 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
         raise RuntimeError("Root-finding failed")
 
     roots, mults = find_roots_with_retries(f)
-    
+
     # Sort roots: Real part primary, Imaginary part secondary
     roots_cc = sorted([CC(r) for r in roots], key=lambda z: (float(z.real()), float(z.imag())))
-    
+
     # Handle degree 5 (infinity point)
     if n == 5:
         mags = [abs(z) for z in roots_cc] or [CC(1)]
@@ -559,7 +521,7 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
 
     # --- 2. Setup Integration ---
     f_coeffs_cc = [CC(c) for c in f_coeffs]
-    
+
     # Horner evaluation
     def f_eval(z):
         r = f_coeffs_cc[0]
@@ -577,7 +539,7 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
         raw_nodes = []
         for k in range(-Nnodes, Nnodes + 1):
             t = k / Nnodes; raw_nodes.append((t, CC(t), CC(1.0 / (2 * Nnodes))))
-            
+
         raise
 
     nodes_cc = [(CC(t), CC(xm), CC(w)) for (t, xm, w) in raw_nodes]
@@ -589,35 +551,35 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
         vec = b_cc - a_cc
         I0 = CC(0); I1 = CC(0)
         y_prev = CC(sheet_hint) if sheet_hint is not None else None
-        
+
         # Offset to avoid branch points
         perp = CC(0, 1) * vec
         abs_perp = abs(perp)
         off = (perp / abs_perp * max(CC(1e-18), abs(vec) * CC(1e-8))) if abs_perp > 0 else CC(0)
-        
+
         dx_factor = vec / CC(2)
-        
+
         for (t, x_mapped, w) in nodes_cc:
             s = (x_mapped + CC(1)) / CC(2)
             xval = a_cc + s * vec + off
             fv = f_eval(xval)
-            
+
             if abs(fv) < tiny: continue # Skip too close to root
-            
+
             yplus = fv.sqrt()
-            
+
             # Continuity
             if y_prev is not None:
                 if abs(yplus - y_prev) <= abs(-yplus - y_prev): ycur = yplus
                 else: ycur = -yplus
             else:
                 ycur = yplus if yplus.imag() >= 0 else -yplus
-            
+
             term = (dx_factor * w) / (CC(2) * ycur)
             I0 += term
             I1 += term * xval
             y_prev = ycur
-            
+
         return I0, I1, y_prev
 
     # --- 3. Compute Raw Periods ---
@@ -647,17 +609,17 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
     # B_i: Path from cut i to cut i+1
     A_defs = []
     B_defs = []
-    
+
     # A-cycles
     for (a, b) in cuts[:2]:
         # Loop a->b (sheet 0) then b->a (sheet 1)
         # Note: We represent sheet change by coefficient sign in our simple integrator
         # The segment integrator is generic, so we just sum contributions.
         # Here we approximate: sum of a->b on sheet 0 minus a->b on sheet 0 (if we viewed it that way)
-        # Actually, integral dx/y changes sign on other sheet. 
+        # Actually, integral dx/y changes sign on other sheet.
         # So \oint = \int_{a, sheet0}^b + \int_{b, sheet1}^a = 2 * \int_{a, sheet0}^b
         # We calculate half-periods first.
-        
+
         # Calculate integral a->b on principal branch
         h0, h1, _ = integrate_along_segment(a, b)
         A_defs.append((2*h0, 2*h1))
@@ -675,7 +637,6 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
     # A_raw = [ [A1_w0, A2_w0], [A1_w1, A2_w1] ]
     A_raw = Matrix(CC, 2, 2, [ [A_defs[0][0], A_defs[1][0]], [A_defs[0][1], A_defs[1][1]] ])
     B_raw = Matrix(CC, 2, 2, [ [B_defs[0][0], B_defs[1][0]], [B_defs[0][1], B_defs[1][1]] ])
-
 
     # === DIAGNOSTICS: quick sanity checks on raw period matrices ===
     print("=== PERIOD BASIS DIAGNOSTIC ===")
@@ -721,17 +682,15 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
     print("Nodes used:", len(nodes_cc))
     print("=== END DIAGNOSTIC ===")
 
-
     # --- 4. Symplectic Basis Search ---
     # The raw basis might not be symplectic (A_i . B_j != delta_ij).
     # We search for a transformed basis that yields a valid Riemann matrix.
     # --- 4. Symplectic Basis Search (improved) ---
-    import math
 
     def try_tau_from(A_try, B_try, prec=prec):
         # quick guard
         try:
-            if abs(A_try.det()) < CC(2) ** (-max(10, prec // 4)): 
+            if abs(A_try.det()) < CC(2) ** (-max(10, prec // 4)):
                 raise
                 return None
         except Exception:
@@ -832,7 +791,6 @@ def get_period_matrix_auto_B(f_coeffs, prec=200, verbose=True, max_steps=5000, p
 
     # If we get here: failure
     raise ValueError("Could not find a symplectic basis yielding a positive definite period matrix.")
-
 
 # Initialize cache
 if not hasattr(get_period_matrix_auto_B, 'cache'):

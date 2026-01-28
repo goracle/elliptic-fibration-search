@@ -195,7 +195,6 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
 
     return rational_candidates
 
-
 def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_tuple=None):
     """
     Compare a target rational m = a/b (in QQ) against the precomputed residue fingerprints.
@@ -285,13 +284,12 @@ def compute_residue_coverage_for_m(m_value, precomputed_residues, prime_pool, v_
         'per_prime': per_prime
     }
 
-
 """
 search_analysis.py: Statistical analysis, auto-tuning, and diagnostics.
 """
 
-# ... (Functions estimate_prime_stats, choose_extra_primes, expected_density, 
-# _assert_rhs_consistency, _print_subset_productivity_stats, _batch_check_rationality 
+# ... (Functions estimate_prime_stats, choose_extra_primes, expected_density,
+# _assert_rhs_consistency, _print_subset_productivity_stats, _batch_check_rationality
 # remain largely the same, focusing on utility and structure validation) ...
 
 def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, prime_pool, vecs, tmax=TMAX, debug=True):
@@ -346,22 +344,22 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         v_tuple = tuple(v)
         compatible_primes = []
         M_capacity = 1
-        
+
         for p in prime_pool:
             p_int = int(p)
             if p_int not in residues_by_prime or residues_by_prime[p_int] == 'DENOM_ZERO':
                 continue
-                
+
             expected_r = residues_by_prime[p_int]
-            
+
             # Check if expected_r appears in ANY of the RHS sets for this vector
             p_data = precomputed_residues.get(p_int, {})
             roots_list = p_data.get(v_tuple, [])
-            
+
             if any(expected_r in r_set for r_set in roots_list):
                 compatible_primes.append(p_int)
                 M_capacity *= p_int
-                
+
         vector_stats.append({
             'vector': v_tuple,
             'compatible_count': len(compatible_primes),
@@ -380,12 +378,12 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
         print(f"  Compatible Primes: {best['compatible_count']} / {len(prime_pool)}")
         print(f"  Capacity (log10): {best['log_capacity']:.2f}")
         print(f"  Required (log10): {log_M_req:.2f}")
-        
+
         if best['capacity'] > M_required:
             print("\n✓ STATUS: THEORETICALLY FINDABLE")
             print("  The residues for this vector contain the target point with sufficient capacity.")
             print("  If search failed, it likely didn't sample the specific subset of compatible primes.")
-            
+
             # Proof of Concept Reconstruction attempt
             print("\n  [Proof of Concept Reconstruction]")
             proof_subset = []
@@ -395,24 +393,24 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
                 proof_prod *= p
                 if proof_prod > M_required * 10: # Safety margin
                     break
-            
+
             print(f"  Using subset of size {len(proof_subset)}...")
             try:
                 proof_residues = [residues_by_prime[p] for p in proof_subset]
                 m0 = crt(proof_residues, proof_subset)
                 M = proof_prod
-                
+
                 # Perform Rational Recon
                 m_recon = rational_reconstruct(m0, M)
                 m_recon = QQ(m_recon[0])/QQ(m_recon[1])
-                
+
                 if m_recon == target_m:
                     print("  ✓ MATCH! Target successfully reconstructed.")
                 else:
                     print(f"  ✗ Mismatch (Got {m_recon}, Expected {target_m})")
             except Exception as e:
                 print(f"  Reconstruction failed: {e}")
-                
+
         else:
             print("\n✗ STATUS: NOT FINDABLE (Insufficient Capacity)")
             print("  The residues found do not carry enough information to reconstruct the point.")

@@ -3,21 +3,14 @@ from .archimedean_optim import *
 from .rational_arithmetic import *
 from .search_analysis import *
 from .modularthread import *
-from .modularthread import _compute_residues_for_prime_worker_old
-from .modularthread import _compute_residues_for_prime_worker
-from .modularthread import _process_prime_subset_precomputed
-from .modularthread import _batch_check_rationality
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter
 from .mumford import *
-from .mumford import analyze_active_dead_vectors
 from .selmer_genus2 import *
 from .smoothness import *
-from .smoothness import extract_factor_base
 from .index_calculus import *
-from sage.all import QQ, PolynomialRing
-from sage.all import PolynomialRing, SR, QQ
+from sage.all import QQ, PolynomialRing, SR
 from .riemann_roch_localization import localize_target_via_rr
 from search_common import *
 
@@ -44,7 +37,6 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
             print("Symbolic search: no current sections provided, skipping.")
         return set(), []
 
-
     # === NEW: RUN UNIVARIATE DIAGNOSTICS ===
     try:
         run_univariate_diagnostics(
@@ -58,7 +50,6 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
         print(f"Univariate diagnostics failed: {e}")
         raise
     # === END NEW DIAGNOSTICS ===
-
 
     print("--- Starting symbolic search over QQ ---")
     stats.start_phase('symbolic_search') # <-- STATS
@@ -236,7 +227,6 @@ def search_lattice_symbolic(cd, current_sections, vecs, rhs_list, r_m, shift,
     stats.end_phase('symbolic_search') # <-- STATS
     return newly_found_x, new_sections
 
-
 def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debug=DEBUG):
     """
     Process prime subsets in parallel using ProcessPoolExecutor (unified).
@@ -290,7 +280,6 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
     # Return the list of per-subset results and the merged stats
     return subset_results_list, merged_stats, all_crt_classes  # <-- Return classes
 
-
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
@@ -306,31 +295,31 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
       - fall back deterministically if coverage-based generator returns nothing
     Returns: new_xs, new_sections, precomputed_residues, stats
     """
-    
+
     # === CHECK FOR MUMFORD MODE ===
     USE_MUMFORD = (
-        globals().get('MUMFORD_SEARCH', False) and 
+        globals().get('MUMFORD_SEARCH', False) and
         tower_data is not None
     )
     #print("USE_MUMFORD:", globals().get('MUMFORD_SEARCH', False),MUMFORD_AVAILABLE,tower_data)
     if MUMFORD_SEARCH:
         assert USE_MUMFORD
-    
+
     if USE_MUMFORD:
 
         print("\n" + "="*70)
         print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
         print("Searching for (s,p,v_0,v_1) instead of rational m")
         print("="*70 + "\n")
-        
+
         stats = SearchStats()
-        
+
         # Build equation system
         stats.start_phase('mumford_setup')
         print("Building 5-equation Mumford system from fibration...")
         eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
         stats.end_phase('mumford_setup')
-        
+
         # Prepare modular data
         # NOTE: For Finite Field consensus mode, prime_pool must contain the target FF primes!
         stats.start_phase('prep_mod_data')
@@ -338,30 +327,30 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
         )
         stats.end_phase('prep_mod_data')
-        
+
         if not Ep_dict:
             return set(), [], {}, stats
-        
+
         # Ensure 'prime_list' is the full list of valid primes from the pool
         prime_list = sorted(list(Ep_dict.keys()))
-        
+
         # [MODIFIED] Removed the "Forcing search to single prime" block.
         # We now pass the entire list of compatible primes to precompute and reconstruction.
         if FINITE_FIELD and len(prime_list) > 1:
             print(f"[FF MODE] Multi-prime consensus enabled. Using {len(prime_list)} primes.")
-        
+
         stats.start_phase('mumford_residues')
         vecs_list = list(vecs)
-        
+
         mumford_residues = mumford_precompute_residues_parallel(
-            eqs_dict, 
-            prime_list, 
-            Ep_dict, 
-            mult_lll, 
+            eqs_dict,
+            prime_list,
+            Ep_dict,
+            mult_lll,
             vecs_lll,
-            rhs_modp_list, 
-            vecs_list, 
-            num_workers=num_workers, 
+            rhs_modp_list,
+            vecs_list,
+            num_workers=num_workers,
             debug=True
         )
         stats.end_phase('mumford_residues')
@@ -382,10 +371,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print(summary)
             pass
 
-        
         # Reconstruct (Consensus Strategy)
         stats.start_phase('mumford_reconstruction')
-        
+
         # We pass the full prime_list. The reconstruction function now iterates them all.
         found_xs, mumford_divisors = reconstruct_and_verify_mumford(
             mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
@@ -395,16 +383,16 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         # === EXPLICIT FILTERING OF G/Q ===
         if FINITE_FIELD:
              mumford_divisors = filter_g_q_from_list(
-                 mumford_divisors, 
-                 BASE_DIVISOR, 
-                 TARGET_DIVISOR, 
-                 FINITE_FIELD, 
+                 mumford_divisors,
+                 BASE_DIVISOR,
+                 TARGET_DIVISOR,
+                 FINITE_FIELD,
                  coeffs_genus2
              )
 
         print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
         if mumford_divisors:
-            rational_roots_count = sum(1 for div in mumford_divisors 
+            rational_roots_count = sum(1 for div in mumford_divisors
                                       if 'has_rational_roots' in div and div.get('has_rational_roots'))
             print(f"  {rational_roots_count} divisors had rational roots in u(x)")
 
@@ -430,7 +418,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             rank_analysis = analyze_genus2_rank(
                 f_coeffs=coeffs_genus2,
                 mumford_divisors=mumford_divisors,
-                bad_primes=prime_pool[:20], 
+                bad_primes=prime_pool[:20],
                 verbose=True
             )
 
@@ -442,7 +430,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             p = int(FINITE_FIELD)
             f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
-            
+
             # 1. Extract the factor base (ATOMIC FORMAT)
             atom_to_idx, fb_y_cache = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
 
@@ -453,7 +441,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                     x_val = atom[1]
                     if x_val not in fb_roots:
                         fb_roots.append(x_val)
-            
+
             # CRITICAL FIX: Don't re-index! Just create a lookup set
             # The OLD code did: root_to_idx = {r: i for i, r in enumerate(fb_roots)}
             # which creates WRONG indices that don't match atom_to_idx
@@ -483,17 +471,17 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # NEW: RR-Local Pre-check
             print(f"  [Phase 0] Attempting RR-Localization for target Q (Parallel)...")
             from .riemann_roch_localization import localize_wrapper
-            
+
             # Try a broader range since we are parallel
             pole_range = [6, 7, 8, 9, 10]
-            
+
             # Construct task arguments
             rr_tasks = [
                 (Q, fb_roots_set, f_poly, p, n) for n in pole_range
             ]
-            
+
             found_rr_solution = None
-            
+
             try:
                 ctx = multiprocessing.get_context("fork")
             except Exception:
@@ -502,7 +490,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # Execute in parallel
             with ProcessPoolExecutor(max_workers=min(len(rr_tasks), num_workers), mp_context=ctx) as executor:
                 futures = {executor.submit(localize_wrapper, args): args[-1] for args in rr_tasks}
-                
+
                 for future in as_completed(futures):
                     n_pole_val = futures[future]
                     try:
@@ -510,7 +498,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                         if roots is not None:
                             print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n_pole_val})!")
                             found_rr_solution = (roots, poly_a, poly_b, vec)
-                            
+
                             # Cancel remaining tasks by shutting down executor
                             executor.shutdown(wait=False, cancel_futures=True)
                             break
@@ -520,7 +508,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             if found_rr_solution:
                 roots, poly_a, poly_b, vec = found_rr_solution
-                
+
                 # CRITICAL FIX: resolve_log_from_rr_decomposition must accept atom_to_idx
                 # If it currently expects root_to_idx, it needs to be updated
                 # For now, we'll create a minimal x->idx mapping from atom_to_idx
@@ -528,7 +516,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 for atom, idx in atom_to_idx.items():
                     if atom[0] == 'd1':
                         x_to_idx[atom[1]] = idx
-                
+
                 log_v = resolve_log_from_rr_decomposition(
                     roots, x_to_idx, fb_y_cache, poly_a, poly_b, p
                 )
@@ -540,7 +528,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # 4. Solve the system using perform_dlp_attack
             try:
                 log_v = perform_dlp_attack(
-                    G, Q, mumford_divisors, p, coeffs_genus2, L, 
+                    G, Q, mumford_divisors, p, coeffs_genus2, L,
                     verbose=True,
                     force_index_calculus=True
                 )
@@ -560,21 +548,21 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     # === VECTOR-BLIND CONSENSUS OPTIMIZATION ===
     # Check if we are running in the optimized Vector-Blind Consensus mode.
     optimized_vecs = vecs
-    
+
     # Heuristic: Check the first prime in the precomputed map (if it exists)
     # to see if the single dummy vector key (all zeros) was used.
     if precomputed_residues and precomputed_residues is not True: # precomputed_residues=True means only compute
         first_prime = next(iter(precomputed_residues), None)
         if first_prime and precomputed_residues[first_prime]:
             first_vector = next(iter(precomputed_residues[first_prime]))
-            
+
             # The dummy vector is a tuple of zeros
             if all(v == 0 for v in first_vector):
-                # We found the single dummy vector key. 
-                
+                # We found the single dummy vector key.
+
                 dim = len(current_sections)
                 zero_vec_tuple = tuple([0] * dim)
-                
+
                 # --- THIS IS THE FIX ---
                 # If the dummy vector is detected, we *must* use it as the *only* search vector.
                 # The original `vecs` list (which may not contain the zero vector)
@@ -583,7 +571,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                 if debug:
                     print("OPTIMIZATION: Vector-Blind Consensus detected. Forcing search vectors (`vecs`) to just the zero vector key.")
                 # --- END FIX ---
-                        
+
     # The actual vectors list used for the main search loop
     search_vecs = optimized_vecs
 
@@ -687,7 +675,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
         stats.incr('using_consensus_residues', n=1)
 
-
     # ADD THIS: Populate stats.residues_by_prime from precomputed residues
     for p, p_mapping in precomputed_residues.items():
         for v_tuple, rhs_lists in p_mapping.items():
@@ -717,7 +704,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     stats.end_phase('brauer')
 
-
     ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
 
     if TARGETED_X: # comment out when not in use
@@ -734,7 +720,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         cov1 = compute_residue_coverage_for_m(mtarget, precomputed_residues, PRIME_POOL)
         print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])
         print("cov1: matched primes:", cov1['matched_primes'])
-
 
     # Build a per-prime numeric residue set for later use (and require non-empty)
     residues_by_prime_numeric = {}
@@ -773,7 +758,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
 
-
     # In search_main.py, before analyze_unused_residue_orders
     PR_m = PolynomialRing(QQ, 'm')
     Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
@@ -811,7 +795,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     # === COMPUTE ADAPTIVE NUM_SUBSETS ===
     collision_primes = []
     if hasattr(stats, 'rejected_primes'):
-        collision_primes = [p for p, reason in stats.rejected_primes 
+        collision_primes = [p for p, reason in stats.rejected_primes
                         if 'collision' in str(reason)]
 
     # CORRECTED density calculation
@@ -831,7 +815,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     fiber_collision_fraction = len(collision_primes) / len(prime_pool) if prime_pool else 0.0
     num_subsets_adaptive = compute_adaptive_num_subsets(
-        fiber_collision_fraction, 
+        fiber_collision_fraction,
         avg_density=empirical_density,
         target_coverage=0.40,
         base_subsets=num_subsets
@@ -1076,7 +1060,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             raise
             continue
 
-
     # <<< MODIFIED/NEW SECTION >>>
     analysis = analyze_unused_residue_orders(
         precomputed_residues=precomputed_residues,
@@ -1089,7 +1072,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     )
 
     print_residue_analysis(analysis)
-
 
     new_xs = {pt[0] for pt in sample_pts}
     new_sections = list({s: None for s in new_sections_raw}.keys())

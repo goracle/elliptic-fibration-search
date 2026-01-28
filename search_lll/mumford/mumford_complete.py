@@ -16,7 +16,6 @@ Main entry point for Mumford divisor search.
 Re-exports key functions for backward compatibility.
 """
 
-
 # Core imports
 
 # Constants
@@ -28,7 +27,6 @@ try:
 except ImportError:
     ARAKELOV_AVAILABLE = False
     print("[mumford] Warning: arakelov.py not available, using fallback methods")
-
 
 # Module constants
 RECON_EXPONENT = 0.55

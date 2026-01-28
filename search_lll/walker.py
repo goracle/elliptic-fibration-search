@@ -1,21 +1,9 @@
-from ctypes import c_uint32, c_uint64, POINTER, byref
-import numpy as np
-import ctypes
-import os
-from ctypes import c_uint32, c_uint64, c_int, POINTER, byref
-from multiprocessing import Process, Queue, Event, cpu_count
+import numpy as np, ctypes, os, random, psutil, time, queue
+from ctypes import c_uint32, c_uint64, POINTER, byref, c_int
+from multiprocessing import Process, Queue, Event, cpu_count, set_start_method, Manager
 from queue import Full
-import random
-from multiprocessing import set_start_method
-import psutil
-import time
-from multiprocessing import Manager
-import queue
 from search_common import FINITE_FIELD, sage_poly_from_coeffs
-from sage.all import GF, PolynomialRing, ZZ
-import os, time, random
-from sage.all import GF, PolynomialRing, HyperellipticCurve
-
+from sage.all import GF, PolynomialRing, ZZ, HyperellipticCurve
 
 # CRITICAL: Force spawn mode to prevent fork-based RAM explosion
 try:
@@ -53,7 +41,6 @@ _GLOBAL_J = None             # Sage Jacobian class/instance
 _GLOBAL_F_POLY = None        # global curve poly, optional
 _GLOBAL_FB_Y_CACHE = None    # optional canonical y cache
 # ----------------------------------------------------
-
 
 def homomorphism_test(J, atom_to_idx, f_p, p,
                              trials=200,
@@ -101,7 +88,6 @@ def homomorphism_test(J, atom_to_idx, f_p, p,
             idxi = idx
             raise
         idx_to_atom[idxi] = atom
-
 
     atom_indices = list(idx_to_atom.keys())
     R = None
@@ -227,7 +213,6 @@ def homomorphism_test(J, atom_to_idx, f_p, p,
 
     return True
 
-
 def _atom_to_jac_helper(atom, J, R):
     """
     Convert factor base atom -> Jacobian element.
@@ -235,28 +220,27 @@ def _atom_to_jac_helper(atom, J, R):
     """
     if atom is None:
         raise RuntimeError("missing atom for index")
-    
+
     kind = atom[0]
     x = R.gen()
-    
+
     if kind == 'd1':
         _, x0, y0 = atom
         u = x - R(x0)
         v = R(y0)
         return J([u, v])
-    
+
     elif kind == 'd2':
         _, u_coeffs, v_coeffs = atom
         return J([R(list(u_coeffs)), R(list(v_coeffs))])
-    
+
     else:
         raise RuntimeError(f"unknown atom kind: {kind}")
-
 
 def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1, enc2):
     """
     UPDATED: Uses extracted helper functions.
-    
+
     Detailed diagnostics for a homomorphism failure.
     """
     F = GF(int(p))
@@ -354,7 +338,7 @@ def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1,
             continue
         x0 = int(atom[1])
         y_can = int(atom[2])
-        
+
         v_eval_D1 = None
         v_eval_D2 = None
         try:
@@ -369,9 +353,8 @@ def debug_homomorphism_failure(J, atom_to_idx, fb_y_cache, p, f_p, D1, D2, enc1,
         print(f" idx {idx}: atom x={x0}, y_can={y_can}, v_eval_D1={v_eval_D1}, v_eval_D2={v_eval_D2}")
         if fb_y_cache is not None:
             print("   fb_y_cache[x]:", fb_y_cache.get(int(x0)))
-    
-    print("\n=== END DEBUG ===\n")
 
+    print("\n=== END DEBUG ===\n")
 
 def _dict_to_jac_helper(div, J, R):
     """
@@ -386,7 +369,6 @@ def _dict_to_jac_helper(div, J, R):
     u = x**2 - R(s)*x + R(pval)
     v = R(v1c)*x + R(v0)
     return J([u, v])
-
 
 def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, seed, exps_np, max_steps):
     """
@@ -420,7 +402,6 @@ def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, see
         return 1, int(out_state.value), touched[:L].copy(), counts[:L].copy()
     else:
         return int(ret), None, None, None
-
 
 def get_relation_row_cached(divisor, require_signed_d2=True):
     """
@@ -468,13 +449,6 @@ def get_relation_row_cached(divisor, require_signed_d2=True):
     row = {}
 
     # Helper: convert polynomial to canonical tuple (lowest->highest), pad to deg (monic expected)
-    def poly_to_tuple(poly, deg_expected):
-        coeffs = [0] * (deg_expected + 1)
-        # poly.list() yields coefficients lowest->highest in Sage
-        for i, c in enumerate(poly.list()):
-            if i <= deg_expected:
-                coeffs[i] = int(K(c))
-        return tuple(coeffs)
 
     # If degree == 2, first try to match a signed d2 atom
     if deg == 2:
@@ -593,7 +567,6 @@ def get_relation_row_cached(divisor, require_signed_d2=True):
 
     return row
 
-
 def compute_jacobian_hash(exp_dict, atom_indices_list):
     """
     Compute a deterministic hash for the Jacobian element represented by exp_dict.
@@ -685,12 +658,11 @@ def compute_jacobian_hash(exp_dict, atom_indices_list):
             h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
         return h
 
-
 def get_relation_row(divisor, atom_to_idx, f_p, p,
                      fb_y_cache=None, require_signed_d2=True):
     """
     Build factor-base row for `divisor` with support for SIGNED degree-2 atoms.
-    
+
     OPTIMIZED: Uses cached lookup dictionaries.
     """
     p = int(p)
@@ -713,11 +685,11 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
 
     # Build cache key from atom_to_idx identity
     cache_key = id(atom_to_idx)
-    
+
     if cache_key not in get_relation_row.cache:
         d1_by_x = {}
         d2_by_u = {}
-        
+
         for atom, idx in atom_to_idx.items():
             if atom[0] == 'd1':
                 x_val = int(atom[1])
@@ -726,9 +698,9 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
                 u_key = tuple(int(x) % p for x in atom[1])
                 entries = d2_by_u.setdefault(u_key, [])
                 entries.append((atom, int(idx)))
-        
+
         get_relation_row.cache[cache_key] = (d1_by_x, d2_by_u)
-    
+
     d1_by_x, d2_by_u = get_relation_row.cache[cache_key]
     row = {}
 
@@ -780,9 +752,9 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
     # CASE: degree 2 - try signed d2 match first
     u_coeffs = poly_to_tuple(u_poly, 2)
     v_tuple = tuple(int(K(c)) for c in v_poly.list())
-    
+
     candidates = d2_by_u.get(u_coeffs, [])
-    
+
     if candidates:
         matched = False
         for atom, idx in candidates:
@@ -793,7 +765,7 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
                 vc = list(v_can_tuple) + [0]*(L - len(v_can_tuple))
                 vt = [int(K(c)) % p for c in vt]
                 vc = [int(K(c)) % p for c in vc]
-                
+
                 if vt == vc:
                     row[idx] = row.get(idx, 0) + 1
                     matched = True
@@ -802,10 +774,10 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
                     row[idx] = row.get(idx, 0) - 1
                     matched = True
                     break
-        
+
         if matched:
             return row
-    
+
     if require_signed_d2:
         return None
 
@@ -827,10 +799,9 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
         row[idx] = row.get(idx, 0) + sign * int(mult)
         if row[idx] == 0:
             del row[idx]
-    
+
     return row
 get_relation_row.cache = {}
-
 
 def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs,
                                          verbose=True,
@@ -845,17 +816,16 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
     Uses C-based collision walks for speed with proper collision detection.
     """
-    from sage.all import GF, PolynomialRing
-    
+
     K = GF(p)
     R = PolynomialRing(K, 'x')
-    
+
     idx_to_atom = {int(v): k for k, v in atom_to_idx.items()}
-    
+
     valid_rows = []
     rhs_values = []
     skipped_no_row = 0
-    
+
     for d in smooth_divs:
         if 'u_coeffs' in d:
             u_poly = R(d['u_coeffs'])
@@ -866,51 +836,50 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
             v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
         else:
             continue
-        
+
         row = get_relation_row(
-            [u_poly, v_poly], 
-            atom_to_idx, 
-            f_p, 
+            [u_poly, v_poly],
+            atom_to_idx,
+            f_p,
             p,
             require_signed_d2=False
         )
-        
+
         if not row:
             skipped_no_row += 1
             continue
-        
+
         valid_rows.append({int(k): int(v) for k, v in row.items()})
         rhs_values.append(0)
-    
+
     if verbose:
         print(f"  [Relations] Built {len(valid_rows)} homogeneous edge-relations (RHS=0)")
         if skipped_no_row > 0:
             print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
-    
+
     if not use_collision_walks:
         return valid_rows, rhs_values
-    
+
     atom_indices = sorted(int(idx) for idx in idx_to_atom.keys())
-    
+
     if len(atom_indices) < 10:
         if verbose:
             print(f"  [Walks] Only {len(atom_indices)} atoms - skipping walks")
         return valid_rows, rhs_values
-    
+
     collision_rows, collision_rhs = _run_collision_walks(
         atom_indices, idx_to_atom, target_new_relations,
         distinguished_bits, num_walk_workers, max_walk_steps,
         max_dp_table_size, f_coeffs, verbose
     )
-    
+
     valid_rows.extend(collision_rows)
     rhs_values.extend(collision_rhs)
-    
+
     if verbose:
         print(f"  [Relations] Total: {len(valid_rows)} ({len(valid_rows)-len(collision_rows)} edge + {len(collision_rows)} collision)")
-    
-    return valid_rows, rhs_values
 
+    return valid_rows, rhs_values
 
 def _build_random_hash_table(atom_indices, seed=123456):
     """
@@ -920,7 +889,6 @@ def _build_random_hash_table(atom_indices, seed=123456):
     rng_hash = random.Random(seed)
     return {int(idx): rng_hash.getrandbits(64) for idx in atom_indices}
 
-
 def _subsample_atoms_for_walks(atom_indices, idx_to_atom, target_walk_atoms=10000, verbose=True):
     """
     Subsample atoms for collision walks.
@@ -929,28 +897,27 @@ def _subsample_atoms_for_walks(atom_indices, idx_to_atom, target_walk_atoms=1000
     """
     d1_indices = [int(idx) for idx in atom_indices if idx_to_atom[idx][0] == 'd1']
     d2_indices = [int(idx) for idx in atom_indices if idx_to_atom[idx][0] == 'd2']
-    
+
     d1_count = len(d1_indices)
     d2_count = len(d2_indices)
-    
+
     if verbose:
         print(f"  [Walks] Factor base composition: {d1_count} d1 atoms, {d2_count} d2 atoms")
-    
+
     if d1_count + d2_count <= target_walk_atoms:
         if verbose:
             print(f"  [Walks] Using all {d1_count + d2_count} atoms for walks")
         return sorted(d1_indices + d2_indices)
-    
+
     d2_keep = max(100, target_walk_atoms - d1_count)
     rng_subsample = random.Random(789)
     d2_sampled = rng_subsample.sample(d2_indices, min(d2_keep, d2_count))
     walk_atom_indices = sorted(d1_indices + d2_sampled)
-    
+
     if verbose:
         print(f"  [Walks] Subsampled for collisions: {d1_count} d1 + {len(d2_sampled)} d2 = {len(walk_atom_indices)} total")
-    
-    return walk_atom_indices
 
+    return walk_atom_indices
 
 def _pad_to_power_of_two(atom_indices, verbose=True):
     """
@@ -960,19 +927,18 @@ def _pad_to_power_of_two(atom_indices, verbose=True):
     n_atoms = len(atom_indices)
     if (n_atoms & (n_atoms - 1)) == 0:
         return list(atom_indices)
-    
+
     next_pow2 = 1 << (n_atoms.bit_length())
     padding_needed = next_pow2 - n_atoms
     padded = list(atom_indices) + [atom_indices[0]] * padding_needed
-    
+
     if verbose:
         print(f"  [Walks] Padded atom table to power-of-two: {len(padded)}")
-    
+
     return padded
 
-
 def _collect_collision_relations(manager_queue, manager_dict, num_workers, distinguished_table,
-                                valid_rows, rhs_values, target_new_relations, 
+                                valid_rows, rhs_values, target_new_relations,
                                 max_dp_table_size, verbose):
     """
     Collect distinguished points from workers and detect collisions.
@@ -981,14 +947,14 @@ def _collect_collision_relations(manager_queue, manager_dict, num_workers, disti
     new_relations_found = 0
     workers_done = 0
     last_memory_check = time.time()
-    
+
     while workers_done < num_workers and new_relations_found < target_new_relations:
         if time.time() - last_memory_check > 5.0:
             rss_mb = psutil.Process(os.getpid()).memory_info().rss / (2**20)
             if verbose:
                 print(f"  [MEM] Current RSS: {rss_mb:.1f} MB, DPs in table: {len(distinguished_table)}")
             last_memory_check = time.time()
-        
+
         try:
             msg = manager_queue.get(timeout=0.5)
         except Exception:
@@ -996,64 +962,62 @@ def _collect_collision_relations(manager_queue, manager_dict, num_workers, disti
             if manager_dict.get('stop', False):
                 break
             continue
-        
+
         if msg is None:
             workers_done += 1
             continue
-        
+
         if len(distinguished_table) >= max_dp_table_size:
             if verbose:
                 print(f"  [Walks] DP table full ({max_dp_table_size}), stopping")
             manager_dict['stop'] = True
             workers_done = num_workers
             break
-        
+
         new_relations_found, workers_done = _process_collision_batch(
             msg, distinguished_table, valid_rows, rhs_values,
             new_relations_found, target_new_relations,
             manager_dict, num_workers, verbose
         )
-        
+
         if new_relations_found >= target_new_relations or len(distinguished_table) >= max_dp_table_size:
             break
-    
-    return new_relations_found
 
+    return new_relations_found
 
 def _cleanup_workers(processes, manager_queue, manager_dict):
     """
     Stop workers and clean up.
     """
     manager_dict['stop'] = True
-    
+
     while not manager_queue.empty():
         try:
             manager_queue.get_nowait()
         except Exception:
             raise
             break
-    
+
     for p_proc in processes:
         p_proc.join(timeout=5)
         if p_proc.is_alive():
             p_proc.terminate()
             p_proc.join()
 
-
-def _process_collision_batch(batch, distinguished_table, valid_rows, rhs_values, 
-                             new_relations_found, target_new_relations, 
+def _process_collision_batch(batch, distinguished_table, valid_rows, rhs_values,
+                             new_relations_found, target_new_relations,
                              manager_dict, num_workers, verbose):
     """
     Process a batch of distinguished points, detect collisions, build relations.
-    
+
     CRITICAL: When two walks reach the same Jacobian element (same jacobian_key),
     they will almost always have DIFFERENT exponent vectors (different paths).
     This is EXACTLY what we want - subtracting the exponents gives us a relation!
-    
+
     Returns updated new_relations_found and workers_done count.
     """
     workers_done = 0
-    
+
     for jacobian_key, exp_dict, a_scalar, b_scalar in batch:
         # Check collision
         if jacobian_key in distinguished_table:
@@ -1072,24 +1036,24 @@ def _process_collision_batch(batch, distinguished_table, valid_rows, rhs_values,
             rel = dict(prev_exp)
             for idx, e in exp_dict.items():
                 rel[idx] = rel.get(idx, 0) - e
-            
+
             # Remove zeros
             row = {int(k): int(v) for k, v in rel.items() if v != 0}
-            
+
             if not row:
                 # Should be covered by prev_exp == exp_dict, but safety net
                 continue
-            
+
             # Remove consumed entry from table
             del distinguished_table[jacobian_key]
-            
+
             valid_rows.append(row)
             rhs_values.append(0)
             new_relations_found += 1
-            
+
             if verbose:
                 print(f"  [Walks] 🎉 COLLISION! Found relation #{new_relations_found}")
-            
+
             if new_relations_found >= target_new_relations:
                 manager_dict['stop'] = True
                 workers_done = num_workers
@@ -1098,17 +1062,14 @@ def _process_collision_batch(batch, distinguished_table, valid_rows, rhs_values,
             # Store new DP
             # Use exp_dict directly (batch owns it, created from C arrays)
             distinguished_table[jacobian_key] = (exp_dict, a_scalar, b_scalar)
-    
-    return new_relations_found, workers_done
 
+    return new_relations_found, workers_done
 
 # --- new helper: reconstruct Mumford (u,v) from exp vector -------------------
 # ---------------------------------------------------------------------------
 
-
 # --- modified worker: filter DPs by FB-smoothness before enqueueing -------
 # ---------------------------------------------------------------------------
-
 
 # --- initialize_global_factor_base -----------------------------------------
 def initialize_global_factor_base(mapping):
@@ -1145,16 +1106,13 @@ def initialize_global_factor_base(mapping):
     _GLOBAL_IDX_TO_ATOM = idx_to_atom
 # ---------------------------------------------------------------------------
 
-
 # --- spawn workers: pass idx_to_atom into each worker -----------------------
 # ---------------------------------------------------------------------------
-
 
 # --- worker: lazy-initialize globals from provided idx_to_atom ------------
 # ---------------------------------------------------------------------------
 
-
-def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations, 
+def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
                         distinguished_bits, num_workers, max_walk_steps,
                          max_dp_table_size, f_coeffs, verbose):
     """
@@ -1167,7 +1125,7 @@ def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
     # Convert to pure Python types
     atom_indices_py = [int(idx) for idx in atom_indices]
 
-    walk_atom_indices = _subsample_atoms_for_walks(atom_indices_py, idx_to_atom, 
+    walk_atom_indices = _subsample_atoms_for_walks(atom_indices_py, idx_to_atom,
                                                    target_walk_atoms=10000, verbose=verbose)
 
     walk_atom_indices = _pad_to_power_of_two(walk_atom_indices, verbose=verbose)
@@ -1225,7 +1183,6 @@ def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
 
     return valid_rows, rhs_values
 
-
 def compute_jacobian_mumford_from_exp(exp_dict, atom_indices_list):
     """
     Construct Mumford (u,v) from an exponent dictionary over factor-base atoms.
@@ -1260,7 +1217,6 @@ def compute_jacobian_mumford_from_exp(exp_dict, atom_indices_list):
 
     return D[0], D[1]   # u(x), v(x)
 
-
 # --- helper: reconstruct full Jacobian element from exponent vector -------
 def reconstruct_jacobian_from_exp(exp_dict, Jclass, R):
     """
@@ -1283,7 +1239,6 @@ def reconstruct_jacobian_from_exp(exp_dict, Jclass, R):
         J_recon += int(mult) * atomJ
     return J_recon
 # -------------------------------------------------------------------------
-
 
 # --- spawn workers: pass idx_to_atom, p, f_coeffs into each worker --------
 def _spawn_walk_workers(num_workers, atom_indices, random_hash_table, target_mask,
@@ -1313,7 +1268,6 @@ def _spawn_walk_workers(num_workers, atom_indices, random_hash_table, target_mas
         p_proc.start()
         processes.append(p_proc)
     return processes
-# -------------------------------------------------------------------------
 
 # --- worker: initialize local globals, local curve/jacobian, enforce smooth DPs
 def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
@@ -1431,4 +1385,3 @@ def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
 
     # Signal completion
     safe_put(result_queue, None)
-# -------------------------------------------------------------------------

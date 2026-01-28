@@ -1,46 +1,31 @@
-from sage.all import ZZ, diagonal_matrix
+import math
+from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var
 from .search_config import *
 from search_common import *
-from search_common import NUM_PRIME_SUBSETS
 from collections import defaultdict, Counter
-from sage.all import QQ, ZZ, Integer, PolynomialRing, GF
-from sage.all import gcd
-from collections import Counter
-import math
-from sage.all import Zmod, Integer
-from sage.all import Zmod, Integer, QQ, var
 
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
 
-
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
-
 
 # Add near other helpers in search_lll.py (no leading underscores)
-
-
-
 
 # ----------------------------------------
 # helpers for residue orders
 # ----------------------------------------
-
-
 
 """
 Complete residue analysis with proper diagnostics.
 Add this to ll_utilities.py, replacing the incomplete versions.
 """
 
-
 # ============================================================================
 # HELPER FUNCTIONS (keep existing ones, add these)
 # ============================================================================
-
 
 """
 Enhanced prime subset generation with QC-aware biasing.
@@ -48,11 +33,9 @@ Add this to ll_utilities.py
 """
 # Drop-in replacement wrapper
 
-
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
-
 
 def _compute_column_norms(M):
     """
@@ -98,11 +81,9 @@ def _scale_matrix_columns_int(M, scales):
 # MOCK CLASSES FOR LARGE PRIMES (Bypassing Singular Overflow)
 # =============================================================================
 
-
 # =============================================================================
 
 # Robust RHS decomposition helper (works for QQ(m)/SR and for Fp(m) elements)
-
 
 def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
     """
@@ -121,7 +102,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
         if FINITE_FIELD not in search_primes:
             print(f"ERROR: FINITE_FIELD={FINITE_FIELD} not in search_primes")
             return {}, [], {}, {}
-        
+
         # Force single-prime processing
         search_primes = [FINITE_FIELD]
         print(f"[FF MODE] Forcing search to single prime: {FINITE_FIELD}")
@@ -134,7 +115,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll = {}, [{} for _ in rhs_list], {}, {}
     multiplies_lll, vecs_lll = {}, {}
     rejected_primes = []  # Track (prime, reason) tuples
-    
+
     PR_m = PolynomialRing(QQ, 'm')
     var_sym = var('m')
 
@@ -224,10 +205,10 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     Delta_pr = PR_m(SR(Delta_poly))
                 else:
                     Delta_pr = PR_m(Delta_poly)
-                
+
                 from search_lll import detect_fiber_collision
                 has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
-                
+
                 if has_collision:
                     deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
                     if DEBUG:
@@ -379,7 +360,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
         if not hasattr(stats, 'rejected_primes'):
             stats.rejected_primes = []
         stats.rejected_primes.extend(rejected_primes)
-        
+
         if DEBUG:
             print(f"\n[prepare_modular_data_lll] Rejected {len(rejected_primes)} primes:")
             for p, reason in rejected_primes:
@@ -393,31 +374,30 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
 
-
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
                           lll_delta=LLL_DELTA, bkz_block=BKZ_BLOCK,
                           max_k_abs=MAX_K_ABS):
     """
     LLL/BKZ reduction with proper handling of single-section case and reduction failures.
-    
+
     --- FIX 2 ---
     This function now *always* returns a list of length r = len(sections).
     If a reduction fails or a basis vector can't be computed,
     it places 'None' in that slot.
     """
     from sage.all import ZZ, identity_matrix, diagonal_matrix
-    
+
     r = len(sections)
     if r == 0:
         return [], identity_matrix(ZZ, 0)
 
     # --- Start Fix: Handle reduction failures robustly ---
-    
+
     # First, reduce all sections, padding with None on failure.
     # This list will have length r.
     reduced_sections_mod_p = [reduce_point_hom(curve_modp, P, p) for P in sections]
-    
+
     # Check if *all* reductions failed
     if all(P is None for P in reduced_sections_mod_p):
         if DEBUG:
@@ -436,7 +416,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
         Xr, Yr, Zr = Pp[0], Pp[1], Pp[2]
         # Use .numerator()/.denominator() safely (works for both Sage and Mock)
         # Note: MockPoint coords are elements of Fp(m), so they have num/den
-        
+
         try:
             den = lcm([Xr.denominator(), Yr.denominator(), Zr.denominator()])
             Xp = Xr.numerator() * (den // Xr.denominator())
@@ -467,13 +447,13 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
         coeff_vecs.append(vector(ZZ, row))
 
     if not coeff_vecs or all(v.is_zero() for v in coeff_vecs):
-        if DEBUG: 
+        if DEBUG:
             print("All coefficient vectors are zero or truncated away, using identity transformation")
         # Return the original reduced sections, which has length r
         return reduced_sections_mod_p, identity_matrix(ZZ, r)
 
     M = matrix(ZZ, coeff_vecs)
-    
+
     # Handle r=1 case
     if M.nrows() <= 1:
         Uinv = identity_matrix(ZZ, r)
@@ -493,7 +473,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
         scales = _compute_integer_scales_for_columns(M)
         M_scaled, D = _scale_matrix_columns_int(M, scales)
     except Exception as e:
-        if DEBUG: 
+        if DEBUG:
             print("Column scaling failed, proceeding without scaling:", e)
         M_scaled = M
         D = diagonal_matrix([1]*M.ncols())
@@ -530,13 +510,13 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     detU = int(U.det())
     assert abs(detU) == 1, "LLL transform U not unimodular; det = " + str(detU)
     Uinv = U.inverse()
-    
+
     # --- FIX 3 ---
     # Rebuild the basis, safely handling None in reduced_sections_mod_p
     new_basis = []
     # Use curve(0) safely (works for Mock and Sage)
     identity_point = curve_modp(0)
-    
+
     for i in range(r): # Loop r times
         S_i = identity_point
         try:
@@ -546,7 +526,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
                 if P_j is not None:
                     S_i += U[i, j] * P_j
                     valid_sum = True
-            
+
             if valid_sum:
                 new_basis.append(S_i)
             else:
@@ -561,7 +541,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     # new_basis now has length r
     return new_basis, Uinv
 
-
 def _get_coeff_data(poly):
     """Helper to safely extract coefficient list and degree from a polynomial-like object."""
     if hasattr(poly, 'list') and hasattr(poly, 'degree'):
@@ -570,14 +549,12 @@ def _get_coeff_data(poly):
         # Handle constants or other non-polynomial objects
         return [poly], 0
 
-
 def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
     """Truncate coefficient list (low->high) to length max_deg+1."""
     if len(coeff_list) <= max_deg + 1:
         return coeff_list
     # Keep low-degree coefficients (assumed stored as [c0, c1, ..., cN])
     return coeff_list[: max_deg + 1]
-
 
 def compute_all_mults_for_section(Pi, required_ks, stats,
                                   max_k=None, debug=False):
@@ -592,17 +569,16 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
     # -------------
 
     # Original function logic continues...
-    from sage.all import ZZ
-    
+
     if max_k is None:
         try:
             max_k = max(abs(k) for k in required_ks)
         except ValueError:
             max_k = MAX_K_ABS # fallback
             raise
-    
+
     max_k = min(int(max_k), MAX_K_ABS)
-    
+
     computed = {}
     try:
         identity = Pi.curve()(0)
@@ -610,9 +586,9 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
     except Exception:
         # Fallback if curve is weird
         computed[0] = None
-        
+
     computed[1] = Pi
-    
+
     # Store by absolute value to minimize computations
     # e.g., if we need -5, compute 5 and then negate
     for k_abs in range(2, max_k + 1):
@@ -628,14 +604,14 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
             if debug:
                 print(f"    [mults] k*Pi failed at k={k_abs}")
             break # Stop computing
-            
+
     # Now build the final map from the required_ks
     final_mults = {}
     for k in required_ks:
         k_abs = abs(int(k))
         if k_abs not in computed:
             continue # Couldn't compute this multiple
-        
+
         k_val = computed[k_abs]
         if k_val is None:
             continue
@@ -644,9 +620,8 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
             final_mults[k] = -k_val
         else:
             final_mults[k] = k_val
-            
-    return final_mults
 
+    return final_mults
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""
@@ -671,7 +646,6 @@ def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=
         stats[p] = (total / count) if count else 0.0
     return stats
 
-
 def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3,5}):
     """Select extra primes based on measured r_p values."""
     cand = [(p, r) for p, r in stats.items()
@@ -689,7 +663,6 @@ def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3
     if DEBUG:
         print(f"[auto-tune] selected extra primes {chosen} with expected density {prod:.2e}")
     return chosen
-
 
 def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, vecs,
                                               num_subsets, min_size, max_size, combo_cap,
@@ -801,7 +774,6 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
 
     # produce remaining subsets by weighted sampling, skipping heavy ones
     max_attempts_per_subset = 200
-    import random
     for _ in range(remaining):
         attempts = 0
         chosen = None
@@ -862,71 +834,69 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
     #print("subsets used:", unique_subsets)
     return unique_subsets
 
-
 def compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=DEBUG):
     """
     For each prime, compute what fraction of search vectors have roots mod that prime.
-    
+
     Args:
         prime_pool (list): Primes to analyze
         precomputed_residues (dict): {p: {v_tuple: [roots_per_rhs]}} from worker
         vecs (list): All search vectors
         debug (bool): Print diagnostics
-    
+
     Returns:
         dict: {p: coverage_fraction} where coverage in [0, 1]
     """
     coverage = {}
-    
+
     num_vecs = len(vecs)
     if num_vecs == 0:
         return {p: 0.5 for p in prime_pool}
-    
+
     for p in prime_pool:
         p_data = precomputed_residues.get(p, {})
         if not p_data:
             coverage[p] = 0.0
             continue
-        
+
         # Count vectors that have at least one root for this prime (across any RHS)
         vectors_with_roots = 0
         for v in vecs:
             v_tuple = tuple(v)
             roots_list = p_data.get(v_tuple, [])
-            
+
             # roots_list is a list of sets (one per RHS function)
             # Check if any RHS has roots
             has_roots = any(rhs_roots for rhs_roots in roots_list)
-            
+
             if has_roots:
                 vectors_with_roots += 1
-        
+
         coverage[p] = float(vectors_with_roots) / float(num_vecs)
-    
+
     if debug:
         sorted_by_cov = sorted(coverage.items(), key=lambda x: x[1], reverse=True)
         print(f"[compute_prime_coverage] Prime coverage (top 20):")
         for p, cov in sorted_by_cov[:20]:
             print(f"  p={p}: coverage={cov:.1%}")
-    
+
     return coverage
 
 def print_subset_productivity_stats(productive, all_subsets):
     """Print quick stats on which prime subsets were productive"""
-    from collections import Counter
-    
+
     total = len(all_subsets)
     productive_count = len(productive)
     total_candidates = sum(p['candidates'] for p in productive)
-    
+
     print(f"\n[subset stats] {productive_count}/{total} subsets produced candidates "
           f"({100*productive_count/total:.1f}%)")
     print(f"[subset stats] {total_candidates} total candidates from productive subsets")
-    
+
     # By size
     by_size = Counter(p['size'] for p in productive)
     all_by_size = Counter(len(s) for s in all_subsets)
-    
+
     print(f"[subset stats] Productivity by size:")
     for size in sorted(all_by_size.keys()):
         prod_count = by_size.get(size, 0)
@@ -935,15 +905,12 @@ def print_subset_productivity_stats(productive, all_subsets):
         cands = sum(p['candidates'] for p in productive if p['size'] == size)
         print(f"  Size {size}: {prod_count}/{total_count} productive ({rate:.1f}%), "
               f"{cands} candidates")
-    
+
     # Top productive subsets
     top = sorted(productive, key=lambda x: x['candidates'], reverse=True)[:5]
     print(f"[subset stats] Top 5 productive subsets:")
     for p in top:
         print(f"  {p['primes']}: {p['candidates']} candidates")
-
-
-# Add near other helpers in search_lll.py (no leading underscores)
 
 def compute_residues_by_prime_numeric(precomputed_residues):
     """
@@ -962,17 +929,12 @@ def compute_residues_by_prime_numeric(precomputed_residues):
         residues_by_prime[int(p)] = s
     return residues_by_prime
 
-
-# ----------------------------------------
-# helpers for residue orders
-# ----------------------------------------
 def residue_order_additive(residue, p):
     """Order of residue in additive group Z/pZ"""
     if residue % p == 0:
         return 1
     from math import gcd
     return p // gcd(residue, p)
-
 
 def summarize_order_stats(order_list):
     """Return frequency, dominance, and entropy of a list of orders"""
@@ -985,16 +947,10 @@ def summarize_order_stats(order_list):
     entropy = -sum((v/total) * math.log2(v/total) for v in count.values())
     return {'freq': dict(count), 'dominance': dominance, 'entropy': entropy}
 
-
 """
 Complete residue analysis with proper diagnostics.
 Add this to ll_utilities.py, replacing the incomplete versions.
 """
-
-
-# ============================================================================
-# HELPER FUNCTIONS (keep existing ones, add these)
-# ============================================================================
 
 def quadratic_character(r, p):
     """Legendre symbol (r/p). RAISES on error."""
@@ -1002,7 +958,6 @@ def quadratic_character(r, p):
         return 0
     from sage.all import kronecker
     return kronecker(r, p)
-
 
 def discriminant_valuation(r, p, Delta_pr):
     """v_p(Delta(r)) for discriminant polynomial. RAISES on error."""
@@ -1013,7 +968,6 @@ def discriminant_valuation(r, p, Delta_pr):
         return "inf"
     ret = QQ(val_at_r).valuation(p)
     return ret
-
 
 def compute_trace_of_frobenius(r, p, Ep_m):
     """Trace of Frobenius a_p. RAISES on error."""
@@ -1028,7 +982,6 @@ def compute_trace_of_frobenius(r, p, Ep_m):
     Ep_r = EllipticCurve(GF(p), [0, 0, 0, a4_r, a6_r])
     return Ep_r.trace_of_frobenius()
 
-
 def local_height_contribution(r, p, rhs_fn):
     """Local height lambda_p(r). RAISES on error."""
     from sage.all import var, Integer, QQ
@@ -1039,25 +992,20 @@ def local_height_contribution(r, p, rhs_fn):
     den_val = Integer(f_r_qq.denominator()).valuation(p)
     return max(0, -num_val) + max(0, den_val)
 
-
 def residue_order_multiplicative(residue, p):
     """Order in (Z/pZ)*. RAISES on error."""
-    from sage.all import Zmod
     if residue % p == 0:
         return 0
     return Zmod(p)(residue).multiplicative_order()
 
-
 def liftability_order(r, p, f):
     """p-adic liftability v_p(f(r)). RAISES on error."""
-    from sage.all import var, Integer, QQ
     m = var('m')
     f_r = f.subs({m: r})
     f_r = QQ(f_r)
     num_val = Integer(f_r.numerator()).valuation(p)
     den_val = Integer(f_r.denominator()).valuation(p)
     return num_val - den_val
-
 
 def summarize_unused_residue_characteristics(analysis_ret, top_k=10):
     """Summary with patterns. RAISES on error."""
@@ -1086,57 +1034,56 @@ def summarize_unused_residue_characteristics(analysis_ret, top_k=10):
         'patterns': patterns
     }
 
-
 def print_residue_analysis(analysis):
     """Print analysis. RAISES on error."""
     summary = summarize_unused_residue_characteristics(analysis)
-    
+
     print("\n" + "="*70)
     print("RESIDUE PATTERN ANALYSIS")
     print("="*70)
-    
+
     print(f"\nTotal primes analyzed: {summary['num_primes']}")
     print(f"Total residues: {summary['total_residues']}")
     print(f"Unused residues: {summary['total_unused']}")
-    
+
     if 'patterns' in summary:
         patterns = summary['patterns']
-        
+
         print("\n--- Discriminant Patterns ---")
         print(f"  Used: {dict(patterns['disc_pattern_used'])}")
         print(f"  Unused: {dict(patterns['disc_pattern_unused'])}")
-        
+
         print("\n--- Quadratic Character ---")
         print(f"  Used: {dict(patterns['qc_used'])}")
         print(f"  Unused: {dict(patterns['qc_unused'])}")
-        
+
         print("\n--- Liftability ---")
         print(f"  Used: {dict(patterns['lift_range_used'])}")
         print(f"  Unused: {dict(patterns['lift_range_unused'])}")
-        
+
         if 'local_height_stats_used' in patterns and 'local_height_stats_unused' in patterns:
             print("\n--- Local Height ---")
             u = patterns['local_height_stats_used']
             un = patterns['local_height_stats_unused']
             print(f"  Used: mean={u['mean']:.2f}, median={u['median']:.2f}, max={u['max']}")
             print(f"  Unused: mean={un['mean']:.2f}, median={un['median']:.2f}, max={un['max']}")
-        
+
         print("\n--- Composite Patterns ---")
         comp = patterns['composite_patterns']
         print(f"  High lift + high disc: used={comp['used_high_lift_high_disc']}, unused={comp['unused_high_lift_high_disc']}")
         print(f"  QC=-1 + lift>0: used={comp['used_qc_minus_lift_pos']}, unused={comp['unused_qc_minus_lift_pos']}")
         print(f"  Zero local height: used={comp['used_zero_local_height']}, unused={comp['unused_zero_local_height']}")
-        
+
         # Discriminative power
         print("\n--- Discriminative Power ---")
         total_used = sum(patterns['qc_used'].values())
         total_unused = sum(patterns['qc_unused'].values())
-        
+
         if total_used > 0 and total_unused > 0:
             for feature in ['qc', 'disc_pattern', 'lift_range', 'a_p_sign']:
                 used_dist = patterns[f'{feature}_used']
                 unused_dist = patterns[f'{feature}_unused']
-                
+
                 categories = set(used_dist.keys()) | set(unused_dist.keys())
                 max_diff = 0
                 best_cat = None
@@ -1147,14 +1094,13 @@ def print_residue_analysis(analysis):
                     if diff > max_diff:
                         max_diff = diff
                         best_cat = cat
-                
+
                 if best_cat:
                     used_pct = 100 * used_dist.get(best_cat, 0) / max(1, total_used)
                     unused_pct = 100 * unused_dist.get(best_cat, 0) / max(1, total_unused)
                     print(f"  {feature}: diff={max_diff:.3f} at '{best_cat}' (used={used_pct:.1f}%, unused={unused_pct:.1f}%)")
-    
-    print("="*70)
 
+    print("="*70)
 
 def analyze_unused_residue_orders(precomputed_residues,
                                   rhs_list,
@@ -1171,7 +1117,7 @@ def analyze_unused_residue_orders(precomputed_residues,
     """
     from sage.all import ZZ, QQ, GF, Integer as SageInteger
     from collections import Counter, defaultdict
-    
+
     # Build numeric residues
     residues_by_prime = {}
     for p, mapping in precomputed_residues.items():
@@ -1205,7 +1151,7 @@ def analyze_unused_residue_orders(precomputed_residues,
 
     # Analyze each prime
     per_prime_report = {}
-    
+
     for p in prime_list:
         residues = sorted(residues_by_prime.get(p, []))
         used = found_residues_by_prime.get(p, set())
@@ -1228,13 +1174,13 @@ def analyze_unused_residue_orders(precomputed_residues,
 
         # Compute diagnostics for all residues
         diagnostics = {}
-        
+
         # Get first RHS function (convert to list to index)
         if isinstance(rhs_list, set):
             rhs_list_as_list = list(rhs_list)
         else:
             rhs_list_as_list = list(rhs_list)
-        
+
         if not rhs_list_as_list:
             # No RHS functions available, skip diagnostics
             continue
@@ -1242,10 +1188,10 @@ def analyze_unused_residue_orders(precomputed_residues,
         # Ensure we have a symbolic expression
         from sage.all import SR
         rhs_fn = SR(rhs_list_as_list[0])
-    
+
         if debug:
             print(f"[analyze_unused_residue_orders] Using RHS function: {rhs_fn}")
-        
+
         for r in residues:
             # All these RAISE on error
             vp = liftability_order(r, p, rhs_fn)
@@ -1254,10 +1200,9 @@ def analyze_unused_residue_orders(precomputed_residues,
             ap = compute_trace_of_frobenius(r, p, Ep_m_p)
             lh = local_height_contribution(r, p, rhs_fn)
 
-
             # --- FIX START ---
             from sage.rings.infinity import infinity
-            
+
             # Composite diagnostics
             # Safely compute lift_disc
             dv_safe = dv if isinstance(dv, (int, SageInteger)) else 0
@@ -1268,11 +1213,11 @@ def analyze_unused_residue_orders(precomputed_residues,
 
             # Safely compute qc_lift
             if vp is infinity:
-                qc_lift = 100 * qc 
+                qc_lift = 100 * qc
             else:
                 qc_lift = qc * vp
             # --- FIX END ---
-            
+
             # Categorize - FIXED to handle Sage Integers
             if dv == "inf":
                 disc_pattern = "singular"
@@ -1286,7 +1231,7 @@ def analyze_unused_residue_orders(precomputed_residues,
                 disc_pattern = "smooth"
             else:
                 disc_pattern = "unknown"
-            
+
             diagnostics[r] = {
                 'multiplicity': multiplicity.get(r, 0),
                 'origin_count': len(origin_vectors.get(r, [])),
@@ -1322,54 +1267,51 @@ def analyze_unused_residue_orders(precomputed_residues,
         'global': global_summary
     }
 
-
 """
 Enhanced prime subset generation with QC-aware biasing.
 Add this to ll_utilities.py
 """
 
-def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list, 
+def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
                            target_qc_ratio=None, debug=False):
     """
     Compute QC distribution bias for each prime.
-    
+
     Returns:
         dict: {p: {'qc_ratio': float, 'qc_entropy': float, 'coverage': float}}
-        
+
     Strategy: Primes with QC ratios matching the target are more likely productive.
     If target_qc_ratio is None, don't use QC bias (fall back to coverage only).
     """
-    from collections import Counter
     from sage.all import kronecker, QQ
-    import math
-    
+
     scores = {}
-    
+
     for p in prime_pool:
         mapping = precomputed_residues.get(p, {})
         if not mapping:
             scores[p] = {'qc_ratio': 1.0, 'qc_entropy': 0.0, 'coverage': 0.0}
             continue
-        
+
         # Collect all numeric residues for this prime
         all_residues = set()
         vectors_with_roots = 0
         total_vectors = len(mapping)
-        
+
         for vtuple, rhs_lists in mapping.items():
             has_roots = any(rhs_roots for rhs_roots in rhs_lists)
             if has_roots:
                 vectors_with_roots += 1
-            
+
             for rl in rhs_lists:
                 for r in rl:
                     if isinstance(r, int):
                         all_residues.add(int(r % p))
-        
+
         if not all_residues:
             scores[p] = {'qc_ratio': 1.0, 'qc_entropy': 0.0, 'coverage': 0.0}
             continue
-        
+
         # Compute QC distribution
         qc_counts = Counter()
         for r in all_residues:
@@ -1378,15 +1320,15 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
                 qc_counts[qc] += 1
             except Exception:
                 continue
-        
+
         # Compute ratio (with smoothing to avoid division by zero)
         qc_minus = qc_counts.get(-1, 0)
         qc_plus = qc_counts.get(1, 0)
         qc_zero = qc_counts.get(0, 0)
-        
+
         # Add Laplace smoothing
         qc_ratio = (qc_minus + 1) / (qc_plus + 1)
-        
+
         # Compute entropy (measure of QC uniformity)
         total = qc_minus + qc_plus + qc_zero
         if total > 0:
@@ -1394,9 +1336,9 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
             qc_entropy = -sum(p * math.log2(p) for p in probs)
         else:
             qc_entropy = 0.0
-        
+
         coverage = vectors_with_roots / max(1, total_vectors)
-        
+
         scores[p] = {
             'qc_ratio': qc_ratio,
             'qc_entropy': qc_entropy,
@@ -1404,11 +1346,11 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
             'qc_counts': dict(qc_counts),
             'total_residues': len(all_residues)
         }
-    
+
     if debug and target_qc_ratio is not None:
         print("\n[QC Bias Analysis]")
-        sorted_by_ratio = sorted(scores.items(), 
-                                key=lambda x: abs(x[1]['qc_ratio'] - target_qc_ratio), 
+        sorted_by_ratio = sorted(scores.items(),
+                                key=lambda x: abs(x[1]['qc_ratio'] - target_qc_ratio),
                                 reverse=False)
         print(f"Primes closest to target QC ratio ({target_qc_ratio:.3f}):")
         for p, data in sorted_by_ratio[:10]:
@@ -1416,20 +1358,18 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
                   f"entropy={data['qc_entropy']:.3f}, "
                   f"coverage={data['coverage']:.1%}, "
                   f"counts={data.get('qc_counts', {})}")
-    
+
     return scores
 
-
-# Drop-in replacement wrapper
-def generate_biased_prime_subsets_by_coverage_v2(prime_pool, precomputed_residues, 
-                                                  vecs, num_subsets, min_size, 
+def generate_biased_prime_subsets_by_coverage_v2(prime_pool, precomputed_residues,
+                                                  vecs, num_subsets, min_size,
                                                   max_size, combo_cap, seed=None,
                                                   force_full_pool=False, debug=False,
                                                   roots_threshold=12, rhs_list=None,
                                                   use_qc_bias=True, target_qc_ratio=1.2):
     """
     Enhanced version that can use QC bias or fall back to original coverage-only.
-    
+
     Set use_qc_bias=True to enable QC-aware generation.
     """
     if use_qc_bias and rhs_list is not None:
@@ -1448,21 +1388,20 @@ def generate_biased_prime_subsets_by_coverage_v2(prime_pool, precomputed_residue
             debug=debug, roots_threshold=roots_threshold
         )
 
-
-def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density, 
+def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
                                  target_coverage=0.40, base_subsets=NUM_PRIME_SUBSETS):
     """
     Dynamically size NUM_SUBSETS based on surface geometry.
-    
+
     Args:
         fiber_collision_fraction: Fraction of primes with fiber collisions (0.0 to 1.0)
         avg_density: Average residue density across primes (typically 0.02 to 0.15)
         target_coverage: Desired m-space coverage (default 40%)
         base_subsets: Baseline for "normal" surfaces (default 500)
-    
+
     Returns:
         int: Recommended number of prime subsets
-    
+
     Theory:
         - Higher density → easier to find points → need fewer subsets
         - More collisions → less reachable space → need more subsets
@@ -1472,7 +1411,7 @@ def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
     reachable = 1.0 - fiber_collision_fraction
     if reachable < 0.5:
         reachable = 0.5  # Floor at 50% to avoid explosion
-    
+
     # --- FIX: These factors should be independent ---
     # The old logic incorrectly mixed them, double-counting the 'reachable' term.
 
@@ -1480,27 +1419,25 @@ def compute_adaptive_num_subsets(fiber_collision_fraction, avg_density,
     # Reference: 0.08 is "normal" density
     density_to_use = max(0.02, avg_density) # Floor to avoid explosion
     density_factor = 0.8 / density_to_use
-    
+
     # Reachability factor: lower reachability → more subsets needed
     # Reference: 0.80 is "normal" reachability (20% collision rate)
     reachability_factor = 0.95 / reachable
-    
+
     # Combined adjustment
     adjusted = base_subsets * density_factor * reachability_factor
-    
+
     print("density factor", density_factor)
     print("reachability factor", reachability_factor)
-    
+
     # Clamp to reasonable range [100, 2000]
     adjusted = max(100, min(2000, adjusted))
-    
-    return int(adjusted)
 
+    return int(adjusted)
 
 def detect_residue_patterns(per_prime):
     """Detect patterns. RAISES on error."""
-    from collections import Counter
-    
+
     patterns = {
         'disc_pattern_used': Counter(),
         'disc_pattern_unused': Counter(),
@@ -1521,12 +1458,12 @@ def detect_residue_patterns(per_prime):
             'unused_zero_local_height': 0,
         }
     }
-    
+
     for p, info in per_prime.items():
         diag = info['diagnostics']
         used = info['used_residues']
         unused = info['unused_residues']
-        
+
         # Process used
         for r in used:
             if r not in diag:
@@ -1534,7 +1471,7 @@ def detect_residue_patterns(per_prime):
             d = diag[r]
             patterns['disc_pattern_used'][d.get('disc_pattern', 'unknown')] += 1
             patterns['qc_used'][d.get('qc', 'NA')] += 1
-            
+
             lh = d.get('local_height')
             if lh is not None:
                 # *** FIX: Convert to Python float ***
@@ -1545,7 +1482,7 @@ def detect_residue_patterns(per_prime):
                         patterns['composite_patterns']['used_zero_local_height'] += 1
                 except (TypeError, ValueError):
                     pass  # Skip non-numeric values
-            
+
             lift = d.get('liftability_order', 0)
             if lift < -1:
                 patterns['lift_range_used']['highly_negative'] += 1
@@ -1557,7 +1494,7 @@ def detect_residue_patterns(per_prime):
                 patterns['lift_range_used']['positive'] += 1
             else:
                 patterns['lift_range_used']['highly_positive'] += 1
-            
+
             ap = d.get('a_p')
             if ap == 'sing':
                 patterns['a_p_sign_used']['singular'] += 1
@@ -1568,12 +1505,12 @@ def detect_residue_patterns(per_prime):
                     patterns['a_p_sign_used']['negative'] += 1
                 else:
                     patterns['a_p_sign_used']['zero'] += 1
-            
+
             if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
                 patterns['composite_patterns']['used_high_lift_high_disc'] += 1
             if d.get('qc') == -1 and lift > 0:
                 patterns['composite_patterns']['used_qc_minus_lift_pos'] += 1
-        
+
         # Process unused
         for r in unused:
             if r not in diag:
@@ -1581,7 +1518,7 @@ def detect_residue_patterns(per_prime):
             d = diag[r]
             patterns['disc_pattern_unused'][d.get('disc_pattern', 'unknown')] += 1
             patterns['qc_unused'][d.get('qc', 'NA')] += 1
-            
+
             lh = d.get('local_height')
             if lh is not None:
                 # *** FIX: Convert to Python float ***
@@ -1592,7 +1529,7 @@ def detect_residue_patterns(per_prime):
                         patterns['composite_patterns']['unused_zero_local_height'] += 1
                 except (TypeError, ValueError):
                     pass  # Skip non-numeric values
-            
+
             lift = d.get('liftability_order', 0)
             if lift < -1:
                 patterns['lift_range_unused']['highly_negative'] += 1
@@ -1604,7 +1541,7 @@ def detect_residue_patterns(per_prime):
                 patterns['lift_range_unused']['positive'] += 1
             else:
                 patterns['lift_range_unused']['highly_positive'] += 1
-            
+
             ap = d.get('a_p')
             if ap == 'sing':
                 patterns['a_p_sign_unused']['singular'] += 1
@@ -1615,12 +1552,12 @@ def detect_residue_patterns(per_prime):
                     patterns['a_p_sign_unused']['negative'] += 1
                 else:
                     patterns['a_p_sign_unused']['zero'] += 1
-            
+
             if lift >= 1 and isinstance(d.get('disc_val'), int) and d.get('disc_val') >= 1:
                 patterns['composite_patterns']['unused_high_lift_high_disc'] += 1
             if d.get('qc') == -1 and lift > 0:
                 patterns['composite_patterns']['unused_qc_minus_lift_pos'] += 1
-    
+
     # Compute stats - RAISES on error
     if patterns['local_height_used']:
         import statistics
@@ -1630,15 +1567,13 @@ def detect_residue_patterns(per_prime):
             'max': max(patterns['local_height_used'])
         }
     if patterns['local_height_unused']:
-        import statistics
         patterns['local_height_stats_unused'] = {
             'mean': statistics.mean(patterns['local_height_unused']),
             'median': statistics.median(patterns['local_height_unused']),
             'max': max(patterns['local_height_unused'])
         }
-    
-    return patterns
 
+    return patterns
 
 def _robust_coerce_to_modp(val, Fp_m, p):
     """
@@ -1683,7 +1618,7 @@ def _robust_coerce_to_modp(val, Fp_m, p):
         # Check if denominator vanishes mod p
         if all(GF(p)(c) == 0 for c in den_coeffs):
             return None # Division by zero mod p
-        
+
         den_modp = Rp([GF(p)(c) for c in den_coeffs])
 
         return Fp_m(num_modp) / Fp_m(den_modp)
@@ -1692,49 +1627,46 @@ def _robust_coerce_to_modp(val, Fp_m, p):
         # print(f"Debug: Manual coef map failed for p={p}: {e}")
         return None
 
-
 def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                                      rhs_list, num_subsets, min_size, max_size,
                                      combo_cap, seed=None, debug=False,
                                      roots_threshold=12, target_qc_ratio=None):
     """
     Generate prime subsets biased toward primes with favorable QC distributions.
-    
+
     Args:
         target_qc_ratio: Target QC=-1/QC=1 ratio. If None, use coverage only (no QC bias)
-    
+
     Strategy:
         1. Score primes by how close their QC ratio is to target (if provided)
         2. Weight subsets to include primes with good QC ratios + high coverage
         3. Maintain diversity by including some "average" primes too
     """
-    import random
-    import math
     if seed is not None:
         random.seed(seed)
-    
+
     # === FIX: Handle small prime pools gracefully ===
     if len(prime_pool) < min_size:
         if debug:
             print(f"[QC-Biased] WARNING: prime_pool size ({len(prime_pool)}) < min_size ({min_size})")
             print(f"[QC-Biased] Adjusting min_size to {len(prime_pool)}")
         min_size = max(1, len(prime_pool))
-    
+
     if max_size < min_size:
         if debug:
             print(f"[QC-Biased] WARNING: max_size ({max_size}) < min_size ({min_size})")
             print(f"[QC-Biased] Adjusting max_size to {min_size}")
         max_size = min_size
-    
+
     if len(prime_pool) == 0:
         if debug:
             print("[QC-Biased] ERROR: Empty prime_pool, returning empty list")
         return []
     # === END FIX ===
-    
+
     # Compute coverage (always use this)
     coverage = compute_prime_coverage(prime_pool, precomputed_residues, vecs, debug=False)
-    
+
     # Decide whether to use QC bias
     if target_qc_ratio is None:
         # Pure coverage-based (original behavior)
@@ -1743,29 +1675,29 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
         composite_scores = coverage
     else:
         # Compute QC scores
-        qc_scores = compute_qc_bias_scores(prime_pool, precomputed_residues, 
-                                           rhs_list, target_qc_ratio=target_qc_ratio, 
+        qc_scores = compute_qc_bias_scores(prime_pool, precomputed_residues,
+                                           rhs_list, target_qc_ratio=target_qc_ratio,
                                            debug=debug)
-        
+
         # Build composite score: balance QC ratio + coverage
         composite_scores = {}
         for p in prime_pool:
             qc_data = qc_scores[p]
             cov = coverage.get(p, 0.0)
-            
+
             # Distance from target QC ratio (smaller is better)
             qc_distance = abs(qc_data['qc_ratio'] - target_qc_ratio)
-            
+
             # QC score: exponential penalty for distance from target
             # Use -3 instead of -2 to make it sharper
             qc_score = math.exp(-3 * qc_distance)  # Peaks sharply at ratio=target
-            
+
             # Composite score: balance coverage and QC
             # Scale coverage to [0,1] range and weight equally
             composite = 0.5 * cov + 0.5 * qc_score
-            
+
             composite_scores[p] = composite
-        
+
         if debug:
             print(f"\n[QC-Biased Generation] Target QC ratio: {target_qc_ratio:.3f}")
             print("Top primes by composite score:")
@@ -1774,25 +1706,25 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                 qc_r = qc_scores[p]['qc_ratio']
                 cov = coverage.get(p, 0)
                 print(f"  p={p}: score={score:.3f}, qc_ratio={qc_r:.3f}, coverage={cov:.1%}")
-    
+
     # Normalize to weights
     total_weight = sum(composite_scores.values())
     if total_weight == 0:
         weights = [1.0] * len(prime_pool)
     else:
         weights = [composite_scores[p] / total_weight for p in prime_pool]
-    
+
     # Identify top primes by composite score
     sorted_primes = sorted(composite_scores.items(), key=lambda x: -x[1])
     top_k = max(5, len(sorted_primes) // 3)
     top_primes = [p for p, _ in sorted_primes[:top_k]]
-    
+
     if debug and target_qc_ratio is not None:
         print(f"[QC-Biased] Top {len(top_primes)} primes: {top_primes[:10]}")
-    
+
     # Generate subsets
     subsets = []
-    
+
     # Phase 1: Forced subsets featuring top primes
     num_forced = min(30, max(5, num_subsets // 8))
     for i in range(num_forced):
@@ -1812,7 +1744,7 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                 subset = random.sample(top_primes, k=num_top)
             else:
                 subset = []
-            
+
             remaining_slots = size - len(subset)
             if remaining_slots > 0:
                 other_primes = [p for p in prime_pool if p not in subset]
@@ -1822,15 +1754,15 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                     k = min(remaining_slots, len(other_primes))
                     chosen = random.choices(other_primes, weights=other_weights, k=k)
                     subset.extend(chosen)
-        
+
         if subset:  # Only add non-empty subsets
             subsets.append(tuple(sorted(set(subset))))
-    
+
     # Phase 2: Random weighted subsets
     remaining = num_subsets - len(subsets)
     for _ in range(remaining):
         size = random.randint(min_size, min(max_size, len(prime_pool)))
-        
+
         subset = []
         attempts = 0
         while len(subset) < size and attempts < size * 20:
@@ -1838,14 +1770,14 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
             if p not in subset:
                 subset.append(p)
             attempts += 1
-        
+
         if subset:  # Only add non-empty subsets
             subsets.append(tuple(sorted(subset)))
-    
+
     # Deduplicate and filter by combo_cap
     unique_subsets = []
     seen = set()
-    
+
     # Build numeric residues map
     residues_by_prime_numeric = {}
     for p, mapping in precomputed_residues.items():
@@ -1856,11 +1788,11 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                     if isinstance(r, int):
                         residues_set.add(r)
         residues_by_prime_numeric[p] = residues_set
-    
+
     for subset in subsets:
         if subset in seen or not subset:
             continue
-        
+
         est = 1
         viable = True
         for p in subset:
@@ -1878,25 +1810,24 @@ def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
                 if est > combo_cap:
                     viable = False
                     break
-        
+
         if viable:
             seen.add(subset)
             unique_subsets.append(list(subset))
-    
+
     if debug:
         print(f"[QC-Biased] Generated {len(unique_subsets)} unique viable subsets")
         if unique_subsets:
             print("Sample subsets:", unique_subsets[:3])
-    
+
     # === FIX: Ensure we return something even in pathological cases ===
     if not unique_subsets and prime_pool:
         if debug:
             print("[QC-Biased] WARNING: No viable subsets generated, returning single full pool subset")
         unique_subsets = [list(prime_pool)]
     # === END FIX ===
-    
-    return unique_subsets
 
+    return unique_subsets
 
 def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
     """
@@ -1904,17 +1835,16 @@ def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
     Returns canonicalized vectors (first non-zero element positive).
     """
     from itertools import product
-    import random
-    
+
     vecs = set()
-    
+
     # Phase 1: All single-section multiples [1..max_coeff]
     for i in range(num_sections):
         for k in range(1, max_coeff + 1):
             v = [0] * num_sections
             v[i] = k
             vecs.add(tuple(v))
-    
+
     # Phase 2: Small combinations (up to ±5)
     for coeffs in product(range(-5, 6), repeat=num_sections):
         if all(c == 0 for c in coeffs):
@@ -1922,24 +1852,23 @@ def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
         if sum(abs(c) for c in coeffs) > max_coeff:
             continue
         vecs.add(coeffs)
-    
+
     # Phase 3: Random combinations
     for _ in range(num_vecs):
         v = tuple(random.randint(-max_coeff, max_coeff) for _ in range(num_sections))
         if any(c != 0 for c in v):
             vecs.add(v)
-    
+
     # Convert to list
     vecs_list = list(vecs)
-    
+
     # Canonicalize
     canonical = canonicalize_by_sign(vecs_list)
-    
+
     print(f"[FF vectors] Generated {len(canonical)} canonical vectors")
     print(f"  Sample: {canonical[:10]}")
-    
-    return canonical
 
+    return canonical
 
 class LargePrimeMockCurve:
     """Minimal Elliptic Curve implementation to bypass Singular limits for large primes."""
@@ -1951,10 +1880,10 @@ class LargePrimeMockCurve:
     def a4(self): return self._a4
     def a6(self): return self._a6
     def base_ring(self): return self._base_ring
-    
+
     # [Fix] Added alias required by reduce_point_hom
-    def base_field(self): return self._base_ring 
-    
+    def base_field(self): return self._base_ring
+
     def __call__(self, *args):
         # Handle construction: E(0), E((x,y,z)), E(x,y)
         if len(args) == 1:
@@ -1983,7 +1912,7 @@ def reduce_point_hom(E_mod_p, P, p, logger=None):
 
     # [Fix] robustness for Mock curves vs Sage curves
     if hasattr(E_mod_p, 'base_field'):
-        Fp_target = E_mod_p.base_field() 
+        Fp_target = E_mod_p.base_field()
     else:
         Fp_target = E_mod_p.base_ring()
 
@@ -2004,7 +1933,7 @@ def reduce_point_hom(E_mod_p, P, p, logger=None):
         pt = E_mod_p(reduced_coords[0], reduced_coords[1])
     else:
         raise ValueError(f"Unsupported coordinate length: {len(reduced_coords)}")
-        
+
     return pt
 
 class LargePrimeMockPoint:
@@ -2012,13 +1941,13 @@ class LargePrimeMockPoint:
     def __init__(self, curve, coords):
         self._curve = curve
         self._coords = tuple(coords)
-        
+
     def __getitem__(self, idx): return self._coords[idx]
     def curve(self): return self._curve
     def list(self): return list(self._coords)
     def __iter__(self): return iter(self._coords)
     def __repr__(self): return f"MockPoint({self._coords})"
-    
+
     # [Fix] Added missing is_zero method to satisfy API
     def is_zero(self):
         # Standard projective identity is (0:1:0)
@@ -2027,23 +1956,23 @@ class LargePrimeMockPoint:
     def __neg__(self):
         X, Y, Z = self._coords
         return LargePrimeMockPoint(self._curve, (X, -Y, Z))
-        
+
     def __add__(self, other):
         # Standard projective addition formulas (Short Weierstrass)
         # Bypasses Singular/Sage coordinate ring machinery
         if self.is_zero(): return other
         if other.is_zero(): return self
-        
+
         X1, Y1, Z1 = self._coords
         X2, Y2, Z2 = other._coords
-        
+
         # Check if P1 == P2 (Doubling) or P1 == -P2
         # Note: In Fp(m), equality is symbolic/polynomial equality
         U1 = X1 * Z2
         U2 = X2 * Z1
         S1 = Y1 * Z2
         S2 = Y2 * Z1
-        
+
         if U1 == U2:
             if S1 != S2:
                 return self._curve(0) # P + (-P) = 0
@@ -2053,35 +1982,35 @@ class LargePrimeMockPoint:
         W = Z1 * Z2
         P_val = U2 - U1
         R = S2 - S1
-        
+
         P2 = P_val * P_val
         P3 = P2 * P_val
-        
+
         X3 = -2 * U1 * P2
-        X3 += -P3 + R*R * W 
-        
+        X3 += -P3 + R*R * W
+
         Y3 = -S1 * P3 + R * (U1 * P2 - X3)
         Z3 = W * P3
-        
+
         return LargePrimeMockPoint(self._curve, (X3, Y3, Z3))
-        
+
     def double(self):
         X1, Y1, Z1 = self._coords
         if Y1 == 0: return self._curve(0)
-        
+
         a4 = self._curve.a4()
-        
+
         W = 3 * X1 * X1 + a4 * Z1 * Z1
         S = Y1 * Z1
         B = X1 * Y1 * S
         H = W * W - 8 * B
-        
+
         X3 = 2 * H * S
         S2 = S * S
         Y1_2 = Y1 * Y1
         Y3 = W * (4 * B - H) - 8 * Y1_2 * S2
         Z3 = 8 * S * S2
-        
+
         return LargePrimeMockPoint(self._curve, (X3, Y3, Z3))
 
     def __rmul__(self, scalar):
@@ -2089,7 +2018,7 @@ class LargePrimeMockPoint:
         scalar = int(scalar)
         if scalar == 0: return self._curve(0)
         if scalar < 0: return (-self).__rmul__(-scalar)
-        
+
         res = self._curve(0)
         temp = self
         while scalar > 0:
@@ -2098,10 +2027,9 @@ class LargePrimeMockPoint:
             temp = temp.double()
             scalar //= 2
         return res
-    
+
     def __mul__(self, scalar):
         return self.__rmul__(scalar)
-
 
 def _decompose_rhs_to_PRm(rhs):
     """
@@ -2110,7 +2038,6 @@ def _decompose_rhs_to_PRm(rhs):
     In FINITE_FIELD mode, this is NOT possible in QQ terms.
     We must short-circuit and signal the caller to skip this RHS.
     """
-    from search_common import FINITE_FIELD
 
     # -------------------------------
     # FINITE FIELD MODE: NO DECOMPOSE

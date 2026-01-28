@@ -1,8 +1,6 @@
+import itertools, time
 from sage.all import QQ, PolynomialRing, SR, var, Infinity, solve, Integer, Matrix, QuadraticForm, vector, ZZ
-import itertools
-import time
 from diagnostics2 import *
-from sage.all import SR, Infinity, QQ, Integer, var
 
 # autos_k3.sage
 # Compute candidate automorphisms of an elliptic K3 surface (preserving the elliptic fibration)
@@ -23,11 +21,9 @@ from sage.all import SR, Infinity, QQ, Integer, var
 #
 # Writing style: short functions, explicit raising, no nested functions, no imports inside functions.
 
-
 # automorph_cleaned.py
 # Computes candidate automorphisms of an elliptic K3 surface.
 # Uses exact arithmetic over QQ and the rational function field QQ(m).
-
 
 # NOTE: The following dependencies are assumed to be available
 # from diagnostics2 import find_singular_fibers, build_ns_gram
@@ -49,14 +45,12 @@ def _coerce_m_symbol(cd):
         pass
     return var('m')
 
-
 def _apply_mobius_on_m(m_sym, mobius_tuple):
     """
     Applies a Möbius transformation to the symbolic variable m.
     """
     a, b, c, d = mobius_tuple
     return (a * m_sym + b) / (c * m_sym + d)
-
 
 def translation_map_section(section, m_sym):
     """
@@ -65,11 +59,11 @@ def translation_map_section(section, m_sym):
     """
     xS, yS = SR(section[0]), SR(section[1])
     x, y = SR.var('x'), SR.var('y')
-    
+
     lam = (y - yS) / (x - xS)
     x3 = lam**2 - x - xS
     y3 = lam * (x - x3) - y
-    
+
     return x3, y3
 
 def compose_map_symbolic(m_map1, x_map1, y_map1, m_map2, x_map2, y_map2, m_sym):
@@ -81,26 +75,24 @@ def compose_map_symbolic(m_map1, x_map1, y_map1, m_map2, x_map2, y_map2, m_sym):
     Returns the composed expressions (m_comp, x_comp, y_comp).
     """
     x, y = SR.var('x'), SR.var('y')
-    
+
     m1 = SR(m_map1) if m_map1 is not None else m_sym
     x1 = SR(x_map1)
     y1 = SR(y_map1)
-    
+
     m2 = SR(m_map2) if m_map2 is not None else m_sym
     x2 = SR(x_map2)
     y2 = SR(y_map2)
-    
+
     m_comp = SR(m2).subs({m_sym: m1})
     x_comp = SR(x2).subs({m_sym: m1, x: x1, y: y1})
     y_comp = SR(y2).subs({m_sym: m1, x: x1, y: y1})
-    
-    return m_comp, x_comp, y_comp
 
+    return m_comp, x_comp, y_comp
 
 # -------------------------
 # Main Automorphism Functions
 # -------------------------
-
 
 def classify_auts(auts, names):
     """
@@ -116,7 +108,7 @@ def classify_auts(auts, names):
     classified = []
     for M in auts:
         labels = []
-        
+
         # Check for section permutation
         perm_map = {}
         is_perm = True
@@ -132,11 +124,11 @@ def classify_auts(auts, names):
             if not found:
                 is_perm = False
                 break
-        
+
         if is_perm and perm_map:
             perm_list = [perm_map[i] for i in sorted(perm_map.keys())]
             labels.append(f"permutes_sections:{perm_list}")
-            
+
         # Check for component permutation
         perm_comp_map = {}
         is_perm_c = True
@@ -151,7 +143,7 @@ def classify_auts(auts, names):
             if not found:
                 is_perm_c = False
                 break
-        
+
         if is_perm_c and perm_comp_map:
             # Produce a list of (original_idx, new_idx) tuples
             perm_list = sorted(perm_comp_map.items())
@@ -159,9 +151,9 @@ def classify_auts(auts, names):
 
         if not labels:
             labels.append("general_isometry")
-            
+
         classified.append((M, labels))
-        
+
     return classified
 
 # -------------------------
@@ -175,37 +167,36 @@ def _perm_sign_candidates(G, names):
     n = G.nrows()
     E = [vector(ZZ, [1 if i == j else 0 for i in range(n)]) for j in range(n)]
     norms = [int(E[i] * G * E[i]) for i in range(n)]
-    
+
     norm_classes = {}
     for i, norm in enumerate(norms):
         norm_classes.setdefault(norm, []).append(i)
 
     mats = []
     class_items = list(norm_classes.items())
-    
+
     # Cap permutation combinations to avoid combinatorial explosion
     total_candidates = 1
     for _, idxs in class_items:
         total_candidates *= len(idxs)
         if total_candidates > 2000:
             return []
-            
+
     # Iterate through all combinations of permutations within norm classes
     for combo in itertools.product(*[itertools.permutations(idxs, len(idxs)) for _, idxs in class_items]):
         mapping = {orig: new for p in combo for orig, new in zip(p, p)}
-        
+
         ncols = []
         for j in range(n):
             tgt = mapping.get(j, j)
             col = E[tgt]
             ncols.append(col)
-        
+
         M = Matrix(ZZ, n, ncols)
         if (M.transpose() * G * M) == G:
             mats.append(M)
-            
-    return mats
 
+    return mats
 
 def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
     """
@@ -218,7 +209,7 @@ def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
 
     candidate_vectors_by_diag = {}
     vals_range = list(range(-bound, bound + 1))
-    
+
     for diag in set(G_target[i][i] for i in range(n)):
         cand_list = set()
         # Enumerate vectors with up to two non-zero entries
@@ -232,7 +223,7 @@ def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
                         v = [0] * n
                         v[i1] += a
                         if i1 != i2: v[i2] += b
-                        
+
                         vec = vector(ZZ, v)
                         if int(vec * G * vec) == diag:
                             cand_list.add(tuple(v))
@@ -248,7 +239,7 @@ def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
             return
         if len(solutions) >= max_solutions:
             return
-        
+
         if k == n:
             M = Matrix(ZZ, n, cols)
             if (M.transpose() * G * M) == G:
@@ -257,10 +248,10 @@ def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
 
         diag = G_target[k][k]
         candidates = candidate_vectors_by_diag.get(diag, [])
-        
+
         for c in candidates:
             if time.time() - start_time > time_limit: break
-            
+
             ok = True
             for j in range(k):
                 val = int(c * G * cols[j])
@@ -268,7 +259,7 @@ def _backtrack_isometries(G, names, bound=1, max_solutions=50, time_limit=30):
                     ok = False
                     break
             if not ok: continue
-            
+
             cols[k] = c
             build_col(k + 1)
             if len(solutions) >= max_solutions: break
@@ -285,10 +276,10 @@ def compute_ns_auts_via_search(G, names, try_perm_sign=True, bound=1, max_soluti
     if try_perm_sign:
         perms = _perm_sign_candidates(G, names)
         auts.extend(perms)
-        
+
     sols = _backtrack_isometries(G, names, bound=bound, max_solutions=max_solutions, time_limit=time_limit)
     auts.extend(sols)
-    
+
     # Deduplicate and return
     seen = set()
     uniq_auts = []
@@ -297,9 +288,8 @@ def compute_ns_auts_via_search(G, names, try_perm_sign=True, bound=1, max_soluti
         if key not in seen:
             seen.add(key)
             uniq_auts.append(M)
-            
-    return uniq_auts, names
 
+    return uniq_auts, names
 
 # --- robust mobius and candidate finder ---
 def mobius_from_3points(p1, p2, p3, q1, q2, q3):
@@ -350,15 +340,13 @@ def mobius_from_3points(p1, p2, p3, q1, q2, q3):
     # if all zero (shouldn't happen), raise
     raise ValueError("mobius_from_3points: solution was zero vector")
 
-
 # --- safer test_constant_scaling ---
-
 
 def _is_QQ_constant_rational_in_QQm(expr, m_sym, test_vals=None):
     """
     Fast check whether `expr` in QQ(m) is actually a constant in QQ.
     Uses sampling at a few rational points to avoid full coercion of large SR expressions.
-    
+
     Returns: (True, QQ(value)) or (False, None)
     """
     from sage.rings.rational import QQ
@@ -409,7 +397,6 @@ def _eval_mobius_at(mobius_tuple, center):
         return Infinity
     return (SR(a) * SR(center) + SR(b)) / denom
 
-
 # --- robust approximate equality via sampling ----
 def _equal_by_sampling(x, y, m_sym, test_vals=None):
     """
@@ -449,7 +436,6 @@ def _equal_by_sampling(x, y, m_sym, test_vals=None):
             return False
     return True
 
-
 # --- match multisets of centers/images robustly via sampling ---
 def match_sets(image_list, norm_centers, m_sym, test_vals=None):
     """
@@ -472,7 +458,6 @@ def match_sets(image_list, norm_centers, m_sym, test_vals=None):
             return False
         remaining.pop(found_idx)
     return True
-
 
 # --- improved find_mobius_candidates with caching & timeouts ---
 def find_mobius_candidates(centers, m_sym, max_triples=500, time_limit=10.0):
@@ -611,7 +596,6 @@ def test_constant_scaling(cd, mobius_tuple, m_sym, sample_vals=None):
 
     return None
 
-
 # Add this near the top of automorph.py, after imports:
 
 def _detect_base_field(cd):
@@ -632,27 +616,26 @@ def _detect_base_field(cd):
     except Exception:
         return QQ, False, None
 
-
 # REPLACE the entire compute_auts_preserving_fibration function with:
 
 def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
     """
     Main entry point to compute automorphisms preserving the elliptic fibration.
     Returns a dictionary with various types of automorphisms found.
-    
+
     In FINITE_FIELD mode: Only computes translation automorphisms (section additions).
     Möbius transformations require symbolic m which doesn't exist over F_p.
     """
     if m_sym is None:
         m_sym = _coerce_m_symbol(cd)
-    
+
     base_field, is_ff, p = _detect_base_field(cd)
-    
+
     if is_ff:
         print(f"[automorph] FINITE_FIELD mode detected (F_{p})")
         print(f"[automorph] Möbius automorphisms not applicable over finite fields")
         print(f"[automorph] Computing translation automorphisms only")
-        
+
         translation_autos = []
         if base_sections:
             for i, sec in enumerate(base_sections):
@@ -662,7 +645,7 @@ def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
                     'section_coords': sec,
                     'note': 'Translation by section (field-native)'
                 })
-        
+
         return {
             'mobius_candidates': [],
             'scaling_autos': [],
@@ -673,7 +656,7 @@ def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
             'prime': p,
             'note': 'Möbius transformations not computed in finite field mode'
         }
-    
+
     # QQ mode - original logic
     try:
         sing = find_singular_fibers(cd, verbose=False)
@@ -683,15 +666,15 @@ def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
         )
 
     centers = [f.get('r') for f in sing.get('fibers', []) if f.get('r') is not None]
-    
+
     mobius_cands = find_mobius_candidates(centers, m_sym)
-    
+
     scaling_autos = []
     for mob in mobius_cands:
         u = test_constant_scaling(cd, mob, m_sym)
         if u is not None:
             scaling_autos.append({'mobius': mob, 'u': u})
-    
+
     translation_autos = []
     if base_sections:
         for i, sec in enumerate(base_sections):
@@ -701,7 +684,7 @@ def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
                 'symbolic_map': (x3, y3),
                 'section_coords': sec,
             })
-            
+
     return {
         'mobius_candidates': mobius_cands,
         'scaling_autos': scaling_autos,
@@ -711,7 +694,6 @@ def compute_auts_preserving_fibration(cd, base_sections, m_sym=None):
         'mode': 'QQ'
     }
 
-
 # REPLACE compute_ns_auts function with:
 
 def compute_ns_auts(singfibs, sections):
@@ -719,26 +701,26 @@ def compute_ns_auts(singfibs, sections):
     Computes lattice automorphisms of the NS Gram matrix that preserve the
     effective cone.
     Returns a list of matrices (Matrix(ZZ)) and the basis 'names'.
-    
+
     Note: Works over ZZ regardless of base field, since NS lattice is always integral.
     """
     # Check if we're in a degenerate case
     if not singfibs.get('fibers'):
         print("[automorph] Warning: No singular fibers to build NS lattice from")
         return [], []
-    
+
     try:
         G, names = build_ns_gram(singfibs, sections)
     except Exception as e:
         print(f"[automorph] Failed to build NS Gram matrix: {e}")
         raise
         return [], []
-    
+
     # NS lattice automorphisms work over ZZ regardless of base field
     auts_raw, names = compute_ns_auts_via_search(
         G, names, bound=1, max_solutions=20, time_limit=30
     )
-    
+
     auts = []
     n = G.nrows()
     E = [vector(ZZ, [1 if i == j else 0 for i in range(n)]) for j in range(n)]
@@ -748,22 +730,22 @@ def compute_ns_auts(singfibs, sections):
             M = Matrix(ZZ, A)
         except (TypeError, ValueError):
             M = Matrix(ZZ, len(A), len(A[0]), lambda i, j: A[i][j])
-            
+
         # Check that the image of the fiber class has self-intersection 0
         if 'F' not in names:
             continue
         vF_idx = names.index('F')
         vF = E[vF_idx]
         imgF = M * vF
-        
+
         # Fiber class must map to a vector with self-intersection 0
         if (imgF * G * imgF) != 0:
             continue
-            
+
         # Basic integrality check
         if not all(x in ZZ for x in imgF):
             continue
-            
+
         # Heuristic cone preservation check
         amp = vector(ZZ, [0] * n)
         if 'O' in names:
@@ -774,14 +756,13 @@ def compute_ns_auts(singfibs, sections):
             if si in names:
                 amp[names.index(si)] += 1
         img_amp = M * amp
-        
+
         if (img_amp * G * img_amp) <= 0:
             continue
-            
-        auts.append(M)
-        
-    return auts, names
 
+        auts.append(M)
+
+    return auts, names
 
 # REPLACE build_ns_gram function with:
 
@@ -789,7 +770,7 @@ def build_ns_gram(singfibs, sections):
     """
     Build NS Gram matrix and basis names from your find_singular_fibers output.
     Basis order: ['F','O','S0',...,'Comp0_0',...]
-    
+
     Works over ZZ regardless of whether the curve is over QQ or F_p.
     """
     if 'fibers' not in singfibs:

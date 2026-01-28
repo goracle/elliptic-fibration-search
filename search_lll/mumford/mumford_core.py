@@ -5,11 +5,11 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
     Returns: [r1, r0] where result = r1*x + r0.
     """
     coeffs = list(poly_coeffs)
-    
+
     # 1. Trim leading zeros
     while len(coeffs) > 0 and coeffs[0] == 0:
         coeffs.pop(0)
-    
+
     # 2. Horner-like reduction
     while len(coeffs) > 2:
         a = coeffs.pop(0)
@@ -18,7 +18,7 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
         coeffs[0] = coeffs[0] + a * s
         # Subtract a*p from term after that (x^{d-2})
         coeffs[1] = coeffs[1] - a * p
-        
+
         if modulus:
             coeffs[0] %= modulus
             coeffs[1] %= modulus
@@ -32,7 +32,6 @@ def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
         if modulus:
             return [coeffs[0] % modulus, coeffs[1] % modulus]
         return coeffs
-
 
 def poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
     coeffs = list(poly_coeffs)
@@ -56,7 +55,6 @@ def poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
             return [coeffs[0] % modulus, coeffs[1] % modulus]
         return coeffs
 
-
 def _poly_mod_quad_fast(f_coeffs, s_val, p_val, mod_p):
     """
     Computes f(x) mod (x^2 - s*x + p) efficiently using Horner's method.
@@ -78,7 +76,6 @@ def _normalize_sign(s, p, v0, v1):
     if v1 < 0 or (v1 == 0 and v0 < 0):
         return (s, p, -v0, -v1)
     return (s, p, v0, v1)
-
 
 def _poly_from_coeffs_qq(R, coeffs):
     """Reconstructs a polynomial in R from highest-to-lowest QQ coefficients."""
@@ -102,12 +99,10 @@ def make_monic(u):
         return u
     return (u / lc).change_ring(QQ)   # make monic over QQ
 
-
 def reduce_v_mod_u(v, u):
     # ensure deg v < deg u by polynomial remainder
     _, r = v.quo_rem(u)
     return r.change_ring(QQ)
-
 
 def is_divisor_on_curve(u, v, f):
     """

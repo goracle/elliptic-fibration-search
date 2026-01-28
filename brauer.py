@@ -1,8 +1,5 @@
-from sage.all import QQ, ZZ
-from collections import Counter
 from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd, GF
-from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
-
+from collections import Counter
 
 # ---------------------------
 # Helper / sanity utilities
@@ -11,11 +8,11 @@ from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd
 def compute_lll_constant(delta=0.98, d=1):
     """
     Compute the LLL guarantee constant for basis quality.
-    
+
     Args:
         delta: LLL reduction parameter (0.75 < delta < 1)
         d: dimension (number of sections = MW rank)
-    
+
     Returns:
         C such that shortest vector b1 satisfies ||b1|| ≤ C × det(L)^(1/d)
     """
@@ -28,18 +25,17 @@ def compute_lll_constant(delta=0.98, d=1):
 def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
     """
     Prove that prod(primes) > MAX_MODULUS is sufficient for reconstruction.
-    
+
     Theorem: If M = prod(p in subset) > 2 * C_lll * exp(height_bound),
     then rational reconstruction succeeds for all sections up to height H.
-    
+
     FIX: This comparison is done in log-space to prevent overflow from exp(H).
     """
     from functools import reduce
     from operator import mul
-    import math
-    
+
     M = reduce(mul, [int(p) for p in prime_subset], 1)
-    
+
     # --- FIX: Use logarithms to avoid overflow ---
     if M <= 0 or C_lll <= 0: # Safety check
         return False, {
@@ -50,10 +46,10 @@ def prove_modulus_sufficiency(C_lll, height_bound, prime_subset):
     log_M = math.log(float(M))
     # log(Threshold) = log(2 * C_lll * exp(H)) = log(2) + log(C_lll) + H
     log_threshold = math.log(2.0) + math.log(float(C_lll)) + float(height_bound)
-    
+
     is_sufficient = log_M > log_threshold
     # --- END FIX ---
-    
+
     return is_sufficient, {
         'M': M,
         'log_M': log_M,                 # New value for reporting
@@ -70,7 +66,7 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
     print("\n" + "="*70)
     print("FORMAL COMPLETENESS PROOF (Roadmap Step 3)")
     print("="*70)
-    
+
     if not prime_subsets:
         print("No prime subsets were used. Cannot run sufficiency proof.")
         print("="*70)
@@ -81,14 +77,14 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
     if d == 0:
         print("MW rank is 0, setting dimension d=1 for LLL constant.")
         d = 1
-        
+
     C_lll = compute_lll_constant(delta=0.98, d=d)
     print(f"LLL Guarantee Constant (C_lll) for rank d={d}: {C_lll:.4f}")
-    
+
     # 2. Find the smallest modulus M used
     min_M = 0
     min_M_subset = []
-    
+
     for subset in prime_subsets:
         if not subset:
             continue
@@ -100,28 +96,28 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
         if min_M == 0 or M < min_M:
             min_M = M
             min_M_subset = subset
-            
+
     if min_M == 0:
         print("Could not find a valid prime subset modulus. Skipping check.")
         print("="*70)
         return
-        
+
     print(f"Smallest Modulus (M_min) used: {min_M} (from subset {min_M_subset})")
-    
+
     # 3. Run the sufficiency proof
     is_sufficient, details = prove_modulus_sufficiency(C_lll, height_bound, min_M_subset)
-    
+
     print(f"Height Bound (H): {details['height_bound']:.2f}")
-    
+
     # --- FIX: Print log-domain values ---
     log_M_str = f"{details['log_M']:.2f}"
     log_thresh_str = f"{details['log_threshold']:.2f}"
-    
+
     print(f"Required (in log-space): log(M) > log(2*C_lll) + H")
     print(f"Actual log(M):  {log_M_str}")
     print(f"Required log(M): > {log_thresh_str}")
     # --- END FIX ---
-    
+
     if is_sufficient:
         print("\n*** ✅ PASS ***")
         print("The smallest modulus M is formally sufficient")
@@ -131,11 +127,8 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
         print("The search modulus M is NOT large enough to guarantee reconstruction.")
         print("This implies the search may be incomplete (missed points).")
         print("RECOMMENDATION: Increase MIN_PRIME_SUBSET_SIZE or PRIME_POOL size.")
-        
+
     print("="*70)
-
-
-
 
 def _coerce_rational(m):
     """
@@ -146,14 +139,12 @@ def _coerce_rational(m):
         return QQ(ZZ(a)) / QQ(ZZ(b))
     return QQ(m)
 
-
 def _product(iterable):
     # explicit product to avoid reduce issues on Sage
     p = 1
     for x in iterable:
         p *= int(x)
     return p
-
 
 # ---------------------------
 # Model: local evaluation statistic extractor
@@ -193,7 +184,6 @@ def prime_survival_fraction_from_residues(precomputed_residues, prime):
         frac = 1.0
     return frac
 
-
 # ---------------------------
 # Estimate global completeness
 
@@ -232,7 +222,6 @@ def estimate_completeness_probability(precomputed_residues, prime_pool, primes_f
         'estimate_survive': float(prod),
         'estimate_ruled_out': float(1.0 - prod)
     }
-
 
 # ---------------------------
 # Targeted test: is an m killed?
@@ -299,7 +288,6 @@ def m_is_locally_allowed(m, precomputed_residues, prime_pool, v_tuple=None):
 
     return allowed, details
 
-
 # ---------------------------
 # Diagnostic: find prime contributors to any blockade
 
@@ -310,7 +298,6 @@ def blocking_primes_for_m(m, precomputed_residues, prime_pool, v_tuple=None):
     allowed, details = m_is_locally_allowed(m, precomputed_residues, prime_pool, v_tuple=v_tuple)
     blocked = [p for p, d in details.items() if d['status'] == 'unseen']
     return blocked, details
-
 
 # ---------------------------
 # Heuristic "algebraic Brauer" probe
@@ -402,7 +389,7 @@ def compute_ramification_locus(cd, verbose=False):
     def add_denominator_primes(x):
         # x is a rational function in m (element of QQ(m)) or polynomial in QQ[m]
         # We want primes dividing the denominators of the COEFFICIENTS of x.
-        
+
         polys_to_check = []
         if hasattr(x, "numerator"):
             polys_to_check.append(x.numerator())
@@ -478,13 +465,13 @@ def compute_ramification_locus(cd, verbose=False):
     # 4. extract content (integer factor) and primitive part
     # ------------------------------------------------------------
     content_int = Integer(Delta_Z.content())
-    
+
     # Add primes from the content (and the cleared denominators)
     dencont = content_int * common_den
     if dencont != 0:
         for p, _ in Integer(dencont).factor():
             ram_locus.add(int(p))
-            
+
     if content_int == 0:
          if verbose:
             print("[ram_locus] Δ becomes 0 polynomial after clearing denominators.")
@@ -508,7 +495,7 @@ def compute_ramification_locus(cd, verbose=False):
         # g contains the repeated root factors
         if verbose:
             print(f"[ram_locus] Δ has repeated factors (gcd degree {g.degree()}).")
-        
+
         # Factor g to extract primes where roots collide
         # First check if it's small enough to factor
         try:
@@ -521,7 +508,7 @@ def compute_ramification_locus(cd, verbose=False):
                         print(f"[ram_locus] Added collision prime from gcd content: {p}")
         except Exception:
             pass
-        
+
         # Also try small primes by evaluation
         small_primes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
         for p in small_primes:
@@ -530,7 +517,7 @@ def compute_ramification_locus(cd, verbose=False):
                 Fp = GF(p)
                 PRp = PolynomialRing(Fp, 'm')
                 g_modp = PRp([Fp(c) for c in g.coefficients(sparse=False)])
-                
+
                 if g_modp.degree() > 0:
                     roots_modp = g_modp.roots(multiplicities=False)
                     if roots_modp:
@@ -539,7 +526,6 @@ def compute_ramification_locus(cd, verbose=False):
                             print(f"[ram_locus] Added collision prime from gcd roots mod p: {p}")
             except Exception:
                 pass
-
 
     # ------------------------------------------------------------
     # 6. Use discriminant of Δ for additional primes (optional, more comprehensive)
@@ -563,19 +549,19 @@ def compute_ramification_locus(cd, verbose=False):
     # ------------------------------------------------------------
     # We check the primes typically used in the pool to ensure consistency with search_lll
     small_primes_scan = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113]
-    
+
     for p in small_primes_scan:
         try:
             # If Delta_prim vanishes or drops degree significantly, it's ramified
             # (Use leading_coefficient() to be safe across Sage versions)
-            lc = Delta_prim.leading_coefficient() 
+            lc = Delta_prim.leading_coefficient()
             if lc % p == 0:
                 ram_locus.add(int(p))
                 continue
 
             R_p = PolynomialRing(GF(p), 'm')
             Delta_p = R_p(Delta_prim)
-            
+
             # Check for repeated roots: discriminant == 0 mod p
             if Delta_p.discriminant() == 0:
                 ram_locus.add(int(p))

@@ -1,9 +1,8 @@
-from sage.all import SR, QQ, EllipticCurve
+import random
+from sage.all import SR, QQ, EllipticCurve, Rational
 from math import lcm, gcd
 from functools import reduce
-import random
 from diagnostics2 import *
-from sage.all import QQ, SR, Rational
 from fractions import Fraction
 
 # -------------------------
@@ -14,8 +13,6 @@ from fractions import Fraction
 #   base_sections: list of known sections [(x(m), y(m)), ...] as SR expressions
 #   m_sym: symbolic variable representing the base (usually QQ['m'] or SR.var('m'))
 
-
-
 # -------------------------
 # Step A: Compute component counts / theoretical lcm bound
 # -------------------------
@@ -24,14 +21,11 @@ from fractions import Fraction
 # Step B: Fast specialization method
 # -------------------------
 
-
 # Check base sections against candidate torsion
 
 # -------------------------
 # Step C: Slow / exact division polynomial method
 # -------------------------
-
-
 
 # Add this near the top of torsion.py, after imports:
 
@@ -54,7 +48,6 @@ def _detect_base_field_torsion(cd):
         raise
         return QQ, False, None
 
-
 # REPLACE compute_fiber_lcm with:
 
 def compute_fiber_lcm(cd):
@@ -66,7 +59,7 @@ def compute_fiber_lcm(cd):
         sing = find_singular_fibers(cd, verbose=False)
     except NameError:
         raise RuntimeError("find_singular_fibers(cd) not found")
-    
+
     m_vals = []
     for f in sing.get('fibers', []):
         mv = None
@@ -86,30 +79,26 @@ def compute_fiber_lcm(cd):
         if mv is None:
             mv = 1
         m_vals.append(mv)
-    
-    from math import lcm
-    from functools import reduce
+
     torsion_lcm_bound = 1 if not m_vals else reduce(lcm, m_vals)
     return m_vals, torsion_lcm_bound
-
 
 # REPLACE good_specializations with:
 
 def good_specializations(cd, m_sym, max_try=40):
     """
     Find good specializations for torsion testing.
-    
+
     - QQ mode: Substitute rational values for m and build elliptic curves over QQ
     - FINITE_FIELD mode: Use elements of F_p directly (m is already in F_p)
     """
     base_field, is_ff, p = _detect_base_field_torsion(cd)
-    
+
     if is_ff:
         # In finite field mode, just enumerate field elements
         # m is already an F_p element, so we test curves at various F_p values
-        from sage.all import GF
         F = GF(p)
-        
+
         # Get bad fibers (if any are computable in FF mode)
         try:
             sing = find_singular_fibers(cd, verbose=False)
@@ -117,7 +106,7 @@ def good_specializations(cd, m_sym, max_try=40):
         except Exception:
             bad_centers = set()
             raise
-        
+
         xs = []
         # Sample field elements, avoiding bad fibers
         tested = 0
@@ -125,22 +114,21 @@ def good_specializations(cd, m_sym, max_try=40):
             if len(xs) >= max_try:
                 break
             tested += 1
-            
+
             m0 = F(m0_int)
             if m0 in bad_centers:
                 continue
-            
+
             try:
                 # Evaluate a4, a6 at this field element
                 # cd.a4 and cd.a6 are already over F_p[m] or F_p(m)
                 a4_val = cd.a4(m0) if callable(cd.a4) else cd.a4
                 a6_val = cd.a6(m0) if callable(cd.a6) else cd.a6
-                
+
                 # Coerce to base field
                 a4_val = F(a4_val)
                 a6_val = F(a6_val)
-                
-                from sage.all import EllipticCurve
+
                 E = EllipticCurve(F, [0, 0, 0, a4_val, a6_val])
                 if E.discriminant() == 0:
                     continue
@@ -148,9 +136,9 @@ def good_specializations(cd, m_sym, max_try=40):
             except Exception:
                 raise
                 continue
-        
+
         return xs
-    
+
     # QQ mode - original logic
     sing = find_singular_fibers(cd, verbose=False)
     bad_centers = set([f.get('r') for f in sing.get('fibers', []) if f.get('r') is not None])
@@ -160,10 +148,9 @@ def good_specializations(cd, m_sym, max_try=40):
     a6_sym = SR(cd.a6)
     candidates = list(range(-10, 11))
     candidates = [i for i in candidates if i != 0]
-    
-    import random
+
     candidates += [QQ(random.randint(-50, 50)) / QQ(random.randint(1, 50)) for _ in range(200)]
-    
+
     for m0 in candidates:
         if len(xs) >= max_try:
             break
@@ -176,7 +163,6 @@ def good_specializations(cd, m_sym, max_try=40):
             raise
             continue
         try:
-            from sage.all import EllipticCurve
             E = EllipticCurve([0, 0, 0, a4_val, a6_val])
             if E.discriminant() == 0:
                 continue
@@ -186,18 +172,17 @@ def good_specializations(cd, m_sym, max_try=40):
             continue
     return xs
 
-
 # REPLACE eval_section_at_m0 with:
 
 def eval_section_at_m0(sec, m_sym, m0):
     """
     Evaluate section coordinates at a specific m value.
-    
+
     - QQ mode: Substitute and coerce to QQ
     - FINITE_FIELD mode: Just evaluate (already in F_p)
     """
     x_expr, y_expr = sec[0], sec[1]
-    
+
     # Detect if we're in FF mode by checking m0's parent
     try:
         if hasattr(m0, 'parent'):
@@ -213,7 +198,7 @@ def eval_section_at_m0(sec, m_sym, m0):
                     return None
     except Exception:
         raise
-    
+
     # QQ mode - symbolic substitution
     try:
         xv = QQ(SR(x_expr).subs({m_sym: m0}))
@@ -223,13 +208,12 @@ def eval_section_at_m0(sec, m_sym, m0):
         raise
         return None
 
-
 # REPLACE _eval_rational_at_m with:
 
 def _eval_rational_at_m(expr, m0, m_sym):
     """
     Safely evaluate expr (a rational function in m) at m0.
-    
+
     - QQ mode: Return QQ rational
     - FINITE_FIELD mode: Return F_p element
     """
@@ -243,7 +227,7 @@ def _eval_rational_at_m(expr, m0, m_sym):
                 return parent(val)
     except Exception:
         raise
-    
+
     # QQ mode - original logic
     try:
         val = expr.subs(m_sym == m0)
@@ -259,21 +243,19 @@ def _eval_rational_at_m(expr, m0, m_sym):
             den = val.denominator()
             return QQ(num) / QQ(den)
         except Exception:
-            from fractions import Fraction
             f = Fraction(str(val))
             raise
             return QQ(f.numerator) / QQ(f.denominator)
         raise
-
 
 # REPLACE torsion_test with:
 
 def torsion_test(cd, sec, n, m_sym=None, max_try=20):
     """
     Test whether the section `sec` is torsion of order dividing n.
-    
+
     Works in both QQ and FINITE_FIELD modes by checking specializations.
-    
+
     Returns True iff for every chosen good specialization (m0, E) we have
     n * P(m0) = O in E.
     """
@@ -322,30 +304,28 @@ def torsion_test(cd, sec, n, m_sym=None, max_try=20):
 
     return True
 
-
 # REPLACE find_torsion_by_division_polynomials with:
 
 def find_torsion_by_division_polynomials(cd, max_order=12):
     """
     Find torsion sections using division polynomials.
-    
+
     NOTE: This only works in QQ mode - division polynomials over finite fields
     require different treatment. Returns empty list in FINITE_FIELD mode.
     """
     base_field, is_ff, p = _detect_base_field_torsion(cd)
-    
+
     if is_ff:
         print("[torsion] Division polynomial method not applicable in FINITE_FIELD mode")
         return []
-    
+
     # QQ mode - original logic
     a4_sym = SR(cd.a4)
     a6_sym = SR(cd.a6)
     torsion_sections = []
-    
+
     for n in range(2, max_order + 1):
         try:
-            from sage.all import EllipticCurve
             E_gen = EllipticCurve([0, 0, 0, a4_sym, a6_sym])
         except Exception:
             raise
@@ -360,5 +340,5 @@ def find_torsion_by_division_polynomials(cd, max_order=12):
         except Exception:
             raise
             continue
-    
+
     return torsion_sections

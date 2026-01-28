@@ -1,13 +1,8 @@
-from sage.all import FractionField, QQ
+from sage.all import FractionField, QQ, PolynomialRing, Integer, ZZ, floor, CC, sqrt, gcd
 from sage.rings.fraction_field_element import FractionFieldElement
-from sage.all import QQ, PolynomialRing, Integer
 from sage.rings.integer import Integer
 from sage.rings.rational import Rational
-from sage.all import PolynomialRing, QQ, ZZ, floor, CC, sqrt, Integer
-from math import prod
-from sage.all import gcd, Integer
-from math import isclose
-from sage.all import QQ
+from math import prod, isclose
 
 # Unified singular fiber finder (replacement for two older functions)
 
@@ -74,7 +69,6 @@ def polynomial_valuation_at_factor(poly, factor):
         else:
             break
     return e
-
 
 def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=None, a6=None):
     """
@@ -236,7 +230,6 @@ def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=N
     for f, mult in denD_fac:
         factor_mult[f] = factor_mult.get(f, 0) - int(mult)
 
-
     fibers = []
 
     for g, vD in list(factor_mult.items()):
@@ -397,7 +390,6 @@ def find_singular_fibers(cd=None, numeric_root_precision=80, verbose=False, a4=N
         'sum_reduction_exponents': int(sum_t)
     }
 
-
 def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
     """
     Given raw valuations and a Kodaira symbol, suggest blow-up/down scalings.
@@ -408,7 +400,7 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
     # Handle None or unknown symbols gracefully
     if kodaira_symbol is None or kodaira_symbol == 'I0':
         return None
-    
+
     # Target discriminant valuations for each fiber type
     vD_targets = {
         "II": 2,
@@ -419,10 +411,10 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
         "III*": 9,
         "II*": 10,
     }
-    
+
     # Parse the Kodaira symbol to get target v_D
     target_vD = None
-    
+
     # Check if it's a standard additive type (II, III, IV, etc.)
     if kodaira_symbol in vD_targets:
         target_vD = vD_targets[kodaira_symbol]
@@ -447,11 +439,11 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
                 target_vD = 6
         except (ValueError, IndexError):
             pass
-    
+
     # If we couldn't determine target, skip diagnostic
     if target_vD is None:
         return None
-    
+
     # Try small rescalings k in [-2, 2] to find best fit
     best = None
     for k in range(-2, 3):
@@ -465,12 +457,12 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
         cand = (cost, k, v4k, v6k, vDk)
         if best is None or cand < best:
             best = cand
-    
+
     if best is None:
         return f"[{place}] No safe rescaling."
-    
+
     cost, k, v4b, v6b, vDb = best
-    
+
     if k == 0:
         action = "Already minimal."
     elif k > 0:
@@ -478,7 +470,7 @@ def local_minimality_diagnostic(place, v4, v6, vD, kodaira_symbol):
     else:
         kpos = -k
         action = f"Extra blow UP by k={kpos} (u=t^-{kpos})"
-    
+
     return f"[{place}] {kodaira_symbol}: v=({v4},{v6},{vD}) -> ({v4b},{v6b},{vDb}), target vΔ={target_vD}. {action}"
 
 ### SATURATION BELOW
@@ -518,7 +510,6 @@ def candidate_index_primes(detH, fiber_symbols, torsion_order=1):
         sqf *= p
     return [int(p) for p, e in tmp.factor()]
 
-
 def is_l_saturated_mod_p(EFp, gens_reduced, ell):
     # return True if gens_reduced generate an ell-saturated subgroup inside EFp
     # i.e. check gcd(|EFp|/|<gens>|, ell) == 1
@@ -539,12 +530,11 @@ def test_saturation_via_primes(sections, fiber_symbols, torsion, good_specializa
 
 """Van Luijk-style Picard pinning (two-prime reductions)
 
-For ambiguous 
+For ambiguous
 𝜌
-ρ cases, reduce the surface mod two primes, compute Picard ranks there and use the intersection to pin 
+ρ cases, reduce the surface mod two primes, compute Picard ranks there and use the intersection to pin
 𝜌
 ρ. Small code and huge payoff: exact ST target reduces ambiguity in indexing."""
-
 
 def mult_of(g, S, max_iter=None):
     """
@@ -606,7 +596,6 @@ def mult_of(g, S, max_iter=None):
 
     return k, q
 
-
 def compute_euler_and_chi(cd_or_finder_result):
     """
     Accept either:
@@ -628,14 +617,13 @@ def compute_euler_and_chi(cd_or_finder_result):
         print(f"Warning: Euler sum = {euler_sum} gives non-integer chi = {chi_q}; check fiber data.")
     return euler_sum, chi_q
 
-
 def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
     """Return (symbol, m_v, e_contribution) from minimal valuations."""
     # CRITICAL: Convert all inputs to plain Python int to ensure dict lookup works
     v4_min = int(v4_min)
     v6_min = int(v6_min)
     vD_min = int(vD_min)
-    
+
     # Handle smooth/non-singular case correctly
     if vD_min == 0:
         return ('I0', 1, 0)
@@ -648,7 +636,7 @@ def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
         m_v = vD_min
         e = vD_min
         return (sym, m_v, e)
-    
+
     # additive special cases (standard table)
     tbl = {
         (1,1,2): ("II", 1, 2),
@@ -659,12 +647,12 @@ def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
         (3,5,9): ("III*", 8, 9),
         (4,5,10):("II*", 9, 10),
     }
-    
+
     # Exact lookup with converted integers
     tup = (v4_min, v6_min, vD_min)
     if tup in tbl:
         return tbl[tup]
-    
+
     # star-family: vD_min >= 6 and v4_min >= 2 and v6_min >= 3 -> I_n* with n = vD_min - 6
     if vD_min >= 6 and v4_min >= 2 and v6_min >= 3:
         n = vD_min - 6
@@ -672,7 +660,7 @@ def _kodaira_from_min_vals(v4_min, v6_min, vD_min):
         m_v = n + 6
         e = n + 6
         return (sym, m_v, e)
-    
+
     # Improved fallback: at least try to classify as additive vs multiplicative
     # and use a reasonable default contribution
     if v4_min == 0 and v6_min == 0:

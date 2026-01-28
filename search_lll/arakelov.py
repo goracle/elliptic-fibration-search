@@ -1,33 +1,21 @@
+import math, time, cmath
 from mpmath import pslq
-from sage.all import QQ, ZZ, RR, CC, RDF, CDF, log, sqrt, exp, pi, I
-from sage.all import PolynomialRing, HyperellipticCurve, Matrix, vector
-from sage.all import QQ, ZZ, RR, CC, RDF, CDF, ComplexField, log, sqrt, exp, pi, I
-from sage.all import RealField
+from sage.all import *
 from functools import lru_cache
-import math
-from sage.all import ComplexField, RealField
-from sage.all import parallel
-import time
 from collections import defaultdict
 from search_common import *
 from search_lll.jacobian_basis import *
-from sage.all import QQ, ZZ, RR, CC, RDF, CDF, ComplexField, log, sqrt, exp, pi, I, sinh, cosh, tanh
-from sage.all import *
-import cmath
 
 # arakelov.py
 #
 # Arakelov height computations for genus-2 hyperelliptic Jacobian elements.
 # Faster and more reliable than repeated doubling for height pairings.
 
-
-
 # Global cache for period matrices
 _PERIOD_MATRIX_CACHE = {}
 
 # Global timer storage
 _TIMERS = defaultdict(float)
-
 
 @parallel(ncpus=4)
 def compute_height_worker(div_data):
@@ -37,31 +25,28 @@ def compute_height_worker(div_data):
     Returns: (idx, canonical_height)
     """
     idx, div, f_coeffs, prec = div_data
-    
+
     from sage.all import PolynomialRing, QQ, HyperellipticCurve
-    
+
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
-    
+
     try:
         u_poly = x**2 - QQ(div['s'])*x + QQ(div['p'])
         v_poly = QQ(div['v_1'])*x + QQ(div['v_0'])
         D = J([u_poly, v_poly])
-        
+
         if D.is_zero():
             return idx, None
-        
+
         h = arakelov_canonical_height(D, f_coeffs, prec=prec)
         return idx, h
     except Exception:
         raise
         return idx, None
-
-
-
 
 def get_timer(name):
     return _TIMERS.get(name, 0.0)
@@ -82,55 +67,52 @@ class Timer:
     def __init__(self, name):
         self.name = name
         self.start = None
-    
+
     def __enter__(self):
         self.start = time.time()
         return self
-    
+
     def __exit__(self, *args):
         elapsed = time.time() - self.start
         _TIMERS[self.name] += elapsed
-
 
 def clear_period_cache():
     global _PERIOD_MATRIX_CACHE
     _PERIOD_MATRIX_CACHE.clear()
 
-
 def arakelov_check_independence(divisors, f_coeffs, prec=300, debug=False):
     if not divisors:
         return True, 0, None, 0
-    
+
     with Timer("independence_check_total"):
         n = len(divisors)
         H = Matrix(QQ, n, n)
-        
+
         # Ensure period matrix is fresh/cached
         get_period_matrix_auto_B(f_coeffs, prec=prec)
-        
+
         for i in range(n):
             for j in range(i, n):
                 h_ij = arakelov_height_pairing(divisors[i], divisors[j], f_coeffs, prec=prec)
                 H[i,j] = h_ij
                 H[j,i] = h_ij
-        
+
         det = float(H.determinant())
-        
+
         # STRICT POSITIVE DEFINITE CHECK
         is_independent = (det > 1e-4)
 
         if debug:
             print(f"[arakelov] Height matrix determinant: {det:.6g}")
             print(f"[arakelov] Positive definite? {is_independent}")
-    
-    return is_independent, n if is_independent else 0, H, det
 
+    return is_independent, n if is_independent else 0, H, det
 
 def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
     """
     Fast torsion test using modular verification.
     Tests if divisor is n-torsion for n in [2, 3, 4, 5, 6, 8, 10, 12].
-    
+
     Returns: (is_torsion, order) where order=None if not torsion
     """
     # Build curve
@@ -139,29 +121,29 @@ def is_mumford_torsion_fast(s, p, v0, v1, f_coeffs, max_order=12, debug=DEBUG):
     f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
-    
+
     # Convert to Jacobian element
     u_poly = x**2 - QQ(s)*x + QQ(p)
     v_poly = QQ(v1)*x + QQ(v0)
     D = J([u_poly, v_poly])
-    
+
     if D.is_zero():
         return True, 1
-    
+
     # Test small orders using ONLY addition (no doubling)
     test_orders = [2, 3, 4, 5, 6, 8, 10, 12]
-    
+
     for n in test_orders:
         # Compute nD by repeated addition (safer than doubling)
         nD = D
         for _ in range(n - 1):
             nD = nD + D
-        
+
         if nD.is_zero():
             if debug:
                 print(f"[torsion] Found {n}-torsion divisor")
             return True, n
-    
+
     return False, None
 
 def is_positive_definite(H, prec=300, tol=1e-12):
@@ -186,7 +168,6 @@ def is_positive_definite(H, prec=300, tol=1e-12):
         if not (det_k > RR_prec(tol)):
             return False
     return True
-
 
 def arakelov_height_pairing_cached(D1, D2, f_coeffs, height_cache=None, prec=300):
     """
@@ -213,7 +194,6 @@ def arakelov_height_pairing_cached(D1, D2, f_coeffs, height_cache=None, prec=300
     h_sum = arakelov_canonical_height(D1 + D2, f_coeffs, prec=prec)
     pairing = (h_sum - h1 - h2) / QQ(2)
     return pairing
-
 
 def get_period_matrix_old(f_coeffs, prec=300):
     cache_key = tuple(QQ(c) for c in f_coeffs)
@@ -316,44 +296,6 @@ def get_period_matrix_old(f_coeffs, prec=300):
                 curr += h
 
             # node list built — now implement integrator that uses CC_prec arithmetic
-            def integrate_differential(root_start, root_end, use_x_weight):
-                total = CC_prec(0)
-                center = (CC_prec(root_start) + CC_prec(root_end)) / CC_prec(2)
-                half_width = (CC_prec(root_end) - CC_prec(root_start)) / CC_prec(2)
-
-                for (u, w) in nodes:
-                    # u and w are RR_prec; cast to CC_prec for complex arithmetic
-                    u_cc = CC_prec(u)
-                    w_cc = CC_prec(w)
-
-                    x_val = center + half_width * u_cc
-
-                    # Evaluate f(x) in CC_prec
-                    f_val = CC_prec(0)
-                    for j, c in enumerate(f_coeffs):
-                        f_val += CC_prec(c) * x_val ** (len(f_coeffs)-1-j)
-
-                    # if f_val is zero or extremely small, skip this node
-                    if abs(f_val) == 0:
-                        continue
-
-                    # compute branch of sqrt using principal branch
-                    try:
-                        y_val = f_val.sqrt()
-                    except Exception:
-                        # try numeric sqrt via CC_prec
-                        y_val = CC_prec(f_val).sqrt()
-                        raise
-
-                    # choose integrand
-                    if use_x_weight:
-                        term_val = x_val / (2 * y_val)
-                    else:
-                        term_val = 1 / (2 * y_val)
-
-                    total += term_val * w_cc
-
-                return total * half_width * CC_prec(h)
 
             Omega = Matrix(CC_prec, 2, 2)
             # principal cycles: (r0,r1), (r0,r2)
@@ -370,52 +312,51 @@ def get_period_matrix_old(f_coeffs, prec=300):
     _PERIOD_MATRIX_CACHE[cache_key] = Omega
     return Omega
 
-
 def get_period_matrix_bad_cycle_choices(f_coeffs, prec=300):
     cache_key = tuple(QQ(c) for c in f_coeffs)
-    
+
     if cache_key in _PERIOD_MATRIX_CACHE:
         return _PERIOD_MATRIX_CACHE[cache_key]
-    
+
     with Timer("period_matrix_total"):
         R = PolynomialRing(QQ, 'x')
         x = R.gen()
         f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-        
+
         deg = f_poly.degree()
         if deg < 5:
             raise ValueError(f"Polynomial degree {deg} too low for genus 2")
-        
+
         if prec > 53:
             CC_prec = ComplexField(prec)
             RR_prec = RealField(prec)
         else:
             CC_prec = CC
             RR_prec = RR
-            
+
         with Timer("period_matrix_roots"):
             f_roots = f_poly.roots(CC_prec, multiplicities=False)
-        
+
         if len(f_roots) < 5:
             raise ValueError(f"Not enough roots for genus 2 curve: found {len(f_roots)}")
-        
+
         f_roots = sorted(f_roots, key=lambda z: (z.real(), z.imag()))
-        
+
         with Timer("period_matrix_integration"):
             safe_t = log(prec) + 2.0
             max_t = RR_prec(safe_t)
-            
+
             h = RR_prec(2.0 ** (-6))
             pi_half = RR_prec(math.pi) / 2
-            
+
             nodes = []
             curr = -max_t
             while curr <= max_t:
                 sinh_t = sinh(curr)
                 cosh_t = cosh(curr)
-                
+
                 num = pi_half * sinh_t
-                
+
                 try:
                     denom = cosh(num)
                     if denom.is_infinity():
@@ -424,9 +365,9 @@ def get_period_matrix_bad_cycle_choices(f_coeffs, prec=300):
                 except (OverflowError, ValueError, ArithmeticError):
                     curr += h
                     continue
-                
+
                 val = tanh(num)
-                
+
                 try:
                     denom_sq = denom * denom
                     if denom_sq.is_infinity():
@@ -439,64 +380,62 @@ def get_period_matrix_bad_cycle_choices(f_coeffs, prec=300):
 
                 if abs(weight) > RR_prec(2)**(-prec - 10):
                     nodes.append((val, weight))
-                
+
                 curr += h
-            
+
             def integrate_differential(root_start, root_end, use_x_weight):
                 total = CC_prec(0)
                 center = (root_start + root_end) / 2
                 half_width = (root_end - root_start) / 2
-                
+
                 for (u, w) in nodes:
                     u_cc = CC_prec(u)
                     w_cc = CC_prec(w)
-                    
+
                     x_val = center + half_width * u_cc
-                    
-                    f_val = sum(CC_prec(f_coeffs[j]) * x_val**(len(f_coeffs)-1-j) 
+
+                    f_val = sum(CC_prec(f_coeffs[j]) * x_val**(len(f_coeffs)-1-j)
                                for j in range(len(f_coeffs)))
-                    
+
                     if f_val == 0: continue
-                    
+
                     y_val = f_val.sqrt()
-                    
+
                     term_val = CC_prec(0)
                     if use_x_weight:
                         term_val = x_val / (2 * y_val)
                     else:
                         term_val = 1 / (2 * y_val)
-                        
+
                     total += term_val * w_cc
-                
+
                 return total * half_width * CC_prec(h)
-            
+
             A = Matrix(CC_prec, 2, 2)
             B = Matrix(CC_prec, 2, 2)
-            
+
             # a-cycles: 2 * integral across each real cut
             A[0,0] = 2 * integrate_differential(f_roots[0], f_roots[1], False)
             A[1,0] = 2 * integrate_differential(f_roots[0], f_roots[1], True)
-            
+
             A[0,1] = 2 * integrate_differential(f_roots[2], f_roots[3], False)
             A[1,1] = 2 * integrate_differential(f_roots[2], f_roots[3], True)
-            
+
             # b-cycles: paths connecting cuts
             B[0,0] = integrate_differential(f_roots[1], f_roots[2], False)
             B[1,0] = integrate_differential(f_roots[1], f_roots[2], True)
-            
+
             B[0,1] = integrate_differential(f_roots[3], f_roots[4], False)
             B[1,1] = integrate_differential(f_roots[3], f_roots[4], True)
-            
+
             # Form normalized period matrix tau = A^{-1} * B
             try:
                 tau = A.inverse() * B
             except Exception as e:
                 raise RuntimeError(f"Failed to invert A-period matrix: {e}")
-    
+
     _PERIOD_MATRIX_CACHE[cache_key] = tau
     return tau
-
-
 
 def _continuous_sqrt_values(fvals, CC_prec):
     """
@@ -535,7 +474,6 @@ def _composite_quadrature_on_param(x_of_t, dx_dt_of_t, integrand_at_x, nodes, CC
         total += fval * dxdt * CC_prec(w)
     return total
 
-
 def compute_A_B_return(f_coeffs, prec=300, nodes=None, b_pattern='1-2'):
     """
     Compute and return (A, B, tau) using the same numeric method as get_period_matrix_auto_B,
@@ -554,20 +492,8 @@ def compute_A_B_return(f_coeffs, prec=300, nodes=None, b_pattern='1-2'):
         raise ValueError("Need at least 5 branch points (genus 2).")
     if nodes is None:
         # default tanh-sinh node generator; you can substitute yours
-        def tanh_sinh_nodes(N):
-            from math import sinh, cosh, tanh, pi
-            h = 1.0 / N
-            out = []
-            for k in range(-N, N+1):
-                t = k * h
-                xnode = tanh(pi/2 * sinh(t))
-                w = (pi/2) * cosh(t) / (cosh(pi/2 * sinh(t))**2) * h
-                out.append((xnode, w))
-            return out
         nodes = tanh_sinh_nodes(max(400, prec//2))
     # helpers
-    def f_at(xv):
-        return sum(CC_prec(c) * (xv**(len(f_coeffs)-1-i)) for i, c in enumerate(f_coeffs))
     def continuous_sqrt(vals):
         svals = [vals[0].sqrt()]
         prev = svals[0]
@@ -696,65 +622,64 @@ def try_fix_orientation(f_coeffs, prec=300, nodes=None):
     results.sort(key=lambda r: r[1])
     return results[0] if results else (False, abs(tau[0,1]-tau[1,0]), None, None, None, None, tau, A, B)
 
-
 def abel_jacobi_map(D, f_coeffs, period_matrix, prec=300):
     """
     Compute the Abel-Jacobi map of divisor D to C^2.
-    
+
     For a Mumford divisor D = (u(x), v(x)) where u(x) = x^2 - s*x + p,
     the divisor represents two points on the curve (assuming u has 2 distinct roots).
-    
+
     We integrate the holomorphic differentials dx/(2y) and x*dx/(2y) from
     a base point to each point in the support of D.
-    
+
     Returns: vector in C^2 representing AJ(D) mod the period lattice
     """
     CC = ComplexField(prec)
-    
+
     # Extract Mumford representation
     u_poly = D[0]
     v_poly = D[1]
-    
+
     # Get roots of u(x) - these are the x-coordinates of points in D
     R = PolynomialRing(CC, 'x')
     x = R.gen()
     u_cc = sum(CC(c) * x**i for i, c in enumerate(u_poly.list()))
-    
+
     try:
         roots = u_cc.roots(multiplicities=False)
     except:
         # If roots don't exist or u is constant, return zero
         return vector(CC, [0, 0])
-    
+
     if len(roots) == 0:
         return vector(CC, [0, 0])
-    
+
     # For each root, we need to integrate from base point to (x_i, y_i)
     # where y_i = v(x_i)
-    
+
     # Build f(x) polynomial
     f_poly = sum(CC(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
+
     # Use a simple base point: take a root of f as base
     f_roots = f_poly.roots(CC, multiplicities=False)
     if not f_roots:
         raise ValueError("No roots found for f(x)")
-    
+
     base_x = f_roots[0]
-    
+
     # Integrate from base_x to each root
     integral_sum = vector(CC, [0, 0])
-    
+
     for x_pt in roots:
         # y-coordinate from Mumford representation
         y_pt = sum(CC(c) * x_pt**i for i, c in enumerate(v_poly.list()))
-        
+
         # Simple straight-line path integration (can be improved with better paths)
         # Integrate omega_0 = dx/(2y) and omega_1 = x*dx/(2y)
-        
+
         # Use Gauss-Legendre quadrature for the path integral
         from sage.all import numerical_integral
-        
+
         # Define path: straight line from base_x to x_pt
         def integrand_0(t):
             x_t = base_x + t * (x_pt - base_x)
@@ -766,7 +691,7 @@ def abel_jacobi_map(D, f_coeffs, period_matrix, prec=300):
             if y_t.imag() < 0:
                 y_t = -y_t
             return (x_pt - base_x) / (2 * y_t)
-        
+
         def integrand_1(t):
             x_t = base_x + t * (x_pt - base_x)
             f_t = sum(CC(c) * x_t**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
@@ -776,7 +701,7 @@ def abel_jacobi_map(D, f_coeffs, period_matrix, prec=300):
             if y_t.imag() < 0:
                 y_t = -y_t
             return x_t * (x_pt - base_x) / (2 * y_t)
-        
+
         # Numerical integration from t=0 to t=1
         try:
             int_0, _ = numerical_integral(lambda t: complex(integrand_0(t)), 0, 1)
@@ -785,19 +710,18 @@ def abel_jacobi_map(D, f_coeffs, period_matrix, prec=300):
         except:
             # If integration fails, skip this point
             continue
-    
-    return integral_sum
 
+    return integral_sum
 
 def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, prec=300, max_depth=8):
     """
     Integrate dx/(2y) or x*dx/(2y) along a straight line from x_start to x_end.
     Uses the same tanh-sinh quadrature as the period matrix computation.
-    
+
     Returns: complex integral value
     """
     CC = ComplexField(prec)
-    
+
     # Generate tanh-sinh nodes
     def tanh_sinh_nodes(N):
         nodes = []
@@ -811,25 +735,25 @@ def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, pr
             w = dx_dt * h
             nodes.append((t, x_mapped, w))
         return nodes
-    
+
     Nnodes = max(200, min(2000, prec // 2))
     nodes = tanh_sinh_nodes(Nnodes)
-    
+
     p0 = CC(x_start)
     p1 = CC(x_end)
     vec = p1 - p0
-    
+
     # Offset path slightly perpendicular to avoid branch cuts
     perp = CC(0, 1) * vec
     off_mag = max(CC(1e-14), abs(vec) * CC(1e-8))
     off = perp / (abs(perp) + CC(1e-30)) * off_mag
-    
+
     dx_factor = vec / CC(2)
-    
+
     # Build f(x)
     def f_at(z):
         return sum(CC(c) * (z ** (len(f_coeffs)-1-i)) for i, c in enumerate(f_coeffs))
-    
+
     # Initial branch selection
     sample_x = p0 + ((CC(nodes[0][1]) + CC(1)) / CC(2)) * vec + off
     f0 = f_at(sample_x)
@@ -837,36 +761,35 @@ def integrate_differential_path(x_start, x_end, f_coeffs, use_x_weight=False, pr
     # Prefer positive imaginary part
     if y0.imag() < 0:
         y0 = -y0
-    
+
     y_prev = y0
     integral = CC(0)
     tiny = CC(2) ** (-prec // 2)
-    
+
     for (t, x_mapped, w) in nodes:
         s = (CC(x_mapped) + CC(1)) / CC(2)
         xval = p0 + s * vec + off
         fval = f_at(xval)
-        
+
         if abs(fval) < tiny:
             continue
-        
+
         # Branch selection by continuity
         y_plus = fval.sqrt()
         y_minus = -y_plus
         y_cur = y_plus if abs(y_plus - y_prev) <= abs(y_minus - y_prev) else y_minus
         y_prev = y_cur
-        
+
         # Integrand
         if use_x_weight:
             integrand = xval / (CC(2) * y_cur)
         else:
             integrand = CC(1) / (CC(2) * y_cur)
-        
+
         dxd = dx_factor * CC(w)
         integral += integrand * dxd
-    
-    return integral
 
+    return integral
 
 def local_height_finite(D, p, prec=53):
     """
@@ -874,42 +797,39 @@ def local_height_finite(D, p, prec=53):
     """
     u_coeffs = D[0].list()
     v_coeffs = D[1].list()
-    
+
     min_val = float('inf')
-    
+
     for c in u_coeffs + v_coeffs:
         if c == 0:
             continue
         c_qq = QQ(c)
         val_p = c_qq.valuation(p)
         min_val = min(min_val, val_p)
-    
+
     if min_val == float('inf'):
         return QQ(0)
-    
+
     if min_val == 0:
         return QQ(0)
-    
+
     R = RealField(prec)
     val = -min_val * R(p).log()
-    
-    return val.nearby_rational(max_error=R(2)**(-prec+5))
 
+    return val.nearby_rational(max_error=R(2)**(-prec+5))
 
 # ============================================================================
 # DROP-IN REPLACEMENT FUNCTIONS FOR arakelov.py
 # ============================================================================
 
-
 # Fixed Arakelov height computation functions
 # These replace the broken versions in arakelov.py
-
 
 def get_hyperelliptic_polynomials(C):
     """
     Extract f(x) and h(x) from hyperelliptic curve C.
     Curve is given as y^2 + h(x)*y = f(x)
-    
+
     Returns: (f_coeffs, h_coeffs) as lists
     """
     f_poly, h_poly = C.hyperelliptic_polynomials()
@@ -917,9 +837,7 @@ def get_hyperelliptic_polynomials(C):
     h_coeffs = h_poly.list() if h_poly else [0]
     return f_coeffs, h_coeffs
 
-
 # Add this diagnostic version of integrate_differential_path_with_branch
-
 
 # To test, temporarily replace the call in abel_jacobi_mumford:
 # int_0 = integrate_differential_path_with_branch_DEBUG(
@@ -927,9 +845,7 @@ def get_hyperelliptic_polynomials(C):
 # )
 # CRITICAL FIX: Robust branch selection in integration
 
-
 # CRITICAL FIX: Robust branch selection in integration
-
 
 def fmt(z, digits=6):
     """
@@ -943,9 +859,7 @@ def fmt(z, digits=6):
         # Real number
         return f"{z:.{digits}g}"
 
-
 # [arakelov.py]
-
 
 def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
     """
@@ -953,28 +867,27 @@ def arakelov_height_pairing(D1, D2, f_coeffs, period_matrix, prec=300):
     <D1, D2> = <AJ(D1), AJ(D2)>_NT
     """
     from sage.all import RealField, Matrix, QQ
-    
+
     if D1.is_zero() or D2.is_zero():
         return QQ(0)
-    
+
     RR = RealField(prec)
-    
+
     # Generate consistent base point
     base_point = choose_numerical_base_point(f_coeffs, prec=prec)
-    
+
     # Pass base_point explicitly
     z1 = abel_jacobi_mumford(D1, f_coeffs, base_point=base_point, prec=prec)
     z2 = abel_jacobi_mumford(D2, f_coeffs, base_point=base_point, prec=prec)
-    
+
     # Extract Im(τ)
     Im_tau = Matrix(RR, 2, 2)
     for i in range(2):
         for j in range(2):
             Im_tau[i,j] = RR(period_matrix[i,j].imag())
-    
+
     # Compute pairing
     pairing = neron_tate_height_pairing(z1, z2, Im_tau, prec=prec)
-    
-    return pairing
 
+    return pairing
 

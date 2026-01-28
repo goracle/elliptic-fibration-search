@@ -1,9 +1,7 @@
+import math
 from sage.all import QQ, Matrix, RDF, GF, PolynomialRing, HyperellipticCurve, crt, Integer, prod
 from fractions import Fraction
-import math
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL
-
-
 
 def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     """
@@ -15,16 +13,16 @@ def naive_height_safe(s, p, v0, v1, debug=DEBUG):
     p_qq = QQ(p)
     v0_qq = QQ(v0)
     v1_qq = QQ(v1)
-    
+
     # Convert QQ to Fraction using numerator/denominator
     s_frac = Fraction(int(s_qq.numerator()), int(s_qq.denominator()))
     p_frac = Fraction(int(p_qq.numerator()), int(p_qq.denominator()))
     v0_frac = Fraction(int(v0_qq.numerator()), int(v0_qq.denominator()))
     v1_frac = Fraction(int(v1_qq.numerator()), int(v1_qq.denominator()))
-    
+
     # u(x) = x^2 - s*x + p has coefficients [1, -s, p]
     # v(x) = v1*x + v0 has coefficients [v1, v0]
-    
+
     all_coeffs = [
         Fraction(1, 1),  # leading coeff of u
         -s_frac,
@@ -32,18 +30,18 @@ def naive_height_safe(s, p, v0, v1, debug=DEBUG):
         v1_frac,
         v0_frac
     ]
-    
+
     # Clear denominators
     lcm_den = 1
     for f in all_coeffs:
         lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
-    
+
     int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
     int_coeffs.append(int(lcm_den))  # include denominator
-    
+
     max_abs = max(abs(c) for c in int_coeffs if c != 0)
     max_abs = max(1, max_abs)
-    
+
     return float(math.log(max_abs))
 
 def naive_height_exact(D):
@@ -53,24 +51,24 @@ def naive_height_exact(D):
     """
     u_coeffs = D[0].list()
     v_coeffs = D[1].list()
-    
+
     # Convert to exact fractions
     all_coeffs = []
     for c in u_coeffs + v_coeffs:
         c_qq = QQ(c)
         all_coeffs.append(Fraction(int(c_qq.numerator()), int(c_qq.denominator())))
-    
+
     # Clear denominators
     lcm_den = 1
     for f in all_coeffs:
         lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
-    
+
     int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
     int_coeffs.append(int(lcm_den))
-    
+
     max_abs = max(abs(c) for c in int_coeffs if c != 0)
     max_abs = max(1, max_abs)
-    
+
     return QQ(math.log(max_abs))
 
 def manual_naive_height(P):
@@ -146,64 +144,63 @@ def compute_manual_height_pairing(P, Q, limit=8, debug=DEBUG):
     except Exception:
         raise
 
-
 def compute_height_pairing_simple(D1, D2, num_doublings=NUM_DOUBLINGS):
     """
     Compute <D1, D2> using LIMITED doublings to avoid coefficient explosion.
     Uses: <D1, D2> = (h(D1+D2) - h(D1) - h(D2)) / 2
     where h is naive height.
-    
+
     Only does `num_doublings` iterations instead of 8.
     """
     def naive_height_from_jacobian(D):
         u, v = D[0], D[1]
         u_coeffs = u.list()
         v_coeffs = v.list()
-        
+
         all_coeffs = []
         for c in u_coeffs + v_coeffs:
             c_qq = QQ(c)
             all_coeffs.append(Fraction(int(c_qq.numerator()), int(c_qq.denominator())))
-        
+
         # Clear denominators
         lcm_den = 1
         for f in all_coeffs:
             lcm_den = (lcm_den * f.denominator) // math.gcd(lcm_den, f.denominator)
-        
+
         int_coeffs = [int((f * lcm_den).numerator) for f in all_coeffs]
         int_coeffs.append(int(lcm_den))
-        
+
         max_abs = max(abs(c) for c in int_coeffs if c != 0)
         max_abs = max(1, max_abs)
-        
+
         return float(math.log(max_abs))
-    
+
     if D1.is_zero() or D2.is_zero():
         return 0.0
-    
+
     # Compute heights with limited doublings
     vals = []
     P, Q, S = D1, D2, D1 + D2
-    
+
     for n in range(num_doublings):
         hP = naive_height_from_jacobian(P)
         hQ = naive_height_from_jacobian(Q)
         hS = naive_height_from_jacobian(S)
-        
+
         pairing = (hS - hP - hQ) / 2.0
         vals.append(pairing / (4.0 ** n))
-        
+
         P = P + P
         Q = Q + Q
         S = S + S
-    
+
     # Return the last value (most refined estimate)
     return vals[-1]
 
 def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, debug=False):
     """
     Compute 2^k * D using modular arithmetic and CRT reconstruction to avoid coefficient explosion.
-    
+
     Args:
         div: Jacobian element (divisor) to double.
         f_coeffs: Coefficients of the curve y^2 = f(x) (highest degree first).
@@ -216,13 +213,13 @@ def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, deb
     # We expect v to be degree 1 -> coefficients v0, v1
     # residues stores tuples (u0, u1, v0, v1)
     residues = []
-    
+
     # 2. Extract input polynomial coefficients (over QQ)
     # div is a Jacobian element. div[0] is u(x), div[1] is v(x).
     # .list() returns coeffs lowest degree first
     u_qq_coeffs = div[0].list()
     v_qq_coeffs = div[1].list()
-    
+
     # f_coeffs is highest degree first. Sage R(list) expects lowest first.
     f_coeffs_lowest = list(reversed(f_coeffs))
 
@@ -230,69 +227,69 @@ def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, deb
         try:
             K = GF(p)
             R = PolynomialRing(K, 'x')
-            
+
             # Map curve to GF(p)
             f_p = R(f_coeffs_lowest)
             C_p = HyperellipticCurve(f_p)
             J_p = C_p.jacobian()
-            
+
             # Map point to J(GF(p))
             u_p = R([K(c) for c in u_qq_coeffs])
             v_p = R([K(c) for c in v_qq_coeffs])
             D_p = J_p(u_p, v_p)
-            
+
             # Double repeatedly
             Q_p = D_p
             for _ in range(num_doublings):
                 Q_p = 2 * Q_p
-                
+
             # Extract result
             if Q_p.is_zero():
                 # Torsion or bad luck hitting infinity. Skip this prime.
                 continue
-                
+
             res_u = Q_p[0]
             res_v = Q_p[1]
-            
+
             # Check for generic case (genus 2 generic divisor: deg(u)=2)
             if res_u.degree() != 2:
                 # Degenerate reduction (weight < 2), skip to simplify CRT logic
                 continue
-                
+
             # u = x^2 + u1 x + u0. list() -> [u0, u1, 1]
             u_c = res_u.list()
             # v = v1 x + v0. list() -> [v0, v1]
             v_c = res_v.list()
-            
+
             # Pad v if constant or empty
             if len(v_c) < 2:
                 v_c = v_c + [K(0)] * (2 - len(v_c))
-            
+
             # Collect residues: u0, u1, v0, v1
             # Note: u_c[0]=u0, u_c[1]=u1.
             rec = (Integer(u_c[0]), Integer(u_c[1]), Integer(v_c[0]), Integer(v_c[1]))
-            
+
             residues.append(rec)
             moduli.append(p)
-            
+
         except (ValueError, ZeroDivisionError, ArithmeticError) as e:
             if debug:
                 print(f"[compute_doubled_point_modular] Mod {p} failed: {e}")
             continue
-            
+
     if not moduli:
         raise RuntimeError("compute_doubled_point_modular: No valid primes found for CRT reconstruction.")
-        
+
     # 3. Rational Reconstruction
     M = prod(moduli)
     final_coeffs = []
-    
+
     # Reconstruct 4 coefficients: u0, u1, v0, v1
     for i in range(4):
         # residues[j][i] is the i-th coeff for j-th prime
         col = [r[i] for r in residues]
         x_crt = crt(col, moduli)
-        
+
         try:
             val = x_crt.rational_reconstruction(M)
             final_coeffs.append(val)
@@ -307,18 +304,18 @@ def compute_doubled_point_modular(div, f_coeffs, num_doublings, primes_list, deb
     # u = x^2 + u1*x + u0
     # v = v1*x + v0
     u0, u1, v0, v1 = final_coeffs
-    
+
     R_qq = PolynomialRing(QQ, 'x')
     x = R_qq.gen()
-    
+
     u_poly = x**2 + u1*x + u0
     v_poly = v1*x + v0
-    
+
     # Rebuild parent Jacobian
     f_poly_qq = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
     C = HyperellipticCurve(f_poly_qq)
     J = C.jacobian()
-    
+
     return J(u_poly, v_poly)
 
 def compute_height_pairing_exact(D1, D2, f_coeffs, num_doublings=NUM_DOUBLINGS, primes_list=PRIME_POOL, debug=False):
@@ -329,7 +326,7 @@ def compute_height_pairing_exact(D1, D2, f_coeffs, num_doublings=NUM_DOUBLINGS, 
     """
     if D1.is_zero() or D2.is_zero():
         return QQ(0)
-    
+
     # 1. Compute D1+D2
     D_sum = D1 + D2
 
@@ -342,17 +339,17 @@ def compute_height_pairing_exact(D1, D2, f_coeffs, num_doublings=NUM_DOUBLINGS, 
     h_P_final = naive_height_exact(P_final)
     h_Q_final = naive_height_exact(Q_final)
     h_S_final = naive_height_exact(S_final)
-    
+
     # 4. Apply the canonical height definition
-    # h_hat(D) approx h(2^n D) / 4^n 
+    # h_hat(D) approx h(2^n D) / 4^n
     scaling_factor = QQ(4**num_doublings)
     canonical_D1 = h_P_final / scaling_factor
     canonical_D2 = h_Q_final / scaling_factor
     canonical_D_sum = h_S_final / scaling_factor
-    
+
     # 5. Compute the pairing
     pairing_value = (canonical_D_sum - canonical_D1 - canonical_D2) / QQ(2)
-    
+
     return pairing_value
 
 def _extract_u_coeffs_as_fractions(u):

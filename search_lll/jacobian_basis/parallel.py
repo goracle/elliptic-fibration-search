@@ -1,18 +1,9 @@
-from sage.all import PolynomialRing, HyperellipticCurve, QQ
-from .heights import arakelov_canonical_height
-from sage.all import QQ
 from sage.all import PolynomialRing, HyperellipticCurve, QQ, RealField
+from .heights import arakelov_canonical_height
 
 """Parallel worker functions for multiprocessing."""
 
-
-
-
 """Parallel worker functions for multiprocessing."""
-
-
-
-
 
 def compute_pairing_worker(args):
     """
@@ -84,7 +75,6 @@ def compute_pairing_worker(args):
 
     # Round back to requested precision
     return ((i, j), RealField(prec)(val), None)
-
 
 def compute_height_worker(args):
     i, div, f_coeffs, prec = args

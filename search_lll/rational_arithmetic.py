@@ -54,7 +54,6 @@ def rational_reconstruct(c, N, max_den=None):
     g = gcd(abs(a), abs(b))
     return int(a // g), int(b // g)
 
-
 def find_minimal_abs_representative(t_mod_Q, Q, T):
     """
     Find if there exists k such that |t_mod_Q + k*Q| <= T
@@ -62,29 +61,28 @@ def find_minimal_abs_representative(t_mod_Q, Q, T):
     """
     if Q == 0:
         return abs(t_mod_Q) <= T
-    
+
     k_opt_float = -t_mod_Q / Q
     k_candidates = [int(k_opt_float), int(k_opt_float) + 1, 0]
-    
+
     for k in k_candidates:
         t = t_mod_Q + k * Q
         if abs(t) <= T:
             return True
     return False
 
-
 def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_raise=True):
     """
     Ensure that x = T^-1(r_m(base_m)) - shift equals expected_x.
     This checks that the base point (mtest, xtest) relationship is respected
     by the parametrization, handling the global shift and optional Mobius transform T.
-    
+
     r_m_callable(m) returns the x-coordinate (x'') on the most-transformed curve.
     If T is present, the shifted x-coordinate is T^-1(x'').
     Then the original x-coordinate is x_shifted - shift.
     """
     assert base_m is not None, "assert_base_m_found requires a base_m (rational) to check"
-    
+
     try:
         # r_m_callable(m=QQ(base_m)) evaluates to the final transformed x-coordinate (x'')
         x_final_transformed = r_m_callable(m=QQ(base_m))
@@ -93,7 +91,7 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
         if allow_raise:
             raise AssertionError(msg)
         return False
-        
+
     # 1. Apply Inverse Mobius transform T^-1 to get the shifted x-coordinate (x')
     if T is not None:
         try:
@@ -111,7 +109,7 @@ def assert_base_m_found(base_m, expected_x, r_m_callable, shift, T=None, allow_r
     # 2. Subtract shift to get the original x-coordinate (x_orig)
     # Since x_shifted = x_orig + shift, we have x_orig = x_shifted - shift.
     x_orig = x_shifted - shift
-    
+
     try:
         x_orig_q = QQ(x_orig)
         expected_x_q = QQ(expected_x)

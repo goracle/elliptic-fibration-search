@@ -1,6 +1,5 @@
 from sage.all import GF, PolynomialRing, HyperellipticCurve, factor, Integer, QQ
 from time import sleep
-from sage.all import Integer, factor
 from math import ceil, sqrt
 
 # === prime_subgroup_projection.py ===
@@ -10,9 +9,7 @@ For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning,
 not in the full J(F_p) and project later.
 """
 
-
 # [Deleted unused/duplicate setup_prime_subgroup_system function]
-
 
 # -------------------------
 # Helper: canonical Sage polynomial from user coeff list
@@ -38,18 +35,15 @@ def sage_poly_from_coeffs(coeffs, R):
         poly += coeff * x**power
     return poly
 
-
 """
 Projects the hyperelliptic curve Jacobian setup into its largest prime-order subgroup.
 For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning.
 """
 
-
 """
 Projects the hyperelliptic curve Jacobian setup into its largest prime-order subgroup.
 For HECC index calculus, we want to work in J(F_p)[ℓ] from the beginning.
 """
-
 
 def generate_keypair_from_secret(coeffs_genus2, p, secret_key, data_pts_genus2):
     K = GF(p)
@@ -78,7 +72,6 @@ def generate_keypair_from_secret(coeffs_genus2, p, secret_key, data_pts_genus2):
 
     return G, Q, preferred_x_values
 
-
 def get_random_x_on_hyperelliptic(coeffs, p):
     Fp = GF(p)
     for _ in range(1000):
@@ -87,12 +80,11 @@ def get_random_x_on_hyperelliptic(coeffs, p):
         deg = len(coeffs) - 1
         for i, c in enumerate(coeffs):
             val += Fp(c) * (try_x**(deg - i))
-        
+
         if val.is_square() and val:
             return QQ(int(try_x))
-            
-    raise ValueError(f"Failed to find a valid point on the curve mod {p}.")
 
+    raise ValueError(f"Failed to find a valid point on the curve mod {p}.")
 
 def compute_jacobian_order(f_coeffs, p):
     """
@@ -101,15 +93,15 @@ def compute_jacobian_order(f_coeffs, p):
     """
     K = GF(p)
     P_x = PolynomialRing(K, 'x')
-    
+
     # Construct the curve
     deg = len(f_coeffs) - 1
     f = P_x(0)
     for i, c in enumerate(f_coeffs):
         f += K(c) * P_x.gen()**(deg - i)
-    
+
     C = HyperellipticCurve(f)
-    
+
     try:
         # The characteristic polynomial of Frobenius P(t)
         # The number of points on the Jacobian is P(1)
@@ -120,14 +112,13 @@ def compute_jacobian_order(f_coeffs, p):
         # Fallback for very small p or specific Sage versions
         return Integer(C.jacobian().order())
 
-
 def generate_random_curve_point(f_poly, p):
     F = GF(p)
     R = PolynomialRing(F, 'x')
     f = R(f_poly)
     C = HyperellipticCurve(f)
     J = C.jacobian()
-    
+
     for _ in range(1000):
         x_coord = F.random_element()
         y2 = f(x_coord)
@@ -136,9 +127,8 @@ def generate_random_curve_point(f_poly, p):
             P = J(C((x_coord, y_coord)))
             if not (2 * P).is_zero():
                 return P, int(x_coord), int(y_coord)
-    
-    raise ValueError("Failed to generate random curve point")
 
+    raise ValueError("Failed to generate random curve point")
 
 # Put at top of file (if not already imported)
 
@@ -312,7 +302,6 @@ def solve_dlp_mod_l_block_wiedemann(
         print("  [Verify] ✓ Exact equality d*G == Q (prime subgroup).")
     return int(dlog)
 
-
 # ---------------------------------------------------------------------
 # Optional helper (kept for completeness): BSGS lift in case you ever need to lift
 # ---------------------------------------------------------------------
@@ -370,7 +359,6 @@ def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
         print("[lift] BSGS failed to find a lift in [0,h).")
     return None
 
-
 def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     F = GF(p)
     R = PolynomialRing(F, 'x')
@@ -378,17 +366,17 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
     f = R(f_poly)
-    
+
     order = compute_jacobian_order(coeffs_genus2, p)
     factorization = factor(order)
     ell = max([Integer(prime) for prime, _ in factorization])
     cofactor = order // ell
-    
+
     print(f"Jacobian order: {order}")
     print(f"Factorization: {factorization}")
     print(f"Largest prime ℓ: {ell}")
     print(f"Cofactor h: {cofactor}")
-    
+
     def has_split_degree2_u(D):
         """Check if D has degree-2 u(x) that splits over F_p"""
         if D.is_zero():
@@ -398,11 +386,11 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
             return False
         disc = u_poly.discriminant()
         return disc != 0 and disc.is_square()
-    
+
     # Search for G_original that projects to a split divisor
     max_attempts = 10000
     G = None
-    
+
     for attempt in range(max_attempts):
         if base_pts_x[0] is None:
             try:
@@ -417,66 +405,66 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
                 raise ValueError("Base point not quadratic residue")
             y_coord = y2.sqrt()
             G_original_base = J(C((x_coord, y_coord)))
-            
+
             # Try multiples to find one that projects well
             # Try G_original = [k] * base for k = 1, 2, 3, ...
             G_original = Integer(attempt + 1) * G_original_base
-        
+
         # Project into ℓ-subgroup
         G_candidate = Integer(cofactor) * G_original
-        
+
         if G_candidate.is_zero():
             continue
-        
+
         # Check if it has split u(x)
         if has_split_degree2_u(G_candidate):
             G = G_candidate
             if base_pts_x[0] is None:
                 base_pts_x = [basex]
             break
-        
+
         # If using provided base point, keep trying multiples
         if base_pts_x[0] is None:
             # For random generation, just try a new random point
             pass
-    
+
     if G is None:
         raise RuntimeError(f"Failed to find G with split u(x) after {max_attempts} attempts")
-    
+
     # Verify G is in ℓ-subgroup
     assert (Integer(ell) * G).is_zero(), "G not in ℓ-subgroup"
-    
+
     # Search for Q = [k]*G with split u(x)
     current_secret = Integer(secret_key) % ell
     Q = None
     final_secret = None
-    
+
     for offset in range(max_attempts):
         test_secret = (current_secret + offset) % ell
         if test_secret == 0:
             continue
-        
+
         Q_candidate = Integer(test_secret) * G
-        
+
         if has_split_degree2_u(Q_candidate):
             Q = Q_candidate
             final_secret = test_secret
             break
-    
+
     if Q is None:
         raise RuntimeError(f"Failed to find Q with split u(x) after {max_attempts} attempts")
-    
+
     # Extract x-coordinates (now guaranteed to exist since u(x) splits)
     preferred_x_coords = set()
     for D in [G, Q]:
         u_poly = D[0]
         for root, _ in u_poly.roots():
             preferred_x_coords.add(int(root))
-    
+
     assert len(preferred_x_coords) == 4, f"Expected 4 x-coords, got {len(preferred_x_coords)}: {preferred_x_coords}"
-    
+
     print(f"Generated {len(preferred_x_coords)} preferred x-coordinates: {preferred_x_coords}")
     print(f"G has u(x) = {G[0]} (splits)")
     print(f"Q has u(x) = {Q[0]} (splits)")
-    
+
     return ell, base_pts_x, G, Q, preferred_x_coords, final_secret

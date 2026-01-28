@@ -1,47 +1,29 @@
-from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField
+import math, sys, warnings, multiprocessing, itertools
+from sage.all import QQ, PolynomialRing, HyperellipticCurve, Matrix, CDF, RealField, GF, Integer, gcd, log, diagonal_matrix, ZZ, primes
 from .mumford_height import *
 from ..arakelov import *
 from .mumford_core import _poly_from_coeffs_qq
 from search_lll.smoothness import *
-from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, VERIFY_INDEPENDENCE_MOD_P
-import math
-import sys
-from collections import defaultdict
-from sage.all import QQ, GF, Integer, PolynomialRing, gcd
-from sage.all import QQ, log
-from sage.all import diagonal_matrix
+from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, VERIFY_INDEPENDENCE_MOD_P, FINITE_FIELD
+from collections import defaultdict, Counter
 from search_lll.homology import *
 from search_lll.jacobian_basis.heights import *
-import warnings
 from pprint import pprint
-import multiprocessing
-import itertools
 from sage.misc.verbose import set_verbose
-from sage.all import QQ, GF, Integer, PolynomialRing, HyperellipticCurve, Matrix, ZZ
-from collections import defaultdict, Counter
-from sage.all import GF, ZZ, Matrix, primes
-from sage.all import ZZ
-from sage.schemes.hyperelliptic_curves.monsky_washnitzer import matrix_of_frobenius_hyperelliptic
 from sage.schemes.hyperelliptic_curves.monsky_washnitzer import matrix_of_frobenius_hyperelliptic, adjusted_prec
-from sage.all import ZZ, Integer
-from sage.all import ZZ, Integer, Matrix
-from search_common import FINITE_FIELD
 
 # Try to import Arakelov
 set_verbose(0)
-
 
 ARAKELOV_AVAILABLE = True
 MAX_BASIS_CANDIDATES = 300
 _FILTER_STATS = defaultdict(int)
 _BAD_HEIGHT_SIGNATURES = set()  # learned blacklist from Arakelov failures
 
-
 # -------------------------
 # Basis builder (top-level)
 # -------------------------
 DEFAULT_PRECS = [256]
-
 
 # -------------------------
 # Mumford element builder
@@ -56,7 +38,6 @@ warnings.formatwarning = custom_formatwarning
 # -------------------------
 DEFAULT_PRECS = [256]
 
-
 def structural_red_flag(div):
     """Simple heuristic: u(x) coefficients all in {-1,0,1} (may indicate tiny-naive divisors)."""
     u = div.get('u', None)
@@ -64,7 +45,6 @@ def structural_red_flag(div):
         return False
     coeffs = u.list()
     return all(c in (-1, 0, 1) for c in coeffs)
-
 
 def _projection_residual_sq(basis_jac, candidate_D, f_coeffs,
                             prec_bits=512, pairing_func=None, pairing_cache=None, debug=False):
@@ -158,12 +138,6 @@ def _projection_residual_sq(basis_jac, candidate_D, f_coeffs,
         print(f"[proj] vv={vv:.4g} proj={proj_sq:.4g} res_sq={res_sq:.4g}")
     return float(res_sq)
 
-
-# -------------------------
-# Mumford element builder
-# -------------------------
-
-
 # Debug helpers
 def dbg_poly_info(poly):
     """Return simple poly diagnostics string."""
@@ -189,7 +163,6 @@ def dbg_poly_info(poly):
     maxbits = max(bits) if bits else 0
     return f"deg={deg}, maxcoeff_bits={maxbits}, len={len(coeffs)}"
 
-
 def dump_jacobian_mumford_info(JP, label="P"):
     """Print debugging information about a Jacobian mumford element JP."""
     try:
@@ -200,7 +173,6 @@ def dump_jacobian_mumford_info(JP, label="P"):
         print("[DBG] failed to print mumford info:", e)
         raise
 
-
 def u_is_theta_degenerate(div, bound=QQ(1)/QQ(100)):
     try:
         s = QQ(div['s'])
@@ -210,7 +182,6 @@ def u_is_theta_degenerate(div, bound=QQ(1)/QQ(100)):
     except Exception:
         raise
         return False
-
 
 def u_theta_degenerate_from_sp(div, bound=QQ(1)/QQ(100)):
     """
@@ -228,7 +199,6 @@ def u_theta_degenerate_from_sp(div, bound=QQ(1)/QQ(100)):
         # if coercion fails, don't filter
         raise
         return False
-
 
 # Place near the other helpers; needs sage QQ import
 
@@ -359,7 +329,6 @@ def u_theta_degenerate_enhanced(div,
     # No trigger
     return False
 
-
 def _to_QQ_safe(x):
     try:
         return QQ(x)
@@ -390,7 +359,6 @@ def _has_rational_root_pair(div):
             r2 = (s - sqrt_disc)/2
             return True, (r1, r2)
     return False, ()
-
 
 def _modular_shared_root_count(div, f_coeffs, primes=(2,3,5,7,11,13,17)):
     cnt = 0
@@ -528,7 +496,6 @@ def u_is_problematic(div, f_coeffs_or_curve, C=None, debug=False,
     # else: not flagged
     return False, None
 
-
 def _is_rational_square_Q(q):
     """
     Return True if rational q in QQ is a perfect rational square,
@@ -552,7 +519,6 @@ def _is_rational_square_Q(q):
         r = int(math.isqrt(n))
         return r*r == n
     return is_square(num) and is_square(den)
-
 
 # Replace the previous helpers and filter_kobayashi_maru with the following.
 
@@ -611,7 +577,6 @@ def _drop_if_both_roots_give_rational_points(div, f_coeffs_or_curve):
 
     return _is_perfect_square_Q(v1) and _is_perfect_square_Q(v2)
 
-
 def u_has_rational_root_lifting_to_point(div, f_coeffs_or_curve):
     # get curve
     if hasattr(f_coeffs_or_curve, 'hyperelliptic_polynomials'):
@@ -648,9 +613,7 @@ def u_has_rational_root_lifting_to_point(div, f_coeffs_or_curve):
 
     return False
 
-
 # Put near other helpers (top-level). No imports inside functions.
-
 
 def compute_canonical_height_with_budget(div, f_coeffs, debug=True):
     try:
@@ -674,7 +637,6 @@ def compute_canonical_height_with_budget(div, f_coeffs, debug=True):
 
     return None
 
-
 def mumford_divisor_to_jacobian(div, f_coeffs):
     if not isinstance(div, dict):
         raise TypeError("Expected Mumford divisor dict")
@@ -689,7 +651,6 @@ def mumford_divisor_to_jacobian(div, f_coeffs):
         u = x**2 - s*x + p
         v = QQ(div['v_1'])*x + QQ(div['v_0'])
 
-
         return mumford_pair_to_jacobian(u, v, f_coeffs)
 
     except Exception as e:
@@ -697,13 +658,11 @@ def mumford_divisor_to_jacobian(div, f_coeffs):
             f"Failed to convert Mumford divisor to Jacobian element: {div}"
         ) from e
 
-
 def mumford_pair_to_jacobian(u, v, f_coeffs):
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     J = Jacobian(HyperellipticCurve(R(list(reversed(f_coeffs)))))
     return J(u, v)
-
 
 # In mumford_basis.py
 
@@ -729,20 +688,20 @@ def _is_jacobian_u_x_squared(D, rejected_jac_elements=None):
                  pass
              except Exception:
                  raise
-                 
+
         # Check against rejected list via converting rejected to (s,p) signature?
         # The prompt implies we should use rejected_jac_elements to reject D if it matches.
         # However, D is a Sage object and rejected_jac_elements is a list of dicts.
         # The prompt says "if the sum or whatever doubling thingie is in the rejected list, then reject div."
         # This implies we should check if D corresponds to something in rejected_jac_elements.
-        
+
         if rejected_jac_elements:
              # Extract s, p from D
              # u = x^2 - sx + p  => coeffs = [p, -s, 1]
              # s = -coeffs[1], p = coeffs[0]
              s_val = -coeffs[1]
              p_val = coeffs[0]
-             
+
              for rej_div in rejected_jac_elements:
                   try:
                       if _to_QQ_safe(rej_div['s']) == s_val and _to_QQ_safe(rej_div['p']) == p_val:
@@ -750,13 +709,12 @@ def _is_jacobian_u_x_squared(D, rejected_jac_elements=None):
                   except Exception:
                       raise
                       continue
-                      
+
         return False
-        
+
     except Exception:
         raise
         return False
-
 
 def naive_height_suspicion(div):
     """
@@ -787,7 +745,6 @@ def naive_height_suspicion(div):
         h = log(float(max(vals)))
     # suspicious if numerically tiny but algebraically has some bit-size
     return (h < 1e-6) and (max_bits >= 2)
-
 
 def naive_height_from_record(div):
     """
@@ -829,23 +786,22 @@ def doubling_growth_test(D, f_coeffs, naive_height_func=None):
         raise
         return False
 
-
 def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=False):
     """
     Check if D_new, when paired with any accepted divisor, produces a sum
     whose canonical height cannot be computed (numerically unstable).
-    
+
     This is necessary because computing the Gram matrix entry H[i,j] requires
     computing the height of D_i + D_j via the polarization formula.
-    
+
     Args:
         D_new: Jacobian element candidate
         accepted_jac_elements: List of already-accepted Jacobian elements
         f_coeffs: Curve coefficients
         debug: Enable debug output
-        
+
     Returns:
-        (is_unstable, reason_str): 
+        (is_unstable, reason_str):
             - (False, None) if all pairings are computable
             - (True, reason) if any pairing fails
     """
@@ -853,17 +809,17 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
     if not accepted_jac_elements:
         # No existing elements to check against
         return False, None
-    
+
     for idx, D_accepted in enumerate(accepted_jac_elements):
         try:
             # Compute the sum
             D_sum = D_new + D_accepted
-            
+
             # Try to extract Mumford representation of sum
             try:
                 u_sum = D_sum[0]
                 v_sum = D_sum[1]
-                
+
                 # Extract s, p from u(x) = x^2 - sx + p
                 if u_sum.degree() == 2:
                     coeffs_u = u_sum.list()
@@ -874,12 +830,12 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
                         # Sparse polynomial representation
                         p_sum = coeffs_u[0] if len(coeffs_u) > 0 else 0
                         s_sum = -coeffs_u[1] if len(coeffs_u) > 1 else 0
-                    
+
                     # Extract v coefficients
                     coeffs_v = v_sum.list()
                     v0_sum = coeffs_v[0] if len(coeffs_v) > 0 else 0
                     v1_sum = coeffs_v[1] if len(coeffs_v) > 1 else 0
-                    
+
                     # Build divisor dict for height computation
                     sum_div = {
                         's': s_sum,
@@ -887,87 +843,85 @@ def _sum_yields_unstable_height(D_new, accepted_jac_elements, f_coeffs, debug=Fa
                         'v_0': v0_sum,
                         'v_1': v1_sum
                     }
-                    
+
                     # Try to compute canonical height of the sum
                     h_sum = compute_canonical_height_with_budget(
                         sum_div, f_coeffs, debug=False
                     )
-                    
+
                     if h_sum is None:
                         if debug:
                             print(f"[pairwise] Sum with accepted element {idx}: height computation failed.  h=None.")
                         return True, f"sum_height_failed_with_{idx}"
-                    
+
                     if h_sum < 0:
                         if debug:
                             print(f"[pairwise] Sum with accepted element {idx}: negative height {h_sum}")
                         return True, f"sum_negative_height_with_{idx}"
-                    
+
                 elif u_sum.degree() == 1:
                     # Degree 1 divisor - also need to handle this case
                     # Extract coefficients for degree-1 Mumford form
                     # This is less common but can happen
                     pass  # For now, assume these are okay
-                    
+
             except Exception as e:
                 if debug:
                     print(f"[pairwise] Failed to extract Mumford from sum with {idx}: {e}")
                 raise
                 return True, f"sum_mumford_extraction_failed_with_{idx}"
-                
+
         except Exception as e:
             if debug:
                 print(f"[pairwise] Failed to compute sum with accepted element {idx}: {e}")
             raise
             return True, f"sum_computation_failed_with_{idx}"
-    
+
     # All pairwise sums passed the test
     return False, None
-
 
 def _kobayashi_worker(args):
     """
     Worker - reconstructs everything from scratch in clean process.
     """
     from sage.all import QQ, PolynomialRing, HyperellipticCurve, matrix, CDF, RealField
-    
+
     div_data, f_coeffs_data, p_mat_list, num_doublings = args
-    
+
     # Reconstruct QQ rationals
     s = QQ(div_data['s'][0]) / QQ(div_data['s'][1])
     p = QQ(div_data['p'][0]) / QQ(div_data['p'][1])
     v_0 = QQ(div_data['v_0'][0]) / QQ(div_data['v_0'][1])
     v_1 = QQ(div_data['v_1'][0]) / QQ(div_data['v_1'][1])
-    
+
     f_coeffs = [QQ(num) / QQ(den) for num, den in f_coeffs_data]
-    
+
     # Reconstruct period matrix
     if p_mat_list is not None:
         p_mat = matrix(CDF, p_mat_list)
     else:
         p_mat = None
-    
+
     # Build Jacobian element fresh in this process
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     f_poly = sum(c * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
     C = HyperellipticCurve(f_poly)
     J = C.jacobian()
-    
+
     u = x**2 - s * x + p
     v = v_1 * x + v_0
     J_element = J([u, v])
-    
+
     # Compute height without any caches
     h_val = _arakelov_quasi_height_nocache(J_element, f_coeffs, p_mat, prec=300)
-    
-    return (float(h_val), div_data)
 
+    return (float(h_val), div_data)
 
 def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressive=True, num_doublings=5):
     """
     Filter divisors by canonical height, removing those with tiny or negative heights.
-    Uses naive height (fast, exact) instead of full canonical height to avoid 
+    Uses naive height (fast, exact) instead of full canonical height to avoid
     multiprocessing complexity.
     """
     _FILTER_STATS['total_input'] += len(all_divisors)
@@ -994,10 +948,10 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
             p = QQ(div['p'])
             v_0 = QQ(div['v_0'])
             v_1 = QQ(div['v_1'])
-            
+
             u_poly = x**2 - s * x + p
             v_poly = v_1 * x + v_0
-            
+
             # Create Jacobian element
             try:
                 D = J([u_poly, v_poly])
@@ -1007,7 +961,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
                 _FILTER_STATS['rejected_invalid'] += 1
                 raise
                 continue
-            
+
             # Compute naive height (fast, exact, no period matrix needed)
             try:
                 h_naive = float(naive_height_qq(D, prec=100))
@@ -1017,7 +971,7 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
                 _FILTER_STATS['rejected_invalid'] += 1
                 raise
                 continue
-            
+
             # Filter out extremely tiny heights (likely problematic)
             if aggressive and abs(h_naive) < 1e-10:
                 _FILTER_STATS['rejected_tiny'] += 1
@@ -1030,20 +984,20 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
                 # Fallback to dict signature
                 key = (s, p, v_0, v_1)
                 raise
-            
+
             if key in seen:
                 _FILTER_STATS['rejected_dupe'] += 1
                 continue
-            
+
             seen.add(key)
-            
+
             # Store the naive height for sorting later
             div['_h_naive'] = h_naive
             out.append(div)
-            
+
             if len(out) >= maxbasis:
                 break
-                
+
         except Exception as e:
             if debug:
                 print(f"[filter] Error processing divisor {div}: {e}")
@@ -1059,7 +1013,6 @@ def filter_kobayashi_maru(all_divisors, f_coeffs, maxbasis, debug=True, aggressi
 
     return out
 
-
 def setup_mod_p_check(f_coeffs, p):
     """Initialize Jacobian mod p for independence checking."""
     R = GF(p)['x']
@@ -1069,29 +1022,27 @@ def setup_mod_p_check(f_coeffs, p):
     J = C.jacobian()
     return J
 
-
 def mumford_to_mod_p(div, J_p):
     """Convert rational mumford dict to J(GF(p)) element."""
     R_p = J_p.base_ring()['x']
     x = R_p.gen()
-    
+
     s_val = QQ(div['s'])
     p_val = QQ(div['p'])
     v1_val = QQ(div['v_1'])
     v0_val = QQ(div['v_0'])
-    
+
     p_char = J_p.base_ring().characteristic()
-    if (s_val.denominator() % p_char == 0 or 
+    if (s_val.denominator() % p_char == 0 or
         p_val.denominator() % p_char == 0 or
         v1_val.denominator() % p_char == 0 or
         v0_val.denominator() % p_char == 0):
         return None
-        
+
     u_p = x**2 - R_p(s_val)*x + R_p(p_val)
     v_p = R_p(v1_val)*x + R_p(v0_val)
-    
-    return J_p([u_p, v_p])
 
+    return J_p([u_p, v_p])
 
 def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_doublings=6, debug=True):
     """
@@ -1168,7 +1119,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
             if debug:
                 warnings.warn(f"[basis] failed to build jacobian element for div {div}: {e}", RuntimeWarning)
             raise
-    
+
     if VERIFY_INDEPENDENCE_MOD_P:
         if debug:
             print(f"[basis] Using modular independence check (p={p_test})")
@@ -1177,12 +1128,12 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
             basis = []
             basis_jac = []
             basis_vectors_p = []
-            
+
             for idx, (div, D) in enumerate(jac_elements):
                 D_p = mumford_to_mod_p(div, J_p)
                 if D_p is None:
                     continue
-                
+
                 if is_independent_mod_p(basis_vectors_p, D_p, J_p):
                     basis.append(div)
                     basis_jac.append(D)
@@ -1192,7 +1143,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
                 else:
                     if debug:
                         print(f"[basis] Rejected divisor {idx} (dependent mod {p_test})")
-            
+
             rank = len(basis)
             H_exact = None
             if rank > 0:
@@ -1205,9 +1156,9 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
                         except Exception:
                             raise
                 H_exact = normalize_gram_for_basis(H_exact, 100)
-                
+
             return basis, rank, H_exact
-            
+
         except Exception as e:
             warnings.warn(f"[basis] Mod p check failed: {e}. Falling back to normal flow.", RuntimeWarning)
             raise
@@ -1233,7 +1184,7 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
                 if debug:
                     warnings.warn(f"[basis] compute_height_pairing_exact unexpected error for candidate {idx}: {e}", RuntimeWarning)
                 raise
-                
+
             if h_float <= 0:
                 if debug:
                     warnings.warn(f"[basis] Rejecting first candidate: non-positive self-pairing {h_float}", RuntimeWarning)
@@ -1307,7 +1258,6 @@ def build_mumford_basis_incremental_exact(all_divisors, f_coeffs, p_test, num_do
 
     return basis, rank, H_exact
 
-
 def is_independent_mod_p(basis_elements, new_element, J_p):
     """
     Check if new_element is independent of basis_elements in J(GF(p)).
@@ -1315,19 +1265,19 @@ def is_independent_mod_p(basis_elements, new_element, J_p):
     """
     if not basis_elements:
         return not new_element.is_zero()
-    
+
     # For genus 2, the group size is roughly p^2, so we only need to check
     # small coefficients. The key insight: if new_element is dependent,
     # there exist small integer coefficients expressing it.
-    
+
     # Check exact matches first (fast)
     for basis_elem in basis_elements:
         if new_element == basis_elem or new_element == -basis_elem:
             return False
-    
+
     # For basis of size n, check combinations with coefficients in smaller range
     n = len(basis_elements)
-    
+
     # Adaptive range: smaller range for larger basis to keep it tractable
     if n == 1:
         search_range = range(-20, 21)
@@ -1337,7 +1287,7 @@ def is_independent_mod_p(basis_elements, new_element, J_p):
         search_range = range(-5, 6)
     else:
         search_range = range(-3, 4)
-    
+
     # Try to express new_element as linear combination
     for coeff_tuple in itertools.product(search_range, repeat=n):
         if all(c == 0 for c in coeff_tuple):
@@ -1352,9 +1302,8 @@ def is_independent_mod_p(basis_elements, new_element, J_p):
             raise
         except Exception:
             raise
-    
-    return True
 
+    return True
 
 """
 Correct mod-p independence checking for Jacobian elements.
@@ -1367,68 +1316,65 @@ FIXES:
 4. Frequency distribution tracking for robustness
 """
 
-
-
 # ============================================================================
 # Core: Exact mod-p rank computation (CORRECT VERSION)
 # ============================================================================
 
-
 def compute_subgroup_rank_exact(elements_p, J_p, debug=False):
     """
     Compute EXACT rank of subgroup generated by elements_p in J(F_p).
-    
+
     Uses Sage's group structure computation + Smith normal form.
     This is the CORRECT way to compute rank.
-    
+
     Returns: rank (integer)
     """
     if not elements_p:
         return 0
-    
+
     # Remove zeros
     nonzero = [D for D in elements_p if not D.is_zero()]
     if not nonzero:
         return 0
-    
+
     try:
         # Sage can compute the group structure for modest primes
         # This gives us the actual abelian group J(F_p)
-        
+
         # For small to medium primes, we can use Sage's built-in machinery
         # to compute the relation matrix
-        
+
         n = len(nonzero)
-        
+
         # Try to get group structure (may be expensive for large p)
         # For genus 2, #J(F_p) ~ p^2, so this is feasible for p < 10000
-        
+
         p = J_p.base_ring().characteristic()
-        
+
         if p > 50000:
             # Too expensive to compute full group structure
             # Fall back to probabilistic method
             return compute_subgroup_rank_probabilistic(nonzero, J_p, debug=debug)
-        
+
         # Build relation matrix via discrete log
         # We need to express each element in terms of a basis
-        
+
         # Strategy: use random linear combinations to find relations
         # Then use Smith normal form to extract rank
-        
+
         # Create random relation matrix
         max_order_estimate = p * p * 4  # Rough upper bound on #J(F_p)
-        
+
         # Try to find relations by checking small multiples
         relations = []
-        
+
         for D in nonzero:
             # Find order of D (or bound it)
             order = find_element_order_bounded(D, max_order_estimate, bound=1000)
             if order is not None:
                 # Found exact order
                 relations.append([order if D == Di else 0 for Di in nonzero])
-        
+
         # Also try random linear combinations
         from sage.all import random
         for _ in range(min(20, n * 5)):
@@ -1436,40 +1382,39 @@ def compute_subgroup_rank_exact(elements_p, J_p, debug=False):
             combo = J_p(0)
             for c, D in zip(coeffs, nonzero):
                 combo = combo + c * D
-            
+
             if combo.is_zero():
                 relations.append(coeffs)
-        
+
         if not relations:
             # No relations found - likely full rank
             return n
-        
+
         # Build relation matrix and compute Smith normal form
         M = Matrix(ZZ, relations)
-        
+
         # Rank = n - number of independent relations
         try:
             # Smith normal form gives us the rank of relations
             S = M.smith_form()[0]
-            
+
             # Count non-zero diagonal entries (independent relations)
-            independent_relations = sum(1 for i in range(min(S.nrows(), S.ncols())) 
+            independent_relations = sum(1 for i in range(min(S.nrows(), S.ncols()))
                                        if S[i, i] != 0)
-            
+
             rank = n - independent_relations
             return max(0, rank)
-            
+
         except Exception:
             # Smith form failed, be conservative
             raise
             return n
-    
+
     except Exception as e:
         if debug:
             print(f"[rank exact] Failed, using probabilistic fallback: {e}")
         raise
         return compute_subgroup_rank_probabilistic(nonzero, J_p, debug=debug)
-
 
 def find_element_order_bounded(D, max_order, bound=1000):
     """
@@ -1478,85 +1423,79 @@ def find_element_order_bounded(D, max_order, bound=1000):
     """
     if D.is_zero():
         return 1
-    
+
     # Try small multiples directly
     current = D
     for n in range(2, min(bound, max_order) + 1):
         current = current + D
         if current.is_zero():
             return n
-    
-    return None
 
+    return None
 
 def compute_subgroup_rank_probabilistic(elements_p, J_p, num_trials=50, debug=False):
     """
     Probabilistic rank computation via random linear combinations.
-    
+
     One-sided error: may UNDER-estimate rank (false negatives only).
     Never OVER-estimates rank (no false positives).
-    
+
     Returns: rank estimate (conservative lower bound)
     """
     if not elements_p:
         return 0
-    
+
     n = len(elements_p)
-    
+
     # Build a basis incrementally by checking independence probabilistically
     basis = []
-    
+
     for D in elements_p:
         if not basis:
             if not D.is_zero():
                 basis.append(D)
             continue
-        
+
         # Check if D is independent of basis via random tests
         is_indep = True
-        
-        from sage.all import random
+
         for _ in range(num_trials):
             # Random linear combination of basis
             coeffs = [random.randint(-100, 100) for _ in basis]
             combo = J_p(0)
             for c, B in zip(coeffs, basis):
                 combo = combo + c * B
-            
+
             # If D = combo, then dependent
             if D == combo:
                 is_indep = False
                 break
-            
+
             # Also try D + small multiple of combo
             for k in range(-5, 6):
                 if D == combo + k * (basis[0] if basis else J_p(0)):
                     is_indep = False
                     break
-            
+
             if not is_indep:
                 break
-        
+
         if is_indep:
             basis.append(D)
-    
-    return len(basis)
 
+    return len(basis)
 
 # ============================================================================
 # Multi-prime aggregation with frequency tracking
 # ============================================================================
 
-
 # ============================================================================
 # FIXED: Multi-prime scoring (no hard filtering)
 # ============================================================================
 
-
 # ============================================================================
 # Diagnostic utilities
 # ============================================================================
-
 
 """
 Drop-in replacement functions for mumford_basis.py
@@ -1572,7 +1511,6 @@ FIXES APPLIED:
 # CORRECTED: build_mumford_basis_incremental
 # ============================================================================
 
-
 # ============================================================================
 # DIAGNOSTIC WRAPPER
 # ============================================================================
@@ -1585,51 +1523,50 @@ def diagnose_divisors_comprehensive(all_divisors, f_coeffs, debug=True):
     print("\n" + "="*70)
     print("COMPREHENSIVE DIVISOR DIAGNOSTIC")
     print("="*70 + "\n")
-    
+
     # 1. Basic stats
     print(f"Total divisors: {len(all_divisors)}")
-    
+
     # 2. Garbage filter stats
     naive_count = sum(1 for d in all_divisors if naive_height_suspicion(d))
     struct_count = sum(1 for d in all_divisors if structural_red_flag(d))
-    
+
     print(f"Naive height suspects: {naive_count}")
     print(f"Structural red flags: {struct_count}")
-    
+
     # 3. Problematic divisors
     prob_counts = defaultdict(int)
     for div in all_divisors:
         is_bad, reason = u_is_problematic(div, f_coeffs, C=None, debug=False)
         if is_bad:
             prob_counts[reason] += 1
-    
+
     if prob_counts:
         print(f"Problematic divisors:")
         for reason, count in sorted(prob_counts.items()):
             print(f"  - {reason}: {count}")
-    
+
     # 4. After garbage collection
     filtered = [
-        d for d in all_divisors 
+        d for d in all_divisors
         if not (naive_height_suspicion(d) or structural_red_flag(d))
         and not u_is_problematic(d, f_coeffs, C=None, debug=False)[0]
     ]
-    
+
     print(f"\nAfter garbage collection: {len(filtered)}/{len(all_divisors)}")
-    
+
     if not filtered:
         print("\n⚠ All divisors filtered out - check filter settings")
         return
-    
+
     # 5. Mod-p behavior
     print("\nMod-p analysis:")
     primes = select_good_primes(f_coeffs, filtered, num_primes=20)
     results = diagnose_mod_p_behavior(filtered, f_coeffs, primes=primes, debug=True)
-    
+
     print("\n" + "="*70)
     print("END DIAGNOSTIC")
     print("="*70 + "\n")
-
 
 """
 Correct mod-p independence checking for Jacobian elements.
@@ -1642,7 +1579,6 @@ FIXES (per ChatGPT critique):
 4. Multi-prime frequency aggregation for certification
 """
 
-
 # ============================================================================
 # Core: Random projection rank computation (MATHEMATICALLY CORRECT)
 # ============================================================================
@@ -1650,75 +1586,75 @@ FIXES (per ChatGPT critique):
 def compute_subgroup_rank_via_projection(elements_p, J_p, num_projections=30, debug=False):
     """
     Compute rank of subgroup generated by elements_p via random projection.
-    
+
     Algorithm:
     1. Pick random base points R ∈ J(F_p)
     2. For each element D, compute pairing sequence [⟨D,R⟩, ⟨D,2R⟩, ..., ⟨D,kR⟩]
     3. Build matrix with these coordinate vectors as columns
     4. Compute rank via linear algebra over Z/nZ
-    
+
     Mathematical guarantee:
     - Never overestimates rank
     - Exact with very high probability (false negatives only, exponentially rare)
     - No discrete logs, no group structure, no bounded searches
-    
+
     Returns: rank (integer, conservative lower bound)
     """
     if not elements_p:
         return 0
-    
+
     nonzero = [D for D in elements_p if not D.is_zero()]
     if not nonzero:
         return 0
-    
+
     n = len(nonzero)
     p = J_p.base_ring().characteristic()
-    
+
     # Heuristic: sequence length scales with log(p)
     # For genus 2, group size ~ p^2, so order ~ p
     k = min(50, max(10, int(2 * math.log(p, 2))))
-    
+
     if debug:
         print(f"[projection rank] n={n}, p={p}, k={k}, num_proj={num_projections}")
-    
+
     # Build coordinate matrix
     # Each row = one projection (one random R)
     # Each column = one element's pairing sequence
-    
+
     rows = []
-    
+
     for proj_idx in range(num_projections):
         # Generate random base point R
         # Strategy: random linear combination of our elements + random walk
         from sage.all import randint
-        
+
         # Start with random combo of elements (ensures R in relevant subgroup vicinity)
         R = J_p(0)
         for D in nonzero[:min(5, n)]:  # Use first few elements
             c = randint(-10, 10)
             R = R + c * D
-        
+
         # Add random walk steps to diversify
         for _ in range(5):
             R = R + randint(-3, 3) * nonzero[0]
-        
+
         if R.is_zero():
             # Unlikely, but handle it
             continue
-        
+
         # Compute pairing sequence for each element
         row = []
         for D in nonzero:
             # Compute ⟨D, iR⟩ for i=1..k
             # In practice: just compute [D+iR for i in range(k)] and extract x-coords
             # (This avoids needing a pairing - we just use group law)
-            
+
             coords = []
             current = R
             for i in range(k):
                 # Combine D with current = iR
                 combo = D + current
-                
+
                 # Extract coordinate (use Mumford u(x) coefficients as proxy)
                 # This is deterministic and gives us a "shadow" of D's action
                 try:
@@ -1735,38 +1671,37 @@ def compute_subgroup_rank_via_projection(elements_p, J_p, num_projections=30, de
                 except Exception:
                     coords.extend([0, 0, 0])
                     raise
-                
+
                 current = current + R
-            
+
             row.extend(coords)
-        
+
         rows.append(row)
-    
+
     if not rows:
         return 0
-    
+
     # Build matrix over Z/pZ (using GF(p))
     # Rows = projections, columns = elements
     # We want column rank
-    
+
     try:
         M = Matrix(GF(p), rows)
-        
+
         # Rank of this matrix = rank of projected subgroup
         # (columns correspond to elements)
         rank = M.rank()
-        
+
         if debug:
             print(f"[projection rank] matrix: {M.nrows()}x{M.ncols()}, rank={rank}")
-        
+
         return rank
-        
+
     except Exception as e:
         if debug:
             print(f"[projection rank] Failed to compute matrix rank: {e}")
         raise
         return 0
-
 
 # ============================================================================
 # Bad reduction detection and safe reduction
@@ -1780,7 +1715,7 @@ def setup_mod_p_jacobian(f_coeffs, p):
     try:
         R = PolynomialRing(GF(p), 'x')
         x = R.gen()
-        
+
         # Convert coefficients to F_p
         f_p_coeffs = []
         for c in f_coeffs:
@@ -1790,16 +1725,16 @@ def setup_mod_p_jacobian(f_coeffs, p):
                 return None, False
             c_p = GF(p)(Integer(c_qq.numerator()) * Integer(c_qq.denominator()).inverse_mod(p))
             f_p_coeffs.append(c_p)
-        
+
         # Build polynomial (highest degree first convention)
         f_p = sum(c_p * x**(len(f_p_coeffs)-1-i) for i, c_p in enumerate(f_p_coeffs))
-        
+
         # FIXED: Proper bad reduction checks for hyperelliptic curves
-        
+
         # Check 1: Discriminant (necessary but not sufficient)
         if f_p.discriminant() == 0:
             return None, False
-        
+
         # Check 2: Build curve and verify smoothness
         try:
             C_p = HyperellipticCurve(f_p)
@@ -1807,7 +1742,7 @@ def setup_mod_p_jacobian(f_coeffs, p):
             # Construction failed = bad reduction
             raise
             return None, False
-        
+
         # Check 3: Verify genus is correct
         try:
             if C_p.genus() != 2:
@@ -1815,7 +1750,7 @@ def setup_mod_p_jacobian(f_coeffs, p):
         except Exception:
             raise
             return None, False
-        
+
         # Check 4: Verify smoothness (catches singularities)
         try:
             if not C_p.is_smooth():
@@ -1824,75 +1759,69 @@ def setup_mod_p_jacobian(f_coeffs, p):
             # If we can't check smoothness, be conservative
             raise
             return None, False
-        
+
         J_p = C_p.jacobian()
-        
+
         return J_p, True
-        
+
     except Exception:
         raise
         return None, False
-
 
 def mumford_to_mod_p_safe(div, J_p, p):
     """
     Convert rational Mumford divisor to J(F_p) element.
     Returns (element, True) or (None, False) on failure.
-    
+
     CRITICAL: This must NEVER silently return wrong values.
     """
     try:
         R_p = J_p.curve().base_ring()['x']
         x = R_p.gen()
-        
+
         # Extract and validate all coefficients
         s_qq = QQ(div['s'])
         p_qq = QQ(div['p'])
         v0_qq = QQ(div['v_0'])
         v1_qq = QQ(div['v_1'])
-        
+
         # Check all denominators are coprime to p
         for val in [s_qq, p_qq, v0_qq, v1_qq]:
             if Integer(val.denominator()) % p == 0:
                 return None, False
-        
+
         # Reduce to F_p
         def reduce_to_Fp(q):
             num = Integer(q.numerator()) % p
             den = Integer(q.denominator())
             den_inv = Integer(den).inverse_mod(p)
             return GF(p)(num * den_inv)
-        
+
         s_p = reduce_to_Fp(s_qq)
         p_p = reduce_to_Fp(p_qq)
         v0_p = reduce_to_Fp(v0_qq)
         v1_p = reduce_to_Fp(v1_qq)
-        
+
         # Build Mumford representation: u(x) = x^2 - s*x + p
         u_p = x**2 - s_p * x + p_p
         v_p = v1_p * x + v0_p
-        
+
         # Construct Jacobian element
         D_p = J_p([u_p, v_p])
-        
+
         return D_p, True
-        
+
     except Exception as e:
         # Any exception = invalid reduction for this prime
         raise
         return None, False
-
-
-# ============================================================================
-# Multi-prime aggregation with frequency tracking
-# ============================================================================
 
 def select_good_primes(f_coeffs, divisors, num_primes=15, min_prime=7, max_prime=50000):
     """
     Select primes suitable for independence testing.
     """
     from sage.all import Primes
-    
+
     # Collect all denominators appearing in divisors
     bad_primes = set()
     for div in divisors:
@@ -1900,13 +1829,13 @@ def select_good_primes(f_coeffs, divisors, num_primes=15, min_prime=7, max_prime
             q = QQ(div[key])
             for prime_factor in Integer(q.denominator()).prime_factors():
                 bad_primes.add(prime_factor)
-    
+
     # Also exclude primes dividing f_coeffs denominators
     for c in f_coeffs:
         c_qq = QQ(c)
         for prime_factor in Integer(c_qq.denominator()).prime_factors():
             bad_primes.add(prime_factor)
-    
+
     good_primes = []
     for p in Primes():
         if p < min_prime:
@@ -1915,33 +1844,32 @@ def select_good_primes(f_coeffs, divisors, num_primes=15, min_prime=7, max_prime
             break
         if p in bad_primes:
             continue
-        
+
         # Quick check: can we build J_p?
         J_p, valid = setup_mod_p_jacobian(f_coeffs, p)
         if not valid:
             continue
-        
+
         good_primes.append(p)
         if len(good_primes) >= num_primes:
             break
-    
+
     return good_primes
 
-
-def certify_independence_mod_p(divisors, f_coeffs, primes=None, 
+def certify_independence_mod_p(divisors, f_coeffs, primes=None,
                                 min_agreement=3, debug=False):
     """
     Certify independence of divisors using mod-p rank computation.
-    
+
     Algorithm:
     1. Select good primes
     2. For each prime, compute rank of generated subgroup
     3. Track frequency of each rank value
     4. Return certified lower bound (requires min_agreement primes)
-    
+
     Returns:
         (rank_certified, rank_distribution, details)
-        
+
     Mathematical guarantee:
     - If divisors are independent over Q, then for density-1 primes, rank_p = len(divisors)
     - If at least min_agreement primes give rank k, we certify rank >= k
@@ -1949,54 +1877,54 @@ def certify_independence_mod_p(divisors, f_coeffs, primes=None,
     """
     if not divisors:
         return 0, Counter(), {}
-    
+
     k = len(divisors)
-    
+
     # Select primes if not provided
     if primes is None:
         primes = select_good_primes(f_coeffs, divisors, num_primes=15)
         if debug:
             print(f"[mod-p cert] Selected primes: {primes}")
-    
+
     if not primes:
         if debug:
             print("[mod-p cert] WARNING: No good primes found")
         return 0, Counter(), {'error': 'no_good_primes'}
-    
+
     # Compute rank for each prime
     rank_distribution = Counter()
     details = {}
-    
+
     for p in primes:
         J_p, valid = setup_mod_p_jacobian(f_coeffs, p)
         if not valid:
             if debug:
                 print(f"[mod-p cert] Skipping prime {p} (bad reduction)")
             continue
-        
+
         rank_p, valid_divs, reductions = compute_subgroup_rank_mod_p(
             divisors, J_p, p, debug=debug
         )
-        
+
         rank_distribution[rank_p] += 1
         details[p] = {
             'rank': rank_p,
             'valid_divisors': len(valid_divs),
             'total_divisors': len(divisors)
         }
-    
+
     if not rank_distribution:
         if debug:
             print("[mod-p cert] WARNING: No primes yielded valid ranks")
         return 0, rank_distribution, {'error': 'all_primes_failed'}
-    
+
     # Find highest rank with at least min_agreement primes
     rank_certified = 0
     for rank_val in sorted(rank_distribution.keys(), reverse=True):
         if rank_distribution[rank_val] >= min_agreement:
             rank_certified = rank_val
             break
-    
+
     if debug:
         print(f"[mod-p cert] Rank distribution: {dict(rank_distribution)}")
         print(f"[mod-p cert] Certified rank: {rank_certified}/{k} (>= {min_agreement} primes agree)")
@@ -2006,50 +1934,49 @@ def certify_independence_mod_p(divisors, f_coeffs, primes=None,
             print(f"[mod-p cert] ✓ CERTIFIED rank >= {rank_certified}")
         else:
             print(f"[mod-p cert] ? INCONCLUSIVE (no agreement)")
-    
-    return rank_certified, rank_distribution, details
 
+    return rank_certified, rank_distribution, details
 
 def score_divisors_by_mod_p(divisors, f_coeffs, primes=None, debug=False):
     """
     Score divisors by their mod-p behavior across multiple primes.
-    
+
     Does NOT filter - only scores/ranks divisors.
-    
+
     Returns:
         list of (div, score) tuples, sorted by score descending
-        
+
     Score heuristic:
     - +1 for each prime where div reduces to non-zero
     - +2 for each prime where div appears independent of previous
     """
     if not divisors:
         return []
-    
+
     if primes is None:
         primes = select_good_primes(f_coeffs, divisors, num_primes=10)
-    
+
     scores = defaultdict(int)
-    
+
     for p in primes:
         J_p, valid = setup_mod_p_jacobian(f_coeffs, p)
         if not valid:
             continue
-        
+
         basis_p = []
-        
+
         for div in divisors:
             D_p, ok = mumford_to_mod_p_safe(div, J_p, p)
             if not ok:
                 continue
-            
+
             if D_p.is_zero():
                 # Reduces to zero - less useful
                 scores[id(div)] += 0
             else:
                 # Non-zero reduction
                 scores[id(div)] += 1
-                
+
                 # Check independence from previous using projection
                 if not basis_p:
                     scores[id(div)] += 2
@@ -2059,22 +1986,21 @@ def score_divisors_by_mod_p(divisors, f_coeffs, primes=None, debug=False):
                     test_set = basis_p + [D_p]
                     rank_before = compute_subgroup_rank_via_projection(basis_p, J_p, num_projections=10, debug=False)
                     rank_after = compute_subgroup_rank_via_projection(test_set, J_p, num_projections=10, debug=False)
-                    
+
                     if rank_after > rank_before:
                         scores[id(div)] += 2
                         basis_p.append(D_p)
-    
+
     # Sort by score
     scored = [(div, scores[id(div)]) for div in divisors]
     scored.sort(key=lambda x: x[1], reverse=True)
-    
+
     if debug:
         print(f"[scoring] Score distribution:")
         for i, (div, score) in enumerate(scored[:10]):
             print(f"  {i}: score={score}")
-    
-    return scored
 
+    return scored
 
 def diagnose_mod_p_behavior(divisors, f_coeffs, primes=None, debug=True):
     """
@@ -2082,37 +2008,37 @@ def diagnose_mod_p_behavior(divisors, f_coeffs, primes=None, debug=True):
     """
     if primes is None:
         primes = select_good_primes(f_coeffs, divisors, num_primes=20)
-    
+
     print(f"\n{'='*70}")
     print(f"MOD-P DIAGNOSTIC: {len(divisors)} divisors across {len(primes)} primes")
     print(f"{'='*70}\n")
-    
+
     results = []
-    
+
     for p in primes:
         J_p, valid = setup_mod_p_jacobian(f_coeffs, p)
         if not valid:
             print(f"Prime {p:6d}: BAD REDUCTION")
             continue
-        
+
         rank_p, valid_divs, _ = compute_subgroup_rank_mod_p(
             divisors, J_p, p, debug=False
         )
-        
+
         print(f"Prime {p:6d}: rank={rank_p:2d} ({len(valid_divs):2d}/{len(divisors)} reduced successfully)")
         results.append((p, rank_p, len(valid_divs)))
-    
+
     if results:
         rank_dist = Counter(r[1] for r in results)
         max_rank = max(r[1] for r in results)
         avg_rank = sum(r[1] for r in results) / len(results)
-        
+
         print(f"\n{'='*70}")
         print(f"SUMMARY:")
         print(f"  Rank distribution: {dict(rank_dist)}")
         print(f"  Max rank seen: {max_rank}/{len(divisors)}")
         print(f"  Avg rank: {avg_rank:.2f}")
-        
+
         # Certification check
         min_agreement = 3
         certified_rank = 0
@@ -2120,9 +2046,9 @@ def diagnose_mod_p_behavior(divisors, f_coeffs, primes=None, debug=True):
             if rank_dist[rank_val] >= min_agreement:
                 certified_rank = rank_val
                 break
-        
+
         print(f"  Certified rank (>= {min_agreement} primes): {certified_rank}")
-        
+
         if certified_rank == len(divisors):
             print(f"  ✓ INDEPENDENCE CERTIFIED")
         elif certified_rank > 0:
@@ -2130,11 +2056,8 @@ def diagnose_mod_p_behavior(divisors, f_coeffs, primes=None, debug=True):
         else:
             print(f"  ? INCONCLUSIVE (no agreement)")
         print(f"{'='*70}\n")
-    
+
     return results
-
-
-
 
 def _shares_root_mod_p(div, f_coeffs, p):
     """
@@ -2159,7 +2082,7 @@ def _shares_root_mod_p(div, f_coeffs, p):
         s_mod = Integer(s.numerator()) * Integer(s.denominator()).inverse_mod(p) % p
         p_mod = Integer(pp.numerator()) * Integer(pp.denominator()).inverse_mod(p) % p
         u_mod = x**2 + PR(s_mod)*x + PR(p_mod)
-        
+
         # Safely build f(x) mod p
         f_terms = []
         for i, c in enumerate(reversed(f_coeffs)):
@@ -2169,9 +2092,9 @@ def _shares_root_mod_p(div, f_coeffs, p):
                 return False
             c_val = Integer(c_qq.numerator()) * Integer(c_qq.denominator()).inverse_mod(p) % p
             f_terms.append(c_val * x**i)
-            
+
         f = PR(sum(f_terms))
-        
+
         # compute gcd and see if linear factor exists in gcd
         gg = u_mod.gcd(f)
         return gg.degree() >= 1
@@ -2179,8 +2102,6 @@ def _shares_root_mod_p(div, f_coeffs, p):
         # If any modular coercion fails, return False (don't filter)
         raise
         return False
-
-
 
 def compute_rank_via_bruteforce_linalg(elements_p, J_p, debug=False):
     """
@@ -2246,44 +2167,41 @@ def compute_rank_via_bruteforce_linalg(elements_p, J_p, debug=False):
 
     return max_rank
 
-
 def compute_subgroup_rank_mod_p(divisors, J_p, p, debug=False):
     """
     Compute the rank of the subgroup generated by divisors in J(F_p).
-    
+
     Uses torsion embedding (J[l]) to rigorously check independence over F_l.
     This provides a certified lower bound on the Z-rank.
     """
     reductions = {}
     valid_divs = []
     elements_p = []
-    
+
     for div in divisors:
         D_p, ok = mumford_to_mod_p_safe(div, J_p, p)
         if not ok:
             continue
-        
+
         reductions[id(div)] = D_p
         valid_divs.append(div)
-        
+
         # Keep non-zero elements for rank check
         if not D_p.is_zero():
             elements_p.append(D_p)
-    
+
     if not elements_p:
         return 0, valid_divs, reductions
-    
+
     # CRITICAL FIX: Use torsion projection instead of bruteforce linalg.
-    # Bruteforce linalg on the full group with small coeffs gives false positives 
+    # Bruteforce linalg on the full group with small coeffs gives false positives
     # (overestimates rank) because J(F_p) is a Z-module, not a vector space.
     rank = compute_rank_via_torsion_projection(elements_p, J_p, debug=debug)
-    
+
     if debug:
         print(f"[mod-p rank] p={p}: certified rank={rank}")
-    
+
     return rank, valid_divs, reductions
-
-
 
 def jacobian_group_order_kedlaya(f, p, prec=2):
     """
@@ -2294,12 +2212,7 @@ def jacobian_group_order_kedlaya(f, p, prec=2):
     P = A.charpoly()
     return ZZ(P(1))
 
-
-
-
-
 # ---------- Kedlaya-backed group order (robust, monic normalization) ----------
-
 
 # ---------- Fallback simple independence check ----------
 def fallback_rank_check(elements_p, J_p, debug=False):
@@ -2354,7 +2267,6 @@ def fallback_rank_check(elements_p, J_p, debug=False):
         print(f"[fallback rank] Found rank {rank} via simple check")
 
     return rank
-
 
 # ---------- Torsion-projection based rank computation (robust) ----------
 def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
@@ -2520,7 +2432,6 @@ def compute_rank_via_torsion_projection(elements_p, J_p, debug=False):
 
     return max_rank
 
-
 def jacobian_group_order(J_p):
     """
     Return #J(F_p) robustly.
@@ -2598,8 +2509,6 @@ def jacobian_group_order(J_p):
         f"Jacobian order reconstruction not implemented for genus {g}"
     )
 
-
-
 def _build_curve_from_coeffs(f_coeffs):
     """
     Return (C, R, x) from f_coeffs.
@@ -2612,7 +2521,7 @@ def _build_curve_from_coeffs(f_coeffs):
 
     R = PolynomialRing(K, 'x')
     x = R.gen()
-    
+
     # Coerce coefficients to the correct field
     f_poly = sum(K(c) * x**(len(f_coeffs) - 1 - i) for i, c in enumerate(f_coeffs))
     C = HyperellipticCurve(f_poly)
@@ -2660,7 +2569,7 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
     Build Jacobian elements and check independence/rank.
     In Finite Field mode, calculates the rank of the subgroup generated by the divisors.
     In QQ mode, uses Height pairings (Arakelov or Manual).
-    
+
     Returns (is_indep, rank, H_matrix)
     """
     if not divisors:
@@ -2671,10 +2580,10 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
         try:
             C, R, x = _build_curve_from_coeffs(f_coeffs)
             J = C.jacobian()
-            
+
             elements_p = []
             valid_divs = []
-            
+
             for div in divisors:
                 try:
                     D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
@@ -2685,16 +2594,16 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
                     if debug:
                         print(f"[check] Failed to convert divisor {div} to J(F_p)")
                     continue
-            
+
             if not elements_p:
                 return True, 0, None
-                
+
             # Use torsion projection to find the rank of the generated subgroup
             rank = compute_rank_via_torsion_projection(elements_p, J, debug=debug)
-            
+
             # For FF, we don't have a Gram matrix in the height sense.
             return True, rank, None
-            
+
         except Exception as e:
             if debug:
                 print(f"[check] Finite field independence check failed: {e}")
@@ -2702,7 +2611,7 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
 
     # Rational Field (QQ) Path
     C, R, x = _build_curve_from_coeffs(f_coeffs)
-    
+
     jac_elements = []
     for div in divisors:
         try:
@@ -2721,7 +2630,7 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
         return True, 0, None
 
     n = len(jac_elements)
-    
+
     if ARAKELOV_AVAILABLE:
         if debug:
             print("[check] Using Arakelov heights")
@@ -2756,11 +2665,11 @@ def check_mumford_independence(divisors, f_coeffs, debug=DEBUG):
 def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, debug=True):
     """
     Builds a basis (or generating set) from candidate divisors.
-    
+
     In FINITE_FIELD mode:
         - Returns a set of generators for the subgroup found in J(F_p).
         - Skips all height-based logic.
-    
+
     In QQ mode:
         - Builds independent basis for Mordell-Weil group using heights.
     """
@@ -2772,25 +2681,25 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         if debug:
             print(f"[basis] Finite Field Mode GF({FINITE_FIELD})")
             print(f"[basis] Starting with {len(all_divisors)} candidates")
-            
+
         C, R, x = _build_curve_from_coeffs(f_coeffs)
         J = C.jacobian()
-        
+
         # 1. Filter and Convert
         # In FF mode, we don't have "bad height" or "structural red flags" in the same way.
         # We just want valid group elements.
-        
+
         elements_p = []
         valid_divs = []
-        
+
         for div in all_divisors:
             try:
                 # Basic checks for validity
                 s, p_val = int(div['s']), int(div['p'])
                 v0, v1 = int(div['v_0']), int(div['v_1'])
-                
+
                 D = mumford_to_jacobian_element(s, p_val, v0, v1, C)
-                
+
                 if not D.is_zero():
                     elements_p.append(D)
                     valid_divs.append(div)
@@ -2806,9 +2715,9 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         # We use the robust torsion projection method
         if debug:
             print(f"[basis] Computing rank of subgroup generated by {len(elements_p)} elements...")
-            
+
         rank = compute_rank_via_torsion_projection(elements_p, J, debug=debug)
-        
+
         if debug:
             print(f"[basis] Subgroup rank estimate: {rank}")
             # Try to get group order if possible for context
@@ -2822,10 +2731,9 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         # H_exact is None because height pairing doesn't exist
         return valid_divs, rank, None
 
-
     # --- RATIONAL FIELD (QQ) MODE ---
     # (Original logic follows)
-    
+
     p_test = 2_000_003
 
     if debug:
@@ -2833,7 +2741,7 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
         diagnostic_section_collapse(all_divisors)
         diagnostic_smoothness_proxy(all_divisors, p_test)
         diagnostic_factor_base_saturation(all_divisors, p_test)
-    
+
     ranklin = diagnostic_mod_p_coverage(all_divisors, p_test, genus=2)
     maxbasis = max(MAX_BASIS_CANDIDATES, 2*ranklin)
 
@@ -2843,26 +2751,26 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     # STEP 1: Garbage collection
     filtered = []
     rejected_reasons = defaultdict(int)
-    
+
     for div in all_divisors:
         if naive_height_suspicion(div):
             rejected_reasons['naive_height'] += 1
             continue
-        
+
         if structural_red_flag(div):
             rejected_reasons['structural'] += 1
             continue
-        
+
         is_bad, reason = u_is_problematic(div, f_coeffs, C=None, debug=False)
         if is_bad:
             rejected_reasons[f'problematic_{reason}'] += 1
             continue
-        
+
         filtered.append(div)
-    
+
     if debug:
         print(f"[basis] After garbage collection: {len(filtered)}/{len(all_divisors)}")
-    
+
     all_divisors = filtered
 
     if not all_divisors:
@@ -2870,16 +2778,16 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
 
     # STEP 2: Score divisors
     primes = select_good_primes(f_coeffs, all_divisors, num_primes=15)
-    
+
     if not primes:
         if debug:
             print("[basis] WARNING: No good primes found for mod-p checks")
         scored_divs = [(div, 0) for div in all_divisors]
     else:
         scored_divs = score_divisors_by_mod_p(all_divisors, f_coeffs, primes=primes, debug=debug)
-    
+
     all_divisors = [div for div, score in scored_divs]
-    
+
     if len(all_divisors) > maxbasis:
         all_divisors = all_divisors[:maxbasis]
 
@@ -2887,24 +2795,24 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     if ARAKELOV_AVAILABLE and arakelov_build_basis_with_heights is not None and not VERIFY_INDEPENDENCE_MOD_P:
         if debug:
             print("[basis] Attempting Arakelov heights for basis construction")
-        
+
         for prec in DEFAULT_PRECS:
             try:
                 res = arakelov_build_basis_with_heights(
                     all_divisors, f_coeffs, prec=prec, debug=debug
                 )
                 basis_divs, rank_ara, H_ara = res
-                
+
                 if basis_divs and primes:
                     rank_cert, rank_dist, _ = certify_independence_mod_p(
                         basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
                     )
-                    
+
                     if rank_cert >= len(basis_divs) - 1:
                         if debug:
                             print(f"[basis] ✓ Arakelov basis validated (rank={rank_cert})")
                         return basis_divs, rank_ara, H_ara
-                
+
                 return res
             except Exception:
                 raise
@@ -2913,31 +2821,31 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
     # STEP 4: Build basis via multi-prime certification
     if debug:
         print("[basis] Building basis via multi-prime mod-p certification")
-    
+
     if not primes:
         return [], 0, None
-    
+
     basis_divs = []
-    
+
     for div in all_divisors:
         candidate_basis = basis_divs + [div]
-        
+
         rank_cert, rank_dist, _ = certify_independence_mod_p(
             candidate_basis, f_coeffs, primes=primes, min_agreement=3, debug=False
         )
-        
+
         if rank_cert > len(basis_divs):
             basis_divs.append(div)
             if debug:
                 print(f"[basis] Added divisor {len(basis_divs)-1}")
-        
+
         if rank_cert >= min(ranklin, 4):
             break
-    
+
     rank_final, _, _ = certify_independence_mod_p(
         basis_divs, f_coeffs, primes=primes, min_agreement=3, debug=debug
     )
-    
+
     # STEP 5: Gram Matrix
     H_exact = None
     if not VERIFY_INDEPENDENCE_MOD_P and len(basis_divs) > 0 and compute_height_pairing_exact is not None:
@@ -2950,14 +2858,14 @@ def build_mumford_basis_incremental(all_divisors, f_coeffs, num_doublings=8, deb
             for div in basis_divs:
                 D = mumford_to_jacobian_element(div['s'], div['p'], div['v_0'], div['v_1'], C)
                 basis_jac.append(D)
-            
+
             n = len(basis_jac)
             H_exact = Matrix(QQ, n, n)
             for i in range(n):
                 for j in range(i, n):
                     h_ij = compute_height_pairing_exact(basis_jac[i], basis_jac[j], f_coeffs, num_doublings=num_doublings)
                     H_exact[i, j] = H_exact[j, i] = h_ij
-            
+
             H_exact = normalize_gram_for_basis(H_exact, 100)
         except Exception as e:
             if debug:

@@ -1,30 +1,13 @@
 import math
-from sage.all import ComplexField, PolynomialRing
-from sage.all import ComplexField, RealField
 from sage.all import ComplexField, PolynomialRing, RealField
 
 """Integration of differentials along paths."""
 
-
-
 """Integration of differentials along paths. — more robust branch handling"""
-
-
 
 # initialize cache
 
-
 """Integration of differentials along paths."""
-
-
-def _round_for_cache(x, prec):
-    try:
-        z = complex(x)
-        return (round(z.real, 12), round(z.imag, 12))
-    except Exception:
-        raise
-        return str(x)
-
 
 def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_coeffs,
                                             use_x_weight=False, prec=200, debug=False,
@@ -35,8 +18,6 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
     - recursive subdivision when path passes too close to branch points
     - added recursion depth guard to avoid runaway recursion
     """
-    import math
-    from sage.all import ComplexField
     CC = ComplexField(prec)
 
     # recursion depth guard
@@ -44,13 +25,6 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
         raise RuntimeError("Maximum subdivision depth reached in integrate_differential_path_with_branch")
 
     # safer cache key: round complex endpoints and f_coeffs moderate precision
-    def _round_for_cache(x):
-        try:
-            z = complex(x)
-            return (round(z.real, 12), round(z.imag, 12))
-        except Exception:
-            raise
-            return str(x)
 
     key = (_round_for_cache(x_start), _round_for_cache(x_end),
            _round_for_cache(y_start), _round_for_cache(y_end),
@@ -80,19 +54,6 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
         off = CC(0)
 
     # tanh-sinh nodes generator (maps t in [-inf,inf] -> x_mapped in [-1,1])
-    def tanh_sinh_nodes(N):
-        nodes = []
-        h = 1.0 / float(N)
-        pi = math.pi
-        for k in range(-N, N + 1):
-            t = k * h
-            sx = math.sinh(t)
-            x_mapped = math.tanh((pi / 2.0) * sx)
-            # derivative of mapping factor wrt t (used as integration weight)
-            dx_dt = (pi / 2.0) * math.cosh(t) / (math.cosh((pi / 2.0) * sx) ** 2)
-            w = dx_dt * h
-            nodes.append((t, x_mapped, w))
-        return nodes
 
     # choose node count based on precision (bounded)
     Nnodes = max(200, min(2000, prec // 2))
@@ -108,11 +69,6 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
         ws.append(CC(w))
 
     # polynomial evaluation for f(x) using Horner (descending coefficients)
-    def f_at(z):
-        res = CC(f_coeffs[0])
-        for c in f_coeffs[1:]:
-            res = res * z + CC(c)
-        return res
 
     fvals = [f_at(xv) for xv in xvals]
 
@@ -138,59 +94,6 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
             start_idx = i
             break
 
-    def choose_sqrt_match(prev_y, fval):
-        # choose sqrt branch that minimizes distance to prev_y
-        s = fval.sqrt()
-        if abs(s - prev_y) <= abs(-s - prev_y):
-            return s
-        else:
-            return -s
-
-    def try_propagation(initial_sign_choice):
-        n = len(xvals)
-        yvals = [None] * n
-        sqrt_start = fvals[start_idx].sqrt()
-        yvals[start_idx] = sqrt_start if initial_sign_choice >= 0 else -sqrt_start
-
-        # forward propagate
-        for i in range(start_idx + 1, n):
-            # guard against extremely small fval
-            if abs(fvals[i]) < tiny:
-                # use previous value's sign
-                yvals[i] = CC(0) if abs(fvals[i]) < (tiny * CC(1e-3)) else choose_sqrt_match(yvals[i-1], fvals[i])
-            else:
-                yvals[i] = choose_sqrt_match(yvals[i - 1], fvals[i])
-        # backward propagate
-        for i in range(start_idx - 1, -1, -1):
-            if abs(fvals[i]) < tiny:
-                yvals[i] = CC(0) if abs(fvals[i]) < (tiny * CC(1e-3)) else choose_sqrt_match(yvals[i+1], fvals[i])
-            else:
-                yvals[i] = choose_sqrt_match(yvals[i + 1], fvals[i])
-
-        # perform quadrature sum
-        integral = CC(0)
-        dx_factor = vec / CC(2)
-        for i in range(n):
-            y_cur = yvals[i]
-            if y_cur is None or abs(y_cur) == 0:
-                # avoid division by zero: treat as very small (shouldn't happen after subdivision)
-                if debug:
-                    print("[integrator] encountered near-zero y_cur at node", i)
-                y_cur = tiny
-            if use_x_weight:
-                integrand = xvals[i] / (CC(2) * y_cur)
-            else:
-                integrand = CC(1) / (CC(2) * y_cur)
-            dxd = dx_factor * ws[i]
-            integral += integrand * dxd
-
-        # compute mismatch vs requested endpoint y1_target to decide sign correction
-        end_mismatch_plus = abs(yvals[-1] - y1_target)
-        end_mismatch_minus = abs(-yvals[-1] - y1_target)
-        mismatch = float(min(end_mismatch_plus, end_mismatch_minus))
-
-        return integral, yvals, mismatch, end_mismatch_plus, end_mismatch_minus
-
     try0, yvals0, mismatch0, end0p, end0m = try_propagation(+1)
     try1, yvals1, mismatch1, end1p, end1m = try_propagation(-1)
 
@@ -212,9 +115,7 @@ def integrate_differential_path_with_branch(x_start, x_end, y_start, y_end, f_co
     integrate_differential_path_with_branch.cache[key] = integral
     return integral
 
-# initialize cache
 integrate_differential_path_with_branch.cache = {}
-
 
 def integrate_differential_path_joint(x_start, x_end, y_start, y_end, f_coeffs,
                                       *, prec=200, debug=False,
@@ -230,8 +131,6 @@ def integrate_differential_path_joint(x_start, x_end, y_start, y_end, f_coeffs,
       - recursive subdivision if path passes too close to branch points (f ~ 0)
       - caching for repeated calls
     """
-    import math
-    from sage.all import ComplexField
     CC = ComplexField(prec)
 
     # recursion guard
@@ -401,5 +300,4 @@ def integrate_differential_path_joint(x_start, x_end, y_start, y_end, f_coeffs,
     integrate_differential_path_joint.cache[key] = (I0, I1)
     return (I0, I1)
 
-# initialize cache
 integrate_differential_path_joint.cache = {}

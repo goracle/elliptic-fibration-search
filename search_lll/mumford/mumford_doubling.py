@@ -7,13 +7,13 @@ from ..rational_arithmetic import crt_cached, rational_reconstruct, RationalReco
 
 def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list, debug=False):
     """
-    Calculates 2^num_doublings * D_start using parallel modular arithmetic 
+    Calculates 2^num_doublings * D_start using parallel modular arithmetic
     and Rational Reconstruction (CRT).
     D_start is a SageMath Jacobian element over QQ.
     """
     R_QQ = D_start[0].parent()
     u_coeffs_current, v_coeffs_current = _get_divisor_coeffs_qq(D_start)
-    
+
     # Determine max expected degree for u and v based on genus g=2
     # u degree is g=2 (length 3), v degree is g-1=1 (length 2)
     u_max_len = 3
@@ -22,16 +22,16 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
     for n in range(num_doublings):
         u_coeffs_next = defaultdict(list)
         v_coeffs_next = defaultdict(list)
-        
-        if debug: 
+
+        if debug:
             print(f"  [MOD-DBL] Doubling iteration {n+1}/{num_doublings}")
-        
+
         success_count = 0
         for p in primes_list:
-            if p == 2: 
+            if p == 2:
                 continue
 
-            # Prepare coefficients reduced mod p 
+            # Prepare coefficients reduced mod p
             try:
                 # Need the *integer* numerator/denominator for a safe mod reduction
                 # We catch ZeroDivisionError specifically for p dividing the denominator
@@ -40,7 +40,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
             except (ZeroDivisionError, ValueError):
                 # Denominator is divisible by p, skip this prime
                 raise
-                continue 
+                continue
 
             u_2p_coeffs, v_2p_coeffs = _mumford_doubling_mod_p_internal(
                 u_mod_p, v_mod_p, f_coeffs, p
@@ -65,13 +65,13 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
 
             if u_2p_coeffs is None:
                 continue
-            
+
             success_count += 1
 
             # Pad modular coeffs with leading zeros to match max degree
             u_2p_coeffs = [0] * (u_max_len - len(u_2p_coeffs)) + u_2p_coeffs
             v_2p_coeffs = [0] * (v_max_len - len(v_2p_coeffs)) + v_2p_coeffs
-            
+
             # Store results by coefficient index
             for i in range(u_max_len):
                 u_coeffs_next[i].append((p, int(u_2p_coeffs[i])))
@@ -81,7 +81,7 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
         # --- Rational Reconstruction ---
         u_reconstructed = []
         v_reconstructed = []
-        
+
         # Check if we have enough primes
 
         # --- Choose only primes that contributed to *every* coefficient (avoid Frankenstein mixes) ---
@@ -162,12 +162,11 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
             # Form the new Mumford divisor 2*D_current over Q[x]
             u_next = _poly_from_coeffs_qq(R_QQ, u_reconstructed)
             v_next = _poly_from_coeffs_qq(R_QQ, v_reconstructed)
-            
+
             # Recreate the SageMath Jacobian element
             f_poly_qq = _poly_from_coeffs_qq(R_QQ, f_coeffs)
             C_QQ = HyperellipticCurve(f_poly_qq, R_QQ(0))
             J_QQ = C_QQ.jacobian()
-
 
             # assume u_next, v_next, f_poly are present as Sage polynomials over QQ
             # try cheap repairs then validate
@@ -219,7 +218,6 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
 
             D_current = J_QQ([u_next, v_next])
 
-
         except RationalReconstructionError as e:
             if debug:
                 print(f"  [MOD-DBL] modular reconstruction failed at doubling {n+1}: {e}")
@@ -251,6 +249,5 @@ def compute_doubled_point_modular(D_start, f_coeffs, num_doublings, primes_list,
                 raise ValueError(f"Modular doubling failed at iteration {n+1} and exact fallback failed too: {e}") from ee
             raise
 
-        
     return D_current
 

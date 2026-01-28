@@ -1,15 +1,10 @@
-import math
-import warnings
+import math, warnings
 from sage.all import QQ, Qp, PolynomialRing, HyperellipticCurve
 from search_common import NUM_DOUBLINGS
 
 """Local (p-adic) height functions."""
 
-
-
-
 """Local (p-adic) height functions."""
-
 
 def _pairs_to_sage_poly(pairs, p, prec):
     from sage.all import QQ, Qp, PolynomialRing
@@ -23,7 +18,6 @@ def _pairs_to_sage_poly(pairs, p, prec):
             coeffs.append(K(QQ(num) / QQ(den)))
     return R(coeffs)
 
-
 def get_bad_primes(f_coeffs):
     """
     Identify primes of bad reduction for the curve y^2 = f(x).
@@ -32,27 +26,27 @@ def get_bad_primes(f_coeffs):
     key = tuple(f_coeffs)
     if key in get_bad_primes.cache:
         return get_bad_primes.cache[key]
-    
+
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
+
     bad = set()
-    
+
     # 1. Discriminant factors
     disc = f_poly.discriminant()
     if disc != 0:
         bad.update(QQ(disc).numerator().prime_factors())
         bad.update(QQ(disc).denominator().prime_factors())
-    
+
     # 2. Leading coefficient factors
     lc = f_coeffs[0]
     if lc != 0:
         bad.update(QQ(lc).numerator().prime_factors())
         bad.update(QQ(lc).denominator().prime_factors())
-        
+
     bad.add(2)
-    
+
     ret = sorted(list(bad))
     get_bad_primes.cache[key] = ret
     assert ret, ret
@@ -80,13 +74,13 @@ def local_naive_height_p(div, p):
             raise RuntimeError(f"Could not extract u_poly from div: {e}")
         raise
 
-    coeffs = u_poly.list() 
-    
+    coeffs = u_poly.list()
+
     vals = []
     for c in coeffs:
         if c == 0:
             continue
-        
+
         # Robust valuation check
         val = None
         # 1. Try p-adic / generic valuation (no args)
@@ -94,26 +88,26 @@ def local_naive_height_p(div, p):
             val = c.valuation()
         except (TypeError, ValueError, AttributeError):
             raise
-            
+
         # 2. Try Integer/Rational syntax (requires p)
         if val is None:
             try:
                 val = c.valuation(p)
             except (TypeError, ValueError, AttributeError):
                 raise
-        
+
         # 3. Last resort: cast to QQ
         if val is None:
             try:
                 val = QQ(c).valuation(p)
             except Exception:
                 raise RuntimeError(f"Cannot compute valuation for coeff {c} type {type(c)}")
-        
+
         vals.append(val)
 
     if not vals:
         return 0.0
-        
+
     min_val = min(vals)
     if math.isinf(min_val):
         return 0.0
@@ -125,8 +119,6 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
     """
     Compute local canonical height correction (finite p).
     """
-    import math
-    from sage.all import QQ
 
     key = (str(div), p, tuple(f_coeffs), num_doublings, padic_prec)
     if key in local_height_correction_finite.cache:
@@ -170,7 +162,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
         s_values = []
         current_P = P
-        
+
         for k in range(0, num_doublings_local + 1):
             if current_P.is_zero():
                 # Torsion / Zero detected explicitly
@@ -179,7 +171,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
             h_k = local_naive_height_p(current_P, p)
             s_k = (4.0 ** (-k)) * float(h_k)
-            
+
             # EFFECTIVE TORSION CHECK:
             # If h_k is exactly 0.0 (good reduction) after doubling, we might be in the identity disk.
             # If we started with bad reduction (h0 != 0) and jumped to 0, that's effectively torsion.
@@ -196,11 +188,11 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
         tail_len = max(MIN_TAIL_LEN, num_doublings_local // 3)
         tail = s_values[-tail_len:]
-        
+
         mean = sum(tail) / float(len(tail))
         var = sum((x - mean) ** 2 for x in tail) / float(len(tail))
         std = math.sqrt(var)
-        
+
         if abs(mean) < 1e-9:
             is_stable = std < 1e-7
         else:
@@ -224,7 +216,7 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
             local_height_correction_finite.cache[key] = res
             return res
         except (ValueError, ArithmeticError, RuntimeError) as e:
-            # We only catch math/precision errors to retry. 
+            # We only catch math/precision errors to retry.
             last_reason = str(e)
             current_prec *= 2
             cur_num_doublings += 5
@@ -237,12 +229,10 @@ def local_height_correction_finite(div, p, f_coeffs, num_doublings=NUM_DOUBLINGS
 
 local_height_correction_finite.cache = {}
 
-
 def _pairs_to_qq_poly(pairs):
     """
     Reconstruct a Sage Polynomial over QQ from (num, den) pairs.
     """
-    from sage.all import QQ, PolynomialRing
     R = PolynomialRing(QQ, 'x')
     coeffs = []
     for (num, den) in pairs:
@@ -254,7 +244,7 @@ def _pairs_to_qq_poly(pairs):
 
 def local_correction_worker(args):
     """
-    Worker function. 
+    Worker function.
     CRITICAL CHANGE: Do NOT convert to Qp here.
     Reconstruct as QQ polynomials and pass to local_height_correction_finite.
     This ensures that local_height_correction_finite can escalate precision
@@ -262,7 +252,7 @@ def local_correction_worker(args):
     """
     idx, div_repr, p, f_coeffs = args
     # Note: we do not set padic_prec_worker here anymore because we are not coercing to Qp yet.
-    
+
     u_pairs, v_pairs = div_repr
     u_qq = _pairs_to_qq_poly(u_pairs)
     v_qq = _pairs_to_qq_poly(v_pairs)

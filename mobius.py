@@ -1,5 +1,5 @@
-from sage.all import QQ, PolynomialRing, factor, SR, var, Integer
 import itertools
+from sage.all import QQ, PolynomialRing, factor, SR, var, Integer
 
 # mobius.py
 #
@@ -18,8 +18,6 @@ import itertools
 #
 # The returned transform can be used to drive tower.sage’s iterate_tower.
 #
-
-
 
 class MobiusTransform:
     """
@@ -65,7 +63,6 @@ class MobiusTransform:
             raise RuntimeError("Inverse transform produced zero denominator.")
         return num / den
 
-
 def apply_to_points(points, T):
     """
     Transform a list/set of points (x,y)   →   (T(x), y).
@@ -81,7 +78,6 @@ def apply_to_points(points, T):
         #out.append((xx, QQ(y)))
     return out
 
-
 def total_prime_support_poly(poly):
     """
     Union of prime supports of all coefficients of a polynomial.
@@ -91,11 +87,9 @@ def total_prime_support_poly(poly):
         ps |= prime_support(c)
     return ps
 
-
 # =====================================================================
 #       Automatic transform selector (smart knob)
 # =====================================================================
-
 
 def prime_support(expr):
     """
@@ -120,16 +114,9 @@ def prime_support(expr):
 
     return ps
 
-
 # Replace apply_to_poly with this exact function
 
-
 # Replace choose_transform with this exact function body (only changed to handle the new error)
-
-
-
-
-
 
 def test_transform_on_points(fx, T, test_points, verbose=False):
     """
@@ -137,7 +124,7 @@ def test_transform_on_points(fx, T, test_points, verbose=False):
     Returns True if transform is safe, False otherwise.
     """
     a, b, c, d = T.a, T.b, T.c, T.d
-    
+
     # For each test point, compute T(x) and check if we can evaluate fx(T(x)) rationally
     for pt in test_points:
         try:
@@ -145,31 +132,30 @@ def test_transform_on_points(fx, T, test_points, verbose=False):
                 x_val = QQ(pt[0])
             else:
                 x_val = QQ(pt)
-                
+
             # Compute T(x_val)
             Tx_num = a * x_val + b
             Tx_den = c * x_val + d
-            
+
             if Tx_den == 0:
                 if verbose:
                     print(f"  Transform {T} makes denominator zero at x={x_val}")
                 return False
-                
+
             Tx_val = Tx_num / Tx_den
-            
+
             # Try to evaluate fx at T(x_val)
             result = fx(Tx_val)
-            
+
             # Make sure result is rational
             _ = QQ(result)
-            
+
         except (TypeError, ValueError, ZeroDivisionError) as e:
             if verbose:
                 print(f"  Transform {T} failed at x={x_val}: {e}")
             return False
-    
-    return True
 
+    return True
 
 def choose_transform(
     fx,
@@ -189,7 +175,7 @@ def choose_transform(
     best_primes = None
 
     vals = list(range(-search_range, search_range+1))
-    
+
     # Convert base_points to a list for testing
     test_pts = []
     for xx in base_points:
@@ -205,7 +191,7 @@ def choose_transform(
     print(f"[mobius] Test points: {test_pts}")
     print(f"[mobius] Avoiding primes: {sorted(avoid_primes)}")
     print(f"[mobius] Preferring primes: {sorted(prefer_primes)}")
-    
+
     candidates_tested = 0
     candidates_rejected_det = 0
     candidates_rejected_point_test = 0
@@ -264,7 +250,7 @@ def choose_transform(
         bad = ps & avoid_primes
         good = ps & prefer_primes
 
-        # More aggressive scoring: 
+        # More aggressive scoring:
         # - Heavily penalize ANY bad prime
         # - Prefer transforms that completely avoid bad primes
         # - Secondary: minimize total number of primes
@@ -280,7 +266,7 @@ def choose_transform(
             best_score = score
             best_primes = ps
             candidates_accepted += 1
-            
+
             # Print when we find a better candidate
             if candidates_accepted <= 10:  # Only print first 10
                 print(f"  New best: T={T}, score={score}, primes={sorted(ps)}, bad={sorted(bad)}")
@@ -296,10 +282,10 @@ def choose_transform(
     print(f"  Rejected (point test): {candidates_rejected_point_test}")
     print(f"  Rejected (poly transform): {candidates_rejected_poly_transform}")
     print(f"  Candidates evaluated for score: {candidates_accepted}")
-    
+
     if best is None:
         raise RuntimeError("No acceptable Möbius transform found in search window.")
-    
+
     print(f"\n[mobius] Selected transform: {best}")
     print(f"  Score: {best_score}")
     print(f"  Prime support: {sorted(best_primes)}")
@@ -307,7 +293,6 @@ def choose_transform(
     print(f"  Good primes hit: {sorted(best_primes & prefer_primes)}")
 
     return best
-
 
 def apply_to_poly(fx, T):
     """
@@ -317,28 +302,28 @@ def apply_to_poly(fx, T):
     """
     from sage.rings.polynomial.polynomial_ring_constructor import PolynomialRing
     from sage.rings.rational_field import QQ
-    
+
     deg = fx.degree()
     # Create target ring (ensure it's over QQ)
     R2 = PolynomialRing(QQ, 'x')
     x = R2.gen()
-    
+
     a, b, c, d = T.a, T.b, T.c, T.d
-    
+
     # Numerator and Denominator of T(x)
     num = a * x + b
     den = c * x + d
-    
+
     # Compute sum( coeff_i * num^i * den^(deg-i) )
     # This corresponds to homogenizing f(x) -> F(X,Z) and evaluating F(num, den)
     result = R2(0)
     coeffs = fx.list()
-    
+
     for i, coeff in enumerate(coeffs):
         if coeff == 0:
             continue
         # We need explicit casting to avoid potential coercion issues
         term = R2(coeff) * (num ** i) * (den ** (deg - i))
         result += term
-        
+
     return result

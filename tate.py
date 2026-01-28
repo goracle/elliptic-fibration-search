@@ -1,19 +1,11 @@
-import sys
-import random
+import sys, random, re, numpy as np
 from collections import namedtuple
 from tqdm import tqdm
-import re
-from sage.all import QQ, ZZ, GF, PolynomialRing, LaurentSeriesRing, PowerSeriesRing, matrix, Matrix, vector, sqrt, floor, var, lcm, gcd, EllipticCurve, Curve, Jacobian
+from sage.all import QQ, ZZ, GF, PolynomialRing, LaurentSeriesRing, PowerSeriesRing, matrix, Matrix, vector, sqrt, floor, var, lcm, gcd, EllipticCurve, Curve, Jacobian, QQbar, parent, CC, AA, ComplexField, RealField, AlgebraicField, numerical_approx, factor
 from sage.rings.fraction_field_element import FractionFieldElement
-from sage.all import QQbar, parent
 from diagnostics2 import *
-import numpy as np
-from sage.all import QQ, CC, AA, QQbar, PolynomialRing, ComplexField, RealField, AlgebraicField, numerical_approx, factor, gcd
 from functools import reduce
-from math import gcd as _gcd
-from sage.all import ZZ, PolynomialRing
-from math import floor
-from sage.all import QQ, PolynomialRing
+from math import gcd as _gcd, floor
 
 """
 Tate's Algorithm Implementation for Elliptic Curve Fibrations
@@ -21,7 +13,6 @@ Tate's Algorithm Implementation for Elliptic Curve Fibrations
 This module implements Tate's algorithm for classifying singular fibers
 of elliptic curves over function fields, along with height pairing computations.
 """
-
 
 # SageMath imports
 
@@ -33,8 +24,6 @@ except NameError:
         """Default profiler when line_profiler is not available."""
         return func
     PROFILE = profile
-
-
 
 # Kodaira symbol classification constants
 KODAIRA_CLASSIFICATION = {
@@ -78,7 +67,6 @@ ADDITIVE_DELTA = {
 
 USE_PRIME_VALS = True  # set default True
 
-
 def _call_tate_for_root(a4, a6, var_sym, root, debug=False, minimal=True):
     """
     root may be:
@@ -119,14 +107,12 @@ def _call_tate_for_root(a4, a6, var_sym, root, debug=False, minimal=True):
         # fallback: call numerical tate (if you have such a function) or skip
         return numerical_tates_algorithm(a4, a6, var_sym, root, precision=200, debug=debug)
 
-
 def local_vals_driver(a4, a6, center=None, g=None, at_infinity=False, minimal=True, prec=80):
     if USE_PRIME_VALS:
         return valuations_at_place(a4, a6, g=g, m0=center, at_infinity=at_infinity, minimal=minimal)
     else:
         # your previous laurent-series path
         return valuations_at_point(a4, a6, var=SR.var('m'), center=center, minimal=minimal, prec=prec)
-
 
 # ===== Prime-ideal local valuations over Q(m) =================================
 # Works at: rational m0 in QQ, algebraic points via an irreducible g(m) in QQ[m],
@@ -184,7 +170,6 @@ def _ord_via_rational_point(poly, m0):
 
     return _ord_via_irreducible_polynomial(poly, g)
 
-
 def ord_at_prime(poly, g=None, m0=None, at_infinity=False, minimal=True, debug=False):
     """
     poly: polynomial (or rational function) in m (a4/a6/c4/c6 etc)
@@ -224,7 +209,6 @@ def ord_at_prime(poly, g=None, m0=None, at_infinity=False, minimal=True, debug=F
 
     raise ValueError("ord_at_prime: must provide m0, g, or at_infinity=True")
 
-
 def valuations_at_place(a4, a6, g=None, m0=None, at_infinity=False, minimal=True):
     """
     Compute local valuations (v_c4, v_c6, v_D) at the place P defined by:
@@ -256,7 +240,6 @@ def valuations_at_place(a4, a6, g=None, m0=None, at_infinity=False, minimal=True
         #if n < 0: n = 0
 
     return v_c4, v_c6, v_D, n, (v_c4 - 4*n, v_c6 - 6*n, v_D - 12*n)
-
 
 # --- Robust local valuations via Laurent series ------------------------------
 
@@ -349,7 +332,6 @@ def valuations_at_point(a4, a6, var, center, minimal=True, prec=80):
 
     return v_c4, v_c6, v_D, n, (v_c4_min, v_c6_min, v_D_min)
 
-
 def _coerce_to_laurent(expr, var_sym, center, max_prec=80):
     """
     Try multiple coercions (Laurent series with increasing precision).
@@ -367,7 +349,6 @@ def _coerce_to_laurent(expr, var_sym, center, max_prec=80):
         except Exception:
             continue
     raise ValueError(f"Could not coerce expression to Laurent series. Expr: {expr}")
-
 
 def kodaira_symbol(v_c4, v_c6, v_D):
     """
@@ -395,33 +376,32 @@ def kodaira_symbol(v_c4, v_c6, v_D):
     # fallback
     return 'Unknown'
 
-
 @PROFILE
 def taylor_valuation(expr, var_sym, center, prec=10, debug=False):
     """
     Compute valuation of expression at given point using Taylor expansion.
-    
+
     Args:
         expr: Symbolic expression
         var_sym: Variable symbol
         center: Point to expand around
         prec: Precision for power series
         debug: Print debug information
-        
+
     Returns:
         int: Valuation at the point
     """
     t = var('t')
     R = PowerSeriesRing(QQ, names=('t',), default_prec=prec)
     (t,) = R._first_ngens(1)
-    
+
     # Substitute var = center + t
     expr_t = expr.subs({var_sym: center + t})
     ps = R(expr_t)
-    
+
     if debug:
         print(f"Power series expansion at {center}: {ps}")
-    
+
     return ps.valuation()
 
 def is_split_multiplicative_fiber(a4p, a6p, n):
@@ -441,17 +421,16 @@ def is_split_multiplicative_fiber(a4p, a6p, n):
             return True
     return False
 
-
 def safe_substitution(expr, var_sym, center, t):
     """
     Safely substitute variable with error handling.
-    
+
     Args:
         expr: Expression to substitute into
         var_sym: Variable symbol
         center: Center point
         t: Parameter variable
-        
+
     Returns:
         Substituted expression or original if substitution fails
     """
@@ -461,7 +440,6 @@ def safe_substitution(expr, var_sym, center, t):
         return expr.subs({var_sym: center + t})
     except (AttributeError, TypeError):
         return expr
-
 
 def _coerce_laurent_with_precision(expr, var_sym, center, prec_list=(30, 60, 120)):
     """
@@ -486,42 +464,39 @@ def _coerce_laurent_with_precision(expr, var_sym, center, prec_list=(30, 60, 120
     raise ValueError(f"Could not coerce expression to Laurent series at centers {center}. "
                      f"Last exception: {last_exc}\nExpression was: {expr}")
 
-
 def get_section_specialization_additive(curve_data, section, center, symbol, var_sym):
     """
     Determine component specialization for additive fibers.
-    
+
     Args:
         curve_data: CurveData object
         section: Point coordinates
         center: Singular point location
         symbol: Kodaira symbol
         var_sym: Parameter variable
-        
+
     Returns:
         int: Component index
     """
     t = var('t')
     R = LaurentSeriesRing(QQ, names=('t',), default_prec=10)
     (t,) = R._first_ngens(1)
-    
+
     X = safe_substitution(section[0], var_sym, center, t)
     Y = safe_substitution(section[1], var_sym, center, t)
-    
+
     X_laurent = R(X.parent().coerce(X))
     Y_laurent = R(Y.parent().coerce(Y))
-    
+
     vX, vY = X_laurent.valuation(), Y_laurent.valuation()
-    
+
     # Heuristic: if Y has much higher valuation than X, meets identity
     if vY > 1.5 * vX:
         return 0
     else:
         return 1
 
-
 # Replace your ADDITIVE_CONTRIBUTIONS / ADDITIVE_DELTA with this single dict.
-
 
 # Local correction (height pairing) contributions for additive fibers.
 # Values are the rational numbers one typically adds to the naive height matrix
@@ -593,7 +568,6 @@ def local_correction_value(symbol):
     warnings.warn(f"local_correction_value: unknown Kodaira symbol '{sym}' -- using fallback correction 1/3")
     return QQ(1) / QQ(3)
 
-
 @PROFILE
 def get_section_specialization_In(cd, section, fiber_data, var_sym):
     """
@@ -656,7 +630,6 @@ def get_section_specialization_In(cd, section, fiber_data, var_sym):
         print(f"Warning: Could not determine component for fiber at {center}. Defaulting to 0. Error: {e}")
         return 0
 
-
 @PROFILE
 def local_pairing_contribution(P, Q, fiber_data, curve_data, var_sym):
     """
@@ -664,7 +637,7 @@ def local_pairing_contribution(P, Q, fiber_data, curve_data, var_sym):
     """
     center = fiber_data.get('center') or fiber_data.get('r')
     symbol = fiber_data['symbol']
-    
+
     is_split_multiplicative = (
         fiber_data.get('type') == 'multiplicative' and
         symbol.startswith('I') and
@@ -676,93 +649,91 @@ def local_pairing_contribution(P, Q, fiber_data, curve_data, var_sym):
         n = fiber_data.get('n', 0)
         if n <= 1:
             return 0
-        
+
         # Get component indices using the corrected function call
         iP = get_section_specialization_In(curve_data, P, fiber_data, var_sym)
         iQ = get_section_specialization_In(curve_data, Q, fiber_data, var_sym)
         iPQ = get_section_specialization_In(curve_data, P + Q, fiber_data, var_sym)
-        
+
         # Second Bernoulli polynomial B_2(x) = x^2 - x + 1/6
         def B2(x):
             return x**2 - x + QQ(1)/6
-        
+
         term_p = B2(QQ(iP) / n)
         term_q = B2(QQ(iQ) / n)
         term_pq = B2(QQ(iPQ) / n)
-        
+
         correction = -n/2 * (term_pq - term_p - term_q)
         return correction
-    
+
     # Additive fibers
     if fiber_data.get('type') == 'additive':
         try:
             return local_correction_value(symbol)
         except KeyError:
             raise RuntimeError(f"Missing local correction for additive symbol '{symbol}' at center {center}")
-    
+
     return 0
 
 def validate_tates_algorithm():
     """
     Validate Tate's algorithm against known results for Legendre fibration.
-    
+
     The Legendre family y^2 = x(x-1)(x-m) transforms to Weierstrass form
     y^2 = x^3 + A(m)x + B(m) where:
-    - A(m) = -(m^2 - m + 1)/3  
+    - A(m) = -(m^2 - m + 1)/3
     - B(m) = (-2m^3 + 3m^2 + 3m - 2)/27
-    
+
     This has I2 fibers at m=0 and m=1.
-    
+
     Returns:
         bool: True if all tests pass
     """
     print("\n--- Validating Tate's Algorithm Implementation ---")
-    
+
     R_m = PolynomialRing(QQ, 'm')
     m_sym = R_m.gen()
-    
+
     A = -(m_sym**2 - m_sym + 1) / 3
     B = (-2*m_sym**3 + 3*m_sym**2 + 3*m_sym - 2) / 27
-    
+
     known_fibers = {0: 'I2', 1: 'I2'}
-    
+
     print("Test fibration: Legendre Family y^2 = x(x-1)(x-m)")
     print(f"A(m) = {A}")
     print(f"B(m) = {B}")
-    
+
     all_passed = True
     for center, expected_symbol in known_fibers.items():
         print(f"\nChecking fiber at m = {center}...")
-        
+
         fiber_data = tates_algorithm(A, B, m_sym, center, debug=True)
         computed_symbol = fiber_data.get('symbol', 'Error')
-        
+
         print(f"  Expected: {expected_symbol}")
         print(f"  Computed: {computed_symbol}")
-        
+
         if computed_symbol == expected_symbol:
             print("  ✅ PASS")
         else:
             print("  ❌ FAIL")
             all_passed = False
-    
-    return all_passed
 
+    return all_passed
 
 def main():
     """Main function for testing and validation."""
     print("Tate's Algorithm for Elliptic Fibrations")
     print("=" * 50)
-    
+
     validation_result = validate_tates_algorithm()
-    
+
     if validation_result:
         print("\n🎉 All validation tests passed!")
     else:
         print("\n❌ Some validation tests failed.")
-    
-    return validation_result
 
+    return validation_result
 
 ### claude's opinions:
 """
@@ -770,15 +741,13 @@ Complete singular fiber detection for elliptic surfaces.
 Finds all singular fibers including those with irrational/complex centers.
 """
 
-
-
 def compute_euler_characteristic(fibers):
     """
     Compute total Euler characteristic from fiber list.
-    
+
     Args:
         fibers: List of fiber data
-    
+
     Returns:
         int: Total Euler characteristic
     """
@@ -789,22 +758,22 @@ def compute_euler_characteristic(fibers):
         'I0*': 6, 'I1*': 7, 'I2*': 8, 'I3*': 9, 'I4*': 10, 'I5*': 11, 'I6*': 12,
         'II*': 10, 'III*': 9, 'IV*': 8
     }
-    
+
     total_euler = 0
     for fiber in fibers:
         symbol = fiber.get('symbol', 'Unknown')
         euler_contrib = euler_map.get(symbol, 0)
         total_euler += euler_contrib
-    
+
     print(f"\nEuler characteristic calculation:")
     for fiber in fibers:
         symbol = fiber.get('symbol', 'Unknown')
         center = fiber.get('center', 'Unknown')
         euler_contrib = euler_map.get(symbol, 0)
         print(f"  {symbol} at {center}: +{euler_contrib}")
-    
+
     print(f"Total Euler characteristic: {total_euler}")
-    
+
     # Determine surface type
     if abs(total_euler - 12) < 0.1:
         print("*** RATIONAL ELLIPTIC SURFACE (χ = 12) ***")
@@ -812,7 +781,7 @@ def compute_euler_characteristic(fibers):
         print("*** K3 SURFACE (χ = 24) ***")
     else:
         print(f"*** UNUSUAL SURFACE TYPE (χ = {total_euler}) ***")
-    
+
     return total_euler
 
 # Import the tates_algorithm function (assuming it's available)
@@ -837,7 +806,7 @@ def find_all_discriminant_roots(discriminant, var_sym, precision=100, debug=Fals
     # 1. Find rational roots using exact methods from both numerator and denominator
     print("Finding rational roots...")
     rational_roots = []
-    
+
     # Process numerator
     for factor, mult in num.factor():
         try:
@@ -846,7 +815,7 @@ def find_all_discriminant_roots(discriminant, var_sym, precision=100, debug=Fals
         except Exception:
             # a factor might not have rational roots
             continue
-            
+
     # Process denominator
     if not den.is_constant():
         for factor, mult in den.factor():
@@ -867,7 +836,7 @@ def find_all_discriminant_roots(discriminant, var_sym, precision=100, debug=Fals
         # Sage returns coeffs lowest to highest, numpy wants highest to lowest
         coeffs_list.reverse()
         numerical_roots = np.roots(coeffs_list)
-        
+
         if debug:
             print(f"Found {len(numerical_roots)} numerical roots")
 
@@ -885,7 +854,7 @@ def find_all_discriminant_roots(discriminant, var_sym, precision=100, debug=Fals
 
     # 3. Clean up the lists
     roots['irrational'] = sorted(list(set(roots['irrational'])))
-    
+
     complex_cleaned = []
     if roots['complex']:
         tolerance = 10**(-precision//3)
@@ -911,12 +880,12 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
     # Evaluate a4, a6 at the center
     a4_val = complex(a4.subs({var_sym: center}))
     a6_val = complex(a6.subs({var_sym: center}))
-    
+
     # Compute discriminant and c-invariants
     Delta_val = -16 * (4*a4_val**3 + 27*a6_val**2)
     c4_val = -48 * a4_val
     c6_val = -864 * a6_val
-    
+
     # Proper numerical valuation estimation
     def estimate_valuation(z, tol=10**(-precision//4)):
         """
@@ -924,21 +893,21 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
         """
         if abs(z) > tol:
             return 0  # Non-zero, valuation 0
-        
+
         # For very small values, try to estimate order
         # This is heuristic but better than nothing
         if abs(z) < tol**2:
             return 2  # Very small, probably order 2 or higher
         else:
             return 1  # Small, probably order 1
-    
+
     v_Delta = estimate_valuation(Delta_val)
-    v_c4 = estimate_valuation(c4_val)  
+    v_c4 = estimate_valuation(c4_val)
     v_c6 = estimate_valuation(c6_val)
-    
+
     if debug:
         print(f"At center {center}: Delta_val={Delta_val}, v_Delta={v_Delta}, v_c4={v_c4}, v_c6={v_c6}")
-    
+
     # Classify using similar logic to exact case
     if v_Delta == 0:
         symbol = 'I0'
@@ -957,9 +926,9 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
             symbol = f'I{v_Delta-6}*'
         else:
             symbol = 'Unknown'
-    
+
     fiber_type = 'multiplicative' if symbol.startswith('I') and '*' not in symbol else 'additive'
-    
+
     fiber = {
         'symbol': symbol,
         'v_c4': v_c4,
@@ -969,7 +938,7 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
         'r': center,
         'type': fiber_type
     }
-    
+
     # Add multiplicative-specific data
     if fiber_type == 'multiplicative' and symbol != 'I0':
         if symbol.endswith('*'):
@@ -978,12 +947,10 @@ def numerical_tates_algorithm(a4, a6, var_sym, center, precision=100, debug=Fals
             n = int(symbol[1:]) if symbol[1:].isdigit() else 1
         fiber['n'] = n
         fiber['split'] = True  # Assume split for numerical case
-    
+
     return fiber
 
-
 # ---------- PATCH for tate.py ----------
-
 
 # Put near top of tate.py (imports already in your file assumed)
 # add near top of file
@@ -1034,7 +1001,6 @@ def kodaira_components_count(sym):
     mapping = {'II': 1, 'III': 2, 'IV': 3, 'II*': 9, 'III*': 8, 'IV*': 7}
     return mapping.get(s, 1)
 
-
 def kodaira_euler_number(s):
     if s is None:
         return 0
@@ -1055,8 +1021,6 @@ def kodaira_euler_number(s):
         return roman_map[s]
     # unknown fallback
     raise ValueError(f"Unknown Kodaira symbol: {s}")
-
-
 
 def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagnostics=False, clamp_negative=False, allow_auto_rho=False):
     """
@@ -1146,7 +1110,6 @@ def shioda_tate_from_fiber_list(fibers, rho_geom=None, debug=False, return_diagn
 
     return rank, {'sum_contributions': total_contrib, 'euler_characteristic': euler_sum, 'fibers': fiber_info}
 
-
 def classify_from_minimal_vals(v4, v6, vD):
     """
     Classify fiber type from minimal valuations (v_c4, v_c6, v_D).
@@ -1155,11 +1118,11 @@ def classify_from_minimal_vals(v4, v6, vD):
     # Smooth fiber
     if vD <= 0:
         return 'I0', 'smooth'
-    
+
     # Multiplicative I_n: v_c4 = v_c6 = 0, v_D >= 1
     if v4 == 0 and v6 == 0 and vD >= 1:
         return f'I{vD}', 'multiplicative'
-    
+
     # Additive fibers - match against standard table
     # Key: (v_c4, v_c6, v_D) -> symbol
     additive_table = {
@@ -1171,21 +1134,20 @@ def classify_from_minimal_vals(v4, v6, vD):
         (3, 5, 9): 'III*',
         (4, 5, 10): 'II*',
     }
-    
+
     key = (v4, v6, vD)
     if key in additive_table:
         return additive_table[key], 'additive'
-    
+
     # I_n* pattern: v_c4 >= 2, v_c6 >= 3, v_D >= 6
     # General I_n* has v_D = n + 6
     if v4 >= 2 and v6 >= 3 and vD >= 6:
         n = vD - 6
         return f'I{n}*', 'additive'
-    
+
     # Fallback for unrecognized additive pattern
     # Return a placeholder that will be caught during height pairing
     return f'AdditiveFiber({v4},{v6},{vD})', 'additive'
-
 
 # Then in tates_algorithm, use it like this:
 
@@ -1251,7 +1213,6 @@ def tates_algorithm(a4, a6, var_sym, center=None, debug=False, minimal=True, g=N
         print(f"[tate] -> classified as: {symbol} ({typ})")
 
     return result
-
 
 if __name__ == '__main__':
     main()

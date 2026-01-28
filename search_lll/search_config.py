@@ -1,8 +1,4 @@
-import sys
-import random
-import itertools
-import multiprocessing
-import math
+import sys, random, itertools, multiprocessing, math
 from math import floor, sqrt, gcd, ceil, log
 from fractions import Fraction
 from functools import reduce, lru_cache, partial
@@ -55,8 +51,6 @@ except ImportError:
     MAX_MODULUS = 10**30
     raise
 
-
-
 # === 5. LLL-Package Specific Constants ===
 # These are the algorithmic constants from search_lll.py.bak
 
@@ -92,5 +86,4 @@ class EllipticCurveSearchError(Exception):
 class RationalReconstructionError(EllipticCurveSearchError):
     """Raised when rational reconstruction fails."""
     pass
-
 

@@ -1,12 +1,8 @@
-import sys
-import time
-import random
+import sys, time, random, multiprocessing
 from math import ceil, sqrt, gcd
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, Process, SimpleQueue, Event
 from collections import Counter
 from copy import deepcopy
-from multiprocessing import Process, SimpleQueue, Event, cpu_count
-import multiprocessing
 from queue import Full
 from sage.all import Integer, Zmod, GF, ZZ, matrix, vector, PolynomialRing, factor, crt, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
@@ -44,18 +40,15 @@ K = GF(FINITE_FIELD)
 # Tunable threshold for lazy reduction
 _LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
 
-
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
 
 def get_canonical_y_cached(x_int):
     global _GLOBAL_FB_Y_CACHE
     if _GLOBAL_FB_Y_CACHE is None:
         return None
     return _GLOBAL_FB_Y_CACHE.get(int(x_int), None)
-
 
 def generate_random_test_keypair(f_poly, p, target_d=None):
     """
@@ -83,28 +76,26 @@ def generate_random_test_keypair(f_poly, p, target_d=None):
     Q = target_d * G
     return G, Q, Integer(target_d)
 
-
 # ... (Previous imports and helper functions remain the same)
 
 def find_smooth_decomposition_worker(seed_and_batch):
     seed, batch_candidates = seed_and_batch
     set_random_seed(seed)
     random.seed(int(seed))
-    
+
     batch_stats = Counter()
-    
+
     for _ in range(batch_candidates):
         r_val = random.randint(1, _GLOBAL_ORDER - 1)
         result = _worker_core_try_batch(r_val)
-        
+
         if result[0] == "SUCCESS":
             return result # Return the full ("SUCCESS", data) tuple
         else:
             # Update local batch stats with the "STATS" dict returned
             batch_stats.update(result[1])
-    
-    return ("STATS", dict(batch_stats))
 
+    return ("STATS", dict(batch_stats))
 
 def dlp_bsgs(G, Q, order):
     """
@@ -141,14 +132,11 @@ def dlp_bsgs(G, Q, order):
 
     raise ValueError("No discrete log found in subgroup")
 
-
 # In index_calculus.py, replace the extract_factor_base function:
-
 
 # ============================================================================
 # COMBINED FIX: Degree-1 Support + Protected G/Q Injection
 # ============================================================================
-
 
 def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
     """
@@ -160,27 +148,27 @@ def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
         u_poly, v_poly = divisor[0], divisor[1]
         if u_poly.degree() not in [1, 2]:
             return None, None
-        
+
         K = GF(p)
         roots_data = u_poly.roots(K)
         if sum(m for _, m in roots_data) != u_poly.degree():
             return None, None
-        
+
         row = {}
         for x_elem, mult in roots_data:
             x_int = int(x_elem)
             if x_int not in root_to_idx:
                 return None, None
-            
+
             y_val = int(v_poly(x_elem))
             y2 = int(f_poly(x_elem))
-            
+
             if pow(y2, (p-1)//2, p) != 1:
                 return None, None
-            
+
             y_can = tonelli_shanks(y2, p)
             y_can = min(y_can, p - y_can)
-            
+
             idx = root_to_idx[x_int]
             if y_val == y_can:
                 row[idx] = row.get(idx, 0) + int(mult)
@@ -188,11 +176,10 @@ def check_if_in_factor_base(divisor, root_to_idx, f_poly, p):
                 row[idx] = row.get(idx, 0) - int(mult)
             else:
                 return None, None
-        
+
         return 1, row
     except Exception:
         raise
-
 
 def divisor_to_dict(div_J, p):
     """
@@ -202,14 +189,14 @@ def divisor_to_dict(div_J, p):
     u_poly = div_J[0]
     v_poly = div_J[1]
     deg = u_poly.degree()
-    
+
     if deg not in [1, 2]:
         return None
-        
+
     roots_data = u_poly.roots(GF(p))
     if sum(m for _, m in roots_data) != deg:
         return None  # Not smooth
-        
+
     roots_list = []
     for r, m in roots_data:
         roots_list.extend([int(r)] * m)
@@ -235,20 +222,17 @@ def divisor_to_dict(div_J, p):
         res['p'] = 0
         res['v_1'] = 0
         res['v_0'] = 0
-         
-    return res
 
+    return res
 
 # ============================================================================
 # MAIN DLP ATTACK - COMBINED FIX
 # ============================================================================
 
-
 def f_poly_from_coeffs(coeffs, p):
     K = GF(p)
     R = PolynomialRing(K, 'x')
     return sage_poly_from_coeffs(coeffs, R)
-
 
 def _u_poly_roots_in_fp(div, p):
     """
@@ -267,7 +251,6 @@ def _u_poly_roots_in_fp(div, p):
         return None
     return [int(r) for r, _ in roots]
 
-
 def is_divisor_fb_smooth_by_u(div, fb_roots_set, p):
     """
     True iff all roots of div.u split into degree-1 factors and lie in fb_roots_set.
@@ -276,7 +259,6 @@ def is_divisor_fb_smooth_by_u(div, fb_roots_set, p):
     if roots is None:
         return False
     return all(r in fb_roots_set for r in roots)
-
 
 # --- helpers for converting between dict <-> Jacobian element and projecting ---
 def _dict_to_jacobian(d, J, R, p):
@@ -315,7 +297,6 @@ def _dict_to_jacobian(d, J, R, p):
         raise RuntimeError(f"_dict_to_jacobian: failed to create Jacobian element: {e}")
 
     return J_elem
-
 
 def jacobian_to_dict(J_elem, p):
     """
@@ -362,7 +343,6 @@ def jacobian_to_dict(J_elem, p):
 
     return res
 
-
 """
 Anchoring fix for inconsistent linear system in perform_dlp_attack.
 
@@ -375,12 +355,10 @@ This patch adds:
 2. Rebasing logic in perform_dlp_attack to normalize all relations
 """
 
-
 # ============================================================================
 # PATCH FOR perform_dlp_attack
 # ============================================================================
 # Insert this logic where valid_rows are being built from smooth_divs
-
 
 # ============================================================================
 # USAGE IN perform_dlp_attack
@@ -393,7 +371,6 @@ This patch adds:
 #
 # Then proceed with smoothing G and Q as before.
 
-
 """
 CORRECTED anchoring fix - handles the fact that smooth_divs are NOT scalar multiples of G.
 
@@ -402,8 +379,6 @@ They give us LINEAR DEPENDENCIES among FB elements, NOT scalar equations.
 
 Only G and Q (after smoothing) give us actual scalar equations.
 """
-
-
 
 def _is_quadratic_residue(a_int, p_int):
     return pow(a_int % p_int, (p_int - 1) // 2, p_int) == 1
@@ -419,11 +394,9 @@ def sage_poly_from_coeffs(coeffs, R):
 # DIVISOR SMOOTHNESS CHECKING
 # ============================================================================
 
-
 # ============================================================================
 # MAIN DLP ATTACK
 # ============================================================================
-
 
 # ============================================================================
 # LINEAR ALGEBRA SOLVER
@@ -432,19 +405,19 @@ def sage_poly_from_coeffs(coeffs, R):
 def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbose=True):
     """
     Solves sparse linear system Ax = b (mod modulus).
-    
+
     System structure:
       - Most rows: homogeneous relations (RHS=0)
       - Last row: G relation (RHS = 1 + alpha_g)
       - q_anchored: (beta_q, row_q) for computing final discrete log
     """
     assert modulus is not None and int(modulus) > 1, "Invalid modulus"
-    
+
     N = Integer(modulus)
     rq, row_q = q_anchored
 
     num_rels = len(valid_rows)
-    
+
     # Determine system dimensions
     max_idx = -1
     for r in valid_rows:
@@ -452,7 +425,7 @@ def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbos
             max_idx = max(max_idx, max(r.keys()))
     if row_q:
         max_idx = max(max_idx, max(row_q.keys()))
-    
+
     num_vars = max_idx + 1
 
     if verbose:
@@ -462,25 +435,25 @@ def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbos
 
     # Check if we should use Hensel lifting
     factors = list(factor(N))
-    
+
     if len(factors) == 1:
         p, exp = factors[0]
         if verbose:
             print(f"  [Solver] Using Hensel lifting for p^k = {p}^{exp}")
             sys.stdout.flush()
-        
+
         return solve_linear_system_hensel_lift(
             valid_rows, rhs_values, row_q, rq,
             int(p), int(exp), num_vars, verbose=verbose
         )
-    
+
     # Direct solve over Z/NZ
     if verbose:
         print(f"  [Solver] Solving directly over Z/{N}Z")
         sys.stdout.flush()
-    
+
     K = Zmod(N)
-    
+
     # Build sparse matrix
     entries = {}
     for i, rel in enumerate(valid_rows):
@@ -488,40 +461,39 @@ def solve_dlp_index_calculus(valid_rows, rhs_values, q_anchored, modulus, verbos
             val = K(int(count))
             if val != 0:
                 entries[(i, idx)] = val
-    
+
     if verbose:
         print(f"  [Matrix] Non-zero entries: {len(entries)}")
         print(f"  [Matrix] Density: {100.0 * len(entries) / (num_rels * num_vars):.3f}%")
         sys.stdout.flush()
-    
+
     A_mod_N = matrix(K, num_rels, num_vars, entries, sparse=True)
     b_vec = vector(K, [K(int(v)) for v in rhs_values])
-    
+
     if verbose:
         print(f"  [Solver] Computing solution...")
         sys.stdout.flush()
-    
+
     try:
         sol = A_mod_N.solve_right(b_vec)
     except ValueError as e:
         raise RuntimeError(f"Linear system solve failed: {e}")
-    
+
     # Compute discrete log from solution
     sum_logs = K(0)
     for idx, count in row_q.items():
         if idx < len(sol):
             sum_logs += K(int(count)) * sol[idx]
-    
+
     log_val = (sum_logs - K(int(rq)))
-    
+
     if verbose:
         print(f"  [Solver] ✓ Solution computed")
         sys.stdout.flush()
-    
+
     return Integer(log_val)
 
-
-def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq, 
+def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq,
                                     p, exponent, num_vars, verbose=True):
     """
     Hensel lifting solver for systems mod p^k.
@@ -529,7 +501,7 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq,
     """
     num_rels = len(valid_rows)
     K = GF(p)
-    
+
     # Build matrix mod p
     entries = {}
     for i, rel in enumerate(valid_rows):
@@ -537,7 +509,7 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq,
             val = K(int(count))
             if val != 0:
                 entries[(i, idx)] = val
-            
+
     A_mod_p = matrix(K, num_rels, num_vars, entries, sparse=True)
     b_vec_p = vector(K, [K(val) for val in rhs_values])
 
@@ -559,25 +531,25 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq,
     b_int = [int(val) for val in rhs_values]
     x_accum = [0] * num_vars
     p_pow = 1
-    
+
     for k in range(exponent):
         if verbose:
             print(f"    [Hensel] Step {k+1}/{exponent} (mod {p}^{k+1})")
             sys.stdout.flush()
-        
+
         if k == 0:
             target_int = list(b_int)
         else:
             Ax = sparse_mat_vec_mult_int(x_accum)
             target_int = [(b_val - ax_val) // p_pow for b_val, ax_val in zip(b_int, Ax)]
-        
+
         target_vec_p = vector(K, [K(val) for val in target_int])
-        
+
         try:
             sol_p = A_mod_p.solve_right(target_vec_p)
         except ValueError as e:
             raise RuntimeError(f"Hensel lift failed at step {k+1}: {e}")
-        
+
         sol_int = [int(x) for x in sol_p]
         for i in range(len(sol_int)):
             x_accum[i] += sol_int[i] * p_pow
@@ -588,16 +560,15 @@ def solve_linear_system_hensel_lift(valid_rows, rhs_values, row_q, rq,
     for idx, count in row_q.items():
         if idx < len(x_accum):
             sum_logs += int(count) * x_accum[idx]
-            
+
     final_mod = p**exponent
     log_val = (sum_logs - int(rq)) % final_mod
-    
+
     if verbose:
         print(f"  [Hensel] ✓ Lift complete")
         sys.stdout.flush()
-    
-    return Integer(log_val)
 
+    return Integer(log_val)
 
 def get_largest_prime_factor(n):
     """
@@ -616,16 +587,13 @@ def get_largest_prime_factor(n):
         raise RuntimeError("No prime factors found")
     return max(primes)
 
-
 # ============================================================================
 # CORRECTED: Remove anchoring entirely - preserve Mumford algebra
 # ============================================================================
 
-
 # ============================================================================
 # CRITICAL FIX: Use Mumford v(x) directly - NO re-canonicalization with f(x)
 # ============================================================================
-
 
 def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verbose=True):
     """
@@ -633,10 +601,10 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
     Checks if G and Q are in span of homogeneous relations.
     """
     from sage.all import Zmod, matrix, vector, Integer, factor
-    
+
     ell = int(max(int(p) for p, _ in factor(full_order)))
     K = Zmod(ell)
-    
+
     # Get number of columns
     all_cols = set()
     for r in homogeneous_rows:
@@ -644,7 +612,7 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
     all_cols.update(row_g.keys())
     all_cols.update(row_q.keys())
     n_cols = max(all_cols) + 1 if all_cols else 0
-    
+
     if verbose:
         print(f"\n{'='*70}")
         print(f"SYSTEM CONSISTENCY DIAGNOSTICS")
@@ -652,28 +620,28 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
         print(f"Modulus ℓ: {ell}")
         print(f"Homogeneous relations: {len(homogeneous_rows)}")
         print(f"Factor base size: {n_cols}")
-    
+
     # Build homogeneous matrix
     entries_hom = {}
     for i, r in enumerate(homogeneous_rows):
         for j, v in r.items():
             entries_hom[(i, j)] = K(int(v))
-    
+
     M_hom = matrix(K, len(homogeneous_rows), n_cols, entries_hom, sparse=True)
-    
+
     # Check G column coverage
     cols_in_g = set(row_g.keys())
     cols_in_hom = set()
     for r in homogeneous_rows:
         cols_in_hom.update(r.keys())
-    
+
     missing_g = cols_in_g - cols_in_hom
     if missing_g:
         print(f"\n[DIAG] ❌ CRITICAL: G uses columns not in homogeneous relations!")
         print(f"       Missing columns: {sorted(missing_g)}")
     else:
         print(f"\n[DIAG] ✓ G column coverage: all columns present in homogeneous relations")
-    
+
     # Check if G is in span of homogeneous rows
     gvec = vector(K, [K(row_g.get(j, 0)) for j in range(n_cols)])
     try:
@@ -685,14 +653,14 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
         print(f"       Error: {type(e).__name__}: {e}")
         print(f"       This means the map divisor→factor-base is not a homomorphism")
         raise
-        
+
         # Additional diagnostics
         rank_hom = M_hom.rank()
         print(f"\n[DIAG] Matrix rank: {rank_hom} / {n_cols} columns")
         if rank_hom < n_cols:
             print(f"       System is under-determined: need {n_cols - rank_hom} more relations")
         raise
-    
+
     # Check Q column coverage
     cols_in_q = set(row_q.keys())
     missing_q = cols_in_q - cols_in_hom
@@ -701,7 +669,7 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
         print(f"       Missing columns: {sorted(missing_q)}")
     else:
         print(f"\n[DIAG] ✓ Q column coverage: all columns present in homogeneous relations")
-    
+
     # Check if Q is in span
     qvec = vector(K, [K(row_q.get(j, 0)) for j in range(n_cols)])
     try:
@@ -711,9 +679,9 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
         print(f"[DIAG] ❌ CRITICAL: Q is NOT in span of homogeneous rows")
         print(f"       Error: {type(e).__name__}: {e}")
         raise
-    
+
     print(f"{'='*70}\n")
-    
+
     return {
         'ell': ell,
         'n_cols': n_cols,
@@ -723,30 +691,26 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
         'q_in_span': len(missing_q) == 0
     }
 
-
 # quick homomorphism test
-
 
 def is_divisor_fb_smooth(div, atom_to_idx, f_p, p, fb_y_cache=None):
     """
     Boolean wrapper: True if divisor encodes successfully into FB using atom-based encoding.
-    
+
     Args:
         div: Jacobian divisor element or dict
         atom_to_idx: dict mapping atom tuples to indices
         f_p: polynomial over GF(p)
         p: prime
         fb_y_cache: unused (kept for backward compatibility)
-    
+
     Returns:
         bool: True if divisor is smooth over the factor base
     """
     row = get_relation_row(div, atom_to_idx, f_p, p, fb_y_cache=fb_y_cache)
     return row is not None
 
-
 # --- Replace get_relation_row_cached and homomorphism_test with the following ---
-
 
 def combine_vectors(vec1, vec2, sign=1):
     """Pad shorter vector with zeros and add: vec1 + sign*vec2"""
@@ -764,46 +728,41 @@ def combine_vectors(vec1, vec2, sign=1):
     else:
         return tuple(int(a) - int(b) for a, b in zip(v1, v2))
 
-
 # [Rest of the file remains the same until diagnose_bw_failure]
 
-
 # [Keep all other functions unchanged - berlekamp_massey, block_wiedemann_solve, etc.]
-
 
 def canonicalize_divisor_to_factor_base(divisor, atom_to_idx, f_p, p):
     """
     CORRECTED: Uses Mumford v(x) directly without re-canonicalizing.
-    
+
     Re-express a divisor using its Mumford y-coordinates.
     Returns sparse row dict or None.
-    
+
     NOW accepts atom_to_idx (tuple-keyed dict), not r_to_idx (int-keyed dict).
     """
     row = get_relation_row(divisor, atom_to_idx, f_p, p)
     return row
 
-
 def _build_signed_row_from_divisor(div, atom_to_idx, f_p, p):
     """
     CORRECTED: Uses Mumford v(x) directly.
-    
+
     Build signed row dict from Mumford divisor.
     Fallback when canonicalize_divisor_to_factor_base fails.
-    
+
     NOW accepts atom_to_idx (tuple-keyed dict), not r_to_idx (int-keyed dict).
     """
     # Just call canonicalize_divisor_to_factor_base since they do the same thing now
     return canonicalize_divisor_to_factor_base(div, atom_to_idx, f_p, p)
 
-
 def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
     """
     Convert legacy 'smooth_divs' into relations WITHOUT rebasing.
     CORRECTED: Uses proper Mumford homomorphism.
-    
+
     CRITICAL FIX: Now returns atom_to_idx instead of r_to_idx.
-    
+
     Returns: (valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache)
              NOT (valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache)
     """
@@ -830,7 +789,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     # Extract factor base - returns (atom_to_idx, fb_y_cache)
     atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=True)
     initialize_global_factor_base(atom_to_idx)
-    
+
     # Extract fb_roots from degree-1 atoms (for backward compatibility with diagnostics)
     fb_roots = []
     for atom, idx in atom_to_idx.items():
@@ -858,38 +817,37 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     # The old version built r_to_idx = {x_int: col_idx} here, which is WRONG
     return valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache
 
-
 def verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False):
     """
     Verify that a relation row represents a divisor in ℓ-torsion.
-    
+
     Reconstructs D = Σ row[i] * FB[i] and checks ℓ * D == 0.
-    
+
     Args:
         row: dict {col_idx: multiplicity}
         atom_to_idx: dict {atom_tuple: col_idx}
         ell: prime modulus
         J: Jacobian
         verbose: print diagnostics
-    
+
     Returns:
         True if ℓ * D == 0, False otherwise
-    
+
     Raises on reconstruction failure
     """
     from sage.all import GF, PolynomialRing
-    
+
     # Build inverse map
     idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
-    
+
     # Reconstruct divisor from row
     D = J.zero()
-    
+
     for idx, mult in row.items():
         atom = idx_to_atom.get(int(idx))
         if atom is None:
             raise RuntimeError(f"Relation references unknown atom index {idx}")
-        
+
         # Convert atom to Jacobian element
         if atom[0] == 'd1':
             # Degree-1: ('d1', x, y)
@@ -897,45 +855,44 @@ def verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False):
             K = J.base_ring()
             R = PolynomialRing(K, 'x')
             x_poly = R.gen()
-            
+
             u_poly = x_poly - K(int(x_val))
             v_poly = K(int(y_val))
-            
+
             atom_div = J([u_poly, v_poly])
         elif atom[0] == 'd2':
             # Degree-2: ('d2', u_coeffs_tuple, v_coeffs_tuple)
             _, u_coeffs, v_coeffs = atom
             K = J.base_ring()
             R = PolynomialRing(K, 'x')
-            
+
             u_poly = R(list(u_coeffs))
             v_poly = R(list(v_coeffs))
-            
+
             atom_div = J([u_poly, v_poly])
         else:
             raise RuntimeError(f"Unknown atom type: {atom[0]}")
-        
+
         # Add mult * atom to D
         D += int(mult) * atom_div
-    
+
     # Check ℓ * D == 0
     ellD = Integer(ell) * D
     is_torsion = ellD.is_zero()
-    
+
     if verbose:
         print(f"  [Relation Check] ℓ * D is zero? {is_torsion}")
         if not is_torsion:
             print(f"                   Row: {row}")
             print(f"                   Reconstructed D: {D}")
-    
+
     return is_torsion
 
-
-def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J, 
+def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J,
                                          sample_size=100, verbose=True):
     """
     Sample-check that projected homogeneous relations are ℓ-torsion.
-    
+
     Args:
         projected_rows: list of relation dicts (after h-projection)
         atom_to_idx: factor base atom map
@@ -943,19 +900,18 @@ def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J,
         J: Jacobian
         sample_size: how many to check (or None for all)
         verbose: print progress
-    
+
     Raises if any relation fails the check
     """
-    import random
-    
+
     n_check = min(sample_size, len(projected_rows)) if sample_size else len(projected_rows)
-    
+
     if verbose:
         print(f"  [Sanity] Checking {n_check}/{len(projected_rows)} relations are ℓ-torsion...")
         sys.stdout.flush()
-    
+
     indices = random.sample(range(len(projected_rows)), n_check) if sample_size else range(len(projected_rows))
-    
+
     failures = []
     for i in indices:
         row = projected_rows[i]
@@ -965,7 +921,7 @@ def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J,
                 failures.append((i, row))
         except Exception as e:
             raise RuntimeError(f"Relation {i} failed reconstruction: {e}")
-    
+
     if failures:
         print(f"  [Sanity] ✗ FAILED: {len(failures)} relations are NOT ℓ-torsion!")
         for i, row in failures[:5]:  # Show first 5
@@ -974,11 +930,10 @@ def verify_all_relations_are_ell_torsion(projected_rows, atom_to_idx, ell, J,
             f"{len(failures)}/{n_check} relations failed ℓ-torsion check!\n"
             f"Homogeneous relations MUST be in J[ℓ] after h-projection."
         )
-    
+
     if verbose:
         print(f"  [Sanity] ✓ All {n_check} sampled relations are ℓ-torsion")
         sys.stdout.flush()
-
 
 def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, order,
                               max_tries=None, num_workers=None,
@@ -986,15 +941,10 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
                               offset_coeffs=None):
     """
     FIXED: Now properly passes f_coeffs to worker initialization.
-    
+
     Parallel search for smooth divisor with restored serialization and live progress.
     Raises if no decomposition found.
     """
-
-    from multiprocessing import Pool, cpu_count
-    import random
-    import time
-    import sys
 
     num_workers = cpu_count() if num_workers is None else num_workers
     p_int = int(p)
@@ -1017,7 +967,7 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
         raise ValueError("Empty factor base provided to find_smooth_decomposition")
 
     sample_roots = [int(r) for r in random.sample(fb_root_list, min(sample_k, len(fb_root_list)))]
-    
+
     # FIXED: Extract f_poly coefficients to pass to workers
     coeffs_genus2 = [int(c) for c in f_poly.list()]
 
@@ -1100,7 +1050,6 @@ def find_smooth_decomposition(target_point, generator, root_to_idx, f_poly, p, o
 
     raise RuntimeError("find_smooth_decomposition: exhausted search without finding a smooth decomposition")
 
-
 def _worker_core_try_batch(r_val):
     """
     Updated: Returns (r_val_int, row_vec_plain, offset_idx, target_coeff)
@@ -1126,23 +1075,23 @@ def _worker_core_try_batch(r_val):
     except Exception:
         raise
         return ("STATS", dict(agg_stats))
-    
+
     for off_idx, offset_D in enumerate([None] + _GLOBAL_OFFSET_CACHE):
         try:
             cand_D = D + offset_D if offset_D else D
-            cand_div = cand_D 
-            
+            cand_div = cand_D
+
             u = cand_div[0]
             if u.degree() != 2:
                 continue
-                
+
             u0, u1 = int(u[0]), int(u[1])
             hit = False
             for xr in sample_roots:
                 if (xr * xr + u1 * xr + u0) % P_int == 0:
                     hit = True
                     break
-            
+
             if not hit:
                 agg_stats['sample_miss'] += 1
                 continue
@@ -1158,11 +1107,10 @@ def _worker_core_try_batch(r_val):
         except Exception:
             raise
             continue
-            
+
     return ("STATS", dict(agg_stats))
 
-
-def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int, 
+def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
                  fb_y_cache, p_int, order_int, window_size, offset_coeffs, f_coeffs):
     """
     Worker initialization with proper error handling.
@@ -1171,21 +1119,21 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
     global _GLOBAL_SAMPLE_ROOTS_INT, _GLOBAL_BABY, _GLOBAL_P, _GLOBAL_ORDER
     global _GLOBAL_WINDOW_SIZE, _GLOBAL_FB_Y_CACHE, _GLOBAL_F_POLY, _GLOBAL_OFFSET_CACHE
     global _GLOBAL_ATOM_TO_IDX
-    
+
     _GLOBAL_ATOM_TO_IDX = atom_to_idx
     _GLOBAL_SAMPLE_ROOTS_INT = sample_roots_int
     _GLOBAL_FB_Y_CACHE = fb_y_cache
     _GLOBAL_P = int(p_int)
     _GLOBAL_ORDER = int(order_int)
     _GLOBAL_WINDOW_SIZE = int(window_size)
-    
+
     K = GF(int(p_int))
     R = PolynomialRing(K, 'x')
     _GLOBAL_F_POLY = sage_poly_from_coeffs(f_coeffs, R)
 
     C = HyperellipticCurve(_GLOBAL_F_POLY)
     J = C.jacobian()
-    
+
     if gen_mumford is not None:
         gen_u_coeffs, gen_v_coeffs = gen_mumford
         u_poly = R(gen_u_coeffs)
@@ -1193,7 +1141,7 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
         _GLOBAL_GENERATOR = J([u_poly, v_poly])
     else:
         _GLOBAL_GENERATOR = None
-    
+
     if target_mumford is not None:
         target_u_coeffs, target_v_coeffs = target_mumford
         u_poly = R(target_u_coeffs)
@@ -1201,14 +1149,14 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
         _GLOBAL_TARGET_POINT = J([u_poly, v_poly])
     else:
         _GLOBAL_TARGET_POINT = None
-    
+
     zero = J.zero()
     _GLOBAL_BABY = [zero]
     curr = zero
     for _ in range(1, window_size):
         curr = curr + _GLOBAL_GENERATOR
         _GLOBAL_BABY.append(curr)
-    
+
     _GLOBAL_OFFSET_CACHE = []
     if offset_coeffs:
         x = R.gen()
@@ -1221,12 +1169,11 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
             except Exception as e:
                 failed_offsets.append((idx, s, p_val, e))
                 raise
-        
+
         if failed_offsets and len(failed_offsets) < len(offset_coeffs):
             print(f"  [Worker] Warning: {len(failed_offsets)}/{len(offset_coeffs)} offset divisors failed")
         elif failed_offsets:
             raise RuntimeError(f"_worker_init: ALL offsets failed: {failed_offsets[0]}")
-
 
 # ---------------------------------------------------------------------
 # REPLACE project_relations_and_solve_mod_l (NO anchoring; accept row_q mapping)
@@ -1361,7 +1308,6 @@ def project_relations_and_solve_mod_l(valid_rows, rhs_values, row_q_map, full_or
 
     return Integer(d_mod_ell)
 
-
 def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
     """
     Explicitly remove G and Q (and -G, -Q) from the list of divisors.
@@ -1382,7 +1328,7 @@ def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
     f_p = sage_poly_from_coeffs(f_coeffs, R)
     C = HyperellipticCurve(f_p)
     J = C.jacobian()
-    
+
     # Comparison targets (pre-compute negation)
     targets = []
     if G is not None:
@@ -1391,7 +1337,7 @@ def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
     if Q is not None:
         targets.append(Q)
         targets.append(-Q)
-    
+
     clean_list = []
     incinerated_count = 0
 
@@ -1413,7 +1359,7 @@ def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
             if val_J == T:
                 is_forbidden = True
                 break
-        
+
         if is_forbidden:
             incinerated_count += 1
         else:
@@ -1426,7 +1372,6 @@ def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
 
     return clean_list
 
-
 def are_sparse_vectors_dependent(v1, v2):
     """
     Check if v1 = k * v2 for some scalar k (integer/rational).
@@ -1436,23 +1381,23 @@ def are_sparse_vectors_dependent(v1, v2):
         return False
     if len(v1) == 0:
         return True # 0 and 0 are dependent
-    
+
     keys1 = set(v1.keys())
     keys2 = set(v2.keys())
     if keys1 != keys2:
         return False
-        
+
     # Pick a pivot to calculate ratio v1[i] / v2[i]
     pivot = next(iter(keys1))
     val1 = v1[pivot]
     val2 = v2[pivot]
-    
+
     # Check cross-product v1[i]*val2 == v2[i]*val1 for all i
     # This avoids floating point issues and handles integer scaling
     for k in keys1:
         if v1[k] * val2 != v2[k] * val1:
             return False
-            
+
     return True
 
 def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
@@ -1462,9 +1407,9 @@ def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
     """
     if not rows:
         return rows
-        
+
     targets = []
-    
+
     # Generate factor base vectors for G and Q
     # We use get_relation_row to get the exact FB representation (including signs)
     for name, Div in [("G", G), ("Q", Q)]:
@@ -1476,13 +1421,13 @@ def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
             except Exception:
                 # If G/Q fail to encode (e.g. not smooth), they can't be in the relations anyway
                 raise # but we anyway raise, just to be safe.
-                
+
     if not targets:
         return rows
-        
+
     clean_rows = []
     incinerated = 0
-    
+
     for row in rows:
         hit = False
         for t in targets:
@@ -1490,26 +1435,25 @@ def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
             if are_sparse_vectors_dependent(row, t):
                 hit = True
                 break
-        
+
         if hit:
             incinerated += 1
         else:
             clean_rows.append(row)
-            
+
     if verbose:
         if incinerated > 0:
             print(f"  [Filter] 🔥 INCINERATED {incinerated} relations dependent on G or Q.")
         else:
             print(f"  [Filter] ✓ Relation vectors are clean (no linear dependence on G/Q).")
-        
-    return clean_rows
 
+    return clean_rows
 
 def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
                        verbose=True, force_index_calculus=False):
     """
     CORRECTED: Traditional Index Calculus with proper kernel solver.
-    
+
     CRITICAL: G and Q are assumed to already be in J(F_p)[ℓ] (ℓ-torsion).
     """
     # Basic validation
@@ -1544,7 +1488,7 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     factors = factor(full_order)
     ell = int(max(int(p) for p, _ in factors))
     h = int(full_order // ell)
-    
+
     if verbose:
         print(f"Largest prime ℓ: {ell}")
         print(f"Cofactor h: {h}")
@@ -1555,7 +1499,7 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         homogeneous_rows = data['relations']
         fb_roots = data['fb_roots']
         atom_to_idx = data['fb_map']
-        
+
         fb_y_cache = {}
         for x_int in fb_roots:
             y2 = int(f_p(K(x_int)))
@@ -1568,10 +1512,10 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         # Legacy path: build from Mumford divisors
         if verbose:
             print("  [Legacy] Building factor base and relations from Mumford divisors...")
-        
+
         homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
             _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
-        
+
         # Verify all RHS are zero (homogeneous)
         if any(r != 0 for r in homogeneous_rhs):
             raise RuntimeError(
@@ -1599,10 +1543,10 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     # CRITICAL FIX: Use get_relation_row with require_signed_d2=False to allow d1 fallback
     row_g = None
     alpha_g = 0
-    
+
     # Try encoding G directly (already ℓ-torsion)
     row_g = get_relation_row(G, atom_to_idx, f_p, p, require_signed_d2=False)
-    
+
     if row_g is not None:
         if verbose:
             print("  [Smoothing] Generator G is already smooth.")
@@ -1610,47 +1554,47 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         # G not smooth - try random multiples
         if verbose:
             print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
-        
+
         for i in range(1, 2001):
             r = ZZ.random_element(1, int(ell))
             cand_G = (1 + r) * G
-            
+
             row_g = get_relation_row(cand_G, atom_to_idx, f_p, p, require_signed_d2=False)
-            
+
             if row_g:
                 alpha_g = r
                 if verbose:
                     print(f"  [Smoothing] Found smooth generator at iter {i}")
                 break
-    
+
     if row_g is None:
         raise RuntimeError("Failed to smooth Generator G")
 
     # Smooth Q
     row_q = None
     beta_q = 0
-    
+
     row_q = get_relation_row(Q, atom_to_idx, f_p, p, require_signed_d2=False)
-    
+
     if row_q is not None:
         if verbose:
             print("  [Smoothing] Target Q is already smooth.")
     else:
         if verbose:
             print("  [Smoothing] Target not smooth. Attempting random smoothing...")
-        
+
         for i in range(1, 2001):
             r = ZZ.random_element(1, int(ell))
             cand_Q = Q + r * G
-            
+
             row_q = get_relation_row(cand_Q, atom_to_idx, f_p, p, require_signed_d2=False)
-            
+
             if row_q:
                 beta_q = r
                 if verbose:
                     print(f"  [Smoothing] Found smooth target at iter {i}")
                 break
-    
+
     if row_q is None:
         raise RuntimeError("Failed to smooth Target Q")
 
@@ -1668,9 +1612,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     )
 
     char_res = detect_nontrivial_character_from_projection(
-        precheck['filtered_rows'], 
-        precheck['alive_fb_indices'], 
-        precheck['ell'], 
+        precheck['filtered_rows'],
+        precheck['alive_fb_indices'],
+        precheck['ell'],
         verbose=True)
     if char_res['found']:
         verify_character_vectors(
@@ -1683,19 +1627,18 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
     else:
         print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
 
-    
     if precheck['safe_to_project']:
         # Apply filtering
         filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q = apply_cofactor_filter(
             precheck, atom_to_idx, homogeneous_rows, row_g, row_q, verbose=verbose
         )
-        
+
         if verbose:
             print(f"\n[Strategy] Using FILTERED ℓ-torsion solve")
             print(f"  Filtered FB: {len(filtered_atom_to_idx)} elements")
             print(f"  Filtered relations: {len(filtered_rows)}")
             sys.stdout.flush()
-        
+
         try:
             dlog = solve_dlp_mod_l_cofactor_projection(
                 filtered_rows,
@@ -1720,9 +1663,9 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
             print(f"  Skipping ℓ-torsion solve")
             print(f"  Using full Jacobian solve instead")
             sys.stdout.flush()
-        
+
         raise RuntimeError(f"Cofactor projection unsafe: {precheck['reason']}")
-    
+
     if verbose:
         print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
 
@@ -1740,5 +1683,4 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         print("  [Verify] ✓ Exact equality dlog * G == Q")
 
     return Integer(dlog)
-
 

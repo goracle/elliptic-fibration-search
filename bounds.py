@@ -1,30 +1,17 @@
+import math, random, subprocess, tempfile, os, shlex, multiprocessing, time, traceback
 from sage.all import *
-import math
-import random
-import subprocess
-import tempfile
-import os
-import shlex
-import multiprocessing, time, traceback
-from functools import lru_cache
-from functools import reduce
+from functools import lru_cache, reduce
 from operator import mul
-from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL
-from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
-from search_common import MAX_MODULUS, PRIME_POOL, USE_CONSENSUS_FILTER
-from sage.all import primes, GF, PolynomialRing, QQ
-import time
-from sage.all import next_prime
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER
 
 # bounds.py - Heuristics for prime pool selection and search bounds.
 # === safe_splitting_field wrapper ===
-
 
 def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     """
     Empirical proxy for Galois/splitting-field complexity.
     Factors poly mod primes and deduplicates factorization patterns.
-    
+
     The splitting-field degree is estimated as the LCM of all distinct
     cycle-type patterns observed. This avoids magic numbers and scales
     with whatever primes you provide.
@@ -33,7 +20,7 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
         poly: A Sage polynomial over QQ
         primes_to_test: List of primes to factor mod. If None, uses first 20 odd primes.
         debug: If True, prints diagnostic info
-    
+
     Returns:
         dict with keys:
           - splitting_field_degree_est (int): LCM of distinct cycle patterns
@@ -41,7 +28,6 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
           - num_primes_tested (int): how many primes were actually used
     """
     if primes_to_test is None:
-        from sage.all import primes
         primes_to_test = list(primes(100))[:20]
 
     key = (str(poly), tuple(primes_to_test))
@@ -73,7 +59,6 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
 
     if unique_patterns:
         from math import gcd
-        from functools import reduce
 
         def lcm(a, b):
             return abs(a * b) // gcd(a, b)
@@ -107,12 +92,12 @@ estimate_galois_signature_modp.cache = {}
 def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts, base_height=100, galois_degree=None, verbose=DEBUG):
     """
     Scales prime pool size (and optionally extends it) based on HEIGHT_BOUND and Galois complexity.
-    
-    Key insight: As HEIGHT_BOUND grows, the number of spurious m-candidates via CRT 
-    grows (false positives from sparse priming). To maintain filtering power, we need 
-    roughly O(log(HEIGHT_BOUND)) more primes. If the discriminant polynomial is 
+
+    Key insight: As HEIGHT_BOUND grows, the number of spurious m-candidates via CRT
+    grows (false positives from sparse priming). To maintain filtering power, we need
+    roughly O(log(HEIGHT_BOUND)) more primes. If the discriminant polynomial is
     Galois-complex (large splitting field degree), increase growth slightly.
-    
+
     Args:
         base_pool (list): Initial prime list (e.g., from bounds.recommend_and_update_prime_pool)
         height_bound (float): The HEIGHT_BOUND parameter (controls max n in [n]P)
@@ -120,7 +105,7 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
         base_height (float): Reference height at which base_pool was calibrated (default 100)
         galois_degree (int, optional): Estimated splitting field degree of discriminant polynomial
         verbose (bool): Print diagnostics
-    
+
     Returns:
         dict with keys:
           - 'pool': The recommended prime pool (possibly extended)
@@ -130,26 +115,26 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
     """
     if not base_pool:
         base_pool = list(primes(200))[:30]
-    
+
     base_size = len(base_pool)
     max_p = max(base_pool)
-    
+
     height_ratio = float(height_bound) / float(max(base_height, 1.0))
     log_scale = float(log(max(height_ratio, 1.0), 2))
-    
+
     galois_factor = 1.0
     if galois_degree is not None and galois_degree > 100:
         galois_factor = 1.0 + 0.3 * float(log(galois_degree)) / 100.0
-    
+
     num_primes_to_add = max(0, int(ceil(2 * log_scale * galois_factor)))
-    
+
     if verbose:
         print(f"[adaptive_pool] height_bound={height_bound}, base_height={base_height}")
         print(f"[adaptive_pool] height_ratio={height_ratio:.2f}, log_scale={log_scale:.2f}")
         if galois_degree is not None:
             print(f"[adaptive_pool] galois_degree={galois_degree}, galois_factor={galois_factor:.3f}")
         print(f"[adaptive_pool] requesting +{num_primes_to_add} primes beyond base pool of size {base_size}")
-    
+
     extended_pool = list(base_pool)
     p = next_prime(max_p)
     attempts = 0
@@ -157,21 +142,21 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
         extended_pool.append(int(p))
         p = next_prime(p)
         attempts += 1
-    
+
     num_added = len(extended_pool) - base_size
     scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
-    
+
     avg_density = 1.0
     for pp in extended_pool:
         rc = residue_counts.get(pp, max(1, pp // 4))
         avg_density *= float(rc) / float(pp)
-    
+
     if verbose:
         print(f"[adaptive_pool] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_pool] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_pool] final pool: up to {max(extended_pool)}")
         print(f"[adaptive_pool] expected CRT survivor density: {avg_density:.4g}")
-    
+
     return {
         'pool': extended_pool,
         'num_primes_added': num_added,
@@ -179,8 +164,7 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
         'expected_survivors_per_subset': avg_density,
     }
 
-
-def adaptive_prime_pool_by_actual_survivors(base_pool, residue_counts, 
+def adaptive_prime_pool_by_actual_survivors(base_pool, residue_counts,
                                             max_target_survivors=100,
                                             verbose=DEBUG):
     """
@@ -189,7 +173,7 @@ def adaptive_prime_pool_by_actual_survivors(base_pool, residue_counts,
     """
     extended_pool = list(base_pool)
     max_p = max(extended_pool)
-    
+
     for _ in range(30):
         # Sample a random subset and measure actual survivors from CRT
         subset = random.sample(extended_pool, min(5, len(extended_pool)))
@@ -197,30 +181,30 @@ def adaptive_prime_pool_by_actual_survivors(base_pool, residue_counts,
         for p in subset:
             rc = residue_counts.get(p, max(1, p // 4))
             combo_count *= rc
-        
+
         if verbose:
             print(f"[empirical_density] pool_size={len(extended_pool)}, "
                   f"sample_subset={subset}, estimated_survivors={combo_count}")
-        
+
         if combo_count <= max_target_survivors:
             break
-        
+
         p = next_prime(max_p)
         extended_pool.append(int(p))
         max_p = p
-    
+
     return {'pool': extended_pool, 'num_primes_added': len(extended_pool) - len(base_pool)}
 
 def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_survivors_per_subset=100,
                                             typical_subset_size=5, num_vectors=12, verbose=DEBUG):
     """
     Grow prime pool until expected survivors per CRT subset hits a target.
-    
+
     Directly measure: for random subsets of size typical_subset_size from the pool,
     what's the product of residue counts? This estimates (m, v) pairs after CRT.
-    
+
     Keep adding primes until this product drops to target_survivors_per_subset.
-    
+
     Args:
         base_pool (list): Initial prime list
         residue_counts (dict): {p: count_of_roots_mod_p}
@@ -228,7 +212,7 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
         typical_subset_size (int): Size of random subsets to sample
         num_vectors (int): Rough number of search vectors (for display only)
         verbose (bool): Print diagnostics
-    
+
     Returns:
         dict with keys:
           - 'pool': Extended prime pool
@@ -237,19 +221,19 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
     """
     if not base_pool:
         base_pool = list(primes(200))[:30]
-    
+
     base_size = len(base_pool)
     extended_pool = list(base_pool)
     max_p = max(extended_pool)
-    
+
     max_expansion = 50
     iterations = 0
     expected_survivors = float('inf')
-    
+
     while iterations < max_expansion:
         products = []
         num_samples = 15
-        
+
         for _ in range(num_samples):
             subset = random.sample(extended_pool, min(typical_subset_size, len(extended_pool)))
             prod = 1
@@ -257,32 +241,32 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
                 rc = residue_counts.get(p, max(1, p // 4))
                 prod *= rc
             products.append(prod)
-        
+
         avg_product = sum(products) / len(products) if products else float('inf')
         expected_survivors = avg_product
-        
+
         if verbose:
             print(f"[adaptive_density] pool_size={len(extended_pool)}, avg_residue_product={avg_product:.0f}")
-        
+
         if expected_survivors <= target_survivors_per_subset:
             if verbose:
                 print(f"[adaptive_density] target reached ({expected_survivors:.0f} <= {target_survivors_per_subset}). stopping.")
             break
-        
+
         p = next_prime(max_p)
         extended_pool.append(int(p))
         max_p = p
         iterations += 1
-    
+
     num_added = len(extended_pool) - base_size
     scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
-    
+
     if verbose:
         print(f"[adaptive_density] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_density] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_density] final pool: up to {max(extended_pool)}")
         print(f"[adaptive_density] final expected_survivors per subset: {expected_survivors:.0f}")
-    
+
     return {
         'pool': extended_pool,
         'num_primes_added': num_added,
@@ -290,26 +274,25 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
         'final_expected_survivors': expected_survivors,
     }
 
-
 def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verbose=DEBUG):
     """
     Aggressively expand prime pool based on HEIGHT_BOUND.
-    
+
     Principled approach: False positives from CRT grow as ~height_bound^α where α ≈ 1.5-2
     (from 2D lattice enumeration × RHS evaluation). True solutions decay as ~1/n.
     To maintain constant true-to-false ratio, filtering power must scale as α*log(height_bound).
-    
+
     Each prime contributes ~log(p) bits of filtering. So we need:
         num_primes_to_add ≈ 1.5 * log2(height_bound)
-    
+
     This is principled from information-theoretic filtering bounds.
-    
+
     Args:
         base_pool (list): Initial prime list
         height_bound (float): HEIGHT_BOUND parameter
         base_height (float): Reference height (default 100)
         verbose (bool): Print diagnostics
-    
+
     Returns:
         dict with keys:
           - 'pool': Extended prime pool
@@ -318,47 +301,46 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     """
     if not base_pool:
         base_pool = list(primes(200))[:30]
-    
+
     base_size = len(base_pool)
     max_p = max(base_pool)
-    
+
     log_height = float(log(max(height_bound, 1.0), 2))
     num_primes_to_add = max(0, int(ceil(10 * log_height)))
-    
+
     if verbose:
         print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
         print(f"[adaptive_height] requesting +{num_primes_to_add} primes (1.5 * log scaling)")
-    
+
     extended_pool = list(base_pool)
     p = next_prime(max_p)
     for _ in range(num_primes_to_add):
         extended_pool.append(int(p))
         p = next_prime(p)
-    
+
     num_added = len(extended_pool) - base_size
     scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
-    
+
     if verbose:
         print(f"[adaptive_height] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_height] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_height] final pool: up to {max(extended_pool)}")
-    
+
     return {
         'pool': extended_pool,
         'num_primes_added': num_added,
         'scale_factor': scale_factor,
     }
 
-
-def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts, num_subsets, 
-                                                      min_size, max_size, 
+def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts, num_subsets,
+                                                      min_size, max_size,
                                                       force_full_pool=False, debug=DEBUG):
     """
     Generate diverse prime subsets with varying sizes, biased by residue counts.
-    
+
     Primes with more roots (larger residue_counts[p]) are weighted higher in random sampling.
     This increases the likelihood that generated subsets will produce CRT survivors.
-    
+
     Args:
         prime_pool (list): Available primes
         residue_counts (dict): {p: num_roots_mod_p} for weighting
@@ -368,34 +350,34 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
         seed (int): Random seed for reproducibility
         force_full_pool (bool): If True, always include the full pool as one subset
         debug (bool): Print diagnostics
-    
+
     Returns:
         list of lists: Prime subsets, each sorted
     """
     subsets = []
-    
+
     if force_full_pool:
         subsets.append(list(prime_pool))
-    
+
     remaining = num_subsets - (1 if force_full_pool else 0)
-    
+
     # Compute weights: use residue count as weight, with fallback
     weights = []
     for p in prime_pool:
         w = residue_counts.get(p, max(1, p // 4))
         weights.append(float(w))
-    
+
     if debug:
         sample_primes = prime_pool[:min(5, len(prime_pool))]
         sample_weights = [weights[prime_pool.index(p)] for p in sample_primes]
         print(f"[generate_diverse_biased] Sample weights for first 5 primes: {list(zip(sample_primes, sample_weights))}")
-    
+
     # Generate subsets using weighted random sampling
     for _ in range(remaining):
         size = random.randint(min_size, min(max_size, len(prime_pool)))
         subset = tuple(sorted(random.choices(prime_pool, weights=weights, k=size)))
         subsets.append(subset)
-    
+
     # Deduplicate while preserving order
     seen = set()
     unique_subsets = []
@@ -403,16 +385,14 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
         if s not in seen:
             seen.add(s)
             unique_subsets.append(list(s))
-    
+
     if debug:
         print(f"[generate_diverse_biased] Generated {len(unique_subsets)} unique subsets from {len(subsets)} attempts")
         print(f"[generate_diverse_biased] Sample subsets: {unique_subsets[:3]}")
-    
+
     return unique_subsets
 
-
 # ========== Galois + Chebotarev-informed residue estimation ==========
-
 
 def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_primes=50, debug=DEBUG):
     """
@@ -502,7 +482,6 @@ def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_prime
         print(f"[galois/empirical] Tested {primes_used} primes -> avg_roots={avg_roots:.4g}, patterns_sample={result['unique_patterns'][:6]}")
 
     return result
-
 
 def chebotarev_linear_factor_expectation_from_galois_info(galois_info):
     """
@@ -622,7 +601,6 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
 
     return residue_counts
 
-
 def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
                                                   target_survivors=1.0,
                                                   subset_size=5,
@@ -710,7 +688,6 @@ def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
         'iterations': iterations
     }
 
-
 def _expected_survivors_for_subset(subset, residue_counts, num_vecs_est=1):
     """
     Simple estimate: expected survivors ≈ num_vecs_est * ∏(residue_counts[p]/p)
@@ -721,7 +698,6 @@ def _expected_survivors_for_subset(subset, residue_counts, num_vecs_est=1):
         rc = float(residue_counts.get(p, max(1, p // 4)))
         prod *= (rc / float(p))
     return num_vecs_est * prod
-
 
 def mini_search_trial_heuristic(subset, residue_counts, precomputed_residues=None,
                                 vecs_sample=None):
@@ -760,7 +736,6 @@ def mini_search_trial_heuristic(subset, residue_counts, precomputed_residues=Non
     est = _expected_survivors_for_subset(subset, residue_counts, num_vecs_est=1.0)
     # smaller is better; ensure nonzero
     return max(est, 1e-12)
-
 
 def adaptive_prime_selection_learn(prime_pool_candidate, cd=None,
                                    residue_counts=None, precomputed_residues=None, vecs=None,
@@ -868,7 +843,6 @@ def adaptive_prime_selection_learn(prime_pool_candidate, cd=None,
 
     return sorted_primes, normalized_scores
 
-
 # --- NEW HELPER FOR CACHING ---
 @lru_cache(maxsize=32)
 def _poly_from_str_cached(poly_str, var='m'):
@@ -884,7 +858,6 @@ def _poly_from_str_cached(poly_str, var='m'):
         except Exception as e_inner:
             print(f"[bounds] _poly_from_str_cached failed fallback: {e_inner}")
             return None # Give up
-
 
 # In bounds.py, REPLACE the existing recommend_subset_strategy_adaptive function with this:
 
@@ -984,7 +957,6 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     # Ensure max is at least min (redundant given previous line, but safe)
     recommended_max = max(recommended_min, recommended_max)
 
-
     # Final cap on num_subsets
     final_num_subsets = max(10, min(int(final_num_subsets), 2000))
 
@@ -1026,10 +998,8 @@ def estimate_canonical_height_from_xheight(h_x, curve_discriminant, fudge=1.5):
 
     return max(0, 0.5 * h_x + c_curve + log(2) + fudge)
 
-
 # In bounds.py:auto_configure_search
     # --- END MODIFIED ---
-
 
 def print_conf(sconf):
     """print the config info"""
@@ -1053,7 +1023,6 @@ def print_conf(sconf):
             f"NUM_PRIME_SUBSETS={num_prime_subsets}, PRIME_POOL size={len(prime_pool)}, "
             f"TMAX={tmax}")
 
-
 """
 Add this function to bounds.py
 Predicts QC=-1/QC=1 ratio from discriminant polynomial structure
@@ -1062,50 +1031,50 @@ Predicts QC=-1/QC=1 ratio from discriminant polynomial structure
 def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
     """
     Predict QC=-1/QC=1 ratio from discriminant polynomial structure.
-    
+
     Args:
         Delta_pr: Discriminant polynomial in QQ[m]
         prime_sample: List of primes to sample (e.g., first 20-30 from prime_pool)
         debug: Print diagnostics
-    
+
     Returns:
         float or None: Predicted QC=-1/QC=1 ratio
-    
+
     Theory:
         For polynomial f(m), the QC distribution depends on:
         - Degree and leading coefficient
         - Number of irreducible factors mod p
         - Local behavior near roots of discriminant
-        
+
     The ratio should stabilize across primes by Chebotarev density,
     but specific polynomials can deviate from 1.0 due to arithmetic structure.
     """
     from sage.all import kronecker, QQ, GF, Integer
     from collections import Counter
-    
+
     if Delta_pr is None or not prime_sample:
         return None
-    
+
     qc_empirical = Counter()
     primes_with_roots = 0
-    
+
     for p in prime_sample:
         try:
             # Reduce discriminant mod p
             fp = Delta_pr.change_ring(GF(p))
-            
+
             # Find roots mod p
             try:
                 roots_mod_p = fp.roots(multiplicities=False)
             except Exception:
                 # Factorization might fail for some primes
                 continue
-            
+
             if not roots_mod_p:
                 continue
-                
+
             primes_with_roots += 1
-            
+
             # Compute QC for each root
             for r in roots_mod_p:
                 try:
@@ -1114,54 +1083,47 @@ def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
                     qc_empirical[qc] += 1
                 except Exception:
                     continue
-                    
+
         except Exception:
             continue
-    
+
     # Compute ratio with smoothing
     qc_minus = qc_empirical.get(-1, 0)
     qc_plus = qc_empirical.get(1, 0)
     qc_zero = qc_empirical.get(0, 0)
-    
+
     total_nonzero = qc_minus + qc_plus
-    
+
     if qc_plus == 0:
         # No QC=1 residues found - likely bad sample
         predicted_ratio = None
     else:
         # Add small Laplace smoothing to stabilize
         predicted_ratio = (qc_minus + 0.5) / (qc_plus + 0.5)
-    
+
     if debug:
         print(f"\n[QC Prediction from Discriminant]")
         print(f"  Sample: {len(prime_sample)} primes, {primes_with_roots} with roots")
         print(f"  QC distribution: -1:{qc_minus}, 0:{qc_zero}, 1:{qc_plus}")
         if predicted_ratio is not None:
             print(f"  Predicted QC=-1/QC=1 ratio: {predicted_ratio:.3f}")
-            
+
             # Diagnostic: compare to uniform expectation
             if total_nonzero > 0:
                 actual_minus_frac = qc_minus / total_nonzero
                 print(f"  QC=-1 fraction: {actual_minus_frac:.1%} (uniform: ~50%)")
         else:
             print(f"  (insufficient data for prediction)")
-    
+
     return predicted_ratio
-
-
-# bounds.py - Heuristics for prime pool selection and search bounds.
-# === safe_splitting_field wrapper ===
-
 
 # ==============================================================================
 # === High-Level Integration Function ==========================================
 # ==============================================================================
 
-
 # ==============================================================================
 # === Core Heuristics ==========================================================
 # ==============================================================================
-
 
 def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, fudge=10):
     """
@@ -1185,7 +1147,6 @@ def simple_grh_prime_bound(splitting_field_disc=None, splitting_field_deg=None, 
 # ==============================================================================
 # === Utility and Helper Functions =============================================
 # ==============================================================================
-
 
 def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
     """
@@ -1241,7 +1202,6 @@ def compute_poly_diagnostics(poly, run_heavy=False, debug=DEBUG):
 
     return out
 
-
 def choose_primes_for_modulus(prime_pool, B, ascending=True):
     """
     Greedily chooses primes from the pool whose product exceeds B.
@@ -1262,7 +1222,6 @@ def choose_primes_for_modulus(prime_pool, B, ascending=True):
             break
     return chosen, M
 
-
 def expected_survivors_per_subset(residue_counts, primes):
     """
     Estimates the density of solutions surviving CRT filtering for a given set of primes.
@@ -1274,7 +1233,6 @@ def expected_survivors_per_subset(residue_counts, primes):
         num_residues = residue_counts.get(p, 1)
         density *= float(num_residues) / float(p)
     return density
-
 
 def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B):
     """
@@ -1301,7 +1259,6 @@ def gen_random_subsets_meeting_modulus(prime_pool, subset_size, num_subsets, B):
             chosen_subsets.add(subset)
 
     return list(chosen_subsets)
-
 
 # ---- paste this into bounds.py, replacing the old functions ----
 def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
@@ -1340,45 +1297,41 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
     }
 # ---- end replacement ----
 
-
 # Add these functions to bounds.py or search_lll.py
 
-
-# Add these functions to bounds.py or search_lll.py
-
-def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets, 
-                                   min_size, max_size, 
+def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets,
+                                   min_size, max_size,
                                    force_full_pool=False,
                                    seed=None): # <-- ADDED seed=None
     """
     Generate diverse prime subsets with varying sizes.
     This is MUCH better than enforcing a fixed size and modulus threshold.
-    
+
     Key insight: You want DIVERSITY in subset composition, not just meeting
     a modulus threshold. Small subsets (3-5 primes) can find different solutions
     than large subsets (8-10 primes).
     """
-    
+
     # --- NEW: Use seed if provided ---
     if seed is not None:
         random.seed(seed)
     # --- END NEW ---
-    
+
     subsets = []
-    
+
     # Always include the full pool
     if force_full_pool:
         subsets.append(tuple(prime_pool))
-    
+
     # Generate random subsets with varying sizes
     remaining = num_subsets - (1 if force_full_pool else 0)
-    
+
     for _ in range(remaining):
         # Random size in the range [min_size, max_size]
         size = random.randint(min_size, min(max_size, len(prime_pool)))
         subset = tuple(sorted(random.sample(prime_pool, size)))
         subsets.append(subset)
-    
+
     # Deduplicate while preserving order
     seen = set()
     unique_subsets = []
@@ -1386,9 +1339,8 @@ def generate_diverse_prime_subsets(prime_pool, residue_counts, num_subsets,
         if s not in seen:
             seen.add(s)
             unique_subsets.append(s)
-    
-    return unique_subsets
 
+    return unique_subsets
 
 def _worker_splitting_field(poly, q):
     """
@@ -1421,7 +1373,6 @@ def _worker_splitting_field(poly, q):
     except Exception as e:
         q.put((False, str(traceback.format_exc())))
 
-
 # ==== safe subprocess-based splitting-field helper ====
 def safe_compute_splitting_field_info_subprocess(poly, timeout=30, debug=DEBUG):
     """
@@ -1442,13 +1393,13 @@ def safe_compute_splitting_field_info_subprocess(poly, timeout=30, debug=DEBUG):
         if debug:
             print("[bounds][safe_subproc] Failed to stringify poly:", e)
         return {}
-    
+
     # Check cache first
     if cache_key in safe_compute_splitting_field_info_subprocess.cache:
         if debug:
             print("[bounds][safe_subproc] Using cached splitting field info")
         return safe_compute_splitting_field_info_subprocess.cache[cache_key]
-    
+
     # Serialize polynomial to a string Sage can reparse
     try:
         poly_str = str(poly)   # e.g. "m^12 - 4*m^11 + ..."
@@ -1557,14 +1508,13 @@ except Exception:
         os.unlink(tmpname)
     except Exception:
         pass
-    
+
     # Cache the result before returning
     safe_compute_splitting_field_info_subprocess.cache[cache_key] = result
     return result
 
 # Cache for safe_compute_splitting_field_info_subprocess
 safe_compute_splitting_field_info_subprocess.cache = {}
-
 
 # === Replace recommend_and_update_prime_pool ===
 def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
@@ -1656,7 +1606,6 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
     return new_pool
 
-
 # === Better canonical-height estimate from x-height ===
 def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=MAX_MODULUS, debug=DEBUG):
     """
@@ -1690,7 +1639,6 @@ def modulus_needed_from_canonical_height(h_can, scale_const=1.0, max_modulus=MAX
         print("[bounds] modulus_needed_from_canonical_height: computed B =", B)
     return B
 
-
 # === Automatic choice of small primes for Galois signature testing ===
 def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
     """
@@ -1720,7 +1668,6 @@ def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
         print(f"[bounds] choose_galois_primes -> {chosen}")
     return chosen[:max_primes]
 
-
 # === Dynamic estimate for tmax ===
 def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=DEBUG):
     """
@@ -1740,7 +1687,6 @@ def estimate_tmax_from_B_and_density(B, density_per_subset, base_max=500, debug=
     if debug:
         print(f"[bounds] estimate_tmax_from_B_and_density: B={B}, log10B={log10B:.2f}, density={density:.4g} -> tmax={t}")
     return t
-
 
 # === Recommend subset strategy but do not pick magic numbers ===
 def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expected_survivors=1.0,
@@ -1803,7 +1749,6 @@ def recommend_subset_strategy_empirical(prime_pool, residue_counts, target_expec
         'zero_ratio': zero_ratio
     }
 
-
 @lru_cache(maxsize=32)
 def _cached_split_poly_constructor(a4_str, a6_str):
     """
@@ -1815,14 +1760,14 @@ def _cached_split_poly_constructor(a4_str, a6_str):
         # Use SR to parse strings safely, accommodating rationals/integers/polynomials
         val_a4 = SR(a4_str)
         val_a6 = SR(a6_str)
-        
+
         # Delta = -16 * (4*a4^3 + 27*a6^2)
         # We use explicit QQ(4) etc to ensure we stay in exact arithmetic if possible
         Delta = -16 * (4 * val_a4**3 + 27 * val_a6**2)
-        
+
         # Extract numerator (singular fiber locus)
         Delta_num = Delta.numerator()
-        
+
         PR = PolynomialRing(QQ, 'm')
         return PR(Delta_num)
     except Exception:
@@ -1839,40 +1784,40 @@ def build_split_poly_from_cd(cd, debug=DEBUG):
         s_a4 = str(cd.a4)
         s_a6 = str(cd.a6)
         poly = _cached_split_poly_constructor(s_a4, s_a6)
-        
+
         if poly is not None:
             if debug:
                 # Lightweight debug print indicating cache hit (implicitly)
-                pass 
+                pass
             return poly
-            
+
         # Fallback if string reconstruction failed (e.g. complex custom types)
         if debug:
             print("[bounds] building split_poly directly (cache bypass)")
-            
+
         a4, a6 = cd.a4, cd.a6
         Delta = -16 * (4 * a4**3 + 27 * a6**2)
         PR = PolynomialRing(QQ, 'm')
         SPLIT_POLY = PR(Delta.numerator())
-        
+
         if debug:
             print(f"[bounds] Built SPLIT_POLY of degree {SPLIT_POLY.degree()}")
         return SPLIT_POLY
-        
+
     except Exception as e:
         raise RuntimeError(f"Failed to form Delta from cd.a4/a6: {e}")
 
 @lru_cache(maxsize=32)
 def _cached_galois_stats(poly_str):
     """
-    Cache Galois stats keyed by polynomial string. 
-    This prevents re-running modular factorization when the same polynomial 
+    Cache Galois stats keyed by polynomial string.
+    This prevents re-running modular factorization when the same polynomial
     is encountered (common in adaptive loops).
     """
     poly = _poly_from_str_cached(poly_str)
     if poly is None:
-        return {} 
-    
+        return {}
+
     # We use debug=False here to keep the logs clean during cached lookups
     return estimate_galois_signature_modp(poly, primes_to_test=None, debug=False)
 
@@ -1882,7 +1827,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
                           max_modulus=MAX_MODULUS,
                           update_search_common=False,
                           num_subsets_hint=NUM_PRIME_SUBSETS,
-                          run_heavy_analysis=False, 
+                          run_heavy_analysis=False,
                           debug=DEBUG):
     """
     Automatic configuration for search parameters.
@@ -1894,12 +1839,12 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         print(f"[auto_cfg] Init: Pool Size={len(src_pool)} | Heavy Analysis={run_heavy_analysis}")
 
     galois_degree = None
-    
+
     # 1. Prime Pool Recommendation
     # Note: recommend_and_update_prime_pool calls build_split_poly_from_cd, which is now cached.
     try:
         pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
-                                                        run_heavy=run_heavy_analysis, 
+                                                        run_heavy=run_heavy_analysis,
                                                         debug=debug and run_heavy_analysis,
                                                         update_search_common=update_search_common)
     except Exception as e:
@@ -1949,10 +1894,10 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     try:
         # Use a small sample for residue counting if pool is huge
         sample_pool = pool_filtered[:min(len(pool_filtered), 50)]
-        residue_counts = compute_residue_counts_for_primes(cd, [SR(cd.phi_x)], 
-                                                           sample_pool, 
+        residue_counts = compute_residue_counts_for_primes(cd, [SR(cd.phi_x)],
+                                                           sample_pool,
                                                            max_primes=None)
-        
+
         # Fill in remainder conservatively
         for p in pool_filtered:
             if p not in residue_counts:
@@ -1961,7 +1906,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         if debug:
             print(f"[auto_cfg] Residue count error: {e}")
         residue_counts = {p: max(1, p // 4) for p in pool_filtered}
-    
+
     # 4. Galois Stats (Cached)
     if run_heavy_analysis and not USE_CONSENSUS_FILTER:
         try:
@@ -1991,7 +1936,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         )
         pool_adapted = adapt_result['pool']
         scale_factor = adapt_result.get('final_expected_survivors', 1.0)
-        
+
         if debug:
              print(f"[auto_cfg] Adaptive Pool: {len(pool_filtered)} -> {len(pool_adapted)} primes")
     else:
@@ -2020,7 +1965,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             num_subsets=subset_plan['num_subsets'],
             min_size=subset_plan['min_size'],
             max_size=subset_plan['max_size'],
-            seed=SEED_INT, 
+            seed=SEED_INT,
             force_full_pool=False
         )
         # Deduplicate
@@ -2033,7 +1978,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     # Calculate density on the *adapted* pool
     total_density = sum((residue_counts.get(p, 1) / float(p)) for p in pool_adapted)
     avg_density = total_density / max(1, len(pool_adapted))
-    
+
     if avg_density < 0.05:
         base_tmax = 400
     elif avg_density < 0.15:

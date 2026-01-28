@@ -1,12 +1,8 @@
 from math import gcd
-from sage.all import PolynomialRing, FractionField, QQ, GF, is_prime
-from sage.all import matrix, ZZ, EllipticCurve, Integer
+from sage.all import PolynomialRing, FractionField, QQ, GF, is_prime, matrix, ZZ, EllipticCurve, Integer, randint
 from itertools import product
-from sage.all import randint
 from tate import *
-from search_common import to_mod_poly, is_good_prime_for_surface, reduce_cd_mod_ell
-from search_common import compute_canonical_height_matrix
-from search_common import DEBUG
+from search_common import to_mod_poly, is_good_prime_for_surface, reduce_cd_mod_ell, compute_canonical_height_matrix, DEBUG
 
 # ========= Picard Number via Van Luijk (minimal viable pipeline) =========
 # Assumes: Sage 10.x, your existing cd object shape, and:
@@ -22,8 +18,6 @@ from search_common import DEBUG
 
 # Import placeholder for required but external functions.
 # These would need to be defined in `tate`, `sat`, `search_common` for the full pipeline to work.
-
-
 
 def reduce_section_mod_ell(sec, cd_ell, debug=False):
     """
@@ -56,7 +50,6 @@ def reduce_section_mod_ell(sec, cd_ell, debug=False):
 
     return R_frac(Xn_mod) / R_frac(Xd_mod), R_frac(Yn_mod) / R_frac(Yd_mod), R_frac(Zn_mod) / R_frac(Zd_mod)
 
-
 def rank_upper_bound_over_fq_t(cd_ell, current_sections, prime_pool, verbose=True):
     """
     Estimate rank over \bar{F_ell}(t).
@@ -82,7 +75,6 @@ def rank_upper_bound_over_fq_t(cd_ell, current_sections, prime_pool, verbose=Tru
         print(f"[rank_over_fq(t)] independent reduced sections: {rank_lb}")
     return rank_lb, []
 
-
 def shioda_tate_upper_bound_mod_ell(cd_ell, current_sections, prime_pool, verbose=True):
     """
     Compute rho_upper(ell) = 2 + rank(MW over \bar{F_ell}(t)) + sum_v (m_v - 1).
@@ -102,7 +94,6 @@ def shioda_tate_upper_bound_mod_ell(cd_ell, current_sections, prime_pool, verbos
         'fibers': singfibs_ell['fibers']
     }
 
-
 def _estimate_mw_rank_from_sections(sections, cd_obj):
     """
     Estimates the Mordell-Weil rank.
@@ -119,7 +110,6 @@ def _estimate_mw_rank_from_sections(sections, cd_obj):
         return len(sections) if ok else max(0, len(sections) - 1)
     except Exception:
         return len(sections)
-
 
 def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, verbose=True):
     """
@@ -224,7 +214,6 @@ def picard_via_van_luijk(cd, current_sections, prime_pool, ell_candidates=None, 
 
 #### patch below
 
-
 def _choose_safe_m0s_for_ell(cd_ell, max_m0s=8):
     """
     Choose up to `max_m0s` safe specialization values m0 in GF(ell).
@@ -270,7 +259,6 @@ def _choose_safe_m0s_for_ell(cd_ell, max_m0s=8):
             break
 
     return safe_vals
-
 
 def check_independence_over_finite_field(current_sections, cd_ell,
                                          primes_to_test,

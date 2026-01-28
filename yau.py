@@ -1,17 +1,10 @@
+import multiprocessing, os
 from sage.all import QQ, ZZ, SR, var, Matrix, QuadraticForm, vector, lcm, sqrt, Integer, EllipticCurve
 from sage.modules.free_module_integer import IntegerLattice
-from math import gcd as _py_gcd
-from math import gcd, ceil
+from math import gcd as _py_gcd, ceil, isclose
 from itertools import product as iter_product
-import multiprocessing
-import os
 from diagnostics2 import *
 from search_common import DEBUG, build_ns_basis_and_Q
-from sage.all import QQ, Integer, Matrix
-from math import isclose
-
-
-
 
 # Try to import sympy for q-series construction, but don't fail if it's not present.
 try:
@@ -21,11 +14,9 @@ except ImportError:
     _sympy = None
     _HAS_SYM = False
 
-
 # ==============================================================================
 # === Public API: Curve Enumeration and Analysis ===============================
 # ==============================================================================
-
 
 def decode_vector(vec, labels):
     """
@@ -37,14 +28,14 @@ def decode_vector(vec, labels):
         coeff = int(vec_list[i])
         if coeff == 0:
             continue
-        
+
         if coeff == 1:
             out.append(lab)
         elif coeff == -1:
             out.append(f"-{lab}")
         else:
             out.append(f"{coeff}*{lab}")
-            
+
     if not out:
         return "0"
 
@@ -55,7 +46,6 @@ def decode_vector(vec, labels):
         else:
             result += f" + {term}"
     return result
-
 
 def try_pari_enumeration(Q_mat, target=-2, maxvectors=5_000_000, require_S_positive=False):
     """
@@ -80,7 +70,7 @@ def try_pari_enumeration(Q_mat, target=-2, maxvectors=5_000_000, require_S_posit
     except RuntimeError:
         print("PARI search exceeded vector limit, falling back to recursive search.")
         return None
-        
+
     if len(rep_lists) <= target_pos:
         return []
 
@@ -88,7 +78,7 @@ def try_pari_enumeration(Q_mat, target=-2, maxvectors=5_000_000, require_S_posit
     n = Q_mat.nrows()
     for tup in rep_lists[target_pos]:
         v_coords = list(map(int, tup))
-        
+
         g = 0
         for a in v_coords:
             g = gcd(g, abs(a))
@@ -97,7 +87,7 @@ def try_pari_enumeration(Q_mat, target=-2, maxvectors=5_000_000, require_S_posit
 
         if require_S_positive and v_coords[0] <= 0:
             continue
-            
+
         v = Matrix(ZZ, n, 1, v_coords)
         sols.append(v)
     return sols
@@ -113,7 +103,7 @@ def detect_section_component(cd, section, sample_ms=None):
     """
     if sample_ms is None:
         sample_ms = [QQ(2), QQ(3), QQ(5), QQ(-1), QQ(7)]
-        
+
     try:
         m_var = cd.a4.parent().gen()
         def E_weier_eval_func(m0):
@@ -134,7 +124,6 @@ def detect_section_component(cd, section, sample_ms=None):
         # As we cannot generalize this safely, we return a default of component 0.
         results[f_idx] = 0
     return results
-
 
 def analyze_NS_Gram(Gram):
     rank_qq = Gram.rank()
@@ -158,7 +147,7 @@ def orthogonal_complement_in_original_basis(basis_labels, Q, gen_vectors):
     Mcols = [(Q * v).change_ring(QQ) for v in gen_vectors]
     M = Matrix(QQ, Mcols).transpose()
     K = M.left_kernel()
-    
+
     comp_vectors = []
     if K.dimension() == 0: return [], []
 
@@ -194,10 +183,10 @@ def summarize_NS_GW_res(res, show_gen=8, save_files=False, prefix="yau_res",
     if ns_analysis:
         print("NS analysis rank:", ns_analysis.get('rank'))
         print("  signature (n_pos, n_neg, nullity):", ns_analysis.get('signature'))
-    
+
     orth_vectors = res.get('orth_vectors', [])
     print("Orthogonal complement dim (ambient):", len(orth_vectors))
-    
+
     q_counts = {int(k): int(v) for k,v in res.get('q_counts', {}).items()}
     print("q_counts (degree -> multiplicity):", q_counts)
 
@@ -205,7 +194,7 @@ def summarize_NS_GW_res(res, show_gen=8, save_files=False, prefix="yau_res",
         degrees = sorted(k for k in q_counts.keys() if (max_degree is None or k <= int(max_degree)))
         max_k = max(degrees) if degrees else -1
         coeff_dict = {d: q_counts.get(d, 0) for d in range(max_k + 1)}
-        
+
         if _HAS_SYM:
             q = _sympy.symbols(qseries_var)
             expr = sum(_sympy.Integer(c) * (q ** d) for d, c in coeff_dict.items())
@@ -218,7 +207,7 @@ def summarize_NS_GW_res(res, show_gen=8, save_files=False, prefix="yau_res",
                 elif d == 1: parts.append(f"{c}*{qseries_var}" if c != 1 else qseries_var)
                 else: parts.append(f"{c}*{qseries_var}^{d}" if c != 1 else f"{qseries_var}^{d}")
             qseries_obj = " + ".join(parts).replace("+ -", "- ") if parts else "0"
-        
+
         print("\n--- Q-series ---")
         print(str(qseries_obj))
         return (qseries_obj, coeff_dict, [coeff_dict[d] for d in range(max_k + 1)])
@@ -246,9 +235,7 @@ def compute_NS_and_GW(cd, current_sections, rho, mw_rank, chi, max_search_degree
     print("q_counts (up to degree):", q_counts)
     return out
 
-
 # --- Replace these functions in your module ---
-
 
 # Run after you have the 'reps' (return_reps=True) from staged_rational_curve_search
 def sanity_check_reps(Q, h_vec, reps):
@@ -257,7 +244,6 @@ def sanity_check_reps(Q, h_vec, reps):
         for M in mats:
             tup = tuple(int(x) for x in M.list())
             # primitive gcd
-            from math import gcd
             g = 0
             for a in tup:
                 g = gcd(g, abs(a))
@@ -279,10 +265,9 @@ def sanity_check_reps(Q, h_vec, reps):
             print(" ", item)
     return bad
 
-
 def process_stage_worker(args):
     """
-    Top-level worker (picklable). 
+    Top-level worker (picklable).
     """
     max_coord, s_val, Q_flat, n, brute_max_attempts = args
     # Reconstruct matrix H locally
@@ -290,7 +275,7 @@ def process_stage_worker(args):
     coord_range = range(-max_coord, max_coord + 1)
     found = []
     attempts = 0
-    
+
     # Process in smaller batches to prevent excessive memory buildup
     batch_count = 0
     for tpl in _product(coord_range, repeat=(n - 1)):
@@ -298,13 +283,13 @@ def process_stage_worker(args):
             attempts += 1
             if attempts >= brute_max_attempts:
                 break
-                
+
         batch_count += 1
         # Exit worker early if it's processed too many items
         #if batch_count > 50000:  # Adjust this limit
         #    print(f"Worker reached batch limit, returning {len(found)} results")
         #    break
-            
+
         full_vec = [int(s_val)] + [int(x) for x in tpl]
         # primitive check
         g = 0
@@ -317,7 +302,6 @@ def process_stage_worker(args):
         if quad_val == -2:
             found.append(tuple(full_vec))
     return found
-
 
 def staged_rational_curve_search(cd, mw_sections, rho, mw_rank, chi,
                                  height_bounds=(15, 25, 35, 45, 55),
@@ -422,7 +406,6 @@ def staged_rational_curve_search(cd, mw_sections, rho, mw_rank, chi,
 
     return (counts, reps) if return_reps else counts
 
-
 def run_convergence_test(cd, sections, rho, mw_rank, chi, max_coords_seq, require_S_coeff='positive'):
     runs = []
     for mc in max_coords_seq:
@@ -450,7 +433,6 @@ def run_convergence_test(cd, sections, rho, mw_rank, chi, max_coords_seq, requir
                 print(f" d={d}: {a} -> {b}  (Δ={db})")
     return runs
 
-
 def _canonicalize_vector_list(vec, require_S_coeff='positive'):
     """
     Normalizes a vector of integers to a canonical, primitive form.
@@ -476,7 +458,7 @@ def _canonicalize_vector_list(vec, require_S_coeff='positive'):
     g = 0
     for x in vec:
         g = gcd(g, abs(x))
-    
+
     # Handle the zero vector case. It's primitive by convention.
     if g == 0:
         return tuple(vec)
@@ -489,7 +471,7 @@ def _canonicalize_vector_list(vec, require_S_coeff='positive'):
         if primitive_vec[0] <= 0:
             return None
         return primitive_vec
-    
+
     elif require_S_coeff == 'any':
         # Find the first non-zero coordinate to determine sign
         first_nonzero_idx = -1
@@ -507,17 +489,15 @@ def _canonicalize_vector_list(vec, require_S_coeff='positive'):
             return tuple(-x for x in primitive_vec)
         else:
             return primitive_vec
-    
+
     return None
-
-
 
 def _estimate_local_correction_I_n(symbol, m_v, comp_index):
     """Compute local c_v for multiplicative I_n where possible:
        c = k*(n-k)/n with component index k (0 = identity component).
        Returns QQ(0) if not I_n or if data missing.
     """
-    if not symbol: 
+    if not symbol:
         return QQ(0)
     s = symbol.strip()
     if s.startswith("I") and not s.endswith("*"):
@@ -531,7 +511,6 @@ def _estimate_local_correction_I_n(symbol, m_v, comp_index):
         k = int(comp_index) % n
         return QQ(k * (n - k)) / QQ(n)
     return QQ(0)
-
 
 # --- Replacement: q-series builder that does not force divisibility by rho ---
 def build_qseries_from_counts(counts, rho=None, max_degree=10):
@@ -547,7 +526,6 @@ def build_qseries_from_counts(counts, rho=None, max_degree=10):
         if 0 <= d <= max_degree:
             series += Integer(n) * q**Integer(d)
     return series
-
 
 def compute_mw_height_and_pairings(cd, current_sections, chi):
     """

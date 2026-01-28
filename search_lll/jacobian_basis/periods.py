@@ -1,17 +1,12 @@
-from sage.all import ComplexField, RealField, PolynomialRing, Matrix, vector, QQ, ZZ
-from sage.all import ComplexField, PolynomialRing, matrix
+from sage.all import ComplexField, RealField, PolynomialRing, Matrix, vector, QQ, ZZ, matrix
 from .integration import *
 
 """Period matrix and Abel-Jacobi map computations."""
 
-
 # Functions: choose_numerical_base_point, abel_jacobi_mumford,
 # normalize_periods_and_z
 
-
 """Period matrix and Abel-Jacobi map computations."""
-
-
 
 def choose_numerical_base_point(f_coeffs, prec=300):
     """
@@ -74,11 +69,6 @@ def choose_numerical_base_point(f_coeffs, prec=300):
     x_base = centroid + CC(0, 1) * offset_mag
 
     # evaluate f and take a stable sqrt branch
-    def f_at(z):
-        s = CC(0)
-        for c in f_coeffs:
-            s = s * z + CC(c)
-        return s
 
     fval = f_at(x_base)
     y_base = fval.sqrt()
@@ -101,7 +91,6 @@ def choose_numerical_base_point(f_coeffs, prec=300):
 
     return (x_base, y_base)
 choose_numerical_base_point.cache = {}
-
 
 def abel_jacobi_mumford(
     div, f_coeffs, base_point,
@@ -186,7 +175,6 @@ def abel_jacobi_mumford(
     return AJ
 
 abel_jacobi_mumford.cache = {}
-
 
 def normalize_periods_and_z(Omega, z_vec=None):
     """

@@ -1,20 +1,12 @@
-from sage.all import QQ, ZZ, RealField, ComplexField, Matrix, vector, pi
-from sage.all import QQ, GF, Integer, PolynomialRing, gcd
-from sage.all import QQ, QQbar, log
-from sage.all import diagonal_matrix
+import math, warnings
+from sage.all import QQ, ZZ, RealField, ComplexField, Matrix, vector, pi, GF, Integer, PolynomialRing, gcd, QQbar, log, diagonal_matrix
 from .theta import *
 from .periods import choose_numerical_base_point, abel_jacobi_mumford, normalize_periods_and_z
-import math
-import warnings
 
 """Archimedean height corrections."""
 
-
-
-
 # Suppress Sage's inexact ring eigenvalue warnings - we know what we're doing
 warnings.filterwarnings('ignore', message='Using generic algorithm for an inexact ring')
-
 
 def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False):
     """
@@ -57,13 +49,12 @@ def print_archimedean_diagnostics(tau, z, quad_val, log_theta, prec, debug=False
                 quad_val=CC(quad_val), log_theta=CC(log_theta),
                 arch = CC(quad_val - log_theta))
 
-
 def get_weierstrass_points(f_coeffs, prec=300):
     """Find all Weierstrass points (roots of f(x))."""
     R = PolynomialRing(QQ, 'x')
     x = R.gen()
     f_poly = sum(QQ(c) * x**(len(f_coeffs)-1-i) for i, c in enumerate(f_coeffs))
-    
+
     # Get rational roots
     weier_pts = []
     try:
@@ -71,29 +62,28 @@ def get_weierstrass_points(f_coeffs, prec=300):
         weier_pts.extend(roots)
     except Exception:
         raise
-    
+
     # Add point at infinity (always Weierstrass for even degree)
     # For genus 2, there are exactly 6 Weierstrass points total
-    
+
     return weier_pts
 
 def count_weierstrass_in_support(div, f_coeffs):
     """Count how many Weierstrass points appear in divisor support."""
     weier_pts = get_weierstrass_points(f_coeffs)
-    
+
     # Extract roots of u(x) from Mumford representation
     u_poly = div[0]
     div_roots = u_poly.roots(QQbar, multiplicities=False)
-    
+
     count = 0
     for w in weier_pts:
         for r in div_roots:
             if abs(QQbar(w) - r) < 1e-10:  # numerical tolerance
                 count += 1
                 break
-    
-    return count
 
+    return count
 
 """
 Functions that need to be replaced to integrate hardened theta.
@@ -120,7 +110,7 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     g = tau.nrows()
     if g == 0:
         raise ValueError("Cannot reduce z on genus 0 surface (tau is 0x0)")
-    
+
     assert len(z_list) == g
 
     Tau = Matrix(CC, tau)
@@ -212,7 +202,6 @@ def reduce_z_arakelov(z_list, tau, prec=300, debug=False, max_attempts=8, y_min_
     return ret
 reduce_z_arakelov.cache = {}
 
-
 def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=False):
     """
     Exact archimedean height correction.
@@ -232,7 +221,7 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
 
     tau, z_norm_mat = normalize_periods_and_z(period_matrix, z_vec)
     g = tau.nrows()
-    
+
     if g == 0:
         raise ValueError(f"Normalized period matrix has dimension 0. Inputs: period_matrix {period_matrix.nrows()}x{period_matrix.ncols()}, z_vec {len(z_vec)}")
 
@@ -279,5 +268,4 @@ def archimedean_height_correction(div, f_coeffs, period_matrix, prec=300, debug=
     archimedean_height_correction.cache[key] = ret
     return ret
 archimedean_height_correction.cache = {}
-
 

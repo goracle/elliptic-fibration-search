@@ -1,33 +1,22 @@
-import multiprocessing
-import signal
+import multiprocessing, signal, time, sys, traceback, csv
 from tqdm import tqdm
 from .mumford_solver import solve_mumford_mod_p_optimized
 from .mumford_verification import verify_mumford_pair, discriminant_has_nonqr_s_p
-from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check
+from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check, RationalReconstructionError
 from search_common import DEBUG, NUM_DOUBLINGS, PRIME_POOL, FINITE_FIELD
-import time
-import sys
-import traceback
 from sage.all import GF, QQ
 from .mumford_timing import mumford_timer_add
-import csv
 from collections import defaultdict, OrderedDict
-from collections import defaultdict
 from itertools import islice, product
-from .mumford_reconstruction import setup_crt_constants, fast_rational_reconstruct_check, RationalReconstructionError
-
-
 
 MAX_TASK_DEGREE = 200
-
 
 def _mumford_worker_entry(args):
     """Legacy entry point (placeholder)."""
     # NOTE: The provided code only used _solve_worker_wrapper
-    return args[0], {} 
+    return args[0], {}
 
-
-# Cap polynomial degree to prevent OOM. 
+# Cap polynomial degree to prevent OOM.
 # Vectors with degree > 80 caused the previous crash.
 
 def mumford_precompute_residues_sequential(eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
@@ -44,8 +33,7 @@ def _init_worker():
 
 def _reconstruct_worker_parallel(args):
     """Legacy entry point (placeholder)."""
-    return args[0], {} 
-
+    return args[0], {}
 
 def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for_p, prime):
     """
@@ -53,21 +41,21 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
     """
     # results for the prime (None if not present)
     pmap = results_dict.get(prime, {})
-    
+
     # bookkeeping
     gen_set = [tuple(v) if isinstance(v, (list, tuple)) else (v,) for v in vecs_generated_list]
     available_vectors = set(pmap.keys())            # vectors we actually solved for
     all_generated = gen_set                         # canonical ordering of generated vectors
-    
+
     # per-vector stats
     per_vec = {}
     seen_supports = set()
     cumulative_supports = []
     cum_count = 0
-    
+
     # We'll iterate in the order of vecs_list_for_p (the order you attempted)
     order_list = [tuple(v) for v in vecs_list_for_p]
-    
+
     for idx, v in enumerate(order_list):
         vkey = tuple(v)
         entry = {'index': idx,
@@ -79,7 +67,7 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
                  'new_supports_count': 0,
                  'hot_xs': [],
                  'new_supports': []}
-        
+
         if vkey in pmap:
             xmap = pmap[vkey]   # x_res -> [sols]
             raw_count = 0
@@ -106,10 +94,10 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
         else:
             # unavailable vector
             pass
-        
+
         cumulative_supports.append(cum_count)
         per_vec[vkey] = entry
-    
+
     # global stats
     generated_count = len(all_generated)
     available_count = sum(1 for v in order_list if tuple(v) in available_vectors)
@@ -117,7 +105,7 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
     raw_solutions_total = sum(per_vec[v]['raw_solution_count'] for v in per_vec)
     unique_supports_total = len(seen_supports)
     duplicates = raw_solutions_total - unique_supports_total
-    
+
     summary = {
         'prime': prime,
         'generated_count': generated_count,
@@ -129,14 +117,13 @@ def analyze_active_dead_vectors(results_dict, vecs_generated_list, vecs_list_for
         'availability_rate': available_count / float(generated_count) if generated_count>0 else 0.0,
         'activation_rate': active_count / float(available_count) if available_count>0 else 0.0,
     }
-    
+
     print("PRIME:", prime)
     print("generated:", generated_count, "available:", available_count, "active:", active_count)
     print("raw_solutions:", raw_solutions_total, "unique_supports:", unique_supports_total, "duplicates:", duplicates)
     print("availability_rate:", summary['availability_rate'], "activation_rate:", summary['activation_rate'])
-    
-    return summary, per_vec, cumulative_supports
 
+    return summary, per_vec, cumulative_supports
 
 def _reconstruct_worker_parallel_v2(args):
     """
@@ -269,7 +256,6 @@ def _reconstruct_worker_parallel_v2(args):
 
     return results, stats
 
-
 def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_workers=20, debug=False):
     """
     Parallel CRT reconstruction with batching.
@@ -328,7 +314,6 @@ def reconstruct_parallel(sol_lists, primes, f_coeffs, adaptive_limit, num_worker
         print(f"[parallel_crt] Done. totals: {dict(aggregated_stats)}")
 
     return all_results
-
 
 def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
                                        check_interval=10000, target_divisors=10, debug=False):
@@ -395,7 +380,6 @@ def adaptive_limit_with_early_stopping(sol_lists, primes, f_coeffs, base_limit,
 
     return results, checked
 
-
 class ModInverseCache:
     """Cache for modular inverses."""
     def __init__(self):
@@ -407,7 +391,6 @@ class ModInverseCache:
             # pow(..., -1, p) will raise ValueError if not invertible
             self.cache[key] = pow(int(a), -1, int(p))
         return self.cache[key]
-
 
 def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
     """
@@ -436,7 +419,6 @@ def consistency_check_cached(s, p_val, v0, v1, sol_combo, primes, inv_cache):
 
     return True
 
-
 # In mumford_parallel.py, DELETE lines 102-172 (dead root-finding code)
 # Replace with this clean version:
 
@@ -447,7 +429,7 @@ def find_poly_roots_fp_python(coeffs, p):
     """
     assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
     assert coeffs, "Empty coefficient list"
-    
+
     try:
         R = GF(p)['x']
         f = R(coeffs)
@@ -456,17 +438,16 @@ def find_poly_roots_fp_python(coeffs, p):
     except Exception as e:
         raise RuntimeError(f"Sage root finding failed for p={p}, coeffs={coeffs}: {e}")
 
-
 # In mumford_parallel.py, add these improvements to _solve_worker_wrapper:
 
 def _solve_worker_wrapper(args):
     """
     Worker with fail-fast error handling and detailed diagnostics.
-    
+
     CRITICAL: All exceptions propagate - no silent failures.
     """
     p, f_coeffs_ints, chunk_items, const_val_int = args
-    
+
     # Validate inputs
     assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
     assert f_coeffs_ints, "Empty f_coeffs"
@@ -479,7 +460,7 @@ def _solve_worker_wrapper(args):
     for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
         assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
         assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
-        
+
         item_start = time.time()
 
         # Normalize coefficients mod p
@@ -507,7 +488,7 @@ def _solve_worker_wrapper(args):
 
         for m_root in roots:
             assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
-            
+
             x_val = (-m_root + const_val_int) % p
 
             # Respect FINITE_FIELD flag
@@ -529,7 +510,7 @@ def _solve_worker_wrapper(args):
             for sol in sols:
                 assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
                 s, p_val, v0, v1 = sol
-                
+
                 # Verify algebraically mod p
                 if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
                     # Verification failure is a DATA BUG, not a search failure
@@ -537,7 +518,7 @@ def _solve_worker_wrapper(args):
                         f"Mumford pair failed verification: "
                         f"p={p}, sol={sol}, v_tuple={v_tuple}"
                     )
-                
+
                 verified_sols.append(sol)
 
             if verified_sols:
@@ -565,7 +546,6 @@ def _solve_worker_wrapper(args):
 
     return p, p_results
 
-
 # Similarly, add assertions to mumford_precompute_residues_parallel:
 
 def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
@@ -577,9 +557,9 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     assert prime_list, "Empty prime_list"
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
-    
+
     t_start = time.time()
-    
+
     # Safety clamp on workers
     if num_workers > 16:
         print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
@@ -588,7 +568,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     f_coeffs = eqs_dict['f_coeffs']
     f_coeffs_ints = [int(c) for c in f_coeffs]
     const_val_int = int(QQ(eqs_dict['const']))
-        
+
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
         sys.stdout.flush()
@@ -596,27 +576,27 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     t0 = time.time()
     tasks_with_metadata = []
     skipped_count = 0
-    
+
     # CRITICAL: All Sage operations in main process
     for p in prime_list:
         assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
-        
+
         Ep = Ep_dict[p]
         p_vecs = vecs_lll.get(p)
-        
+
         assert p_vecs is not None, f"Prime {p} missing from vecs_lll"
-        
+
         # Sage operations HERE - workers get only Python ints
         Fp = GF(p)
         R_m = Fp['m']
         m_var = R_m.gen()
         rhs_poly = -m_var + Fp(const_val_int)
         p_mults = mult_lll.get(p, {})
-        
+
         for v_idx, v_tuple in enumerate(vecs_list):
             if not v_tuple:
                 continue
-            
+
             # Build section multiple
             Pm = Ep(0)
             valid_vec = True
@@ -626,7 +606,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                 k = int(c)
                 if k == 0:
                     continue
-                
+
                 try:
                     mults_for_sec = p_mults[i]
                     if k in mults_for_sec:
@@ -640,42 +620,42 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                         f"Failed to build section multiple: p={p}, "
                         f"v_idx={v_idx}, i={i}, k={k}, error={e}"
                     )
-            
+
             if not valid_vec or Pm[2] == 0:
                 continue
             if hasattr(Pm, 'is_zero') and Pm.is_zero():
                 continue
-            
+
             # Extract polynomial coefficients
             try:
                 diff = Pm[0] - Pm[2] * rhs_poly
                 diff_num = diff.numerator()
-                
+
                 if diff_num.is_zero():
                     continue
-                
+
                 coeffs = diff_num.list()
                 poly_degree = len(coeffs) - 1
-                
+
                 # Degree cap disabled per your comment
                 # if poly_degree > MAX_TASK_DEGREE: continue
-                
+
                 coeffs_ints = [int(c) for c in coeffs]
-                
+
                 task = (int(p), f_coeffs_ints, [(v_tuple, coeffs_ints)], const_val_int)
                 tasks_with_metadata.append((poly_degree, task))
-                
+
             except Exception as e:
                 # DO NOT CATCH - propagate data errors
                 raise RuntimeError(
                     f"Failed to extract polynomial: p={p}, v_idx={v_idx}, "
                     f"v_tuple={v_tuple}, error={e}"
                 )
-    
+
     # Sort by degree (descending) for load balancing
     tasks_with_metadata.sort(key=lambda x: -x[0])
     tasks = [task for degree, task in tasks_with_metadata]
-    
+
     if debug:
         if tasks:
             degrees = [deg for deg, _ in tasks_with_metadata]
@@ -688,7 +668,7 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     mumford_timer_add("task_generation", time.time() - t0)
 
     assert tasks, "No tasks generated - this indicates a configuration error"
-    
+
     # Spawn workers (clean process space)
     t0 = time.time()
     ctx = multiprocessing.get_context("spawn")
@@ -696,20 +676,20 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
 
     results_dict = {}
     with pool_obj as pool:
-        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks), 
+        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks),
                                   total=len(tasks), desc="Solving Mumford Mod P"):
             if p not in results_dict:
                 results_dict[p] = {}
             results_dict[p].update(result_map)
-    
+
     mumford_timer_add("parallel_solving", time.time() - t0)
     mumford_timer_add("residue_computation_total", time.time() - t_start)
-    
+
     if debug:
         print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
         sys.stdout.flush()
-    
+
     # ASSERT: Must have results for at least one prime
     assert results_dict, "Worker pool returned empty results - this indicates a failure"
-            
+
     return results_dict

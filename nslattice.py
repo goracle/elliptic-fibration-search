@@ -1,8 +1,7 @@
-from sage.all import matrix, vector, QQ, ZZ, sqrt, ceil, floor, gcd, Integer, Matrix
 import itertools, math
+from sage.all import matrix, vector, QQ, ZZ, sqrt, ceil, floor, gcd, Integer, Matrix
 from search_common import *
 from yau import *
-from sage.all import gcd as _gcd
 
 # Run inside Sage (sage -python or a Sage notebook)
 
@@ -131,7 +130,6 @@ def find_isotropic_fibration_candidates(cd, current_sections, rho, mw_rank, chi,
 
     return results
 
-
 def evaluate_fibration_height_reduction(cd, current_sections, rho, mw_rank, chi, candidates=None, max_coeff=3, shioda_sign=-1):
     """
     For every isotropic candidate (or searches if candidates None), compute the
@@ -228,7 +226,6 @@ def evaluate_fibration_height_reduction(cd, current_sections, rho, mw_rank, chi,
 
 # --- END NEW ---
 
-
 def _provable_radius_gershgorin(Q, S_vec, P_vecs, Hvec):
     """
     Return provable Euclidean radius R (float) such that any integer tuple a
@@ -306,7 +303,6 @@ def _provable_radius_gershgorin(Q, S_vec, P_vecs, Hvec):
         R = 0.0
     return float(R)
 
-
 def compute_search_vectors_hodge(cd, current_sections, rho, mw_rank, chi, Hvec=None):
     """
     Main function: from cd and a list of current_sections (Weierstrass points),
@@ -331,11 +327,11 @@ def compute_search_vectors_hodge(cd, current_sections, rho, mw_rank, chi, Hvec=N
     # Build basis unit vectors for S, F, and fiber components
     S_vec = Matrix(ZZ, n, 1, [1 if i == 0 else 0 for i in range(n)])
     F_vec = Matrix(ZZ, n, 1, [1 if i == 1 else 0 for i in range(n)])
-    
+
     # Only include fiber components for actually reducible fibers (m_v > 1)
     Theta_vecs = []
     fibers = cd.singfibs.get('fibers', [])
-    
+
     for idx in range(2, n):
         label = basis_labels[idx]
         if label.startswith('fib'):
@@ -343,7 +339,7 @@ def compute_search_vectors_hodge(cd, current_sections, rho, mw_rank, chi, Hvec=N
             try:
                 parts = label.split('_')
                 fib_idx = int(parts[0][3:])  # extract i from "fibi"
-                
+
                 # Check if this fiber actually has m_v > 1 (is reducible)
                 if fib_idx < len(fibers):
                     m_v = fibers[fib_idx].get('m_v', 1)
@@ -352,7 +348,7 @@ def compute_search_vectors_hodge(cd, current_sections, rho, mw_rank, chi, Hvec=N
             except (ValueError, IndexError):
                 # If parsing fails, skip this component
                 continue
-    
+
     print(f"DEBUG: n={n}, basis_labels={basis_labels}")
     print(f"DEBUG: len(Theta_vecs)={len(Theta_vecs)} (after filtering)")
     print(f"DEBUG: Fiber m_v values: {[f.get('m_v', 1) for f in fibers]}")

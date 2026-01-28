@@ -15,7 +15,6 @@ Mumford divisor search module.
 Provides functionality for genus-2 Jacobian point search via Mumford coordinates.
 """
 
-
 # Core functionality
 
 # Solver
@@ -62,26 +61,26 @@ __all__ = [
     'make_monic',
     'reduce_v_mod_u',
     'is_divisor_on_curve',
-    
+
     # Solver
     'solve_mumford_mod_p',
     'solve_mumford_mod_p_optimized',
-    
+
     # Main operations
     'build_mumford_basis_incremental',
     'check_mumford_independence',
     'reconstruct_and_verify_mumford',
     'mumford_precompute_residues_parallel',
     'build_mumford_equations_from_fibration',
-    
+
     # Height
     'compute_height_pairing_exact',
     'naive_height_exact',
-    
+
     # Timing
     'mumford_timers_print',
     'mumford_timers_reset',
-    
+
     # Constants
     'ARAKELOV_AVAILABLE',
     'RECON_EXPONENT',

@@ -1,363 +1,486 @@
-import sys
-import os
-import ast
-import shutil
-import argparse
-import tempfile
-import re
-from collections import defaultdict
-
 #!/usr/bin/env python3
+import ast, argparse, os, re, shutil, sys, tempfile, textwrap
+from __future__ import annotations
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Set, Tuple
+
 """
 dedup.py - Advanced Python deduplication with Class Merging, AST parsing, and Auto-Healing.
 
 Features:
-- Merges duplicate Class definitions:
-    - Designates the LAST class definition as the "Master".
-    - Moves unique methods from earlier definitions into the Master.
-    - Deletes the earlier class definitions.
-- Removes duplicate global function definitions (keeps the LAST definition).
-- Removes duplicate global imports (keeps the FIRST definition).
-- Auto-detects and removes orphaned decorators that cause SyntaxErrors.
-- Cleans up excessive vertical whitespace.
+- Merges duplicate top-level Class definitions (LAST = master).
+- Moves unique methods from earlier class defs into the master.
+- Removes duplicate global function definitions (keeps LAST).
+- Normalizes, deduplicates, and hoists global imports to the top,
+  but preserves grouping (comma-separated) and first-seen order.
+- Removes duplicate top-level comment blocks (identical consecutive comment lines).
+- Cleans excessive vertical whitespace (max 2 blank lines).
+- Auto-heals orphaned decorators causing SyntaxError by removing decorator lines.
 - Preserves file permissions and creates backups.
+- Conservative: raises on unexpected AST limitations.
 """
 
+# -------------------------
+# Exceptions & Utilities
+# -------------------------
 
-# ---------------------------------------------------------------------
-# AST Analyzers
-# ---------------------------------------------------------------------
+class DedupError(Exception):
+    pass
+
+def read_file_lines(filename: str) -> List[str]:
+    with open(filename, "r", encoding="utf-8") as f:
+        return f.read().splitlines(keepends=True)
+
+def write_atomic(filename: str, content: str) -> None:
+    dirpath = os.path.dirname(filename) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dirpath, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        shutil.copymode(filename, tmp_path)
+        shutil.move(tmp_path, filename)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+def ensure_end_lineno_support(tree: ast.AST) -> None:
+    for node in ast.walk(tree):
+        if hasattr(node, "lineno") and not hasattr(node, "end_lineno"):
+            raise DedupError("AST nodes missing end_lineno; Python >= 3.8 required.")
+
+# -------------------------
+# Class merging pass
+# -------------------------
 
 class ClassInfo:
-    def __init__(self, node):
+    def __init__(self, node: ast.ClassDef):
         self.node = node
         self.name = node.name
-        self.methods = {} # name -> node
         self.start = 0
         self.end = 0
-        self.body_start_line = 0 
+        self.methods: Dict[str, ast.AST] = {}
+        self.method_nodes: Dict[str, ast.AST] = {}
 
-    def analyze_methods(self):
-        """Builds a dictionary of method names to nodes."""
+    def analyze(self) -> None:
+        self.start = min([self.node.lineno] + [d.lineno for d in getattr(self.node, "decorator_list", [])] or [self.node.lineno])
+        self.end = getattr(self.node, "end_lineno", self.node.lineno)
         for child in self.node.body:
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.methods[child.name] = child
+                self.method_nodes[child.name] = child
 
 class ClassMergeAnalyzer(ast.NodeVisitor):
-    """
-    Identifies classes that need to be merged.
-    Strategy:
-    1. Find all definitions of class X.
-    2. The LAST definition is the 'Master'.
-    3. Any methods in previous definitions of X that are NOT in Master
-       must be extracted and injected into Master.
-    4. Previous definitions are marked for total deletion.
-    """
-    def __init__(self, source_lines):
-        self.classes = defaultdict(list) # name -> list of ClassInfo
+    def __init__(self, source_lines: List[str]):
         self.source_lines = source_lines
-        self.lines_to_remove = set()
-        self.injections = defaultdict(list) # line_idx -> list of strings (code to insert)
+        self.classes: Dict[str, List[ClassInfo]] = defaultdict(list)
+        self.lines_to_remove: Set[int] = set()
+        self.injections: Dict[int, List[str]] = defaultdict(list)
 
-    def _get_true_start(self, node):
-        """Calculates start line including decorators."""
-        start = node.lineno
-        if hasattr(node, 'decorator_list') and node.decorator_list:
-            start = min(d.lineno for d in node.decorator_list)
-        return start
-
-    def visit_ClassDef(self, node):
-        # We only handle top-level classes for safety in merging logic
-        if getattr(node, 'col_offset', 0) == 0:
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if getattr(node, "col_offset", 0) == 0:
             info = ClassInfo(node)
-            info.start = self._get_true_start(node)
-            info.end = node.end_lineno
-            info.analyze_methods()
+            info.analyze()
             self.classes[node.name].append(info)
         self.generic_visit(node)
 
-    def process_merges(self):
-        """
-        Calculates deletions and injections. 
-        Returns a set of class names that were processed (merged), 
-        so the standard dedup visitor ignores them.
-        """
-        processed_classes = set()
-
-        for name, info_list in self.classes.items():
-            if len(info_list) < 2:
+    def process_merges(self) -> Set[str]:
+        processed: Set[str] = set()
+        for name, infos in list(self.classes.items()):
+            if len(infos) < 2:
                 continue
-
-            processed_classes.add(name)
-            
-            # The last definition is the Master
-            master = info_list[-1]
-            
-            # Identify the indentation of the master class body to match it
-            # We guess 4 spaces if we can't find it, or look at the first method
-            indent_str = "    "
+            processed.add(name)
+            master = infos[-1]
+            master_indent = "    "
             if master.methods:
-                first_method = list(master.methods.values())[0]
-                # AST cols are 0-indexed.
-                indent_col = first_method.col_offset
-                indent_str = " " * indent_col
+                first_method = next(iter(master.methods.values()))
+                master_indent = " " * getattr(first_method, "col_offset", 4)
 
-            for prev_class in info_list[:-1]:
-                # 1. Mark previous class for full deletion
-                for i in range(prev_class.start, prev_class.end + 1):
-                    self.lines_to_remove.add(i)
+            for prev in infos[:-1]:
+                for ln in range(prev.start, prev.end + 1):
+                    self.lines_to_remove.add(ln)
 
-                # 2. Scan for unique methods to teleport
-                for method_name, method_node in prev_class.methods.items():
-                    if method_name not in master.methods:
-                        # This method exists in the old class but not the new one.
-                        # We must keep it.
-                        
-                        # Extract source text
-                        m_start = self._get_true_start(method_node)
-                        m_end = method_node.end_lineno
-                        
-                        # Python lists are 0-indexed, line numbers are 1-indexed
-                        raw_lines = self.source_lines[m_start-1 : m_end]
-                        
-                        # De-indent logic (the old class might have different indent depth?)
-                        # Assuming top-level classes, indent should be standard, but let's be safe.
-                        # We'll just take the raw lines. If both are top level, indentation matches.
-                        
-                        code_chunk = "".join(raw_lines)
-                        # Ensure whitespace separation
-                        code_chunk = f"\n{code_chunk}\n"
-                        
-                        # Inject at the end of the Master class
-                        # We inject specifically at the last line of the Master class
-                        self.injections[master.end].append(code_chunk)
+                for mname, mnode in prev.method_nodes.items():
+                    if mname not in master.method_nodes:
+                        m_start = min(mnode.lineno, *(d.lineno for d in getattr(mnode, "decorator_list", []) or []))
+                        m_end = getattr(mnode, "end_lineno", mnode.lineno)
+                        raw = "".join(self.source_lines[m_start - 1 : m_end])
+                        ded = textwrap.dedent(raw)
+                        reindented = "".join((master_indent + line) if line.strip() else line for line in ded.splitlines(True))
+                        chunk = "\n" + reindented.rstrip() + "\n"
+                        self.injections[master.end].append(chunk)
+        return processed
 
-        return processed_classes
-
+# -------------------------
+# Standard dedup pass
+# -------------------------
 
 class StandardDedupVisitor(ast.NodeVisitor):
-    """
-    Standard deduplication for global functions and imports.
-    Ignores classes that are being handled by the MergeAnalyzer.
-    """
-    def __init__(self, ignore_classes):
-        self.definition_locations = defaultdict(list)
-        self.import_locations = defaultdict(list)
+    def __init__(self, ignore_classes: Set[str]):
         self.ignore_classes = ignore_classes
-        self.current_scope = []
+        self.definition_locations: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+        self.import_locations: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+        self.scope_stack: List[str] = []
 
-    def _get_start_line(self, node):
-        start = node.lineno
-        if hasattr(node, 'decorator_list') and node.decorator_list:
-            start = min(d.lineno for d in node.decorator_list)
-        return start
-
-    def visit_Import(self, node):
-        self._record_import(node)
-
-    def visit_ImportFrom(self, node):
-        self._record_import(node)
-
-    def _record_import(self, node):
-        # Only global imports
-        if not self.current_scope:
-            if isinstance(node, ast.Import):
-                sig = "import " + ", ".join(a.name for a in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module if node.module else ''
-                names = ", ".join(a.name for a in node.names)
-                sig = f"from {module} import {names}"
-            else:
-                return
-
-            if isinstance(node, ast.ImportFrom) and node.level:
-                sig = "." * node.level + sig
-
+    def _start_line(self, node: ast.AST) -> int:
+        if hasattr(node, "lineno"):
             start = node.lineno
-            end = getattr(node, 'end_lineno', node.lineno)
+            if hasattr(node, "decorator_list") and getattr(node, "decorator_list"):
+                start = min(d.lineno for d in node.decorator_list)
+            return start
+        raise DedupError("AST node missing lineno in _start_line")
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if node.name in self.ignore_classes and getattr(node, "col_offset", 0) == 0:
+            return
+        if not self.scope_stack and getattr(node, "col_offset", 0) == 0:
+            start = self._start_line(node)
+            end = getattr(node, "end_lineno", node.lineno)
+            self.definition_locations[node.name].append((start, end))
+        self.scope_stack.append(node.name)
+        self.generic_visit(node)
+        self.scope_stack.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if not self.scope_stack:
+            name = node.name
+            start = self._start_line(node)
+            end = getattr(node, "end_lineno", node.lineno)
+            self.definition_locations[name].append((start, end))
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        if not self.scope_stack:
+            start = node.lineno
+            end = getattr(node, "end_lineno", node.lineno)
+            sig = "import " + ", ".join(a.name for a in node.names)
             self.import_locations[sig].append((start, end))
 
-    def visit_FunctionDef(self, node):
-        # Only global functions
-        if not self.current_scope:
-            self._record_definition(node)
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if not self.scope_stack:
+            start = node.lineno
+            end = getattr(node, "end_lineno", node.lineno)
+            module = node.module or ""
+            names = ", ".join(a.name for a in node.names)
+            sig = f"from {'.'*node.level if node.level else ''}{module} import {names}"
+            self.import_locations[sig].append((start, end))
 
-    def visit_AsyncFunctionDef(self, node):
-        if not self.current_scope:
-            self._record_definition(node)
+# -------------------------
+# Import normalization & hoisting (GROUPED)
+# -------------------------
 
-    def visit_ClassDef(self, node):
-        # If this class is being merged, skip logic here
-        if node.name in self.ignore_classes:
-            return
-
-        self.current_scope.append(node.name)
-        self._record_definition(node)
-        self.generic_visit(node)
-        self.current_scope.pop()
-
-    def _record_definition(self, node):
-        path_parts = self.current_scope + [node.name]
-        full_path = ".".join(path_parts)
-        start = self._get_start_line(node)
-        end = node.end_lineno
-        self.definition_locations[full_path].append((start, end))
-
-
-# ---------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------
-
-def clean_whitespace(source_code: str) -> str:
+def normalize_and_hoist_imports_grouped(source_lines: List[str], tree: ast.AST) -> Tuple[List[str], Set[int]]:
     """
-    Collapses 3 or more consecutive newlines into 2.
-    Removes trailing whitespace on empty lines.
+    Collects top-level imports and produces grouped import lines:
+      - 'import a, b' grouped and deduped by (name, asname) in first-seen order.
+      - 'from ... import x, y as z' grouped per (level,module) and deduped by (name, asname)
+        in first-seen order. If a '*' import appears for a given (level,module), emit
+        only 'from <lvl><module> import *' for that module (don't mix * with named imports).
+    Returns (new_lines_with_imports_hoisted, set_of_original_import_line_numbers).
     """
-    # 1. Consolidate vertical whitespace (max 2 blank lines)
-    # Regex: \n{3,} matches 3 or more newlines. Replace with \n\n.
-    source_code = re.sub(r'\n{3,}', '\n\n\n', source_code)
-    
-    return source_code
+    imports_nodes: List[ast.AST] = []
+    import_line_numbers: Set[int] = set()
 
-def repair_source_code(source_code: str) -> str:
-    """
-    Iteratively attempts to parse the code to fix orphaned decorators.
-    """
-    max_retries = 20 
-    current_source = source_code
-    
-    for _ in range(max_retries):
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if not hasattr(node, "end_lineno"):
+                raise DedupError("AST node missing end_lineno")
+            imports_nodes.append(node)
+            for ln in range(node.lineno, node.end_lineno + 1):
+                import_line_numbers.add(ln)
+
+    # Track 'import ...' entries (simple imports)
+    top_imports_order: List[Tuple[str, str]] = []
+    top_seen: Set[Tuple[str, str]] = set()
+
+    # Track 'from ... import ...' entries keyed by (level, module)
+    # Keep module order as first-seen.
+    from_imports_order: List[Tuple[Tuple[int, str], List[Tuple[str, str]]]] = []
+    from_seen: Dict[Tuple[int, str], Set[Tuple[str, str]]] = {}
+    from_has_star: Dict[Tuple[int, str], bool] = {}
+
+    for node in imports_nodes:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                key = (alias.name, alias.asname)
+                if key in top_seen:
+                    continue
+                top_seen.add(key)
+                top_imports_order.append(key)
+        else:  # ast.ImportFrom
+            module = node.module or ""
+            level = getattr(node, "level", 0) or 0
+            mod_key = (level, module)
+            if mod_key not in from_seen:
+                from_seen[mod_key] = set()
+                from_imports_order.append((mod_key, []))
+                from_has_star[mod_key] = False
+
+            for alias in node.names:
+                # Handle star specially
+                if alias.name == "*":
+                    # Mark star present; clear any previously recorded names for this module.
+                    from_has_star[mod_key] = True
+                    from_seen[mod_key].clear()
+                    # Replace the corresponding list with just '*' (we'll detect has_star when emitting)
+                    for (mk, lst) in from_imports_order:
+                        if mk == mod_key:
+                            lst.clear()
+                            break
+                    # Once star appears, we ignore any other names for this module
+                    continue
+
+                # If we already saw a star for this module, skip any named imports
+                if from_has_star.get(mod_key, False):
+                    continue
+
+                akey = (alias.name, alias.asname)
+                if akey in from_seen[mod_key]:
+                    continue
+                from_seen[mod_key].add(akey)
+                for (mk, lst) in from_imports_order:
+                    if mk == mod_key:
+                        lst.append(akey)
+                        break
+
+    normalized_lines: List[str] = []
+
+    # Build grouped `import ...` line (first-seen order)
+    if top_imports_order:
+        parts = []
+        for name, asname in top_imports_order:
+            if asname:
+                parts.append(f"{name} as {asname}")
+            else:
+                parts.append(name)
+        normalized_lines.append(f"import {', '.join(parts)}")
+
+    # Build grouped `from ... import ...` lines in module first-seen order.
+    for (level, module), aliases in from_imports_order:
+        mod_key = (level, module)
+        if from_has_star.get(mod_key, False):
+            # Emit only the star import for this module
+            lvl = "." * level if level else ""
+            normalized_lines.append(f"from {lvl}{module} import *")
+            continue
+
+        if not aliases:
+            # Nothing to emit (possible if previously star cleared names)
+            continue
+
+        lvl = "." * level if level else ""
+        parts = []
+        for name, asname in aliases:
+            if asname:
+                parts.append(f"{name} as {asname}")
+            else:
+                parts.append(name)
+        normalized_lines.append(f"from {lvl}{module} import {', '.join(parts)}")
+
+    # Remove original import lines from source
+    remaining = [line for i, line in enumerate(source_lines, start=1) if i not in import_line_numbers]
+
+    if normalized_lines:
+        # Preserve shebang/encoding line if present
+        preserved_prefix = []
+        if remaining:
+            first = remaining[0]
+            if first.startswith("#!") or first.startswith("# -*-") or "coding" in first:
+                preserved_prefix.append(remaining.pop(0))
+        normalized_with_nl = [ln if ln.endswith("\n") else ln + "\n" for ln in normalized_lines]
+        return preserved_prefix + normalized_with_nl + ["\n"] + remaining, import_line_numbers
+
+    return remaining, import_line_numbers
+
+# -------------------------
+# Top-level comment block dedupe
+# -------------------------
+
+def remove_duplicate_top_level_comment_blocks(lines: List[str], tree: ast.AST) -> List[str]:
+    func_ranges: List[Tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            func_ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+    def inside_func(ln: int) -> bool:
+        return any(s <= ln <= e for s, e in func_ranges)
+    out: List[str] = []
+    seen_blocks: Set[Tuple[str, ...]] = set()
+    i = 0
+    n = len(lines)
+    while i < n:
+        ln_no = i + 1
+        line = lines[i]
+        if line.lstrip().startswith("#") and not inside_func(ln_no):
+            block = [line]
+            j = i + 1
+            while j < n and lines[j].lstrip().startswith("#") and not inside_func(j + 1):
+                block.append(lines[j])
+                j += 1
+            key = tuple(block)
+            if key not in seen_blocks:
+                seen_blocks.add(key)
+                out.extend(block)
+            i = j
+        else:
+            out.append(line)
+            i += 1
+    return out
+
+# -------------------------
+# Whitespace cleanup
+# -------------------------
+
+def clean_whitespace(source: str) -> str:
+    source = re.sub(r"\n{3,}", "\n\n", source)
+    source = re.sub(r"[ \t]+\n", "\n", source)
+    return source
+
+# -------------------------
+# Repair / auto-heal
+# -------------------------
+
+def repair_source_code(source: str, max_retries: int = 40) -> str:
+    current = source
+    for attempt in range(max_retries):
         try:
-            ast.parse(current_source)
-            return current_source
+            ast.parse(current)
+            return current
         except SyntaxError as e:
             if e.lineno is None:
-                raise e 
-
-            lines = current_source.splitlines(True)
-            error_line_idx = e.lineno - 1
-            
-            if error_line_idx < len(lines):
-                error_line = lines[error_line_idx]
-                # Heuristic: SyntaxError on decorator line -> orphaned.
-                if error_line.strip().startswith('@'):
-                    print(f"  [Auto-Heal] Removing orphaned decorator at line {e.lineno}: {error_line.strip()}")
-                    del lines[error_line_idx]
-                    current_source = "".join(lines)
+                raise
+            lines = current.splitlines(True)
+            idx = e.lineno - 1
+            if 0 <= idx < len(lines):
+                err_line = lines[idx]
+                if err_line.strip().startswith("@"):
+                    del lines[idx]
+                    current = "".join(lines)
                     continue
-            
-            print(f"Error: Syntax check failed at line {e.lineno}. Cannot auto-heal.: "+str(error_line), file=sys.stderr)
-            raise e
-            
-    return current_source
+            raise
+    raise DedupError("repair_source_code: exceeded max retries")
 
-def main():
-    parser = argparse.ArgumentParser(description="Deduplicate Python code, merge classes, and clean whitespace.")
-    parser.add_argument("filename", help="The Python file to process")
-    args = parser.parse_args()
-    filename = args.filename
+# -------------------------
+# Main processing
+# -------------------------
 
+def process_file(filename: str) -> None:
     if not os.path.isfile(filename):
-        raise FileNotFoundError(f"File '{filename}' not found")
+        raise FileNotFoundError(f"File not found: {filename}")
 
-    # Backup
-    shutil.copy2(filename, f"{filename}.bak")
-    print(f"Backup created: {filename}.bak")
+    bak = f"{filename}.bak"
+    shutil.copy2(filename, bak)
+    print(f"[backup] created: {bak}")
 
-    with open(filename, 'r', encoding='utf-8') as f:
-        source_code = f.read()
-        original_lines = source_code.splitlines(True)
+    original_lines = read_file_lines(filename)
+    source = "".join(original_lines)
 
-    # 1. Initial Parse
     try:
-        tree = ast.parse(source_code, filename=filename)
+        tree = ast.parse(source, filename=filename)
     except SyntaxError as e:
-        raise SyntaxError(f"Original file has syntax errors. Aborting.\n{e}")
+        raise SyntaxError(f"Original file has syntax errors. Aborting: {e}")
 
-    lines_to_remove = set()
-    injections = defaultdict(list)
+    ensure_end_lineno_support(tree)
 
-    # 2. Run Class Merger (Pass 1)
-    print("Analyzing class structures for merging...")
+    # Class merging
     merger = ClassMergeAnalyzer(original_lines)
     merger.visit(tree)
-    
-    merged_class_names = merger.process_merges()
-    
-    lines_to_remove.update(merger.lines_to_remove)
+    merged_names = merger.process_merges()
+    lines_to_remove: Set[int] = set(merger.lines_to_remove)
+    injections: Dict[int, List[str]] = defaultdict(list)
     for k, v in merger.injections.items():
         injections[k].extend(v)
+    if merged_names:
+        print(f"[class-merge] merged classes: {', '.join(sorted(merged_names))}")
 
-    if merged_class_names:
-        print(f"Merging {len(merged_class_names)} classes: {', '.join(merged_class_names)}")
+    # Standard dedup visitor
+    dedup = StandardDedupVisitor(ignore_classes=merged_names)
+    dedup.visit(tree)
 
-    # 3. Run Standard Dedup (Pass 2)
-    dedup_visitor = StandardDedupVisitor(ignore_classes=merged_class_names)
-    dedup_visitor.visit(tree)
+    # Remove duplicate global defs (keep last)
+    for name, locs in dedup.definition_locations.items():
+        if len(locs) > 1:
+            for start, end in locs[:-1]:
+                for ln in range(start, end + 1):
+                    lines_to_remove.add(ln)
 
-    # Process standard defs
-    dupe_defs = 0
-    for path, locations in dedup_visitor.definition_locations.items():
-        if len(locations) > 1:
-            dupe_defs += (len(locations) - 1)
-            for start, end in locations[:-1]:
-                for i in range(start, end + 1):
-                    lines_to_remove.add(i)
+    # Mark redundant import lines (beyond first) for removal — normalization will rebuild grouped imports
+    for sig, locs in dedup.import_locations.items():
+        if len(locs) > 1:
+            for start, end in locs[1:]:
+                for ln in range(start, end + 1):
+                    lines_to_remove.add(ln)
 
-    # Process standard imports
-    dupe_imports = 0
-    for sig, locations in dedup_visitor.import_locations.items():
-        if len(locations) > 1:
-            dupe_imports += (len(locations) - 1)
-            for start, end in locations[1:]:
-                for i in range(start, end + 1):
-                    lines_to_remove.add(i)
-
-    print(f"Found {dupe_defs} duplicate definitions and {dupe_imports} redundant imports.")
-
-    # 4. Reconstruct Source with Injections
-    new_source_parts = []
-    # enumerate is 1-based, matching AST lineno
-    for i, line in enumerate(original_lines, 1):
+    # Reconstruct with removals and injections
+    new_parts: List[str] = []
+    for i, line in enumerate(original_lines, start=1):
         if i not in lines_to_remove:
-            new_source_parts.append(line)
-        
-        # Check for injections needed AFTER this line
-        # (Used for appending methods to the end of a class)
+            new_parts.append(line)
         if i in injections:
             for chunk in injections[i]:
-                new_source_parts.append(chunk)
+                new_parts.append(chunk)
 
-    intermediate_source = "".join(new_source_parts)
+    intermediate_lines = new_parts
+    intermediate_source = "".join(intermediate_lines)
 
-    # 5. Whitespace Cleanup
-    print("Cleaning whitespace...")
-    clean_source = clean_whitespace(intermediate_source)
-
-    # 6. Auto-Healing / Verification Loop
-    print("Verifying syntax and checking for floating decorators...")
+    # Parse intermediate and try auto-heal if needed
     try:
-        final_source = repair_source_code(clean_source)
+        new_tree = ast.parse(intermediate_source, filename=filename)
+    except SyntaxError:
+        print("[repair] intermediate parse failed; attempting auto-heal...", file=sys.stderr)
+        intermediate_source = repair_source_code(intermediate_source)
+        new_tree = ast.parse(intermediate_source, filename=filename)
+
+    ensure_end_lineno_support(new_tree)
+
+    # Import normalization (grouped) and hoisting
+    normalized_lines, import_line_numbers = normalize_and_hoist_imports_grouped(intermediate_source.splitlines(keepends=True), new_tree)
+    normalized_source = "".join(normalized_lines)
+
+    # Parse normalized, auto-heal if necessary
+    try:
+        tree_after_imports = ast.parse(normalized_source, filename=filename)
+    except SyntaxError:
+        normalized_source = repair_source_code(normalized_source)
+        tree_after_imports = ast.parse(normalized_source, filename=filename)
+
+    # Remove duplicate top-level comment blocks
+    final_lines = remove_duplicate_top_level_comment_blocks(normalized_source.splitlines(keepends=True), tree_after_imports)
+    final_source = "".join(final_lines)
+
+    # Whitespace cleanup
+    final_source = clean_whitespace(final_source)
+
+    # Final verification and auto-heal
+    try:
+        final_source = repair_source_code(final_source)
     except SyntaxError as e:
-        print("Failed to generate valid code. Original file restored.", file=sys.stderr)
-        sys.exit(1)
+        shutil.copy2(bak, filename)
+        raise SyntaxError(f"Final verification failed after auto-heal. Original restored from {bak}. Error: {e}")
 
-    # 7. Write Output
+    write_atomic(filename, final_source)
+    print(f"[success] updated: {filename}")
+
+# -------------------------
+# CLI
+# -------------------------
+
+def main(argv: List[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Deduplicate Python code, merge classes, normalize imports (grouped), and auto-heal.")
+    parser.add_argument("filename", help="Python file to process")
+    args = parser.parse_args(argv)
+
     try:
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(filename), text=True)
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(final_source)
-        shutil.copymode(filename, tmp_path)
-        shutil.move(tmp_path, filename)
-        print(f"Success. File updated: {filename}")
-    except Exception as e:
-        if 'tmp_path' in locals() and os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise RuntimeError(f"Failed to write file: {e}")
+        process_file(args.filename)
+    except Exception:
+        print(f"[fatal] processing failed for {args.filename}", file=sys.stderr)
+        raise
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        print(f"Fatal Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    except Exception:
+        raise
