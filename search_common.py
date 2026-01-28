@@ -1,4 +1,3 @@
-# === imports ===
 import sys
 import os
 import subprocess
@@ -8,22 +7,20 @@ from functools import lru_cache
 import itertools
 import multiprocessing
 from multiprocessing import TimeoutError
-from sage.all import (
-    QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor,
-    Curve, Jacobian, sqrt, CRT, lcm, primes, QuadraticForm, ceil,
-    is_prime, Integer, log, next_prime, HyperellipticCurve, sage_eval,
-    PolynomialRing, EllipticCurve, set_random_seed
-)
+from sage.all import QQ, ZZ, RR, GF, SR, var, PolynomialRing, Matrix, matrix, vector, diff, floor, Curve, Jacobian, sqrt, CRT, lcm, primes, QuadraticForm, ceil, is_prime, Integer, log, next_prime, HyperellipticCurve, sage_eval, PolynomialRing, EllipticCurve, set_random_seed
 from math import gcd, log
 from cysignals.signals import SignalError
 import random
 import traceback
 import math
-
-# local modules
 from prime_subgroup_projection import *
 from parse_genus3 import *
 from tate import *
+from sage.all import valuation, gcd
+
+# === imports ===
+
+# local modules
 
 #### BEGIN USER CONFIG
 
@@ -1114,7 +1111,6 @@ def test_y_rationality_genus2(m_candidates, r_m, shift):
 
 
 # pseudo-code sketch (raise on unexpected failure)
-from sage.all import valuation, gcd
 
 
 @PROFILE
