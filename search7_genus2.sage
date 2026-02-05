@@ -474,25 +474,8 @@ def add_y_zero_points_to_known(known_pts, sextic_coeffs):
 # In search7_genus2.sage
 
 @PROFILE
-def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
-    """
-    Main search loop adapted for the genus-2 strategy.
-
-    Two modes:
-    - QQ mode (FINITE_FIELD=None): Search for rational points
-    - Finite field mode (FINITE_FIELD=p): Solve HECC DLP via index calculus
-
-    Returns:
-        - QQ mode: (set of new x-coordinates, updated stats)
-        - FF mode: (set containing factor base x-coords, updated stats)
-    """
-    if FINITE_FIELD and MOBIUS_TRANS:
-        raise RuntimeError("Mobius transforms are disabled in finite-field mode")
-
-    # ========================================================================
-    # SETUP: Field, Polynomial Rings, and Base Geometry
-    # ========================================================================
-
+def setup_field_and_rings(sextic_coeffs, data_pts):
+    """Setup base field, polynomial rings, and initial geometry."""
     if FINITE_FIELD:
         base_field = GF(FINITE_FIELD)
         PR_m = PolynomialRing(base_field, 'm')
@@ -515,10 +498,19 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         real_pts = [(QQ(p[0]), QQ(p[1])) for p in data_pts if p[0] is not None]
         base_field = QQ
 
-    # ========================================================================
-    # Apply Shift (QQ mode only)
-    # ========================================================================
+    return {
+        'base_field': base_field,
+        'PR_m': PR_m,
+        'm_poly': m_poly,
+        'Fm': Fm,
+        'R_x': R_x,
+        'x': x,
+        'G': G,
+        'real_pts': real_pts
+    }
 
+def apply_shift_transformation(G, real_pts, base_field):
+    """Apply shift transformation to avoid zero denominators."""
     shift = base_field(0)
     if not MOBIUS_TRANS:
         while any((base_field(pt[0]) + shift) == 0 for pt in real_pts):
@@ -526,74 +518,58 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         if shift:
             print(f"\nSHIFT = {shift}\n")
 
-    shifted_G_poly = G(x - shift)
+    shifted_G_poly = G(G.parent().gen() - shift)
     base_pts = [(base_field(X) + shift, base_field(Y)) for X, Y in real_pts]
     print("shifted G poly1:", shifted_G_poly)
 
-    # ========================================================================
-    # Apply Mobius Transform (QQ mode only)
-    # ========================================================================
+    return shifted_G_poly, base_pts, shift
 
+def apply_mobius_transformation(shifted_G_poly, all_known_x, base_pts):
+    """Apply Mobius transformation to the geometry (QQ mode only)."""
     T = None
     T_inv = None
 
-    if MOBIUS_TRANS:
-        try:
-            T = choose_transform(
-                shifted_G_poly,
-                all_known_x,
-                avoid_primes=AVOID,
-                prefer_primes=PREFER,
-                search_range=15,
-                allow_c_nonzero=True
-            )
-            print(f"[mobius] Using transform: {T}")
+    if not MOBIUS_TRANS:
+        return shifted_G_poly, base_pts, T, T_inv, all_known_x
 
-            try:
-                T_inv = MobiusTransform(T.d, -T.b, -T.c, T.a)
-            except Exception as e:
-                raise RuntimeError(f"Failed to construct inverse transform object: {e}")
+    T = choose_transform(
+        shifted_G_poly,
+        all_known_x,
+        avoid_primes=AVOID,
+        prefer_primes=PREFER,
+        search_range=15,
+        allow_c_nonzero=True
+    )
+    print(f"[mobius] Using transform: {T}")
 
-            try:
-                shifted_G_poly = apply_to_poly(shifted_G_poly, T_inv)
-            except Exception as e:
-                raise RuntimeError(f"Failed to transform polynomial G by T^-1: {e}")
+    T_inv = MobiusTransform(T.d, -T.b, -T.c, T.a)
+    shifted_G_poly = apply_to_poly(shifted_G_poly, T_inv)
+    print("shifted G poly:", shifted_G_poly)
 
-            print("shifted G poly:", shifted_G_poly)
+    all_known_x = set(apply_to_points(all_known_x, T))
+    base_pts_x_only = [pt[0] for pt in base_pts]
+    transformed_x = apply_to_points(base_pts_x_only, T)
 
-            all_known_x = set(apply_to_points(all_known_x, T))
-            base_pts_x_only = [pt[0] for pt in base_pts]
-            transformed_x = apply_to_points(base_pts_x_only, T)
+    updated_base_pts = []
+    print("\n[mobius] Updating base points to new curve geometry:")
+    for i, (new_x, old_y) in enumerate(zip(transformed_x, [pt[1] for pt in base_pts])):
+        if new_x is None:
+            updated_base_pts.append((None, None))
+            continue
 
-            updated_base_pts = []
-            print("\n[mobius] Updating base points to new curve geometry:")
-            for i, (new_x, old_y) in enumerate(zip(transformed_x, [pt[1] for pt in base_pts])):
-                if new_x is None:
-                    updated_base_pts.append((None, None))
-                    continue
+        rhs_val = shifted_G_poly(new_x)
+        new_y = QQ(sqrt(rhs_val))
+        updated_base_pts.append((new_x, new_y))
+        print(f"  ✓ Point {i}: x={new_x} -> y={new_y} (verified on new curve)")
 
-                try:
-                    rhs_val = shifted_G_poly(new_x)
-                    new_y = QQ(sqrt(rhs_val))
-                    updated_base_pts.append((new_x, new_y))
-                    print(f"  ✓ Point {i}: x={new_x} -> y={new_y} (verified on new curve)")
-                except (ValueError, TypeError, ArithmeticError) as e:
-                    print(f"  ✗ Point {i}: x={new_x}, RHS={rhs_val}")
-                    print(f"    Error: {e}")
-                    raise RuntimeError(f"Transformed point {i} is no longer rational! Transform invalid.")
+    base_pts = updated_base_pts
+    trans_degree = shifted_G_poly.degree()
+    print(f"  Transformed polynomial degree: {trans_degree}")
 
-            base_pts = updated_base_pts
-            trans_degree = shifted_G_poly.degree()
-            print(f"  Transformed polynomial degree: {trans_degree}")
+    return shifted_G_poly, base_pts, T, T_inv, all_known_x
 
-        except Exception as e:
-            print(f"[mobius] Could not find acceptable transform: {e}")
-            raise
-
-    # ========================================================================
-    # Build Primary Fibration Tower
-    # ========================================================================
-
+def build_tower_and_fibrations(shifted_G_poly, base_pts):
+    """Build primary tower and optional consensus fibrations."""
     current_deg = shifted_G_poly.degree()
     needed_steps = max(0, current_deg - 4)
 
@@ -607,10 +583,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         verbose=DEBUG,
         use_anchor_points=False
     )
-
-    # ========================================================================
-    # Build Multiple Fibrations for Consensus (QQ mode only)
-    # ========================================================================
 
     fibrations = None
     if USE_CONSENSUS_FILTER and not FINITE_FIELD:
@@ -637,17 +609,17 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     tower_for_mumford = primary_tower if MUMFORD_SEARCH else None
 
-    # ========================================================================
-    # Extract Geometry from Primary Tower
-    # ========================================================================
+    return primary_tower, fibrations, tower_for_mumford
 
-    assert primary_tower, primary_tower
+def extract_geometry_from_tower(primary_tower, Fm):
+    """Extract roots and RHS from tower, handling both FF and QQ modes."""
     roots = [i['r_expr'] for i in primary_tower]
     E_rhs_obj = primary_tower[-1]['f_i']
 
     if FINITE_FIELD:
         E_rhs_m = E_rhs_obj
         r_m = roots[0]
+        return E_rhs_m, r_m, roots
     else:
         E_rhs_m_symbolic = E_rhs_obj
         m_r = solve(SR(roots[0]) == var('r'), var('m'))[0].rhs()
@@ -660,13 +632,13 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             SR(E_rhs_m_symbolic).coefficient(xSR, i)
             for i in range(SR(E_rhs_m_symbolic).degree(xSR) + 1)
         ]
-        coeffs_in_Fm = [Fm(c.subs({mSR: m_poly})) for c in coeffs_in_m]
+        coeffs_in_Fm = [Fm(c.subs({mSR: Fm.base_ring().gen()})) for c in coeffs_in_m]
         E_rhs_m = R_x_m(coeffs_in_Fm)
 
-    # ========================================================================
-    # Build Curve Data Structure
-    # ========================================================================
+        return E_rhs_m, r_m, roots
 
+def build_curve_data(E_rhs_m, roots, base_pts):
+    """Build curve data structure from RHS polynomial."""
     fibration_type = f"{len(set(pt[0] for pt in base_pts))}-point"
     print(f"--- Running {fibration_type} Fibration (Primary Geometry) ---")
 
@@ -675,32 +647,29 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     last_phi_x = get_phi_x(one, two, three, roots[-1], lastrhs)
     cd = buildcd(E_curve_m, last_phi_x, lastrhs, E_rhs_m, (one, two, three))
 
-    # ========================================================================
-    # Auto-Configure Search Parameters
-    # ========================================================================
+    return cd, (one, two, three)
 
+def configure_search_parameters(cd, all_known_x, base_pts, base_field):
+    """Auto-configure search parameters based on curve data."""
     print("\n=== Auto-configuring search parameters for this fibration ===")
-    try:
-        print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
-        known_pts_for_height = []
-        for x_coord in all_known_x:
-            known_pts_for_height.append((QQ(x_coord) if not FINITE_FIELD else base_field(x_coord), None))
+    print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
 
-        for pt in base_pts:
-            if pt[0] is not None:
-                known_pts_for_height.append((
-                    QQ(pt[0]) if not FINITE_FIELD else base_field(pt[0]),
-                    QQ(pt[1]) if (not FINITE_FIELD and pt[1] is not None) else (base_field(pt[1]) if pt[1] is not None else None)
-                ))
+    known_pts_for_height = []
+    for x_coord in all_known_x:
+        known_pts_for_height.append((QQ(x_coord) if not FINITE_FIELD else base_field(x_coord), None))
 
-        if not known_pts_for_height:
-            known_pts_for_height = [(base_field(0), None)]
+    for pt in base_pts:
+        if pt[0] is not None:
+            known_pts_for_height.append((
+                QQ(pt[0]) if not FINITE_FIELD else base_field(pt[0]),
+                QQ(pt[1]) if (not FINITE_FIELD and pt[1] is not None) else (base_field(pt[1]) if pt[1] is not None else None)
+            ))
 
-        sconf = bounds.auto_configure_search(cd, known_pts_for_height, height_bound=None, debug=True)
-        print_conf(sconf)
-    except Exception:
-        print("config failed")
-        raise
+    if not known_pts_for_height:
+        known_pts_for_height = [(base_field(0), None)]
+
+    sconf = bounds.auto_configure_search(cd, known_pts_for_height, height_bound=None, debug=True)
+    print_conf(sconf)
 
     if not FINITE_FIELD:
         _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0, max_modulus=MAX_MODULUS, debug=True)
@@ -711,10 +680,10 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     prime_pool = sorted(set(prime_pool))
     print(f"[prime_pool] Final pool has {len(prime_pool)} primes up to {max(prime_pool)}")
 
-    # ========================================================================
-    # Build Search RHS List
-    # ========================================================================
+    return sconf, prime_pool
 
+def build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three):
+    """Build list of RHS functions for search."""
     k = cd.k_base_change
     n = cd.tate_exponent
     blowup = cd.blowup_factor
@@ -723,36 +692,687 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     if FINITE_FIELD:
         roots_clean = [r for r in roots if r is not None]
+        search_rhs_list = [cd.phi_x]
     else:
         SR_m = var('m')
         roots_clean = [SR(r) for r in roots]
 
-    roots_SR = roots_clean
-    assert roots_clean, roots
+        search_rhs_list = [SR(cd.phi_x)]
 
-    if FINITE_FIELD:
-        search_rhs_list = [cd.phi_x]
-    else:
-        try:
-            search_rhs_list = [SR(cd.phi_x)]
-        except Exception:
-            search_rhs_list = [SR(str(cd.phi_x))]
-            raise
-
-    if not FINITE_FIELD:
-        for i in roots_SR[:-1]:
+        xSR = SR.var('x')
+        for i in roots_clean[:-1]:
             qrhs_r = SR(E_rhs_m_symbolic).subs({xSR: i})
             phi_x_r = get_phi_x(SR(one), SR(two), SR(three), i, qrhs_r)
             phi_x_r_SR = SR(phi_x_r)
             rhs_scaled_SR = (phi_x_r_SR.subs({m_sym: m_sym**k}) if k != 0 else phi_x_r_SR) / SR(str(total_x_scale_factor))
             search_rhs_list.append(rhs_scaled_SR)
 
-    assert len(primary_tower) == len(roots), (len(primary_tower), roots)
+    return search_rhs_list
 
-    # ========================================================================
-    # Fibration Diagnostics (Both Modes)
-    # ========================================================================
+def setup_rationality_test_function(shift, T, T_inv):
+    """Create appropriate rationality test function based on transformations."""
+    def check_rationality_transformed(x_val_search):
+        """Maps x_val (from search space) -> x_shifted -> x_original"""
+        x_val_q = QQ(x_val_search)
+        if T_inv:
+            x_shifted = T_inv.apply(x_val_q)
+        else:
+            x_shifted = x_val_q
+        x_original = x_shifted + shift
+        return get_y_unshifted_genus2(x_original)
 
+    if T:
+        shift = 0
+        testfunc = check_rationality_transformed
+    else:
+        testfunc = get_y_unshifted_genus2
+
+    return testfunc, shift
+
+def precompute_consensus_residues(fibrations, base_pts, sconf, shift, all_known_x, primary_tower, sextic_coeffs):
+    """Precompute residues for all fibrations in consensus mode."""
+    print(f"\n{'='*70}")
+    print(f"PRECOMPUTING RESIDUES FOR {len(fibrations)} FIBRATIONS")
+    print(f"{'='*70}")
+
+    all_precomputed_residues = []
+    all_fibration_geometries = []
+    primary_height_bound = sconf['HEIGHT_BOUND']
+    prime_pool = sconf['PRIME_POOL']
+
+    for fib_idx, fib_data in enumerate(fibrations):
+        print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
+
+        fib_analysis = analyze_fibration_geometry(
+            fib_data,
+            base_pts,
+            primary_height_bound,
+            shift,
+            all_known_x,
+            sconf,
+            seed=fib_data['seed']
+        )
+
+        r_m = primary_tower[0]['r_expr'] if FINITE_FIELD else SR(primary_tower[0]['r_expr'])
+        extra_pts = scancd_for_special_fibers(fib_analysis['cd'], fib_analysis['r_m'], shift)
+        if extra_pts:
+            all_known_x.update(extra_pts)
+
+        if fib_analysis is None:
+            print(f"  Skipping fibration {fib_idx+1} due to analysis error.")
+            all_precomputed_residues.append({})
+            continue
+
+        this_cd = fib_analysis['cd']
+        fib_specific_sections = fib_analysis['sections']
+        this_search_rhs_list = fib_analysis['rhs_list']
+        fib_specific_vecs = fib_analysis['vecs']
+
+        geom_info = {
+            'H': fib_analysis['H'],
+            'deg': fib_analysis['deg'],
+            'disc_deg': fib_analysis['deg'],
+            'name': fib_analysis['name'],
+            'cd': this_cd,
+            'sections': fib_specific_sections
+        }
+        all_fibration_geometries.append(geom_info)
+
+        fib_Ep_dict, fib_rhs_modp_list, fib_mult_lll, fib_vecs_lll = prepare_modular_data_lll(
+            this_cd,
+            fib_specific_sections,
+            prime_pool,
+            this_search_rhs_list,
+            fib_specific_vecs,
+            SearchStats(),
+            search_primes=prime_pool
+        )
+
+        if not fib_Ep_dict:
+            print(f"  Warning: No valid primes for fibration {fib_idx+1}, skipping")
+            all_precomputed_residues.append({})
+            continue
+
+        primes_to_compute = list(fib_Ep_dict.keys())
+        num_rhs_fns = len(this_search_rhs_list)
+        vecs_list = list(fib_specific_vecs)
+
+        args_list = [
+            (
+                p,
+                fib_Ep_dict[p],
+                fib_mult_lll.get(p, {}),
+                fib_vecs_lll.get(p, [tuple([0] * len(fib_specific_sections)) for _ in vecs_list]),
+                vecs_list,
+                fib_rhs_modp_list,
+                num_rhs_fns,
+                SearchStats()
+            )
+            for p in primes_to_compute
+        ]
+
+        fib_precomputed = {}
+
+        ctx = multiprocessing.get_context("fork")
+        exec_kwargs = {"max_workers": 8, "mp_context": ctx}
+
+        with ProcessPoolExecutor(**exec_kwargs) as executor:
+            if TORSION_SLOPPY:
+                futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0]
+                           for args in args_list}
+            else:
+                futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0]
+                           for args in args_list}
+
+            for future in tqdm(as_completed(futures), total=len(futures),
+                        desc=f"Fib {fib_idx+1}/{len(fibrations)}"):
+                p = futures[future]
+                p_ret, mapping, local_checks = future.result()
+                fib_precomputed[p_ret] = mapping or {}
+
+        all_precomputed_residues.append(fib_precomputed)
+
+    return all_precomputed_residues, all_fibration_geometries
+
+def apply_consensus_filter(all_precomputed_residues, all_fibration_geometries, prime_pool, r_m, shift):
+    """Apply height-aware consensus filter to residues."""
+    print(f"\n{'='*70}")
+    print("APPLYING HEIGHT-AWARE CONSENSUS FILTER")
+    print(f"{'='*70}")
+
+    precomputed_residues, consensus_stats = compute_consensus_residues_with_height_matching(
+        all_precomputed_residues,
+        all_fibration_geometries,
+        prime_pool,
+        consensus_threshold=CONSENSUS_THRESHOLD,
+        height_tolerance_log=0.1,
+        use_delta_scaling=True,
+        debug=DEBUG,
+        target_x=TARGETED_X if TARGETED_X else None,
+        r_m=r_m,
+        shift=shift
+    )
+
+    print(f"\nConsensus Filter Results:")
+    print(f"  Residues: {consensus_stats['total_residues_before']:,} → {consensus_stats['total_residues_after']:,}")
+    print(f"  Reduction: {consensus_stats['reduction_ratio']:.1%}")
+
+    return precomputed_residues, consensus_stats
+
+def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, prime_pool, sconf,
+                                vecs, search_rhs_list, r_m, shift, all_known_x, testfunc,
+                                tower_for_mumford, sextic_coeffs, fibrations, base_pts, primary_tower):
+    """Run a single iteration of the search loop."""
+    if SYMBOLIC_SEARCH and not FINITE_FIELD:
+        newly_found_x, new_sections = search_lattice_symbolic(
+            cd,
+            current_sections,
+            vecs,
+            rhs_list=search_rhs_list,
+            r_m=r_m,
+            shift=shift,
+            all_found_x=all_known_x,
+            rationality_test_func=testfunc,
+            stats=SearchStats()
+        )
+        iter_stats = SearchStats()
+        return newly_found_x, new_sections, iter_stats
+
+    num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
+
+    if USE_CONSENSUS_FILTER and fibrations and not FINITE_FIELD:
+        all_precomputed_residues, all_fibration_geometries = precompute_consensus_residues(
+            fibrations, base_pts, sconf, shift, all_known_x, primary_tower, sextic_coeffs
+        )
+
+        precomputed_residues, consensus_stats = apply_consensus_filter(
+            all_precomputed_residues, all_fibration_geometries, prime_pool, r_m, shift
+        )
+
+        newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
+            cd,
+            current_sections,
+            prime_pool,
+            height_bound,
+            vecs,
+            search_rhs_list,
+            r_m,
+            shift,
+            all_known_x,
+            num_prime_subsets,
+            testfunc,
+            sconf,
+            tower_data=tower_for_mumford,
+            precomputed_residues=precomputed_residues,
+            coeffs_genus2=sextic_coeffs
+        )
+
+        iter_stats.consensus_filter_stats = consensus_stats
+    else:
+        newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
+            cd, current_sections,
+            prime_pool, height_bound,
+            vecs,
+            search_rhs_list,
+            r_m,
+            shift,
+            all_known_x,
+            num_prime_subsets,
+            testfunc,
+            sconf,
+            tower_data=tower_for_mumford,
+            coeffs_genus2=sextic_coeffs
+        )
+
+    return newly_found_x, new_sections, iter_stats
+
+def run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_known_x, r_m, shift,
+                           real_pts, base_pts, T, current_sections, precomputed_residues=None):
+    """Run all post-search diagnostics for QQ mode."""
+    xtest = base_pts[0][0]
+    xtest_unshifted = real_pts[0][0]
+
+    m_r = solve(SR(r_m) == var('r'), var('m'))[0].rhs()
+    mtest = m_r(r=xtest)
+    assert_base_m_found(mtest, xtest_unshifted, r_m, shift, T=T)
+
+    found_x_list = list(all_known_x)
+
+    print_unified_completeness_report(
+        stats=cumulative_stats,
+        prime_pool=prime_pool,
+        prime_subsets=cumulative_stats.prime_subsets,
+        height_bound=height_bound,
+        found_xs=found_x_list,
+        r_m=r_m,
+        shift=shift
+    )
+
+    analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+
+    diag = print_unified_diagnostics(
+        findability_analyzer=analyzer,
+        prime_pool=prime_pool,
+        prime_subsets=cumulative_stats.prime_subsets if hasattr(cumulative_stats, 'prime_subsets') else None,
+        height_bound=height_bound,
+        bootstrap_N=5000,
+        bootstrap_max_num=min(10**4, max(10**3, int(2**(height_bound//2)))),
+        bootstrap_max_den=min(10**4, max(10**3, int(2**(height_bound//3)))),
+        mi_primes_limit=40,
+        mi_N=2000
+    )
+
+    if TARGETED_X:
+        run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool,
+                                   analyzer, precomputed_residues)
+
+    print_search_summary(cumulative_stats, all_known_x)
+    run_sufficiency_proof_and_posterior(cumulative_stats, all_known_x, height_bound,
+                                       current_sections, prime_pool, diag)
+    validate_ramification_locus(cd, cumulative_stats)
+
+def run_targeted_point_analysis(TARGETED_X, r_m, cumulative_stats, prime_pool, analyzer, precomputed_residues):
+    """Run analysis for a specific targeted point."""
+    print("\n" + "="*70)
+    print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
+    print("="*70)
+
+    const = r_m(m=QQ(0))
+    target_m = QQ(-1) * TARGETED_X + const
+    print(f"Target m-value: {target_m}")
+
+    if not SYMBOLIC_SEARCH and precomputed_residues is not None:
+        cov = compute_residue_coverage_for_m(target_m, precomputed_residues, prime_pool)
+        print(f"\nPer-prime visibility: {len(cov['matched_primes'])}/{len(prime_pool)} primes matched ({cov['coverage_fraction']:.1%})")
+
+        if cov['coverage_fraction'] > 0.5:
+            print(f"\n✓ Target point has high visibility ({cov['coverage_fraction']:.1%})")
+            print("It should have been found. Check rationality_test_func or height bounds.")
+        elif cov['coverage_fraction'] > 0.1:
+            print(f"\n⚠️  Target point has moderate visibility ({cov['coverage_fraction']:.1%})")
+            print("May need larger prime subsets or more iterations.")
+        else:
+            print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
+            print("Increase HEIGHT_BOUND or add more primes to pool.")
+
+        sig = analyzer.visibility_signature(target_m)
+        print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
+
+        if sig['fraction'] < 0.5:
+            print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
+            print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
+            print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
+            print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
+
+            matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
+            if len(matched_primes) >= 4:
+                suggested = matched_primes[:6]
+                print(f"\nSuggested targeted subset: {suggested}")
+                print("Add this to prime_subsets_to_process and re-run.")
+        else:
+            print(f"\n✓ Target point has high visibility ({sig['fraction']:.1%})")
+            print("It should have been found. Check rationality_test_func or height bounds.")
+
+def print_search_summary(cumulative_stats, all_known_x):
+    """Print summary of search results."""
+    print("\n" + "="*70)
+    print("SEARCH SUMMARY")
+    print("="*70)
+    print(f"Total points found: {len(all_known_x)}")
+    print(f"Total time: {float(cumulative_stats.summary()['elapsed']):.1f}s")
+    print(f"CRT candidates tested: {cumulative_stats.counters['crt_candidates_found']:,}")
+    print(f"Rationality tests: {cumulative_stats.counters['rationality_tests_total']:,}")
+    hit_rate = float(cumulative_stats.counters['rationality_tests_success']) / max(1, float(cumulative_stats.counters['rationality_tests_total']))
+    print(f"Hit rate: {100*hit_rate:.2f}%")
+    print("="*70)
+
+def run_sufficiency_proof_and_posterior(cumulative_stats, all_known_x, height_bound, current_sections, prime_pool, diag):
+    """Run sufficiency proof and posterior probability analysis."""
+    mw_rank = len(current_sections)
+
+    def simple_height(x):
+        q = QQ(x)
+        num = abs(int(q.numerator()))
+        den = abs(int(q.denominator()))
+        return float(math.log(max(num, den, 1)))
+
+    if all_known_x:
+        h_obs_max = max(simple_height(x) for x in all_known_x)
+        print(f"Proof using OBSERVED max height: {h_obs_max:.2f}")
+    else:
+        h_obs_max = height_bound
+        print(f"Proof using SEARCH height: {h_obs_max:.2f}")
+
+    run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank)
+
+    from stats import prior_from_arithmetic, completeness_posterior_geometric, bootstrap_visibility, FindabilityAnalyzer
+
+    k_found = len(list(all_known_x))
+
+    p_visibility = None
+    if 'diag' in locals() and isinstance(diag, dict):
+        p_visibility = float(diag['bootstrap']['avg_fraction'])
+
+    if p_visibility is None:
+        analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
+        quick_boot = bootstrap_visibility(analyzer, N_samples=2000, max_num=2000, max_den=2000, seed=42)
+        p_visibility = float(quick_boot['avg_fraction'])
+        print(f"[fallback bootstrap] avg_fraction (p) = {p_visibility:.4f}")
+
+    selmer_dim = None
+    r_found = None
+
+    cnts = cumulative_stats.counters
+    crt_candidates_found = cnts.get('crt_candidates_found', cnts.get('crt_candidates_tested', None))
+    rationality_tests_success = cnts.get('rationality_tests_success', cnts.get('rationality_tests_total_success', None))
+
+    h_max = None
+    known_heights = None
+    if all_known_x:
+        known_heights = [simple_height(x) for x in all_known_x]
+        h_max = max(known_heights) if known_heights else None
+
+    rejected_primes_list = getattr(cumulative_stats, 'rejected_primes', [])
+
+    prior = prior_from_arithmetic(
+        k_found=k_found,
+        p_visibility=p_visibility,
+        rejected_primes=rejected_primes_list,
+        prime_pool=prime_pool,
+        selmer_dim=selmer_dim,
+        r_found=r_found,
+        crt_candidates_found=crt_candidates_found,
+        rationality_tests_success=rationality_tests_success,
+        h_max=h_max,
+        known_heights=known_heights
+    )
+
+    print(f"\n--- Arithmetic-informed prior (with fiber collision adjustment) ---")
+    if prior.get('collision_primes'):
+        print(f"Fiber collision primes detected: {prior['collision_primes']}")
+    print(f"p_visibility (raw): {prior['p_raw']:.4f}")
+    print(f"p_visibility (adjusted): {prior['p_adjusted']:.4f}")
+    print(f"mu_selmer:   {prior['mu_selmer']:.4g}")
+    print(f"mu_local:    {prior['mu_local']:.4g}")
+    print(f"mu_height:   {prior['mu_height']:.4g}")
+    print(f"mu_bootstrap:{prior['mu_bootstrap']:.4g}")
+    print(f"--> mu_combined = {prior['mu_combined']:.4g}  (q = {prior['q']:.6f})")
+
+    m_max = 200
+    post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
+
+    print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
+
+    if 'P_all' not in post or 'P_all_but_1' not in post or 'P_all_but_2' not in post:
+        print(f"Observed points (k) = {k_found}")
+        print(f"Estimated detection probability p = {p_visibility:.3f}")
+        print("⚠️  Could not compute posterior probabilities (p_visibility likely 0).")
+        print("    Search may have been starved of valid primes.")
+    else:
+        P_all = post['P_all']
+        P_all_but_1 = post['P_all_but_1']
+        P_all_but_2 = post['P_all_but_2']
+        mean_T = post['posterior_mean_T']
+
+        print(f"Observed points (k) = {k_found}")
+        print(f"Estimated detection probability p = {prior['p_adjusted']:.3f}")
+        print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
+        print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
+        print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
+        print(f"Posterior mean of T    = {mean_T:.3f}")
+        print("Note: results depend on prior (mu_combined) computed from arithmetic signals above.\n")
+
+        top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
+        print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
+
+def validate_ramification_locus(cd, cumulative_stats):
+    """Validate that detected fiber collisions match ramification locus."""
+    ram_locus = compute_ramification_locus(cd)
+    detected_collisions = set(p for p, r in cumulative_stats.rejected_primes if 'collision' in str(r))
+
+    if USE_CONSENSUS_FILTER:
+        print(f"\n✓ Fiber collisions detected across all geometries: {detected_collisions}")
+        print(f"  Primary fibration ramification locus: {ram_locus}")
+        print(f"  (Collisions may differ per fibration in consensus mode)")
+    else:
+        if not detected_collisions.issubset(ram_locus):
+            print(f"\n⚠️  WARNING: Detected collisions {detected_collisions} not in ramification locus {ram_locus}")
+        else:
+            print(f"\n✓ Fiber collision detection validated: {detected_collisions} ⊆ ramification locus {ram_locus}")
+
+def run_fibration_geometry_diagnostics(cd, current_sections, m_sym, singfibs):
+    """Run automorphism and geometry diagnostics."""
+    print("\n" + "="*70)
+    print("FIBRATION GEOMETRY DIAGNOSTICS")
+    print("="*70)
+
+    print("\n--- Automorphism Search ---")
+    if not current_sections:
+        print("No sections found; skipping automorphism search preserving fibration.")
+    else:
+        auts_report = compute_auts_preserving_fibration(cd, current_sections, m_sym)
+        scaling_autos = auts_report.get('scaling_autos', [])
+        if scaling_autos:
+            print(f"Found {len(scaling_autos)} scaling automorphisms:")
+            for i, aut in enumerate(scaling_autos):
+                print(f"  [{i}] Möbius map: (a,b,c,d) = {aut['mobius']}")
+                print(f"      Scaling factor u = {aut['u']}")
+        else:
+            print("No scaling automorphisms found.")
+
+        translation_autos = auts_report.get('translation_autos', [])
+        if translation_autos:
+            print(f"Found {len(translation_autos)} translation automorphisms:")
+            for i, aut in enumerate(translation_autos):
+                print(f"  [{i}] Translation by Section S{aut['section_index']}")
+        else:
+            print("No translation automorphisms found.")
+
+    if not FINITE_FIELD:
+        ns_auts, names = compute_ns_auts(singfibs, current_sections)
+        if ns_auts:
+            print(f"\nFound {len(ns_auts)} automorphisms of the NS lattice.")
+            classified_ns_auts = classify_auts(ns_auts, names)
+            print("Classified NS lattice automorphisms:")
+            for i, (M, labels) in enumerate(classified_ns_auts):
+                print(f"  [{i}] Matrix:\n{M}")
+                print(f"      Labels: {labels}")
+        else:
+            print("\nNo non-trivial automorphisms found for the NS lattice.")
+
+def run_torsion_analysis(cd, m_sym, base_sections):
+    """Run torsion analysis on the fibration."""
+    print("\n--- Torsion Analysis ---")
+    if FINITE_FIELD:
+        print("Torsion analysis over finite fields: Using specializations at field elements")
+        specs = good_specializations(cd, m_sym, max_try=min(40, FINITE_FIELD // 2))
+    else:
+        specs = good_specializations(cd, m_sym, max_try=40)
+
+    print("Got", len(specs), "good specializations for torsion check.")
+    orders = []
+    for m0, E in specs:
+        if FINITE_FIELD:
+            ab_grp = E.abelian_group()
+            orders.append(ab_grp.order())
+        else:
+            tors = E.torsion_subgroup()
+            orders.append(tors.order())
+
+    if FINITE_FIELD:
+        if orders:
+            candidate_torsion_order = reduce(gcd, orders)
+            print("GCD of specialized curve orders (informational only):", candidate_torsion_order)
+        else:
+            print("No valid specializations for torsion analysis")
+    else:
+        candidate_torsion_order = reduce(gcd, orders) if orders else 1
+        print("Fast method candidate torsion order (GCD of specializations):", candidate_torsion_order)
+
+    fiber_counts, lcm_bound = compute_fiber_lcm(cd)
+    print("Fiber component counts:", fiber_counts, " -> lcm bound:", lcm_bound)
+
+    for i, sec in enumerate(base_sections):
+        is_torsion = False
+        for n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]:
+            if torsion_test(cd, sec, n, m_sym=m_sym, max_try=12):
+                print(f"Base section {i} appears to be torsion of order dividing {n}.")
+                is_torsion = True
+                break
+        if not is_torsion:
+            print(f"Base section {i} does not appear to be small order torsion.")
+
+def run_advanced_qq_diagnostics(cd, current_sections, prime_pool, singfibs, euler):
+    """Run advanced diagnostics (saturation, Picard, Shioda-Tate, etc.) for QQ mode."""
+    print("\n--- Saturation Diagnostics ---")
+    run_saturation_checks(cd, current_sections, prime_pool[:30])
+
+    print("\n--- Picard Analysis (Van Luijk) ---")
+    ell_candidates = [p for p in prime_pool if p not in cd.bad_primes][:10]
+    print(f"Using {len(ell_candidates)} good prime candidates for reduction: {ell_candidates}")
+
+    picard_report = picard_via_van_luijk(
+        cd,
+        current_sections,
+        prime_pool,
+        ell_candidates=tuple(ell_candidates),
+        verbose=True
+    )
+    print("\n=== Picard Report ===")
+    print(f"Lower bound (char 0): {picard_report['lower_bound']}")
+    print(f"Upper bounds from reductions:")
+    for ub, info in picard_report['upper_bounds']:
+        print(f"  ell={info['ell']}: rho <= {ub}    (rank_lb={info['rank_lb']}, Σ={info['sum_contrib']})")
+    if picard_report['rho'] is not None:
+        print(f"*** Concluded Picard number: ρ = {picard_report['rho']} ***")
+    else:
+        print("*** Picard not pinned exactly (likely off by ≤ 1). Consider the discriminant step. ***")
+
+    print("\n--- Shioda-Tate Diagnostics ---")
+    rank_guess, details, diag = shioda_tate_from_fiber_list(
+        singfibs['fibers'],
+        rho_geom=picard_report['rho'],
+        return_diagnostics=True,
+        allow_auto_rho=True
+    )
+
+    if rank_guess is None:
+        print(f"Rank could not be determined. Reason: {diag.get('note', 'Unknown')}")
+    else:
+        print(f"Shioda-Tate Rank Estimate (assuming rho={picard_report['rho']}): {rank_guess}")
+
+    print(f"Total Euler Characteristic: {euler}")
+    print(f"Sum of Fiber Contributions (Σ(m_v - 1)): {details['sum_contributions']}")
+
+    compute_selmer_rank_bounds(cd, rank_guess, verbose=True)
+    print("")
+
+    _, chi = compute_euler_and_chi(cd)
+    if picard_report['rho'] is not None and chi != 1 and False:
+        run_rational_curve_analysis(cd, current_sections, picard_report['rho'], rank_guess, chi)
+
+def run_rational_curve_analysis(cd, current_sections, rho, rank_guess, chi):
+    """Run Yau-Zaslow rational curve counting analysis."""
+    print("\n--- Rational Curve Counts (Yau-Zaslow) ---")
+    print("running with rho, mw rank, chi =", rho, rank_guess, chi)
+
+    basis_labels, Q, h_vec = build_ns_basis_and_Q(cd, rho, mw_rank=rank_guess, chi=chi)
+
+    mcoords = tuple(range(11, 75))
+    counts, reps = staged_rational_curve_search(
+        cd,
+        current_sections,
+        rho, rank_guess, chi,
+        height_bounds=(15, 25, 35, 45, 55),
+        max_coords=mcoords,
+        node_cap=15_000_000,
+        return_reps=True,
+        require_S_coeff='positive',
+        targeted_fallback=True
+    )
+
+    runs = run_convergence_test(cd, current_sections, rho, chi, rank_guess,
+                                max_coords_seq=(20, 24, 28, 31), require_S_coeff='positive')
+
+    print(f"Found rational curve classes in {len(counts)} different degrees.")
+    print("Counts per degree:", counts)
+
+    print("\nSample representatives (first few degrees):")
+    for d in sorted(reps.keys())[:6]:
+        print(f"\nDegree {d}, count {counts.get(d, 0)}:")
+        for v in reps[d][:8]:
+            print("   ", decode_vector(v, basis_labels))
+
+    if current_sections:
+        comp_map = detect_section_component(cd, current_sections[0])
+        print("\nSection-component intersection map (heuristic):", comp_map)
+
+    qseries = build_qseries_from_counts(counts, rho, max_degree=20)
+    print("\nQ-series (up to q^12):", qseries)
+
+    cands = find_isotropic_fibration_candidates(cd, current_sections, rho, rank_guess, chi)
+    results = evaluate_fibration_height_reduction(cd, current_sections, rho, rank_guess, chi, candidates=cands, shioda_sign=-1)
+
+    if results:
+        top = results[0]
+        print("best coeffs:", top['a'])
+        print("old heights:", top['heights_old'])
+        print("new heights:", top['heights_new'])
+        print("per-section delta (old-new):", top['delta'])
+        print("total reduction:", top['total_reduction'])
+    else:
+        print("no isotropic candidates found in box")
+
+@PROFILE
+def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
+    """
+    Main search loop adapted for the genus-2 strategy.
+
+    Two modes:
+    - QQ mode (FINITE_FIELD=None): Search for rational points
+    - Finite field mode (FINITE_FIELD=p): Solve HECC DLP via index calculus
+
+    Returns:
+        - QQ mode: (set of new x-coordinates, updated stats)
+        - FF mode: (set containing factor base x-coords, updated stats)
+    """
+    if FINITE_FIELD and MOBIUS_TRANS:
+        raise RuntimeError("Mobius transforms are disabled in finite-field mode")
+
+    # Setup
+    field_data = setup_field_and_rings(sextic_coeffs, data_pts)
+    base_field = field_data['base_field']
+
+    # Apply transformations
+    shifted_G_poly, base_pts, shift = apply_shift_transformation(
+        field_data['G'], field_data['real_pts'], base_field
+    )
+
+    shifted_G_poly, base_pts, T, T_inv, all_known_x = apply_mobius_transformation(
+        shifted_G_poly, all_known_x, base_pts
+    )
+
+    # Build towers
+    primary_tower, fibrations, tower_for_mumford = build_tower_and_fibrations(
+        shifted_G_poly, base_pts
+    )
+
+    # Extract geometry
+    E_rhs_m, r_m, roots = extract_geometry_from_tower(primary_tower, field_data['Fm'])
+    cd, morphism_data = build_curve_data(E_rhs_m, roots, base_pts)
+    one, two, three = morphism_data
+
+    # Configure search
+    sconf, prime_pool = configure_search_parameters(cd, all_known_x, base_pts, base_field)
+
+    # Build RHS list
+    E_rhs_m_symbolic = primary_tower[-1]['f_i'] if not FINITE_FIELD else None
+    search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
+
+    # Setup rationality test
+    testfunc, shift = setup_rationality_test_function(shift, T, T_inv)
+
+    # Diagnostics
     summarize_fibration_info(cd, data_pts, base_pts)
 
     extra_pts = scancd_for_special_fibers(cd, r_m, shift)
@@ -772,39 +1392,11 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     base_sections = lll_reduce_mw_basis(cd, base_sections)
     current_sections = list(set(base_sections))
 
-    # ========================================================================
-    # Setup Rationality Test Function
-    # ========================================================================
-
-    def check_rationality_transformed(x_val_search):
-        """Maps x_val (from search space) -> x_shifted -> x_original"""
-        try:
-            x_val_q = QQ(x_val_search)
-            if T_inv:
-                x_shifted = T_inv.apply(x_val_q)
-            else:
-                x_shifted = x_val_q
-            x_original = x_shifted + shift
-            return get_y_unshifted_genus2(x_original)
-        except Exception:
-            raise
-            return None
-
-    if T:
-        shift = 0
-        testfunc = check_rationality_transformed
-    else:
-        testfunc = get_y_unshifted_genus2
-
-    # ========================================================================
-    # Main Search Loop
-    # ========================================================================
-
+    # Main search loop
     iteration = 0
     H = None
     all_newly_found_transformed_x = set()
     height_bound = sconf['HEIGHT_BOUND']
-    num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
 
     while True:
         print(f"\n--- Search Iteration {iteration} with {len(current_sections)} sections ---")
@@ -813,7 +1405,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("No independent sections to search with. Stopping.")
             break
 
-        independent, H = check_independence(current_sections, E_curve_m, cd)
+        independent, H = check_independence(current_sections, cd.E_weier, cd)
         if FINITE_FIELD:
             H = Matrix([QQ(1)])
 
@@ -830,7 +1422,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             if difficulty['difficulty_score'] > 2.0:
                 print(f"⚠️  WARNING: Curve predicted to be difficult (score {difficulty['difficulty_score']:.2f})")
                 height_bound *= difficulty['recommended_height_multiplier']
-                num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'] * difficulty['recommended_subset_multiplier'])
 
         if FINITE_FIELD:
             vecs = generate_ff_search_vectors(len(current_sections))
@@ -844,211 +1435,14 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("No search vectors found within height bound. Stopping.")
             break
 
-        # ====================================================================
-        # Consensus Precomputation (QQ Mode Only)
-        # ====================================================================
+        newly_found_x, new_sections, iter_stats = run_single_search_iteration(
+            cd, current_sections, cd.E_weier, height_bound, prime_pool, sconf,
+            vecs, search_rhs_list, r_m, shift, all_known_x, testfunc,
+            tower_for_mumford, sextic_coeffs, fibrations, base_pts, primary_tower
+        )
 
-        if SYMBOLIC_SEARCH and not FINITE_FIELD:
-            newly_found_x, new_sections = search_lattice_symbolic(
-                cd,
-                current_sections,
-                vecs,
-                rhs_list=search_rhs_list,
-                r_m=r_m,
-                shift=shift,
-                all_found_x=all_known_x,
-                rationality_test_func=testfunc,
-                stats=cumulative_stats
-            )
-            all_newly_found_transformed_x.update(list(newly_found_x))
-            iter_stats = SearchStats()
-            cumulative_stats.merge(iter_stats)
-
-        else:
-            prime_pool = sconf.get('PRIME_POOL', PRIME_POOL)
-
-            if USE_CONSENSUS_FILTER and fibrations and not FINITE_FIELD:
-                print(f"\n{'='*70}")
-                print(f"PRECOMPUTING RESIDUES FOR {len(fibrations)} FIBRATIONS")
-                print(f"{'='*70}")
-
-                from search_lll.modularthread import _compute_residues_for_prime_worker_old, _compute_residues_for_prime_worker
-                from search_lll.ll_utilities import prepare_modular_data_lll
-                from concurrent.futures import ProcessPoolExecutor, as_completed
-                from tqdm import tqdm
-                import multiprocessing
-
-                all_precomputed_residues = []
-                all_fibration_geometries = []
-                primary_height_bound = sconf['HEIGHT_BOUND']
-
-                for fib_idx, fib_data in enumerate(fibrations):
-                    print(f"\n--- Fibration {fib_idx+1}/{len(fibrations)} (seed={fib_data['seed']}) ---")
-
-                    fib_analysis = analyze_fibration_geometry(
-                        fib_data,
-                        base_pts,
-                        primary_height_bound,
-                        shift,
-                        all_known_x,
-                        sconf,
-                        seed=fib_data['seed']
-                    )
-
-                    extra_pts = scancd_for_special_fibers(fib_analysis['cd'], fib_analysis['r_m'], shift)
-                    if extra_pts:
-                        all_known_x.update(extra_pts)
-
-                    if fib_analysis is None:
-                        print(f"  Skipping fibration {fib_idx+1} due to analysis error.")
-                        all_precomputed_residues.append({})
-                        continue
-
-                    this_cd = fib_analysis['cd']
-                    fib_specific_sections = fib_analysis['sections']
-                    this_search_rhs_list = fib_analysis['rhs_list']
-                    fib_specific_vecs = fib_analysis['vecs']
-
-                    geom_info = {
-                        'H': fib_analysis['H'],
-                        'deg': fib_analysis['deg'],
-                        'disc_deg': fib_analysis['deg'],
-                        'name': fib_analysis['name'],
-                        'cd': this_cd,
-                        'sections': fib_specific_sections
-                    }
-                    all_fibration_geometries.append(geom_info)
-
-                    try:
-                        fib_Ep_dict, fib_rhs_modp_list, fib_mult_lll, fib_vecs_lll = prepare_modular_data_lll(
-                            this_cd,
-                            fib_specific_sections,
-                            prime_pool,
-                            this_search_rhs_list,
-                            fib_specific_vecs,
-                            cumulative_stats,
-                            search_primes=prime_pool
-                        )
-                    except Exception as e:
-                        print(f"  Failed to prepare modular data for fibration {fib_idx}: {e}")
-                        all_precomputed_residues.append({})
-                        raise
-                        continue
-
-                    if not fib_Ep_dict:
-                        print(f"  Warning: No valid primes for fibration {fib_idx+1}, skipping")
-                        all_precomputed_residues.append({})
-                        continue
-
-                    primes_to_compute = list(fib_Ep_dict.keys())
-                    num_rhs_fns = len(this_search_rhs_list)
-                    vecs_list = list(fib_specific_vecs)
-
-                    args_list = [
-                        (
-                            p,
-                            fib_Ep_dict[p],
-                            fib_mult_lll.get(p, {}),
-                            fib_vecs_lll.get(p, [tuple([0] * len(fib_specific_sections)) for _ in vecs_list]),
-                            vecs_list,
-                            fib_rhs_modp_list,
-                            num_rhs_fns,
-                            cumulative_stats
-                        )
-                        for p in primes_to_compute
-                    ]
-
-                    fib_precomputed = {}
-
-                    try:
-                        ctx = multiprocessing.get_context("fork")
-                        exec_kwargs = {"max_workers": 8, "mp_context": ctx}
-                    except Exception:
-                        exec_kwargs = {"max_workers": 8}
-                        raise
-
-                    with ProcessPoolExecutor(**exec_kwargs) as executor:
-                        if TORSION_SLOPPY:
-                            futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0]
-                                       for args in args_list}
-                        else:
-                            futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0]
-                                       for args in args_list}
-
-                        for future in tqdm(as_completed(futures), total=len(futures),
-                                    desc=f"Fib {fib_idx+1}/{len(fibrations)}"):
-                            p = futures[future]
-                            try:
-                                p_ret, mapping, local_checks = future.result()
-                                fib_precomputed[p_ret] = mapping or {}
-                            except Exception as e:
-                                fib_precomputed[p] = {}
-                                raise
-
-                    all_precomputed_residues.append(fib_precomputed)
-
-                print(f"\n{'='*70}")
-                print("APPLYING HEIGHT-AWARE CONSENSUS FILTER")
-                print(f"{'='*70}")
-
-                from consensus import compute_consensus_residues_with_height_matching
-
-                precomputed_residues, consensus_stats = compute_consensus_residues_with_height_matching(
-                    all_precomputed_residues,
-                    all_fibration_geometries,
-                    prime_pool,
-                    consensus_threshold=CONSENSUS_THRESHOLD,
-                    height_tolerance_log=0.1,
-                    use_delta_scaling=True,
-                    debug=DEBUG,
-                    target_x=TARGETED_X if TARGETED_X else None,
-                    r_m=r_m,
-                    shift=shift
-                )
-
-                cumulative_stats.consensus_filter_stats = consensus_stats
-
-                print(f"\nConsensus Filter Results:")
-                print(f"  Residues: {consensus_stats['total_residues_before']:,} → {consensus_stats['total_residues_after']:,}")
-                print(f"  Reduction: {consensus_stats['reduction_ratio']:.1%}")
-
-                newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
-                    cd,
-                    current_sections,
-                    prime_pool,
-                    height_bound,
-                    vecs,
-                    search_rhs_list,
-                    r_m,
-                    shift,
-                    all_known_x,
-                    num_prime_subsets,
-                    testfunc,
-                    sconf,
-                    tower_data=tower_for_mumford,
-                    precomputed_residues=precomputed_residues,
-                    coeffs_genus2=sextic_coeffs
-                )
-                all_newly_found_transformed_x.update(list(newly_found_x))
-
-            else:
-                newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
-                    cd, current_sections,
-                    prime_pool, height_bound,
-                    vecs,
-                    search_rhs_list,
-                    r_m,
-                    shift,
-                    all_known_x,
-                    num_prime_subsets,
-                    testfunc,
-                    sconf,
-                    tower_data=tower_for_mumford,
-                    coeffs_genus2=sextic_coeffs
-                )
-                all_newly_found_transformed_x.update(list(newly_found_x))
-
-            cumulative_stats.merge(iter_stats)
+        all_newly_found_transformed_x.update(list(newly_found_x))
+        cumulative_stats.merge(iter_stats)
 
         print(f"Found {len(newly_found_x)} new point(s) and {len(new_sections)} new section(s).")
         if newly_found_x and not FINITE_FIELD:
@@ -1067,479 +1461,26 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         current_sections = lll_reduce_mw_basis(cd, list(set(current_sections)))
         iteration += 1
 
-    # ========================================================================
-    # POST-SEARCH DIAGNOSTICS
-    # ========================================================================
+    # Post-search diagnostics
+    if not FINITE_FIELD:
+        run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_known_x,
+                               r_m, shift, field_data['real_pts'], base_pts, T, current_sections,
+                               precomputed_residues=locals().get('precomputed_residues'))
+
+    # Fibration geometry diagnostics (both modes)
+    run_fibration_geometry_diagnostics(cd, current_sections, cd.a4.parent().gen(), singfibs)
+    run_torsion_analysis(cd, cd.a4.parent().gen(), base_sections)
 
     if not FINITE_FIELD:
-        # ====================================================================
-        # QQ Mode: Rational Point Search Diagnostics
-        # ====================================================================
+        run_advanced_qq_diagnostics(cd, current_sections, prime_pool, singfibs, euler)
 
-        xtest = base_pts[0][0]
-        xtest_unshifted = real_pts[0][0]
-        mtest = m_r(r=xtest)
-        assert_base_m_found(mtest, xtest_unshifted, r_m, shift, T=T)
-
-        from stats import CompletenessAnalyzer, print_unified_completeness_report
-        found_x_list = list(all_known_x)
-
-        print_unified_completeness_report(
-            stats=cumulative_stats,
-            prime_pool=prime_pool,
-            prime_subsets=cumulative_stats.prime_subsets,
-            height_bound=height_bound,
-            found_xs=found_x_list,
-            r_m=r_m,
-            shift=shift
-        )
-
-        from stats import FindabilityAnalyzer, print_unified_diagnostics
-        analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-
-        diag = print_unified_diagnostics(
-            findability_analyzer=analyzer,
-            prime_pool=prime_pool,
-            prime_subsets=cumulative_stats.prime_subsets if hasattr(cumulative_stats, 'prime_subsets') else None,
-            height_bound=height_bound,
-            bootstrap_N=5000,
-            bootstrap_max_num=min(10**4, max(10**3, int(2**(height_bound//2)))),
-            bootstrap_max_den=min(10**4, max(10**3, int(2**(height_bound//3)))),
-            mi_primes_limit=40,
-            mi_N=2000
-        )
-
-        if TARGETED_X:
-            print("\n" + "="*70)
-            print(f"TARGETED POINT ANALYSIS: x = {TARGETED_X}")
-            print("="*70)
-
-            from stats import FindabilityAnalyzer
-            analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-
-            const = r_m(m=QQ(0))
-            target_m = QQ(-1) * TARGETED_X + const
-            print(f"Target m-value: {target_m}")
-
-            if not SYMBOLIC_SEARCH:
-                cov = compute_residue_coverage_for_m(target_m, precomputed_residues, prime_pool)
-                print(f"\nPer-prime visibility: {len(cov['matched_primes'])}/{len(prime_pool)} primes matched ({cov['coverage_fraction']:.1%})")
-
-                if cov['coverage_fraction'] > 0.5:
-                    print(f"\n✓ Target point has high visibility ({cov['coverage_fraction']:.1%})")
-                    print("It should have been found. Check rationality_test_func or height bounds.")
-                elif cov['coverage_fraction'] > 0.1:
-                    print(f"\n⚠️  Target point has moderate visibility ({cov['coverage_fraction']:.1%})")
-                    print("May need larger prime subsets or more iterations.")
-                else:
-                    print(f"\n✗ Target point has low visibility ({cov['coverage_fraction']:.1%})")
-                    print("Increase HEIGHT_BOUND or add more primes to pool.")
-
-                sig = analyzer.visibility_signature(target_m)
-                print(f"\nPer-prime visibility: {sig['matched']}/{sig['usable']} primes matched ({sig['fraction']:.1%})")
-                assert sig['matched'], "no primes show target visibility"
-
-                if sig['fraction'] < 0.5:
-                    print("\n⚠️  TARGET POINT HAS LOW VISIBILITY")
-                    print(f"This point is only visible at {sig['fraction']:.1%} of usable primes.")
-                    print("\nMatched primes:", [p for p, (r, ok) in sig['per_prime'].items() if ok])
-                    print("Missing primes (sample):", [p for p, (r, ok) in sig['per_prime'].items() if not ok][:10])
-
-                    matched_primes = [p for p, (r, ok) in sig['per_prime'].items() if ok]
-                    if len(matched_primes) >= 4:
-                        suggested = matched_primes[:6]
-                        print(f"\nSuggested targeted subset: {suggested}")
-                        print("Add this to prime_subsets_to_process and re-run.")
-                else:
-                    print(f"\n✓ Target point has high visibility ({sig['fraction']:.1%})")
-                    print("It should have been found. Check rationality_test_func or height bounds.")
-
-        print("\n" + "="*70)
-        print("SEARCH SUMMARY")
-        print("="*70)
-        print(f"Total points found: {len(all_known_x)}")
-        print(f"Total time: {float(cumulative_stats.summary()['elapsed']):.1f}s")
-        print(f"CRT candidates tested: {cumulative_stats.counters['crt_candidates_found']:,}")
-        print(f"Rationality tests: {cumulative_stats.counters['rationality_tests_total']:,}")
-        hit_rate = float(cumulative_stats.counters['rationality_tests_success']) / max(1, float(cumulative_stats.counters['rationality_tests_total']))
-        print(f"Hit rate: {100*hit_rate:.2f}%")
-        print("="*70)
-
-        try:
-            mw_rank = len(current_sections)
-
-            def simple_height(x):
-                try:
-                    q = QQ(x)
-                    num = abs(int(q.numerator()))
-                    den = abs(int(q.denominator()))
-                    return float(math.log(max(num, den, 1)))
-                except Exception:
-                    raise
-                    return 0.0
-
-            if all_known_x:
-                h_obs_max = max(simple_height(x) for x in all_known_x)
-                print(f"Proof using OBSERVED max height: {h_obs_max:.2f}")
-            else:
-                h_obs_max = height_bound
-                print(f"Proof using SEARCH height: {h_obs_max:.2f}")
-
-            run_sufficiency_proof(h_obs_max, cumulative_stats.prime_subsets, mw_rank)
-
-        except Exception as e:
-            print(f"\nCould not run C-bound sufficiency proof: {e}")
-            raise
-
-        from stats import prior_from_arithmetic, completeness_posterior_geometric, bootstrap_visibility
-
-        try:
-            k_found = len(found_x_list)
-        except Exception:
-            try:
-                k_found = len(all_known_x)
-            except Exception:
-                k_found = 0
-                raise
-            raise
-
-        p_visibility = None
-        if 'diag' in locals() and isinstance(diag, dict):
-            try:
-                p_visibility = float(diag['bootstrap']['avg_fraction'])
-            except Exception:
-                p_visibility = None
-                raise
-
-        if p_visibility is None:
-            try:
-                analyzer = FindabilityAnalyzer(cumulative_stats, prime_pool)
-                quick_boot = bootstrap_visibility(analyzer, N_samples=2000, max_num=2000, max_den=2000, seed=42)
-                p_visibility = float(quick_boot['avg_fraction'])
-                print(f"[fallback bootstrap] avg_fraction (p) = {p_visibility:.4f}")
-            except Exception as e:
-                print("Could not compute bootstrap visibility (fallback). Setting p_visibility = 0.0")
-                p_visibility = 0.0
-                raise
-
-        selmer_dim = None
-        r_found = None
-
-        crt_candidates_found = None
-        rationality_tests_success = None
-        try:
-            cnts = cumulative_stats.counters
-            crt_candidates_found = cnts.get('crt_candidates_found', cnts.get('crt_candidates_tested', None))
-            rationality_tests_success = cnts.get('rationality_tests_success', cnts.get('rationality_tests_total_success', None))
-        except Exception:
-            crt_candidates_found = None
-            rationality_tests_success = None
-            raise
-
-        h_max = None
-        known_heights = None
-        try:
-            if all_known_x:
-                known_heights = [simple_height(x) for x in all_known_x]
-                h_max = max(known_heights) if known_heights else None
-        except Exception:
-            h_max = None
-            known_heights = None
-            raise
-
-        rejected_primes_list = getattr(cumulative_stats, 'rejected_primes', [])
-
-        prior = prior_from_arithmetic(
-            k_found=k_found,
-            p_visibility=p_visibility,
-            rejected_primes=rejected_primes_list,
-            prime_pool=prime_pool,
-            selmer_dim=selmer_dim,
-            r_found=r_found,
-            crt_candidates_found=crt_candidates_found,
-            rationality_tests_success=rationality_tests_success,
-            h_max=h_max,
-            known_heights=known_heights
-        )
-
-        print(f"\n--- Arithmetic-informed prior (with fiber collision adjustment) ---")
-        if prior.get('collision_primes'):
-            print(f"Fiber collision primes detected: {prior['collision_primes']}")
-        print(f"p_visibility (raw): {prior['p_raw']:.4f}")
-        print(f"p_visibility (adjusted): {prior['p_adjusted']:.4f}")
-        print(f"mu_selmer:   {prior['mu_selmer']:.4g}")
-        print(f"mu_local:    {prior['mu_local']:.4g}")
-        print(f"mu_height:   {prior['mu_height']:.4g}")
-        print(f"mu_bootstrap:{prior['mu_bootstrap']:.4g}")
-        print(f"--> mu_combined = {prior['mu_combined']:.4g}  (q = {prior['q']:.6f})")
-
-        m_max = 200
-        post = completeness_posterior_geometric(k=k_found, p=prior['p_adjusted'], q=prior['q'], m_max=m_max)
-
-        print("\n--- Posterior summary (geometric prior from arithmetic signals) ---")
-
-        if 'P_all' not in post or 'P_all_but_1' not in post or 'P_all_but_2' not in post:
-            print(f"Observed points (k) = {k_found}")
-            print(f"Estimated detection probability p = {p_visibility:.3f}")
-            print("⚠️  Could not compute posterior probabilities (p_visibility likely 0).")
-            print("    Search may have been starved of valid primes.")
-        else:
-            P_all = post['P_all']
-            P_all_but_1 = post['P_all_but_1']
-            P_all_but_2 = post['P_all_but_2']
-            mean_T = post['posterior_mean_T']
-
-            print(f"Observed points (k) = {k_found}")
-            print(f"Estimated detection probability p = {prior['p_adjusted']:.3f}")
-            print(f"P(true T == k)         = {P_all:.3%}   (probability we found all points)")
-            print(f"P(true T <= k+1)       = {P_all_but_1:.3%}   (probability we missed ≤ 1 point)")
-            print(f"P(true T <= k+2)       = {P_all_but_2:.3%}   (probability we missed ≤ 2 points)")
-            print(f"Posterior mean of T    = {mean_T:.3f}")
-            print("Note: results depend on prior (mu_combined) computed from arithmetic signals above.\n")
-
-            top_items = sorted(post['posterior'].items(), key=lambda t: -t[1])[:8]
-            print("Top posterior mass (T, prob):", ", ".join([f"{int(T)}:{prob:.3%}" for T,prob in top_items]))
-
-        try:
-            from brauer import compute_ramification_locus
-            ram_locus = compute_ramification_locus(cd)
-            detected_collisions = set(p for p, r in cumulative_stats.rejected_primes if 'collision' in str(r))
-
-            if USE_CONSENSUS_FILTER:
-                print(f"\n✓ Fiber collisions detected across all geometries: {detected_collisions}")
-                print(f"  Primary fibration ramification locus: {ram_locus}")
-                print(f"  (Collisions may differ per fibration in consensus mode)")
-            else:
-                if not detected_collisions.issubset(ram_locus):
-                    print(f"\n⚠️  WARNING: Detected collisions {detected_collisions} not in ramification locus {ram_locus}")
-                else:
-                    print(f"\n✓ Fiber collision detection validated: {detected_collisions} ⊆ ramification locus {ram_locus}")
-        except Exception as e:
-            print(f"\nCould not validate ramification locus: {e}")
-            raise
-
-    # ========================================================================
-    # Fibration-Specific Diagnostics (Both Modes)
-    # ========================================================================
-
-    print("\n" + "="*70)
-    print("FIBRATION GEOMETRY DIAGNOSTICS")
-    print("="*70)
-
-    print("\n--- Automorphism Search ---")
-    try:
-        if 'cd' not in locals() or 'm_sym' not in locals():
-            print("Required objects 'cd' or 'm_sym' are not defined. Skipping automorphism search.")
-        else:
-            if not current_sections:
-                print("No sections found; skipping automorphism search preserving fibration.")
-            else:
-                auts_report = compute_auts_preserving_fibration(cd, current_sections, m_sym)
-                scaling_autos = auts_report.get('scaling_autos', [])
-                if scaling_autos:
-                    print(f"Found {len(scaling_autos)} scaling automorphisms:")
-                    for i, aut in enumerate(scaling_autos):
-                        print(f"  [{i}] Möbius map: (a,b,c,d) = {aut['mobius']}")
-                        print(f"      Scaling factor u = {aut['u']}")
-                else:
-                    print("No scaling automorphisms found.")
-
-                translation_autos = auts_report.get('translation_autos', [])
-                if translation_autos:
-                    print(f"Found {len(translation_autos)} translation automorphisms:")
-                    for i, aut in enumerate(translation_autos):
-                        print(f"  [{i}] Translation by Section S{aut['section_index']}")
-                else:
-                    print("No translation automorphisms found.")
-
-            if not FINITE_FIELD:
-                try:
-                    ns_auts, names = compute_ns_auts(singfibs, current_sections)
-                    if ns_auts:
-                        print(f"\nFound {len(ns_auts)} automorphisms of the NS lattice.")
-                        classified_ns_auts = classify_auts(ns_auts, names)
-                        print("Classified NS lattice automorphisms:")
-                        for i, (M, labels) in enumerate(classified_ns_auts):
-                            print(f"  [{i}] Matrix:\n{M}")
-                            print(f"      Labels: {labels}")
-                    else:
-                        print("\nNo non-trivial automorphisms found for the NS lattice.")
-                except Exception as ns_exc:
-                    print(f"NS lattice automorphism computation failed: {ns_exc}")
-                    raise
-
-    except Exception as exc:
-        print(f"An error occurred during automorphism computation: {exc}")
-        raise
-
-    print("\n--- Torsion Analysis ---")
-    if FINITE_FIELD:
-        print("Torsion analysis over finite fields: Using specializations at field elements")
-        specs = good_specializations(cd, m_sym, max_try=min(40, FINITE_FIELD // 2))
-    else:
-        specs = good_specializations(cd, m_sym, max_try=40)
-
-    print("Got", len(specs), "good specializations for torsion check.")
-    orders = []
-    for m0, E in specs:
-        if FINITE_FIELD:
-            # Over finite fields, use abelian_group() instead of torsion_subgroup()
-            try:
-                ab_grp = E.abelian_group()
-                orders.append(ab_grp.order())
-            except Exception:
-                # Fallback: count points directly
-                orders.append(E.cardinality())
-        else:
-            # Over QQ, use torsion_subgroup()
-            tors = E.torsion_subgroup()
-            orders.append(tors.order())
-
-    if FINITE_FIELD:
-        # In FF mode, GCD of group orders doesn't give torsion bound the same way
-        # Just report what we found
-        if orders:
-            from math import gcd
-            from functools import reduce
-            candidate_torsion_order = reduce(gcd, orders)
-            print("GCD of specialized curve orders (informational only):", candidate_torsion_order)
-        else:
-            print("No valid specializations for torsion analysis")
-    else:
-        # QQ mode - original logic
-        candidate_torsion_order = reduce(gcd, orders) if orders else 1
-        print("Fast method candidate torsion order (GCD of specializations):", candidate_torsion_order)
-
-    fiber_counts, lcm_bound = compute_fiber_lcm(cd)
-    print("Fiber component counts:", fiber_counts, " -> lcm bound:", lcm_bound)
-
-    for i, sec in enumerate(base_sections):
-        is_torsion = False
-        for n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]:
-            if torsion_test(cd, sec, n, m_sym=m_sym, max_try=12):
-                print(f"Base section {i} appears to be torsion of order dividing {n}.")
-                is_torsion = True
-                assert not is_torsion, base_sections
-                break
-        if not is_torsion:
-            print(f"Base section {i} does not appear to be small order torsion.")
-
-    if not FINITE_FIELD:
-        print("\n--- Saturation Diagnostics ---")
-        run_saturation_checks(cd, current_sections, prime_pool[:30])
-
-        print("\n--- Picard Analysis (Van Luijk) ---")
-        ell_candidates = [p for p in prime_pool if p not in cd.bad_primes][:10]
-        print(f"Using {len(ell_candidates)} good prime candidates for reduction: {ell_candidates}")
-
-        picard_report = picard_via_van_luijk(
-            cd,
-            current_sections,
-            prime_pool,
-            ell_candidates=tuple(ell_candidates),
-            verbose=True
-        )
-        print("\n=== Picard Report ===")
-        print(f"Lower bound (char 0): {picard_report['lower_bound']}")
-        print(f"Upper bounds from reductions:")
-        for ub, info in picard_report['upper_bounds']:
-            print(f"  ell={info['ell']}: rho <= {ub}    (rank_lb={info['rank_lb']}, Σ={info['sum_contrib']})")
-        if picard_report['rho'] is not None:
-            print(f"*** Concluded Picard number: ρ = {picard_report['rho']} ***")
-        else:
-            print("*** Picard not pinned exactly (likely off by ≤ 1). Consider the discriminant step. ***")
-
-        print("\n--- Shioda-Tate Diagnostics ---")
-        rank_guess, details, diag = shioda_tate_from_fiber_list(
-            singfibs['fibers'],
-            rho_geom=picard_report['rho'],
-            return_diagnostics=True,
-            allow_auto_rho=True
-        )
-
-        if rank_guess is None:
-            print(f"Rank could not be determined. Reason: {diag.get('note', 'Unknown')}")
-        else:
-            print(f"Shioda-Tate Rank Estimate (assuming rho={picard_report['rho']}): {rank_guess}")
-
-        print(f"Total Euler Characteristic: {euler}")
-        print(f"Sum of Fiber Contributions (Σ(m_v - 1)): {details['sum_contributions']}")
-
-        compute_selmer_rank_bounds(cd, rank_guess, verbose=True)
-        print("")
-
-        _, chi = compute_euler_and_chi(cd)
-        if picard_report['rho'] is not None and chi != 1 and False:
-            rho = picard_report['rho']
-            print("\n--- Rational Curve Counts (Yau-Zaslow) ---")
-            print("running with rho, mw rank, chi =", rho, rank_guess, chi)
-
-            basis_labels, Q, h_vec = build_ns_basis_and_Q(cd, rho, mw_rank=rank_guess, chi=chi)
-
-            mcoords = tuple(range(11, 75))
-            counts, reps = staged_rational_curve_search(
-                cd,
-                current_sections,
-                rho, rank_guess, chi,
-                height_bounds=(15, 25, 35, 45, 55),
-                max_coords=mcoords,
-                node_cap=15_000_000,
-                return_reps=True,
-                require_S_coeff='positive',
-                targeted_fallback=True
-            )
-
-            runs = run_convergence_test(cd, current_sections, rho, chi, rank_guess,
-                                        max_coords_seq=(20, 24, 28, 31), require_S_coeff='positive')
-
-            print(f"Found rational curve classes in {len(counts)} different degrees.")
-            print("Counts per degree:", counts)
-
-            print("\nSample representatives (first few degrees):")
-            for d in sorted(reps.keys())[:6]:
-                print(f"\nDegree {d}, count {counts.get(d, 0)}:")
-                for v in reps[d][:8]:
-                    print("   ", decode_vector(v, basis_labels))
-
-            try:
-                if current_sections:
-                    comp_map = detect_section_component(cd, current_sections[0])
-                    print("\nSection-component intersection map (heuristic):", comp_map)
-            except Exception as e:
-                print(f"\nCould not run section-component detection: {e}")
-                raise
-
-            qseries = build_qseries_from_counts(counts, rho, max_degree=20)
-            print("\nQ-series (up to q^12):", qseries)
-
-            cands = find_isotropic_fibration_candidates(cd, current_sections, rho, rank_guess, chi)
-            results = evaluate_fibration_height_reduction(cd, current_sections, rho, rank_guess, chi, candidates=cands, shioda_sign=-1)
-
-            if results:
-                top = results[0]
-                print("best coeffs:", top['a'])
-                print("old heights:", top['heights_old'])
-                print("new heights:", top['heights_new'])
-                print("per-section delta (old-new):", top['delta'])
-                print("total reduction:", top['total_reduction'])
-            else:
-                print("no isotropic candidates found in box")
-
-    # ========================================================================
-    # Return Results
-    # ========================================================================
-
+    # Return results
     new_points_original_coords = set()
 
     if T_inv and not FINITE_FIELD:
-        try:
-            new_points_original_coords = set(apply_to_points(all_newly_found_transformed_x, T_inv))
-            if all_newly_found_transformed_x:
-                print(f"Transformed {len(all_newly_found_transformed_x)} new points back to original geometry.")
-        except Exception as e:
-            print(f"CRITICAL: Failed to apply inverse transform to new points: {e}")
-            raise
-            return set(), cumulative_stats
+        new_points_original_coords = set(apply_to_points(all_newly_found_transformed_x, T_inv))
+        if all_newly_found_transformed_x:
+            print(f"Transformed {len(all_newly_found_transformed_x)} new points back to original geometry.")
     else:
         new_points_original_coords = all_newly_found_transformed_x
 

@@ -89,7 +89,6 @@ def gram_logdet_and_cond(basis_indices, get_pairing):
     return dict with:
         n, svals (list), log10_abs_det, log10_cond, numeric_rank_est
     """
-    import numpy as np, math
     n = len(basis_indices)
     if n == 0:
         return {"n":0, "svals": [], "log10_abs_det": None, "log10_cond": None, "numeric_rank": 0}
