@@ -1,0 +1,395 @@
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{titlesec}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    urlcolor=blue!70!black,
+    pdftitle={Genus 2 Curve Arithmetic System - Technical Overview}
+}
+
+\title{\textbf{Genus 2 Curve Arithmetic System} \\ \large Technical Overview}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Rational point search $\cdot$ Jacobian rank computation $\cdot$ Finite-field DLP.
+\end{abstract}
+
+\section{Executive Summary}
+
+This system is a research-grade SageMath/Python toolkit for studying the arithmetic of genus 2 (and higher-genus) hyperelliptic curves over the rationals. Its central innovation is an iterated fibration tower construction that reduces difficult questions about genus $\geq 2$ curves to tractable problems on families of elliptic curves. Building on this foundation, the system provides three tightly integrated capabilities:
+
+\begin{itemize}[label={\textbullet}]
+    \item Rational point enumeration — finding rational points on curves of arbitrary genus (genus 2 fully supported; genus 3 tested; higher genera possible) starting from a single seed point, using CRT, LLL lattice reduction, and Hensel lifting.
+    \item Jacobian rank determination (\texttt{MUMFORD\_SEARCH} mode) — computing a provably independent basis for $J(\mathbb{Q})$, the Mordell--Weil group of the Jacobian, typically in well under two minutes regardless of conductor or rank.
+    \item Finite-field DLP / index calculus — mounting a genus 2 hyperelliptic-curve discrete-logarithm attack via Mumford divisor smoothness relations and sparse linear algebra.
+\end{itemize}
+
+The system has been validated against the LMFDB on dozens of genus 2 curves spanning a wide range of conductors (up to $\sim 10^7$) and Mordell--Weil ranks (0 through 4+).
+
+\section{Mathematical Background}
+
+\subsection{Genus 2 Curves and Their Jacobians}
+
+A genus 2 curve $C$ over $\mathbb{Q}$ is a smooth projective curve of the form $y^2 = f(x)$ where $f$ is a squarefree polynomial of degree 5 or 6. Unlike elliptic curves, $C(\mathbb{Q})$ need not itself form a group; instead, its degree-0 Picard group --- the Jacobian $J(C)$ --- is a 2-dimensional abelian variety that generalizes the group law. By the Mordell--Weil theorem, $J(\mathbb{Q})$ is a finitely generated abelian group. Its free rank $r = \text{rank}\, J(\mathbb{Q})$ (often just called the rank of $C$) is a central arithmetic invariant. Computing $r$ rigorously is much harder for genus 2 than for elliptic curves, where standard descent methods apply directly.
+
+Elements of $J(\mathbb{Q})$ are represented as Mumford divisors: pairs $(u(x), v(x))$ where $u$ is monic of degree 2, $v$ has degree $< 2$, and $u \mid v^2 - f(x)$ in $\mathbb{Q}[x]$. The Cantor algorithm handles group-law computations in this representation.
+
+\subsection{Elliptic Fibrations}
+
+An elliptic fibration is a map $\pi: S \to \mathbb{P}^1$ from a surface $S$ to the projective line whose generic fiber is a smooth elliptic curve $E/\mathbb{Q}(m)$. The system constructs such a fibration starting from the genus 2 curve $C$ and a rational point on $C$. The parameter $m$ lives in the intersection locus: it records where the tangent (or secant) line through a known rational point meets the shifted curve. A rational $m$-value corresponds to a rational point on $C$, which is precisely the information the search harvests via CRT.
+
+\subsection{Shioda--Tate and Picard Numbers}
+
+For an elliptic surface $S/\mathbb{Q}$ with generic fiber $E/\mathbb{Q}(m)$, the Shioda--Tate formula relates the Picard number $\rho(S)$, the rank of $E(\mathbb{Q}(m))$, and the fiber contribution:
+$$\rho(S) = 2 + \text{rank}\, E(\mathbb{Q}(m)) + \sum_v (m_v - 1)$$
+where the sum is over singular fibers of Kodaira type, and $m_v$ is the number of irreducible components. The system computes both a lower bound on $\rho$ (from characteristic-0 geometry) and an upper bound (from reduction modulo good primes via the Lefschetz trace formula), often pinning $\rho$ exactly and thereby determining the Mordell--Weil rank of the fibration.
+
+\section{Core Algorithm: The Fibration Tower}
+
+\subsection{Tower Construction}
+
+Given a genus 2 curve $C: y^2 = f(x)$ and a seed rational point $P = (x_0, y_0) \in C(\mathbb{Q})$, the system constructs an iterated fibration tower:
+
+\begin{itemize}[label={\textbullet}]
+    \item Degree 5 polynomials (genus 2, one infinite place): one tower step reduces to a degree-4 (genus 1) quartic fibration.
+    \item Degree 6 polynomials (genus 2, two infinite places): two tower steps are required, first reducing to degree 5, then to degree 4.
+\end{itemize}
+
+At each step the algorithm:
+\begin{enumerate}
+    \item Selects the best-scoring auxiliary polynomial $Q(x)$ of appropriate degree using a complexity measure (height, degree, collision resistance of the discriminant locus).
+    \item Computes the intersection locus as a rational function $r(m)$ in the fibration parameter $m$.
+    \item Passes to the next step using the residual degree-4 quartic as the new fiber.
+\end{enumerate}
+
+Scores are computed across 10 candidate geometries and the lowest-complexity choice is selected, trading off coefficient height, degree, and bad-prime content. Non-minimal models are sometimes preferred despite seemingly higher complexity, because they are less sensitive to height bounds.
+
+\subsection{Weierstrass Model and Fiber Analysis}
+
+Once the quartic fiber is established, the system computes the Weierstrass model $E: y^2 = x^3 + a_4(m)x + a_6(m)$ over the function field $\mathbb{Q}(m)$. This involves:
+
+\begin{itemize}[label={\textbullet}]
+    \item Minimal Weierstrass reduction: Tate's algorithm applied fiber by fiber over algebraic places of $m$.
+    \item Kodaira fiber classification: each irreducible factor of the discriminant $\Delta(m)$ is classified ($I_n$, $II$, $III$, $IV$, $I^*_n$, $\dots$) by examining the valuations of $c_4$, $c_6$, $\Delta$.
+    \item Euler characteristic validation: the sum of fiber contributions must equal 12 for a standard rational elliptic surface.
+    \item Discriminant degree check: degree 12 in $m$ indicates a fully minimal model; deviations trigger diagnostics.
+\end{itemize}
+
+\subsection{Mordell--Weil Sections}
+
+From the known rational point $P$, the system generates sections --- rational functions $S_i(m) = (x_i(m), y_i(m))$ satisfying the Weierstrass equation for all $m$. Sections are the Mordell--Weil group elements of the generic fiber. Multiple independent sections arise from multiples $[n]P$ of the base section and from additional rational points found during the search. Independence is verified via the N\'eron--Tate height pairing matrix, which must be positive definite for a true basis.
+
+\section{Rational Point Search over $\mathbb{Q}$}
+
+\subsection{The Search Problem}
+
+The key observation is that a rational point $(x_0, y_0) \in C(\mathbb{Q})$ corresponds to a rational value of $m$ satisfying $x_0 = r(m)$ where $r(m)$ is the intersection-locus rational function. The search therefore reduces to finding rational roots of the numerator of $S_i(m) - r(m)$ for sections $S_i$.
+
+\subsection{Modular Arithmetic Pipeline}
+
+The system searches for rational $m$ by collecting residues modulo a pool of primes and applying CRT reconstruction:
+
+\begin{enumerate}
+    \item For each prime $p$ in the pool, solve $S_i(m) \equiv r(m) \pmod{p}$ to find candidate residues $m \equiv c \pmod{p}$.
+    \item Apply Hensel's lemma to lift simple roots to higher precision.
+    \item Filter by torsion order (small-order residues likely correspond to torsion sections, not rational points).
+    \item Combine residues across multiple prime subsets via CRT, forming candidate rational numbers by rational reconstruction.
+    \item Verify each candidate by substituting back into the curve equation.
+\end{enumerate}
+
+\subsection{LLL Lattice Reduction}
+
+Raw search vectors (integer combinations of sections) are preprocessed by LLL and BKZ lattice reduction to find short vectors. Short vectors correspond to low-multiplier combinations $[n]P$ that are most likely to produce small-height rational $m$ values, dramatically reducing the search space. Configurable parameters include the height bound, prime pool size, LLL delta, BKZ block size, and extra-prime filtering density. The system auto-tunes several of these from the Galois group of the discriminant and the canonical height of the seed point.
+
+\subsection{Multi-Fibration Strategy}
+
+Different fibrations --- built from different auxiliary polynomials $Q(x)$ --- expose different rational points because each section sees the curve's geometry from a different angle. Not every fibration can detect every rational point. The system therefore runs multiple fibrations sequentially, adding newly discovered points as seeds for subsequent fibration towers. A consensus filter can optionally require agreement across several fibrations before accepting a candidate.
+
+\section{Jacobian Rank Finding: MUMFORD\_SEARCH Mode}
+
+This mode directly computes the Mordell--Weil rank of $J(C)$ by constructing an explicit independent basis for $J(\mathbb{Q})$. It runs in well under 2 minutes for genus 2 curves of arbitrary conductor and rank.
+
+\subsection{What It Computes}
+
+Whereas the rational point search looks for rational $m$-values (i.e., rational points on $C$), \texttt{MUMFORD\_SEARCH} mode looks for rational Mumford divisors: elements $D \in J(\mathbb{Q})$ of the form $[u(x), v(x)]$ with $u, v \in \mathbb{Q}[x]$, $\deg u = 2$, $\deg v < 2$. The size of the largest independent such set is the Mordell--Weil rank.
+
+\subsection{The Mumford Residue System}
+
+Each Mumford divisor is specified by four rational numbers $(s, p, v_1, v_0)$, where $u(x) = x^2 - sx + p$ and $v(x) = v_1 x + v_0$. The Mumford conditions give a system of polynomial constraints. The fibration provides a modular parameterization: for each prime $\ell$ in the pool, the system solves the 5-equation Mumford system over $\mathbb{F}_\ell$ to harvest candidate residues of $(s, p, v_1, v_0)$.
+
+\subsection{CRT Reconstruction of Divisors}
+
+Residues of the four Mumford coordinates are collected across the prime pool and combined via CRT. The reconstruction phase:
+
+\begin{itemize}[label={\textbullet}]
+    \item Groups vectors by their LLL-reduced section multiple, focusing reconstruction on vectors most likely to lift to rational divisors.
+    \item Applies algebraic pre-filtering using the consistency equations to prune incompatible residue combinations before CRT.
+    \item Performs height-filtered rational reconstruction, accepting only candidates whose Weil height is within the configured bound.
+    \item Verifies each reconstructed $(s, p, v_1, v_0)$ against the Mumford conditions over $\mathbb{Q}$.
+\end{itemize}
+
+\subsection{Independent Basis Construction}
+
+After reconstruction, the system selects an independent basis from the candidate divisors using a multi-prime certification protocol:
+
+\begin{itemize}[label={\textbullet}]
+    \item Torsion filter: divisors with finite order in $J(\mathbb{Q})$ are identified by checking $[N]D = 0$ for small $N$ using the group law, and discarded.
+    \item Mod-$p$ scoring: each divisor is evaluated modulo several good primes; those with consistently high ``rank score'' across primes are prioritized.
+    \item Incremental certification: divisors are added to the basis one at a time. A new divisor is accepted only if it is independent of the current basis modulo at least 3 distinct primes. Independence is checked via Smith normal form on the relation matrix.
+    \item Height pairing confirmation: once the basis is certified by mod-$p$ methods, the N\'eron--Tate Gram matrix $H = (\langle D_i, D_j \rangle)$ is computed using Arakelov height pairings and confirmed to be positive definite.
+\end{itemize}
+
+The rank is simply the final basis size. Because the certification uses provably correct linear algebra over $\mathbb{Z}/n\mathbb{Z}$ (Smith normal form) at multiple primes, the result is certified rather than heuristic.
+
+\subsection{Typical Performance}
+
+For genus 2 curves from the LMFDB with conductors up to $\sim 10^7$ and Mordell--Weil ranks 0 to 4, the complete rank-finding computation --- fibration construction, residue harvesting, CRT reconstruction, torsion filtering, and basis certification --- typically completes in under 2 minutes on a modern multicore workstation. The bottleneck is the CRT reconstruction phase, which is parallelized across up to 20 workers.
+
+As an example, a rank-4 curve ($y^2 = x^6 + 8x^5 + 10x^4 - 10x^3 - 11x^2 + 2x + 1$) with 11 known rational points: the system found a certified basis of 4 independent Mumford divisors and all 7 non-trivial rational $x$-coordinates in 33.5 seconds total.
+
+\section{Finite-Field Index Calculus (DLP Mode)}
+
+\subsection{Problem Setup}
+
+When \texttt{FINITE\_FIELD = p} is set, the system attacks the genus 2 Hyperelliptic Curve Cryptosystem (HECC) discrete logarithm problem: given $G, Q \in J(\mathbb{F}_p)$ with $Q = [d]G$, find $d$. The system automatically generates a cryptosystem instance: it constructs a prime-order subgroup of $J(\mathbb{F}_p)$, picks a random base divisor $G$, computes $Q = [d]G$ for a chosen secret key $d$, and records four preferred $x$-coordinates (the supports of $G$ and $Q$) to aid smoothness detection.
+
+\subsection{Index Calculus Pipeline}
+
+The attack proceeds in three stages:
+
+\begin{enumerate}
+    \item Factor base construction: smooth Mumford divisors are collected using the fibration-parameterized Mumford residue system over $\mathbb{F}_p$. ``Smooth'' means $u(x)$ splits completely over $\mathbb{F}_p$ into linear factors, giving degree-1 components that form the factor base.
+    \item Relation generation: the random walk harvests divisors expressible as sums of factor-base elements. A structured walk (seeded by $x$-residues from the fibration) and a collision walk (Baby-step Giant-step) cooperate to reach the target relation count.
+    \item Linear algebra: the relation matrix (sparse, over $\mathbb{Z}/\ell\mathbb{Z}$ where $\ell$ is the group order) is solved using Block Wiedemann's algorithm. The solution gives $d$ directly.
+\end{enumerate}
+
+\subsection{Matrix Rank Diagnostics}
+
+Before committing to linear algebra, the system verifies that the relation matrix is full rank. A full-rank matrix guarantees a unique solution; rank deficiency indicates insufficient or linearly dependent relations and triggers further relation collection.
+
+\section{Supporting Analyses}
+
+\subsection{Picard Number ($\rho$) via Shioda--Tate}
+
+Using the Shioda--Tate formula, the system computes both a characteristic-0 lower bound on $\rho(S)$ (from the known sections and fiber types) and an upper bound from the rank of the N\'eron--Severi group modulo a good prime $\ell$ (via the Lefschetz trace on the $\ell$-adic cohomology). When both bounds agree, $\rho$ is determined exactly, which in turn pins the Mordell--Weil rank of the generic fiber.
+
+\subsection{2-Selmer Rank Bounds}
+
+A 2-descent computes an upper bound on $\text{rank}\, J(\mathbb{Q})$ via the Selmer group. Local conditions are evaluated at each bad prime (including $\infty$) and the global Selmer rank is bounded by the sum of local dimensions minus the reciprocity correction. This provides an upper bound complementing the lower bound from the Mumford basis.
+
+\subsection{Torsion Analysis}
+
+The system identifies the torsion subgroup of $J(\mathbb{Q})$ by computing the GCD of specializations of the group order at good primes and by checking small multiples $[N]D = 0$. Torsion elements are filtered out before basis construction to ensure the Mumford basis is free.
+
+\subsection{Automorphism Analysis}
+
+The N\'eron--Severi lattice automorphisms (scaling and translation symmetries of the fibration) are computed and reported. Non-trivial automorphisms can be exploited to reduce the search space or to relate different fibrations.
+
+\subsection{CM Fiber Detection}
+
+Special fibers with complex multiplication ($j$-invariant $0, 1728, -19728, -88736, \dots$) are detected by solving $a_4(m) = 0$ or specialized $j$-invariant equations. CM fibers often yield high-rank specializations and are tried as candidate rational points.
+
+\subsection{Archimedean Height Pairings}
+
+The N\'eron--Tate height pairing $\langle D_i, D_j \rangle$ between Mumford divisors is computed using a combination of Arakelov intersection theory (for the finite places) and numerical integration over the Jacobian's period lattice (for the archimedean place). These pairings form the Gram matrix $H$, whose determinant and positive-definiteness certify independence of the basis.
+
+\section{Feature Summary}
+
+\begin{table}[h]
+    \centering
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabularx}{\textwidth}{l X}
+        \toprule
+        \textbf{Feature} & \textbf{Description} \\
+        \midrule
+        Fibration Tower & Iterated 1--2 step tower reducing genus 2 curve to elliptic fibration over $\mathbb{Q}(m)$; best-of-10 geometry selection. \\
+        Weierstrass \& Kodaira & Full Weierstrass minimization, Tate algorithm, Kodaira fiber classification, Euler characteristic. \\
+        Rational Point Search & LLL + CRT + Hensel + rational reconstruction pipeline; auto-configured height bounds and prime pool. \\
+        Rank Finding (MUMFORD) & Provably independent Mumford basis for $J(\mathbb{Q})$; mod-$p$ certification + Smith normal form; under 2 min typical. \\
+        Torsion Filtering & Identifies and removes torsion Mumford divisors before basis construction. \\
+        Picard / Shioda--Tate & Exact $\rho(S)$ via char-0 lower bound + reduction upper bound; determines MW rank of generic fiber. \\
+        2-Selmer Bounds & Local 2-descent at all bad primes; upper bound on $\text{rank}\, J(\mathbb{Q})$. \\
+        CM Fiber Detection & Special $j$-invariant fiber search for high-rank specializations. \\
+        Automorphisms & NS lattice translation and scaling automorphisms; symmetry exploitation. \\
+        Finite-Field DLP & HECC index calculus: smooth divisor factory, structured + collision walk, Block Wiedemann solve. \\
+        Height Pairings & Arakelov + archimedean N\'eron--Tate pairings; positive-definite Gram matrix enforced. \\
+        Multi-Fibration & Sequential fibration construction from growing point list; consensus filter across fibrations. \\
+        Diagnostics & Completeness posterior, prime MI analysis, saturation ratio, sufficiency proofs. \\
+        Parallel Execution & Residue computation and CRT reconstruction parallelized across up to 20 workers. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{System Capabilities and Features}
+\end{table}
+
+\section{Usage and Configuration}
+
+\subsection{Primary Entry Point}
+
+The system is invoked via the main entry point. All configuration lives in the configuration file.
+
+\subsection{Key Configuration Flags}
+
+\begin{table}[h]
+    \centering
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabularx}{\textwidth}{l X}
+        \toprule
+        \textbf{Flag} & \textbf{Description} \\
+        \midrule
+        COEFFS\_GENUS2 & Coefficient list $[a_n, \dots, a_0]$ defining $y^2 = f(x)$. Degree 5 or 6 for genus 2; degree 7--8 for genus 3; higher degrees accepted (experimental). \\
+        DATA\_PTS\_GENUS2 & List of seed $x$-coordinates (rational) on the curve. \\
+        TERMINATE\_WHEN\_6 & Stop searching after finding this many distinct rational $x$-coordinates. \\
+        MUMFORD\_SEARCH & \texttt{True}: find Mumford basis for $J(\mathbb{Q})$ (rank). \texttt{False}: find rational points on $C$. Default: \texttt{False}. \\
+        FINITE\_FIELD & \texttt{None} for over-$\mathbb{Q}$ search; set to prime $p$ for finite-field DLP mode. Default: \texttt{None}. \\
+        SECRET\_KEY & DLP mode: secret exponent $d$ (for benchmarking). \\
+        BLOCK\_WIEDEMANN & \texttt{True}: always use Block Wiedemann for the final DLP solve. Default: \texttt{False}. \\
+        PRIME\_POOL & Pool of primes for modular residue computation; defaults to \texttt{primes(590)}, auto-filtered per fibration. \\
+        NUM\_PRIME\_SUBSETS & Number of independent prime subsets; $\geq 250$ for stability. Default: 500. \\
+        USE\_MINIMAL\_MODEL & \texttt{True}: Tate-minimized Weierstrass model (slower, more correct). \texttt{False}: generic fiber model. Default: \texttt{True}. \\
+        SYMBOLIC\_SEARCH & \texttt{True}: solve over $\mathbb{Q}(m)$ (usually slower; rarely finds anything extra). Default: \texttt{False}. \\
+        HEIGHT\_BOUND & Canonical height cutoff for rational reconstruction candidates. Auto-tuned by default. \\
+        DEBUG & Enable verbose diagnostic output. Default: \texttt{False}. \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\section{Representative Example Outputs}
+
+\subsection{Rank-4 Curve — Full Point Set}
+
+\begin{itemize}[label={\textbullet}]
+    \item Curve: $y^2 = x^6 + 8x^5 + 10x^4 - 10x^3 - 11x^2 + 2x + 1$ (LMFDB ``prestige curve'')
+    \item Seed point: $(-1, 1)$
+    \item \texttt{MUMFORD\_SEARCH} mode: certified rank-4 Mumford basis in 33.5 seconds.
+    \item 7 distinct rational $x$-coordinates recovered: $\{0, 1, -3/2, 2, 1/3, -2, -1\}$.
+    \item 4 independent Mumford divisors certified by 4 primes, mod-$p$ rank $= 4$.
+\end{itemize}
+
+\subsection{Rank-1 Curve — Picard Number Determination}
+
+\begin{itemize}[label={\textbullet}]
+    \item Picard number $\rho = 3$ determined exactly (lower = upper $= 3$ at $\ell = 10009$).
+    \item Shioda--Tate: $\text{rank}\, E(\mathbb{Q}(m)) = 1$, $\sum (m_v - 1) = 0$.
+    \item 2-Selmer bound: $1 \leq \text{rank} \leq 3$.
+    \item Total run time: 125 seconds.
+\end{itemize}
+
+\subsection{Finite-Field DLP}
+
+\begin{itemize}[label={\textbullet}]
+    \item Curve: $y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4$ over $\mathbb{F}_{33554467}$
+    \item Secret key $d = 800$, Jacobian order $\approx 10^{12}$, largest prime $\ell \approx 9.7 \times 10^8$.
+    \item 18,017 smooth Mumford divisors collected (factor base of 4,504 unique $x$-coordinates).
+    \item Relation matrix: $18017 \times 4504$, full rank confirmed. Ready for Block Wiedemann.
+    \item Total time: 112 seconds.
+\end{itemize}
+
+\subsection{Large-Conductor Genus 2 Curves}
+
+The system has been tested on curves parsed directly from LMFDB database entries (discriminant up to $\sim 10^7$, conductors from hundreds to millions), with \texttt{TERMINATE\_WHEN\_6} targets of 1 to 11. Conductors up to $\sim 10^7$ are handled without special tuning.
+
+\section{Code Architecture}
+
+\begin{table}[h]
+    \centering
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabularx}{\textwidth}{>{\ttfamily}p{0.38\textwidth} X}
+        \toprule
+        \textbf{Module} & \textbf{Description} \\
+        \midrule
+        search7\_genus2.sage & Main entry point: orchestrates fibration tower, search, Mumford basis, analyses. \\
+        search\_common.py & Global configuration and shared utilities (curve setup, prime subgroup, CRT helpers); contains LMFDB test curves. \\
+        tower.sage & Fibration tower construction: geometry scoring, polynomial interpolation, tower iteration. \\
+        search\_main.py & Rational point search: LLL vectors, modular pipeline, CRT, Hensel, rational reconstruction. \\
+        mumford\_basis.py & Jacobian basis construction: Mumford CRT reconstruction, torsion filter, mod-$p$ certification. \\
+        mumford\_parallel.py & Parallel residue computation for the Mumford system across the prime pool. \\
+        mumford\_reconstruction.py & Algebraic pre-filtering and CRT combination of Mumford coordinate residues. \\
+        mumford\_core.py & Core Mumford divisor arithmetic and group law. \\
+        mumford\_solver.py & Mumford constraint solving over finite fields. \\
+        mumford\_equations.py & Mumford condition polynomials. \\
+        mumford\_height.py & Height computations for Mumford divisors. \\
+        mumford\_verification.py & Verification routines for reconstructed divisors. \\
+        index\_calculus.py & Finite-field DLP: factor base generation, relation walk, matrix preparation. \\
+        sparse\_linalg\_modp.py & Block Wiedemann sparse linear algebra solver over $\mathbb{Z}/\ell\mathbb{Z}$. \\
+        arakelov.py & Arakelov height pairings (finite places) for N\'eron--Tate Gram matrix. \\
+        homology.py & Period lattice and archimedean height integrals. \\
+        periods.py & Period computation for the Jacobian. \\
+        integration.py & Numerical integration utilities. \\
+        analytic\_pairings.py & Analytic/archimedean pairing computations. \\
+        pairings.py & Height pairing dispatch. \\
+        picard.py & Picard number bounds, Lefschetz trace, Shioda--Tate analysis. \\
+        selmer.py / selmer\_genus2.py & 2-Selmer rank computation for genus 2 curves. \\
+        tate.py & Tate algorithm for Kodaira fiber classification and minimal model reduction. \\
+        bounds.py & Splitting field degree estimation, height bound auto-tuning, prime pool management. \\
+        ll\_utilities.py & LLL/BKZ lattice reduction, vector generation, rational reconstruction. \\
+        heights.py & Canonical height computations. \\
+        torsion.py & Torsion subgroup identification. \\
+        automorph.py & N\'eron--Severi lattice automorphisms. \\
+        sat.py & Saturation analysis for the Mordell--Weil group. \\
+        nslattice.py & N\'eron--Severi lattice operations. \\
+        local.py / local\_diagnostics.py & Local arithmetic and diagnostics. \\
+        diagnostics2.py & Singular fiber analysis. \\
+        consensus.py & Multi-fibration consensus filter. \\
+        parallel.py & Parallel execution utilities. \\
+        core.py & Core shared arithmetic routines. \\
+        dedup.py & Deduplication of candidate points. \\
+        stats.py & Phase timing, counter tracking, and run statistics. \\
+        walker.py & \textbf{Active development} --- Baby-step Giant-step collision walk for DLP relation generation. Experimental; requires \texttt{libwalk.so}. \\
+        collision\_walk.c & C source for the collision walk; compile manually to \texttt{libwalk.so}. \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\section{Known Limitations and Open Questions}
+
+\begin{itemize}[label={\textbullet}]
+    \item The 2-Selmer upper bound can greatly exceed the true rank when $\text{Sha}(J)[2]$ is large, giving a wide gap.
+    \item Not every rational point is visible from a given fibration: some points may only appear via secondary fibrations or at very high section multiples.
+    \item The Mumford basis gives a lower bound on rank, but proving it is the full rank requires the Selmer upper bound to match (or an unconditional height-bound argument).
+    \item Local Mumford solutions in characteristic $p$ do not always lift globally; the CRT machinery harvests only those that happen to glue, which remains a theoretical mystery.
+    \item Higher genus support: genus 3 rational point search has been tested successfully via the tower construction, but the \texttt{MUMFORD\_SEARCH} and DLP modes currently only support genus 2. Higher genera ($\geq 4$) are largely untested due to difficulty sourcing suitable test curves.
+    \item Multi-point fibrations (2+ seed points) are not fully implemented and may hang.
+    \item Very high-degree fibrations (deg $> 15$) may require increased \texttt{MAX\_MODULUS}.
+    \item The posterior completeness estimator is acknowledged to be unreliable and should not be used to conclude that the search has terminated.
+\end{itemize}
+
+\section{Dependencies}
+
+\begin{itemize}[label={\textbullet}]
+    \item SageMath $\geq 10.x$ --- core algebraic geometry, Jacobian arithmetic, LLL, CRT.
+    \item Python 3.10+ with \texttt{numpy}, \texttt{scipy}, \texttt{tqdm}, \texttt{colorama}, \texttt{cysignals}, \texttt{cypari2}.
+    \item PARI/GP (via \texttt{cypari2}) --- polynomial arithmetic and number field computations.
+    \item Multiprocessing / \texttt{concurrent.futures} --- parallel residue computation.
+    \item Optional: custom C extension (\texttt{collision\_walk.c}), which must be compiled manually to \texttt{libwalk.so} (the binary is not included in the repository). Without it, DLP mode falls back to slower pure-Python walks or raises a \texttt{FileNotFoundError} on import of \texttt{walker.py}.
+\end{itemize}
+
+\section{Building This Document}
+
+This document is built with \texttt{latexmk}. A \texttt{Makefile} is provided with the following targets:
+
+\begin{itemize}[label={\textbullet}]
+    \item \texttt{make} or \texttt{make all} --- compile \texttt{docs.tex} to \texttt{docs.pdf} using \texttt{pdflatex}.
+    \item \texttt{make watch} --- continuous preview mode: recompiles automatically on every save.
+    \item \texttt{make clean} --- remove auxiliary files (\texttt{.aux}, \texttt{.log}, etc.), keeping the PDF.
+    \item \texttt{make distclean} --- full clean, removing the PDF as well.
+\end{itemize}
+
+\noindent\textbf{Prerequisites:} \texttt{latexmk} and a standard \TeX\ distribution (e.g.\ TeX Live or MiKTeX) with \texttt{pdflatex}. All packages used (\texttt{geometry}, \texttt{amsmath}, \texttt{booktabs}, \texttt{tabularx}, \texttt{hyperref}, \texttt{enumitem}, \texttt{titlesec}) are included in a standard full TeX Live installation.
+
+\end{document}
