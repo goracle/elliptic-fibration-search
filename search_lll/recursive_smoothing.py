@@ -3,11 +3,6 @@ from typing import Tuple, Dict, List, Optional, Any, Callable
 
 # recursive_smoothing.py
 
-def pairify(a, b):
-    if a == b:
-        return (a, a)
-    return tuple(sorted((a, b)))
-
 class RecursiveSmoother:
     def __init__(self, roots, divisors=None, relations=None, modulus=None):
         self.roots = list(roots)
@@ -100,6 +95,83 @@ class RecursiveSmoother:
             rank += 1
 
         return rank
+
+    def __init__(self, roots, modulus=None, rng=None):
+        self.roots = list(roots)
+        self.modulus = modulus
+        self.rng = rng or random.Random()
+
+        # We track 'divisors' as tuples of atoms (weight 0, 1, or 2)
+        # Weight 0 = (), Weight 1 = (A,), Weight 2 = (A, B)
+        self.divisors = []
+        self.div_index = {}
+
+        # Initialize with all single atoms and all pairs from roots
+        for i in range(len(self.roots)):
+            self._ensure_divisor((self.roots[i],))
+            for j in range(i, len(self.roots)):
+                self._ensure_divisor((self.roots[i], self.roots[j]))
+
+        self.relations = []
+
+    def _ensure_divisor(self, d_tuple):
+        d_sorted = pairify(d_tuple)
+        if d_sorted not in self.div_index:
+            self.div_index[d_sorted] = len(self.divisors)
+            self.divisors.append(d_sorted)
+        return self.div_index[d_sorted]
+
+    def random_move(self):
+        """
+        Refactored: Implements a 'merge-and-split' walk.
+        Takes two divisors, combines their atoms, and re-partitions them.
+        This allows weight-shifting (e.g., 2+2 -> 1+3 or 2+1 -> 2+1).
+        """
+        if len(self.divisors) < 2:
+            return {}
+
+        # Pick two random divisor indices from the current pool
+        idx_a, idx_b = self.rng.sample(range(len(self.divisors)), 2)
+        atoms_a = self.divisors[idx_a]
+        atoms_b = self.divisors[idx_b]
+
+        # Combine all atoms into one pool
+        combined = list(atoms_a + atoms_b)
+        self.rng.shuffle(combined)
+
+        # Re-split the pool into two new divisors
+        # We pick a random split point to allow weight changes
+        if len(combined) > 0:
+            split = self.rng.randint(0, len(combined))
+            new_a = tuple(combined[:split])
+            new_b = tuple(combined[split:])
+        else:
+            new_a, new_b = (), ()
+
+        idx_new_a = self._ensure_divisor(new_a)
+        idx_new_b = self._ensure_divisor(new_b)
+
+        # formal relation: Div_a + Div_b - Div_new_a - Div_new_b = 0
+        rel = {}
+        for idx in [idx_a, idx_b]:
+            rel[idx] = rel.get(idx, 0) + 1
+        for idx in [idx_new_a, idx_new_b]:
+            rel[idx] = rel.get(idx, 0) - 1
+
+        # Clean up zeros and apply modulus
+        final_rel = {}
+        for k, v in rel.items():
+            val = v % self.modulus if self.modulus else v
+            if val != 0:
+                final_rel[k] = val
+
+        return final_rel
+
+    def collect_relations(self, num_moves):
+        for _ in range(num_moves):
+            r = self.random_move()
+            if r:
+                self.relations.append(r)
 
 def convert_divisor_relations_to_atom_relations(rs):
     """
@@ -611,3 +683,7 @@ def smooth_element_via_recursive(
             'accepted': accepted
         }
     }
+
+def pairify(atoms: tuple):
+    """Sort atoms to ensure (A, B) is same as (B, A). Handles weights 0, 1, or 2."""
+    return tuple(sorted(atoms))

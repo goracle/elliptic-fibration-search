@@ -246,7 +246,7 @@ def build_fiber_augmented_relations(
     return new_rows, global_stats
 
 # Defensive canonical-y: returns integer canonical y, 0 for y2==0, or None for off-curve (non-residue).
-def _canonical_y(y2_int, p):
+def canonical_y(y2_int, p):
     """
     Return canonical y for y^2 = y2_int mod p:
       - if y2_int == 0 -> return 0

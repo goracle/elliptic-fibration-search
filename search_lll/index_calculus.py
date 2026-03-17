@@ -12,7 +12,7 @@ from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import *
 from .cofactor import *
 from .walker import *
-from .fiber_augment import build_fiber_augmented_relations
+from .fiber_augment import *
 from .recursive_smoothing import *
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -1573,7 +1573,7 @@ def jacobian_to_atoms(J_elem, p, f_p):
                 # safe-guard: ensure QR before calling canonical
                 if pow(y2, (p - 1) // 2, p) != 1:
                     continue
-                y_can = int(_canonical_y(y2, p))
+                y_can = int(canonical_y(y2, p))
             atoms.append(('d1', x_int, int(y_can)))
         if atoms:
             return atoms
@@ -1711,12 +1711,13 @@ def perform_dlp_attack(
         homogeneous_rows_mumford = list(homogeneous_rows)
 
         # optional fiber augmentation
-        if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
-            fiber_rows = build_fiber_augmented_relations(
-                E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
-                full_order=full_order, ell=ell, verbose=verbose
-            )
-            homogeneous_rows.extend(fiber_rows)
+        if False: # turned off for now, too copious and slow, not focused enough for prod.
+            if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
+                fiber_rows = build_fiber_augmented_relations(
+                    E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
+                    full_order=full_order, ell=ell, verbose=verbose
+                )
+                homogeneous_rows.extend(fiber_rows)
 
         # sanity: rhs zero
         if any(r != 0 for r in homogeneous_rhs):

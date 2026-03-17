@@ -11,7 +11,7 @@ from .selmer_genus2 import *
 from .smoothness import *
 from .index_calculus import *
 from sage.all import QQ, PolynomialRing, SR
-from .riemann_roch_localization import localize_target_via_rr
+from .riemann_roch_localization import *
 from search_common import *
 
 # After your Mumford search in FINITE_FIELD mode:
