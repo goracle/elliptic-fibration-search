@@ -1,4 +1,5 @@
 
+
 def _poly_reduce_mod_u(poly_coeffs, s, p, modulus=None):
     """
     Reduce polynomial modulo u(x) = x^2 - s*x + p.

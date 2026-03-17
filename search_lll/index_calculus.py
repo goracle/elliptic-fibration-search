@@ -757,67 +757,6 @@ def _build_signed_row_from_divisor(div, atom_to_idx, f_p, p):
     # Just call canonicalize_divisor_to_factor_base since they do the same thing now
     return canonicalize_divisor_to_factor_base(div, atom_to_idx, f_p, p)
 
-def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
-    """
-    Convert legacy 'smooth_divs' into relations WITHOUT rebasing.
-    CORRECTED: Uses proper Mumford homomorphism.
-
-    CRITICAL FIX: Now returns atom_to_idx instead of r_to_idx.
-
-    Returns: (valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache)
-             NOT (valid_rows, rhs_values, fb_roots, r_to_idx, fb_y_cache)
-    """
-    if smooth_divs is None or not isinstance(smooth_divs, (list, tuple)):
-        raise RuntimeError("_legacy_build_relations_from_mumford: expected list of divisors")
-
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-
-    # Prepare extended divisors for factor-base extraction
-    extended_divs = []
-    try:
-        extended_divs.append(jacobian_to_dict(G, p))
-        extended_divs.append(jacobian_to_dict(Q, p))
-    except Exception:
-        raise
-
-    extended_divs.extend(list(smooth_divs))
-
-    if verbose:
-        print(f"  [Legacy->Relations] Building factor base from {len(extended_divs)} sample divisors...")
-
-    # Extract factor base - returns (atom_to_idx, fb_y_cache)
-    atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=True)
-    initialize_global_factor_base(atom_to_idx)
-
-    # Extract fb_roots from degree-1 atoms (for backward compatibility with diagnostics)
-    fb_roots = []
-    for atom, idx in atom_to_idx.items():
-        if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
-            x_val = atom[1]
-            if x_val not in fb_roots:
-                fb_roots.append(x_val)
-
-    if len(atom_to_idx) == 0:
-        raise RuntimeError("_legacy_build_relations_from_mumford: empty factor base extracted")
-
-    if verbose:
-        print(f"  [Legacy->Relations] Factor base size: {len(atom_to_idx)}")
-
-    # Build homogeneous relations using corrected homomorphism
-    # CRITICAL: Pass atom_to_idx directly (NOT r_to_idx)
-    valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
-        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs, verbose=verbose,
-        use_collision_walks=False) # turn off collision walks while testing fiber relations
-
-    if not valid_rows:
-        raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
-
-    # CRITICAL: Return atom_to_idx, NOT r_to_idx
-    # The old version built r_to_idx = {x_int: col_idx} here, which is WRONG
-    return valid_rows, rhs_values, fb_roots, atom_to_idx, fb_y_cache
-
 def verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False):
     """
     Verify that a relation row represents a divisor in ℓ-torsion.
@@ -1910,3 +1849,64 @@ def perform_dlp_attack(
         print("  [Verify] ✓ Exact equality dlog * G == Q")
 
     return Integer(dlog)
+
+def _filter_d2_atoms(atom_to_idx: Dict) -> Dict:
+    """
+    Helper to extract only d2 atoms from the master factor base.
+    """
+    return {atom: i for i, atom in enumerate(
+        [a for a in atom_to_idx.keys() if isinstance(a, tuple) and a[0] == 'd2']
+    )}
+
+def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
+    """
+    Original function name preserved.
+    Modified to exclude d1 atoms from the resulting relations.
+    """
+    if smooth_divs is None or not isinstance(smooth_divs, (list, tuple)):
+        raise RuntimeError("_legacy_build_relations_from_mumford: expected list of divisors")
+
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+
+    # 1. Standard FB extraction (keeps d1 and d2 in master map)
+    extended_divs = []
+    extended_divs.append(jacobian_to_dict(G, p))
+    extended_divs.append(jacobian_to_dict(Q, p))
+    extended_divs.extend(list(smooth_divs))
+
+    # Master atom map (used for global reference)
+    master_atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=verbose)
+    initialize_global_factor_base(master_atom_to_idx)
+
+    # 2. CREATE FILTERED INDEXING FOR RELATIONS
+    # This ensures relations only index into d2 atoms
+    d2_only_idx = _filter_d2_atoms(master_atom_to_idx)
+
+    if verbose:
+        print(f"  [Legacy] Master FB: {len(master_atom_to_idx)} atoms")
+        print(f"  [Legacy] Filtered FB (d2-only): {len(d2_only_idx)} atoms")
+
+    # 3. Build relations using the filtered index
+    # We pass the filtered map so the relation builder only uses d2 columns
+    valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
+        smooth_divs,
+        d2_only_idx, # Pass d2-only map here
+        f_p,
+        p,
+        fb_y_cache,
+        f_coeffs,
+        verbose=verbose,
+        use_collision_walks=False
+    )
+
+    if not valid_rows:
+        raise RuntimeError("_legacy_build_relations_from_mumford: no valid d2-only relations built")
+
+    # Extract roots for backward compatibility diagnostics
+    fb_roots = [atom[1] for atom in master_atom_to_idx.keys() if atom[0] == 'd1']
+
+    # Return the d2-only indexing to prevent KeyError in the smoother
+    return valid_rows, rhs_values, fb_roots, d2_only_idx, fb_y_cache
+

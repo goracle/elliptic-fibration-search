@@ -3,176 +3,6 @@ from typing import Tuple, Dict, List, Optional, Any, Callable
 
 # recursive_smoothing.py
 
-class RecursiveSmoother:
-    def __init__(self, roots, divisors=None, relations=None, modulus=None):
-        self.roots = list(roots)
-        self.modulus = modulus
-
-        if divisors is None:
-            self.divisors = []
-            n = len(self.roots)
-            for i in range(n):
-                for j in range(i, n):
-                    self.divisors.append(pairify(self.roots[i], self.roots[j]))
-        else:
-            self.divisors = [pairify(*d) for d in divisors]
-
-        self.div_index = {d: i for i, d in enumerate(self.divisors)}
-        self.relations = relations[:] if relations else []
-
-    def _ensure_divisor(self, d):
-        if d not in self.div_index:
-            self.div_index[d] = len(self.divisors)
-            self.divisors.append(d)
-        return self.div_index[d]
-
-    def random_move(self):
-        i, j = random.sample(range(len(self.divisors)), 2)
-
-        A, P1 = self.divisors[i]
-        B, P2 = self.divisors[j]
-
-        new1 = pairify(P1, P2)
-        new2 = pairify(A, B)
-
-        idx1 = self._ensure_divisor(new1)
-        idx2 = self._ensure_divisor(new2)
-
-        rel = {}
-
-        rel[i] = rel.get(i, 0) + 1
-        rel[j] = rel.get(j, 0) + 1
-        rel[idx1] = rel.get(idx1, 0) - 1
-        rel[idx2] = rel.get(idx2, 0) - 1
-
-        if self.modulus:
-            rel = {k: v % self.modulus for k, v in rel.items() if v % self.modulus != 0}
-
-        return rel
-
-    def collect_relations(self, num_moves):
-        for _ in range(num_moves):
-            r = self.random_move()
-            self.relations.append(r)
-
-    def to_dense_matrix(self):
-        m = len(self.relations)
-        n = len(self.divisors)
-        M = [[0]*n for _ in range(m)]
-        for i, rel in enumerate(self.relations):
-            for j, c in rel.items():
-                M[i][j] = c
-        return M
-
-    def rank_mod_p(self, p):
-        M = self.to_dense_matrix()
-        if not M:
-            return 0
-
-        M = [row[:] for row in M]
-        rows, cols = len(M), len(M[0])
-        rank = 0
-
-        for col in range(cols):
-            pivot = None
-            for r in range(rank, rows):
-                if M[r][col] % p != 0:
-                    pivot = r
-                    break
-            if pivot is None:
-                continue
-
-            M[rank], M[pivot] = M[pivot], M[rank]
-
-            inv = pow(M[rank][col], p-2, p)
-            M[rank] = [(x * inv) % p for x in M[rank]]
-
-            for r in range(rows):
-                if r != rank and M[r][col] != 0:
-                    factor = M[r][col]
-                    M[r] = [(M[r][c] - factor * M[rank][c]) % p for c in range(cols)]
-
-            rank += 1
-
-        return rank
-
-    def __init__(self, roots, modulus=None, rng=None):
-        self.roots = list(roots)
-        self.modulus = modulus
-        self.rng = rng or random.Random()
-
-        # We track 'divisors' as tuples of atoms (weight 0, 1, or 2)
-        # Weight 0 = (), Weight 1 = (A,), Weight 2 = (A, B)
-        self.divisors = []
-        self.div_index = {}
-
-        # Initialize with all single atoms and all pairs from roots
-        for i in range(len(self.roots)):
-            self._ensure_divisor((self.roots[i],))
-            for j in range(i, len(self.roots)):
-                self._ensure_divisor((self.roots[i], self.roots[j]))
-
-        self.relations = []
-
-    def _ensure_divisor(self, d_tuple):
-        d_sorted = pairify(d_tuple)
-        if d_sorted not in self.div_index:
-            self.div_index[d_sorted] = len(self.divisors)
-            self.divisors.append(d_sorted)
-        return self.div_index[d_sorted]
-
-    def random_move(self):
-        """
-        Refactored: Implements a 'merge-and-split' walk.
-        Takes two divisors, combines their atoms, and re-partitions them.
-        This allows weight-shifting (e.g., 2+2 -> 1+3 or 2+1 -> 2+1).
-        """
-        if len(self.divisors) < 2:
-            return {}
-
-        # Pick two random divisor indices from the current pool
-        idx_a, idx_b = self.rng.sample(range(len(self.divisors)), 2)
-        atoms_a = self.divisors[idx_a]
-        atoms_b = self.divisors[idx_b]
-
-        # Combine all atoms into one pool
-        combined = list(atoms_a + atoms_b)
-        self.rng.shuffle(combined)
-
-        # Re-split the pool into two new divisors
-        # We pick a random split point to allow weight changes
-        if len(combined) > 0:
-            split = self.rng.randint(0, len(combined))
-            new_a = tuple(combined[:split])
-            new_b = tuple(combined[split:])
-        else:
-            new_a, new_b = (), ()
-
-        idx_new_a = self._ensure_divisor(new_a)
-        idx_new_b = self._ensure_divisor(new_b)
-
-        # formal relation: Div_a + Div_b - Div_new_a - Div_new_b = 0
-        rel = {}
-        for idx in [idx_a, idx_b]:
-            rel[idx] = rel.get(idx, 0) + 1
-        for idx in [idx_new_a, idx_new_b]:
-            rel[idx] = rel.get(idx, 0) - 1
-
-        # Clean up zeros and apply modulus
-        final_rel = {}
-        for k, v in rel.items():
-            val = v % self.modulus if self.modulus else v
-            if val != 0:
-                final_rel[k] = val
-
-        return final_rel
-
-    def collect_relations(self, num_moves):
-        for _ in range(num_moves):
-            r = self.random_move()
-            if r:
-                self.relations.append(r)
-
 def convert_divisor_relations_to_atom_relations(rs):
     """
     Convert RecursiveSmoother output into atom-level relations
@@ -684,6 +514,282 @@ def smooth_element_via_recursive(
         }
     }
 
-def pairify(atoms: tuple):
-    """Sort atoms to ensure (A, B) is same as (B, A). Handles weights 0, 1, or 2."""
+def pairify(atoms: tuple) -> tuple:
+    """Standardizes atom sets of any weight (0, 1, 2) for indexing."""
     return tuple(sorted(atoms))
+
+class RecursiveSmoother:
+    def __init__(self, roots: list, modulus: Optional[int] = None, rng: Optional[random.Random] = None):
+        self.roots = list(roots)
+        self.modulus = modulus
+        self.rng = rng or random.Random()
+
+        # Track divisors as tuples of atoms: () weight 0, (A,) weight 1, (A, B) weight 2
+        self.divisors = []
+        self.div_index = {}
+
+        # Initialize with atoms and pairs (the initial Factor Base)
+        for i in range(len(self.roots)):
+            self._ensure_divisor((self.roots[i],))
+            for j in range(i, len(self.roots)):
+                self._ensure_divisor((self.roots[i], self.roots[j]))
+
+        self.relations = []
+
+    def _ensure_divisor(self, d_tuple: tuple) -> int:
+        d_sorted = pairify(d_tuple)
+        if d_sorted not in self.div_index:
+            self.div_index[d_sorted] = len(self.divisors)
+            self.divisors.append(d_sorted)
+        return self.div_index[d_sorted]
+
+    def random_move(self) -> Dict[int, int]:
+        """Implements the merge-and-split walk."""
+        if len(self.divisors) < 2:
+            return {}
+
+        idx_a, idx_b = self.rng.sample(range(len(self.divisors)), 2)
+        atoms_a = self.divisors[idx_a]
+        atoms_b = self.divisors[idx_b]
+
+        combined = list(atoms_a + atoms_b)
+        self.rng.shuffle(combined)
+
+        # Random split point allows weight changes (e.g., 2+1 -> 2+1 or 3+0)
+        split = self.rng.randint(0, len(combined)) if combined else 0
+        new_a, new_b = tuple(combined[:split]), tuple(combined[split:])
+
+        idx_new_a = self._ensure_divisor(new_a)
+        idx_new_b = self._ensure_divisor(new_b)
+
+        rel = {idx_a: 1, idx_b: 1}
+        rel[idx_new_a] = rel.get(idx_new_a, 0) - 1
+        rel[idx_new_b] = rel.get(idx_new_b, 0) - 1
+
+        final_rel = {}
+        for k, v in rel.items():
+            val = v % self.modulus if self.modulus else v
+            if val != 0:
+                final_rel[k] = val
+        return final_rel
+
+    def collect_relations(self, num_moves: int):
+        for _ in range(num_moves):
+            r = self.random_move()
+            if r:
+                self.relations.append(r)
+
+    def to_dense_matrix(self):
+        m = len(self.relations)
+        n = len(self.divisors)
+        M = [[0]*n for _ in range(m)]
+        for i, rel in enumerate(self.relations):
+            for j, c in rel.items():
+                M[i][j] = c
+        return M
+
+    def rank_mod_p(self, p):
+        M = self.to_dense_matrix()
+        if not M:
+            return 0
+
+        M = [row[:] for row in M]
+        rows, cols = len(M), len(M[0])
+        rank = 0
+
+        for col in range(cols):
+            pivot = None
+            for r in range(rank, rows):
+                if M[r][col] % p != 0:
+                    pivot = r
+                    break
+            if pivot is None:
+                continue
+
+            M[rank], M[pivot] = M[pivot], M[rank]
+
+            inv = pow(M[rank][col], p-2, p)
+            M[rank] = [(x * inv) % p for x in M[rank]]
+
+            for r in range(rows):
+                if r != rank and M[r][col] != 0:
+                    factor = M[r][col]
+                    M[r] = [(M[r][c] - factor * M[rank][c]) % p for c in range(cols)]
+
+            rank += 1
+
+        return rank
+
+    def _ensure_divisor(self, d):
+        """
+        Returns index of d. If d is new, it's a P_junk.
+        We track if we've seen this P_junk before to detect loops.
+        """
+        if d not in self.div_index:
+            idx = len(self.divisors)
+            self.div_index[d] = idx
+            self.divisors.append(d)
+            # Mark this as a temporary P_junk if it wasn't in the starting FB
+            self.is_temporary[idx] = True
+            return idx
+
+        # If it is in div_index, we just returned an existing index.
+        # If is_temporary[idx] is True, we've hit a loop/collision.
+        return self.div_index[d]
+
+    def random_move(self):
+            """
+            Performs a root-preserving swap to generate a new relation.
+            D1 + D2 = D_new1 + D_new2
+            """
+            # Pick two divisors (could be FB or existing P_junk)
+            i, j = random.sample(range(len(self.divisors)), 2)
+
+            # A, P1, B, P2 are all points (roots) on the curve
+            A, P1 = self.divisors[i]
+            B, P2 = self.divisors[j]
+
+            # The 'Shuffle': Create new pairings from the same 4 points
+            # This is the "move" that stays within the span of the roots
+            new1 = pairify(P1, P2)
+            new2 = pairify(A, B)
+
+            idx_new1 = self._ensure_divisor(new1)
+            idx_new2 = self._ensure_divisor(new2)
+
+            # Record the relation: Div[i] + Div[j] - Div[new1] - Div[new2] = 0
+            # In terms of indices: e_i + e_j - e_new1 - e_new2 = 0
+            rel = {i: 1, j: 1, idx_new1: -1, idx_new2: -1}
+
+            # Clean up zeros (if i or j happen to be the same as new1 or new2)
+            rel = {k: v % self.modulus for k, v in rel.items() if v % self.modulus != 0}
+
+            return rel
+
+    def update_substitution_map(self, relation):
+        """
+        Try to use a new relation to express one P_junk in terms of
+        FB elements or 'older' P_junks.
+        """
+        # Find a P_junk in the relation to 'solve' for
+        target_idx = -1
+        for idx in relation.keys():
+            if self.is_temporary.get(idx, False):
+                target_idx = idx
+                break
+
+        if target_idx != -1:
+            # Re-arrange relation: P_junk = sum(coeffs * other_elements)
+            # This is your 'formal sum' logic.
+            new_expression = self.solve_for_index(relation, target_idx)
+            self.substitutions[target_idx] = new_expression
+
+    def collect_relations(self, target_idx, max_moves=10000, verbose=False):
+        """
+        Attempts to express target_idx (G or Q) as a formal sum of FB elements.
+        Uses a substitution map to keep P_junk transient.
+        """
+        # expressions[idx] = {fb_index: coefficient}
+        # FB elements represent themselves: Div_i = 1 * Div_i
+        expressions = {i: {i: 1} for i in range(len(self.divisors))
+                       if not self.is_temporary.get(i, False)}
+
+        total_moves = 0
+        while total_moves < max_moves:
+            total_moves += 1
+
+            # 1. Generate a move: D1 + D2 - D3 - D4 = 0
+            rel = self.random_move()
+
+            # 2. Substitute known expressions into the relation
+            # This reduces the relation to: sum(c_k * FB_k) + sum(c_j * P_junk_j) = 0
+            resolved_part = {}  # FB indices -> coeff
+            unknowns = {}       # P_junk indices -> coeff
+
+            for idx, coeff in rel.items():
+                if idx in expressions:
+                    # Substitute the known formal sum
+                    for fb_idx, fb_coeff in expressions[idx].items():
+                        new_c = (resolved_part.get(fb_idx, 0) + coeff * fb_coeff) % self.modulus
+                        if new_c == 0:
+                            resolved_part.pop(fb_idx, None)
+                        else:
+                            resolved_part[fb_idx] = new_c
+                else:
+                    # Still a P_junk we don't know yet
+                    unknowns[idx] = coeff
+
+            # 3. Check if we can "solve" for a new P_junk
+            if len(unknowns) == 1:
+                # Equation: ResolvedPart + c_u * P_unknown = 0  => P_unknown = -ResolvedPart * (c_u^-1)
+                u_idx, u_coeff = list(unknowns.items())[0]
+                inv_u = pow(int(u_coeff), -1, self.modulus)
+
+                new_expr = {}
+                for fb_idx, fb_coeff in resolved_part.items():
+                    # P_unknown = -fb_coeff * inv_u
+                    val = (-fb_coeff * inv_u) % self.modulus
+                    if val != 0:
+                        new_expr[fb_idx] = val
+
+                expressions[u_idx] = new_expr
+
+                # Check if we just resolved our target!
+                if u_idx == target_idx:
+                    if verbose:
+                        print(f"[Smoother] Target resolved in {total_moves} moves.")
+                    return expressions[target_idx]
+
+            # 4. Implicit Equation / Loop Detection
+            elif len(unknowns) == 0 and len(resolved_part) > 0:
+                # We found a relation purely among FB elements!
+                # We can store this in self.relations for the global linear system.
+                self.relations.append(resolved_part)
+                if verbose and len(self.relations) % 100 == 0:
+                    print(f"[Smoother] Found {len(self.relations)} implicit FB relations...")
+
+        if verbose:
+            print(f"[Smoother] Timeout after {total_moves} moves.")
+        return None
+
+    def _expand_expression(self, expr):
+        """Helper to ensure an expression is fully reduced mod L."""
+        return {idx: (val % self.modulus) for idx, val in expr.items() if (val % self.modulus) != 0}
+
+    def __init__(self, roots, divisors=None, relations=None, modulus=None):
+        self.roots = list(roots)
+        self.modulus = modulus
+        self.is_temporary = {}  # Added: Initialize the state map
+
+        if divisors is None:
+            self.divisors = []
+            n = len(self.roots)
+            for i in range(n):
+                for j in range(i, n):
+                    # Initial FB is NOT temporary
+                    d = pairify(self.roots[i], self.roots[j])
+                    idx = len(self.divisors)
+                    self.div_index[d] = idx
+                    self.divisors.append(d)
+                    self.is_temporary[idx] = False
+        else:
+            self.divisors = []
+            self.div_index = {}
+            for d in divisors:
+                d_pair = pairify(*d)
+                idx = len(self.divisors)
+                self.div_index[d_pair] = idx
+                self.divisors.append(d_pair)
+                self.is_temporary[idx] = False # FB elements are permanent
+
+        self.relations = relations[:] if relations else []
+
+    def _ensure_divisor(self, d):
+        if d not in self.div_index:
+            idx = len(self.divisors)
+            self.div_index[d] = idx
+            self.divisors.append(d)
+            # If it's not in the initial FB, it's a P_junk
+            self.is_temporary[idx] = True
+            return idx
+        return self.div_index[d]
