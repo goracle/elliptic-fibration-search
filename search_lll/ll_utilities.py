@@ -1116,7 +1116,6 @@ def analyze_unused_residue_orders(precomputed_residues,
     RAISES ALL EXCEPTIONS - NO SILENT FAILURES.
     """
     from sage.all import ZZ, QQ, GF, Integer as SageInteger
-    from collections import Counter, defaultdict
 
     # Build numeric residues
     residues_by_prime = {}
