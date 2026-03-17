@@ -658,16 +658,12 @@ def compute_jacobian_hash(exp_dict, atom_indices_list):
             h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
         return h
 
-
-
 def poly_to_tuple(poly, deg_expected, K):
     coeffs = [0] * (deg_expected + 1)
     for i, c in enumerate(poly.list()):
         if i <= deg_expected:
             coeffs[i] = int(K(c))
     return tuple(coeffs)
-
-
 
 def get_relation_row(divisor, atom_to_idx, f_p, p,
                      fb_y_cache=None, require_signed_d2=True):

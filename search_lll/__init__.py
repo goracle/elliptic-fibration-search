@@ -9,6 +9,7 @@ from . import mumford, jacobian_basis
 from .homology import *
 from .selmer_genus2 import *
 from .fiber_augment import *
+
 """
 __init__.py: Exposes key functions from the submodules.
 """

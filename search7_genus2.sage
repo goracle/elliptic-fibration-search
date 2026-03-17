@@ -445,7 +445,6 @@ class SpamFilter:
             self._buffer = ""
         self.stream.flush()
 
-
 # -------------------------
 # Tower builder adapter for search (lightweight, deterministic, no tests)
 # -------------------------
@@ -863,7 +862,6 @@ def apply_consensus_filter(all_precomputed_residues, all_fibration_geometries, p
     print(f"  Reduction: {consensus_stats['reduction_ratio']:.1%}")
 
     return precomputed_residues, consensus_stats
-
 
 @PROFILE
 def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, prime_pool, sconf,
@@ -1508,7 +1506,6 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         new_points_original_coords = all_newly_found_transformed_x
 
     return new_points_original_coords, cumulative_stats
-
 
 if __name__ == '__main__':
     main_genus2()

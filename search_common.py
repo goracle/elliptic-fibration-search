@@ -8,6 +8,7 @@ from cysignals.signals import SignalError
 from prime_subgroup_projection import *
 from parse_genus3 import *
 from tate import *
+
 _IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # === imports ===
 

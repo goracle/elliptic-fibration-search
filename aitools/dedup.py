@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 import ast, argparse, os, re, shutil, sys, tempfile, textwrap
+from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Set, Tuple

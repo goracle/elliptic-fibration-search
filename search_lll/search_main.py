@@ -6,7 +6,6 @@ from .modularthread import *
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter
-from .mumford import analyze_active_dead_vectors
 from .mumford import *
 from .selmer_genus2 import *
 from .smoothness import *
@@ -281,280 +280,207 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
     # Return the list of per-subset results and the merged stats
     return subset_results_list, merged_stats, all_crt_classes  # <-- Return classes
 
-
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
                                          sconf, coeffs_genus2,
                                          tower_data=None,
-                                         num_workers=20, debug=DEBUG,
+                                         num_workers=20, debug=False, # Replaced DEBUG global with local default
                                          precomputed_residues=None,
                                          x_b=None, shifted_coeffs=None):
     """
-    Unified parallel search using ProcessPoolExecutor throughout.
-    Hardened against the "filtered to 0 subsets" failure:
-      - require primes to have actual residues (not just empty mappings)
-      - compute numeric residue sets per-prime and use those counts for combo estimates
-      - fall back deterministically if coverage-based generator returns nothing
-    Returns: new_xs, new_sections, precomputed_residues, stats
+    Unified parallel search Router.
+    Routes to either Mumford Jacobian Element Search or Standard Lattice ModP Search.
     """
-
-    # === CHECK FOR MUMFORD MODE ===
-    USE_MUMFORD = (
-        globals().get('MUMFORD_SEARCH', False) and
-        tower_data is not None
-    )
-    #print("USE_MUMFORD:", globals().get('MUMFORD_SEARCH', False),MUMFORD_AVAILABLE,tower_data)
-    if MUMFORD_SEARCH:
-        assert USE_MUMFORD
+    USE_MUMFORD = globals().get('MUMFORD_SEARCH', False) and tower_data is not None
 
     if USE_MUMFORD:
-
-        print("\n" + "="*70)
-        print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
-        print("Searching for (s,p,v_0,v_1) instead of rational m")
-        print("="*70 + "\n")
-
-        stats = SearchStats()
-
-        # Build equation system
-        stats.start_phase('mumford_setup')
-        print("Building 5-equation Mumford system from fibration...")
-        eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
-        stats.end_phase('mumford_setup')
-
-        # Prepare modular data
-        # NOTE: For Finite Field consensus mode, prime_pool must contain the target FF primes!
-        stats.start_phase('prep_mod_data')
-        Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-            cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
+        return _run_mumford_search(
+            cd, current_sections, prime_pool, vecs, rhs_list, shift,
+            rationality_test_func, coeffs_genus2, tower_data,
+            num_workers, debug, x_b, shifted_coeffs
         )
-        stats.end_phase('prep_mod_data')
-
-        if not Ep_dict:
-            return set(), [], {}, stats
-
-        # Ensure 'prime_list' is the full list of valid primes from the pool
-        prime_list = sorted(list(Ep_dict.keys()))
-
-        # [MODIFIED] Removed the "Forcing search to single prime" block.
-        # We now pass the entire list of compatible primes to precompute and reconstruction.
-        if FINITE_FIELD and len(prime_list) > 1:
-            print(f"[FF MODE] Multi-prime consensus enabled. Using {len(prime_list)} primes.")
-
-        stats.start_phase('mumford_residues')
-        vecs_list = list(vecs)
-
-        mumford_residues = mumford_precompute_residues_parallel(
-            eqs_dict,
-            prime_list,
-            Ep_dict,
-            mult_lll,
-            vecs_lll,
-            rhs_modp_list,
-            vecs_list,
-            num_workers=num_workers,
-            debug=True
+    else:
+        return _run_standard_lattice_search(
+            cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+            all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
+            num_workers, debug, precomputed_residues
         )
-        stats.end_phase('mumford_residues')
+
+def _run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
+                        rationality_test_func, coeffs_genus2, tower_data,
+                        num_workers, debug, x_b, shifted_coeffs):
+    """Handles the Mumford / Finite Field Index Calculus search phase."""
+    print("\n" + "="*70)
+    print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
+    print("Searching for (s,p,v_0,v_1) instead of rational m")
+    print("="*70 + "\n")
+
+    stats = SearchStats()
+
+    stats.start_phase('mumford_setup')
+    print("Building 5-equation Mumford system from fibration...")
+    eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
+    stats.end_phase('mumford_setup')
+
+    stats.start_phase('prep_mod_data')
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
+    )
+    stats.end_phase('prep_mod_data')
+
+    if not Ep_dict:
+        return set(), [], {}, stats
+
+    prime_list = sorted(list(Ep_dict.keys()))
+
+    if FINITE_FIELD and len(prime_list) > 1:
+        print(f"[FF MODE] Multi-prime consensus enabled. Using {len(prime_list)} primes.")
+
+    stats.start_phase('mumford_residues')
+    vecs_list = list(vecs)
+
+    mumford_residues = mumford_precompute_residues_parallel(
+        eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+        rhs_modp_list, vecs_list, num_workers=num_workers, debug=True
+    )
+    stats.end_phase('mumford_residues')
+
+    stats.start_phase('mumford_reconstruction')
+    found_xs, mumford_divisors = reconstruct_and_verify_mumford(
+        mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
+    )
+    stats.end_phase('mumford_reconstruction')
+
+    if FINITE_FIELD:
+         mumford_divisors = filter_g_q_from_list(
+             mumford_divisors, BASE_DIVISOR, TARGET_DIVISOR, FINITE_FIELD, coeffs_genus2
+         )
+
+    print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
+    if mumford_divisors:
+        rational_roots_count = sum(1 for div in mumford_divisors if div.get('has_rational_roots'))
+        print(f"  {rational_roots_count} divisors had rational roots in u(x)")
 
         if FINITE_FIELD:
-            # 2. Analyze vector activity for a specific prime
-            # Ensure vecs_lll is a list of tuples
-            vecs_list_for_p_safe = [tuple(v) if hasattr(v, '__iter__') else (v,) for v in vecs_lll]
+            if len(prime_list) == 1:
+                p = int(FINITE_FIELD)
+                f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
+                # Only run the expensive diagnostic if debug is True
+                if debug:
+                    diagnose_finite_field_search(mumford_divisors, f_poly, verbose=True, debug=debug)
+            else:
+                print("[Info] Skipping single-prime matrix diagnostics (Multi-prime mode active).")
 
-            summary, per_vec, cumulative_supports = analyze_active_dead_vectors(
-                mumford_residues,
-                vecs_generated_list=vecs_lll,   # the canonical vectors you generated (80 in your example)
-                vecs_list_for_p=vecs_list_for_p_safe,       # the same list passed to the parallel routine
-                prime=FINITE_FIELD                       # the prime you’re analyzing
-            )
-
-            # 3. Optionally, print or plot
-            print(summary)
-            pass
-
-        # Reconstruct (Consensus Strategy)
-        stats.start_phase('mumford_reconstruction')
-
-        # We pass the full prime_list. The reconstruction function now iterates them all.
-        found_xs, mumford_divisors = reconstruct_and_verify_mumford(
-            mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
-        )
-        stats.end_phase('mumford_reconstruction')
-
-        # === EXPLICIT FILTERING OF G/Q ===
-        if FINITE_FIELD:
-             mumford_divisors = filter_g_q_from_list(
-                 mumford_divisors,
-                 BASE_DIVISOR,
-                 TARGET_DIVISOR,
-                 FINITE_FIELD,
-                 coeffs_genus2
-             )
-
-        print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
-        if mumford_divisors:
-            rational_roots_count = sum(1 for div in mumford_divisors
-                                      if 'has_rational_roots' in div and div.get('has_rational_roots'))
-            print(f"  {rational_roots_count} divisors had rational roots in u(x)")
-
-            # Note: diagnose_finite_field_search expects a single prime for matrix analysis.
-            # If we are in multi-prime mode, that analysis is less relevant (or needs refactoring).
-            # For now, we skip detailed matrix diagnostics if multiple primes are used.
-            if FINITE_FIELD:
-                if len(prime_list) == 1:
-                    p = int(FINITE_FIELD)
-                    f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
-                    from .smoothness import diagnose_finite_field_search
-                    diagnose_finite_field_search(mumford_divisors, f_poly, verbose=True)
-                else:
-                    print("[Info] Skipping single-prime matrix diagnostics (Multi-prime mode active).")
-
-        if not FINITE_FIELD:
-            print(f"Mumford search found {len(found_xs)} rational points")
-            stats.incr('rational_points_unique', n=len(found_xs))
+    if not FINITE_FIELD:
+        print(f"Mumford search found {len(found_xs)} rational points")
+        stats.incr('rational_points_unique', n=len(found_xs))
         print(stats.summary_string())
 
-        if not FINITE_FIELD:
-            # === NEW: SELMER UPPER BOUND COMPARISON === (only for Q, not F_p)
-            rank_analysis = analyze_genus2_rank(
-                f_coeffs=coeffs_genus2,
-                mumford_divisors=mumford_divisors,
-                bad_primes=prime_pool[:20],
-                verbose=True
-            )
+        rank_analysis = analyze_genus2_rank(
+            f_coeffs=coeffs_genus2, mumford_divisors=mumford_divisors,
+            bad_primes=prime_pool[:20], verbose=True
+        )
+        stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
+        stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
+        stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
 
-            stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
-            stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
-            stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
+    if FINITE_FIELD:
+        return _run_index_calculus_attack(
+            mumford_divisors, coeffs_genus2, tower_data, found_xs,
+            mumford_residues, stats, num_workers, x_b, shifted_coeffs
+        )
 
-        if FINITE_FIELD:
+    return found_xs, [], mumford_residues, stats
 
-            p = int(FINITE_FIELD)
-            f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
+def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, found_xs,
+                               mumford_residues, stats, num_workers, x_b, shifted_coeffs):
+    """Sub-handler for the Index Calculus execution phase."""
+    p = int(FINITE_FIELD)
+    f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
 
-            # 1. Extract the factor base (ATOMIC FORMAT)
-            atom_to_idx, fb_y_cache = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
+    atom_to_idx, fb_y_cache = extract_factor_base(mumford_divisors, p, f_poly, verbose=True)
 
-            # Extract x-coordinates from degree-1 atoms for backward compatibility
-            fb_roots = []
-            for atom, idx in atom_to_idx.items():
-                if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
-                    x_val = atom[1]
-                    if x_val not in fb_roots:
-                        fb_roots.append(x_val)
+    fb_roots = []
+    for atom, idx in atom_to_idx.items():
+        if atom[0] == 'd1':
+            x_val = atom[1]
+            if x_val not in fb_roots:
+                fb_roots.append(x_val)
 
-            # CRITICAL FIX: Don't re-index! Just create a lookup set
-            # The OLD code did: root_to_idx = {r: i for i, r in enumerate(fb_roots)}
-            # which creates WRONG indices that don't match atom_to_idx
-            fb_roots_set = set(fb_roots)
+    fb_roots_set = set(fb_roots)
+    L = compute_jacobian_order(coeffs_genus2, p)
 
-            # 2. Compute Jacobian Order
-            L = compute_jacobian_order(coeffs_genus2, p)
+    print(f"  [Setup] Curve: y^2 = {f_poly}")
+    G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
 
-            # 3. Setup the challenge
-            print(f"  [Setup] Curve: y^2 = {f_poly}")
-            G, Q, true_d = BASE_DIVISOR, TARGET_DIVISOR, SECRET_KEY
+    print("\n" + "="*70)
+    print("TESTING FACTOR BASE HOMOMORPHISM PROPERTY")
+    print("="*70)
+    C = HyperellipticCurve(f_poly)
+    J = C.jacobian()
+    if not homomorphism_test(J, atom_to_idx, f_poly, p, check_divisors=None):
+        print("CRITICAL: Homomorphism test FAILED!")
+        raise RuntimeError("Factor base homomorphism test failed")
+    print(" Homomorphism test PASSED")
+    print("="*70 + "\n")
 
-            # **ADD HOMOMORPHISM TEST HERE**
-            print("\n" + "="*70)
-            print("TESTING FACTOR BASE HOMOMORPHISM PROPERTY")
-            print("="*70)
-            C = HyperellipticCurve(f_poly)
-            J = C.jacobian()
-            if not homomorphism_test(J, atom_to_idx, f_poly, p,
-                                     check_divisors=mumford_divisors if not FINITE_FIELD else None):
-                print("CRITICAL: Homomorphism test FAILED!")
-                print("The factor base encoding is not preserving group structure.")
-                print("Attack will likely fail. Aborting.")
-                raise RuntimeError("Factor base homomorphism test failed")
-            print(" Homomorphism test PASSED")
-            print("="*70 + "\n")
+    print(f"  [Phase 0] Attempting RR-Localization for target Q (Parallel)...")
+    pole_range = [6, 7, 8, 9, 10]
+    rr_tasks = [(Q, fb_roots_set, f_poly, p, n) for n in pole_range]
+    found_rr_solution = None
 
-            # NEW: RR-Local Pre-check
-            print(f"  [Phase 0] Attempting RR-Localization for target Q (Parallel)...")
-            from .riemann_roch_localization import localize_wrapper
+    try:
+        ctx = multiprocessing.get_context("fork")
+    except Exception:
+        ctx = None
 
-            # Try a broader range since we are parallel
-            pole_range = [6, 7, 8, 9, 10]
-
-            # Construct task arguments
-            rr_tasks = [
-                (Q, fb_roots_set, f_poly, p, n) for n in pole_range
-            ]
-
-            found_rr_solution = None
-
+    with ProcessPoolExecutor(max_workers=min(len(rr_tasks), num_workers), mp_context=ctx) as executor:
+        futures = {executor.submit(localize_wrapper, args): args[-1] for args in rr_tasks}
+        for future in as_completed(futures):
+            n_pole_val = futures[future]
             try:
-                ctx = multiprocessing.get_context("fork")
-            except Exception:
-                ctx = None
-
-            # Execute in parallel
-            with ProcessPoolExecutor(max_workers=min(len(rr_tasks), num_workers), mp_context=ctx) as executor:
-                futures = {executor.submit(localize_wrapper, args): args[-1] for args in rr_tasks}
-
-                for future in as_completed(futures):
-                    n_pole_val = futures[future]
-                    try:
-                        roots, poly_a, poly_b, vec = future.result()
-                        if roots is not None:
-                            print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n_pole_val})!")
-                            found_rr_solution = (roots, poly_a, poly_b, vec)
-
-                            # Cancel remaining tasks by shutting down executor
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            break
-                    except Exception as e:
-                        print(f"  [!] RR Worker (n={n_pole_val}) failed: {e}")
-                        raise e
-
-            if found_rr_solution:
-                roots, poly_a, poly_b, vec = found_rr_solution
-
-                # CRITICAL FIX: resolve_log_from_rr_decomposition must accept atom_to_idx
-                # If it currently expects root_to_idx, it needs to be updated
-                # For now, we'll create a minimal x->idx mapping from atom_to_idx
-                x_to_idx = {}
-                for atom, idx in atom_to_idx.items():
-                    if atom[0] == 'd1':
-                        x_to_idx[atom[1]] = idx
-
-                log_v = resolve_log_from_rr_decomposition(
-                    roots, x_to_idx, fb_y_cache, poly_a, poly_b, p
-                )
-                print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
-                return found_xs, [], mumford_residues, stats
-
-            print("  [Phase 0] RR-Localization did not find a short relation. Falling back to Index Calculus.")
-
-            # 4. Solve the system using perform_dlp_attack
-            try:
-                f_shifted_poly = None
-                if shifted_coeffs is not None:
-                    f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x'))
-                else:
-                    f_shifted_poly = f_poly
-
-                E_rhs_m_for_aug = tower_data[-1]['f_i'] if tower_data is not None else None
-
-                log_v = perform_dlp_attack(
-                    G, Q, mumford_divisors, p, coeffs_genus2, L,
-                    verbose=True,
-                    force_index_calculus=True,
-                    E_rhs_m=E_rhs_m_for_aug,
-                    x_b=x_b,
-                    f_shifted_poly=f_shifted_poly,
-                )
-
-                print(f"✓ Confirmed Discrete Log: {log_v}")
+                roots, poly_a, poly_b, vec = future.result()
+                if roots is not None:
+                    print(f"  [!] Phase 0 Success: Target Q decomposed via RR(n={n_pole_val})!")
+                    found_rr_solution = (roots, poly_a, poly_b, vec)
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
             except Exception as e:
-                print(f"Attack failed: {e}")
-                raise
+                print(f"  [!] RR Worker (n={n_pole_val}) failed: {e}")
+                raise e
 
+    if found_rr_solution:
+        roots, poly_a, poly_b, vec = found_rr_solution
+        x_to_idx = {atom[1]: idx for atom, idx in atom_to_idx.items() if atom[0] == 'd1'}
+        log_v = resolve_log_from_rr_decomposition(roots, x_to_idx, fb_y_cache, poly_a, poly_b, p)
+        print(f"  [!] SUCCESS: Discrete Log recovered via geometric corridor: {log_v}")
         return found_xs, [], mumford_residues, stats
 
+    print("  [Phase 0] RR did not find a short relation. Falling back to Index Calculus.")
+    try:
+        f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
+        E_rhs_m_for_aug = tower_data[-1]['f_i'] if tower_data is not None else None
+
+        log_v = perform_dlp_attack(
+            G, Q, mumford_divisors, p, coeffs_genus2, L,
+            verbose=True, force_index_calculus=True,
+            E_rhs_m=E_rhs_m_for_aug, x_b=x_b, f_shifted_poly=f_shifted_poly,
+        )
+        print(f"✓ Confirmed Discrete Log: {log_v}")
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        raise
+
+    return found_xs, [], mumford_residues, stats
+
+def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+                                 all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
+                                 num_workers, debug, precomputed_residues):
+    """
+    Handles the standard Lattice ModP Search phase.
+    Extracts LLL preparation, residue precomputation, subset generation, and rationality checks.
+    """
     # === UNPACK: SCONF ===
     min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
     min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
@@ -575,7 +501,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             # The dummy vector is a tuple of zeros
             if all(v == 0 for v in first_vector):
                 # We found the single dummy vector key.
-
                 dim = len(current_sections)
                 zero_vec_tuple = tuple([0] * dim)
 
@@ -594,7 +519,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     # === STATS: INIT ===
     stats = SearchStats()
 
-    from bounds import compute_residue_counts_for_primes  # if not already imported
     residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
     coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
 
@@ -610,7 +534,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     if not Ep_dict:
         print("No valid primes found for modular search. Aborting.")
-        return set(), [], {}, stats  # <-- Return stats
+        return set(), [], precomputed_residues, stats  # <-- Return stats
 
     # === PHASE: PRECOMPUTE RESIDUES ===
     vecs_list = list(search_vecs)
@@ -691,7 +615,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
         stats.incr('using_consensus_residues', n=1)
 
-    # ADD THIS: Populate stats.residues_by_prime from precomputed residues
+    # Populate stats.residues_by_prime from precomputed residues
     for p, p_mapping in precomputed_residues.items():
         for v_tuple, rhs_lists in p_mapping.items():
             for rhs_list in rhs_lists:
@@ -700,11 +624,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                         stats.add_residue(p, residue)
 
     stats.start_phase('brauer')
-    from brauer import (
-        estimate_completeness_probability,
-        probe_algebraic_brauer_obstructions,
-        m_is_locally_allowed,
-    )
 
     report = estimate_completeness_probability(precomputed_residues, PRIME_POOL)
     print(f"[brauer] estimated survival fraction ≈ {report['estimate_survive']:.6f}")
@@ -723,9 +642,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
 
     if TARGETED_X: # comment out when not in use
-
         ret = diagnose_missed_point(TARGETED_X, r_m, shift, precomputed_residues, prime_pool, vecs)
-        #print("ret=", ret)
         matched_subset = None
         if 'matched_primes' in ret:
             matched_subset = ret['matched_primes']
@@ -769,22 +686,14 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     stats.end_phase('autotune_primes')
 
     # Filtering stage: compute product estimate using distinct numeric residues per prime
-    combo_cap = ceil(50000**(7*min_prime_subset_size/3)) # too many residues for this prime subset, too many possibilities, modular constraints are too loose
+    combo_cap = ceil(50000**(7*min_prime_subset_size/3))
     roots_threshold = ROOTS_THRESHOLD
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
 
-    # In search_main.py, before analyze_unused_residue_orders
-    PR_m = PolynomialRing(QQ, 'm')
-    Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
-    if hasattr(Delta_poly, 'numerator'):
-        Delta_poly = Delta_poly.numerator()
-    Delta_pr = PR_m(SR(Delta_poly))
-
     # Get Delta polynomial from cd
     PR_m = PolynomialRing(QQ, 'm')
     try:
-        # cd.discriminant or cd.Delta should exist
         Delta_poly = cd.discriminant if hasattr(cd, 'discriminant') else (-16 * (4 * cd.a4**3 + 27 * cd.a6**2))
         if hasattr(Delta_poly, 'numerator'):
             Delta_poly = Delta_poly.numerator()
@@ -794,10 +703,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         Delta_pr = None
         raise
 
-    # *** NEW: Predict target QC ratio from discriminant structure ***
+    # *** Predict target QC ratio from discriminant structure ***
     predicted_qc_ratio = None
     if Delta_pr is not None:
-        from bounds import predict_qc_distribution  # Add this function to bounds.py
         # Use first 20-30 primes from prime_pool as sample
         prime_sample = prime_pool[:min(30, len(prime_pool))]
         predicted_qc_ratio = predict_qc_distribution(Delta_pr, prime_sample, debug=debug)
@@ -806,15 +714,11 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     target_qc_ratio = predicted_qc_ratio if predicted_qc_ratio is not None else 1.2
     print(f"[QC Target] Using QC ratio: {target_qc_ratio:.3f} ({'predicted' if predicted_qc_ratio else 'default'})")
 
-    # In search_main.py, after prepare_modular_data_lll and before GEN SUBSETS phase:
-
     # === COMPUTE ADAPTIVE NUM_SUBSETS ===
     collision_primes = []
     if hasattr(stats, 'rejected_primes'):
-        collision_primes = [p for p, reason in stats.rejected_primes
-                        if 'collision' in str(reason)]
+        collision_primes = [p for p, reason in stats.rejected_primes if 'collision' in str(reason)]
 
-    # CORRECTED density calculation
     density_count = 0
     total_pairs = 0
     for p, mapping in precomputed_residues.items():
@@ -822,7 +726,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             total_pairs += 1
             v_tuple_normalized = tuple(v_tuple)
             roots_lists = mapping.get(v_tuple_normalized, [])
-            # Has roots if any RHS function has roots for this (p, v) pair
             has_roots = any(roots for roots in roots_lists)
             if has_roots:
                 density_count += 1
@@ -841,9 +744,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     print(f"[Adaptive] Empirical density: {empirical_density:.4f}")
     print(f"[Adaptive] Recommended NUM_SUBSETS: {num_subsets_adaptive} (configured: {num_subsets})")
 
-    # Use the adaptive value (or keep your configured value, up to you)
-    num_subsets_to_use = num_subsets_adaptive  # Or: min(num_subsets, num_subsets_adaptive)
-
     # Conservative: use the max of adaptive and configured
     num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
 
@@ -854,7 +754,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         precomputed_residues=precomputed_residues,
         vecs=vecs_list,
         rhs_list=rhs_list,
-        num_subsets=num_subsets_to_use,  # <-- Use adaptive value
+        num_subsets=num_subsets_to_use,
         min_size=min_prime_subset_size,
         max_size=min_max_prime_subset_size,
         combo_cap=combo_cap,
@@ -877,7 +777,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             if roots_count == 0:
                 is_viable = False
                 break
-            # if any single prime has more residues than the threshold, it's likely to explode
             if roots_count > roots_threshold:
                 est *= roots_count
                 if est > combo_cap:
@@ -898,8 +797,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     prime_subsets_to_process = filtered_subsets
     stats.prime_subsets = prime_subsets_to_process
 
-    #### if missing a point, assert your matched subset is contained in the used ones
-    if TARGETED_X: # commented out when not using/debugging
+    if TARGETED_X:
         assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
 
     count_subsets = {}
@@ -917,13 +815,10 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
     if not prime_subsets_to_process:
         if debug:
             print("[fallback] coverage-based filtering removed all subsets. Building deterministic fallback subsets.")
-        from itertools import combinations
         fallback = []
         max_k = min(6, len(prime_pool))
-        # prefer sizes 3..max_k
         for k in range(3, max_k + 1):
             for comb in combinations(prime_pool, k):
-                # only keep combos with at least one residue per prime
                 good = True
                 for p in comb:
                     if not residues_by_prime_numeric.get(p):
@@ -931,7 +826,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
                         break
                 if not good:
                     continue
-                # estimate as above
                 est = 1
                 for p in comb:
                     est *= max(1, len(residues_by_prime_numeric[p]))
@@ -949,7 +843,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             if debug:
                 print(f"[fallback] Using {len(prime_subsets_to_process)} deterministic fallback subsets.")
         else:
-            # give up cleanly
             print("No viable prime subsets generated or remaining after filtering. Aborting.")
             stats.end_phase('gen_subsets')
             print("\n--- Search Statistics (No Subsets) ---")
@@ -968,20 +861,16 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         tmax=tmax,
         combo_cap=combo_cap,
         precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,  # current (filtered) prime_pool
+        prime_pool=prime_pool,
         num_rhs_fns=len(rhs_list),
-        coeffs_genus2=coeffs_genus2 # <-- ADDED THIS ARGUMENT
+        coeffs_genus2=coeffs_genus2
     )
 
     subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
         prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
     )
 
-    # *** THIS IS THE FIX for "CRT-consistent samples: 0" ***
-    # Save the collected CRT classes to the main stats object
     stats.crt_classes_tested = all_crt_classes
-
-    # update coverage estimator
     coverage_estimator.tested_classes = all_crt_classes
     coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
 
@@ -998,11 +887,9 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
         if additional_runs > 0:
             print(f"  ⚠️  Recommend {additional_runs} more run(s) to reach 95% coverage")
 
-    # Merge worker stats collected by the manager
     stats.merge_dict(worker_stats_dict)
     stats.incr('subsets_processed', n=len(subset_results_list))
 
-    # aggregate worker candidates
     overall_found_candidates_from_workers = set()
     productive_subsets_data = []
     for subset, candidates_set, _ in subset_results_list:
@@ -1016,7 +903,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
 
-    # Batch check rationality
     print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
     final_rational_candidates = set()
     candidate_list = list(overall_found_candidates_from_workers)
@@ -1038,7 +924,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
     stats.end_phase('search_subsets_and_check')
 
-    # print productivity stats
     try:
         print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
     except Exception as e:
@@ -1076,14 +961,13 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             raise
             continue
 
-    # <<< MODIFIED/NEW SECTION >>>
     analysis = analyze_unused_residue_orders(
         precomputed_residues=precomputed_residues,
         rhs_list=rhs_list,
         found_m_set=processed_m_vals,
         prime_pool=prime_pool,
         max_lift_k=3,
-        Delta_pr=Delta_pr,  # <-- Now actually computed
+        Delta_pr=Delta_pr,
         Ep_dict=Ep_dict
     )
 

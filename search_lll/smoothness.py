@@ -539,239 +539,6 @@ def atoms_from_mumford(div, f_p, p):
 # --- start patch (put in index_calculus.py) ---
 # assumes: from smoothness import atoms_from_mumford, extract_factor_base
 
-def build_relation_matrix(divisors, factor_base, p=None, f_p=None, verbose=False):
-    """
-    Builds the sign-aware relation matrix for Index Calculus attack.
-
-    CRITICAL: Uses Mumford v(x) directly - NO re-canonicalization with f(x).
-    This matches the encoding in index_calculus.py get_relation_row().
-
-    Args:
-        divisors: list of Mumford divisor dicts
-        factor_base: list of x-coordinates (for backward compatibility)
-                     OR dict of atoms (new format)
-        p: prime modulus
-        f_p: curve polynomial (optional, for canonical y lookup)
-        verbose: print diagnostics
-
-    Returns:
-        dict {'matrix': M, 'rank': rank}
-    """
-    from .smoothness import tonelli_shanks
-
-    # Handle both old (list of x-coords) and new (atom dict) formats
-    if isinstance(factor_base, dict):
-        # New format: atom_to_idx
-        atom_to_idx = factor_base
-        # Extract x-coords from degree-1 atoms for backward compat
-        root_to_idx = {}
-        for atom, idx in atom_to_idx.items():
-            if atom[0] == 'd1':
-                x_val = atom[1]
-                root_to_idx[x_val] = idx
-    else:
-        # Old format: list of x-coordinates
-        root_to_idx = {root: i for i, root in enumerate(factor_base)}
-
-    matrix_rows = []
-    seen = set()
-
-    for d in divisors:
-        s, pp, v0, v1 = int(d['s']), int(d['p']), int(d['v_0']), int(d['v_1'])
-
-        # Deduplicate
-        if (s, pp, v0, v1) in seen:
-            continue
-        seen.add((s, pp, v0, v1))
-
-        # Extract roots
-        roots = d.get('roots', [])
-        if not roots and p:
-            disc = (s*s - 4*pp) % p
-            if pow(disc, (p-1)//2, p) == 1:
-                delta = tonelli_shanks(disc, p)
-                inv2 = pow(2, -1, p)
-                r1 = (s + delta) * inv2 % p
-                r2 = (s - delta) * inv2 % p
-                roots = [r1, r2]
-
-        if not roots:
-            continue
-
-        row = [0] * len(root_to_idx)
-
-        for r in roots:
-            if r not in root_to_idx:
-                continue
-
-            idx = root_to_idx[r]
-
-            # CRITICAL: Use Mumford v(x) DIRECTLY - no f(x) re-canonicalization
-            # This matches index_calculus.py get_relation_row()
-            if p:
-                # Evaluate Mumford v(x) at root r
-                y_val = (v1 * r + v0) % p
-
-                # Canonical y from factor base (if available via f_p)
-                if f_p is not None:
-                    # Compute f(r) to get canonical sqrt
-                    K = GF(p)
-                    y2 = int(f_p(K(r)))
-
-                    if y2 == 0:
-                        y_can = 0
-                    elif pow(y2, (p-1)//2, p) != 1:
-                        # Not a quadratic residue - skip this root
-                        continue
-                    else:
-                        sqrt_y2 = tonelli_shanks(y2, p)
-                        y_can = min(sqrt_y2, p - sqrt_y2)
-                else:
-                    # No curve polynomial - use v(r) itself as canonical
-                    # (This path should not be used in production)
-                    y_can = min(y_val, p - y_val)
-
-                # Sign determination: compare v(r) to canonical y
-                if y_val == y_can:
-                    row[idx] += 1  # Positive sign
-                elif (p - y_val) % p == y_can:
-                    row[idx] -= 1  # Negative sign
-                else:
-                    # y_val doesn't match canonical ±sqrt - data inconsistency
-                    if verbose:
-                        print(f"  [WARNING] Sign mismatch at r={r}: v(r)={y_val}, y_can={y_can}")
-                    # Skip this divisor entirely
-                    row = None
-                    break
-            else:
-                # Rational case - no sign ambiguity
-                row[idx] += 1
-
-        if row is not None:
-            matrix_rows.append(row)
-
-    if not matrix_rows:
-        M = matrix(ZZ, 0, len(root_to_idx))
-        rank = 0
-    else:
-        M = matrix(ZZ, matrix_rows)
-        rank = M.rank()
-
-    if verbose:
-        print(f"  [Matrix] {M.nrows()} Rows x {M.ncols()} Cols | Rank: {rank}")
-        sys.stdout.flush()
-
-    return {'matrix': M, 'rank': rank}
-
-def diagnose_finite_field_search(divisors, f_p, verbose=True):
-    """
-    Clean, high-level summary of the attack status.
-    NOW INCLUDES: Verification that G and Q are both FB-smooth.
-
-    CORRECTED: Passes f_p to build_relation_matrix for proper sign convention.
-    """
-    p = FINITE_FIELD
-
-    # Extract factor base from all divisors - UNPACK THE TUPLE
-    atom_to_idx, fb_y_cache = extract_factor_base(divisors, f_p=f_p, p=p)
-
-    # Extract just the x-coordinates for degree-1 atoms (old format compatibility)
-    fb_roots = []
-    for atom, idx in atom_to_idx.items():
-        if atom[0] == 'd1':  # degree-1 atom: ('d1', x, y)
-            x_val = atom[1]
-            if x_val not in fb_roots:
-                fb_roots.append(x_val)
-
-    # Build relation matrix from divisors - PASS f_p for correct sign convention
-    res = build_relation_matrix(divisors, fb_roots, p=p, f_p=f_p, verbose=False)
-
-    rank = res['rank']
-    needed = len(fb_roots)
-
-    # NEW: Check if G and Q are actually in the factor base
-    G, Q, preferred_coords = BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS
-
-    # Check G smoothness
-    u_G = G[0]
-    G_roots = set()
-    G_is_smooth = (sum(mult for _, mult in u_G.roots(GF(p))) == u_G.degree())  # Fully split?
-    if u_G.degree() > 0:
-        for root, _ in u_G.roots(GF(p)):
-            x_int = int(root)
-            G_roots.add(x_int)
-            if x_int not in fb_roots:
-                G_is_smooth = False
-                if verbose:
-                    print(f"  WARNING: Generator G has root x={x_int} NOT in factor base")
-
-    # Check Q smoothness
-    u_Q = Q[0]
-    Q_roots = set()
-    Q_is_smooth = (sum(mult for _, mult in u_Q.roots(GF(p))) == u_Q.degree())  # Fully split?
-    if u_Q.degree() > 0:
-        for root, _ in u_Q.roots(GF(p)):
-            x_int = int(root)
-            Q_roots.add(x_int)
-            if x_int not in fb_roots:
-                Q_is_smooth = False
-                if verbose:
-                    print(f"  WARNING: Target Q has root x={x_int} NOT in factor base")
-
-    # Analyze preferred coordinates hit rate
-    analyze_preferred_hit_rate(divisors, preferred_coords, p=p)
-
-    print("\n" + "="*60)
-    print(" INDEX CALCULUS ATTACK DIAGNOSTIC")
-    print("="*60)
-    print(f" Target Field: GF({p})")
-    print(f" Relations:    {len(divisors)}")
-    print(f" Factor Base:  {len(fb_roots)}")
-    print(f" Matrix Rank:  {rank}")
-    print("-"*60)
-
-    # Check if both G and Q are smooth
-    if not G_is_smooth:
-        print(" [X] CRITICAL: Generator G is NOT smooth over factor base")
-        print(f"    G roots: {sorted(G_roots)}")
-        print(f"    Missing from FB: {sorted(G_roots - set(fb_roots))}")
-    else:
-        print(" [OK] Generator G is smooth over factor base")
-
-    if not Q_is_smooth:
-        print(" [X] CRITICAL: Target Q is NOT smooth over factor base")
-        print(f"    Q roots: {sorted(Q_roots)}")
-        print(f"    Missing from FB: {sorted(Q_roots - set(fb_roots))}")
-    else:
-        print(" [OK] Target Q is smooth over factor base")
-
-    print("-"*60)
-
-    # Overall verdict
-    if rank >= needed and len(divisors) >= needed and G_is_smooth and Q_is_smooth:
-        print(" SUCCESS: Matrix is full rank. Ready for Linear Algebra.")
-        print("          Both G and Q are expressible over factor base.")
-    else:
-        if rank < needed:
-            print(f" FAILURE: Deficit of {needed - rank} independent relations.")
-        if not G_is_smooth or not Q_is_smooth:
-            print(f" FAILURE: Keypair not smooth over current factor base.")
-        print(" Suggestion: Increase TMAX or add more search vectors.")
-    print("="*60 + "\n")
-
-    # Return basic report dict for upstream
-    return {
-        'factor_base': fb_roots,
-        'atom_to_idx': atom_to_idx,
-        'fb_y_cache': fb_y_cache,
-        'matrix': res['matrix'],
-        'rank': rank,
-        'G_is_smooth': G_is_smooth,
-        'Q_is_smooth': Q_is_smooth,
-        'G_roots': G_roots,
-        'Q_roots': Q_roots
-    }
-
 def extract_factor_base(sample_divisors, p, f_p=None, verbose=False):
     """
     Canonical prime-divisor factor base extractor.
@@ -870,3 +637,256 @@ def extract_factor_base(sample_divisors, p, f_p=None, verbose=False):
         print(f"[Factor Base] {len(atom_to_idx)} prime atoms ({d1_count} d1, {d2_count} d2)")
 
     return atom_to_idx, fb_y_cache
+
+def build_relation_matrix(divisors, factor_base, p=None, f_p=None, verbose=False, debug=False):
+    """
+    Constructs the relation matrix for Index Calculus.
+    Maps each divisor to a row representing its decomposition over the factor base.
+
+    Args:
+        divisors: List of smooth divisor dictionaries.
+        factor_base: List of atoms (d1 or d2).
+        p: The prime field characteristic.
+        f_p: The curve polynomial mod p.
+        verbose: Print progress and matrix stats.
+        debug: If True, performs the expensive M.rank() check.
+    """
+    if verbose:
+        print(f"  [Matrix] Building matrix from {len(divisors)} relations over {len(factor_base)} FB elements...")
+        sys.stdout.flush()
+
+    # 1. Map factor base atoms to column indices
+    # We use the atom itself as the key.
+    # d1 atoms: ('d1', x, y) where y = min(y, p-y)
+    # d2 atoms: ('d2', u_coeffs, v_coeffs)
+    atom_to_idx = {atom: i for i, atom in enumerate(factor_base)}
+    num_columns = len(factor_base)
+    matrix_rows = []
+
+    # If we are in a Finite Field context, we need the ring for evaluations
+    K = GF(p) if p else None
+
+    # 2. Process each divisor to build a sparse row
+    for d in divisors:
+        row = [0] * num_columns
+
+        # A divisor in this library typically has 'u' and 'v' polynomials (Mumford representation)
+        u = d.get('u')
+        v = d.get('v')
+
+        if u is None or v is None:
+            continue
+
+        # Decomposition logic:
+        # We look at the roots of u(x) to determine the points (d1) or
+        # the irreducible factors (d2).
+
+        if u.degree() == 0:
+            continue # Zero divisor / Identity
+
+        # Split u into its irreducible factors over GF(p)
+        factors = u.factor()
+
+        possible_relation = True
+        current_row_data = Counter()
+
+        for poly, mult in factors:
+            if poly.degree() == 1:
+                # Linear factor -> Point (d1)
+                x_val = int(-poly.constant_coefficient())
+                y_val = int(v(K(x_val))) if K else int(v(x_val))
+
+                # Normalize y-coordinate to match the factor base's "min(y, p-y)" convention
+                # If y > p-y, it means this is the negative of the FB point.
+                if p and y_val > p // 2:
+                    y_norm = p - y_val
+                    atom = ('d1', x_val, y_norm)
+                    weight = -1 * mult
+                else:
+                    atom = ('d1', x_val, y_val)
+                    weight = 1 * mult
+
+                if atom in atom_to_idx:
+                    current_row_data[atom_to_idx[atom]] += weight
+                else:
+                    possible_relation = False
+                    break
+
+            elif poly.degree() == 2:
+                # Quadratic factor -> (d2) atom
+                # Normalize the quadratic poly so it's monic (already monic from .factor())
+                u_coeffs = tuple(int(c) for c in poly.list())
+
+                # For v(x), we often reduce it mod poly
+                v_red = v % poly
+                v_coeffs = tuple(int(c) for c in v_red.list())
+
+                atom = ('d2', u_coeffs, v_coeffs)
+
+                if atom in atom_to_idx:
+                    current_row_data[atom_to_idx[atom]] += mult
+                else:
+                    # Check if the "negative" of the d2 atom is in the FB
+                    # In Genus 2, -(u, v) = (u, -v)
+                    v_neg_coeffs = tuple(int(-c % p) for c in v_red.list())
+                    atom_neg = ('d2', u_coeffs, v_neg_coeffs)
+
+                    if atom_neg in atom_to_idx:
+                        current_row_data[atom_to_idx[atom_neg]] -= mult
+                    else:
+                        possible_relation = False
+                        break
+            else:
+                # Higher degree irreducible factors are not smooth
+                possible_relation = False
+                break
+
+        if possible_relation:
+            # Convert Counter to a row list
+            row_vec = [0] * num_columns
+            for idx, val in current_row_data.items():
+                row_vec[idx] = val
+            matrix_rows.append(row_vec)
+
+    # 3. Construct Matrix and Rank
+    if not matrix_rows:
+        M = matrix(ZZ, 0, num_columns)
+        rank = 0
+    else:
+        # We use ZZ because relations can have negative coefficients
+        M = matrix(ZZ, matrix_rows)
+
+        # CRITICAL PERFORMANCE GATE:
+        # Matrix rank is O(N^3) or O(N^2) depending on sparsity.
+        # We skip it in production to avoid the "expensive rank check" bottleneck.
+        if debug:
+            if verbose:
+                print(f"  [Debug] Computing rank of {M.nrows()}x{M.ncols()} matrix...")
+            rank = M.rank()
+        else:
+            rank = None
+
+    if verbose:
+        rank_str = str(rank) if rank is not None else "(skipped)"
+        print(f"  [Matrix] Final: {M.nrows()} rows, {M.ncols()} cols. Rank: {rank_str}")
+        sys.stdout.flush()
+
+    return {
+        'matrix': M,
+        'rank': rank,
+        'atom_to_idx': atom_to_idx,
+        'num_relations': len(matrix_rows)
+    }
+
+def diagnose_finite_field_search(divisors, f_p, verbose=True, debug=False):
+    """
+    Comprehensive diagnostic for the Index Calculus attack state.
+    Checks factor base quality, key divisor smoothness (G and Q), and matrix rank.
+    """
+    p = f_p.base_ring().order()
+
+    # 1. Extract the factor base from the discovered smooth divisors
+    # This typically collects all unique d1 (points) and d2 (quadratic) atoms.
+    fb_res = extract_factor_base(divisors, p, f_p, verbose=False)
+    fb_roots = fb_res['factor_base']
+    atom_to_idx = fb_res['atom_to_idx']
+    fb_y_cache = fb_res['fb_y_cache']
+
+    # 2. Build the relation matrix
+    # The debug flag here controls whether the expensive M.rank() is performed.
+    res = build_relation_matrix(
+        divisors,
+        fb_roots,
+        p=p,
+        f_p=f_p,
+        verbose=False,
+        debug=debug
+    )
+
+    rank = res['rank']
+    needed = len(fb_roots)
+
+    # 3. Check smoothness of the Base (G) and Target (Q) divisors
+    # These are usually defined in search_common or passed via globals.
+    G = globals().get('BASE_DIVISOR')
+    Q = globals().get('TARGET_DIVISOR')
+
+    def check_smoothness(D):
+        if D is None:
+            return False, []
+        try:
+            # A divisor is smooth if all its points (x-coordinates)
+            # are present in the factor base.
+            u_poly = D.u()
+            roots = [int(r[0]) for r in u_poly.roots(GF(p))]
+            # If the number of roots mod p matches the degree, it's d1-smooth
+            if len(roots) < u_poly.degree():
+                return False, roots
+
+            is_smooth = all(r in fb_y_cache for r in roots)
+            return is_smooth, roots
+        except Exception:
+            return False, []
+
+    G_is_smooth, G_roots = check_smoothness(G)
+    Q_is_smooth, Q_roots = check_smoothness(Q)
+
+    # 4. Final Diagnostic Output
+    if verbose:
+        print("\n" + "="*70)
+        print(" INDEX CALCULUS ATTACK DIAGNOSTIC")
+        print("="*70)
+        print(f" Target Field:   GF({p})")
+        print(f" Relations:      {len(divisors)}")
+        print(f" Factor Base:    {len(fb_roots)} atoms")
+
+        # Display rank or notice of skip
+        if rank is not None:
+            deficit = max(0, needed - rank)
+            rank_status = f"{rank} (Deficit: {deficit})"
+        else:
+            rank_status = "SKIPPED (debug=False)"
+
+        print(f" Matrix Rank:    {rank_status}")
+        print("-" * 70)
+
+        # Smoothness status
+        G_status = "SMOOTH" if G_is_smooth else "NOT SMOOTH"
+        Q_status = "SMOOTH" if Q_is_smooth else "NOT SMOOTH"
+        print(f" Base Divisor G: {G_status} (Roots: {G_roots})")
+        print(f" Target Divisor Q: {Q_status} (Roots: {Q_roots})")
+        print("-" * 70)
+
+        # Verdict logic
+        if rank is not None:
+            if rank >= needed and G_is_smooth and Q_is_smooth:
+                print(" SUCCESS: Matrix is full rank and keys are smooth.")
+                print("          Linear algebra (Wiedemann/Lanczos) can now proceed.")
+            else:
+                if rank < needed:
+                    print(f" FAILURE: Need {needed - rank} more independent relations.")
+                if not G_is_smooth or not Q_is_smooth:
+                    print(" FAILURE: One or both keys are not smooth over current factor base.")
+                print(" Action: Increase TMAX or add more search vectors to find more relations.")
+        else:
+            print(" INFO: Matrix constructed. Check G/Q smoothness above.")
+            if G_is_smooth and Q_is_smooth:
+                print("       Keys are smooth. Attempt linear algebra if relation count is > FB size.")
+            else:
+                print("       Keys are not yet smooth. More relations required.")
+
+        print("="*70 + "\n")
+        sys.stdout.flush()
+
+    return {
+        'factor_base': fb_roots,
+        'atom_to_idx': atom_to_idx,
+        'fb_y_cache': fb_y_cache,
+        'matrix': res['matrix'],
+        'rank': rank,
+        'G_is_smooth': G_is_smooth,
+        'Q_is_smooth': Q_is_smooth,
+        'G_roots': G_roots,
+        'Q_roots': Q_roots,
+        'num_relations': len(divisors)
+    }

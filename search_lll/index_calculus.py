@@ -1,7 +1,7 @@
-import sys, time, random, multiprocessing
+import sys, time, random, multiprocessing, math
 from math import ceil, sqrt, gcd
 from multiprocessing import Pool, cpu_count, Process, SimpleQueue, Event
-from collections import Counter
+from collections import Counter, deque, defaultdict
 from copy import deepcopy
 from queue import Full
 from sage.all import Integer, Zmod, GF, ZZ, matrix, vector, PolynomialRing, factor, crt, prime_factors, set_random_seed
@@ -13,6 +13,8 @@ from .sparse_linalg_modp import *
 from .cofactor import *
 from .walker import *
 from .fiber_augment import build_fiber_augmented_relations
+from .recursive_smoothing import *
+from typing import Dict, List, Tuple, Any, Optional
 
 # Standard library
 
@@ -103,7 +105,6 @@ def dlp_bsgs(G, Q, order):
     Solve Q = k*G in a cyclic group of given order using BSGS.
     Raises ValueError if no solution exists.
     """
-    import math
 
     m = int(math.ceil(math.sqrt(order)))
 
@@ -601,7 +602,6 @@ def diagnose_system_consistency(homogeneous_rows, row_g, row_q, full_order, verb
     Run comprehensive diagnostics on the linear system BEFORE solving.
     Checks if G and Q are in span of homogeneous relations.
     """
-    from sage.all import Zmod, matrix, vector, Integer, factor
 
     ell = int(max(int(p) for p, _ in factor(full_order)))
     K = Zmod(ell)
@@ -810,7 +810,6 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
         smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs, verbose=verbose,
         use_collision_walks=False) # turn off collision walks while testing fiber relations
-    
 
     if not valid_rows:
         raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
@@ -837,7 +836,6 @@ def verify_relation_is_ell_torsion(row, atom_to_idx, ell, J, verbose=False):
 
     Raises on reconstruction failure
     """
-    from sage.all import GF, PolynomialRing
 
     # Build inverse map
     idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
@@ -1182,7 +1180,6 @@ def _worker_init(gen_mumford, target_mumford, atom_to_idx, sample_roots_int,
 # ---------------------------------------------------------------------
 def project_relations_and_solve_mod_l(valid_rows, rhs_values, row_q_map, full_order, G, Q,
                                       verbose=True):
-    from sage.all import Integer, Zmod, matrix, vector
 
     # get ell and h
     fac = full_order.factor() if hasattr(full_order, "factor") else None
@@ -1451,284 +1448,57 @@ def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
 
     return clean_rows
 
+# NOTE: This function assumes the following are available in the module namespace:
+# - Integer, GF, PolynomialRing, HyperellipticCurve (sage imports you already had)
+# - _legacy_build_relations_from_mumford, filter_forbidden_relations,
+#   get_relation_row, build_fiber_augmented_relations, precheck_cofactor_projection,
+#   detect_nontrivial_character_from_projection, verify_character_vectors,
+#   apply_cofactor_filter, solve_dlp_mod_l_cofactor_projection
+# If any of those are not present, keep the placeholders and supply them.
 
-def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
-                       verbose=True, force_index_calculus=False,
-                       E_rhs_m=None, x_b=None, f_shifted_poly=None):
+def _convert_divisor_relations_to_atom_relations(rs):
     """
-    CORRECTED: Traditional Index Calculus with proper kernel solver.
-
-    CRITICAL: G and Q are assumed to already be in J(F_p)[ℓ] (ℓ-torsion).
+    Convert a RecursiveSmoother instance 'rs' into homogeneous_rows, fb_roots, atom_to_idx
+    with atom keys matching your pipeline: ('d1', x_int, y_can) or any other hashable atom.
+    We assume rs.roots are atom keys already (so we use them directly).
     """
-    # Basic validation
-    if G is None or Q is None:
-        raise ValueError("Generator G and target Q must be provided")
-    if order is None or int(order) <= 0:
-        raise ValueError("Invalid Jacobian order provided")
+    atom_to_idx = {}
+    next_idx = 0
 
-    full_order = Integer(order)
+    def get_atom_idx(atom):
+        nonlocal next_idx
+        if atom not in atom_to_idx:
+            atom_to_idx[atom] = next_idx
+            next_idx += 1
+        return atom_to_idx[atom]
 
-    # Check if precomputed relations
-    precomputed = False
-    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
-            and isinstance(smooth_divs_or_rels[0], dict)
-            and smooth_divs_or_rels[0].get('type') == 'relations'):
-        precomputed = True
+    homogeneous_rows = []
 
-    # Prepare polynomial ring and curve
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-    f_p = sage_poly_from_coeffs(f_coeffs, R)
-    C = HyperellipticCurve(f_p)
-    J = C.jacobian()
+    # rs.relations is list of {div_idx: coeff}
+    # rs.divisors is list of divisor pairs (root1, root2)
+    for rel in rs.relations:
+        atom_row = {}
+        for div_idx, coeff in rel.items():
+            # guard: skip zero coefficients (shouldn't appear)
+            if coeff == 0:
+                continue
+            a, b = rs.divisors[div_idx]   # these are the atoms used as roots in rs
+            ia = get_atom_idx(a)
+            ib = get_atom_idx(b)
+            atom_row[ia] = atom_row.get(ia, 0) + coeff
+            atom_row[ib] = atom_row.get(ib, 0) + coeff
 
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
-        print(f"{'='*70}")
-        print(f"Full Jacobian order |J|: {full_order}")
+        # prune zeros
+        atom_row = {k: v for k, v in atom_row.items() if v != 0}
+        if atom_row:
+            homogeneous_rows.append(atom_row)
 
-    # Compute ℓ and h
-    factors = factor(full_order)
-    ell = int(max(int(p) for p, _ in factors))
-    h = int(full_order // ell)
+    # invert map to get fb_roots (list indexable by atom index)
+    fb_roots = [None] * len(atom_to_idx)
+    for atom, idx in atom_to_idx.items():
+        fb_roots[idx] = atom
 
-    if verbose:
-        print(f"Largest prime ℓ: {ell}")
-        print(f"Cofactor h: {h}")
-
-    # Build or extract factor base and homogeneous relations
-    if precomputed:
-        data = smooth_divs_or_rels[0]
-        homogeneous_rows = data['relations']
-        fb_roots = data['fb_roots']
-        atom_to_idx = data['fb_map']
-
-        fb_y_cache = {}
-        for x_int in fb_roots:
-            y2 = int(f_p(K(x_int)))
-            if y2 == 0:
-                fb_y_cache[x_int] = 0
-            else:
-                y_can = tonelli_shanks(y2, p)
-                fb_y_cache[x_int] = int(min(y_can, p - y_can))
-    else:
-        # Legacy path: build from Mumford divisors
-        if verbose:
-            print("  [Legacy] Building factor base and relations from Mumford divisors...")
-
-        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
-
-        # snapshot for precheck (Mumford atoms only, known to satisfy f_p)
-        atom_to_idx_mumford = dict(atom_to_idx)
-        homogeneous_rows_mumford = list(homogeneous_rows)
-
-        # now augment
-        if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
-            fiber_rows = build_fiber_augmented_relations(
-                E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
-                full_order=full_order, ell=ell,
-                verbose=verbose
-            )
-            homogeneous_rows.extend(fiber_rows)
-
-        # Verify all RHS are zero (homogeneous)
-        if any(r != 0 for r in homogeneous_rhs):
-            raise RuntimeError(
-                f"_legacy_build_relations_from_mumford returned non-homogeneous relations:\n"
-                f"  Found {sum(1 for r in homogeneous_rhs if r != 0)} nonzero RHS values"
-            )
-
-        if verbose:
-            print("  [Fiber Augment] +" + str(len(fiber_rows)) + " relations, FB now " + str(len(atom_to_idx_mumford)) + " atoms")
-
-    if not homogeneous_rows:
-        raise RuntimeError("No valid homogeneous relations available")
-
-    # Filter forbidden relations (G/Q dependent)
-    homogeneous_rows = filter_forbidden_relations(
-        homogeneous_rows, atom_to_idx, f_p, p, G, Q, verbose=verbose
-    )
-
-    if not homogeneous_rows:
-        raise RuntimeError("All relations were filtered out (they were all G or Q dependent!)")
-
-    if verbose:
-        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
-        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
-        sys.stdout.flush()
-
-    # === SMOOTH G AND Q ===
-    # CRITICAL FIX: Use get_relation_row with require_signed_d2=False to allow d1 fallback
-    row_g = None
-    alpha_g = 0
-
-    # Try encoding G directly (already ℓ-torsion)
-    row_g = get_relation_row(G, atom_to_idx, f_p, p, require_signed_d2=False)
-
-    if row_g is not None:
-        if verbose:
-            print("  [Smoothing] Generator G is already smooth.")
-    else:
-        # G not smooth - try random multiples
-        if verbose:
-            print("  [Smoothing] Generator not smooth. Attempting random smoothing...")
-
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(ell))
-            cand_G = (1 + r) * G
-
-            row_g = get_relation_row(cand_G, atom_to_idx, f_p, p, require_signed_d2=False)
-
-            if row_g:
-                alpha_g = r
-                if verbose:
-                    print(f"  [Smoothing] Found smooth generator at iter {i}")
-                break
-
-    if row_g is None:
-        raise RuntimeError("Failed to smooth Generator G")
-
-    # Smooth Q
-    row_q = None
-    beta_q = 0
-
-    row_q = get_relation_row(Q, atom_to_idx, f_p, p, require_signed_d2=False)
-
-    if row_q is not None:
-        if verbose:
-            print("  [Smoothing] Target Q is already smooth.")
-    else:
-        if verbose:
-            print("  [Smoothing] Target not smooth. Attempting random smoothing...")
-
-        for i in range(1, 2001):
-            r = ZZ.random_element(1, int(ell))
-            cand_Q = Q + r * G
-
-            row_q = get_relation_row(cand_Q, atom_to_idx, f_p, p, require_signed_d2=False)
-
-            if row_q:
-                beta_q = r
-                if verbose:
-                    print(f"  [Smoothing] Found smooth target at iter {i}")
-                break
-
-    if row_q is None:
-        raise RuntimeError("Failed to smooth Target Q")
-
-    g_support, q_support = check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True)
-
-    # Union-Find version — faster for large supports
-    parent = {}
-
-    def find(x):
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(x, y):
-        parent[find(x)] = find(y)
-
-    for row in homogeneous_rows:
-        support = [idx for idx, val in row.items() if val != 0]
-        for i in range(1, len(support)):
-            union(support[0], support[i])
-
-    g_roots = {find(idx) for idx in g_support if idx in parent or True}
-    q_roots = {find(idx) for idx in q_support if idx in parent or True}
-    connected = bool(g_roots & q_roots)
-    print("graph is connected t/f:", connected)
-
-
-    # === COFACTOR PROJECTION PRE-CHECK ===
-    precheck = precheck_cofactor_projection(
-        atom_to_idx=atom_to_idx,
-        homogeneous_rows=homogeneous_rows,
-        row_g=row_g,
-        row_q=row_q,
-        full_order=full_order,
-        J=J,
-        f_coeffs=f_coeffs,
-        p=p,
-        verbose=verbose
-    )
-
-    char_res = detect_nontrivial_character_from_projection(
-        precheck['filtered_rows'],
-        precheck['alive_fb_indices'],
-        precheck['ell'],
-        verbose=True)
-    if char_res['found']:
-        verify_character_vectors(
-            precheck['filtered_rows'],
-            char_res['alive_idx_list'],
-            char_res['basis'],
-            precheck['ell'],
-            verbose=True
-        )
-    else:
-        print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
-
-    if precheck['safe_to_project']:
-        # Apply filtering
-        filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q = apply_cofactor_filter(
-            precheck, atom_to_idx, homogeneous_rows, row_g, row_q, verbose=verbose
-        )
-
-        if verbose:
-            print(f"\n[Strategy] Using FILTERED ℓ-torsion solve")
-            print(f"  Filtered FB: {len(filtered_atom_to_idx)} elements")
-            print(f"  Filtered relations: {len(filtered_rows)}")
-            sys.stdout.flush()
-
-        try:
-            dlog = solve_dlp_mod_l_cofactor_projection(
-                filtered_rows,
-                filtered_row_g,
-                0,
-                filtered_row_q,
-                0,
-                full_order,
-                G, Q,
-                filtered_atom_to_idx,
-                J,
-                verbose=verbose,
-            )
-        except Exception as e:
-            if verbose:
-                print(f"  ! Filtered ℓ-torsion solve failed: {e}")
-                print(f"  Falling back to full Jacobian solve...")
-            raise
-    else:
-        if verbose:
-            print(f"\n[Strategy] Pre-check FAILED: {precheck['reason']}")
-            print(f"  Skipping ℓ-torsion solve")
-            print(f"  Using full Jacobian solve instead")
-            sys.stdout.flush()
-
-        raise RuntimeError(f"Cofactor projection unsafe: {precheck['reason']}")
-
-    if verbose:
-        print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
-
-    # === FINAL VERIFICATION ===
-    D = Integer(dlog) * G - Q
-
-    if not D.is_zero():
-        raise RuntimeError(
-            f"[Verify] ✗ Final verification FAILED:\n"
-            f"        dlog * G ≠ Q\n"
-            f"        dlog={dlog}, ℓ={ell}"
-        )
-
-    if verbose:
-        print("  [Verify] ✓ Exact equality dlog * G == Q")
-
-    return Integer(dlog)
+    return homogeneous_rows, fb_roots, atom_to_idx
 
 def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
     """
@@ -1737,7 +1507,6 @@ def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
     BFS from support(row_g), check if support(row_q) is reachable.
     Returns True if connected, False if disconnected.
     """
-    from collections import defaultdict, deque
 
     # Build adjacency: atom -> set of atoms reachable via any shared relation
     adj = defaultdict(set)
@@ -1780,3 +1549,363 @@ def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
         print("[connectivity] Q support atoms reachable from G: " + str(q_reachable))
 
     return g_support, q_support
+
+# Top-level helpers (no nested defs)
+
+def jacobian_to_atoms(J_elem, p, f_p):
+    """
+    Convert a Jacobian element to a list of atom tuples compatible with atom_to_idx format.
+    Uses jacobian_to_dict (assumed present in module scope).
+    Returns degree-1 atoms ('d1', x_int, y_can) when possible; otherwise returns one d2 atom.
+    """
+    d = jacobian_to_dict(J_elem, p)
+    atoms: List[Tuple] = []
+
+    # Prefer explicit roots if present
+    roots = d.get('roots', None)
+    if roots:
+        for x_val in roots:
+            x_int = int(x_val)
+            y2 = int(f_p(GF(p)(x_int)))  # f_p polynomial evaluated at x_int in GF(p)
+            if y2 == 0:
+                y_can = 0
+            else:
+                # safe-guard: ensure QR before calling canonical
+                if pow(y2, (p - 1) // 2, p) != 1:
+                    continue
+                y_can = int(_canonical_y(y2, p))
+            atoms.append(('d1', x_int, int(y_can)))
+        if atoms:
+            return atoms
+
+    # Fallback: return a single degree-2 style atom using Mumford invariants.
+    s = int(d.get('s', 0))
+    pval = int(d.get('p', 0))
+    v1 = int(d.get('v_1', 0))
+    v0 = int(d.get('v_0', 0))
+    atoms.append(('d2', s, pval, v1, v0))
+    return atoms
+
+def nullspace_mod_p(rows: List[Dict[int, int]], ncols: int, p_mod: int) -> List[List[int]]:
+    """
+    Compute a nullspace basis (mod p_mod) for the given row-sparse list.
+    Returns list of basis vectors, each length ncols. Uses dense Gaussian elimination.
+    Suitable for moderate sizes (few thousands).
+    """
+    if not rows:
+        return []
+    m = len(rows)
+    A = [[0] * ncols for _ in range(m)]
+    for i, r in enumerate(rows):
+        for c, v in r.items():
+            if 0 <= c < ncols:
+                A[i][c] = v % p_mod
+
+    # Row reduction to RREF
+    row = 0
+    pivots = []
+    for col in range(ncols):
+        if row >= m:
+            break
+        sel = None
+        for r in range(row, m):
+            if A[r][col] % p_mod != 0:
+                sel = r
+                break
+        if sel is None:
+            continue
+        A[row], A[sel] = A[sel], A[row]
+        inv = pow(A[row][col], p_mod - 2, p_mod)
+        A[row] = [(x * inv) % p_mod for x in A[row]]
+        for r in range(m):
+            if r != row and A[r][col] != 0:
+                factor = A[r][col]
+                A[r] = [ (A[r][c] - factor * A[row][c]) % p_mod for c in range(ncols) ]
+        pivots.append(col)
+        row += 1
+
+    pivot_set = set(pivots)
+    free_vars = [j for j in range(ncols) if j not in pivot_set]
+    basis: List[List[int]] = []
+    for fv in free_vars:
+        vec = [0] * ncols
+        vec[fv] = 1
+        for r_idx, pc in enumerate(pivots):
+            vec[pc] = (-A[r_idx][fv]) % p_mod
+        basis.append(vec)
+    return basis
+
+# ---------------------------------------------------------------------
+# perform_dlp_attack (refactored): uses recursive smoothing unconditionally
+# ---------------------------------------------------------------------
+def perform_dlp_attack(
+    G, Q, smooth_divs_or_rels, p, f_coeffs, order,
+    verbose: bool = True, force_index_calculus: bool = False,
+    E_rhs_m = None, x_b = None, f_shifted_poly = None
+):
+    """
+    Refactored perform_dlp_attack: keep legacy relations, but UNCONDITIONALLY
+    replace G and Q rows via recursive smoothing and inject them into the relation set.
+    Helpers expected in module scope: many heavy functions (legacy builders, filters, solvers).
+    """
+    # Basic validation
+    if G is None or Q is None:
+        raise ValueError("Generator G and target Q must be provided")
+    if order is None or int(order) <= 0:
+        raise ValueError("Invalid Jacobian order provided")
+
+    full_order = Integer(order)
+
+    # detect precomputed relations packaging
+    precomputed = False
+    if (isinstance(smooth_divs_or_rels, (list, tuple)) and len(smooth_divs_or_rels) == 1
+            and isinstance(smooth_divs_or_rels[0], dict)
+            and smooth_divs_or_rels[0].get('type') == 'relations'):
+        precomputed = True
+
+    # Prepare curve and jacobian
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+    f_p = sage_poly_from_coeffs(f_coeffs, R)
+    C = HyperellipticCurve(f_p)
+    J = C.jacobian()
+
+    if verbose:
+        print("\n" + "="*70)
+        print("INDEX CALCULUS DLP ATTACK (Full Jacobian Group)")
+        print("="*70)
+        print(f"Full Jacobian order |J|: {full_order}")
+
+    # compute ell and cofactor
+    factors = factor(full_order)
+    ell = int(max(int(pp) for pp, _ in factors))
+    h = int(full_order // ell)
+    if verbose:
+        print(f"Largest prime ℓ: {ell}")
+        print(f"Cofactor h: {h}")
+
+    # -------------------------
+    # Build/load relations/FB (legacy preserved)
+    # -------------------------
+    if precomputed:
+        data = smooth_divs_or_rels[0]
+        homogeneous_rows = data['relations']
+        fb_roots = data.get('fb_roots', [])
+        atom_to_idx = dict(data['fb_map'])
+        # try to build fb_y_cache defensively
+        fb_y_cache = {}
+        try:
+            for x_int in fb_roots:
+                y2 = int(f_p(K(x_int)))
+                fb_y_cache[x_int] = 0 if y2 == 0 else int(min(_tonelli_shanks(y2, p), p - _tonelli_shanks(y2, p)))
+        except Exception:
+            fb_y_cache = {}
+    else:
+        if verbose:
+            print("  [Legacy] Building factor base and relations from Mumford divisors...")
+        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
+            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+
+        # snapshots
+        atom_to_idx_mumford = dict(atom_to_idx)
+        homogeneous_rows_mumford = list(homogeneous_rows)
+
+        # optional fiber augmentation
+        if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
+            fiber_rows = build_fiber_augmented_relations(
+                E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
+                full_order=full_order, ell=ell, verbose=verbose
+            )
+            homogeneous_rows.extend(fiber_rows)
+
+        # sanity: rhs zero
+        if any(r != 0 for r in homogeneous_rhs):
+            raise RuntimeError("_legacy_build_relations_from_mumford returned non-homogeneous relations")
+
+        if verbose:
+            print("  [Legacy] Factor base and relations prepared")
+
+    if not homogeneous_rows:
+        raise RuntimeError("No valid homogeneous relations available")
+
+    # filter forbidden (G/Q dependent)
+    homogeneous_rows = filter_forbidden_relations(
+        homogeneous_rows, atom_to_idx, f_p, p, G, Q, verbose=verbose
+    )
+    if not homogeneous_rows:
+        raise RuntimeError("All relations were filtered out (G/Q dependent)")
+
+    if verbose:
+        print(f"  [Relations] Loaded {len(homogeneous_rows)} homogeneous relations")
+        print(f"  [Factor Base] Size: {len(atom_to_idx)}")
+        sys.stdout.flush()
+
+    # -------------------------------------------------------------------------
+    # UNCONDITIONAL RECURSIVE SMOOTHING: replace the G and Q rows with smoother results
+    # -------------------------------------------------------------------------
+    if verbose:
+        print("  [Recursive] Beginning unconditional smoothing of G and Q...")
+
+    def jacobian_to_atoms_adapter(J_elem, atom_to_idx=None):
+        return jacobian_to_atoms(J_elem, p, f_p)
+
+    # Smooth G
+    smooth_res_G = smooth_element_via_recursive(
+        element=G,
+        atom_to_idx=atom_to_idx,
+        f_p=f_p, p=p,
+        ell=int(ell),
+        RecursiveSmoother=RecursiveSmoother,
+        jacobian_to_atoms=jacobian_to_atoms_adapter,
+        moves_multiplier=40,
+        max_moves=20000,
+        bias_target=True,
+        verbose=verbose
+    )
+
+    row_g = integrate_smoother_result_into_system(
+        smooth_res=smooth_res_G,
+        atom_to_idx=atom_to_idx,
+        homogeneous_rows=homogeneous_rows,
+        homogeneous_rhs=locals().get('homogeneous_rhs', None),
+        fb_roots=locals().get('fb_roots', fb_roots if 'fb_roots' in locals() else []),
+        ell=int(ell),
+        label="G",
+        verbose=verbose
+    )
+    alpha_g = 0
+
+    # Smooth Q
+    smooth_res_Q = smooth_element_via_recursive(
+        element=Q,
+        atom_to_idx=atom_to_idx,
+        f_p=f_p, p=p,
+        ell=int(ell),
+        RecursiveSmoother=RecursiveSmoother,
+        jacobian_to_atoms=lambda Je: jacobian_to_atoms(Je, p, f_p),
+        moves_multiplier=40,
+        max_moves=20000,
+        bias_target=True,
+        verbose=verbose
+    )
+
+    row_q = integrate_smoother_result_into_system(
+        smooth_res=smooth_res_Q,
+        atom_to_idx=atom_to_idx,
+        homogeneous_rows=homogeneous_rows,
+        homogeneous_rhs=locals().get('homogeneous_rhs', None),
+        fb_roots=locals().get('fb_roots', fb_roots if 'fb_roots' in locals() else []),
+        ell=int(ell),
+        label="Q",
+        verbose=verbose
+    )
+    beta_q = 0
+
+    # final sanity
+    if row_g is None or row_q is None:
+        raise RuntimeError("Recursive smoothing failed to produce relations for G or Q")
+
+    if verbose:
+        print("  [Recursive] Finished smoothing. Checking connectivity...")
+
+    # Connectivity and union-find (unchanged)
+    g_support, q_support = check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True)
+
+    parent = {}
+    def find_union(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(x, y):
+        parent[find_union(x)] = find_union(y)
+
+    for row in homogeneous_rows:
+        support = [idx for idx, val in row.items() if val != 0]
+        for i in range(1, len(support)):
+            union(support[0], support[i])
+
+    g_roots = {find_union(idx) for idx in g_support if idx in parent or True}
+    q_roots = {find_union(idx) for idx in q_support if idx in parent or True}
+    connected = bool(g_roots & q_roots)
+    if verbose:
+        print("graph is connected t/f:", connected)
+
+    # -------------------------------------------------------------------------
+    # continue with rest of pipeline (precheck, detection, solve) unchanged
+    # -------------------------------------------------------------------------
+    precheck = precheck_cofactor_projection(
+        atom_to_idx=atom_to_idx,
+        homogeneous_rows=homogeneous_rows,
+        row_g=row_g,
+        row_q=row_q,
+        full_order=full_order,
+        J=J,
+        f_coeffs=f_coeffs,
+        p=p,
+        verbose=verbose
+    )
+
+    char_res = detect_nontrivial_character_from_projection(
+        precheck['filtered_rows'],
+        precheck['alive_fb_indices'],
+        precheck['ell'],
+        verbose=True)
+    if char_res['found']:
+        verify_character_vectors(
+            precheck['filtered_rows'],
+            char_res['alive_idx_list'],
+            char_res['basis'],
+            precheck['ell'],
+            verbose=True
+        )
+    else:
+        if verbose:
+            print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
+
+    if precheck['safe_to_project']:
+        filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q = apply_cofactor_filter(
+            precheck, atom_to_idx, homogeneous_rows, row_g, row_q, verbose=verbose
+        )
+        if verbose:
+            print(f"\n[Strategy] Using FILTERED ℓ-torsion solve")
+            print(f"  Filtered FB: {len(filtered_atom_to_idx)} elements")
+            print(f"  Filtered relations: {len(filtered_rows)}")
+            sys.stdout.flush()
+        try:
+            dlog = solve_dlp_mod_l_cofactor_projection(
+                filtered_rows,
+                filtered_row_g,
+                0,
+                filtered_row_q,
+                0,
+                full_order,
+                G, Q,
+                filtered_atom_to_idx,
+                J,
+                verbose=verbose,
+            )
+        except Exception as e:
+            if verbose:
+                print(f"  ! Filtered ℓ-torsion solve failed: {e}")
+                print(f"  Falling back to full Jacobian solve...")
+            raise
+    else:
+        if verbose:
+            print(f"\n[Strategy] Pre-check FAILED: {precheck['reason']}")
+            print(f"  Skipping ℓ-torsion solve")
+            sys.stdout.flush()
+        raise RuntimeError(f"Cofactor projection unsafe: {precheck['reason']}")
+
+    if verbose:
+        print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
+
+    # final verification
+    D = Integer(dlog) * G - Q
+    if not D.is_zero():
+        raise RuntimeError(f"[Verify] ✗ Final verification FAILED: dlog * G ≠ Q (dlog={dlog}, ℓ={ell})")
+    if verbose:
+        print("  [Verify] ✓ Exact equality dlog * G == Q")
+
+    return Integer(dlog)
