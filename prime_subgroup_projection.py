@@ -181,7 +181,7 @@ def solve_dlp_mod_l_block_wiedemann(
     full_order,
     G, Q,
     *,
-    verbose=True,
+    verbose=False,
     block_size=32,
     nprocs=None,
     max_iters=None
@@ -359,7 +359,7 @@ def lift_discrete_log_via_bsgs(d_mod_ell, ell, h, G, Q, verbose=False):
         print("[lift] BSGS failed to find a lift in [0,h).")
     return None
 
-def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
+def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key, verbose=False):
     F = GF(p)
     R = PolynomialRing(F, 'x')
     f_poly = R([F(c) for c in reversed(coeffs_genus2)])
@@ -372,10 +372,11 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
     ell = max([Integer(prime) for prime, _ in factorization])
     cofactor = order // ell
 
-    print(f"Jacobian order: {order}")
-    print(f"Factorization: {factorization}")
-    print(f"Largest prime ℓ: {ell}")
-    print(f"Cofactor h: {cofactor}")
+    if verbose:
+        print(f"Jacobian order: {order}")
+        print(f"Factorization: {factorization}")
+        print(f"Largest prime ℓ: {ell}")
+        print(f"Cofactor h: {cofactor}")
 
     def has_split_degree2_u(D):
         """Check if D has degree-2 u(x) that splits over F_p"""
@@ -463,8 +464,9 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key):
 
     assert len(preferred_x_coords) == 4, f"Expected 4 x-coords, got {len(preferred_x_coords)}: {preferred_x_coords}"
 
-    print(f"Generated {len(preferred_x_coords)} preferred x-coordinates: {preferred_x_coords}")
-    print(f"G has u(x) = {G[0]} (splits)")
-    print(f"Q has u(x) = {Q[0]} (splits)")
+    if verbose:
+        print(f"Generated {len(preferred_x_coords)} preferred x-coordinates: {preferred_x_coords}")
+        print(f"G has u(x) = {G[0]} (splits)")
+        print(f"Q has u(x) = {Q[0]} (splits)")
 
     return ell, base_pts_x, G, Q, preferred_x_coords, final_secret

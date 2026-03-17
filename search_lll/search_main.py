@@ -6,6 +6,7 @@ from .modularthread import *
 from .ll_utilities import *
 from .diagnostics_univariate import *
 from collections import namedtuple, Counter
+from .mumford import analyze_active_dead_vectors
 from .mumford import *
 from .selmer_genus2 import *
 from .smoothness import *
@@ -280,13 +281,15 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
     # Return the list of per-subset results and the merged stats
     return subset_results_list, merged_stats, all_crt_classes  # <-- Return classes
 
+
 def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
                                          vecs, rhs_list, r_m, shift,
                                          all_found_x, num_subsets, rationality_test_func,
                                          sconf, coeffs_genus2,
-                                         tower_data=None,  # <-- ADD THIS
+                                         tower_data=None,
                                          num_workers=20, debug=DEBUG,
-                                         precomputed_residues=None):
+                                         precomputed_residues=None,
+                                         x_b=None, shifted_coeffs=None):
     """
     Unified parallel search using ProcessPoolExecutor throughout.
     Hardened against the "filtered to 0 subsets" failure:
@@ -460,7 +463,8 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
             print("="*70)
             C = HyperellipticCurve(f_poly)
             J = C.jacobian()
-            if not homomorphism_test(J, atom_to_idx, f_poly, p, check_divisors=mumford_divisors):
+            if not homomorphism_test(J, atom_to_idx, f_poly, p,
+                                     check_divisors=mumford_divisors if not FINITE_FIELD else None):
                 print("CRITICAL: Homomorphism test FAILED!")
                 print("The factor base encoding is not preserving group structure.")
                 print("Attack will likely fail. Aborting.")
@@ -527,11 +531,23 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, heigh
 
             # 4. Solve the system using perform_dlp_attack
             try:
+                f_shifted_poly = None
+                if shifted_coeffs is not None:
+                    f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x'))
+                else:
+                    f_shifted_poly = f_poly
+
+                E_rhs_m_for_aug = tower_data[-1]['f_i'] if tower_data is not None else None
+
                 log_v = perform_dlp_attack(
                     G, Q, mumford_divisors, p, coeffs_genus2, L,
                     verbose=True,
-                    force_index_calculus=True
+                    force_index_calculus=True,
+                    E_rhs_m=E_rhs_m_for_aug,
+                    x_b=x_b,
+                    f_shifted_poly=f_shifted_poly,
                 )
+
                 print(f"✓ Confirmed Discrete Log: {log_v}")
             except Exception as e:
                 print(f"Attack failed: {e}")

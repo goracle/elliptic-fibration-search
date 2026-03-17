@@ -1,6 +1,5 @@
 import numpy as np
 from sage.all import Matrix, RR, identity_matrix, vector
-from .utilities import normalize_gram_for_basis
 
 """Utility functions for matrix operations and validation."""
 

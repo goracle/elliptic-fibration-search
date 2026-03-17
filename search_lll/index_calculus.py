@@ -12,6 +12,7 @@ from .smoothness import tonelli_shanks, extract_factor_base
 from .sparse_linalg_modp import *
 from .cofactor import *
 from .walker import *
+from .fiber_augment import build_fiber_augmented_relations
 
 # Standard library
 
@@ -807,8 +808,9 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     # Build homogeneous relations using corrected homomorphism
     # CRITICAL: Pass atom_to_idx directly (NOT r_to_idx)
     valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
-        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs, verbose=verbose
-    )
+        smooth_divs, atom_to_idx, f_p, p, fb_y_cache, f_coeffs, verbose=verbose,
+        use_collision_walks=False) # turn off collision walks while testing fiber relations
+    
 
     if not valid_rows:
         raise RuntimeError("_legacy_build_relations_from_mumford: no valid homogeneous relations built")
@@ -1449,8 +1451,10 @@ def filter_forbidden_relations(rows, atom_to_idx, f_p, p, G, Q, verbose=True):
 
     return clean_rows
 
+
 def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
-                       verbose=True, force_index_calculus=False):
+                       verbose=True, force_index_calculus=False,
+                       E_rhs_m=None, x_b=None, f_shifted_poly=None):
     """
     CORRECTED: Traditional Index Calculus with proper kernel solver.
 
@@ -1516,12 +1520,28 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
         homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
             _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
 
+        # snapshot for precheck (Mumford atoms only, known to satisfy f_p)
+        atom_to_idx_mumford = dict(atom_to_idx)
+        homogeneous_rows_mumford = list(homogeneous_rows)
+
+        # now augment
+        if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
+            fiber_rows = build_fiber_augmented_relations(
+                E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
+                full_order=full_order, ell=ell,
+                verbose=verbose
+            )
+            homogeneous_rows.extend(fiber_rows)
+
         # Verify all RHS are zero (homogeneous)
         if any(r != 0 for r in homogeneous_rhs):
             raise RuntimeError(
                 f"_legacy_build_relations_from_mumford returned non-homogeneous relations:\n"
                 f"  Found {sum(1 for r in homogeneous_rhs if r != 0)} nonzero RHS values"
             )
+
+        if verbose:
+            print("  [Fiber Augment] +" + str(len(fiber_rows)) + " relations, FB now " + str(len(atom_to_idx_mumford)) + " atoms")
 
     if not homogeneous_rows:
         raise RuntimeError("No valid homogeneous relations available")
@@ -1597,6 +1617,32 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
 
     if row_q is None:
         raise RuntimeError("Failed to smooth Target Q")
+
+    g_support, q_support = check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True)
+
+    # Union-Find version — faster for large supports
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        parent[find(x)] = find(y)
+
+    for row in homogeneous_rows:
+        support = [idx for idx, val in row.items() if val != 0]
+        for i in range(1, len(support)):
+            union(support[0], support[i])
+
+    g_roots = {find(idx) for idx in g_support if idx in parent or True}
+    q_roots = {find(idx) for idx in q_support if idx in parent or True}
+    connected = bool(g_roots & q_roots)
+    print("graph is connected t/f:", connected)
+
 
     # === COFACTOR PROJECTION PRE-CHECK ===
     precheck = precheck_cofactor_projection(
@@ -1684,3 +1730,53 @@ def perform_dlp_attack(G, Q, smooth_divs_or_rels, p, f_coeffs, order,
 
     return Integer(dlog)
 
+def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
+    """
+    Check if G and Q are in the same connected component of the relations graph.
+    Nodes = FB atom indices. Each relation row is a hyperedge over its support.
+    BFS from support(row_g), check if support(row_q) is reachable.
+    Returns True if connected, False if disconnected.
+    """
+    from collections import defaultdict, deque
+
+    # Build adjacency: atom -> set of atoms reachable via any shared relation
+    adj = defaultdict(set)
+    for row in homogeneous_rows:
+        support = [idx for idx, val in row.items() if val != 0]
+        for i in range(len(support)):
+            for j in range(i + 1, len(support)):
+                adj[support[i]].add(support[j])
+                adj[support[j]].add(support[i])
+
+    g_support = set(idx for idx, val in row_g.items() if val != 0)
+    q_support = set(idx for idx, val in row_q.items() if val != 0)
+
+    if not g_support or not q_support:
+        if verbose:
+            print("[connectivity] G or Q has empty support, cannot check")
+        return False
+
+    visited = set()
+    queue = deque(g_support)
+    visited.update(g_support)
+
+    while queue:
+        node = queue.popleft()
+        if node in q_support:
+            if verbose:
+                print("[connectivity] G and Q are CONNECTED in the relations graph")
+            return True
+        for nb in adj[node]:
+            if nb not in visited:
+                visited.add(nb)
+                queue.append(nb)
+
+    if verbose:
+        print("[connectivity] G and Q are DISCONNECTED")
+        print("[connectivity] G support: " + str(sorted(g_support)))
+        print("[connectivity] Q support: " + str(sorted(q_support)))
+        print("[connectivity] Atoms reachable from G: " + str(len(visited)))
+        q_reachable = q_support & visited
+        print("[connectivity] Q support atoms reachable from G: " + str(q_reachable))
+
+    return g_support, q_support

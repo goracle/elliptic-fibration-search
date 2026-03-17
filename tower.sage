@@ -2717,16 +2717,3 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
 
         return tower
 
-if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        print(f"\n{'='*70}")
-        print("FATAL ERROR")
-        print(f"{'='*70}")
-        print(f"{e}")
-        sys.stdout.flush()
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-

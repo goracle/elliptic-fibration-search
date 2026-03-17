@@ -452,7 +452,7 @@ def get_relation_row_cached(divisor, require_signed_d2=True):
 
     # If degree == 2, first try to match a signed d2 atom
     if deg == 2:
-        u_key = poly_to_tuple(u_poly, 2)  # (u0, u1, 1) expected for monic
+        u_key = poly_to_tuple(u_poly, 2, K)  # (u0, u1, 1) expected for monic
         # Build v_tuple from v_poly coefficients (pad to length 2)
         v_list = [int(K(c)) for c in v_poly.list()]  # could be length 0..1
         # Normalize length to 2
@@ -658,6 +658,17 @@ def compute_jacobian_hash(exp_dict, atom_indices_list):
             h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
         return h
 
+
+
+def poly_to_tuple(poly, deg_expected, K):
+    coeffs = [0] * (deg_expected + 1)
+    for i, c in enumerate(poly.list()):
+        if i <= deg_expected:
+            coeffs[i] = int(K(c))
+    return tuple(coeffs)
+
+
+
 def get_relation_row(divisor, atom_to_idx, f_p, p,
                      fb_y_cache=None, require_signed_d2=True):
     """
@@ -675,13 +686,6 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
         R = PolynomialRing(K, 'x')
         x = R.gen()
         raise # why raise here?  why not raise here?  don't tell me to delete this raise again
-
-    def poly_to_tuple(poly, deg_expected):
-        coeffs = [0] * (deg_expected + 1)
-        for i, c in enumerate(poly.list()):
-            if i <= deg_expected:
-                coeffs[i] = int(K(c))
-        return tuple(coeffs)
 
     # Build cache key from atom_to_idx identity
     cache_key = id(atom_to_idx)
@@ -750,7 +754,7 @@ def get_relation_row(divisor, atom_to_idx, f_p, p,
         return row
 
     # CASE: degree 2 - try signed d2 match first
-    u_coeffs = poly_to_tuple(u_poly, 2)
+    u_coeffs = poly_to_tuple(u_poly, 2, K)
     v_tuple = tuple(int(K(c)) for c in v_poly.list())
 
     candidates = d2_by_u.get(u_coeffs, [])
@@ -1152,27 +1156,28 @@ def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
 
     # Use Manager for pickle-safe queue and dict
     manager = Manager()
-    manager_queue = manager.Queue(maxsize=num_workers * 2)
-    manager_dict = manager.dict()
-    manager_dict['stop'] = False
+    try:
+        manager_queue = manager.Queue(maxsize=num_workers * 2)
+        manager_dict = manager.dict()
+        manager_dict['stop'] = False
 
-    # Spawn worker processes and pass idx_to_atom so each worker initializes its globals
-    processes = _spawn_walk_workers(int(num_workers), walk_atom_indices, random_hash_table,
-                                   target_mask, manager_queue, manager_dict, int(max_walk_steps),
-                                    idx_to_atom, f_coeffs)
+        processes = _spawn_walk_workers(int(num_workers), walk_atom_indices, random_hash_table,
+                                       target_mask, manager_queue, manager_dict, int(max_walk_steps),
+                                       idx_to_atom, f_coeffs)
 
-    valid_rows = []
-    rhs_values = []
-    distinguished_table = {}
+        valid_rows = []
+        rhs_values = []
+        distinguished_table = {}
 
-    new_relations_found = _collect_collision_relations(
-        manager_queue, manager_dict, int(num_workers), distinguished_table,
-        valid_rows, rhs_values, int(target_new_relations),
-        int(max_dp_table_size), verbose
-    )
+        new_relations_found = _collect_collision_relations(
+            manager_queue, manager_dict, int(num_workers), distinguished_table,
+            valid_rows, rhs_values, int(target_new_relations),
+            int(max_dp_table_size), verbose
+        )
 
-    _cleanup_workers(processes, manager_queue, manager_dict)
-    manager.shutdown()
+        _cleanup_workers(processes, manager_queue, manager_dict)
+    finally:
+        manager.shutdown()
 
     if verbose:
         print(f"  [Walks] Completed: {new_relations_found} collision relations")

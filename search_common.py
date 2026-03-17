@@ -8,7 +8,7 @@ from cysignals.signals import SignalError
 from prime_subgroup_projection import *
 from parse_genus3 import *
 from tate import *
-
+_IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # === imports ===
 
 # local modules
@@ -289,8 +289,8 @@ COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
 #DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
 DATA_PTS_GENUS2 = [QQ(1)]
 DATA_PTS_GENUS2 = None # placeholder for random.
-DATA_PTS_GENUS2 = [QQ(10598399), QQ(18579300)]
-TERMINATE_WHEN_6 = 3
+DATA_PTS_GENUS2 = [QQ(10598399)]
+TERMINATE_WHEN_6 = 30
 
 ##### END TEST CURVES ######
 
@@ -318,7 +318,8 @@ if DATA_PTS_GENUS2 is None:
     # Ensure we use the prime currently active in your pool
     _p_init = FINITE_FIELD
     DATA_PTS_GENUS2 = [get_random_x_on_hyperelliptic(COEFFS_GENUS2, _p_init)]
-    print("after random:", DATA_PTS_GENUS2)
+    if _IS_MAIN_PROCESS:
+        print("after random:", DATA_PTS_GENUS2)
 
 if FINITE_FIELD:
     # Use only the field characteristic as our "prime"
@@ -389,7 +390,8 @@ if FINITE_FIELD is not None:
             FINITE_FIELD,
             COEFFS_GENUS2,
             DATA_PTS_GENUS2,
-            SECRET_KEY
+            SECRET_KEY,
+            verbose=_IS_MAIN_PROCESS
         )
 
     assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
@@ -3305,4 +3307,5 @@ def augment_known(known_pts, found, deg6=False):
 
     return ret
 
-print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)
+if _IS_MAIN_PROCESS:
+    print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)
