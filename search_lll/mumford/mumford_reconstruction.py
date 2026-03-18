@@ -1018,97 +1018,6 @@ def _ff_harvest_worker(args):
 
     return results
 
-def _ff_mixing_worker(args):
-    """
-    Worker for parallel random walk mixing.
-    Receives a snapshot of the active pool (as raw data) and performs random group operations.
-    """
-    pool_data, f_coeffs, p, iterations = args
-
-    from sage.all import GF, PolynomialRing, HyperellipticCurve
-
-    F = GF(p)
-    R = PolynomialRing(F, 'x')
-    x = R.gen()
-    f_poly = R(f_coeffs[::-1])
-
-    # Initialize Jacobian locally
-    try:
-        C = HyperellipticCurve(f_poly)
-        J = C.jacobian()
-    except Exception:
-        return []
-
-    pool_size = len(pool_data)
-    if pool_size < 2:
-        return []
-
-    results = []
-
-    for _ in range(iterations):
-        idx1 = random.randrange(pool_size)
-        idx2 = random.randrange(pool_size)
-
-        d1 = pool_data[idx1]
-        d2 = pool_data[idx2]
-
-        # Reconstruct Jacobian elements on the fly
-        # This is fast enough compared to pickling overhead of Sage objects
-        u1 = x**2 - F(d1['s'])*x + F(d1['p'])
-        v1 = F(d1['v_1'])*x + F(d1['v_0'])
-        D1 = J([u1, v1])
-
-        u2 = x**2 - F(d2['s'])*x + F(d2['p'])
-        v2 = F(d2['v_1'])*x + F(d2['v_0'])
-        D2 = J([u2, v2])
-
-        # Random Group Operation
-        if random.random() < 0.5:
-            D3 = D1 + D2
-        else:
-            D3 = D1 - D2
-
-        # Extract Mumford Representation
-        try:
-            u3 = D3[0].monic()
-            v3 = D3[1]
-        except (AttributeError, ValueError, IndexError):
-            continue
-
-        coeffs_u = u3.list()
-        # Ensure it is a generic genus 2 divisor (deg u = 2)
-        if len(coeffs_u) != 3:
-            continue
-
-        s_new = -int(coeffs_u[1])
-        p_new = int(coeffs_u[0])
-
-        # Check if it splits (smoothness)
-        delta = F(s_new)**2 - 4*F(p_new)
-        if not delta.is_square():
-            continue
-
-        sqrt_delta = delta.sqrt()
-        inv_2 = F(2).inverse()
-        r1 = int((F(s_new) + sqrt_delta) * inv_2)
-        r2 = int((F(s_new) - sqrt_delta) * inv_2)
-        roots = tuple(sorted((r1, r2)))
-
-        coeffs_v = v3.list()
-        v0_new = int(coeffs_v[0]) if len(coeffs_v) >= 1 else 0
-        v1_new = int(coeffs_v[1]) if len(coeffs_v) >= 2 else 0
-
-        results.append({
-            's': s_new,
-            'p': p_new,
-            'v_0': v0_new,
-            'v_1': v1_new,
-            'roots': list(roots),
-            'has_rational_roots': True
-        })
-
-    return results
-
 def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
     """
     Index calculus reconstruction for finite fields (Parallelized).
@@ -1207,90 +1116,163 @@ def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_tes
         pool.close()
         return found_xs, []
 
-    # 2. Random Walk / Mixing (Parallel)
+    # 2. Random Walk / Mixing to produce KERNEL RELATIONS
+    # Each mixing triple (D1, sign*D2, D3) where D3 = D1+sign*D2 gives:
+    # row(D1) + sign*row(D2) - row(D3) = 0 in J  <- valid kernel element
     if debug:
         print("  Starting parallel structured random walk...")
 
+    kernel_relations = []  # list of {'type':'relation', 'd1':..., 'd2':..., 'sign':..., 'd3':...}
+    seen_relation_keys = set()
     generated_count = 0
     patience = 0
-    max_patience = 5  # Rounds without progress
 
     for round_idx in range(MAX_ROUNDS):
         fb_size = len(unique_roots_set)
-        num_rels = len(active_pool_data)
+        num_kernel = len(kernel_relations)
         target_buffer = max(200, int(fb_size * TARGET_BUFFER_FRAC))
 
-        # Stop condition
-        if num_rels > fb_size + target_buffer:
+        if num_kernel > fb_size + target_buffer:
             if debug:
-                print(f"  Target reached: {num_rels} relations > {fb_size} FB + {target_buffer} buffer.")
+                print(f"  Target reached: {num_kernel} kernel relations > {fb_size} FB + {target_buffer} buffer.")
             break
 
-        if fb_size >= MAX_FB_SIZE and num_rels > fb_size + 100:
-             if debug:
-                print(f"  FB Size capped and sufficient relations found.")
-             break
-
-        # Dispatch mixing jobs
-        # We send the raw pool data to workers
         args_list = [(active_pool_data, f_coeffs, p, BATCH_SIZE_MIX) for _ in range(num_cpus)]
 
         new_items_in_round = 0
 
         try:
             for batch_results in pool.imap_unordered(_ff_mixing_worker, args_list):
-                for div_data in batch_results:
-                    roots = tuple(div_data['roots'])
-                    div_key = (roots, div_data['v_0'], div_data['v_1'])
-
-                    if div_key in seen_divisors:
+                for item in batch_results:
+                    assert item.get('type') == 'relation', "mixing worker returned non-relation item"
+                    d3 = item['d3']
+                    roots = tuple(d3['roots'])
+                    # deduplicate by (roots, v0, v1) of D3 — good enough
+                    rel_key = (roots, d3['v_0'], d3['v_1'])
+                    if rel_key in seen_relation_keys:
                         continue
-
-                    # Check FB growth constraints
-                    new_roots_count = sum(1 for r in roots if r not in unique_roots_set)
-
-                    # Stricter acceptance during mixing to prevent explosion
-                    if new_roots_count <= 1 and (len(unique_roots_set) + new_roots_count) <= MAX_FB_SIZE:
-                        seen_divisors.add(div_key)
-                        for r in roots:
-                            unique_roots_set.add(r)
-
-                        active_pool_data.append(div_data)
-                        generated_count += 1
-                        new_items_in_round += 1
-
-                        # Rationality Check
-                        for r in roots:
-                            x_cand = int(r) - int(shift)
-                            if x_cand not in found_xs:
-                                res = rationality_test(x_cand)
-                                if res is not None:
-                                    found_xs.add(x_cand)
+                    # all three divisors must have roots in the factor base
+                    d1_roots = tuple(item['d1']['roots'])
+                    d2_roots = tuple(item['d2']['roots'])
+                    if not all(r in unique_roots_set for r in d1_roots + d2_roots + roots):
+                        continue
+                    seen_relation_keys.add(rel_key)
+                    kernel_relations.append(item)
+                    generated_count += 1
+                    new_items_in_round += 1
+                    # rationality check on D3 roots
+                    for r in roots:
+                        x_cand = int(r) - int(shift)
+                        if x_cand not in found_xs:
+                            res = rationality_test(x_cand)
+                            if res is not None:
+                                found_xs.add(x_cand)
         except KeyboardInterrupt:
             pool.terminate()
             raise
 
-        # Trim pool at end of round
-        if len(active_pool_data) > MAX_ACTIVE_POOL:
-             active_pool_data = active_pool_data[-int(MAX_ACTIVE_POOL * 0.9):]
-
         if new_items_in_round == 0:
             patience += 1
+            if patience >= max_patience:
+                if debug:
+                    print(f"  Patience exhausted after {round_idx+1} rounds. Stopping mixing.")
+                break
         else:
             patience = 0
 
-        if patience > max_patience:
-            if debug:
-                print("  Mixing stalled (no new independent relations). Stopping.")
-            break
-
-        if debug and round_idx % 5 == 0:
-            print(f"    Round {round_idx}: FB={len(unique_roots_set)}, Rels={len(active_pool_data)} (+{new_items_in_round})")
+    if debug:
+        print(f"  Final Status: {len(kernel_relations)} kernel relations, {len(unique_roots_set)} unique x in FB.")
 
     pool.close()
     pool.join()
 
-    if debug:
-        print(f"  Final Status: {len(active_pool_data)} relations, {len(unique_roots_set)} factor base elements.")
+    # EXTRACT d3 FROM RELATIONS:
+    # This flattens the list so every item is a valid divisor dictionary
+    processed_kernel_divisors = [rel['d3'] for rel in kernel_relations]
 
-    return found_xs, active_pool_data
+    # Return both: smooth divisors (for FB construction) and kernel relations
+    # packed together; build_homogeneous_relations_no_rebase will separate them
+    return found_xs, active_pool_data + kernel_relations
+
+def _ff_mixing_worker(args):
+    pool_data, f_coeffs, p, iterations = args
+
+    F = GF(p)
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
+    f_poly = R(f_coeffs[::-1])
+
+    try:
+        C = HyperellipticCurve(f_poly)
+        J = C.jacobian()
+    except Exception:
+        return []
+
+    pool_size = len(pool_data)
+    if pool_size < 2:
+        return []
+
+    results = []
+
+    for _ in range(iterations):
+        idx1 = random.randrange(pool_size)
+        idx2 = random.randrange(pool_size)
+
+        d1 = pool_data[idx1]
+        d2 = pool_data[idx2]
+
+        u1 = x**2 - F(d1['s'])*x + F(d1['p'])
+        v1 = F(d1['v_1'])*x + F(d1['v_0'])
+        D1 = J([u1, v1])
+
+        u2 = x**2 - F(d2['s'])*x + F(d2['p'])
+        v2 = F(d2['v_1'])*x + F(d2['v_0'])
+        D2 = J([u2, v2])
+
+        sign = 1 if random.random() < 0.5 else -1
+        D3 = D1 + D2 if sign == 1 else D1 - D2
+
+        try:
+            u3 = D3[0].monic()
+            v3 = D3[1]
+        except (AttributeError, ValueError, IndexError):
+            continue
+
+        coeffs_u = u3.list()
+        if len(coeffs_u) != 3:
+            continue
+
+        s_new = -int(coeffs_u[1])
+        p_new = int(coeffs_u[0])
+
+        delta = F(s_new)**2 - 4*F(p_new)
+        if not delta.is_square():
+            continue
+
+        sqrt_delta = delta.sqrt()
+        inv_2 = F(2).inverse()
+        r1 = int((F(s_new) + sqrt_delta) * inv_2)
+        r2 = int((F(s_new) - sqrt_delta) * inv_2)
+
+        coeffs_v = v3.list()
+        v0_new = int(coeffs_v[0]) if len(coeffs_v) >= 1 else 0
+        v1_new = int(coeffs_v[1]) if len(coeffs_v) >= 2 else 0
+
+        d3 = {
+            's': s_new,
+            'p': p_new,
+            'v_0': v0_new,
+            'v_1': v1_new,
+            'roots': sorted([r1, r2]),
+            'has_rational_roots': True
+        }
+
+        results.append({
+            'type': 'relation',
+            'd1': d1,
+            'd2': d2,
+            'sign': sign,
+            'd3': d3
+        })
+
+    return results

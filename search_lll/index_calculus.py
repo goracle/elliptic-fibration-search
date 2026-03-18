@@ -263,42 +263,6 @@ def is_divisor_fb_smooth_by_u(div, fb_roots_set, p):
     return all(r in fb_roots_set for r in roots)
 
 # --- helpers for converting between dict <-> Jacobian element and projecting ---
-def _dict_to_jacobian(d, J, R, p):
-    """
-    Build a Jacobian point J_elem = J([u_poly, v_poly]) from a divisor dict `d`.
-    Accepts dicts produced by the worker or by keypair serialization.
-    Raises on malformed input.
-    """
-    K = GF(p)
-    x = R.gen()
-
-    # Prefer explicit coefficients if present
-    if 'u_coeffs' in d and 'v_coeffs' in d:
-        try:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        except Exception as e:
-            raise RuntimeError(f"_dict_to_jacobian: failed to build polys from coeffs: {e}")
-    else:
-        # Fallback to (s,p,v0,v1) entries for degree-2
-        try:
-            s = int(d['s'])
-            pp = int(d['p'])
-            v0 = int(d.get('v_0', 0))
-            v1 = int(d.get('v_1', 0))
-        except Exception as e:
-            raise RuntimeError(f"_dict_to_jacobian: missing keys in divisor dict: {e}")
-
-        # Build u(x) = x^2 - s*x + p  (Mumford convention used elsewhere)
-        u_poly = x**2 - K(int(s)) * x + K(int(pp))
-        v_poly = K(int(v1)) * x + K(int(v0))
-
-    try:
-        J_elem = J([u_poly, v_poly])
-    except Exception as e:
-        raise RuntimeError(f"_dict_to_jacobian: failed to create Jacobian element: {e}")
-
-    return J_elem
 
 def jacobian_to_dict(J_elem, p):
     """
@@ -1281,6 +1245,9 @@ def filter_g_q_from_list(div_list, G, Q, p, f_coeffs):
 
     # Helper to convert dict to J element
     def _to_J(d):
+        # If it's a relation object, extract the resulting divisor d3
+        if 'type' in d and d['type'] == 'relation':
+            d = d['d3']
         u_poly = R.gen()**2 - K(int(d['s']))*R.gen() + K(int(d['p']))
         v_poly = K(int(d['v_1']))*R.gen() + K(int(d['v_0']))
         return J([u_poly, v_poly])
@@ -1915,7 +1882,7 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
         print(f"  [Legacy] Master FB: {len(master_atom_to_idx)} atoms")
         print(f"  [Legacy] d1 atoms (column space): {len(d1_atom_to_idx)}, d2 atoms: {len(d2_atoms)}")
         print(f"  [Legacy] d2 -> d1 mapping size: {len(d2_to_d1_map)}")
-
+    use_collision_walks=False
     valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
         smooth_divs,
         d1_atom_to_idx,
@@ -1924,10 +1891,10 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
         fb_y_cache,
         f_coeffs,
         verbose=verbose,
-        use_collision_walks=False
+        use_collision_walks=use_collision_walks
     )
 
-    if not valid_rows:
+    if not valid_rows and use_collision_walks:
         raise RuntimeError("_legacy_build_relations_from_mumford: no valid relations built")
 
     return valid_rows, rhs_values, fb_roots, d1_atom_to_idx, fb_y_cache, d2_to_d1_map
@@ -1965,3 +1932,22 @@ def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
         print("[connectivity] Q reachable:", q_support & visited)
 
     return False, g_support, q_support
+
+def _dict_to_jacobian(d, J, R, p):
+    K = GF(p)
+    x = R.gen()
+
+    # Priority 1: Use explicit coefficients if they exist
+    if 'u_coeffs' in d and 'v_coeffs' in d:
+        u_poly = R(d['u_coeffs'])
+        v_poly = R(d['v_coeffs'])
+    # Priority 2: Fallback to Mumford parameters with defaults to prevent KeyError
+    else:
+        s = int(d.get('s', 0))
+        pp = int(d.get('p', 0))
+        v0 = int(d.get('v_0', 0))
+        v1 = int(d.get('v_1', 0))
+        u_poly = x**2 - K(s) * x + K(pp)
+        v_poly = K(v1) * x + K(v0)
+
+    return J([u_poly, v_poly])

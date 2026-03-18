@@ -4,6 +4,7 @@ from multiprocessing import Process, Queue, Event, cpu_count, set_start_method, 
 from queue import Full
 from search_common import FINITE_FIELD, sage_poly_from_coeffs
 from sage.all import GF, PolynomialRing, ZZ, HyperellipticCurve
+from .smoothness import *
 
 # CRITICAL: Force spawn mode to prevent fork-based RAM explosion
 try:
@@ -594,7 +595,6 @@ def compute_jacobian_hash(exp_dict, atom_indices_list):
             return h
 
         # sagemath imports and field setup (lazy inside function to keep module import light)
-        from sage.all import GF, PolynomialRing
         p = int(FINITE_FIELD)
         K = GF(p)
         R = PolynomialRing(K, 'x')
@@ -814,11 +814,11 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
                                          max_dp_table_size=200000):
     """
     Build HOMOGENEOUS relation rows (RHS = 0) from smooth divisors.
-    Uses C-based collision walks for speed with proper collision detection.
+    Preserves and unpacks mixing triples (D1 + sign*D2 = D3) from parallel walks.
     """
-
     K = GF(p)
     R = PolynomialRing(K, 'x')
+    x = R.gen() # CRITICAL: Define x for polynomial construction
 
     idx_to_atom = {int(v): k for k, v in atom_to_idx.items()}
 
@@ -827,41 +827,85 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     skipped_no_row = 0
 
     for d in smooth_divs:
-        if 'u_coeffs' in d:
-            u_poly = R(d['u_coeffs'])
-            v_poly = R(d['v_coeffs'])
-        elif 's' in d and 'p' in d:
-            x = R.gen()
-            u_poly = x**2 - K(int(d['s']))*x + K(int(d['p']))
-            v_poly = K(int(d['v_1']))*x + K(int(d['v_0']))
+        # Check if this is a 'relation' object (mixing triple) or a flat divisor
+        if isinstance(d, dict) and d.get('type') == 'relation':
+            sign = int(d['sign'])
+            row = {}
+            failed = False
+
+            # Unpack the triple: D1 + sign*D2 - D3 = 0
+            for coeff, div_data in [(1, d['d1']), (sign, d['d2']), (-1, d['d3'])]:
+                if isinstance(div_data, dict):
+                    # Handle dictionary formats
+                    if 'u_coeffs' in div_data:
+                        u_poly = R(div_data['u_coeffs'])
+                        v_poly = R(div_data['v_coeffs'])
+                    elif 's' in div_data and 'p' in div_data:
+                        u_poly = x**2 - K(int(div_data['s']))*x + K(int(div_data['p']))
+                        v_poly = K(int(div_data.get('v_1', 0)))*x + K(int(div_data.get('v_0', 0)))
+                    else:
+                        failed = True
+                        break
+                else:
+                    # Handle Sage Jacobian objects (Directly from mixing worker)
+                    try:
+                        u_poly = div_data[0]
+                        v_poly = div_data[1]
+                    except (TypeError, IndexError):
+                        failed = True
+                        break
+
+                # Encode this component into the column space
+                sub_row = get_relation_row([u_poly, v_poly], atom_to_idx, f_p, p, require_signed_d2=False)
+                if sub_row is None:
+                    failed = True
+                    break
+
+                # Merge into the relation row
+                for idx, val in sub_row.items():
+                    row[idx] = row.get(idx, 0) + coeff * val
+
+            if failed:
+                skipped_no_row += 1
+                continue
+
+            # Cleanup and store the homogeneous row
+            row = {k: v for k, v in row.items() if v != 0}
+            if not row:
+                skipped_no_row += 1
+                continue
+
+            valid_rows.append({int(k): int(v) for k, v in row.items()})
+            rhs_values.append(0)
+
         else:
-            continue
+            # These are plain smooth divisors from the initial harvest.
+            # We don't add them to valid_rows yet because they don't equal 0 in J.
+            # Instead, we ensure they are encodable so the Collision Walk
+            # can use their atoms as starting points.
+            if isinstance(d, dict):
+                if 'u_coeffs' in d:
+                    u_p, v_p = R(d['u_coeffs']), R(d['v_coeffs'])
+                elif 's' in d and 'p' in d:
+                    u_p = x**2 - K(int(d['s']))*x + K(int(d['p']))
+                    v_p = K(int(d.get('v_1', 0)))*x + K(int(d.get('v_0', 0)))
+                else:
+                    continue
 
-        row = get_relation_row(
-            [u_poly, v_poly],
-            atom_to_idx,
-            f_p,
-            p,
-            require_signed_d2=False
-        )
-
-        if not row:
-            skipped_no_row += 1
-            continue
-
-        valid_rows.append({int(k): int(v) for k, v in row.items()})
-        rhs_values.append(0)
+                # verify they can be encoded in the current factor base
+                # (This helps prime the get_relation_row cache)
+                _ = get_relation_row([u_p, v_p], atom_to_idx, f_p, p, require_signed_d2=False)
 
     if verbose:
         print(f"  [Relations] Built {len(valid_rows)} homogeneous edge-relations (RHS=0)")
         if skipped_no_row > 0:
-            print(f"  [Relations] Skipped {skipped_no_row} divisors (not smooth over FB)")
+            print(f"  [Relations] Skipped {skipped_no_row} items (not encodable or malformed)")
 
     if not use_collision_walks:
         return valid_rows, rhs_values
 
+    # Proceed to C-based collision walks if enabled
     atom_indices = sorted(int(idx) for idx in idx_to_atom.keys())
-
     if len(atom_indices) < 10:
         if verbose:
             print(f"  [Walks] Only {len(atom_indices)} atoms - skipping walks")
@@ -936,54 +980,6 @@ def _pad_to_power_of_two(atom_indices, verbose=True):
         print(f"  [Walks] Padded atom table to power-of-two: {len(padded)}")
 
     return padded
-
-def _collect_collision_relations(manager_queue, manager_dict, num_workers, distinguished_table,
-                                valid_rows, rhs_values, target_new_relations,
-                                max_dp_table_size, verbose):
-    """
-    Collect distinguished points from workers and detect collisions.
-    Uses Manager queue (pickle-safe).
-    """
-    new_relations_found = 0
-    workers_done = 0
-    last_memory_check = time.time()
-
-    while workers_done < num_workers and new_relations_found < target_new_relations:
-        if time.time() - last_memory_check > 5.0:
-            rss_mb = psutil.Process(os.getpid()).memory_info().rss / (2**20)
-            if verbose:
-                print(f"  [MEM] Current RSS: {rss_mb:.1f} MB, DPs in table: {len(distinguished_table)}")
-            last_memory_check = time.time()
-
-        try:
-            msg = manager_queue.get(timeout=0.5)
-        except Exception:
-            raise
-            if manager_dict.get('stop', False):
-                break
-            continue
-
-        if msg is None:
-            workers_done += 1
-            continue
-
-        if len(distinguished_table) >= max_dp_table_size:
-            if verbose:
-                print(f"  [Walks] DP table full ({max_dp_table_size}), stopping")
-            manager_dict['stop'] = True
-            workers_done = num_workers
-            break
-
-        new_relations_found, workers_done = _process_collision_batch(
-            msg, distinguished_table, valid_rows, rhs_values,
-            new_relations_found, target_new_relations,
-            manager_dict, num_workers, verbose
-        )
-
-        if new_relations_found >= target_new_relations or len(distinguished_table) >= max_dp_table_size:
-            break
-
-    return new_relations_found
 
 def _cleanup_workers(processes, manager_queue, manager_dict):
     """
@@ -1072,38 +1068,6 @@ def _process_collision_batch(batch, distinguished_table, valid_rows, rhs_values,
 # ---------------------------------------------------------------------------
 
 # --- initialize_global_factor_base -----------------------------------------
-def initialize_global_factor_base(mapping):
-    """
-    Initialize module-global FB maps from either:
-      - atom_to_idx: { atom_tuple -> idx_int }
-      - idx_to_atom: { idx_int -> atom_tuple }
-
-    This is deliberately simple and loud: missing or malformed input raises.
-    """
-    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_IDX_TO_ATOM
-
-    # basic sanity checks and conversion
-    if mapping is None:
-        raise AssertionError("initialize_global_factor_base called with None")
-
-    # detect mapping shape
-    first_key = next(iter(mapping.keys()))
-    # atom keys are typically tuples like ('d1', x, y) or ('d2', u_coeffs, ...)
-    if not isinstance(first_key, int):
-        # mapping is atom -> idx
-        atom_to_idx = dict(mapping)
-        idx_to_atom = {int(v): k for k, v in atom_to_idx.items()}
-    else:
-        # mapping is idx -> atom
-        idx_to_atom = {int(k): v for k, v in mapping.items()}
-        atom_to_idx = {v: int(k) for k, v in idx_to_atom.items()}
-
-    # final sanity
-    assert atom_to_idx, "atom_to_idx is empty"
-    assert idx_to_atom, "idx_to_atom is empty"
-
-    _GLOBAL_ATOM_TO_IDX = atom_to_idx
-    _GLOBAL_IDX_TO_ATOM = idx_to_atom
 # ---------------------------------------------------------------------------
 
 # --- spawn workers: pass idx_to_atom into each worker -----------------------
@@ -1111,78 +1075,6 @@ def initialize_global_factor_base(mapping):
 
 # --- worker: lazy-initialize globals from provided idx_to_atom ------------
 # ---------------------------------------------------------------------------
-
-def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
-                        distinguished_bits, num_workers, max_walk_steps,
-                         max_dp_table_size, f_coeffs, verbose):
-    """
-    Run C-based collision walks to generate additional relations.
-    Returns (new_relations, new_rhs_values).
-
-    NOTE: idx_to_atom (int -> atom tuple) is required so workers can initialize
-    their local globals. This function forwards idx_to_atom into _spawn_walk_workers.
-    """
-    # Convert to pure Python types
-    atom_indices_py = [int(idx) for idx in atom_indices]
-
-    walk_atom_indices = _subsample_atoms_for_walks(atom_indices_py, idx_to_atom,
-                                                   target_walk_atoms=10000, verbose=verbose)
-
-    walk_atom_indices = _pad_to_power_of_two(walk_atom_indices, verbose=verbose)
-    n_atoms = len(walk_atom_indices)
-
-    if verbose:
-        print(f"  [Walks] Starting C-based collision walks with {n_atoms} atoms...")
-
-    random_hash_table = _build_random_hash_table(walk_atom_indices)
-
-    if num_workers is None:
-        num_workers = min(4, max(1, cpu_count() - 1))
-        if verbose:
-            print(f"  [Walks] Auto-selected {num_workers} workers (conservative)")
-
-    target_mask = int((1 << int(distinguished_bits)) - 1)
-    expected_steps_per_dp = 1 << int(distinguished_bits)
-
-    if verbose:
-        print(f"  [Walks] Using {num_workers} parallel workers")
-        print(f"  [Walks] Distinguished bits: {distinguished_bits}")
-        print(f"  [Walks] Expected steps per DP: {expected_steps_per_dp}")
-        print(f"  [Walks] Max steps per walk: {max_walk_steps}")
-
-    # Use Manager for pickle-safe queue and dict
-    manager = Manager()
-    try:
-        manager_queue = manager.Queue(maxsize=num_workers * 2)
-        manager_dict = manager.dict()
-        manager_dict['stop'] = False
-
-        processes = _spawn_walk_workers(int(num_workers), walk_atom_indices, random_hash_table,
-                                       target_mask, manager_queue, manager_dict, int(max_walk_steps),
-                                       idx_to_atom, f_coeffs)
-
-        valid_rows = []
-        rhs_values = []
-        distinguished_table = {}
-
-        new_relations_found = _collect_collision_relations(
-            manager_queue, manager_dict, int(num_workers), distinguished_table,
-            valid_rows, rhs_values, int(target_new_relations),
-            int(max_dp_table_size), verbose
-        )
-
-        _cleanup_workers(processes, manager_queue, manager_dict)
-    finally:
-        manager.shutdown()
-
-    if verbose:
-        print(f"  [Walks] Completed: {new_relations_found} collision relations")
-        if new_relations_found > 0:
-            sample_rel = valid_rows[-1]
-            exps = sorted(abs(v) for v in sample_rel.values())
-            print(f"  [Sample] Last collision: support={len(sample_rel)}, max_exp={max(exps)}, median_exp={exps[len(exps)//2]}")
-
-    return valid_rows, rhs_values
 
 def compute_jacobian_mumford_from_exp(exp_dict, atom_indices_list):
     """
@@ -1271,118 +1163,304 @@ def _spawn_walk_workers(num_workers, atom_indices, random_hash_table, target_mas
     return processes
 
 # --- worker: initialize local globals, local curve/jacobian, enforce smooth DPs
+
+def _collect_collision_relations(queue, stop_event, num_workers,
+                                valid_rows, rhs_values, target,
+                                max_table_size, verbose):
+    """
+    Helper to manage the distinguished point (DP) table and find collisions.
+    """
+    dp_table = {} # Maps Jacobian Hash -> (exponents, scalars)
+    relations_count = 0
+    active_workers = num_workers
+
+    while active_workers > 0 and relations_count < target:
+        try:
+            # Short timeout to keep checking stop_event and worker status
+            batch = queue.get(timeout=1.0)
+
+            if batch == "DONE":
+                active_workers -= 1
+                continue
+
+            for jac_hash, exp_dict, a, b in batch:
+                if jac_hash in dp_table:
+                    # COLLISION FOUND: (Sum n_i P_i) + aG + bQ = (Sum m_i P_i) + a'G + b'Q
+                    prev_exps, prev_a, prev_b = dp_table[jac_hash]
+
+                    # Build the relation row: Delta_Exponents + (Delta_a)G + (Delta_b)Q = 0
+                    new_row = {}
+                    # Combine exponents from both paths
+                    all_keys = set(exp_dict.keys()) | set(prev_exps.keys())
+                    for k in all_keys:
+                        val = exp_dict.get(k, 0) - prev_exps.get(k, 0)
+                        if val != 0:
+                            new_row[int(k)] = int(val)
+
+                    if new_row:
+                        valid_rows.append(new_row)
+                        # In index calculus, RHS is usually 0 for internal collisions
+                        # or related to the log differences of G/Q if those are included
+                        rhs_values.append(0)
+                        relations_count += 1
+                else:
+                    # New DP found, store it if table isn't full
+                    if len(dp_table) < max_table_size:
+                        dp_table[jac_hash] = (exp_dict, a, b)
+
+                if relations_count >= target:
+                    stop_event.set()
+                    break
+
+        except Exception: # Includes queue.Empty
+            # Check if workers died unexpectedly
+            if stop_event.is_set():
+                break
+            continue
+
+    return relations_count
+
+def initialize_global_factor_base(mapping):
+    """
+    Initialize module-global FB maps.
+    Handles both {atom: idx} and {idx: atom} inputs.
+    """
+    global _GLOBAL_ATOM_TO_IDX, _GLOBAL_IDX_TO_ATOM
+
+    if not mapping:
+        raise ValueError("initialize_global_factor_base received empty mapping")
+
+    # 1. Detect orientation by checking the first key
+    sample_key = next(iter(mapping.keys()))
+
+    if isinstance(sample_key, (int, np.integer)):
+        # Mapping is { idx: atom }
+        idx_to_atom = mapping
+        atom_to_idx = {v: k for k, v in mapping.items()}
+    else:
+        # Mapping is { atom: idx }
+        atom_to_idx = mapping
+        idx_to_atom = {v: k for k, v in mapping.items()}
+
+    # 2. Assign to globals with clean integer keys for the index map
+    # We use int() on the index to ensure Sage Integers or Numpy types
+    # don't cause issues during multiprocessing serialization.
+    _GLOBAL_IDX_TO_ATOM = {int(k): v for k, v in idx_to_atom.items()}
+    _GLOBAL_ATOM_TO_IDX = {v: int(k) for k, v in _GLOBAL_IDX_TO_ATOM.items()}
+
+def _run_collision_walks(atom_indices, idx_to_atom, target_new_relations,
+                         distinguished_bits, num_walk_workers, max_walk_steps,
+                         max_dp_table_size, f_coeffs, verbose=True):
+    """
+    Runner for C-based collision walks.
+    Generates relations by finding distinguished points in the Jacobian.
+    """
+    # 1. Prepare Data for Serialization (Fixes TypeError)
+    # Ensure idx_to_atom is a plain dict for the 'spawn' process boundary
+    # This ensures the worker can call .keys() or .get() without failure.
+    if isinstance(idx_to_atom, (list, tuple)):
+        idx_to_atom_dict = {i: atom for i, atom in enumerate(idx_to_atom)}
+    else:
+        # Standardize keys to plain ints to avoid Sage Integer serialization issues
+        idx_to_atom_dict = {int(k): v for k, v in dict(idx_to_atom).items()}
+
+    atom_indices_list = [int(x) for x in atom_indices]
+    n_atoms = len(atom_indices_list)
+
+    if verbose:
+        print(f"  [Walks] Starting C-walks with {n_atoms} atoms and {distinguished_bits} bits.")
+
+    # 2. Setup Shared Randomness
+    # Build a consistent rand_table so all workers navigate the same function
+    random_state = np.random.RandomState(int(time.time()) % 2**32)
+    rand_table = random_state.randint(0, 2**64, n_atoms, dtype=np.uint64)
+
+    # 3. Multiprocessing Infrastructure (Fixes AttributeError)
+    manager = Manager()
+    manager_queue = manager.Queue()
+
+    # Use an Event object instead of a DictProxy for the stop signal
+    stop_event = manager.Event()
+
+    num_workers = num_walk_workers or min(4, max(1, cpu_count() - 1))
+    target_mask = int((1 << int(distinguished_bits)) - 1)
+
+    processes = []
+    for i in range(num_workers):
+        p_proc = Process(
+            target=_c_collision_walk_worker,
+            args=(
+                i,                  # worker_id
+                atom_indices_list,
+                rand_table,         # random_hash_table
+                target_mask,
+                manager_queue,
+                stop_event,         # Pass the Event object
+                int(max_walk_steps),
+                idx_to_atom_dict,
+                f_coeffs
+            )
+        )
+        p_proc.daemon = True
+        p_proc.start()
+        processes.append(p_proc)
+
+    # 4. Collection Phase
+    valid_rows = []
+    rhs_values = []
+
+    try:
+        # Import inside the function to ensure we use the updated global context
+        from .walker import _collect_collision_relations
+        _collect_collision_relations(
+            manager_queue,
+            stop_event,      # Pass the Event object
+            len(processes),
+            valid_rows,
+            rhs_values,
+            target_new_relations,
+            max_dp_table_size,
+            verbose
+        )
+    except KeyboardInterrupt:
+        if verbose:
+            print("\n  [Walks] Interrupt received, signaling workers to stop...")
+        stop_event.set()
+    finally:
+        # Cleanup
+        stop_event.set() # Ensure all workers see the stop signal
+        for p_proc in processes:
+            p_proc.join(timeout=0.5)
+            if p_proc.is_alive():
+                p_proc.terminate()
+        manager.shutdown()
+
+    if verbose:
+        print(f"  [Walks] Completed. Found {len(valid_rows)} new relations.")
+
+    return valid_rows, rhs_values
+
 def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
-                             target_mask, result_queue, stop_flag_dict, max_walk_steps,
+                             target_mask, result_queue, stop_event, max_walk_steps,
                              idx_to_atom, f_coeffs, max_terms=256, batch_size=16):
     """
-    Worker process for collision walks.
-
-    Args:
-      idx_to_atom: { int_idx -> atom_tuple }
-      p: prime for GF(p)
-      f_coeffs: coefficient list (picklable) used to reconstruct f in GF(p)[x]
+    Worker process for C-based collision walks.
+    Initializes a local Sage environment and factor base, then enters the C-loop.
     """
-    p = FINITE_FIELD
 
-    pid = os.getpid()
+    # Import local helpers from the walker module
+    from .walker import (
+        initialize_global_factor_base,
+        reconstruct_jacobian_from_exp,
+        compute_jacobian_hash,
+        lib  # The loaded CDLL
+    )
 
-    # Initialize canonical FB mappings in this worker (must be first)
+    # 1. Initialize Worker-Local Sage Context & Factor Base
+    # idx_to_atom is now guaranteed to be a plain dict from the parent
+    p = int(FINITE_FIELD)
     initialize_global_factor_base(idx_to_atom)
 
-    # Set worker-local globals so other helpers that expect them will work
-    global _GLOBAL_P, _GLOBAL_F_POLY, _GLOBAL_J
-    _GLOBAL_P = int(p)
-
-    # build field, ring, curve, jacobian in this worker
-    K = GF(int(p))
+    K = GF(p)
     R = PolynomialRing(K, 'x')
-    # Reconstruct f_p from f_coeffs using existing helper if present, else simple build
+
+    # Reconstruct the curve and Jacobian class locally
     try:
-        # prefer project helper if available
         f_p = sage_poly_from_coeffs(f_coeffs, R)
     except Exception:
-        # fallback: build from list of coefficients (assume highest->lowest)
-        raise
+        f_p = R(f_coeffs)
 
-    _GLOBAL_F_POLY = f_p
     C = HyperellipticCurve(f_p)
     Jclass = C.jacobian()
-    _GLOBAL_J = Jclass
 
-    # robust random seed for independent workers
-    try:
-        seed_bytes = os.urandom(8)
-        seed_int = int.from_bytes(seed_bytes, 'big')
-    except Exception:
-        seed_int = int(time.time() * 1e9) ^ (pid << 16)
-    seed_base = seed_int ^ (worker_id * 0x9e3779b97f4a7c15)
-    rng = random.Random(seed_base)
-
+    # 2. Setup Buffers for C-Library
     atom_indices = np.ascontiguousarray(atom_indices_list, dtype=np.uint32)
     n_atoms = atom_indices.shape[0]
 
-    rand_table = np.empty(n_atoms, dtype=np.uint64)
-    for i, orig_idx in enumerate(atom_indices_list):
-        rand_table[i] = random_hash_table[int(orig_idx)]
-    rand_table = np.ascontiguousarray(rand_table, dtype=np.uint64)
+    # random_hash_table was passed as a numpy array from the parent
+    rand_table = np.ascontiguousarray(random_hash_table, dtype=np.uint64)
 
+    # Pre-allocate scratch space required by the C kernel
     exps = np.zeros(n_atoms, dtype=np.uint32)
+    touched = np.empty(max_terms, dtype=np.uint32)
+    counts = np.empty(max_terms, dtype=np.uint32)
+
+    # Seed the RNG independently for this worker
+    pid = os.getpid()
+    seed_base = int(time.time() * 1000) ^ (pid << 16) ^ (worker_id * 0x9e3779b97f4a7c15)
+    rng = random.Random(seed_base)
+
     batch = []
     walk_counter = 0
 
-    def safe_put(q, item):
-        """Put item in queue with retries if full"""
-        while True:
-            try:
-                q.put(item, timeout=0.5)
-                break
-            except _local_queue.Full:
-                time.sleep(0.01)
-
-    while not stop_flag_dict.get('stop', False):
+    # 3. Main Walk Loop
+    # Check the Event object for stop signal
+    while not stop_event.is_set():
         walk_seed = rng.getrandbits(64) ^ (walk_counter * 0x517cc1b727220a95)
         walk_counter += 1
 
-        a_scalar = rng.getrandbits(32)
-        b_scalar = rng.getrandbits(32)
+        # scalars used for the Linear Algebra phase later (RHS values)
+        a_scalar = rng.getrandbits(31)
+        b_scalar = rng.getrandbits(31)
 
-        ret, state, touched, counts = collision_walk_c(
-            atom_indices, rand_table, target_mask, max_terms, walk_seed, exps, max_walk_steps
+        # Prepare output pointers for C
+        out_len = c_uint32(0)
+        out_state = c_uint64(0)
+
+        # 4. Call the C-Kernel
+        # Arguments must match collision_walk.c exactly
+        ret = lib.collision_walk(
+            atom_indices.ctypes.data_as(POINTER(c_uint32)),
+            c_uint32(n_atoms),
+            rand_table.ctypes.data_as(POINTER(c_uint64)),
+            c_uint64(int(target_mask)),
+            c_uint32(max_terms),
+            c_uint64(walk_seed),
+            touched.ctypes.data_as(POINTER(c_uint32)),
+            counts.ctypes.data_as(POINTER(c_uint32)),
+            exps.ctypes.data_as(POINTER(c_uint32)),
+            byref(out_len),
+            byref(out_state),
+            c_uint64(int(max_walk_steps))
         )
 
         if ret == 1:
-            exp_dict = {int(atom_indices[i]): int(counts[i]) for i in range(len(touched))}
+            # Distinguished Point (DP) found!
+            # Extract only the atoms actually touched during this walk
+            num_touched = out_len.value
+            exp_dict = {
+                int(atom_indices[touched[i]]): int(counts[i])
+                for i in range(num_touched)
+            }
 
-            # Reconstruct Jacobian element from exponents (uses _atom_to_jac_helper)
-            J_recon = reconstruct_jacobian_from_exp(exp_dict, Jclass, R)
+            try:
+                # 5. Verify Smoothness (The "Golden" Verification)
+                # Reconstruct J = sum(exp_i * P_i) and check if it's smooth
+                J_recon = reconstruct_jacobian_from_exp(exp_dict, Jclass, R)
+                u_poly, v_poly = J_recon[0], J_recon[1]
 
-            # Extract Mumford polys for smoothness test
-            u_poly = J_recon[0]
-            v_poly = J_recon[1]
+                # We require signed d2 atoms to match the matrix column space
+                row = get_relation_row_cached([u_poly, v_poly], require_signed_d2=True)
 
-            # require signed d2 atoms (matching earlier behavior); if None, discard DP
-            row = get_relation_row_cached([u_poly, v_poly], require_signed_d2=True)
-            if row is None:
-                # DP not FB-smooth under signed d2 policy; discard
+                if row is not None:
+                    # Successfully verified collision relation
+                    jacobian_key = compute_jacobian_hash(exp_dict, atom_indices_list)
+                    batch.append((jacobian_key, exp_dict, a_scalar, b_scalar))
+
+                    if len(batch) >= batch_size:
+                        result_queue.put(batch)
+                        batch = []
+            except Exception:
+                # Discard malformed/non-smooth points and continue
                 continue
 
-            # compute canonical jacobian key and enqueue
-            jacobian_key = compute_jacobian_hash(exp_dict, atom_indices_list)
-
-            batch.append((jacobian_key, exp_dict, a_scalar, b_scalar))
-
-            if len(batch) >= batch_size:
-                safe_put(result_queue, batch)
-                batch = []
-
-        elif ret == 0:
-            continue
-        else:
+        elif ret == -1:
+            # Fatal error in C-extension (e.g., null pointers)
             break
 
-    # Flush remaining batch before exiting
+    # 6. Shutdown
     if batch:
-        safe_put(result_queue, batch)
+        result_queue.put(batch)
 
-    # Signal completion
-    safe_put(result_queue, None)
+    # Signal the collector that this worker is finished
+    result_queue.put(None)

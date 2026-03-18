@@ -15,8 +15,6 @@ if FIBER_AUGMENT_DEBUG:
 else:
     logger.setLevel(logging.INFO)
 
-
-
 # fiber_augment.py
 #
 # Augment index calculus factor base and relations using fiber intersection divisors.
@@ -148,274 +146,6 @@ def canonical_y(y2_int, p):
     # canonical representative (smallest of the pair)
     return min(y, p - y)
 
-def build_fiber_augmented_relations(
-    E_rhs_m,
-    f_shifted_fp,
-    x_b,
-    p,
-    atom_to_idx,
-    fb_y_cache,
-    full_order,
-    ell,
-    x_coords=None,
-    num_workers=None,
-    verbose=True
-):
-    if num_workers is None:
-        num_workers = max(1, cpu_count() - 1)
-
-    if x_coords is None:
-        x_coords_list = [(i, None) for i in range(p)]
-    else:
-        x_coords_list = [(int(x), int(y)) for x, y in x_coords]
-
-    e_rhs_m_ser = _serialize_e_rhs_m(E_rhs_m)
-    f_shifted_ser = _serialize_poly(f_shifted_fp)
-    x_b_int = int(x_b)
-
-    chunk_size = max(1, len(x_coords_list) // num_workers)
-    chunks = [x_coords_list[i:i + chunk_size]
-              for i in range(0, len(x_coords_list), chunk_size)]
-
-    args_list = [
-        (chunk, e_rhs_m_ser, f_shifted_ser, x_b_int, p, atom_to_idx)
-        for chunk in chunks
-    ]
-
-    if verbose:
-        print(f"[fiber_augment] launching {len(chunks)} chunks across {num_workers} workers ({len(x_coords_list)} x_s values total)")
-
-    # ------------------------------------------------------------------
-    # Global stats (same as before, plus partial bookkeeping)
-    # ------------------------------------------------------------------
-    global_stats = defaultdict(int)
-    global_stats['roots_multiplicities'] = Counter()
-    global_stats['roots_per_fiber'] = []
-
-    # Large-prime tables (in-memory, main process)
-    # single-LP: key -> list of FB-rows waiting on this LP
-    large_prime_table_single = defaultdict(list)
-
-    # pair-LP: frozenset{lp1,lp2} -> list of FB-rows waiting on this exact unordered pair
-    large_prime_table_pair = defaultdict(list)
-
-    # diagnostic counters
-    global_stats['partials_seen'] = 0            # number of partial relations encountered
-    global_stats['partials_stored_single'] = 0
-    global_stats['partials_stored_pair'] = 0
-    global_stats['collisions_single'] = 0        # number of single-LP collisions resolved
-    global_stats['collisions_pair'] = 0          # number of pair-pair direct resolutions
-    global_stats['chain_resolutions'] = 0        # when pair + single resolve to FB
-    global_stats['pure_rows_emitted_from_partials'] = 0
-
-    # For large-prime summary (approx same as previous)
-    large_prime_counter = Counter()
-    large_primes_total = 0
-
-    new_rows = []
-
-    # ------------------------------------------------------------------
-    # Main chunk processing loop (workers produce candidate fibers)
-    # ------------------------------------------------------------------
-    with Pool(processes=num_workers) as pool:
-        for chunk_result in tqdm(pool.imap(_process_chunk, args_list),
-                                 total=len(args_list),
-                                 desc="Fiber augment",
-                                 unit="chunk"):
-            chunk_fibers, chunk_stats = chunk_result
-
-            # Merge chunk-level stats
-            for key in [
-                'fibers_total', 'fibers_accepted',
-                'fibers_all_roots_on_curve', 'fibers_poles_hit',
-                'roots_total', 'roots_on_curve', 'roots_y0',
-                'roots_in_fb', 'roots_not_in_fb'
-            ]:
-                global_stats[key] += chunk_stats[key]
-
-            global_stats['roots_multiplicities'].update(chunk_stats['roots_multiplicities'])
-            global_stats['roots_per_fiber'].extend(chunk_stats['roots_per_fiber'])
-
-            # Process each accepted fiber (pts is list of (x_int,y_can,mult))
-            for pts in chunk_fibers:
-                # classify FB vs large-primes
-                row, large_primes = filter_fiber_relation(pts, atom_to_idx, ell)
-
-                # record large-prime frequency summary (for global histogram)
-                for (x_int, y_can, mult) in large_primes:
-                    key = (x_int, y_can)
-                    large_prime_counter[key] += mult
-                    large_primes_total += mult
-
-                # If fully smooth right away -> emit
-                if row is not None and not large_primes:
-                    new_rows.append(row)
-                    continue
-
-                # normalize row to empty dict if None
-                if row is None:
-                    row = {}
-
-                # we only handle partials with up to 2 large primes here
-                lp_keys = [ (int(x), int(y)) for (x, y, _) in large_primes ]
-                lp_count = len(lp_keys)
-                global_stats['partials_seen'] += 1
-
-                if lp_count == 0:
-                    # no LP but row was None? skip
-                    continue
-
-                # ---------- single-LP case ----------
-                if lp_count == 1:
-                    A = lp_keys[0]
-                    lp_mult_A = int(large_primes[0][2])
-
-                    if large_prime_table_single.get(A):
-                        other_row, _ = large_prime_table_single[A].pop()
-                        global_stats['collisions_single'] += 1
-                        combined = _combine_rows(other_row, row, modulus=int(ell))
-                        if combined:
-                            new_rows.append(combined)
-                            global_stats['pure_rows_emitted_from_partials'] += 1
-                    else:
-                        large_prime_table_single[A].append((row, lp_mult_A))
-                        global_stats['partials_stored_single'] += 1
-
-                # ---------- double-LP case ----------
-                elif lp_count == 2:
-                    A, B = lp_keys[0], lp_keys[1]
-                    lp_mult_A = int(large_primes[0][2])
-                    lp_mult_B = int(large_primes[1][2])
-                    pair_key = frozenset([A, B])
-
-                    if large_prime_table_pair.get(pair_key):
-                        other_row = large_prime_table_pair[pair_key].pop()
-                        global_stats['collisions_pair'] += 1
-                        combined = _combine_rows(other_row, row, modulus=int(ell))
-                        if combined:
-                            new_rows.append(combined)
-                            global_stats['pure_rows_emitted_from_partials'] += 1
-                        continue
-
-                    if large_prime_table_single.get(A):
-                        other_row, _ = large_prime_table_single[A].pop()
-                        new_partial_row = _combine_rows(other_row, row, modulus=int(ell))
-                        if large_prime_table_single.get(B):
-                            other2, _ = large_prime_table_single[B].pop()
-                            global_stats['chain_resolutions'] += 1
-                            combined = _combine_rows(new_partial_row, other2, modulus=int(ell))
-                            if combined:
-                                new_rows.append(combined)
-                                global_stats['pure_rows_emitted_from_partials'] += 1
-                        else:
-                            large_prime_table_single[B].append((new_partial_row, lp_mult_B))
-                            global_stats['partials_stored_single'] += 1
-                        continue
-
-                    if large_prime_table_single.get(B):
-                        other_row, _ = large_prime_table_single[B].pop()
-                        new_partial_row = _combine_rows(other_row, row, modulus=int(ell))
-                        if large_prime_table_single.get(A):
-                            other2, _ = large_prime_table_single[A].pop()
-                            global_stats['chain_resolutions'] += 1
-                            combined = _combine_rows(new_partial_row, other2, modulus=int(ell))
-                            if combined:
-                                new_rows.append(combined)
-                                global_stats['pure_rows_emitted_from_partials'] += 1
-                        else:
-                            large_prime_table_single[A].append((new_partial_row, lp_mult_A))
-                            global_stats['partials_stored_single'] += 1
-                        continue
-
-                    large_prime_table_pair[pair_key].append(row)
-                    global_stats['partials_stored_pair'] += 1
-
-                # ---------- ignore >2 LPs for now ----------
-                else:
-                    # optionally track them
-                    global_stats['partials_too_many_lp'] = global_stats.get('partials_too_many_lp', 0) + 1
-                    # don't store them for now
-
-    # ------------------------------------------------------------------
-    # Final reporting (verbose + diagnostics)
-    # ------------------------------------------------------------------
-    if verbose:
-        print("\n[fiber_augment] STAT SUMMARY")
-        print(f"fibers total               : {global_stats['fibers_total']}")
-        print(f"fibers accepted            : {global_stats['fibers_accepted']}")
-        print(f"fibers all roots on-curve  : {global_stats['fibers_all_roots_on_curve']}")
-        print(f"fibers poles hit           : {global_stats['fibers_poles_hit']}")
-        print(f"roots total                : {global_stats['roots_total']}")
-        print(f"roots on-curve             : {global_stats['roots_on_curve']}")
-        print(f"roots y=0                  : {global_stats['roots_y0']}")
-        print(f"roots in FB (partial smooth): {global_stats['roots_in_fb']}")
-        print(f"roots not in FB             : {global_stats['roots_not_in_fb']}")
-
-        mult_counter = global_stats['roots_multiplicities']
-        if mult_counter:
-            print(f"root multiplicities        : min={min(mult_counter)}, max={max(mult_counter)}, counts={dict(mult_counter)}")
-
-        if global_stats['roots_per_fiber']:
-            avg_roots = sum(global_stats['roots_per_fiber']) / len(global_stats['roots_per_fiber'])
-            print(f"roots per fiber            : min={min(global_stats['roots_per_fiber'])}, max={max(global_stats['roots_per_fiber'])}, avg={avg_roots:.2f}")
-
-        print(f"relations collected (pure FB)        : {len(new_rows)}")
-
-        # New diagnostics: weight histogram of new_rows
-        weight_hist = Counter()
-        sample_rows_by_weight = {}
-        for r in new_rows:
-            w = len(r)
-            weight_hist[w] += 1
-            if w not in sample_rows_by_weight and w <= 12:
-                sample_rows_by_weight[w] = dict(list(r.items())[:12])
-
-        print("\n[fiber_augment] NEW_ROWS weight histogram (nonzero count -> how many rows):")
-        for w in sorted(weight_hist):
-            print(f"  {w:3d} -> {weight_hist[w]}")
-        print("\n[fiber_augment] NEW_ROWS sample (small weights):")
-        for w in sorted(sample_rows_by_weight):
-            print(f"  weight {w}: sample row columns (first <=12 entries): {sample_rows_by_weight[w]}")
-
-        # Large prime summary (unchanged)
-        print("\n[fiber_augment] LARGE PRIME STATS (sampled during run)")
-        distinct_lp = len(large_prime_counter)
-        print(f"large primes total occurrences : {large_primes_total}")
-        print(f"distinct large primes          : {distinct_lp}")
-
-        if distinct_lp > 0:
-            freqs = list(large_prime_counter.values())
-            print(f"max frequency                 : {max(freqs)}")
-            print(f"avg frequency                 : {sum(freqs)/len(freqs):.4f}")
-            num_collisions = sum(1 for v in freqs if v > 1)
-            print(f"large primes with collisions  : {num_collisions}")
-            hist = Counter(freqs)
-            print("frequency histogram (count -> how many primes):")
-            for k in sorted(hist)[:10]:
-                print(f"  {k} -> {hist[k]}")
-
-        # Partial-storage & collision diagnostics
-        print("\n[fiber_augment] PARTIALS / COLLISIONS")
-        print(f"partials seen                 : {global_stats['partials_seen']}")
-        print(f"partials stored (single)      : {global_stats['partials_stored_single']}")
-        print(f"partials stored (pair)        : {global_stats['partials_stored_pair']}")
-        print(f"partials with >2 LPs          : {global_stats.get('partials_too_many_lp', 0)}")
-        print(f"single-LP collisions resolved : {global_stats['collisions_single']}")
-        print(f"pair-pair collisions resolved : {global_stats['collisions_pair']}")
-        print(f"chain (pair+single) resolved  : {global_stats['chain_resolutions']}")
-        print(f"pure FB rows emitted from partials: {global_stats['pure_rows_emitted_from_partials']}")
-
-        # remaining waiting partial counts
-        rem_single = sum(len(v) for v in large_prime_table_single.values())
-        rem_pair = sum(len(v) for v in large_prime_table_pair.values())
-        print(f"remaining unmatched partials (single) : {rem_single}")
-        print(f"remaining unmatched partials (pair)   : {rem_pair}")
-
-    # Return pure rows and stats
-    global_stats['large_prime_counter'] = dict(large_prime_counter)
-    global_stats['large_prime_table_single'] = dict(large_prime_table_single)
-    return new_rows, global_stats
-
 def _encode_row(pts, atom_to_idx):
     """
     Same as before but instrumented: return the d1-indexed sparse row mapping.
@@ -434,103 +164,6 @@ def _encode_row(pts, atom_to_idx):
     # strip zeros
     row = {k: v for k, v in row.items() if v != 0}
     return row
-
-def filter_fiber_relation(pts, atom_to_idx, ell=None):
-    """
-    Instrumented version of filter_fiber_relation.
-
-    - Prints diagnostics when a produced row has weight <= 2 (trivial).
-    - Prints when modular reduction removes entries.
-    - Returns (row_or_None, large_primes_list) same as original.
-    """
-    if pts is None:
-        return None, []
-
-    row = {}
-    large_primes = []
-    # keep short mapping for debug
-    atom_missing = []
-    for x_int, y_can, mult in pts:
-        x_key = int(x_int)
-        y_key = int(y_can)
-        multiplicity = int(mult)
-        atom = ('d1', x_key, y_key)
-        if atom not in atom_to_idx:
-            large_primes.append((x_key, y_key, multiplicity))
-            atom_missing.append(atom)
-            continue
-        idx = atom_to_idx[atom]
-        row[idx] = row.get(idx, 0) + multiplicity
-
-    # Debug snapshot BEFORE modular reduction
-    if logger.isEnabledFor(logging.DEBUG):
-        weight_before = len(row)
-        logger.debug("[filter_fiber_relation] pts=%s", pts)
-        logger.debug("[filter_fiber_relation] mapped_atoms_missing=%d examples=%s",
-                     len(atom_missing), atom_missing[:3])
-        logger.debug("[filter_fiber_relation] row_before_mod (len=%d) sample=%s",
-                     weight_before, dict(list(row.items())[:8]))
-
-    # apply modulus reduction if requested
-    if ell is not None:
-        mod = int(ell)
-        removed_keys = []
-        for k in list(row.keys()):
-            val = row[k] % mod
-            if val == 0:
-                removed_keys.append(k)
-                del row[k]
-            else:
-                row[k] = val
-        if logger.isEnabledFor(logging.DEBUG) and removed_keys:
-            logger.debug("[filter_fiber_relation] modular reduction removed %d entries: %s",
-                         len(removed_keys), removed_keys[:8])
-
-    # Instrument when row collapses to trivial size
-    if logger.isEnabledFor(logging.DEBUG):
-        weight_after = len(row)
-        if weight_after <= 2:
-            logger.debug("[filter_fiber_relation] TRIVIAL ROW: weight_before=%d weight_after=%d pts=%s",
-                         weight_before, weight_after, pts)
-            logger.debug("[filter_fiber_relation] resulting row dict: %s", row)
-
-    # normalize empty dict -> None
-    row_out = None if not row else row
-    return row_out, large_primes
-
-def _combine_rows(r1: Dict[int,int], r2: Dict[int,int], modulus: Optional[int]=None) -> Dict[int,int]:
-    """
-    Add two sparse row dicts modulo modulus; remove zeros.
-    Instrument collisions where combining collapses to trivial or empty.
-    """
-    if r1 is None:
-        r1 = {}
-    if r2 is None:
-        r2 = {}
-    out = dict(r1)  # shallow copy
-    for k, v in r2.items():
-        if modulus:
-            out[k] = (out.get(k, 0) + v) % modulus
-        else:
-            out[k] = out.get(k, 0) + v
-        if modulus and out[k] == 0:
-            del out[k]
-    if modulus:
-        out = {k: (v % modulus) for k, v in out.items() if (v % modulus) != 0}
-    else:
-        out = {k: v for k, v in out.items() if v != 0}
-
-    if logger.isEnabledFor(logging.DEBUG):
-        # If combination produced fewer nonzeros than either input, log
-        len1 = len(r1)
-        len2 = len(r2)
-        lensum = len1 + len2
-        if len(out) < min(len1, len2):
-            logger.debug("[_combine_rows] combination reduced sparsity: len1=%d len2=%d -> out=%d", len1, len2, len(out))
-            logger.debug("[_combine_rows] r1 sample=%s", dict(list(r1.items())[:8]))
-            logger.debug("[_combine_rows] r2 sample=%s", dict(list(r2.items())[:8]))
-            logger.debug("[_combine_rows] out sample=%s", dict(list(out.items())[:8]))
-    return out
 
 def _process_chunk(args):
     """
@@ -604,7 +237,8 @@ def _process_chunk(args):
             chunk_stats['fibers_all_roots_on_curve'] += 1
 
         seed_atom = ('d1', x_s_int, y_can_s)
-        pts = [(x_s_int, y_can_s, 1)]
+        #pts = [(x_s_int, y_can_s, 1)]
+        pts = []
         roots_in_fb = 1 if seed_atom in atom_to_idx else 0
         roots_not_in_fb = 0 if seed_atom in atom_to_idx else 1
 
@@ -658,3 +292,336 @@ def _process_chunk(args):
                      chunk_stats['fibers_total'], chunk_stats['fibers_accepted'], chunk_stats['roots_total'])
 
     return valid_fibers, chunk_stats
+
+def _normalize_atom_key(atom):
+    """
+    Accept either:
+      - ('d1', x, y)
+      - (x, y)
+    and return ('d1', int(x), int(y)).
+    """
+    if atom is None:
+        return None
+    if len(atom) == 2:
+        x, y = atom
+        return ('d1', int(x), int(y))
+    if len(atom) == 3:
+        tag, x, y = atom
+        return (str(tag), int(x), int(y))
+    raise ValueError(f"Bad atom key: {atom!r}")
+
+def _ensure_atom_in_fb(atom_to_idx: Dict[Any, int], atom: Tuple[Any, int, int]) -> int:
+    """
+    Make sure `atom` is a factor-base atom.
+    Returns its index.
+    """
+    atom = _normalize_atom_key(atom)
+    if atom not in atom_to_idx:
+        atom_to_idx[atom] = len(atom_to_idx)
+    return atom_to_idx[atom]
+
+def _combine_rows(r1: Dict[int, int], r2: Dict[int, int], modulus: Optional[int] = None) -> Dict[int, int]:
+    """
+    Add two sparse row dicts and remove zero entries.
+    """
+    if not r1:
+        r1 = {}
+    if not r2:
+        r2 = {}
+
+    out = dict(r1)
+    if modulus is None:
+        for k, v in r2.items():
+            out[k] = out.get(k, 0) + v
+        return {k: v for k, v in out.items() if v != 0}
+
+    m = int(modulus)
+    for k, v in r2.items():
+        out[k] = (out.get(k, 0) + v) % m
+        if out[k] == 0:
+            out.pop(k, None)
+
+    return {k: v % m for k, v in out.items() if (v % m) != 0}
+
+def filter_fiber_relation(pts, atom_to_idx, ell=None):
+    """
+    Map a fiber's points to a sparse FB row.
+    Any point not in atom_to_idx is returned as a large prime.
+    """
+    if pts is None:
+        return None, []
+
+    row = {}
+    large_primes = []
+
+    for x_int, y_can, mult in pts:
+        atom = ('d1', int(x_int), int(y_can))
+        if atom not in atom_to_idx:
+            large_primes.append((int(x_int), int(y_can), int(mult)))
+            continue
+        idx = atom_to_idx[atom]
+        row[idx] = row.get(idx, 0) + int(mult)
+
+    if ell is not None and row:
+        m = int(ell)
+        row = {k: (v % m) for k, v in row.items() if (v % m) != 0}
+
+    return (None if not row else row), large_primes
+
+def build_fiber_augmented_relations(
+    E_rhs_m,
+    f_shifted_fp,
+    x_b,
+    p,
+    atom_to_idx,
+    fb_y_cache,
+    full_order,
+    ell,
+    x_coords=None,
+    num_workers=None,
+    verbose=True,
+    promote_atom=None,          # NEW: optionally force one LP into the FB
+):
+    """
+    If promote_atom is provided, it is inserted into atom_to_idx before any worker runs.
+    That means the promoted LP is treated as an ordinary FB atom, not as a large prime.
+    """
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)
+
+    # Work on a local copy so callers don't get surprised by mutation.
+    atom_to_idx = dict(atom_to_idx)
+
+    promote_atom = _normalize_atom_key(promote_atom)
+    if promote_atom is not None:
+        _ensure_atom_in_fb(atom_to_idx, promote_atom)
+        if verbose:
+            print(f"[fiber_augment] promoting atom into FB: {promote_atom}")
+
+    # Use explicit x-coordinate list if provided; otherwise scan all x and let the worker
+    # decide whether y is known from the curve or can be inferred.
+    if x_coords is None:
+        x_coords_list = [(i, None) for i in range(p)]
+    else:
+        x_coords_list = [(int(x), None if y is None else int(y)) for x, y in x_coords]
+
+    e_rhs_m_ser = _serialize_e_rhs_m(E_rhs_m)
+    f_shifted_ser = _serialize_poly(f_shifted_fp)
+    x_b_int = int(x_b)
+
+    if len(x_coords_list) == 0:
+        return [], defaultdict(int)
+
+    chunk_size = max(1, len(x_coords_list) // num_workers)
+    chunks = [x_coords_list[i:i + chunk_size] for i in range(0, len(x_coords_list), chunk_size)]
+
+    args_list = [
+        (chunk, e_rhs_m_ser, f_shifted_ser, x_b_int, p, atom_to_idx)
+        for chunk in chunks
+    ]
+
+    if verbose:
+        print(f"[fiber_augment] launching {len(chunks)} chunks across {num_workers} workers ({len(x_coords_list)} x_s values total)")
+
+    global_stats = defaultdict(int)
+    global_stats['roots_multiplicities'] = Counter()
+    global_stats['roots_per_fiber'] = []
+
+    large_prime_table_single = defaultdict(list)
+    large_prime_table_pair = defaultdict(list)
+
+    global_stats['partials_seen'] = 0
+    global_stats['partials_stored_single'] = 0
+    global_stats['partials_stored_pair'] = 0
+    global_stats['collisions_single'] = 0
+    global_stats['collisions_pair'] = 0
+    global_stats['chain_resolutions'] = 0
+    global_stats['pure_rows_emitted_from_partials'] = 0
+
+    large_prime_counter = Counter()
+    large_primes_total = 0
+    new_rows = []
+
+    with Pool(processes=num_workers) as pool:
+        for chunk_result in tqdm(pool.imap(_process_chunk, args_list),
+                                 total=len(args_list),
+                                 desc="Fiber augment",
+                                 unit="chunk"):
+            chunk_fibers, chunk_stats = chunk_result
+
+            for key in [
+                'fibers_total', 'fibers_accepted',
+                'fibers_all_roots_on_curve', 'fibers_poles_hit',
+                'roots_total', 'roots_on_curve', 'roots_y0',
+                'roots_off_curve', 'roots_in_fb', 'roots_not_in_fb'
+            ]:
+                global_stats[key] += chunk_stats.get(key, 0)
+
+            global_stats['roots_multiplicities'].update(chunk_stats.get('roots_multiplicities', Counter()))
+            global_stats['roots_per_fiber'].extend(chunk_stats.get('roots_per_fiber', []))
+
+            for pts in chunk_fibers:
+                row, large_primes = filter_fiber_relation(pts, atom_to_idx, ell)
+
+                for (x_int, y_can, mult) in large_primes:
+                    key = (x_int, y_can)
+                    large_prime_counter[key] += int(mult)
+                    large_primes_total += int(mult)
+
+                # Fully smooth row
+                if row is not None and not large_primes:
+                    new_rows.append(row)
+                    continue
+
+                if row is None:
+                    row = {}
+
+                lp_keys = [(int(x), int(y)) for (x, y, _) in large_primes]
+                lp_count = len(lp_keys)
+                global_stats['partials_seen'] += 1
+
+                if lp_count == 0:
+                    continue
+
+                # one LP: store/reconcile by key
+                if lp_count == 1:
+                    A = lp_keys[0]
+                    lp_mult_A = int(large_primes[0][2])
+
+                    if large_prime_table_single.get(A):
+                        other_row, _ = large_prime_table_single[A].pop()
+                        global_stats['collisions_single'] += 1
+                        combined = _combine_rows(other_row, row, modulus=int(ell))
+                        if combined:
+                            new_rows.append(combined)
+                            global_stats['pure_rows_emitted_from_partials'] += 1
+                    else:
+                        large_prime_table_single[A].append((row, lp_mult_A))
+                        global_stats['partials_stored_single'] += 1
+
+                # two LPs: keep your existing logic, but now the promoted hub will not appear here
+                elif lp_count == 2:
+                    A, B = lp_keys[0], lp_keys[1]
+                    lp_mult_A = int(large_primes[0][2])
+                    lp_mult_B = int(large_primes[1][2])
+                    pair_key = frozenset([A, B])
+
+                    if large_prime_table_pair.get(pair_key):
+                        other_row = large_prime_table_pair[pair_key].pop()
+                        global_stats['collisions_pair'] += 1
+                        combined = _combine_rows(other_row, row, modulus=int(ell))
+                        if combined:
+                            new_rows.append(combined)
+                            global_stats['pure_rows_emitted_from_partials'] += 1
+                        continue
+
+                    if large_prime_table_single.get(A):
+                        other_row, _ = large_prime_table_single[A].pop()
+                        new_partial_row = _combine_rows(other_row, row, modulus=int(ell))
+                        if large_prime_table_single.get(B):
+                            other2, _ = large_prime_table_single[B].pop()
+                            global_stats['chain_resolutions'] += 1
+                            combined = _combine_rows(new_partial_row, other2, modulus=int(ell))
+                            if combined:
+                                new_rows.append(combined)
+                                global_stats['pure_rows_emitted_from_partials'] += 1
+                        else:
+                            large_prime_table_single[B].append((new_partial_row, lp_mult_B))
+                            global_stats['partials_stored_single'] += 1
+                        continue
+
+                    if large_prime_table_single.get(B):
+                        other_row, _ = large_prime_table_single[B].pop()
+                        new_partial_row = _combine_rows(other_row, row, modulus=int(ell))
+                        if large_prime_table_single.get(A):
+                            other2, _ = large_prime_table_single[A].pop()
+                            global_stats['chain_resolutions'] += 1
+                            combined = _combine_rows(new_partial_row, other2, modulus=int(ell))
+                            if combined:
+                                new_rows.append(combined)
+                                global_stats['pure_rows_emitted_from_partials'] += 1
+                        else:
+                            large_prime_table_single[A].append((new_partial_row, lp_mult_A))
+                            global_stats['partials_stored_single'] += 1
+                        continue
+
+                    large_prime_table_pair[pair_key].append(row)
+                    global_stats['partials_stored_pair'] += 1
+
+                else:
+                    global_stats['partials_too_many_lp'] = global_stats.get('partials_too_many_lp', 0) + 1
+
+    if verbose:
+        print("\n[fiber_augment] STAT SUMMARY")
+        print(f"fibers total               : {global_stats['fibers_total']}")
+        print(f"fibers accepted            : {global_stats['fibers_accepted']}")
+        print(f"fibers all roots on-curve  : {global_stats['fibers_all_roots_on_curve']}")
+        print(f"fibers poles hit           : {global_stats['fibers_poles_hit']}")
+        print(f"roots total                : {global_stats['roots_total']}")
+        print(f"roots on-curve             : {global_stats['roots_on_curve']}")
+        print(f"roots off-curve            : {global_stats['roots_off_curve']}")
+        print(f"roots y=0                  : {global_stats['roots_y0']}")
+        print(f"roots in FB (partial smooth): {global_stats['roots_in_fb']}")
+        print(f"roots not in FB             : {global_stats['roots_not_in_fb']}")
+
+        mult_counter = global_stats['roots_multiplicities']
+        if mult_counter:
+            print(f"root multiplicities        : min={min(mult_counter)}, max={max(mult_counter)}, counts={dict(mult_counter)}")
+
+        if global_stats['roots_per_fiber']:
+            avg_roots = sum(global_stats['roots_per_fiber']) / len(global_stats['roots_per_fiber'])
+            print(f"roots per fiber            : min={min(global_stats['roots_per_fiber'])}, max={max(global_stats['roots_per_fiber'])}, avg={avg_roots:.2f}")
+
+        print(f"relations collected (pure FB)        : {len(new_rows)}")
+
+        weight_hist = Counter()
+        sample_rows_by_weight = {}
+        for r in new_rows:
+            w = len(r)
+            weight_hist[w] += 1
+            if w not in sample_rows_by_weight and w <= 12:
+                sample_rows_by_weight[w] = dict(list(r.items())[:12])
+
+        print("\n[fiber_augment] NEW_ROWS weight histogram (nonzero count -> how many rows):")
+        for w in sorted(weight_hist):
+            print(f"  {w:3d} -> {weight_hist[w]}")
+
+        print("\n[fiber_augment] NEW_ROWS sample (small weights):")
+        for w in sorted(sample_rows_by_weight):
+            print(f"  weight {w}: sample row columns (first <=12 entries): {sample_rows_by_weight[w]}")
+
+        print("\n[fiber_augment] LARGE PRIME STATS (sampled during run)")
+        distinct_lp = len(large_prime_counter)
+        print(f"large primes total occurrences : {large_primes_total}")
+        print(f"distinct large primes          : {distinct_lp}")
+
+        if distinct_lp > 0:
+            freqs = list(large_prime_counter.values())
+            print(f"max frequency                 : {max(freqs)}")
+            print(f"avg frequency                 : {sum(freqs)/len(freqs):.4f}")
+            num_collisions = sum(1 for v in freqs if v > 1)
+            print(f"large primes with collisions  : {num_collisions}")
+            hist = Counter(freqs)
+            print("frequency histogram (count -> how many primes):")
+            for k in sorted(hist)[:10]:
+                print(f"  {k} -> {hist[k]}")
+
+        print("\n[fiber_augment] PARTIALS / COLLISIONS")
+        print(f"partials seen                 : {global_stats['partials_seen']}")
+        print(f"partials stored (single)      : {global_stats['partials_stored_single']}")
+        print(f"partials stored (pair)        : {global_stats['partials_stored_pair']}")
+        print(f"partials with >2 LPs          : {global_stats.get('partials_too_many_lp', 0)}")
+        print(f"single-LP collisions resolved : {global_stats['collisions_single']}")
+        print(f"pair-pair collisions resolved : {global_stats['collisions_pair']}")
+        print(f"chain (pair+single) resolved  : {global_stats['chain_resolutions']}")
+        print(f"pure FB rows emitted from partials: {global_stats['pure_rows_emitted_from_partials']}")
+
+        rem_single = sum(len(v) for v in large_prime_table_single.values())
+        rem_pair = sum(len(v) for v in large_prime_table_pair.values())
+        print(f"remaining unmatched partials (single) : {rem_single}")
+        print(f"remaining unmatched partials (pair)   : {rem_pair}")
+
+    global_stats['large_prime_counter'] = dict(large_prime_counter)
+    global_stats['large_prime_table_single'] = dict(large_prime_table_single)
+
+    return new_rows, global_stats

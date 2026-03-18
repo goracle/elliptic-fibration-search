@@ -539,105 +539,6 @@ def atoms_from_mumford(div, f_p, p):
 # --- start patch (put in index_calculus.py) ---
 # assumes: from smoothness import atoms_from_mumford, extract_factor_base
 
-def extract_factor_base(sample_divisors, p, f_p=None, verbose=False):
-    """
-    Canonical prime-divisor factor base extractor.
-    Returns:
-        atom_to_idx : dict(atom -> col index)
-        fb_y_cache  : dict(x -> canonical y)
-    """
-    if f_p is None:
-        raise ValueError("extract_factor_base now REQUIRES f_p")
-
-    atom_to_idx = {}
-    fb_y_cache = {}
-    next_idx = 0
-    K = GF(p)
-    R = PolynomialRing(K, 'x')
-
-    for D in sample_divisors:
-        # normalize divisor - handle multiple formats
-        if isinstance(D, dict):
-            if 'u_coeffs' in D and 'v_coeffs' in D:
-                u = R(D['u_coeffs'])
-                v = R(D['v_coeffs'])
-            elif 's' in D and 'p' in D:
-                # Build from (s, p, v_0, v_1) format
-                x = R.gen()
-                s = int(D['s'])
-                pp = int(D['p'])
-                v0 = int(D.get('v_0', 0))
-                v1 = int(D.get('v_1', 0))
-                u = x**2 - K(s)*x + K(pp)
-                v = K(v1)*x + K(v0)
-            else:
-                raise ValueError(f"Divisor dict missing required keys: {D.keys()}")
-        else:
-            # Assume it's a Sage Jacobian element
-            u, v = D[0], D[1]
-
-        deg = u.degree()
-
-        if deg == 1:
-            # Degree-1 divisor: create d1 atom
-            x_val = int(u.roots()[0][0])
-            y_val = int(v(K(x_val)))
-            y_val = min(y_val, p - y_val)
-            atom = ('d1', x_val, y_val)
-            fb_y_cache[x_val] = y_val
-
-            if atom not in atom_to_idx:
-                atom_to_idx[atom] = next_idx
-                next_idx += 1
-
-        elif deg == 2:
-            # Check if u splits completely
-            try:
-                roots = u.roots(K)
-                splits_completely = sum(m for _, m in roots) == 2
-            except:
-                splits_completely = False
-
-            if splits_completely:
-                # CRITICAL: Create BOTH d2 atom AND d1 atoms for roots
-
-                # 1. Create d2 atom for the divisor itself
-                u_coeffs = tuple(int(c) for c in u.list())
-                v_coeffs = tuple(int(c) for c in v.list())
-                atom_d2 = ('d2', u_coeffs, v_coeffs)
-
-                if atom_d2 not in atom_to_idx:
-                    atom_to_idx[atom_d2] = next_idx
-                    next_idx += 1
-
-                # 2. Also create d1 atoms for the individual roots
-                for root, _ in roots:
-                    x_val = int(root)
-                    y_val = int(v(K(x_val)))
-                    y_val = min(y_val, p - y_val)
-                    atom_d1 = ('d1', x_val, y_val)
-                    fb_y_cache[x_val] = y_val
-
-                    if atom_d1 not in atom_to_idx:
-                        atom_to_idx[atom_d1] = next_idx
-                        next_idx += 1
-            else:
-                # Doesn't split: create only d2 atom
-                u_coeffs = tuple(int(c) for c in u.list())
-                v_coeffs = tuple(int(c) for c in v.list())
-                atom_d2 = ('d2', u_coeffs, v_coeffs)
-
-                if atom_d2 not in atom_to_idx:
-                    atom_to_idx[atom_d2] = next_idx
-                    next_idx += 1
-
-    if verbose:
-        d1_count = sum(1 for atom in atom_to_idx.keys() if atom[0] == 'd1')
-        d2_count = sum(1 for atom in atom_to_idx.keys() if atom[0] == 'd2')
-        print(f"[Factor Base] {len(atom_to_idx)} prime atoms ({d1_count} d1, {d2_count} d2)")
-
-    return atom_to_idx, fb_y_cache
-
 def build_relation_matrix(divisors, factor_base, p=None, f_p=None, verbose=False, debug=False):
     """
     Constructs the relation matrix for Index Calculus.
@@ -890,3 +791,91 @@ def diagnose_finite_field_search(divisors, f_p, verbose=True, debug=False):
         'Q_roots': Q_roots,
         'num_relations': len(divisors)
     }
+
+def extract_factor_base(sample_divisors, p, f_p=None, verbose=False):
+    if f_p is None:
+        raise ValueError("extract_factor_base now REQUIRES f_p")
+
+    atom_to_idx = {}
+    fb_y_cache = {}
+    next_idx = 0
+    K = GF(p)
+    R = PolynomialRing(K, 'x')
+
+    def _register_divisor(D):
+        nonlocal next_idx
+        if isinstance(D, dict):
+            if 'u_coeffs' in D and 'v_coeffs' in D:
+                u = R(D['u_coeffs'])
+                v = R(D['v_coeffs'])
+            elif 's' in D and 'p' in D:
+                x_gen = R.gen()
+                s_val = int(D['s'])
+                p_val = int(D['p'])
+                v0_val = int(D.get('v_0', 0))
+                v1_val = int(D.get('v_1', 0))
+                u = x_gen**2 - K(s_val)*x_gen + K(p_val)
+                v = K(v1_val)*x_gen + K(v0_val)
+            else:
+                raise ValueError(f"Divisor dict missing required keys: {D.keys()}")
+        else:
+            try:
+                u, v = D[0], D[1]
+            except (TypeError, IndexError):
+                return
+
+        deg = u.degree()
+
+        if deg == 1:
+            roots = u.roots(K)
+            if not roots:
+                return
+            x_val = int(roots[0][0])
+            y_val = int(v(K(x_val)))
+            y_val = min(y_val, p - y_val)
+            atom = ('d1', x_val, y_val)
+            fb_y_cache[x_val] = y_val
+            if atom not in atom_to_idx:
+                atom_to_idx[atom] = next_idx
+                next_idx += 1
+
+        elif deg == 2:
+            try:
+                roots = u.roots(K)
+                splits_completely = sum(m for _, m in roots) == 2
+            except (ArithmeticError, TypeError):
+                splits_completely = False
+
+            u_coeffs = tuple(int(c) for c in u.list())
+            v_coeffs = tuple(int(c) for c in v.list())
+            atom_d2 = ('d2', u_coeffs, v_coeffs)
+            if atom_d2 not in atom_to_idx:
+                atom_to_idx[atom_d2] = next_idx
+                next_idx += 1
+
+            if splits_completely:
+                for root_val, _ in roots:
+                    x_v = int(root_val)
+                    y_v = int(v(K(x_v)))
+                    y_v = min(y_v, p - y_v)
+                    atom_d1 = ('d1', x_v, y_v)
+                    fb_y_cache[x_v] = y_v
+                    if atom_d1 not in atom_to_idx:
+                        atom_to_idx[atom_d1] = next_idx
+                        next_idx += 1
+
+    for D_raw in sample_divisors:
+        if isinstance(D_raw, dict) and D_raw.get('type') == 'relation':
+            for sub_key in ('d1', 'd2', 'd3'):
+                sub = D_raw.get(sub_key)
+                if sub is not None:
+                    _register_divisor(sub)
+        else:
+            _register_divisor(D_raw)
+
+    if verbose:
+        d1_count = sum(1 for atom in atom_to_idx if atom[0] == 'd1')
+        d2_count = sum(1 for atom in atom_to_idx if atom[0] == 'd2')
+        print(f"[Factor Base] Extracted {len(atom_to_idx)} atoms ({d1_count} d1, {d2_count} d2)")
+
+    return atom_to_idx, fb_y_cache
