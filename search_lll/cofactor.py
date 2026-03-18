@@ -1,7 +1,7 @@
 import sys, time, random
 from math import ceil, sqrt, gcd
 from multiprocessing import Pool, cpu_count
-from collections import Counter
+from collections import Counter, deque
 from sage.all import Integer, Zmod, GF, ZZ, matrix, vector, PolynomialRing, factor, crt, prime_factors, set_random_seed
 from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
 from sage.matrix.berlekamp_massey import berlekamp_massey
@@ -10,63 +10,6 @@ from sage.matrix.berlekamp_massey import berlekamp_massey
 # Standard library
 
 # Sage imports (consolidated)
-
-def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows,
-                          row_g, row_q, verbose=True):
-    """
-    Apply the filtering from precheck_cofactor_projection results.
-
-    Returns filtered data structures with dead FB elements removed.
-
-    Args:
-        precheck_result: output from precheck_cofactor_projection
-        atom_to_idx: original factor base
-        homogeneous_rows: original relations
-        row_g, row_q: original G and Q rows
-        verbose: print stats
-
-    Returns:
-        (filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q)
-    """
-    if not precheck_result['safe_to_project']:
-        raise RuntimeError(
-            f"Cannot apply filter: projection is unsafe. Reason: {precheck_result['reason']}"
-        )
-
-    alive_indices = precheck_result['alive_fb_indices']
-
-    # Rebuild atom_to_idx with only alive elements
-    # Remap indices to be contiguous starting from 0
-    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items() if idx in alive_indices}
-
-    old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(alive_indices))}
-
-    filtered_atom_to_idx = {
-        atom: old_to_new[old_idx]
-        for old_idx, atom in idx_to_atom.items()
-    }
-
-    # Remap relation rows
-    filtered_rows = []
-    for row in precheck_result['filtered_rows']:
-        new_row = {old_to_new[idx]: mult for idx, mult in row.items() if idx in alive_indices}
-        if new_row:
-            filtered_rows.append(new_row)
-
-    # Remap G and Q rows
-    filtered_row_g = {old_to_new[idx]: mult for idx, mult in precheck_result['filtered_row_g'].items()}
-    filtered_row_q = {old_to_new[idx]: mult for idx, mult in precheck_result['filtered_row_q'].items()}
-
-    if verbose:
-        print(f"\n[Filter Applied]")
-        print(f"  Original FB size: {len(atom_to_idx)}")
-        print(f"  Filtered FB size: {len(filtered_atom_to_idx)}")
-        print(f"  Original relations: {len(homogeneous_rows)}")
-        print(f"  Filtered relations: {len(filtered_rows)}")
-        print(f"  Removed {len(atom_to_idx) - len(filtered_atom_to_idx)} dead FB elements")
-        print(f"  Removed {len(homogeneous_rows) - len(filtered_rows)} dead relations")
-
-    return filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q
 
 # === Minimal detection function: compute right-kernel of the projected homogeneous matrix ===
 
@@ -81,59 +24,6 @@ def _safe_get_ell_and_h(full_order):
     ell = int(max(primes))
     h = int(Integer(full_order) // Integer(ell))
     return ell, h
-
-def detect_nontrivial_character_from_projection(filtered_rows, alive_fb_indices, ell, verbose=True):
-    Zell = Zmod(int(ell))
-    alive_idx_list = sorted(alive_fb_indices)
-    col_map = {old_idx: c for c, old_idx in enumerate(alive_idx_list)}
-    n_cols = len(alive_idx_list)
-    n_rows = len(filtered_rows)
-
-    # build sparse entries
-    entries = {}
-    for i, row in enumerate(filtered_rows):
-        for old_idx, mult in row.items():
-            if old_idx not in col_map:
-                continue
-            j = col_map[old_idx]
-            entries[(i, j)] = Zell(int(mult) % int(ell))
-
-    A_hom = matrix(Zell, n_rows, n_cols, entries, sparse=True)
-
-    K = A_hom.right_kernel()   # space of characters that vanish on rows
-    dim = K.dimension()
-    if dim > 1:
-        raise RuntimeError(f"kernel has dim > 1, factor base structure incomplete. dim={dim}")
-    basis = [[int(x) % int(ell) for x in v] for v in K.basis()]
-
-    if verbose:
-        print(f"[detect] A_hom: {n_rows}x{n_cols}, kernel dim = {dim}")
-
-    return {'found': (dim == 1), 'dim': dim, 'basis': basis, 'alive_idx_list': alive_idx_list, 'A_hom': A_hom, 'n_cols': n_cols}
-
-def is_vector_in_rowspace(A, vec, verbose=False):
-    """
-    Test whether row-vector 'vec' (length == n_cols) lies in the row-space of A.
-    Return (True, coeffs) if yes where coeffs are coefficients expressing vec as linear comb
-    of A's rows; otherwise (False, None).
-    """
-    Zell = A.base_ring()
-    # Solve linear system R^T * alpha = vec^T where R are rows of A
-    # Build matrix whose rows are A.rows(); then use solve_right for combination
-    # We want alpha such that alpha^T * A = vec  -> (A^T) * alpha = vec^T  => solve
-    try:
-        AT = A.transpose()
-        vec_col = matrix(Zell, len(vec), 1, [Zell(int(x) % int(Zell.characteristic())) for x in vec])
-        # Solve AT * alpha = vec_col for alpha
-        alpha = AT.solve_right(vec_col)   # returns column vector of coefficients if solvable
-        coeffs = [int(x) % int(Zell.characteristic()) for x in alpha.list()]
-        if verbose:
-            print("[is_vector_in_rowspace] vector is in row-space; returning coefficients")
-        return True, coeffs
-    except Exception:
-        if verbose:
-            print("[is_vector_in_rowspace] vector NOT in row-space")
-        return False, None
 
 def verify_character_vectors(filtered_rows, alive_idx_list, basis_vectors, ell, verbose=True):
     col_map = {old_idx: col for col, old_idx in enumerate(alive_idx_list)}
@@ -162,449 +52,685 @@ def verify_character_vectors(filtered_rows, alive_idx_list, basis_vectors, ell, 
 
     return ok_list
 
+# Put these into your module in place of the originals.
+
+# ---- apply_cofactor_filter (fixed remap + defensive G/Q) ----
+
+# ---- detect_nontrivial_character_from_projection (non-fatal, GF speed) ----
+
+# ---- is_vector_in_rowspace (clearer) ----
+
+# ---- selection helpers: safe fallback + incremental rank test ----
+
+# ---- choose_prune_row_guided_by_g (robust sampling) ----
+
+# ===== Replacements: robust implementations =====
+# Assumes imports:
+# from collections import deque
+# import random
+# from sage.all import GF, Zmod, matrix, vector, Integer, prime_factors
+
+def apply_cofactor_filter(precheck_result, atom_to_idx, homogeneous_rows,
+                          row_g, row_q, verbose=True):
+    """
+    Safe remap of master factor base -> filtered factor base using
+    precheck_result['alive_fb_indices'].
+
+    Returns (filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q)
+    """
+    if not precheck_result.get('safe_to_project', False):
+        raise RuntimeError(
+            f"Cannot apply filter: projection is unsafe. Reason: {precheck_result.get('reason')}"
+        )
+
+    alive_indices = set(precheck_result['alive_fb_indices'])
+
+    # Build filtered_atom_to_idx and direct old->new map
+    filtered_atom_to_idx = {}
+    old_to_new = {}
+    for atom, old_idx in atom_to_idx.items():
+        if old_idx in alive_indices:
+            new_idx = len(filtered_atom_to_idx)
+            filtered_atom_to_idx[atom] = new_idx
+            old_to_new[old_idx] = new_idx
+
+    # Remap filtered_rows defensively
+    filtered_rows = []
+    for row in precheck_result.get('filtered_rows', []):
+        new_row = {}
+        for old_idx, mult in row.items():
+            if old_idx in old_to_new:
+                new_row[old_to_new[old_idx]] = int(mult)
+        if new_row:
+            filtered_rows.append(new_row)
+
+    # Remap G, Q defensively (skip dead indices)
+    filtered_row_g = {}
+    for old_idx, mult in precheck_result.get('filtered_row_g', {}).items():
+        if old_idx in old_to_new:
+            filtered_row_g[old_to_new[old_idx]] = int(mult)
+
+    filtered_row_q = {}
+    for old_idx, mult in precheck_result.get('filtered_row_q', {}).items():
+        if old_idx in old_to_new:
+            filtered_row_q[old_to_new[old_idx]] = int(mult)
+
+    if verbose:
+        print(f"\n[Filter Applied]")
+        print(f"  Original FB size: {len(atom_to_idx)}")
+        print(f"  Filtered FB size: {len(filtered_atom_to_idx)}")
+        print(f"  Original relations: {len(homogeneous_rows)}")
+        print(f"  Filtered relations: {len(filtered_rows)}")
+        print(f"  Removed {len(atom_to_idx) - len(filtered_atom_to_idx)} dead FB elements")
+        print(f"  Removed {len(homogeneous_rows) - len(filtered_rows)} dead relations")
+
+    return filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q
+
+def detect_nontrivial_character_from_projection(filtered_rows, alive_fb_indices, ell, verbose=True):
+    """
+    Return dict giving the nullspace (right-kernel) of the projected homogeneous matrix
+    over GF(ell). Non-fatal: returns found=False when dim != 1 so caller decides.
+    """
+    if int(ell) <= 2:
+        return {'found': False, 'dim': 0, 'basis': [], 'alive_idx_list': sorted(alive_fb_indices)}
+
+    F = GF(int(ell))
+    alive_idx_list = sorted(alive_fb_indices)
+    col_map = {old_idx: c for c, old_idx in enumerate(alive_idx_list)}
+    n_cols = len(alive_idx_list)
+    n_rows = len(filtered_rows)
+
+    # build dense rows (list of lists over F)
+    rows = []
+    for row in filtered_rows:
+        vec = [F(0)] * n_cols
+        for old_idx, mult in row.items():
+            j = col_map.get(old_idx)
+            if j is not None:
+                vec[j] = F(int(mult) % int(ell))
+        rows.append(vec)
+
+    if n_rows == 0 or n_cols == 0:
+        if verbose:
+            print("[detect] empty matrix")
+        return {'found': False, 'dim': 0, 'basis': [], 'alive_idx_list': alive_idx_list}
+
+    A = matrix(F, rows, sparse=False)
+    K = A.right_kernel()
+    dim = K.dimension()
+    basis = []
+    for v in K.basis():
+        basis.append([int(x) % int(ell) for x in v])
+
+    if verbose:
+        print(f"[detect] A_hom: {n_rows}x{n_cols}, kernel dim = {dim}")
+
+    return {'found': (dim == 1), 'dim': dim, 'basis': basis, 'alive_idx_list': alive_idx_list, 'A_hom': A, 'n_cols': n_cols}
+
+def is_vector_in_rowspace(A, vec, verbose=False):
+    """
+    Check whether row-vector vec (length == A.ncols()) is in the row-space of A.
+    Returns (True, coeffs) or (False, None). Coeffs express vec as linear combination
+    of A's rows (over A.base_ring()).
+    """
+    if A.ncols() != len(vec):
+        if verbose:
+            print("[is_vector_in_rowspace] dimension mismatch")
+        return False, None
+
+    F = A.base_ring()
+    # make column vector for vec
+    vec_col = matrix(F, len(vec), 1, [F(int(x) % int(F.characteristic())) for x in vec])
+
+    try:
+        AT = A.transpose()
+        alpha = AT.solve_right(vec_col)   # solves AT * alpha = vec_col
+        coeffs = [int(x) % int(F.characteristic()) for x in alpha.list()]
+        if verbose:
+            print("[is_vector_in_rowspace] vector is in row-space; returning coefficients")
+        return True, coeffs
+    except Exception as e:
+        if verbose:
+            print("[is_vector_in_rowspace] vector NOT in row-space:", e)
+        return False, None
+
 def try_add_row_to_basis(basis_rows, row_vec, ell):
     """
-    Rank-based independence test.
-
-    basis_rows: list of dense row vectors (each a Sage vector or list of ints mod ell)
-    row_vec: dense row vector to test (list or Sage vector)
-    Returns True if row_vec is independent and appended to basis_rows, False otherwise.
+    Rank-based independence test: append row_vec to basis_rows if independent.
+    basis_rows: list of Sage vectors or lists (same length); row_vec: list-like.
+    Returns True if appended, False otherwise.
     """
-    Zell = Zmod(int(ell))
+    F = GF(int(ell))
 
-    # convert inputs to dense lists of Zell elements
-    def _to_zell_list(v):
+    def _to_list(v):
         if hasattr(v, 'list'):
-            raw = v.list()
+            raw = list(v.list())
         else:
             raw = list(v)
-        return [Zell(int(x) % int(ell)) for x in raw]
+        return [F(int(x) % int(ell)) for x in raw]
 
-    v_list = _to_zell_list(row_vec)
+    v_list = _to_list(row_vec)
 
     if not basis_rows:
-        # quick append for empty basis
-        basis_rows.append(vector(Zell, v_list))
+        basis_rows.append(vector(F, v_list))
         return True
 
-    # build small matrix with current basis rows + candidate
-    M_before = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ])
+    M_before = matrix(F, [ _to_list(b) for b in basis_rows ])
     rank_before = M_before.rank()
-    M_after = matrix(Zell, [ _to_zell_list(b) for b in basis_rows ] + [v_list])
+    M_after = matrix(F, [ _to_list(b) for b in basis_rows ] + [v_list])
     rank_after = M_after.rank()
 
     if rank_after > rank_before:
-        basis_rows.append(vector(Zell, v_list))
+        basis_rows.append(vector(F, v_list))
         return True
     return False
 
-def select_independent_rows_fast(A_hom, ell, target_count=None):
-    """
-    Zero-rank-check selection exploiting perfect 4-orbit structure.
-    Assumes rank increases at every position 1 + 4k.
-    """
-    n_rows = A_hom.nrows()
-    if target_count is None:
-        target_count = min(n_rows, A_hom.ncols())
-
-    # Just take every 4th row starting at offset 1
-    chosen = list(range(1, min(1 + 4 * target_count, n_rows), 4))
-
-    # Truncate to target_count
-    return chosen[:target_count]
-
 def select_independent_rows(A_hom, ell, target_count=None):
     """
-    Fast independent row selection exploiting 4-orbit structure.
-
-    Observation: rank increases every 4th row starting at offset 1.
-    We stride by 4 and only test candidates at positions 1, 5, 9, 13, ...
+    Incremental independent-row selector (safe fallback).
+    Returns list of selected row indices.
     """
-    Zell = Zmod(int(ell))
+    F = GF(int(ell))
+    n_rows = A_hom.nrows()
+    n_cols = A_hom.ncols()
+    if target_count is None:
+        target_count = min(n_rows, n_cols)
+
+    chosen = []
+    basis_rows = []
+
+    def _try_append(row_list):
+        nonlocal basis_rows
+        if not basis_rows:
+            basis_rows = [row_list[:]]
+            return True
+        M_before = matrix(F, basis_rows, sparse=False)
+        rank_before = M_before.rank()
+        M_after = matrix(F, basis_rows + [row_list], sparse=False)
+        rank_after = M_after.rank()
+        if rank_after > rank_before:
+            basis_rows.append(row_list[:])
+            return True
+        return False
+
+    for i in range(n_rows):
+        if len(chosen) >= target_count:
+            break
+        row = A_hom.row(i)
+        row_list = [F(int(x) % int(ell)) for x in row]
+        if all(x == 0 for x in row_list):
+            continue
+        if _try_append(row_list):
+            chosen.append(i)
+
+    return chosen[:target_count]
+
+def select_independent_rows_fast(A_hom, ell, target_count=None):
+    """
+    Heuristic fast selection (every 4th). Validates the candidate; falls back to select_independent_rows.
+    """
     n_rows = A_hom.nrows()
     if target_count is None:
         target_count = min(n_rows, A_hom.ncols())
 
-    chosen = []
+    candidate = list(range(1, min(1 + 4 * target_count, n_rows), 4))[:target_count]
+    F = GF(int(ell))
     chosen_rows = []
+    for i in candidate:
+        r = A_hom.row(i)
+        chosen_rows.append([F(int(x) % int(ell)) for x in r])
 
-    # Start at offset 1, stride by 4
-    for i in range(1, n_rows, 4):
-        row = A_hom.row(i)
-        row_list = [Zell(int(x) % int(ell)) for x in row]
+    if chosen_rows:
+        M = matrix(F, chosen_rows, sparse=False)
+        if M.rank() == min(target_count, A_hom.ncols()):
+            return candidate[:target_count]
 
-        if not chosen_rows:
-            chosen.append(i)
-            chosen_rows.append(row_list)
-            if len(chosen) >= target_count:
-                break
-            continue
+    # fallback
+    return select_independent_rows(A_hom, ell, target_count=target_count)
 
-        # Rank test (should almost always succeed at these indices)
-        M_before = matrix(Zell, chosen_rows)
-        rank_before = M_before.rank()
-        M_after = matrix(Zell, chosen_rows + [row_list])
-        rank_after = M_after.rank()
+# ===== Efficient constrained-kernel + bounded-prune replacements =====
+# Requires: from sage.all import GF, matrix, vector
+#           import random
 
-        if rank_after > rank_before:
-            chosen.append(i)
-            chosen_rows.append(row_list)
-            if len(chosen) >= target_count:
-                break
+def find_transverse_kernel(A_hom, g_vec_dense, ell, verbose=False):
+    """
+    Try a single linear solve that finds chi with:
+        A_hom * chi = 0
+        <g_vec_dense, chi> = 1   (mod ell)
 
-    # Safety: if we didn't get enough (shouldn't happen), fallback to dense scan
-    if len(chosen) < target_count:
-        for i in range(n_rows):
-            if i in chosen:
-                continue
-            row = A_hom.row(i)
-            row_list = [Zell(int(x) % int(ell)) for x in row]
+    Returns:
+        chi as a list of ints mod ell if found, else None.
 
-            M_before = matrix(Zell, chosen_rows)
-            rank_before = M_before.rank()
-            M_after = matrix(Zell, chosen_rows + [row_list])
-            rank_after = M_after.rank()
+    This performs ONE linear solve on the (m+1) x n system instead of many kernel recomputations.
+    """
+    F = GF(int(ell))
+    m, n = A_hom.nrows(), A_hom.ncols()
 
-            if rank_after > rank_before:
-                chosen.append(i)
-                chosen_rows.append(row_list)
-                if len(chosen) >= target_count:
-                    break
+    # Ensure g_vec_dense length matches columns
+    if len(g_vec_dense) != n:
+        raise ValueError("g_vec_dense length != ncols")
 
-    return chosen
+    # Build M whose rows = rows(A_hom) followed by g_vec
+    # Build RHS b = [0,...,0, 1]
+    rows = [list(r) for r in A_hom.rows()]
+    rows.append([F(int(x) % int(ell)) for x in g_vec_dense])
+    M = matrix(F, rows, sparse=False)
+
+    b = vector(F, [F(0)] * m + [F(1)])
+
+    try:
+        # Solve M * chi = b (rectangular). solve_right works for consistent systems.
+        chi_vec = M.solve_right(b)
+    except Exception:
+        if verbose:
+            print("find_transverse_kernel: direct solve failed")
+        return None
+
+    # Verify exactness: A_hom * chi == 0 and <g,chi> == 1
+    chi_list = [int(x) % int(ell) for x in chi_vec]
+    # verify A_hom * chi == 0
+    prod = A_hom * vector(F, [F(x) for x in chi_list])
+    if any(int(x) % int(ell) != 0 for x in prod):
+        if verbose:
+            print("find_transverse_kernel: solve produced A*chi != 0")
+        return None
+    # verify dot with g
+    dot = sum((int(g_vec_dense[j]) % int(ell)) * chi_list[j] for j in range(n)) % int(ell)
+    if dot != 1 % int(ell):
+        if verbose:
+            print(f"find_transverse_kernel: dot != 1 (dot={dot})")
+        return None
+
+    return chi_list
+
+def pick_sparse_row_to_remove(dense_rows, max_candidates=100):
+    """
+    Choose a single row index to remove based on sparsity: prefer rows with few nonzeros.
+    `dense_rows` is list-of-lists (field elements or ints) representing A_hom rows.
+    Returns index (int).
+    """
+    # compute nonzero counts (work with ints for speed)
+    nz_counts = [(i, sum(1 for x in row if int(x) % 1 != 0 or x != 0)) for i, row in enumerate(dense_rows)]
+    # sort by count ascending
+    nz_counts.sort(key=lambda t: (t[1], t[0]))
+    # choose from top-k sparsest randomly to avoid pathological picks
+    k = min(max_candidates, len(nz_counts))
+    candidates = [t[0] for t in nz_counts[:k]]
+    return random.choice(candidates)
+
+# === Integrate into precheck_cofactor_projection (replace the prune portion) ===
 
 def precheck_cofactor_projection(atom_to_idx, homogeneous_rows, row_g, row_q,
-                                  full_order, J, f_coeffs, p, verbose=True):
+                                 full_order, J, f_coeffs, p, verbose=True):
     """
-    Checks if the system is solvable after projecting to J[ell] via cofactor h.
-
-    STRICT RANK REQUIREMENTS:
-    1. Homogeneous relations must have rank = n_cols - 1 (Defective by 1).
-    2. Augmented system (with G-row) must have rank = n_cols (Full Rank).
-
-    AUTO-PRUNING:
-    If the homogeneous system is full rank (rank == n_cols), this function will
-    automatically select a subset of linearly independent rows of size n_cols-1
-    to enforce the 1-dimensional kernel requirement.
+    Sparse-safe precheck that:
+      - builds A_hom as a sparse GF(ell) matrix from homogeneous_rows
+      - checks rank structure
+      - if full-rank, attempts a bounded prune via choose_prune_row_guided_by_g
+      - returns the full contract expected by callers:
+          filtered_rows (list of sparse dicts using original atom indices),
+          filtered_row_g (projected G row, using original atom indices),
+          filtered_row_q (projected Q row),
+          alive_fb_indices, removed_row_indices, etc.
     """
+
     if verbose:
         print("\n" + "="*68)
         print("COFACTOR PROJECTION PRE-CHECK (Rank Defective Check)")
         print("="*68)
 
     ell, h = _safe_get_ell_and_h(full_order)
-
     if verbose:
-        print(f"  |J| = {full_order}, ℓ = {ell}, h = {h}")
+        print(f"  |J| = {full_order}, ell = {ell}, h = {h}")
 
-    idx_to_atom = {idx: atom for atom, idx in atom_to_idx.items()}
-
-    Zell = Zmod(ell)
-
-    alive_fb_indices = set()
-    dead_fb_indices = set()
-    fb_projected = {}
-
-    # Setup polynomial ring for reconstructing Mumford polynomials
-    K = J.base_ring()
-    try:
-        R = J.curve().hyperelliptic_polynomials()[0].parent()
-        x = R.gen()
-    except Exception:
-        R = PolynomialRing(K, 'x')
-        x = R.gen()
-
-    # --- STEP 1: Project Factor Base Atoms by h ---
-    for idx, atom in idx_to_atom.items():
-        F_i = None
-
-        if atom[0] == 'd1':
-            _, x_val, y_val = atom
-            try:
-                u = x - K(x_val)
-                v = R(K(y_val))
-                F_i = J([u, v])
-            except Exception as e:
-                if verbose and len(dead_fb_indices) < 5:
-                    print(f"  [Warning] Failed to construct d1 atom {atom}: {e}")
-                F_i = None
-                raise
-        else:
-            try:
-                _, u_coeffs, v_coeffs = atom
-                u = R(list(u_coeffs))
-                v = R(list(v_coeffs))
-                F_i = J([u, v])
-            except Exception as e:
-                if verbose and len(dead_fb_indices) < 5:
-                    print(f"  [Warning] Failed to construct d2 atom {atom}: {e}")
-                F_i = None
-                raise
-
-        if F_i is None:
-            dead_fb_indices.add(idx)
-            fb_projected[idx] = None
-            continue
-
-        try:
-            F_i_proj = Integer(h) * F_i
-            if F_i_proj.is_zero():
-                dead_fb_indices.add(idx)
-                fb_projected[idx] = None
-            else:
-                alive_fb_indices.add(idx)
-                fb_projected[idx] = F_i_proj
-        except Exception:
-            dead_fb_indices.add(idx)
-            fb_projected[idx] = None
-            raise
-
-    if verbose:
-        print(f"  Alive FB: {len(alive_fb_indices)}  Dead FB: {len(dead_fb_indices)}")
-
-    if not alive_fb_indices:
-        return {
-            'safe_to_project': False,
-            'reason': 'ALL factor base elements died under h-projection'
-        }
-
-    # --- STEP 2: Project Relations ---
-    alive_rows = []
-    for row in homogeneous_rows:
-        row_proj = {idx: mult for idx, mult in row.items() if idx in alive_fb_indices}
-        if not row_proj:
-            continue
-        alive_rows.append(row_proj)
-
-    if not alive_rows:
-        return {
-            'safe_to_project': False,
-            'reason': 'ALL homogeneous relations vanished under h-projection'
-        }
-
-    row_g_proj = {idx: mult for idx, mult in row_g.items() if idx in alive_fb_indices}
-    row_q_proj = {idx: mult for idx, mult in (row_q or {}).items() if idx in alive_fb_indices}
-
-    if not row_g_proj:
-        return {
-            'safe_to_project': False,
-            'reason': 'G uses only dead FB elements after projection'
-        }
-
-    # Build col_map
+    # alive indices (no earlier projection performed here)
+    alive_fb_indices = set(atom_to_idx.values())
     alive_idx_list = sorted(alive_fb_indices)
     col_map = {old_idx: c for c, old_idx in enumerate(alive_idx_list)}
     n_cols = len(alive_idx_list)
 
-    # Build g_row vector EARLY (before rank checks)
-    g_row_vec = [0] * n_cols
-    for old_idx, mult in row_g_proj.items():
-        g_row_vec[col_map[old_idx]] = int(mult) % int(ell)
+    if verbose:
+        print(f"  Alive FB: {n_cols}  Dead FB: 0")
 
-    # Build q_row vector EARLY (if present) for diagnostics/pruning
-    q_row_vec = None
-    if row_q is not None:
-        q_row_vec = [0] * n_cols
-        for old_idx, mult in row_q_proj.items():
-            q_row_vec[col_map[old_idx]] = int(mult) % int(ell)
-
-    # Build A_hom for initial rank check
-    entries_hom = {}
-    for i, row in enumerate(alive_rows):
+    # Build sparse projected rows (keep original old-index keys)
+    sparse_rows = []
+    for row in homogeneous_rows:
+        row_proj = {}
         for old_idx, mult in row.items():
-            entries_hom[(i, col_map[old_idx])] = Zmod(int(ell))(int(mult) % int(ell))
+            if old_idx in alive_fb_indices:
+                row_proj[old_idx] = int(mult) % int(ell)
+        if row_proj:
+            sparse_rows.append(row_proj)
 
-    A_hom = matrix(Zmod(int(ell)), len(alive_rows), n_cols, entries_hom, sparse=True)
-    rank_hom = A_hom.rank()
+    if not sparse_rows:
+        return {
+            'safe_to_project': False,
+            'reason': 'ALL homogeneous relations vanished under h-projection',
+            'ell': ell, 'h': h
+        }
+
+    # Build sparse matrix A_hom (rows indexed by sparse_rows, columns by alive_idx_list)
+    F = GF(int(ell))
+    n_rows = len(sparse_rows)
+    A_hom = matrix(F, n_rows, n_cols, sparse=True)
+    for i, row in enumerate(sparse_rows):
+        for old_idx, mult in row.items():
+            j = col_map[old_idx]
+            A_hom[i, j] = F(int(mult) % int(ell))
+
+    # compute rank once
+    try:
+        rank_hom = A_hom.rank()
+    except Exception as e:
+        # defensive fallback: if rank computation fails, abort gracefully
+        return {
+            'safe_to_project': False,
+            'reason': f'rank computation failed: {e}',
+            'ell': ell, 'h': h
+        }
 
     if verbose:
         print(f"  [Rank Check] N_Cols (Alive Atoms): {n_cols}")
         print(f"  [Rank Check] Hom. Rank (before prune): {rank_hom}")
 
-    # If full rank, auto-prune using echelon form to extract independent rows
+    if rank_hom < n_cols - 1:
+        return {
+            'safe_to_project': False,
+            'reason': f'Homogeneous rank {rank_hom} < n_cols-1 {n_cols-1}; need more relations',
+            'ell': ell, 'h': h,
+            'rank_hom': rank_hom,
+            'alive_fb_indices': alive_fb_indices,
+            'filtered_rows': sparse_rows,
+            'filtered_row_g': {old_idx: mult for old_idx, mult in (row_g or {}).items() if old_idx in alive_fb_indices},
+            'filtered_row_q': {old_idx: mult for old_idx, mult in (row_q or {}).items() if old_idx in alive_fb_indices},
+            'fb_projected': {},
+        }
+
+    # Build projected G/Q rows (sparse dicts keyed by original old_idx)
+    row_g_proj = {old_idx: int(mult) % int(ell) for old_idx, mult in (row_g or {}).items() if old_idx in alive_fb_indices}
+    row_q_proj = {old_idx: int(mult) % int(ell) for old_idx, mult in (row_q or {}).items() if old_idx in alive_fb_indices}
+
+    removed_row_indices = []
+
+    # If the homogeneous matrix is full rank, try bounded prune to create the 1-dim kernel
     if rank_hom == n_cols:
         if verbose:
-            print("  [Auto-Prune] Homogeneous is full rank; FORCING rank defect")
+            print("  [Auto-Prune] Homogeneous is full rank; attempting bounded prune")
 
-        # Choose rows to delete so rank drops by 1 and kernel hits G
-        rows_to_remove = choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose, q_row_vec=q_row_vec)
+        # Prepare a dense integer g vector aligned to A_hom columns for the prune function
+        g_vec_dense = [0] * n_cols
+        for old_idx, mult in row_g_proj.items():
+            g_vec_dense[col_map[old_idx]] = int(mult) % int(ell)
 
-        keep_rows = [i for i in range(A_hom.nrows()) if i not in rows_to_remove]
-        alive_rows = [alive_rows[i] for i in keep_rows]
+        # First: check for singleton columns (exactly 1 nonzero row in that column).
+        # Removing that row makes the column all-zero, guaranteeing rank drops by 1.
+        col_nonzero_rows = {}
+        for i, row in enumerate(sparse_rows):
+            for old_idx in row:
+                j = col_map[old_idx]
+                col_nonzero_rows.setdefault(j, []).append(i)
 
-        # Rebuild A_hom
-        entries = {}
-        for i, row in enumerate(alive_rows):
-            for old_idx, mult in row.items():
-                entries[(i, col_map[old_idx])] = Zmod(int(ell))(int(mult) % int(ell))
-        A_hom = matrix(Zmod(int(ell)), len(alive_rows), n_cols, entries, sparse=True)
+        singleton_row_idx = None
+        for j, rows_with_nonzero in col_nonzero_rows.items():
+            if len(rows_with_nonzero) == 1:
+                singleton_row_idx = rows_with_nonzero[0]
+                if verbose:
+                    print("  [Auto-Prune] Found singleton column %d; removing row %d" % (j, singleton_row_idx))
+                break
 
-        if A_hom.rank() != n_cols - 1:
-            raise RuntimeError("Forced prune failed to create rank defect")
+        if singleton_row_idx is not None:
+            removed_row_indices = [singleton_row_idx]
+        else:
+            try:
+                removed_row_indices = choose_prune_row_guided_by_g(A_hom, g_vec_dense, ell, verbose=verbose)
+            except Exception as e:
+                return {
+                    'safe_to_project': False,
+                    'reason': 'prune attempt failed: ' + str(e),
+                    'ell': ell, 'h': h,
+                    'rank_hom': rank_hom,
+                    'alive_fb_indices': alive_fb_indices,
+                    'filtered_rows': sparse_rows,
+                    'filtered_row_g': row_g_proj,
+                    'filtered_row_q': row_q_proj,
+                    'fb_projected': {},
+                }
 
-    # Build g_row vector (ensure it's fresh if needed, though established above)
-    g_row_vec = [0] * n_cols
-    for old_idx, mult in row_g_proj.items():
-        g_row_vec[col_map[old_idx]] = int(mult) % int(ell)
+        # If some rows were removed, apply removals to sparse_rows and rebuild A_hom and rank
+        if removed_row_indices:
+            rem_set = set(removed_row_indices)
+            # removed_row_indices are indices in the current sparse_rows list
+            keep_rows = [i for i in range(n_rows) if i not in rem_set]
+            sparse_rows = [sparse_rows[i] for i in keep_rows]
+            # rebuild A_hom from remaining sparse_rows
+            A_hom = matrix(F, len(sparse_rows), n_cols, sparse=True)
+            for i, row in enumerate(sparse_rows):
+                for old_idx, mult in row.items():
+                    j = col_map[old_idx]
+                    A_hom[i, j] = F(int(mult) % int(ell))
+            try:
+                rank_hom = A_hom.rank()
+            except Exception as e:
+                return {
+                    'safe_to_project': False,
+                    'reason': f'rank computation after prune failed: {e}',
+                    'ell': ell, 'h': h,
+                    'alive_fb_indices': alive_fb_indices,
+                    'alive_idx_list': alive_idx_list,
+                    'filtered_rows': sparse_rows,
+                    'filtered_row_g': row_g_proj,
+                    'filtered_row_q': row_q_proj,
+                }
 
-    # Build augmented matrix with G-row
-    entries_aug = dict(A_hom.dict())
-    for j, val in enumerate(g_row_vec):
-        if int(val) != 0:
-            entries_aug[(A_hom.nrows(), j)] = Zmod(int(ell))(int(val))
-    A_aug = matrix(Zmod(int(ell)), A_hom.nrows() + 1, n_cols, entries_aug, sparse=True)
-    rank_aug = A_aug.rank()
+            if verbose:
+                print(f"  [Auto-Prune] After pruning: Hom. Rank = {rank_hom}")
+
+            # Ensure prune actually produced the expected rank defect
+            if rank_hom != n_cols - 1:
+                return {
+                    'safe_to_project': False,
+                    'reason': 'Prune did not produce desired rank defect',
+                    'ell': ell, 'h': h,
+                    'rank_hom': rank_hom,
+                    'removed_row_indices': removed_row_indices,
+                    'filtered_rows': sparse_rows,
+                    'filtered_row_g': row_g_proj,
+                    'filtered_row_q': row_q_proj,
+                    'alive_fb_indices': alive_fb_indices,
+                    'alive_idx_list': alive_idx_list,
+                }
+
+    # Final check: does adding G row increase rank to n_cols?
+    try:
+        g_row_F = [F(int(x) % int(ell)) for x in ([row_g_proj.get(old_idx, 0) for old_idx in alive_idx_list])]
+        M_aug = A_hom.stack(matrix(F, [g_row_F]))
+        rank_aug = M_aug.rank()
+    except Exception as e:
+        return {
+            'safe_to_project': False,
+            'reason': f'augmented rank computation failed: {e}',
+            'ell': ell, 'h': h,
+            'rank_hom': rank_hom
+        }
 
     if verbose:
         print(f"  [Rank Check] Hom Rank: {rank_hom}, Rank with G-row: {rank_aug}")
 
-    if rank_aug != n_cols:
-        # G failed. Try G+Q using the precomputed q_row_vec if available
-        if q_row_vec is not None:
-            entries_gq = dict(entries_aug)
-            for j, val in enumerate(q_row_vec):
-                if int(val) != 0:
-                    entries_gq[(A_hom.nrows() + 1, j)] = Zmod(int(ell))(int(val))
-            A_gq = matrix(Zmod(int(ell)), A_hom.nrows() + 2, n_cols, entries_gq, sparse=True)
-            rank_gq = A_gq.rank()
-            if verbose:
-                print(f"  [Rank Check] Rank with G+Q rows: {rank_gq}")
-            if rank_gq == n_cols:
-                return {
-                    'safe_to_project': True,
-                    'alive_fb_indices': alive_fb_indices,
-                    'dead_fb_indices': dead_fb_indices,
-                    'filtered_rows': alive_rows,
-                    'filtered_row_g': row_g_proj,
-                    'filtered_row_q': row_q_proj,
-                    'ell': ell, 'h': h,
-                    'rank_hom': rank_hom, 'rank_aug': rank_gq,
-                    'reason': 'G alone failed, but G+Q fixes kernel (use both to solve).',
-                    'fb_projected': fb_projected,
-                }
-
-        # Neither G nor G+Q fixed kernel
-        kernel_info = detect_nontrivial_character_from_projection(alive_rows, alive_fb_indices, ell, verbose=verbose)
+    if rank_aug == n_cols:
         return {
-            'safe_to_project': False,
-            'reason': 'G-row (and G+Q) did not fix kernel; nontrivial character(s) exist. Projection unsafe.',
-            'ell': ell, 'h': h,
-            'rank_hom': rank_hom, 'rank_aug': rank_aug,
-            'kernel_dim': kernel_info['dim'],
-            'kernel_basis': kernel_info['basis'],
+            'safe_to_project': True,
             'alive_fb_indices': alive_fb_indices,
-            'filtered_rows': alive_rows,
+            'dead_fb_indices': set(),
+            'filtered_rows': sparse_rows,           # list of dicts keyed by original atom indices
             'filtered_row_g': row_g_proj,
             'filtered_row_q': row_q_proj,
-            'fb_projected': fb_projected,
+            'ell': ell, 'h': h,
+            'rank_hom': rank_hom, 'rank_aug': rank_aug,
+            'fb_projected': {},
+            'reason': 'Rank structure verified (Defective-by-1 + G-Fix)',
+            'alive_idx_list': alive_idx_list,
+            'removed_row_indices': removed_row_indices,
         }
 
-    # Augmented system fixed kernel
-    return {
-        'safe_to_project': True,
-        'alive_fb_indices': alive_fb_indices,
-        'dead_fb_indices': dead_fb_indices,
-        'filtered_rows': alive_rows,
-        'filtered_row_g': row_g_proj,
-        'filtered_row_q': row_q_proj,
-        'ell': ell, 'h': h,
-        'rank_hom': rank_hom, 'rank_aug': rank_aug,
-        'fb_projected': fb_projected,
-        'reason': 'Rank structure verified (Defective-by-1 + G-Fix)'
-    }
-
-def choose_prune_row_guided_by_g(A_hom, g_row_vec, ell, verbose=True, q_row_vec=None):
-    """
-    G-guided prune exploiting 4-orbit structure: delete 4 rows instead of 1.
-    """
-    Zell = Zmod(int(ell))
-    n_rows, n_cols = A_hom.nrows(), A_hom.ncols()
-
-    assert A_hom.rank() == n_cols, "A_hom must be full rank"
-
-    g_vec = vector(Zell, [Zell(int(x) % int(ell)) for x in g_row_vec])
-
-    # Get basis indices (one per orbit, at positions 1, 5, 9, ...)
-    basis_indices = select_independent_rows_fast(A_hom, ell, target_count=n_cols)
-
-    if len(basis_indices) != n_cols:
-        raise RuntimeError(f"Fast selection found {len(basis_indices)} rows, expected {n_cols}")
-
-    # --- DIAGNOSTIC START ---
-    print("\n" + "="*60)
-    print("DIAGNOSTIC: ORBIT STRUCTURE AND RELATION VALUES")
-    print("Format: Row Index: [(Column Index, Value), ...]")
-    print("="*60)
-
-    # Print G Row
-    g_entries = sorted([(i, int(val)) for i, val in enumerate(g_row_vec) if val != 0])
-    print(f"G Row (BASE_DIVISOR): {g_entries}")
-
-    # Print Q Row
-    if q_row_vec is not None:
-        q_entries = sorted([(i, int(val)) for i, val in enumerate(q_row_vec) if val != 0])
-        print(f"Q Row (TARGET_DIVISOR): {q_entries}")
-    else:
-        print("Q Row (TARGET_DIVISOR): None")
-
-    # Print first relation (offset 1)
-    if n_rows > 1:
-        first_row = A_hom.row(1)
-        # Use .dict() for sparse extraction of non-zero entries
-        entries = sorted([(int(k), int(v)) for k, v in first_row.dict().items()])
-        print(f"First Relation (Row 1): {entries}")
-
-    # Random sample of 10 orbits
-    sample_size = min(10, len(basis_indices))
-    sample_orbits = sorted(random.sample(basis_indices, sample_size))
-
-    print(f"\nSampling {sample_size} random orbits from basis_indices:")
-
-    for orbit_start in sample_orbits:
-        print(f"\nOrbit Start: {orbit_start}")
-        # An orbit has 4 members: i, i+1, i+2, i+3
-        for offset in range(4):
-            r_idx = orbit_start + offset
-            if r_idx < n_rows:
-                row_vec = A_hom.row(r_idx)
-                nz_entries = sorted([(int(k), int(v)) for k, v in row_vec.dict().items()])
-                print(f"  Row {r_idx}: {nz_entries}")
-    print("="*60 + "\n")
-    # --- DIAGNOSTIC END ---
-
-    if verbose:
-        print(f"[G-Guided Prune] Testing orbit representatives...")
-
-    # Test orbit representatives (positions 1, 5, 9, ...)
-    for orbit_start in basis_indices[:50]:  # test first 50 orbits
-        # Delete entire 4-orbit: rows [i, i+1, i+2, i+3]
-        orbit_rows = [orbit_start + offset for offset in range(4) if orbit_start + offset < n_rows]
-
-        # Build A_test excluding all orbit members
-        keep_rows = [i for i in range(n_rows) if i not in orbit_rows]
-        A_test = A_hom.matrix_from_rows(keep_rows)
-
-        rank_test = A_test.rank()
-
-        if rank_test != n_cols - 1:
-            if verbose:
-                print(f"  Orbit@{orbit_start}: rank={rank_test} (want {n_cols-1}), skip")
-            continue
-
-        # Check kernel is 1D and transverse to G
-        K = A_test.right_kernel()
-        if K.dimension() != 1:
-            continue
-
-        chi = K.basis()[0]
-        dot_prod = int(chi.dot_product(g_vec)) % int(ell)
+    # fallback: try G+Q augmentation as last resort
+    if row_q_proj:
+        try:
+            q_row_F = [F(int(x) % int(ell)) for x in ([row_q_proj.get(old_idx, 0) for old_idx in alive_idx_list])]
+            M_gq = A_hom.stack(matrix(F, [g_row_F, q_row_F]))
+            rank_gq = M_gq.rank()
+        except Exception as e:
+            return {
+                'safe_to_project': False,
+                'reason': f'G+Q augmented rank computation failed: {e}',
+                'ell': ell, 'h': h,
+                'rank_hom': rank_hom
+            }
 
         if verbose:
-            print(f"  Orbit@{orbit_start}: <chi,G>={dot_prod} mod {ell}")
+            print(f"  [Rank Check] Rank with G+Q rows: {rank_gq}")
 
-        if dot_prod != 0:
+        if rank_gq == n_cols:
+            return {
+                'safe_to_project': True,
+                'alive_fb_indices': alive_fb_indices,
+                'dead_fb_indices': set(),
+                'filtered_rows': sparse_rows,
+                'filtered_row_g': row_g_proj,
+                'filtered_row_q': row_q_proj,
+                'ell': ell, 'h': h,
+                'rank_hom': rank_hom, 'rank_aug': rank_gq,
+                'fb_projected': {},
+                'reason': 'G alone failed, but G+Q fixes kernel',
+                'alive_idx_list': alive_idx_list,
+                'removed_row_indices': removed_row_indices,
+            }
+
+    # final failure
+    return {
+        'safe_to_project': False,
+        'reason': 'G-row (and G+Q) did not fix kernel',
+        'ell': ell, 'h': h,
+        'rank_hom': rank_hom, 'rank_aug': rank_aug,
+        'alive_fb_indices': alive_fb_indices,
+        'filtered_rows': sparse_rows,
+        'filtered_row_g': row_g_proj,
+        'filtered_row_q': row_q_proj,
+        'fb_projected': {},
+        'removed_row_indices': removed_row_indices,
+    }
+
+def choose_prune_row_guided_by_g(A_hom, g_vec_dense, ell, verbose=True,
+                                max_candidates=96, max_pair_tries=128):
+    """
+    Fiber-aware rank-based prune.
+
+    Heuristics:
+      - Prefer dense rows (fiber rows)
+      - Prefer rows overlapping G support
+      - Avoid trivial rows (<=2 nonzeros)
+    """
+    from sage.all import GF, matrix
+
+    F = GF(int(ell))
+    m, n = A_hom.nrows(), A_hom.ncols()
+
+    # G support
+    g_support = set(i for i, x in enumerate(g_vec_dense) if x % ell != 0)
+
+    # Build scoring list
+    scored = []
+    for i in range(m):
+        row = A_hom.row(i)
+
+        try:
+            weight = row.hamming_weight()
+        except Exception:
+            weight = sum(1 for x in row if x != 0)
+
+        # skip trivial rows aggressively
+        if weight <= 2:
+            continue
+
+        # overlap with G support
+        overlap = 0
+        for j, val in enumerate(row):
+            if val != 0 and j in g_support:
+                overlap += 1
+
+        # scoring: prioritize overlap, then density
+        score = (10 * overlap) + weight
+
+        scored.append((score, i))
+
+    # fallback: if everything was trivial (unlikely but safe)
+    if not scored:
+        if verbose:
+            print("  [warn] all rows look trivial; falling back to raw sparsity")
+        for i in range(m):
+            row = A_hom.row(i)
+            weight = sum(1 for x in row if x != 0)
+            scored.append((weight, i))
+
+    # sort descending (best first)
+    scored.sort(reverse=True)
+
+    candidates = [i for (_, i) in scored[:max_candidates]]
+
+    if verbose:
+        print(f"  considering {len(candidates)} high-quality candidates (fiber-biased)")
+
+    # Prepare G row
+    g_row_F = [F(int(x) % int(ell)) for x in g_vec_dense]
+    g_row_mat = matrix(F, [g_row_F])
+
+    # --- SINGLE ROW REMOVAL ---
+    for attempt, r_idx in enumerate(candidates):
+        keep_rows = [i for i in range(m) if i != r_idx]
+        M_reduced = A_hom.matrix_from_rows(keep_rows)
+
+        M_aug = M_reduced.stack(g_row_mat)
+        try:
+            rank_aug = M_aug.rank()
+        except Exception:
+            continue
+
+        if rank_aug == n:
             if verbose:
-                print(f"  → GOOD (transverse). Removing orbit {orbit_rows}")
-            return orbit_rows  # return LIST of row indices to remove
+                print(f"  success removing row {r_idx} (fiber-biased, attempt {attempt})")
+            return [r_idx]
 
-    raise RuntimeError("No transverse orbit found in first 50 candidates")
+    # --- PAIR REMOVAL (fiber-only pool) ---
+    if verbose:
+        print("  trying fiber-biased pair removals...")
+
+    tried = set()
+    attempts = 0
+
+    while attempts < max_pair_tries:
+        i = random.choice(candidates)
+        j = random.choice(candidates)
+        if i == j:
+            continue
+
+        key = (min(i, j), max(i, j))
+        if key in tried:
+            continue
+
+        tried.add(key)
+        attempts += 1
+
+        keep_rows = [k for k in range(m) if k not in key]
+        M_reduced = A_hom.matrix_from_rows(keep_rows)
+        M_aug = M_reduced.stack(g_row_mat)
+
+        try:
+            rank_aug = M_aug.rank()
+        except Exception:
+            continue
+
+        if rank_aug == n:
+            if verbose:
+                print(f"  success removing pair {key} (fiber-biased)")
+            return [key[0], key[1]]
+
+    raise RuntimeError("fiber-aware prune failed (no transverse removal found)")

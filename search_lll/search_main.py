@@ -459,7 +459,8 @@ def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, foun
 
     print("  [Phase 0] RR did not find a short relation. Falling back to Index Calculus.")
     try:
-        f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
+        #f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
+        f_shifted_poly = sage_poly_from_coeffs(list(reversed(shifted_coeffs)), PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
         E_rhs_m_for_aug = tower_data[-1]['f_i'] if tower_data is not None else None
 
         log_v = perform_dlp_attack(

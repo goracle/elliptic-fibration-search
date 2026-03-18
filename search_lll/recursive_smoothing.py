@@ -1,4 +1,4 @@
-import random
+import random, time
 from typing import Tuple, Dict, List, Optional, Any, Callable
 
 # recursive_smoothing.py
@@ -334,186 +334,6 @@ def _call_jacobian_to_atoms(
         print("[jacobian_to_atoms] failed: no compatible signature found")
     raise TypeError(f"jacobian_to_atoms callable did not accept any expected signatures; last error: {last_exc}")
 
-def smooth_element_via_recursive(
-    element: Any,                 # Jacobian element G or Q
-    atom_to_idx: Dict[Any, int],  # existing factor base map {atom -> col_idx}
-    f_p,                          # curve polynomial
-    p: int,                       # prime
-    ell: int,                     # modulus (ell)
-    RecursiveSmoother: Any,       # class
-    jacobian_to_atoms: Callable,  # function to extract atoms from element (flexible signature)
-    moves_multiplier: int = 30,
-    max_moves: int = 20000,
-    bias_target: bool = True,
-    batch: int = 200,
-    verbose: bool = True
-) -> Optional[Dict[str, Any]]:
-    """
-    Try to produce an atom-level relation row that involves `element` using the
-    RecursiveSmoother. Verbose mode prints diagnostics.
-
-    Returns a dict (see top comment) or None on failure/timeout.
-    """
-    # Step 0: extract target atoms (flexible call)
-    try:
-        target_atoms = _call_jacobian_to_atoms(jacobian_to_atoms, element, p, f_p=f_p, atom_to_idx=atom_to_idx, verbose=verbose)
-    except Exception as e:
-        if verbose:
-            print("[smooth_recursive] ERROR extracting atoms from Jacobian element:", e)
-        return None
-
-    if not target_atoms:
-        if verbose:
-            print("[smooth_recursive] No atoms extracted for element; aborting")
-        return None
-
-    if verbose:
-        print(f"[smooth_recursive] target_atoms ({len(target_atoms)}): {target_atoms[:6]}{'...' if len(target_atoms)>6 else ''}")
-
-    # Quick check: are all target atoms already in FB?
-    in_fb = sum(1 for a in target_atoms if a in atom_to_idx)
-    if verbose:
-        print(f"[smooth_recursive] atoms in FB: {in_fb}/{len(target_atoms)}")
-
-    if in_fb == len(target_atoms) and len(target_atoms) > 0:
-        # element is already smooth - return trivial row (col -> coeff 1 for each atom)
-        atom_row = {}
-        for a in target_atoms:
-            atom_row[atom_to_idx[a]] = atom_row.get(atom_to_idx[a], 0) + 1
-        if verbose:
-            print("[smooth_recursive] element already smooth; returning direct atom_row")
-        return {
-            'atom_row': atom_row,
-            'new_atom_map': {},
-            'temp_map': {},
-            'status': 'already_smooth'
-        }
-
-    # Step 1: extend the atom map with temporary atoms for the target
-    new_map, temp_map = _augment_atom_map_with_temp_atoms(atom_to_idx, target_atoms)
-    roots_list = list(new_map.keys())   # these are the 'roots' for RecursiveSmoother
-
-    if verbose:
-        print(f"[smooth_recursive] built new_map with {len(new_map)} roots (FB {len(atom_to_idx)} + temps {len(temp_map)})")
-        print(f"[smooth_recursive] will create RecursiveSmoother over {len(roots_list)} roots")
-
-    # instantiate RS
-    rs = RecursiveSmoother(roots=roots_list, modulus=ell, rng=random.Random())
-
-    n_roots = len(roots_list)
-    moves_budget = min(max_moves, max(2000, moves_multiplier * n_roots))
-    if verbose:
-        print(f"[smooth_recursive] moves_budget={moves_budget}, batch={batch}")
-
-    total_scanned = 0
-    accepted = 0
-    scanned_relations = 0
-
-    temp_indices = set(temp_map[a] for a in target_atoms if a in temp_map)
-
-    # Main loop: collect in batches and scan for relations that include any temp columns
-    while total_scanned < moves_budget:
-        to_take = min(batch, moves_budget - total_scanned)
-        rs.collect_relations(to_take)
-        total_scanned += to_take
-
-        if verbose:
-            print(f"[smooth_recursive] collected {to_take} moves (total_scanned={total_scanned}) - divisors now {len(rs.divisors)}, relations {len(rs.relations)}")
-
-        # iterate only over newly added relations for efficiency
-        start_idx = max(0, len(rs.relations) - to_take)
-        for rel_idx, rel in enumerate(rs.relations[start_idx:], start=start_idx):
-            scanned_relations += 1
-
-            # expand divisor-level relation to atom-level using new_map
-            atom_row = {}
-            for div_idx, coeff in rel.items():
-                # guard: if div_idx references divisor added earlier, OK
-                try:
-                    a, b = rs.divisors[div_idx]
-                except Exception as e:
-                    # defensive guard: skip malformed
-                    if verbose:
-                        print(f"[smooth_recursive] skipping malformed divisor index {div_idx}: {e}")
-                    atom_row = {}
-                    break
-                ia = new_map[a]
-                ib = new_map[b]
-                atom_row[ia] = atom_row.get(ia, 0) + coeff
-                atom_row[ib] = atom_row.get(ib, 0) + coeff
-
-            # reduce mod ell if given
-            if ell:
-                for k in list(atom_row.keys()):
-                    atom_row[k] %= ell
-                    if atom_row[k] == 0:
-                        del atom_row[k]
-
-            if not atom_row:
-                continue
-
-            # Check if this relation mentions any temporary (target) indices
-            mentions_temp = any(idx in temp_indices for idx in atom_row.keys())
-            if not mentions_temp:
-                continue
-
-            # Quick diagnostic print about this candidate relation
-            if verbose:
-                sample = list(atom_row.items())[:8]
-                print(f"[smooth_recursive] candidate relation found (rel_idx={rel_idx}, scanned={scanned_relations})")
-                print(f"  sample atoms (idx,coeff): {sample}{'...' if len(atom_row)>8 else ''}")
-                temp_keys = [k for k in atom_row.keys() if k in temp_indices]
-                non_temp_keys = [k for k in atom_row.keys() if k not in temp_indices]
-                print(f"  mentions temp indices: {temp_keys}")
-                print(f"  non-temp count: {len(non_temp_keys)} (max_orig_idx={max(atom_to_idx.values()) if atom_to_idx else -1})")
-
-            # Ensure non-temp part maps back into original FB only (simple conservative check)
-            if atom_to_idx:
-                max_orig_idx = max(atom_to_idx.values())
-            else:
-                max_orig_idx = -1
-            non_temp_cols = [k for k in atom_row.keys() if k not in temp_indices]
-            if any(k > max_orig_idx for k in non_temp_cols):
-                if verbose:
-                    print("[smooth_recursive] Skipping candidate: uses extra temporary atoms outside original FB")
-                continue
-
-            # success! return the raw atom_row and mapping information
-            accepted += 1
-            if verbose:
-                print(f"[smooth_recursive] ACCEPTED relation after scanning {scanned_relations} relations (total moves {total_scanned})")
-
-            return {
-                'atom_row': atom_row,
-                'new_atom_map': new_map,
-                'temp_map': temp_map,
-                'status': 'found',
-                'stats': {
-                    'total_moves': total_scanned,
-                    'relations_scanned': scanned_relations,
-                    'accepted': accepted
-                }
-            }
-
-        # end of scanning batch - print progress
-        if verbose:
-            print(f"[smooth_recursive] batch complete: total_scanned={total_scanned}, relations_scanned={scanned_relations}, accepted={accepted}")
-
-    # timeout/no relation found
-    if verbose:
-        print(f"[smooth_recursive] TIMEOUT: scanned {scanned_relations} relations over {total_scanned} moves; no usable relation found")
-    return {
-        'atom_row': {},
-        'new_atom_map': new_map,
-        'temp_map': temp_map,
-        'status': 'timeout',
-        'stats': {
-            'total_moves': total_scanned,
-            'relations_scanned': scanned_relations,
-            'accepted': accepted
-        }
-    }
-
 def pairify(atoms: tuple) -> tuple:
     """Standardizes atom sets of any weight (0, 1, 2) for indexing."""
     return tuple(sorted(atoms))
@@ -523,7 +343,6 @@ class RecursiveSmoother:
         self.roots = list(roots)
         self.modulus = modulus
         self.rng = rng or random.Random()
-
         # Track divisors as tuples of atoms: () weight 0, (A,) weight 1, (A, B) weight 2
         self.divisors = []
         self.div_index = {}
@@ -761,6 +580,20 @@ class RecursiveSmoother:
         self.modulus = modulus
         self.is_temporary = {}  # Added: Initialize the state map
 
+        self.roots = list(roots)
+        self.modulus = modulus
+        # Track divisors as tuples of atoms: () weight 0, (A,) weight 1, (A, B) weight 2
+        self.divisors = []
+        self.div_index = {}
+
+        # Initialize with atoms and pairs (the initial Factor Base)
+        for i in range(len(self.roots)):
+            self._ensure_divisor((self.roots[i],))
+            for j in range(i, len(self.roots)):
+                self._ensure_divisor((self.roots[i], self.roots[j]))
+
+        self.relations = []
+
         if divisors is None:
             self.divisors = []
             n = len(self.roots)
@@ -793,3 +626,95 @@ class RecursiveSmoother:
             self.is_temporary[idx] = True
             return idx
         return self.div_index[d]
+
+def smooth_element_via_recursive(
+    element,
+    roots,
+    modulus,
+    max_moves=20000,
+    max_divisors=200000,
+    verbose=True,
+):
+    """
+    Memory-safe recursive smoother.
+
+    Divisors are stored as integer pairs referencing the `roots` list.
+    Prevents RAM blowups and prints useful progress diagnostics.
+    """
+
+    rng = random.Random()
+
+    # atom -> id
+    atom_to_id = {a: i for i, a in enumerate(roots)}
+
+    # canonical pair helper
+    def canon(a, b):
+        return (a, b) if a <= b else (b, a)
+
+    # divisor storage
+    divisors = []
+    div_index = {}
+
+    # relation storage (compact tuples)
+    relations = []
+
+    # initialize with random pair
+    a = rng.randrange(len(roots))
+    b = rng.randrange(len(roots))
+    current = canon(a, b)
+
+    divisors.append(current)
+    div_index[current] = 0
+
+    start = time.time()
+    last_print = start
+
+    for step in range(max_moves):
+
+        # progress output
+        if verbose and time.time() - last_print > 0.5:
+            print(
+                f"\rstep={step}  divisors={len(divisors)}  relations={len(relations)}",
+                end="",
+                flush=True,
+            )
+            last_print = time.time()
+
+        # state explosion protection
+        if len(divisors) >= max_divisors:
+            raise RuntimeError("Recursive smoother exceeded divisor limit")
+
+        # choose shuffle root
+        r = rng.randrange(len(roots))
+
+        A, B = current
+
+        # shuffle rule (simple mixing)
+        new1 = canon(A, r)
+        new2 = canon(r, B)
+
+        # insert / lookup divisor 1
+        if new1 not in div_index:
+            div_index[new1] = len(divisors)
+            divisors.append(new1)
+        i1 = div_index[new1]
+
+        # insert / lookup divisor 2
+        if new2 not in div_index:
+            div_index[new2] = len(divisors)
+            divisors.append(new2)
+        i2 = div_index[new2]
+
+        # record relation
+        relations.append((A, B, new1[0], new1[1]))
+
+        # check factor-base condition
+        if new1[0] < len(roots) and new1[1] < len(roots):
+            if verbose:
+                print("\n[Smooth] factor-base divisor reached")
+            return new1
+
+        # random walk step
+        current = new2 if rng.random() < 0.5 else new1
+
+    raise RuntimeError("Recursive smoothing failed to find smooth divisor")

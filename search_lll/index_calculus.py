@@ -1439,56 +1439,6 @@ def _convert_divisor_relations_to_atom_relations(rs):
 
     return homogeneous_rows, fb_roots, atom_to_idx
 
-def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
-    """
-    Check if G and Q are in the same connected component of the relations graph.
-    Nodes = FB atom indices. Each relation row is a hyperedge over its support.
-    BFS from support(row_g), check if support(row_q) is reachable.
-    Returns True if connected, False if disconnected.
-    """
-
-    # Build adjacency: atom -> set of atoms reachable via any shared relation
-    adj = defaultdict(set)
-    for row in homogeneous_rows:
-        support = [idx for idx, val in row.items() if val != 0]
-        for i in range(len(support)):
-            for j in range(i + 1, len(support)):
-                adj[support[i]].add(support[j])
-                adj[support[j]].add(support[i])
-
-    g_support = set(idx for idx, val in row_g.items() if val != 0)
-    q_support = set(idx for idx, val in row_q.items() if val != 0)
-
-    if not g_support or not q_support:
-        if verbose:
-            print("[connectivity] G or Q has empty support, cannot check")
-        return False
-
-    visited = set()
-    queue = deque(g_support)
-    visited.update(g_support)
-
-    while queue:
-        node = queue.popleft()
-        if node in q_support:
-            if verbose:
-                print("[connectivity] G and Q are CONNECTED in the relations graph")
-            return True
-        for nb in adj[node]:
-            if nb not in visited:
-                visited.add(nb)
-                queue.append(nb)
-
-    if verbose:
-        print("[connectivity] G and Q are DISCONNECTED")
-        print("[connectivity] G support: " + str(sorted(g_support)))
-        print("[connectivity] Q support: " + str(sorted(q_support)))
-        print("[connectivity] Atoms reachable from G: " + str(len(visited)))
-        q_reachable = q_support & visited
-        print("[connectivity] Q support atoms reachable from G: " + str(q_reachable))
-
-    return g_support, q_support
-
 # Top-level helpers (no nested defs)
 
 def jacobian_to_atoms(J_elem, p, f_p):
@@ -1640,23 +1590,79 @@ def perform_dlp_attack(
         except Exception:
             fb_y_cache = {}
     else:
+
         if verbose:
             print("  [Legacy] Building factor base and relations from Mumford divisors...")
-        homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache = \
-            _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
+
+        (
+            homogeneous_rows,
+            homogeneous_rhs,
+            fb_roots,
+            atom_to_idx,       # master: d1 + d2 atoms
+            fb_y_cache,
+            d2_to_d1_map
+        ) = _legacy_build_relations_from_mumford(smooth_divs_or_rels, G, Q, p, f_coeffs, verbose=verbose)
 
         # snapshots
         atom_to_idx_mumford = dict(atom_to_idx)
         homogeneous_rows_mumford = list(homogeneous_rows)
 
         # optional fiber augmentation
-        if False: # turned off for now, too copious and slow, not focused enough for prod.
+        if True:
             if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
-                fiber_rows = build_fiber_augmented_relations(
+
+                # diagnostic: sample a few d1 atoms from FB and check they're on the curve
+                d1_sample = [(a[1], a[2]) for a in atom_to_idx if a[0] == 'd1'][:5]
+                print("[diag] sample d1 atoms (x, y):", d1_sample)
+                for x_int, y_int in d1_sample:
+                    y2 = int(f_p(K(x_int)))
+                    y_check = min(int(tonelli_shanks(y2, p)), p - int(tonelli_shanks(y2, p))) if y2 != 0 else 0
+                    print("[diag]   x=%d y_fb=%d y_from_f=%d match=%s" % (x_int, y_int, y_check, y_int == y_check))
+
+                fb_x_coords = [a[1] for a in atom_to_idx if a[0] == 'd1']
+                fb_xy_seeds = [(a[1], a[2]) for a in atom_to_idx if a[0] == 'd1']
+
+                fiber_rows, fiber_stats = build_fiber_augmented_relations(
                     E_rhs_m, f_shifted_poly, x_b, p, atom_to_idx, fb_y_cache,
-                    full_order=full_order, ell=ell, verbose=verbose
+                    full_order=full_order, ell=ell, x_coords=fb_xy_seeds, verbose=verbose
                 )
+
+                assert len(fiber_rows) == 0 or all(isinstance(r, dict) for r in fiber_rows)
+
                 homogeneous_rows.extend(fiber_rows)
+
+                # Promote high-frequency large primes into the factor base
+                lp_counter = fiber_stats.get('large_prime_counter', {})
+                lp_table = fiber_stats.get('large_prime_table_single', {})
+                if lp_table:
+                    promoted_count = 0
+                    for lp_key, stored_list in lp_table.items():
+                        if not stored_list:
+                            continue
+                        x_lp, y_lp = lp_key
+                        lp_atom = ('d1', x_lp, y_lp)
+                        if lp_atom not in atom_to_idx:
+                            new_idx = max(atom_to_idx.values()) + 1
+                            atom_to_idx[lp_atom] = new_idx
+                            fb_y_cache[x_lp] = y_lp
+                            if verbose:
+                                print("[LP promote] atom (%d, %d) -> idx %d, freq=%d" % (x_lp, y_lp, new_idx, lp_counter.get(lp_key, 0)))
+                        lp_idx = atom_to_idx[lp_atom]
+                        for row_fb, lp_mult in stored_list:
+                            full_row = dict(row_fb)
+                            val = (full_row.get(lp_idx, 0) + lp_mult) % int(ell)
+                            if val:
+                                full_row[lp_idx] = val
+                            elif lp_idx in full_row:
+                                del full_row[lp_idx]
+                            if full_row:
+                                homogeneous_rows.append(full_row)
+                                promoted_count += 1
+                    if verbose:
+                        print("[LP promote] %d promoted relations added" % promoted_count)
+
+                if verbose:
+                    print(f"  [Fiber] Added {len(fiber_rows)} smooth relations")
 
         # sanity: rhs zero
         if any(r != 0 for r in homogeneous_rhs):
@@ -1684,64 +1690,35 @@ def perform_dlp_attack(
     # UNCONDITIONAL RECURSIVE SMOOTHING: replace the G and Q rows with smoother results
     # -------------------------------------------------------------------------
     if verbose:
-        print("  [Recursive] Beginning unconditional smoothing of G and Q...")
+            print("  [non-Recursive] Building G and Q rows directly from factor base...")
 
-    def jacobian_to_atoms_adapter(J_elem, atom_to_idx=None):
-        return jacobian_to_atoms(J_elem, p, f_p)
+    R_fp = PolynomialRing(GF(p), 'x')
+    G_dict = jacobian_to_dict(G, p)
+    Q_dict = jacobian_to_dict(Q, p)
 
-    # Smooth G
-    smooth_res_G = smooth_element_via_recursive(
-        element=G,
-        atom_to_idx=atom_to_idx,
-        f_p=f_p, p=p,
-        ell=int(ell),
-        RecursiveSmoother=RecursiveSmoother,
-        jacobian_to_atoms=jacobian_to_atoms_adapter,
-        moves_multiplier=40,
-        max_moves=20000,
-        bias_target=True,
-        verbose=verbose
+    row_g = get_relation_row(
+        [R_fp(G_dict['u_coeffs']), R_fp(G_dict['v_coeffs'])],
+        atom_to_idx, f_p, p,
+        require_signed_d2=False
     )
+    assert row_g, "G not representable in factor base"
 
-    row_g = integrate_smoother_result_into_system(
-        smooth_res=smooth_res_G,
-        atom_to_idx=atom_to_idx,
-        homogeneous_rows=homogeneous_rows,
-        homogeneous_rhs=locals().get('homogeneous_rhs', None),
-        fb_roots=locals().get('fb_roots', fb_roots if 'fb_roots' in locals() else []),
-        ell=int(ell),
-        label="G",
-        verbose=verbose
+    row_q = get_relation_row(
+        [R_fp(Q_dict['u_coeffs']), R_fp(Q_dict['v_coeffs'])],
+        atom_to_idx, f_p, p,
+        require_signed_d2=False
     )
+    assert row_q, "Q not representable in factor base"
+
     alpha_g = 0
-
-    # Smooth Q
-    smooth_res_Q = smooth_element_via_recursive(
-        element=Q,
-        atom_to_idx=atom_to_idx,
-        f_p=f_p, p=p,
-        ell=int(ell),
-        RecursiveSmoother=RecursiveSmoother,
-        jacobian_to_atoms=lambda Je: jacobian_to_atoms(Je, p, f_p),
-        moves_multiplier=40,
-        max_moves=20000,
-        bias_target=True,
-        verbose=verbose
-    )
-
-    row_q = integrate_smoother_result_into_system(
-        smooth_res=smooth_res_Q,
-        atom_to_idx=atom_to_idx,
-        homogeneous_rows=homogeneous_rows,
-        homogeneous_rhs=locals().get('homogeneous_rhs', None),
-        fb_roots=locals().get('fb_roots', fb_roots if 'fb_roots' in locals() else []),
-        ell=int(ell),
-        label="Q",
-        verbose=verbose
-    )
     beta_q = 0
 
-    # final sanity
+    if verbose:
+        print(f"  [G row] {len(row_g)} atoms")
+        print(f"  [Q row] {len(row_q)} atoms")
+        print("  [Recursive] Finished smoothing. Checking connectivity...")
+
+    beta_q = 0    # final sanity
     if row_g is None or row_q is None:
         raise RuntimeError("Recursive smoothing failed to produce relations for G or Q")
 
@@ -1749,8 +1726,7 @@ def perform_dlp_attack(
         print("  [Recursive] Finished smoothing. Checking connectivity...")
 
     # Connectivity and union-find (unchanged)
-    g_support, q_support = check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True)
-
+    connected, g_support, q_support = check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True)
     parent = {}
     def find_union(x):
         parent.setdefault(x, x)
@@ -1772,6 +1748,9 @@ def perform_dlp_attack(
     if verbose:
         print("graph is connected t/f:", connected)
 
+    basis = nullspace_mod_p(homogeneous_rows, len(atom_to_idx), ell)
+    print("nullspace dimension:", len(basis))
+
     # -------------------------------------------------------------------------
     # continue with rest of pipeline (precheck, detection, solve) unchanged
     # -------------------------------------------------------------------------
@@ -1787,22 +1766,26 @@ def perform_dlp_attack(
         verbose=verbose
     )
 
-    char_res = detect_nontrivial_character_from_projection(
-        precheck['filtered_rows'],
-        precheck['alive_fb_indices'],
-        precheck['ell'],
-        verbose=True)
-    if char_res['found']:
-        verify_character_vectors(
+    if 'alive_fb_indices' in precheck and 'filtered_rows' in precheck:
+        char_res = detect_nontrivial_character_from_projection(
             precheck['filtered_rows'],
-            char_res['alive_idx_list'],
-            char_res['basis'],
+            precheck['alive_fb_indices'],
             precheck['ell'],
-            verbose=True
-        )
+            verbose=True)
+        if char_res['found']:
+            verify_character_vectors(
+                precheck['filtered_rows'],
+                char_res['alive_idx_list'],
+                char_res['basis'],
+                precheck['ell'],
+                verbose=True
+            )
+        else:
+            if verbose:
+                print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
     else:
         if verbose:
-            print("No nontrivial character found by linear algebra on projected homogeneous matrix.")
+            print("[precheck] alive_fb_indices missing (projection unsafe); skipping character detection.")
 
     if precheck['safe_to_project']:
         filtered_atom_to_idx, filtered_rows, filtered_row_g, filtered_row_q = apply_cofactor_filter(
@@ -1858,10 +1841,53 @@ def _filter_d2_atoms(atom_to_idx: Dict) -> Dict:
         [a for a in atom_to_idx.keys() if isinstance(a, tuple) and a[0] == 'd2']
     )}
 
+def split_atom_maps(master_atom_to_idx):
+    """
+    Split the master factor base into d1 and d2 maps.
+
+    Returns
+    -------
+    d1_atom_to_idx : Dict
+    d2_atom_to_idx : Dict
+    """
+
+    d1_atom_to_idx = {}
+    d2_atom_to_idx = {}
+
+    for atom in master_atom_to_idx.keys():
+
+        if not isinstance(atom, tuple):
+            raise RuntimeError(f"Unexpected atom type in factor base: {atom}")
+
+        tag = atom[0]
+
+        if tag == 'd1':
+            d1_atom_to_idx[atom] = len(d1_atom_to_idx)
+
+        elif tag == 'd2':
+            d2_atom_to_idx[atom] = len(d2_atom_to_idx)
+
+        else:
+            raise RuntimeError(f"Unknown atom tag: {tag}")
+
+    return d1_atom_to_idx, d2_atom_to_idx
+
 def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose=True):
     """
-    Original function name preserved.
-    Modified to exclude d1 atoms from the resulting relations.
+    Build legacy relations for index calculus on genus 2 curves.
+
+    Uses d1-only atom map as the unified column space so that Mumford
+    relations, fiber augment relations, and G/Q rows all share the same
+    indices.  All Mumford divisors split over GF(p), so d2 atoms decompose
+    cleanly into d1 pairs via get_relation_row's fallback path.
+
+    Returns:
+        valid_rows:      homogeneous relations indexed by d1_atom_to_idx
+        rhs_values:      RHS values (all 0)
+        fb_roots:        list of d1 atom x-values for diagnostics
+        d1_atom_to_idx:  d1-only atom map (shared column space)
+        fb_y_cache:      y-values cache for factor base
+        d2_to_d1_map:    each d2 atom -> tuple of its two d1 atoms
     """
     if smooth_divs is None or not isinstance(smooth_divs, (list, tuple)):
         raise RuntimeError("_legacy_build_relations_from_mumford: expected list of divisors")
@@ -1870,29 +1896,29 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     R = PolynomialRing(K, 'x')
     f_p = sage_poly_from_coeffs(f_coeffs, R)
 
-    # 1. Standard FB extraction (keeps d1 and d2 in master map)
-    extended_divs = []
-    extended_divs.append(jacobian_to_dict(G, p))
-    extended_divs.append(jacobian_to_dict(Q, p))
-    extended_divs.extend(list(smooth_divs))
+    extended_divs = [jacobian_to_dict(G, p), jacobian_to_dict(Q, p)] + list(smooth_divs)
 
-    # Master atom map (used for global reference)
     master_atom_to_idx, fb_y_cache = extract_factor_base(extended_divs, p, f_p, verbose=verbose)
     initialize_global_factor_base(master_atom_to_idx)
 
-    # 2. CREATE FILTERED INDEXING FOR RELATIONS
-    # This ensures relations only index into d2 atoms
-    d2_only_idx = _filter_d2_atoms(master_atom_to_idx)
+    d1_atoms = [atom for atom in master_atom_to_idx.keys() if isinstance(atom, tuple) and atom[0] == 'd1']
+    d1_atom_to_idx = {atom: i for i, atom in enumerate(d1_atoms)}
+
+    d2_atoms = [atom for atom in master_atom_to_idx.keys() if isinstance(atom, tuple) and atom[0] == 'd2']
+    d2_to_d1_map = {}
+    for atom in d2_atoms:
+        d2_to_d1_map[atom] = (('d1', atom[1]), ('d1', atom[2]))
+
+    fb_roots = [atom[1] for atom in d1_atoms]
 
     if verbose:
         print(f"  [Legacy] Master FB: {len(master_atom_to_idx)} atoms")
-        print(f"  [Legacy] Filtered FB (d2-only): {len(d2_only_idx)} atoms")
+        print(f"  [Legacy] d1 atoms (column space): {len(d1_atom_to_idx)}, d2 atoms: {len(d2_atoms)}")
+        print(f"  [Legacy] d2 -> d1 mapping size: {len(d2_to_d1_map)}")
 
-    # 3. Build relations using the filtered index
-    # We pass the filtered map so the relation builder only uses d2 columns
     valid_rows, rhs_values = build_homogeneous_relations_no_rebase(
         smooth_divs,
-        d2_only_idx, # Pass d2-only map here
+        d1_atom_to_idx,
         f_p,
         p,
         fb_y_cache,
@@ -1902,11 +1928,40 @@ def _legacy_build_relations_from_mumford(smooth_divs, G, Q, p, f_coeffs, verbose
     )
 
     if not valid_rows:
-        raise RuntimeError("_legacy_build_relations_from_mumford: no valid d2-only relations built")
+        raise RuntimeError("_legacy_build_relations_from_mumford: no valid relations built")
 
-    # Extract roots for backward compatibility diagnostics
-    fb_roots = [atom[1] for atom in master_atom_to_idx.keys() if atom[0] == 'd1']
+    return valid_rows, rhs_values, fb_roots, d1_atom_to_idx, fb_y_cache, d2_to_d1_map
 
-    # Return the d2-only indexing to prevent KeyError in the smoother
-    return valid_rows, rhs_values, fb_roots, d2_only_idx, fb_y_cache
+def check_gq_connectivity(homogeneous_rows, row_g, row_q, verbose=True):
+    adj = defaultdict(set)
+    for row in homogeneous_rows:
+        support = [idx for idx, val in row.items() if val != 0]
+        for i in range(len(support)):
+            for j in range(i + 1, len(support)):
+                adj[support[i]].add(support[j])
+                adj[support[j]].add(support[i])
 
+    g_support = set(idx for idx, val in row_g.items() if val != 0)
+    q_support = set(idx for idx, val in row_q.items() if val != 0)
+
+    visited = set(g_support)
+    queue = deque(g_support)
+
+    while queue:
+        node = queue.popleft()
+        if node in q_support:
+            if verbose:
+                print("[connectivity] G and Q are CONNECTED in the relations graph")
+            return True, g_support, q_support
+
+        for nb in adj[node]:
+            if nb not in visited:
+                visited.add(nb)
+                queue.append(nb)
+
+    if verbose:
+        print("[connectivity] G and Q are DISCONNECTED")
+        print("[connectivity] Atoms reachable from G:", len(visited))
+        print("[connectivity] Q reachable:", q_support & visited)
+
+    return False, g_support, q_support
