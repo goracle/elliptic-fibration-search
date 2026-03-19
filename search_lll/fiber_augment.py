@@ -6,6 +6,8 @@ from collections import defaultdict, Counter
 from sage.all import GF, PolynomialRing, Integer
 from typing import List, Tuple, Dict, Optional, Any, Callable, Hashable, Iterable, Sequence
 from dataclasses import dataclass, field
+from search_common import FINITE_FIELD
+from .smoothness import tonelli_shanks
 
 logging.getLogger("fiber_augment").setLevel(logging.DEBUG)
 
@@ -39,7 +41,7 @@ else:
 # Serialization helpers: convert Sage objects to plain Python for pickling
 # ---------------------------------------------------------------------------
 
-def _serialize_e_rhs_m(E_rhs_m):
+def serialize_e_rhs_m(E_rhs_m):
     """
     Serialize E_rhs_m (element of PolynomialRing(Fm, 'x')) to a list of
     (num_coeffs, den_coeffs) pairs, each a list of ints.
@@ -51,11 +53,11 @@ def _serialize_e_rhs_m(E_rhs_m):
         result.append((num_coeffs, den_coeffs))
     return result
 
-def _serialize_poly(poly):
+def serialize_poly(poly):
     """Serialize a GF(p)[x] polynomial as a list of ints."""
     return [int(c) for c in poly.list()]
 
-def _reconstruct_e_rhs_m(serialized, p):
+def reconstruct_e_rhs_m(serialized, p):
     """Reconstruct E_rhs_m from serialized form in a worker process."""
     K = GF(p)
     Pm = PolynomialRing(K, 'm')
@@ -68,7 +70,7 @@ def _reconstruct_e_rhs_m(serialized, p):
         coeffs_fm.append(Fm(num_poly) / Fm(den_poly))
     return Rx(coeffs_fm)
 
-def _reconstruct_fpoly(serialized, p):
+def reconstruct_fpoly(serialized, p):
     """Reconstruct a GF(p)[x] polynomial from serialized form in a worker process."""
     K = GF(p)
     Rx = PolynomialRing(K, 'x')
@@ -78,7 +80,7 @@ def _reconstruct_fpoly(serialized, p):
 # Core per-fiber helpers (used by both serial and parallel paths)
 # ---------------------------------------------------------------------------
 
-def _tonelli_shanks(n, p):
+def tonelli_shanks(n, p):
     if pow(n, (p - 1) // 2, p) != 1:
         raise ValueError(str(n) + " is not a QR mod " + str(p))
     if p % 4 == 3:
@@ -108,7 +110,7 @@ def _tonelli_shanks(n, p):
         r = (r * b) % p
     return r
 
-def _eval_fiber_at_m(e_rhs_m_obj, m_val, K, Rx):
+def eval_fiber_at_m(e_rhs_m_obj, m_val, K, Rx):
     """
     Evaluate e_rhs_m_obj at m=m_val -> polynomial in x over K.
     Returns None if m_val is a pole of any coefficient.
@@ -144,142 +146,11 @@ def canonical_y(y2_int, p):
     if pow(y2_int, (p - 1) // 2, p) != 1:
         # not a quadratic residue -> off-curve
         return None
-    y = _tonelli_shanks(y2_int, p)
+    y = tonelli_shanks(y2_int, p)
     # canonical representative (smallest of the pair)
     return min(y, p - y)
 
-def _process_chunk(args):
-    """
-    Instrumented worker chunk processor. Adds some per-chunk debug prints
-    about fiber roots mapping and row weights.
-    """
-    x_s_chunk, e_rhs_m_ser, f_shifted_ser, x_b_int, p, atom_to_idx = args
-
-    K = GF(p)
-    Rx = PolynomialRing(K, 'x')
-    e_rhs_m_obj = _reconstruct_e_rhs_m(e_rhs_m_ser, p)
-    f_shifted = _reconstruct_fpoly(f_shifted_ser, p)
-    x_b = K(x_b_int)
-
-    valid_fibers = []
-
-    chunk_stats = {
-        'fibers_total': 0,
-        'fibers_accepted': 0,
-        'fibers_all_roots_on_curve': 0,
-        'fibers_poles_hit': 0,
-        'roots_total': 0,
-        'roots_on_curve': 0,
-        'roots_y0': 0,
-        'roots_off_curve': 0,
-        'roots_multiplicities': Counter(),
-        'roots_per_fiber': [],
-        'roots_in_fb': 0,
-        'roots_not_in_fb': 0
-    }
-
-    for x_s_int, y_s_known in x_s_chunk:
-        x_s = K(x_s_int)
-        chunk_stats['fibers_total'] += 1
-
-        # compute y_can_s
-        if y_s_known is not None:
-            y_can_s = int(y_s_known)
-        else:
-            y2_s = int(f_shifted(x_s))
-            if y2_s != 0 and pow(y2_s, (p - 1) // 2, p) != 1:
-                continue
-            y_can_s = canonical_y(y2_s, p)
-            if y_can_s is None:
-                continue
-
-        #m_val = x_b - x_s
-        m_val = x_b - x_s
-        g_x = _eval_fiber_at_m(e_rhs_m_obj, m_val, K, Rx)
-        if g_x is None:
-            chunk_stats['fibers_poles_hit'] += 1
-            continue
-
-        h = f_shifted - g_x
-        if h.is_zero():
-            continue
-
-        roots_with_mults = h.roots()
-        if not roots_with_mults:
-            continue
-
-        all_on_curve = True
-        for x_r, mult in roots_with_mults:
-            y2 = int(f_shifted(x_r))
-            if y2 == 0:
-                continue
-            if pow(y2, (p - 1) // 2, p) != 1:
-                all_on_curve = False
-                break
-
-        if all_on_curve:
-            chunk_stats['fibers_all_roots_on_curve'] += 1
-
-        seed_atom = ('d1', x_s_int, y_can_s)
-        pts = [(x_s_int, y_can_s, 1)]
-        #pts = []
-        #if len({(x, y) for x, y, _ in pts}) <= 2:
-        #    continue
-        roots_in_fb = 1 if seed_atom in atom_to_idx else 0
-        roots_not_in_fb = 0 if seed_atom in atom_to_idx else 1
-
-        # collect pts
-        for x_r, mult in roots_with_mults:
-            x_int = int(x_r)
-            y2 = int(f_shifted(x_r))
-            chunk_stats['roots_total'] += 1
-            chunk_stats['roots_multiplicities'][int(mult)] += 1
-
-            if y2 == 0:
-                y_can = 0
-                pts.append((x_int, y_can, int(mult)))
-                chunk_stats['roots_y0'] += 1
-                atom = ('d1', x_int, 0)
-                if atom in atom_to_idx:
-                    roots_in_fb += 1
-                else:
-                    roots_not_in_fb += 1
-            else:
-                if pow(y2, (p - 1) // 2, p) != 1:
-                    chunk_stats['roots_off_curve'] += 1
-                    continue
-                y_can = canonical_y(y2, p)
-                if y_can is None:
-                    chunk_stats['roots_off_curve'] += 1
-                    continue
-                pts.append((x_int, y_can, int(mult)))
-                chunk_stats['roots_on_curve'] += 1
-                atom = ('d1', x_int, y_can)
-                if atom in atom_to_idx:
-                    roots_in_fb += 1
-                else:
-                    roots_not_in_fb += 1
-
-        chunk_stats['roots_in_fb'] += roots_in_fb
-        chunk_stats['roots_not_in_fb'] += roots_not_in_fb
-        chunk_stats['roots_per_fiber'].append(len(roots_with_mults))
-
-        # DEBUG: sample a few fibers for inspection
-        if logger.isEnabledFor(logging.DEBUG) and (chunk_stats['fibers_total'] % 256 == 0):
-            logger.debug("[_process_chunk] sample fiber pts: %s", pts[:12])
-
-        if all_on_curve:
-            valid_fibers.append(pts)
-            chunk_stats['fibers_accepted'] += 1
-
-    # small per-chunk debug summary
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("[_process_chunk] chunk_stats sample: fibers_total=%d accepted=%d roots_total=%d",
-                     chunk_stats['fibers_total'], chunk_stats['fibers_accepted'], chunk_stats['roots_total'])
-
-    return valid_fibers, chunk_stats
-
-def _combine_rows(r1, r2, modulus=None):
+def combine_rows(r1, r2, modulus=None):
     if not r1:
         r1 = {}
     if not r2:
@@ -299,230 +170,11 @@ def _combine_rows(r1, r2, modulus=None):
 
     return {k: v % m for k, v in out.items() if (v % m) != 0}
 
-def build_fiber_augmented_relations(
-    E_rhs_m,
-    f_shifted_fp,
-    x_b,
-    p,
-    atom_to_idx,
-    fb_y_cache,
-    full_order,
-    ell,
-    x_coords=None,
-    num_workers=None,
-    verbose=True,
-    promote_atom=None,
-    lp_state=None,   # NEW: persistent LP cache across calls
-):
-    """Build fiber-augmented relations and resolve large-prime partials.
-
-    This version does the simple thing:
-      1. collect every valid fiber row
-      2. send every partial relation to the large-prime resolver
-      3. append the resolver's emitted pure FB rows
-
-    It keeps lp_state for persistence across calls, but the old single/pair
-    tables are no longer the main path.
-    """
-    if num_workers is None:
-        num_workers = max(1, cpu_count() - 1)
-
-    # Work on a local copy of the FB map.
-    atom_to_idx = dict(atom_to_idx)
-
-    promote_atom = _normalize_atom_key(promote_atom)
-    if promote_atom is not None:
-        _ensure_atom_in_fb(atom_to_idx, promote_atom)
-        if verbose:
-            print(f"[fiber_augment] promoting atom into FB: {promote_atom}")
-
-    if lp_state is None:
-        lp_state = _init_lp_state()
-
-    # Keep a persistent resolver across calls if possible.
-    resolver = lp_state.get("resolver")
-    if resolver is None:
-        resolver = LargePrimeRelationResolver(promote_threshold=50)
-        lp_state["resolver"] = resolver
-
-    if x_coords is None:
-        x_coords_list = [(i, None) for i in range(len(atom_to_idx))]
-    else:
-        x_coords_list = [(int(x), None if y is None else int(y)) for x, y in x_coords]
-
-    e_rhs_m_ser = _serialize_e_rhs_m(E_rhs_m)
-    f_shifted_ser = _serialize_poly(f_shifted_fp)
-    x_b_int = int(x_b)
-
-    if len(x_coords_list) == 0:
-        return [], defaultdict(int), lp_state
-
-    chunk_size = max(1, len(x_coords_list) // num_workers)
-    chunks = [x_coords_list[i:i + chunk_size] for i in range(0, len(x_coords_list), chunk_size)]
-
-    args_list = [
-        (chunk, e_rhs_m_ser, f_shifted_ser, x_b_int, p, atom_to_idx)
-        for chunk in chunks
-    ]
-
-    if verbose:
-        print(f"[fiber_augment] launching {len(chunks)} chunks across {num_workers} workers ({len(x_coords_list)} x_s values total)")
-
-    global_stats = defaultdict(int)
-    global_stats['roots_multiplicities'] = Counter()
-    global_stats['roots_per_fiber'] = []
-
-    global_stats['partials_seen'] = 0
-    global_stats['partials_stored_single'] = 0
-    global_stats['partials_stored_pair'] = 0
-    global_stats['collisions_single'] = 0
-    global_stats['collisions_pair'] = 0
-    global_stats['chain_resolutions'] = 0
-    global_stats['pure_rows_emitted_from_partials'] = 0
-    global_stats['partials_too_many_lp'] = 0
-
-    large_prime_counter = Counter()
-    large_primes_total = 0
-    new_rows = []
-
-    with Pool(processes=num_workers) as pool:
-        for chunk_result in tqdm(pool.imap(_process_chunk, args_list),
-                                 total=len(args_list),
-                                 desc="Fiber augment",
-                                 unit="chunk"):
-            chunk_fibers, chunk_stats = chunk_result
-
-            for key in [
-                'fibers_total', 'fibers_accepted',
-                'fibers_all_roots_on_curve', 'fibers_poles_hit',
-                'roots_total', 'roots_on_curve', 'roots_y0',
-                'roots_off_curve', 'roots_in_fb', 'roots_not_in_fb'
-            ]:
-                global_stats[key] += chunk_stats.get(key, 0)
-
-            global_stats['roots_multiplicities'].update(chunk_stats.get('roots_multiplicities', Counter()))
-            global_stats['roots_per_fiber'].extend(chunk_stats.get('roots_per_fiber', []))
-
-            for pts in chunk_fibers:
-                row, large_primes = filter_fiber_relation(pts, atom_to_idx, ell)
-
-                for (x_int, y_can, mult) in large_primes:
-                    large_prime_counter[(x_int, y_can)] += int(mult)
-                    large_primes_total += int(mult)
-
-                # Pure FB relation: keep it immediately.
-                if row is not None and not large_primes:
-                    new_rows.append(row)
-                    continue
-
-                # Nothing usable here.
-                if row is None and not large_primes:
-                    continue
-
-                if row is None:
-                    row = {}
-
-                lp_keys = [(int(x), int(y)) for (x, y, _) in large_primes]
-                if not lp_keys:
-                    continue
-
-                global_stats['partials_seen'] += 1
-
-                # Feed every partial directly into the resolver.
-                resolver.add_relation({
-                    'fb_vec': row,
-                    'lps': tuple(lp_keys),
-                    'meta': {
-                        'source': 'fiber_augment',
-                        'lp_count': len(lp_keys),
-                    },
-                })
-
-    # Resolve all partials we collected in this call.
-    resolved_rows = resolver.resolve()
-    if resolved_rows:
-        new_rows.extend(resolved_rows)
-
-    # Pull resolver stats back into the caller-visible stats dict.
-    res_summary = resolver.summary()
-    global_stats['resolver_emitted_rows'] = len(resolved_rows)
-    global_stats['resolver_promoted_lps'] = res_summary.get('promoted_count', 0)
-    global_stats['resolver_remaining_partials'] = res_summary.get('remaining_partials', 0)
-    for k, v in res_summary.get('stats', {}).items():
-        global_stats[f'resolver_{k}'] = v
-
-    if verbose:
-        print("\n[fiber_augment] STAT SUMMARY")
-        print(f"fibers total               : {global_stats['fibers_total']}")
-        print(f"fibers accepted            : {global_stats['fibers_accepted']}")
-        print(f"fibers all roots on-curve  : {global_stats['fibers_all_roots_on_curve']}")
-        print(f"fibers poles hit           : {global_stats['fibers_poles_hit']}")
-        print(f"roots total                : {global_stats['roots_total']}")
-        print(f"roots on-curve             : {global_stats['roots_on_curve']}")
-        print(f"roots off-curve            : {global_stats['roots_off_curve']}")
-        print(f"roots y=0                  : {global_stats['roots_y0']}")
-        print(f"roots in FB (partial smooth): {global_stats['roots_in_fb']}")
-        print(f"roots not in FB             : {global_stats['roots_not_in_fb']}")
-
-        mult_counter = global_stats['roots_multiplicities']
-        if mult_counter:
-            print(f"root multiplicities        : min={min(mult_counter)}, max={max(mult_counter)}, counts={dict(mult_counter)}")
-
-        if global_stats['roots_per_fiber']:
-            avg_roots = sum(global_stats['roots_per_fiber']) / len(global_stats['roots_per_fiber'])
-            print(f"roots per fiber            : min={min(global_stats['roots_per_fiber'])}, max={max(global_stats['roots_per_fiber'])}, avg={avg_roots:.2f}")
-
-        print(f"relations collected (pure FB)        : {len(new_rows)}")
-
-        weight_hist = Counter()
-        sample_rows_by_weight = {}
-        for r in new_rows:
-            w = len(r)
-            weight_hist[w] += 1
-            if w not in sample_rows_by_weight and w <= 12:
-                sample_rows_by_weight[w] = dict(list(r.items())[:12])
-
-        print("\n[fiber_augment] NEW_ROWS weight histogram (nonzero count -> how many rows):")
-        for w in sorted(weight_hist):
-            print(f"  {w:3d} -> {weight_hist[w]}")
-
-        print("\n[fiber_augment] NEW_ROWS sample (small weights):")
-        for w in sorted(sample_rows_by_weight):
-            print(f"  weight {w}: sample row columns (first <=12 entries): {sample_rows_by_weight[w]}")
-
-        print("\n[fiber_augment] LARGE PRIME STATS (sampled during run)")
-        distinct_lp = len(large_prime_counter)
-        print(f"large primes total occurrences : {large_primes_total}")
-        print(f"distinct large primes          : {distinct_lp}")
-
-        if distinct_lp > 0:
-            freqs = list(large_prime_counter.values())
-            print(f"max frequency                 : {max(freqs)}")
-            print(f"avg frequency                 : {sum(freqs)/len(freqs):.4f}")
-            num_collisions = sum(1 for v in freqs if v > 1)
-            print(f"large primes with collisions  : {num_collisions}")
-            hist = Counter(freqs)
-            print("frequency histogram (count -> how many primes):")
-            for k in sorted(hist)[:10]:
-                print(f"  {k} -> {hist[k]}")
-
-        print("\n[fiber_augment] PARTIALS / RESOLVER")
-        print(f"partials seen                 : {global_stats['partials_seen']}")
-        print(f"resolver emitted rows         : {global_stats.get('resolver_emitted_rows', 0)}")
-        print(f"resolver promoted LPs         : {global_stats.get('resolver_promoted_lps', 0)}")
-        print(f"resolver remaining partials    : {global_stats.get('resolver_remaining_partials', 0)}")
-        print(f"pure FB rows emitted total    : {len(new_rows)}")
-
-    global_stats['large_prime_counter'] = dict(large_prime_counter)
-    global_stats['lp_state'] = lp_state
-    global_stats['resolver_summary'] = res_summary
-    return new_rows, global_stats, lp_state
-
 # ---------------------------------------------------------------------------
 # Hyper-LP relation helpers
 # ---------------------------------------------------------------------------
 
-def _init_lp_state():
+def init_lp_state():
     """
     Persistent state across calls.
 
@@ -538,7 +190,7 @@ def _init_lp_state():
         "hyper_index": defaultdict(set),
     }
 
-def _normalize_atom_key(atom):
+def normalize_atom_key(atom):
     if atom is None:
         return None
     if len(atom) == 2:
@@ -549,13 +201,13 @@ def _normalize_atom_key(atom):
         return (str(tag), int(x), int(y))
     raise ValueError(f"Bad atom key: {atom!r}")
 
-def _ensure_atom_in_fb(atom_to_idx, atom):
-    atom = _normalize_atom_key(atom)
+def ensure_atom_in_fb(atom_to_idx, atom):
+    atom = normalize_atom_key(atom)
     if atom not in atom_to_idx:
         atom_to_idx[atom] = len(atom_to_idx)
     return atom_to_idx[atom]
 
-def _lp_terms_from_large_primes(large_primes, modulus):
+def lp_terms_from_large_primes(large_primes, modulus):
     """
     Convert [(x, y, mult), ...] into { (x,y): coeff mod modulus }.
     Repeated LPs are aggregated and zero coefficients are removed.
@@ -569,7 +221,7 @@ def _lp_terms_from_large_primes(large_primes, modulus):
             del terms[key]
     return terms
 
-def _add_lp_terms(a, b, modulus):
+def add_lp_terms(a, b, modulus):
     """
     Add two LP-term dicts modulo modulus.
     """
@@ -581,7 +233,7 @@ def _add_lp_terms(a, b, modulus):
             out.pop(k, None)
     return out
 
-def _candidate_hyper_ids(lp_terms, hyper_index, max_candidates=256):
+def candidate_hyper_ids(lp_terms, hyper_index, max_candidates=256):
     """
     Return record IDs that share at least 2 LPs with lp_terms,
     prioritizing the largest overlaps first.
@@ -595,7 +247,7 @@ def _candidate_hyper_ids(lp_terms, hyper_index, max_candidates=256):
     cand.sort(key=lambda rid: (-counts[rid], rid))
     return cand[:max_candidates]
 
-def _store_hyper_relation(lp_state, row, lp_terms):
+def store_hyper_relation(lp_state, row, lp_terms):
     """
     Store an unreduced hyper relation in the persistent pool and index it.
     """
@@ -609,7 +261,7 @@ def _store_hyper_relation(lp_state, row, lp_terms):
         lp_state["hyper_index"][lp].add(rid)
     return rid
 
-def _try_reduce_hyper_relation(row, lp_terms, lp_state, ell, global_stats, max_passes=4):
+def try_reduce_hyper_relation(row, lp_terms, lp_state, ell, global_stats, max_passes=4):
     """
     Greedily try to reduce a k-LP relation by merging it with existing
     hyper relations sharing at least 2 LPs.
@@ -624,7 +276,7 @@ def _try_reduce_hyper_relation(row, lp_terms, lp_state, ell, global_stats, max_p
         if len(lp_terms) <= 2:
             break
 
-        candidates = _candidate_hyper_ids(lp_terms, lp_state["hyper_index"], max_candidates=256)
+        candidates = candidate_hyper_ids(lp_terms, lp_state["hyper_index"], max_candidates=256)
         if not candidates:
             break
 
@@ -638,13 +290,13 @@ def _try_reduce_hyper_relation(row, lp_terms, lp_state, ell, global_stats, max_p
             if len(overlap) < 2:
                 continue
 
-            combined_lp = _add_lp_terms(lp_terms, rec["lp_terms"], m)
+            combined_lp = add_lp_terms(lp_terms, rec["lp_terms"], m)
 
             # Only accept if it actually reduces the LP count.
             if len(combined_lp) >= len(lp_terms):
                 continue
 
-            combined_row = _combine_rows(row, rec["row"], modulus=m)
+            combined_row = combine_rows(row, rec["row"], modulus=m)
             global_stats["hyper_merges"] += 1
 
             row, lp_terms = combined_row, combined_lp
@@ -656,7 +308,7 @@ def _try_reduce_hyper_relation(row, lp_terms, lp_state, ell, global_stats, max_p
 
     return row, lp_terms, (len(lp_terms) > 2)
 
-def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, global_stats, new_rows):
+def route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, global_stats, new_rows):
     """
     Handle 0/1/2-LP relations with exact-key tables.
     This is recursive: after a collision, the combined relation is re-routed.
@@ -680,10 +332,10 @@ def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, globa
             other_row, other_terms = single_table[A].pop()
             global_stats["collisions_single"] += 1
 
-            combined_row = _combine_rows(other_row, row, modulus=m)
-            combined_lp = _add_lp_terms(other_terms, lp_terms, m)
+            combined_row = combine_rows(other_row, row, modulus=m)
+            combined_lp = add_lp_terms(other_terms, lp_terms, m)
 
-            return _route_partial_relation(
+            return route_partial_relation(
                 combined_row, combined_lp, single_table, pair_table,
                 ell, global_stats, new_rows
             )
@@ -701,10 +353,10 @@ def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, globa
             other_row, other_terms = pair_table[pair_key].pop()
             global_stats["collisions_pair"] += 1
 
-            combined_row = _combine_rows(other_row, row, modulus=m)
-            combined_lp = _add_lp_terms(other_terms, lp_terms, m)
+            combined_row = combine_rows(other_row, row, modulus=m)
+            combined_lp = add_lp_terms(other_terms, lp_terms, m)
 
-            return _route_partial_relation(
+            return route_partial_relation(
                 combined_row, combined_lp, single_table, pair_table,
                 ell, global_stats, new_rows
             )
@@ -714,10 +366,10 @@ def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, globa
             other_row, other_terms = single_table[A].pop()
             global_stats["chain_resolutions"] += 1
 
-            combined_row = _combine_rows(other_row, row, modulus=m)
-            combined_lp = _add_lp_terms(other_terms, lp_terms, m)
+            combined_row = combine_rows(other_row, row, modulus=m)
+            combined_lp = add_lp_terms(other_terms, lp_terms, m)
 
-            return _route_partial_relation(
+            return route_partial_relation(
                 combined_row, combined_lp, single_table, pair_table,
                 ell, global_stats, new_rows
             )
@@ -726,10 +378,10 @@ def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, globa
             other_row, other_terms = single_table[B].pop()
             global_stats["chain_resolutions"] += 1
 
-            combined_row = _combine_rows(other_row, row, modulus=m)
-            combined_lp = _add_lp_terms(other_terms, lp_terms, m)
+            combined_row = combine_rows(other_row, row, modulus=m)
+            combined_lp = add_lp_terms(other_terms, lp_terms, m)
 
-            return _route_partial_relation(
+            return route_partial_relation(
                 combined_row, combined_lp, single_table, pair_table,
                 ell, global_stats, new_rows
             )
@@ -739,12 +391,12 @@ def _route_small_lp_relation(row, lp_terms, single_table, pair_table, ell, globa
         return
 
     # Anything larger: let the hypergraph reducer try to shrink it.
-    return _route_hyper_relation(
+    return route_hyper_relation(
         row, lp_terms, single_table, pair_table,
         ell, global_stats, new_rows
     )
 
-def _route_hyper_relation(row, lp_terms, single_table, pair_table, ell, global_stats, new_rows):
+def route_hyper_relation(row, lp_terms, single_table, pair_table, ell, global_stats, new_rows):
     """
     Route k-LP relations (k >= 3) through the hypergraph reducer.
     If reduced to <=2 LPs, send back to the small-LP logic.
@@ -754,9 +406,9 @@ def _route_hyper_relation(row, lp_terms, single_table, pair_table, ell, global_s
         lp_terms = {}
 
     # Use a persistent hyper state attached to global_stats if present.
-    lp_state = global_stats.setdefault("lp_state", _init_lp_state())
+    lp_state = global_stats.setdefault("lp_state", init_lp_state())
 
-    reduced_row, reduced_lp_terms, still_hyper = _try_reduce_hyper_relation(
+    reduced_row, reduced_lp_terms, still_hyper = try_reduce_hyper_relation(
         row=row,
         lp_terms=lp_terms,
         lp_state=lp_state,
@@ -772,19 +424,24 @@ def _route_hyper_relation(row, lp_terms, single_table, pair_table, ell, global_s
         return
 
     if len(reduced_lp_terms) <= 2 and not still_hyper:
-        return _route_small_lp_relation(
+        return route_small_lp_relation(
             reduced_row, reduced_lp_terms,
             single_table, pair_table, ell, global_stats, new_rows
         )
 
     # Still hyper: store for later overlaps.
-    _store_hyper_relation(lp_state, reduced_row, reduced_lp_terms)
+    store_hyper_relation(lp_state, reduced_row, reduced_lp_terms)
     global_stats["partials_stored_hyper"] += 1
 
-def _encode_row(pts, atom_to_idx):
+def encode_row(pts, atom_to_idx):
     row = {}
     for x_int, y_can, mult in pts:
-        atom = ('d1', int(x_int), int(y_can))
+        y_norm = int(y_can)
+        if y_norm > FINITE_FIELD // 2:
+            y_norm = FINITE_FIELD - y_norm
+
+        atom = ('d1', int(x_int), y_norm)
+
         if atom not in atom_to_idx:
             logger.debug("[_encode_row] atom not in atom_to_idx: %s", atom)
             continue
@@ -800,9 +457,13 @@ def filter_fiber_relation(pts, atom_to_idx, ell=None):
     large_primes = []
 
     for x_int, y_can, mult in pts:
-        atom = ('d1', int(x_int), int(y_can))
+        y_norm = int(y_can)
+        if y_norm > FINITE_FIELD // 2:
+            y_norm = FINITE_FIELD - y_norm
+
+        atom = ('d1', int(x_int), y_norm)
         if atom not in atom_to_idx:
-            large_primes.append((int(x_int), int(y_can), int(mult)))
+            large_primes.append((int(x_int), int(y_norm), int(mult)))
             continue
         idx = atom_to_idx[atom]
         row[idx] = row.get(idx, 0) + int(mult)
@@ -844,7 +505,7 @@ LP = Hashable
 # Sparse vector helpers
 # -----------------------------
 
-def _copy_vec(v: SparseVec) -> SparseVec:
+def copy_vec(v: SparseVec) -> SparseVec:
     return dict(v) if v else {}
 
 def vec_add(a: SparseVec, b: SparseVec, scale_b: int = 1) -> SparseVec:
@@ -921,14 +582,14 @@ class PotentialDSU:
         self.rank: Dict[LP, int] = {}
         self.pot: Dict[LP, SparseVec] = {}
 
-    def _ensure(self, x: LP) -> None:
+    def ensure(self, x: LP) -> None:
         if x not in self.parent:
             self.parent[x] = x
             self.rank[x] = 0
             self.pot[x] = {}
 
     def find(self, x: LP) -> Tuple[LP, SparseVec]:
-        self._ensure(x)
+        self.ensure(x)
         p = self.parent[x]
         if p == x:
             return x, self.pot[x]
@@ -998,7 +659,7 @@ class LargePrimeRelationResolver:
         self.promoted_lps: List[LP] = []
         self.promoted_set = set()
 
-        self._all_partials: List[PartialRelation] = []
+        self.all_partials: List[PartialRelation] = []
         self._emitted_rows: List[SparseVec] = []
         self._stats: Counter = Counter()
 
@@ -1012,24 +673,24 @@ class LargePrimeRelationResolver:
 
     def add_relation(self, rel: Any) -> None:
         pr = self.relation_extractor(rel)
-        pr = PartialRelation(_copy_vec(pr.fb_vec), tuple(pr.lps), dict(pr.meta))
-        self._all_partials.append(pr)
-        self._stats["seen"] += 1
+        pr = PartialRelation(copy_vec(pr.fb_vec), tuple(pr.lps), dict(pr.meta))
+        self.all_partials.append(pr)
+        self.stats["seen"] += 1
         if len(pr.lps) == 0:
-            self._emit_row(pr.fb_vec)
-            self._stats["pure_fb_in"] += 1
+            self.emit_row(pr.fb_vec)
+            self.stats["pure_fb_in"] += 1
         else:
-            self._stats[f"partial_{len(pr.lps)}lp_in"] += 1
+            self.stats[f"partial_{len(pr.lps)}lp_in"] += 1
 
-    def _emit_row(self, row: SparseVec) -> None:
+    def emit_row(self, row: SparseVec) -> None:
         if not row:
-            self._stats["zero_rows_dropped"] += 1
+            self.stats["zero_rows_dropped"] += 1
             return
-        self._emitted_rows.append(row)
-        self._stats["rows_emitted"] += 1
-        self._stats["row_l1_total"] += vec_norm_l1(row)
+        self.emitted_rows.append(row)
+        self.stats["rows_emitted"] += 1
+        self.stats["row_l1_total"] += vec_norm_l1(row)
 
-    def _promote_hubs(self, partials: List[PartialRelation]) -> List[PartialRelation]:
+    def promote_hubs(self, partials: List[PartialRelation]) -> List[PartialRelation]:
         if not self.allow_hub_promotion:
             return partials
         freq = Counter()
@@ -1048,7 +709,7 @@ class LargePrimeRelationResolver:
         for lp in new_promotions:
             self.promoted_set.add(lp)
             self.promoted_lps.append(lp)
-        self._stats["lp_promoted"] += len(new_promotions)
+        self.stats["lp_promoted"] += len(new_promotions)
 
         # Reclassify all partials with these LPs removed.
         reclassified: List[PartialRelation] = []
@@ -1057,7 +718,7 @@ class LargePrimeRelationResolver:
             reclassified.append(PartialRelation(pr.fb_vec, tuple(sorted(lps, key=repr)), dict(pr.meta)))
         return reclassified
 
-    def _resolve_one_lp(self, partials: List[PartialRelation]) -> List[PartialRelation]:
+    def resolve_one_lp(self, partials: List[PartialRelation]) -> List[PartialRelation]:
         buckets: Dict[LP, List[PartialRelation]] = defaultdict(list)
         leftovers: List[PartialRelation] = []
 
@@ -1068,17 +729,17 @@ class LargePrimeRelationResolver:
                 leftovers.append(pr)
 
         for lp, rels in buckets.items():
-            self._stats["one_lp_buckets"] += 1
+            self.stats["one_lp_buckets"] += 1
             for a, b in pairwise(rels):
-                self._emit_row(vec_sub(a.fb_vec, b.fb_vec))
-                self._stats["one_lp_pairs_resolved"] += 1
+                self.emit_row(vec_sub(a.fb_vec, b.fb_vec))
+                self.stats["one_lp_pairs_resolved"] += 1
             if len(rels) % 2 == 1:
                 leftovers.append(rels[-1])
-                self._stats["one_lp_leftover"] += 1
+                self.stats["one_lp_leftover"] += 1
 
         return leftovers
 
-    def _resolve_two_lp_graph(self, partials: List[PartialRelation]) -> List[PartialRelation]:
+    def resolve_two_lp_graph(self, partials: List[PartialRelation]) -> List[PartialRelation]:
         dsu = PotentialDSU()
         leftovers: List[PartialRelation] = []
 
@@ -1090,14 +751,14 @@ class LargePrimeRelationResolver:
             a, b = pr.lps
             cycle = dsu.union(a, b, pr.fb_vec)
             if cycle is None:
-                self._stats["two_lp_edges_added"] += 1
+                self.stats["two_lp_edges_added"] += 1
             else:
-                self._emit_row(cycle)
-                self._stats["two_lp_cycles_resolved"] += 1
+                self.emit_row(cycle)
+                self.stats["two_lp_cycles_resolved"] += 1
 
         return leftovers
 
-    def _promoted_to_fb(self, pr: PartialRelation) -> PartialRelation:
+    def promoted_to_fb(self, pr: PartialRelation) -> PartialRelation:
         if not self.promoted_set:
             return pr
         lps = tuple(lp for lp in pr.lps if lp not in self.promoted_set)
@@ -1119,7 +780,7 @@ class LargePrimeRelationResolver:
                 self.add_relation(rel)
 
         # Work on a mutable copy of all collected partials.
-        working = list(self._all_partials)
+        working = list(self.all_partials)
 
         # Repeatedly promote hubs and reclassify, because a promotion can turn
         # many 3-LP rows into 2-LP rows and unlock cycles.
@@ -1129,27 +790,27 @@ class LargePrimeRelationResolver:
             rounds += 1
             before_promotions = len(self.promoted_set)
 
-            working = [self._promoted_to_fb(pr) for pr in working]
-            working = self._promote_hubs(working)
-            working = [self._promoted_to_fb(pr) for pr in working]
+            working = [self.promoted_to_fb(pr) for pr in working]
+            working = self.promote_hubs(working)
+            working = [self.promoted_to_fb(pr) for pr in working]
 
             # One-LP pairing first, then two-LP graph resolution.
-            working = self._resolve_one_lp(working)
-            working = self._resolve_two_lp_graph(working)
+            working = self.resolve_one_lp(working)
+            working = self.resolve_two_lp_graph(working)
 
             changed = reprocess_all and (len(self.promoted_set) > before_promotions)
             if not changed:
                 break
             if rounds > 8:
                 # Safety stop: do not loop forever on unstable promotion rules.
-                self._stats["promotion_rounds_capped"] += 1
+                self.stats["promotion_rounds_capped"] += 1
                 break
 
         # Keep only unresolved partials for later inspection.
-        self._remaining = working
-        self._stats["remaining_partials"] = len(working)
-        self._stats["promoted_total"] = len(self.promoted_set)
-        return self._emitted_rows
+        self.remaining = working
+        self.stats["remaining_partials"] = len(working)
+        self.stats["promoted_total"] = len(self.promoted_set)
+        return self.emitted_rows
 
     @property
     def remaining_partials(self) -> List[PartialRelation]:
@@ -1159,9 +820,9 @@ class LargePrimeRelationResolver:
         return {
             "promoted_lps": list(self.promoted_lps),
             "promoted_count": len(self.promoted_set),
-            "emitted_rows": len(self._emitted_rows),
+            "emitted_rows": len(self.emitted_rows),
             "remaining_partials": len(self.remaining_partials),
-            "stats": dict(self._stats),
+            "stats": dict(self.stats),
         }
 
 # -----------------------------
@@ -1189,6 +850,36 @@ def extract_rows_and_stats(partials: Iterable[Any], promote_threshold: int = 64)
     resolver.resolve(partials)
     return resolver.emitted_rows, resolver.summary()
 
+def promote_resolver_lps(atom_to_idx, fb_y_cache, fiber_stats, verbose=True):
+    """
+    Take LPs promoted by the resolver and inject them into the factor base.
+    """
+    res_summary = fiber_stats.get("resolver_summary", {})
+    promoted_lps = res_summary.get("promoted_lps", [])
+
+    if not promoted_lps:
+        return 0
+
+    max_idx = max(atom_to_idx.values()) if atom_to_idx else -1
+    added = 0
+
+    for lp in promoted_lps:
+        x_lp, y_lp = int(lp[0]), int(lp[1])
+        atom = ('d1', x_lp, y_lp)
+
+        if atom in atom_to_idx:
+            continue
+
+        max_idx += 1
+        atom_to_idx[atom] = max_idx
+        fb_y_cache[x_lp] = y_lp
+        added += 1
+
+        if verbose:
+            print(f"[resolver promote] ({x_lp}, {y_lp}) -> idx {max_idx}")
+
+    return added
+
 if __name__ == "__main__":
     # Tiny smoke test.
     rels = [
@@ -1201,3 +892,11 @@ if __name__ == "__main__":
     rows, summary = extract_rows_and_stats(rels, promote_threshold=10)
     print("rows:", rows)
     print("summary:", summary)
+
+def atom_key(x_int, y_int):
+    """
+    Canonical atom key used everywhere in this chunk.
+    Assumes y_int is already canonicalized.
+    """
+    return ('d1', int(x_int), int(y_int))
+

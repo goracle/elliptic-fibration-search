@@ -9,6 +9,7 @@ from .mumford_basis import *
 from search_lll.smoothness import *
 from collections import defaultdict, Counter
 from search_common import DATA_PTS_GENUS2, FINITE_FIELD
+from search_common import PREFERRED_X_COORDS
 
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 
@@ -350,7 +351,8 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
     """
     # === FINITE FIELD MODE ===
     if FINITE_FIELD:
-        return _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug)
+        found_xs, divisors, lp_seed_xs = _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug)
+        return found_xs, divisors, lp_seed_xs
 
     # === RATIONAL (QQ) MODE ===
     t_start_total = time.time()
@@ -842,7 +844,7 @@ def reconstruct_and_verify_mumford(residues, prime_list, f_coeffs, shift, ration
             raise
 
     mumford_timers_print()
-    return found_xs, mumford_divisors
+    return found_xs, mumford_divisors, set()
 
 # In mumford_reconstruction.py, modify _reconstruct_mumford_finite_field:
 
@@ -1018,182 +1020,6 @@ def _ff_harvest_worker(args):
 
     return results
 
-def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
-    """
-    Index calculus reconstruction for finite fields (Parallelized).
-    """
-    if FINITE_FIELD is None:
-        raise RuntimeError("FINITE_FIELD is not set; cannot run finite-field reconstruction.")
-
-    p = int(FINITE_FIELD)
-
-    if p not in residues:
-        if debug:
-            print(f"  No residues found for field characteristic {p}")
-        return set(), []
-
-    # ----------------------- Tunable caps -----------------------
-    MAX_FB_SIZE = 6000            # hard cap on unique x-coordinates in FB
-    MAX_ACTIVE_POOL = 20000       # cap on stored relations to bound memory
-    TARGET_BUFFER_FRAC = 0.08
-    MAX_ROUNDS = 200              # parallel rounds (batches)
-    BATCH_SIZE_MIX = 2000         # attempts per worker per round
-    # ------------------------------------------------------------
-
-    res_p = residues[p]
-
-    if debug:
-        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p}) - PARALLEL) ===")
-
-    found_xs = set()
-    active_pool_data = []        # list of div_data dicts (no Sage objects)
-    seen_divisors = set()        # set of (roots, v0, v1)
-    unique_roots_set = set()     # set of x roots (ints)
-
-    # Setup Parallel Pool
-    num_cpus = max(4, multiprocessing.cpu_count())
-    pool = multiprocessing.Pool(processes=num_cpus)
-
-    # 1. Harvest Initial Solutions (Parallel)
-    t0 = time.time()
-    if debug:
-        print("  Harvesting initial solutions...")
-
-    # Chunk the work
-    items = list(res_p.items())
-    chunk_size = max(1, len(items) // (num_cpus * 4))
-    batches = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
-
-    work_args = [(batch, f_coeffs, p) for batch in batches]
-
-    count_raw = 0
-    try:
-        for batch_results in pool.imap_unordered(_ff_harvest_worker, work_args):
-            for div_data in batch_results:
-                count_raw += 1
-
-                # Check caps
-                if len(unique_roots_set) > MAX_FB_SIZE and len(active_pool_data) > MAX_ACTIVE_POOL:
-                    continue
-
-                roots = tuple(div_data['roots'])
-                div_key = (roots, div_data['v_0'], div_data['v_1'])
-
-                # Deduplicate
-                if div_key not in seen_divisors:
-                    # Check FB growth cap
-                    new_roots = [r for r in roots if r not in unique_roots_set]
-                    if len(unique_roots_set) + len(new_roots) > MAX_FB_SIZE:
-                        continue
-
-                    seen_divisors.add(div_key)
-                    for r in roots:
-                        unique_roots_set.add(r)
-                    active_pool_data.append(div_data)
-
-                    # Rationality test (Main process only)
-                    for r in roots:
-                        x_cand = int(r) - int(shift)
-                        if x_cand not in found_xs:
-                            res = rationality_test(x_cand)
-                            if res is not None:
-                                found_xs.add(x_cand)
-
-                    # Trim pool
-                    if len(active_pool_data) > MAX_ACTIVE_POOL:
-                        # Keep recent ones (random shuffle might be better but this is faster)
-                        active_pool_data = active_pool_data[-int(MAX_ACTIVE_POOL * 0.9):]
-
-    except KeyboardInterrupt:
-        pool.terminate()
-        raise
-
-    if debug:
-        print(f"  Harvest done ({time.time()-t0:.2f}s): {len(active_pool_data)} unique relations.")
-        print(f"  Factor Base (Unique x): {len(unique_roots_set)}")
-
-    if not active_pool_data:
-        pool.close()
-        return found_xs, []
-
-    # 2. Random Walk / Mixing to produce KERNEL RELATIONS
-    # Each mixing triple (D1, sign*D2, D3) where D3 = D1+sign*D2 gives:
-    # row(D1) + sign*row(D2) - row(D3) = 0 in J  <- valid kernel element
-    if debug:
-        print("  Starting parallel structured random walk...")
-
-    kernel_relations = []  # list of {'type':'relation', 'd1':..., 'd2':..., 'sign':..., 'd3':...}
-    seen_relation_keys = set()
-    generated_count = 0
-    patience = 0
-
-    for round_idx in range(MAX_ROUNDS):
-        fb_size = len(unique_roots_set)
-        num_kernel = len(kernel_relations)
-        target_buffer = max(200, int(fb_size * TARGET_BUFFER_FRAC))
-
-        if num_kernel > fb_size + target_buffer:
-            if debug:
-                print(f"  Target reached: {num_kernel} kernel relations > {fb_size} FB + {target_buffer} buffer.")
-            break
-
-        args_list = [(active_pool_data, f_coeffs, p, BATCH_SIZE_MIX) for _ in range(num_cpus)]
-
-        new_items_in_round = 0
-
-        try:
-            for batch_results in pool.imap_unordered(_ff_mixing_worker, args_list):
-                for item in batch_results:
-                    assert item.get('type') == 'relation', "mixing worker returned non-relation item"
-                    d3 = item['d3']
-                    roots = tuple(d3['roots'])
-                    # deduplicate by (roots, v0, v1) of D3 — good enough
-                    rel_key = (roots, d3['v_0'], d3['v_1'])
-                    if rel_key in seen_relation_keys:
-                        continue
-                    # all three divisors must have roots in the factor base
-                    d1_roots = tuple(item['d1']['roots'])
-                    d2_roots = tuple(item['d2']['roots'])
-                    if not all(r in unique_roots_set for r in d1_roots + d2_roots + roots):
-                        continue
-                    seen_relation_keys.add(rel_key)
-                    kernel_relations.append(item)
-                    generated_count += 1
-                    new_items_in_round += 1
-                    # rationality check on D3 roots
-                    for r in roots:
-                        x_cand = int(r) - int(shift)
-                        if x_cand not in found_xs:
-                            res = rationality_test(x_cand)
-                            if res is not None:
-                                found_xs.add(x_cand)
-        except KeyboardInterrupt:
-            pool.terminate()
-            raise
-
-        if new_items_in_round == 0:
-            patience += 1
-            if patience >= max_patience:
-                if debug:
-                    print(f"  Patience exhausted after {round_idx+1} rounds. Stopping mixing.")
-                break
-        else:
-            patience = 0
-
-    if debug:
-        print(f"  Final Status: {len(kernel_relations)} kernel relations, {len(unique_roots_set)} unique x in FB.")
-
-    pool.close()
-    pool.join()
-
-    # EXTRACT d3 FROM RELATIONS:
-    # This flattens the list so every item is a valid divisor dictionary
-    processed_kernel_divisors = [rel['d3'] for rel in kernel_relations]
-
-    # Return both: smooth divisors (for FB construction) and kernel relations
-    # packed together; build_homogeneous_relations_no_rebase will separate them
-    return found_xs, active_pool_data + kernel_relations
-
 def _ff_mixing_worker(args):
     pool_data, f_coeffs, p, iterations = args
 
@@ -1276,3 +1102,216 @@ def _ff_mixing_worker(args):
         })
 
     return results
+
+def _ff_atom_key(x, y, p):
+    x = int(x)
+    if y is None:
+        return (x, None)
+    y = int(y) % p
+    y_can = min(y, (-y) % p)
+    return (x, y_can)
+
+def _ff_harvest_phase(res_p, f_coeffs, p, shift, rationality_test,
+                      unique_atoms_set, active_pool_data, seen_divisors,
+                      found_xs, num_cpus, MAX_FB_SIZE, MAX_ACTIVE_POOL, debug):
+    items = list(res_p.items())
+    chunk_size = max(1, len(items) // (num_cpus * 4))
+    batches = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    work_args = [(batch, f_coeffs, p) for batch in batches]
+
+    pool = multiprocessing.Pool(processes=num_cpus)
+    count_raw = 0
+    try:
+        for batch_results in pool.imap_unordered(_ff_harvest_worker, work_args):
+            for div_data in batch_results:
+                count_raw += 1
+
+                if len(unique_atoms_set) > MAX_FB_SIZE and len(active_pool_data) > MAX_ACTIVE_POOL:
+                    continue
+
+                roots = tuple(div_data['roots'])
+                div_key = (roots, div_data['v_0'], div_data['v_1'])
+
+                if div_key in seen_divisors:
+                    continue
+
+                if 'points' in div_data:
+                    atoms = [_ff_atom_key(x, y, p) for (x, y) in div_data['points']]
+                elif 'ys' in div_data:
+                    atoms = [_ff_atom_key(r, y, p) for r, y in zip(roots, div_data['ys'])]
+                else:
+                    atoms = [_ff_atom_key(r, None, p) for r in roots]
+
+                new_atoms = [a for a in atoms if a not in unique_atoms_set]
+                if len(unique_atoms_set) + len(new_atoms) > MAX_FB_SIZE:
+                    continue
+
+                seen_divisors.add(div_key)
+                unique_atoms_set.update(atoms)
+                active_pool_data.append(div_data)
+
+                for r in roots:
+                    x_cand = int(r) - int(shift)
+                    if x_cand not in found_xs:
+                        if rationality_test(x_cand) is not None:
+                            found_xs.add(x_cand)
+
+                if len(active_pool_data) > MAX_ACTIVE_POOL:
+                    active_pool_data[:] = active_pool_data[-int(MAX_ACTIVE_POOL * 0.9):]
+
+    except KeyboardInterrupt:
+        pool.terminate()
+        raise
+    finally:
+        pool.close()
+        pool.join()
+
+    if debug:
+        print(f"  Harvested {count_raw} raw divisors, {len(active_pool_data)} kept")
+        print(f"  Factor base: {len(unique_atoms_set)} atoms")
+
+def _ff_mixing_phase(active_pool_data, f_coeffs, p, shift, rationality_test,
+                     unique_atoms_set, found_xs, num_cpus,
+                     MAX_ROUNDS, BATCH_SIZE_MIX, TARGET_BUFFER_FRAC, MAX_PATIENCE, debug):
+    kernel_relations = []
+    seen_relation_keys = set()
+    lp_seed_xs = set()
+
+    if PREFERRED_X_COORDS:
+        lp_seed_xs = lp_seed_xs | set(int(x) for x in PREFERRED_X_COORDS)
+        print(f"  [Phase 1] Added {len(PREFERRED_X_COORDS)} preferred x-coords to LP seeds")
+
+    patience = 0
+
+    pool = multiprocessing.Pool(processes=num_cpus)
+    try:
+        for round_idx in range(MAX_ROUNDS):
+            fb_size = len(unique_atoms_set)
+            target_buffer = max(200, int(fb_size * TARGET_BUFFER_FRAC))
+
+            if len(kernel_relations) > fb_size + target_buffer:
+                if debug:
+                    print(f"  Target reached: {len(kernel_relations)} kernel relations")
+                break
+
+            args_list = [(active_pool_data, f_coeffs, p, BATCH_SIZE_MIX) for _ in range(num_cpus)]
+            new_items_in_round = 0
+
+            for batch_results in pool.imap_unordered(_ff_mixing_worker, args_list):
+                for item in batch_results:
+                    assert item.get('type') == 'relation', "mixing worker returned non-relation item"
+
+                    d3 = item['d3']
+                    roots = tuple(d3['roots'])
+                    rel_key = (roots, d3['v_0'], d3['v_1'])
+
+                    if rel_key in seen_relation_keys:
+                        continue
+
+                    d1_roots = tuple(item['d1']['roots'])
+                    d2_roots = tuple(item['d2']['roots'])
+
+                    for r in roots:
+                        if _ff_atom_key(r, None, p) not in unique_atoms_set:
+                            lp_seed_xs.add(int(r))
+
+                    if not all(_ff_atom_key(r, None, p) in unique_atoms_set
+                               for r in d1_roots + d2_roots + roots):
+                        continue
+
+                    seen_relation_keys.add(rel_key)
+                    kernel_relations.append(item)
+                    new_items_in_round += 1
+
+                    for r in roots:
+                        x_cand = int(r) - int(shift)
+                        if x_cand not in found_xs:
+                            if rationality_test(x_cand) is not None:
+                                found_xs.add(x_cand)
+
+            if new_items_in_round == 0:
+                patience += 1
+                if patience >= MAX_PATIENCE:
+                    if debug:
+                        print(f"  Patience exhausted after {round_idx + 1} rounds.")
+                    break
+            else:
+                patience = 0
+
+    except KeyboardInterrupt:
+        pool.terminate()
+        raise
+    finally:
+        pool.close()
+        pool.join()
+
+    if debug:
+        print(f"  Mixing done: {len(kernel_relations)} kernel relations, {len(lp_seed_xs)} LP seeds")
+
+    return kernel_relations, lp_seed_xs
+
+def _reconstruct_mumford_finite_field(residues, f_coeffs, shift, rationality_test, debug):
+    assert FINITE_FIELD is not None, "FINITE_FIELD is not set"
+
+    p = int(FINITE_FIELD)
+
+    if p not in residues:
+        if debug:
+            print(f"  No residues found for field characteristic {p}")
+        return set(), [], set()
+
+    MAX_FB_SIZE = 6000
+    MAX_ACTIVE_POOL = 20000
+    TARGET_BUFFER_FRAC = 0.08
+    MAX_ROUNDS = 200
+    BATCH_SIZE_MIX = 2000
+    MAX_PATIENCE = 10
+
+    res_p = residues[p]
+    num_cpus = max(4, multiprocessing.cpu_count())
+
+    if debug:
+        print(f"\n=== MUMFORD SEARCH (FINITE FIELD GF({p}) - PARALLEL) ===")
+
+    found_xs = set()
+    active_pool_data = []
+    seen_divisors = set()
+    unique_atoms_set = set()
+
+    x_b = DATA_PTS_GENUS2[0]
+    if x_b is not None:
+        x_b = int(x_b)
+        unique_atoms_set.add(_ff_atom_key(x_b, None, p))
+        found_xs.add(x_b)
+        if debug:
+            print(f"  [FB seed] x_b={x_b}")
+
+    t0 = time.time()
+    if debug:
+        print("  Harvesting initial solutions...")
+
+    _ff_harvest_phase(
+        res_p, f_coeffs, p, shift, rationality_test,
+        unique_atoms_set, active_pool_data, seen_divisors,
+        found_xs, num_cpus, MAX_FB_SIZE, MAX_ACTIVE_POOL, debug
+    )
+
+    if debug:
+        print(f"  Harvest done ({time.time() - t0:.2f}s)")
+
+    if not active_pool_data:
+        return found_xs, [], set()
+
+    if debug:
+        print("  Starting mixing phase...")
+
+    kernel_relations, lp_seed_xs = _ff_mixing_phase(
+        active_pool_data, f_coeffs, p, shift, rationality_test,
+        unique_atoms_set, found_xs, num_cpus,
+        MAX_ROUNDS, BATCH_SIZE_MIX, TARGET_BUFFER_FRAC, MAX_PATIENCE, debug
+    )
+
+    if debug:
+        print(f"  Final: {len(kernel_relations)} kernel relations, {len(unique_atoms_set)} FB atoms")
+
+    return found_xs, active_pool_data + kernel_relations, lp_seed_xs

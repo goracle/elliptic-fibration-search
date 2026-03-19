@@ -13,6 +13,9 @@ from .index_calculus import *
 from sage.all import QQ, PolynomialRing, SR
 from .riemann_roch_localization import *
 from search_common import *
+from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
+from .fiber_augment import *
+from .lp_incidence_dlp import *
 
 # After your Mumford search in FINITE_FIELD mode:
 
@@ -347,9 +350,8 @@ def _run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
     stats.end_phase('mumford_residues')
 
     stats.start_phase('mumford_reconstruction')
-    found_xs, mumford_divisors = reconstruct_and_verify_mumford(
-        mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
-    )
+    found_xs, mumford_divisors, lp_seed_xs = reconstruct_and_verify_mumford(
+        mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func)
     stats.end_phase('mumford_reconstruction')
 
     if FINITE_FIELD:
@@ -388,13 +390,14 @@ def _run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
     if FINITE_FIELD:
         return _run_index_calculus_attack(
             mumford_divisors, coeffs_genus2, tower_data, found_xs,
-            mumford_residues, stats, num_workers, x_b, shifted_coeffs
+            mumford_residues, stats, num_workers, x_b, shifted_coeffs, lp_seed_xs
         )
 
     return found_xs, [], mumford_residues, stats
 
 def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, found_xs,
-                               mumford_residues, stats, num_workers, x_b, shifted_coeffs):
+                               mumford_residues, stats, num_workers, x_b, shifted_coeffs,
+                               lp_seed_xs=None):
     """Sub-handler for the Index Calculus execution phase."""
     p = int(FINITE_FIELD)
     f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
@@ -462,6 +465,35 @@ def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, foun
         #f_shifted_poly = sage_poly_from_coeffs(shifted_coeffs, PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
         f_shifted_poly = sage_poly_from_coeffs(list(reversed(shifted_coeffs)), PolynomialRing(GF(p), 'x')) if shifted_coeffs else f_poly
         E_rhs_m_for_aug = tower_data[-1]['f_i'] if tower_data is not None else None
+
+        if lp_seed_xs is None:
+            lp_seed_xs = set()
+
+        # Phase 1
+        if E_rhs_m_for_aug is not None:
+            print("\n" + "="*70)
+            print("PHASE 1: LP INCIDENCE DLP ATTACK")
+            print(f"  LP seeds available: {len(lp_seed_xs)}")
+            print("="*70)
+            lp_result = solve_dlp_via_lp_incidence(
+                E_rhs_m=E_rhs_m_for_aug,
+                f_shifted_fp=f_shifted_poly,
+                x_b=x_b,
+                p=p,
+                ell=int(GROUP_MODULUS),
+                base_divisor=BASE_DIVISOR,
+                target_divisor=TARGET_DIVISOR,
+                atom_to_idx=atom_to_idx,
+                lp_seed_xs=lp_seed_xs,
+                verbose=True,
+            )
+
+            if lp_result['verified']:
+                print(f"  [!] Phase 1 SUCCESS: k = {lp_result['dlp']}")
+                return found_xs, [], mumford_residues, stats
+            print("  [Phase 1] LP incidence attack did not verify. Falling through to Phase 2.")
+        else:
+            print("  [Phase 1] Skipped: E_rhs_m not available.")
 
         log_v = perform_dlp_attack(
             G, Q, mumford_divisors, p, coeffs_genus2, L,

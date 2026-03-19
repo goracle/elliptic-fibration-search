@@ -13,6 +13,7 @@ from .sparse_linalg_modp import *
 from .cofactor import *
 from .walker import *
 from .fiber_augment import *
+from .fiber_augment_hdf5 import *
 from .recursive_smoothing import *
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -1939,6 +1940,137 @@ def _union_find_connectivity(homogeneous_rows, g_support, q_support):
     connected = bool(g_roots & q_roots)
     return connected
 
+def resolve_and_promote_large_primes(
+    homogeneous_rows,
+    atom_to_idx,
+    fb_y_cache,
+    lp_state,
+    ell,
+    verbose=True,
+):
+    """
+    Promote frequent large primes into the factor base, then reclassify
+    the resolver's stored partials using the promoted set.
+
+    This works with the resolver you actually have:
+      lp_state["resolver"] -> LargePrimeRelationResolver
+    and does NOT rely on any missing large_prime_table_* structure.
+    """
+    resolver = lp_state.get("resolver", None)
+    if resolver is None:
+        return homogeneous_rows, atom_to_idx, fb_y_cache, 0, 0
+
+    partials = list(getattr(resolver, "_all_partials", []))
+    if not partials:
+        return homogeneous_rows, atom_to_idx, fb_y_cache, 0, 0
+
+    promote_threshold = int(getattr(resolver, "promote_threshold", 50))
+
+    # Count LP frequencies across all stored partials.
+    freq = Counter()
+    for pr in partials:
+        for lp in pr.lps:
+            freq[lp] += 1
+
+    if not freq:
+        return homogeneous_rows, atom_to_idx, fb_y_cache, 0, 0
+
+    # Promote all LPs that cross the threshold.
+    promoted_lps = [lp for lp, c in freq.items() if c >= promote_threshold]
+
+    # Safety fallback: if nothing crosses threshold, still promote the
+    # single most frequent LP when it is clearly a hub.
+    if not promoted_lps:
+        top_lp, top_freq = freq.most_common(1)[0]
+        if top_freq > 2:
+            promoted_lps = [top_lp]
+
+    if not promoted_lps:
+        return homogeneous_rows, atom_to_idx, fb_y_cache, 0, 0
+
+    max_idx = max(atom_to_idx.values()) if atom_to_idx else -1
+    promoted_count = 0
+
+    for lp in promoted_lps:
+        # Your LP labels are (x, y) pairs.
+        if not (isinstance(lp, tuple) and len(lp) >= 2):
+            continue
+
+        x_lp, y_lp = int(lp[0]), int(lp[1])
+        atom = ("d1", x_lp, y_lp)
+
+        if atom not in atom_to_idx:
+            max_idx += 1
+            atom_to_idx[atom] = max_idx
+            fb_y_cache[x_lp] = y_lp
+            promoted_count += 1
+            if verbose:
+                print(f"[resolver promote] ({x_lp}, {y_lp}) -> idx {max_idx}, freq={freq.get(lp, 0)}")
+
+    promoted_set = set(promoted_lps)
+
+    # Reclassify partials after promotion.
+    pure_rows = []
+    single_buckets = defaultdict(list)
+    pair_buckets = defaultdict(list)
+    unresolved = []
+
+    for pr in partials:
+        row = dict(pr.fb_vec) if pr.fb_vec else {}
+        lps = tuple(lp for lp in pr.lps if lp not in promoted_set)
+
+        if not lps:
+            if row:
+                pure_rows.append(row)
+            continue
+
+        if len(lps) == 1:
+            single_buckets[lps[0]].append(row)
+            continue
+
+        if len(lps) == 2:
+            pair_buckets[frozenset(lps)].append(row)
+            continue
+
+        unresolved.append(PartialRelation(row, tuple(sorted(lps, key=repr)), dict(pr.meta)))
+
+    emitted = 0
+    if pure_rows:
+        homogeneous_rows.extend(pure_rows)
+        emitted += len(pure_rows)
+
+    # Resolve 1-LP collisions.
+    for lp, rows in single_buckets.items():
+        for i in range(0, len(rows) - 1, 2):
+            new_row = _combine_rows(rows[i], rows[i + 1], modulus=ell)
+            if new_row:
+                homogeneous_rows.append(new_row)
+                emitted += 1
+        if len(rows) % 2 == 1:
+            unresolved.append(PartialRelation(rows[-1], (lp,), {}))
+
+    # Resolve 2-LP collisions.
+    for lp_pair, rows in pair_buckets.items():
+        for i in range(0, len(rows) - 1, 2):
+            new_row = _combine_rows(rows[i], rows[i + 1], modulus=ell)
+            if new_row:
+                homogeneous_rows.append(new_row)
+                emitted += 1
+        if len(rows) % 2 == 1:
+            unresolved.append(PartialRelation(rows[-1], tuple(sorted(lp_pair, key=repr)), {}))
+
+    # Save leftovers back into the resolver for inspection.
+    resolver._remaining = unresolved
+    resolver._stats["remaining_partials"] = len(unresolved)
+    resolver._stats["promoted_total"] = len(promoted_set)
+
+    if verbose:
+        print(f"[resolver] emitted {emitted} relations after promotion")
+        print(f"[resolver] promoted {promoted_count} LPs into FB")
+        print(f"[resolver] remaining partials: {len(unresolved)}")
+
+    return homogeneous_rows, atom_to_idx, fb_y_cache, emitted, promoted_count
+
 def perform_dlp_attack(
     G,
     Q,
@@ -1963,23 +2095,19 @@ def perform_dlp_attack(
       - supports precomputed relations packs,
       - keeps legacy Mumford relations,
       - optionally augments with fiber relations,
-      - optionally promotes a repeated LP into the factor base,
-      - cleanly builds G/Q rows,
+      - promotes repeated LPs into the factor base,
+      - reprocesses partials after promotion,
+      - builds G/Q rows,
       - performs the cofactor-projection precheck, and
       - solves the discrete log modulo ℓ.
-
-    Required module-scope helpers:
-      sage_poly_from_coeffs, _legacy_build_relations_from_mumford,
-      filter_forbidden_relations, precheck_cofactor_projection,
-      detect_nontrivial_character_from_projection, verify_character_vectors,
-      apply_cofactor_filter, solve_dlp_mod_l_cofactor_projection,
-      nullspace_mod_p, check_gq_connectivity, jacobian_to_dict,
-      get_relation_row, tonelli_shanks, build_fiber_augmented_relations
     """
     if G is None or Q is None:
         raise ValueError("Generator G and target Q must be provided")
     if order is None or int(order) <= 0:
         raise ValueError("Invalid Jacobian order provided")
+
+    if lp_state is None:
+        lp_state = {}
 
     full_order = Integer(order)
 
@@ -1992,7 +2120,6 @@ def perform_dlp_attack(
     ell, h = _compute_full_order_data(full_order, verbose=verbose)
     K, R, f_p, C, J = _prepare_curve_and_jacobian(p, f_coeffs)
 
-    # Build/load relations and FB
     homogeneous_rows, homogeneous_rhs, fb_roots, atom_to_idx, fb_y_cache, d2_to_d1_map = _load_or_build_relations(
         smooth_divs_or_rels=smooth_divs_or_rels,
         G=G,
@@ -2013,12 +2140,12 @@ def perform_dlp_attack(
     if any(r != 0 for r in homogeneous_rhs):
         raise RuntimeError("_legacy_build_relations_from_mumford returned non-homogeneous relations")
 
-    # Register x_b in atom_to_idx before fiber augment so it isn't treated as a LP.
+    # Register x_b in the FB before fiber augmentation so it is not treated as an LP.
     if x_b is not None and f_shifted_poly is not None:
         x_b_int = int(x_b)
         atom_xb = None
         for a in atom_to_idx:
-            if isinstance(a, tuple) and a[0] == 'd1' and a[1] == x_b_int:
+            if isinstance(a, tuple) and len(a) >= 3 and a[0] == "d1" and int(a[1]) == x_b_int:
                 atom_xb = a
                 break
         if atom_xb is None:
@@ -2033,43 +2160,42 @@ def perform_dlp_attack(
             if verbose:
                 print(f"[fiber_pre] Registered x_b={x_b_int} y={y_xb_can} into FB at idx {max_idx + 1}")
 
-    # Optional fiber augmentation.
-    if True:
-        fiber_rows = []
-        if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
-            _maybe_log_fb_samples(atom_to_idx, f_p, p, verbose=verbose)
+    # Fiber augmentation and LP promotion.
+    if E_rhs_m is not None and x_b is not None and f_shifted_poly is not None:
+        _maybe_log_fb_samples(atom_to_idx, f_p, p, verbose=verbose)
 
-            fiber_rows, fiber_stats, lp_state = _augment_relations_from_fibers(
-                E_rhs_m=E_rhs_m,
-                f_shifted_poly=f_shifted_poly,
-                x_b=x_b,
-                p=p,
-                atom_to_idx=atom_to_idx,
-                fb_y_cache=fb_y_cache,
-                full_order=full_order,
-                ell=ell,
-                x_coords=x_coords,
-                num_workers=num_workers,
-                verbose=verbose,
-                promote_atom=promote_atom,
-                lp_state=lp_state,
-            )
+        fiber_rows, fiber_stats, lp_state = _augment_relations_from_fibers(
+            E_rhs_m=E_rhs_m,
+            f_shifted_poly=f_shifted_poly,
+            x_b=x_b,
+            p=p,
+            atom_to_idx=atom_to_idx,
+            fb_y_cache=fb_y_cache,
+            full_order=full_order,
+            ell=ell,
+            x_coords=x_coords,
+            num_workers=num_workers,
+            verbose=verbose,
+            promote_atom=promote_atom,
+            lp_state=lp_state,
+        )
 
-            homogeneous_rows.extend(fiber_rows)
+        homogeneous_rows.extend(fiber_rows)
 
-            # Promote repeated LPs into the factor base, and keep those rows too.
-            homogeneous_rows, atom_to_idx, fb_y_cache, promoted_count = _append_lp_promotions(
-                homogeneous_rows=homogeneous_rows,
-                atom_to_idx=atom_to_idx,
-                fb_y_cache=fb_y_cache,
-                fiber_stats=fiber_stats,
-                ell=ell,
-                verbose=verbose,
-            )
+        homogeneous_rows, atom_to_idx, fb_y_cache, emitted, promoted_count = resolve_and_promote_large_primes(
+            homogeneous_rows=homogeneous_rows,
+            atom_to_idx=atom_to_idx,
+            fb_y_cache=fb_y_cache,
+            lp_state=lp_state,
+            ell=ell,
+            verbose=verbose,
+        )
 
-            if verbose:
-                print(f"  [Fiber] Added {len(fiber_rows)} smooth relations")
-                print("  [Legacy] Factor base and relations prepared")
+        if verbose:
+            print(f"  [Fiber] Added {len(fiber_rows)} smooth relations")
+            print(f"  [Resolver] Emitted {emitted} relations after promotion")
+            print(f"  [Resolver] Promoted {promoted_count} LPs into factor base")
+            print("  [Legacy] Factor base and relations prepared")
     else:
         if verbose:
             print("  [Legacy] Factor base and relations prepared")
@@ -2077,7 +2203,6 @@ def perform_dlp_attack(
     if not homogeneous_rows:
         raise RuntimeError("No valid homogeneous relations available")
 
-    # Filter relations that would directly expose G/Q dependence.
     homogeneous_rows = filter_forbidden_relations(
         homogeneous_rows, atom_to_idx, f_p, p, G, Q, verbose=verbose
     )
@@ -2089,7 +2214,6 @@ def perform_dlp_attack(
         print(f"  [Factor Base] Size: {len(atom_to_idx)}")
         sys.stdout.flush()
 
-    # Build G and Q rows
     if verbose:
         print("  [non-Recursive] Building G and Q rows directly from factor base...")
 
@@ -2101,7 +2225,6 @@ def perform_dlp_attack(
     connected, g_support, q_support = check_gq_connectivity(
         homogeneous_rows, row_g, row_q, verbose=verbose
     )
-    # Keep the union-find diagnostic too.
     connected_uf = _union_find_connectivity(homogeneous_rows, g_support, q_support)
     if verbose:
         print("graph is connected t/f:", bool(connected and connected_uf))
@@ -2110,7 +2233,6 @@ def perform_dlp_attack(
     if verbose:
         print("nullspace dimension:", len(basis))
 
-    # Cofactor-projection precheck
     precheck = precheck_cofactor_projection(
         atom_to_idx=atom_to_idx,
         homogeneous_rows=homogeneous_rows,
@@ -2184,7 +2306,6 @@ def perform_dlp_attack(
     if verbose:
         print(f"  [Result] Discrete log (mod ℓ) = {dlog}")
 
-    # Final verification
     D = Integer(dlog) * G - Q
     if not D.is_zero():
         raise RuntimeError(f"[Verify] ✗ Final verification FAILED: dlog * G ≠ Q (dlog={dlog}, ℓ={ell})")
@@ -2193,5 +2314,3 @@ def perform_dlp_attack(
         print("  [Verify] ✓ Exact equality dlog * G == Q")
 
     return Integer(dlog)
-
-

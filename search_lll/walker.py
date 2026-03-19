@@ -826,7 +826,7 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     rhs_values = []
     skipped_no_row = 0
     _diag_n = 0  # add above the for loop
-    
+
     for d in smooth_divs:
         if isinstance(d, dict) and d.get('type') == 'relation':
             sign = int(d['sign'])
