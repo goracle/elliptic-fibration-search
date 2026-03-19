@@ -1146,14 +1146,23 @@ def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
         rhs.append( dfx_at_r - dQ2_at_r )
 
         # Additional tangency equations: choose sel_points and construct derivative orders
+        # In FINITE_FIELD mode, only drop the last tangency when the finite-field
+        # parameter is active; keep QQ behavior unchanged.
+        drop_last_tangency = (FINITE_FIELD is not None and parameter_m is not None)
+
         unknowns_order = num_unknowns
-        # The original code computes num_tangency_eqs depending on mixing/anchor; replicate logic
-        # Build list of unknown symbols conceptually: len = num_unknowns
+
         if use_anchor_points:
             num_tangency_eqs = unknowns_order - 2 - 1
         else:
             num_tangency_eqs = unknowns_order - 2
-        if num_tangency_eqs < 0 or not use_anchor_points:
+
+        # Only in the finite-field non-None case do we relax one tangency condition.
+        # If we relax one, turn on the mixing equation so the system still stays square.
+        if drop_last_tangency and not use_anchor_points:
+            num_tangency_eqs = max(0, num_tangency_eqs - 1)
+            use_mixing = True
+        elif num_tangency_eqs < 0 or not use_anchor_points:
             if use_anchor_points:
                 if verbose:
                     print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")

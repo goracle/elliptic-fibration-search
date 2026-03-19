@@ -404,7 +404,7 @@ def collision_walk_c(atom_indices_np, rand_table_np, target_mask, max_terms, see
     else:
         return int(ret), None, None, None
 
-def get_relation_row_cached(divisor, require_signed_d2=True):
+def get_relation_row_cached(divisor, require_signed_d2=False):
     """
     Worker-safe version: use Mumford v(x) directly and atom-based lookup.
 
@@ -666,7 +666,7 @@ def poly_to_tuple(poly, deg_expected, K):
     return tuple(coeffs)
 
 def get_relation_row(divisor, atom_to_idx, f_p, p,
-                     fb_y_cache=None, require_signed_d2=True):
+                     fb_y_cache=None, require_signed_d2=False):
     """
     Build factor-base row for `divisor` with support for SIGNED degree-2 atoms.
 
@@ -825,18 +825,17 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
     valid_rows = []
     rhs_values = []
     skipped_no_row = 0
-
+    _diag_n = 0  # add above the for loop
+    
     for d in smooth_divs:
-        # Check if this is a 'relation' object (mixing triple) or a flat divisor
         if isinstance(d, dict) and d.get('type') == 'relation':
             sign = int(d['sign'])
             row = {}
             failed = False
+            failed_at = None  # diagnostic
 
-            # Unpack the triple: D1 + sign*D2 - D3 = 0
             for coeff, div_data in [(1, d['d1']), (sign, d['d2']), (-1, d['d3'])]:
                 if isinstance(div_data, dict):
-                    # Handle dictionary formats
                     if 'u_coeffs' in div_data:
                         u_poly = R(div_data['u_coeffs'])
                         v_poly = R(div_data['v_coeffs'])
@@ -845,27 +844,60 @@ def build_homogeneous_relations_no_rebase(smooth_divs, atom_to_idx, f_p, p, fb_y
                         v_poly = K(int(div_data.get('v_1', 0)))*x + K(int(div_data.get('v_0', 0)))
                     else:
                         failed = True
+                        failed_at = 'bad_format'
                         break
                 else:
-                    # Handle Sage Jacobian objects (Directly from mixing worker)
                     try:
                         u_poly = div_data[0]
                         v_poly = div_data[1]
                     except (TypeError, IndexError):
                         failed = True
+                        failed_at = 'bad_type'
                         break
 
-                # Encode this component into the column space
                 sub_row = get_relation_row([u_poly, v_poly], atom_to_idx, f_p, p, require_signed_d2=False)
                 if sub_row is None:
                     failed = True
+                    # diagnose why
+                    roots_data = u_poly.roots(K)
+                    n_roots = sum(m for _, m in roots_data)
+                    failed_at = 'get_relation_row_none deg=%d nroots=%d' % (int(u_poly.degree()), n_roots)
+                    if n_roots == int(u_poly.degree()):
+                        # roots exist, so x_int must not be in d1_by_x
+                        missing = []
+                        for x_elem, _ in roots_data:
+                            x_int = int(x_elem)
+                            if x_int not in {int(a[1]) for a in atom_to_idx if a[0]=='d1'}:
+                                missing.append(x_int)
+                        failed_at += ' missing_x=%s' % missing
                     break
 
-                # Merge into the relation row
                 for idx, val in sub_row.items():
                     row[idx] = row.get(idx, 0) + coeff * val
 
             if failed:
+                if _diag_n < 5:
+                    print('[diag_rel] FAILED reason=%s' % failed_at)
+                    _diag_n += 1
+                skipped_no_row += 1
+                continue
+
+            row = {k: v for k, v in row.items() if v != 0}
+
+            if not row:
+                if _diag_n < 3:
+                    print('[diag_rel] ZERO ROW — sub_rows:')
+                    for label, sub_coeff, div_data in [('D1', 1, d['d1']), ('D2', sign, d['d2']), ('D3', -1, d['d3'])]:
+                        if isinstance(div_data, dict) and 's' in div_data:
+                            u_tmp = x**2 - K(int(div_data['s']))*x + K(int(div_data['p']))
+                            v_tmp = K(int(div_data.get('v_1',0)))*x + K(int(div_data.get('v_0',0)))
+                        else:
+                            print('[diag_rel]   %s: unexpected format' % label)
+                            continue
+                        sr = get_relation_row([u_tmp, v_tmp], atom_to_idx, f_p, p, require_signed_d2=False)
+                        roots_tmp = [int(r) for r, _ in u_tmp.roots(K)]
+                        print('[diag_rel]   %s (coeff=%d): roots=%s sub_row=%s' % (label, sub_coeff, roots_tmp, sr))
+                    _diag_n += 1
                 skipped_no_row += 1
                 continue
 
@@ -1440,7 +1472,7 @@ def _c_collision_walk_worker(worker_id, atom_indices_list, random_hash_table,
                 u_poly, v_poly = J_recon[0], J_recon[1]
 
                 # We require signed d2 atoms to match the matrix column space
-                row = get_relation_row_cached([u_poly, v_poly], require_signed_d2=True)
+                row = get_relation_row_cached([u_poly, v_poly], require_signed_d2=False)
 
                 if row is not None:
                     # Successfully verified collision relation
