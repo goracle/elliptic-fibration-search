@@ -8,8 +8,7 @@ from .mumford_timing import *
 from .mumford_basis import *
 from search_lll.smoothness import *
 from collections import defaultdict, Counter
-from search_common import DATA_PTS_GENUS2, FINITE_FIELD
-from search_common import PREFERRED_X_COORDS
+from search_common import DATA_PTS_GENUS2, FINITE_FIELD, PREFERRED_X_COORDS
 
 #from search_lll.rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
 

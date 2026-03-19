@@ -99,62 +99,6 @@ def _eval_erhs_at_m(E_rhs_m, m_val_K, K, Rx):
         coeffs.append(K(c.numerator()(m_val_K)) / den_val)
     return Rx(coeffs)
 
-def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, atom_to_idx, p):
-    """
-    Compute h(x) = f_shifted - E_rhs_m(x, x_b - x_s) and find LP atoms.
-
-    Returns
-    -------
-    ('lp_pair', xs_lp, lp_s)  — x_s and F(x_s) are both LP atoms
-    ('pole',    None)          — m is a pole
-    ('off_curve', None)        — some root is off-curve
-    ('fb_only', None)          — both roots are in existing FB
-    ('partial', lp_atom)       — exactly one root is LP
-    """
-    m_val = x_b_K - K(x_s_int)
-    g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
-    if g_at_m is None:
-        return ('pole', None)
-
-    h = f_shifted_fp - g_at_m
-    if h.is_zero():
-        return ('pole', None)
-
-    roots_with_mult = h.roots()
-    if not roots_with_mult:
-        return ('pole', None)
-
-    # Canonicalize all roots and tag as LP or FB
-    tagged = []
-    for x_r, _mult in roots_with_mult:
-        x_int = int(x_r)
-        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
-        if not ok:
-            return ('off_curve', None)
-        atom = ('d1', x_int, y_can)
-        tagged.append(((x_int, y_can), atom in atom_to_idx))
-
-    xs_y, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
-    if not xs_ok:
-        return ('off_curve', None)
-
-    xs_atom = ('d1', x_s_int, xs_y)
-    xs_lp   = (x_s_int, xs_y)
-    xs_in_fb = xs_atom in atom_to_idx
-
-    lp_pts = [pt for pt, in_fb in tagged if not in_fb and pt != xs_lp]
-    fb_pts  = [pt for pt, in_fb in tagged if in_fb]
-
-    if xs_in_fb:
-        if len(lp_pts) == 1:
-            return ('partial', lp_pts[0])
-        return ('fb_only', None)
-
-    # x_s is LP
-    if not lp_pts:
-        return ('partial', xs_lp)
-    return ('lp_pair', xs_lp, lp_pts[0])
-
 # ---------------------------------------------------------------------------
 # Enumerate LP pairs
 # ---------------------------------------------------------------------------
@@ -162,51 +106,6 @@ def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, atom_to_idx, p):
 # ---------------------------------------------------------------------------
 # Build LP incidence matrix
 # ---------------------------------------------------------------------------
-
-def build_lp_incidence_matrix(xs_to_lp, verbose=True):
-    """
-    Build the LP incidence matrix from the xs → LP_s mapping.
-
-    Row generation (subtracting two fiber relations):
-        Fiber(x_s):    [x_b] + [x_s] + [LP_s]    = poles
-        Fiber(LP_s):   [x_b] + [LP_s] + [F(LP_s)] = poles   (if LP_s ∈ xs_to_lp)
-        ──────────────────────────────────────────────────────
-        Subtract:      col(x_s) +1,  col(F(LP_s)) -1,  RHS = 0
-
-    Both x_s and F(LP_s) are LP atoms.  Each row has exactly two entries.
-
-    Returns
-    -------
-    lp_to_col  : dict  lp_atom → column_index   (all LP atoms)
-    row_pairs  : list of (col_pos, col_neg)      (+1 in col_pos, -1 in col_neg)
-    skipped    : int   number of x_s where LP_s not in xs_to_lp (chain end)
-    """
-    # Collect all LP atoms (both xs and lp_s values)
-    all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
-    lp_to_col = {atom: i for i, atom in enumerate(sorted(all_atoms))}
-
-    row_pairs = []
-    skipped   = 0
-
-    for xs_atom, lp_s_atom in xs_to_lp.items():
-        # F(LP_s): run the chain one more step
-        f_lp_s = xs_to_lp.get(lp_s_atom)
-        if f_lp_s is None:
-            # LP_s not in xs_to_lp → no fiber from LP_s → skip
-            skipped += 1
-            continue
-
-        col_pos = lp_to_col[xs_atom]    # +1
-        col_neg = lp_to_col[f_lp_s]    # -1
-
-        if col_pos != col_neg:
-            row_pairs.append((col_pos, col_neg))
-
-    if verbose:
-        print(f"[LP matrix] {len(lp_to_col)} LP cols  {len(row_pairs)} rows  "
-              f"({skipped} chain-ends skipped)")
-
-    return lp_to_col, row_pairs
 
 # ---------------------------------------------------------------------------
 # LP graph diagnostics
@@ -408,6 +307,17 @@ def solve_dlp_via_lp_incidence(
         E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
         lp_seed_xs=lp_seed_xs, verbose=verbose)
 
+    # Second pass: seed with the LP values to close the functional graph
+    lp_value_xs = set(atom[0] for atom in xs_to_lp.values())
+    new_seeds = lp_value_xs - set(atom[0] for atom in xs_to_lp.keys())
+    if new_seeds:
+        if verbose:
+            print(f"[LP DLP] Second pass: {len(new_seeds)} new seeds from LP values")
+        xs_to_lp2, _ = enumerate_lp_pairs(
+            E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
+            lp_seed_xs=new_seeds, verbose=verbose)
+        xs_to_lp.update(xs_to_lp2)
+
     if not xs_to_lp:
         print("[LP DLP] No LP pairs found.")
         return dict(dlp=None, verified=False, lp_to_col={}, solution=None,
@@ -460,40 +370,86 @@ def solve_dlp_via_lp_incidence(
     return dict(dlp=k, verified=verified, lp_to_col=lp_to_col, solution=solution,
                 n_lp_cols=len(lp_to_col), n_homogeneous=len(row_pairs), graph_info=graph_info)
 
-def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
-                       lp_seed_xs, verbose=True):
-    assert lp_seed_xs is not None, "lp_seed_xs required"
-    K = GF(p)
-    Rx = PolynomialRing(K, 'x')
-    x_b_K = K(int(x_b))
+def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
+    m_val = x_b_K - K(x_s_int)
+    g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
+    if g_at_m is None:
+        return ('pole', None)
 
-    lp_pairs = []
-    n_tried = n_pole = n_off = n_fb = n_partial = 0
+    h = f_shifted_fp - g_at_m
+    if h.is_zero():
+        return ('pole', None)
 
-    for x_s_int in lp_seed_xs:
-        n_tried += 1
-        res = fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, atom_to_idx, p)
-        tag = res[0]
-        if tag == 'lp_pair':
-            lp_pairs.append((res[1], res[2]))
-        elif tag == 'pole':
-            n_pole += 1
-        elif tag == 'off_curve':
-            n_off += 1
-        elif tag == 'fb_only':
-            n_fb += 1
-        elif tag == 'partial':
-            n_partial += 1
+    roots_with_mult = h.roots()
+    if not roots_with_mult:
+        return ('pole', None)
 
-    counters = dict(tried=n_tried, poles=n_pole, off_curve=n_off,
-                    fb_only=n_fb, partial=n_partial, pure_lp_pairs=len(lp_pairs))
+    tagged = []
+    for x_r, _mult in roots_with_mult:
+        x_int = int(x_r)
+        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
+        if not ok:
+            return ('off_curve', None)
+        tagged.append(((x_int, y_can), x_int in fb_x_set))
+
+    xs_y, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
+    if not xs_ok:
+        return ('off_curve', None)
+
+    xs_lp = (x_s_int, xs_y)
+    xs_in_fb = x_s_int in fb_x_set
+
+    lp_pts = [pt for pt, in_fb in tagged if not in_fb and pt != xs_lp]
+
+    if xs_in_fb:
+        if len(lp_pts) == 1:
+            return ('partial', lp_pts[0])
+        return ('fb_only', None)
+
+    if not lp_pts:
+        return ('partial', xs_lp)
+    return ('lp_pair', xs_lp, lp_pts[0])
+
+def build_lp_incidence_matrix(xs_to_lp, verbose=True):
+    all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
+    lp_to_col = {atom: i for i, atom in enumerate(sorted(all_atoms))}
+
+    key_by_x = {atom[0]: atom for atom in xs_to_lp.keys()}
+
+    # Diagnose why chains are failing on first 5 entries
+    sample = list(xs_to_lp.items())[:5]
+    for xs_atom, lp_s_atom in sample:
+        exact = xs_to_lp.get(lp_s_atom)
+        by_x  = key_by_x.get(lp_s_atom[0])
+        print(f"[LP chain diag] xs={xs_atom}  lp_s={lp_s_atom}")
+        print(f"  exact lookup: {exact}")
+        print(f"  key_by_x[lp_s.x]={by_x}  y_match={by_x == lp_s_atom if by_x else 'N/A'}")
+
+    row_pairs = []
+    skipped = 0
+
+    for xs_atom, lp_s_atom in xs_to_lp.items():
+        next_key = xs_to_lp.get(lp_s_atom)
+        if next_key is None:
+            candidate = key_by_x.get(lp_s_atom[0])
+            if candidate is not None:
+                next_key = xs_to_lp.get(candidate)
+
+        if next_key is None:
+            skipped += 1
+            continue
+
+        col_pos = lp_to_col[xs_atom]
+        col_neg = lp_to_col[next_key]
+
+        if col_pos != col_neg:
+            row_pairs.append((col_pos, col_neg))
 
     if verbose:
-        print(f"[LP enum] tried={n_tried}  pure_LP_pairs={len(lp_pairs)}")
-        print(f"  poles={n_pole}  off_curve={n_off}  fb_only={n_fb}  partial={n_partial}")
+        print(f"[LP matrix] {len(lp_to_col)} LP cols  {len(row_pairs)} rows  "
+              f"({skipped} chain-ends skipped)")
 
-    return lp_pairs, counters
-
+    return lp_to_col, row_pairs
 
 def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
                        lp_seed_xs, verbose=True):
@@ -501,13 +457,22 @@ def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
     K = GF(p)
     Rx = PolynomialRing(K, 'x')
     x_b_K = K(int(x_b))
+
+    fb_x_set = set(atom[1] for atom in atom_to_idx if atom[0] == 'd1')
+    fb_x_set.add(int(x_b))
+
+    # Only seed with x-values that are genuinely outside the full FB
+    true_lp_seeds = [x for x in lp_seed_xs if int(x) not in fb_x_set]
+
+    if verbose:
+        print(f"[LP enum] {len(lp_seed_xs)} seeds -> {len(true_lp_seeds)} after FB filter")
 
     xs_to_lp = {}
     n_tried = n_pole = n_off = n_fb = n_partial = 0
 
-    for x_s_int in lp_seed_xs:
+    for x_s_int in true_lp_seeds:
         n_tried += 1
-        res = fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, atom_to_idx, p)
+        res = fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p)
         tag = res[0]
         if tag == 'lp_pair':
             xs_to_lp[res[1]] = res[2]
@@ -528,43 +493,3 @@ def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
         print(f"  poles={n_pole}  off_curve={n_off}  fb_only={n_fb}  partial={n_partial}")
 
     return xs_to_lp, counters
-
-
-def build_lp_incidence_matrix(xs_to_lp, verbose=True):
-    """
-    xs_to_lp: dict  (x_int, y_can) -> (x_int, y_can)
-    """
-    all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
-    lp_to_col = {atom: i for i, atom in enumerate(sorted(all_atoms))}
-
-    # Build reverse index: x_int -> atom, for chain-following
-    x_to_atom = {}
-    for atom in all_atoms:
-        x_to_atom[atom[0]] = atom
-
-    row_pairs = []
-    skipped = 0
-
-    for xs_atom, lp_s_atom in xs_to_lp.items():
-        # F(LP_s): look up lp_s by its x-coordinate
-        f_lp_s = xs_to_lp.get(lp_s_atom)
-        if f_lp_s is None:
-            # try x-coordinate lookup in case of y mismatch
-            lp_s_via_x = x_to_atom.get(lp_s_atom[0])
-            if lp_s_via_x is not None:
-                f_lp_s = xs_to_lp.get(lp_s_via_x)
-        if f_lp_s is None:
-            skipped += 1
-            continue
-
-        col_pos = lp_to_col[xs_atom]
-        col_neg = lp_to_col[f_lp_s]
-
-        if col_pos != col_neg:
-            row_pairs.append((col_pos, col_neg))
-
-    if verbose:
-        print(f"[LP matrix] {len(lp_to_col)} LP cols  {len(row_pairs)} rows  "
-              f"({skipped} chain-ends skipped)")
-
-    return lp_to_col, row_pairs
