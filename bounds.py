@@ -3,6 +3,8 @@ from sage.all import *
 from functools import lru_cache, reduce
 from operator import mul
 from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER
+from math import gcd
+from collections import Counter
 
 # bounds.py - Heuristics for prime pool selection and search bounds.
 # === safe_splitting_field wrapper ===
@@ -34,8 +36,6 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     if key in estimate_galois_signature_modp.cache:
         return estimate_galois_signature_modp.cache[key]
 
-    from sage.all import GF, lcm as sage_lcm
-
     patterns_seen = set()
     primes_used = 0
 
@@ -58,7 +58,6 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     unique_patterns = sorted(patterns_seen)
 
     if unique_patterns:
-        from math import gcd
 
         def lcm(a, b):
             return abs(a * b) // gcd(a, b)
@@ -1049,8 +1048,6 @@ def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
     The ratio should stabilize across primes by Chebotarev density,
     but specific polynomials can deviate from 1.0 due to arithmetic structure.
     """
-    from sage.all import kronecker, QQ, GF, Integer
-    from collections import Counter
 
     if Delta_pr is None or not prime_sample:
         return None
@@ -1645,7 +1642,6 @@ def choose_galois_primes(poly, prime_pool=None, max_primes=8, debug=DEBUG):
     Choose small primes from prime_pool (or from small primes list) suitable for mod-p factorization diagnostics.
     Excludes 2,3 and primes dividing leading coefficient / discriminant.
     """
-    from sage.all import ZZ
     if prime_pool is None:
         prime_pool = list(primes(100))
     primes_candidates = [p for p in prime_pool if p not in (2,3)]
@@ -1755,7 +1751,6 @@ def _cached_split_poly_constructor(a4_str, a6_str):
     Internal helper to cache the construction of the discriminant polynomial.
     Keys are string representations of a4 and a6 to ensure hashability.
     """
-    from sage.all import QQ, PolynomialRing, SR
     try:
         # Use SR to parse strings safely, accommodating rationals/integers/polynomials
         val_a4 = SR(a4_str)
