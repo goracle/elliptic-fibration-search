@@ -1580,20 +1580,17 @@ def recommend_and_update_prime_pool(cd, prime_pool=None, run_heavy=True,
 
     # apply domain-specific prime filter if available
     final_pool = []
-    if hasattr(search_common, 'is_good_prime_for_surface'):
-        for p in filtered_pool:
-            try:
-                if is_good_prime_for_surface(cd, p):
-                    final_pool.append(p)
-                elif debug:
-                    print(f"[bounds] is_good_prime_for_surface rejected {p}")
-            except Exception as e:
-                # If the check crashes, keep the prime but log if debug
-                if debug:
-                    print(f"[bounds] is_good_prime_for_surface error for p={p}: {e}; keeping prime.")
+    for p in filtered_pool:
+        try:
+            if is_good_prime_for_surface(cd, p):
                 final_pool.append(p)
-    else:
-        final_pool = filtered_pool
+            elif debug:
+                print(f"[bounds] is_good_prime_for_surface rejected {p}")
+        except Exception as e:
+            # If the check crashes, keep the prime but log if debug
+            if debug:
+                print(f"[bounds] is_good_prime_for_surface error for p={p}: {e}; keeping prime.")
+            final_pool.append(p)
 
     new_pool = sorted(list(set(final_pool)))
     if update_search_common:
@@ -1840,8 +1837,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     try:
         pool_filtered = recommend_and_update_prime_pool(cd, prime_pool=src_pool,
                                                         run_heavy=run_heavy_analysis,
-                                                        debug=debug and run_heavy_analysis,
-                                                        update_search_common=update_search_common)
+                                                        debug=debug and run_heavy_analysis)
     except Exception as e:
         if debug:
             print(f"[auto_cfg] Pool recommendation error: {e}")

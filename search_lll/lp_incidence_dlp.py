@@ -370,46 +370,6 @@ def solve_dlp_via_lp_incidence(
     return dict(dlp=k, verified=verified, lp_to_col=lp_to_col, solution=solution,
                 n_lp_cols=len(lp_to_col), n_homogeneous=len(row_pairs), graph_info=graph_info)
 
-def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
-    m_val = x_b_K - K(x_s_int)
-    g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
-    if g_at_m is None:
-        return ('pole', None)
-
-    h = f_shifted_fp - g_at_m
-    if h.is_zero():
-        return ('pole', None)
-
-    roots_with_mult = h.roots()
-    if not roots_with_mult:
-        return ('pole', None)
-
-    tagged = []
-    for x_r, _mult in roots_with_mult:
-        x_int = int(x_r)
-        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
-        if not ok:
-            return ('off_curve', None)
-        tagged.append(((x_int, y_can), x_int in fb_x_set))
-
-    xs_y, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
-    if not xs_ok:
-        return ('off_curve', None)
-
-    xs_lp = (x_s_int, xs_y)
-    xs_in_fb = x_s_int in fb_x_set
-
-    lp_pts = [pt for pt, in_fb in tagged if not in_fb and pt != xs_lp]
-
-    if xs_in_fb:
-        if len(lp_pts) == 1:
-            return ('partial', lp_pts[0])
-        return ('fb_only', None)
-
-    if not lp_pts:
-        return ('partial', xs_lp)
-    return ('lp_pair', xs_lp, lp_pts[0])
-
 def build_lp_incidence_matrix(xs_to_lp, verbose=True):
     all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
     lp_to_col = {atom: i for i, atom in enumerate(sorted(all_atoms))}
@@ -493,3 +453,58 @@ def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
         print(f"  poles={n_pole}  off_curve={n_off}  fb_only={n_fb}  partial={n_partial}")
 
     return xs_to_lp, counters
+
+def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
+    m_val = x_b_K - K(x_s_int)
+    g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
+    n_printed = 0
+    verbose = True
+    if verbose and n_printed < 3:
+        print('fiber eq (quartic g_at_m) for x_s=%d: %s' % (x_s_int, g_at_m))
+        print('f_shifted: %s' % f_shifted_fp)
+        print('h = f - g: %s, m' % (f_shifted_fp - g_at_m), m_val)
+        n_printed += 1
+    if g_at_m is None:
+        return ('pole', None)
+
+    h = f_shifted_fp - g_at_m
+    if h.is_zero():
+        return ('pole', None)
+
+    roots_with_mult = h.roots()
+    if not roots_with_mult:
+        return ('pole', None)
+
+    # tag all roots
+    tagged = []
+    for x_r, _mult in roots_with_mult:
+        x_int = int(x_r)
+        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
+        if not ok:
+            return ('off_curve', None)
+        tagged.append(((x_int, y_can), x_int in fb_x_set))
+
+    xs_y, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
+    if not xs_ok:
+        return ('off_curve', None)
+
+    xs_lp = (x_s_int, xs_y)
+    xs_in_fb = x_s_int in fb_x_set
+
+    # ALL non-FB roots OTHER than x_s itself are candidate LPs
+    lp_pts = [pt for pt, in_fb in tagged if not in_fb and pt != xs_lp]
+
+    # diagnostic: dump first few failures
+    if not lp_pts and not xs_in_fb:
+        all_roots = [pt for pt, _ in tagged]
+        fb_roots_here = [pt for pt, in_fb in tagged if in_fb]
+        print('fiber_lp_pair diag x_s=%d: all_roots=%s fb_roots=%s xs_lp=%s' % (x_s_int, all_roots[:5], fb_roots_here[:5], xs_lp))
+
+    if xs_in_fb:
+        if len(lp_pts) == 1:
+            return ('partial', lp_pts[0])
+        return ('fb_only', None)
+
+    if not lp_pts:
+        return ('partial', xs_lp)
+    return ('lp_pair', xs_lp, lp_pts[0])

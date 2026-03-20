@@ -791,8 +791,6 @@ def lift_coeff(c):
 # Replace measure_poly_complexity with this FINITE_FIELD-oriented function.
 # Use this version only for FINITE_FIELD (field-native polynomials); it raises on misuse.
 
-
-
 def _build_one_fibration_context(fx_SR, verbose):
     ctx = {}
     if FINITE_FIELD is not None:
@@ -842,7 +840,6 @@ def _build_one_fibration_context(fx_SR, verbose):
             raise
     return ctx
 
-
 def _coerce_build_one_points(pts_x, ctx):
     if ctx['mode'] == 'FF':
         xs_chosen = []
@@ -857,7 +854,6 @@ def _coerce_build_one_points(pts_x, ctx):
     if len(xs_chosen) == 0:
         raise RuntimeError("build_one_fibration_step: pts_x must contain at least one point.")
     return xs_chosen
-
 
 def _determine_build_one_degQ(n, forced_Qpoly, ctx):
     max_degQ = (n - 1) // 2
@@ -887,7 +883,6 @@ def _determine_build_one_degQ(n, forced_Qpoly, ctx):
         degQ = forced_deg
     return degQ
 
-
 def _coerce_build_one_f0(f0, ctx):
     if ctx['mode'] == 'FF':
         R_base_x = PolynomialRing(ctx['base_field'], 'x')
@@ -912,7 +907,6 @@ def _coerce_build_one_f0(f0, ctx):
         return R_QQ(coeffs_f0)
     except Exception:
         raise
-
 
 def _build_build_one_Qpoly(pts_x, xs_chosen, f0, degQ, forced_Qpoly,
                            force_Q_constraint_indices, seed_int, use_anchor_points,
@@ -1001,7 +995,6 @@ def _build_build_one_Qpoly(pts_x, xs_chosen, f0, degQ, forced_Qpoly,
         return interpolate_Q_with_anchors(chosen_pts_xy, degQ, ctx['xSR'], anchor_pts, seed_int=seed_int)
     return interpolate_Q_general(chosen_pts_xy, f0, degQ, ctx['xSR'], seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
 
-
 def _build_one_eval_poly_at(poly_Rxm, xpoint, Fm):
     try:
         return poly_Rxm(xpoint)
@@ -1011,7 +1004,6 @@ def _build_one_eval_poly_at(poly_Rxm, xpoint, Fm):
         for i in range(deg + 1):
             s += Fm(int(poly_Rxm.coefficient(i))) * (xpoint ** i)
         return s
-
 
 def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_tangency_seq=None, avoid_x=None):
     """Choose tangency points while optionally avoiding a preferred base point."""
@@ -1042,7 +1034,6 @@ def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_t
         return seq[:num_tangency_eqs]
 
     return [random.choice(pool) for _ in range(num_tangency_eqs)]
-
 
 def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
                         forced_tangency_seq, use_anchor_points, verbose, ctx):
@@ -1192,7 +1183,6 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
         'Fm': Fm,
         'R_xm': R_xm,
     }
-
 
 def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
                         forced_tangency_seq, use_anchor_points, verbose, ctx):
