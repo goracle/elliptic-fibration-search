@@ -1002,6 +1002,48 @@ def _build_build_one_Qpoly(pts_x, xs_chosen, f0, degQ, forced_Qpoly,
     return interpolate_Q_general(chosen_pts_xy, f0, degQ, ctx['xSR'], seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
 
 
+def _build_one_eval_poly_at(poly_Rxm, xpoint, Fm):
+    try:
+        return poly_Rxm(xpoint)
+    except Exception:
+        deg = int(poly_Rxm.degree())
+        s = Fm(0)
+        for i in range(deg + 1):
+            s += Fm(int(poly_Rxm.coefficient(i))) * (xpoint ** i)
+        return s
+
+
+def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_tangency_seq=None, avoid_x=None):
+    """Choose tangency points while optionally avoiding a preferred base point."""
+    if num_tangency_eqs <= 0:
+        return []
+
+    xs_norm = [base_field(x) for x in xs_chosen]
+    avoid_norm = base_field(avoid_x) if avoid_x is not None else None
+
+    pool = [x for x in xs_norm if avoid_norm is None or x != avoid_norm]
+    if not pool:
+        pool = xs_norm[:]
+
+    def normalize_candidate(x):
+        x = base_field(x)
+        if avoid_norm is not None and x == avoid_norm and len(pool) > 0:
+            return random.choice(pool)
+        return x
+
+    if forced_tangency_seq is not None:
+        seq = []
+        for x in forced_tangency_seq:
+            seq.append(normalize_candidate(x))
+            if len(seq) >= num_tangency_eqs:
+                break
+        while len(seq) < num_tangency_eqs:
+            seq.append(random.choice(pool))
+        return seq[:num_tangency_eqs]
+
+    return [random.choice(pool) for _ in range(num_tangency_eqs)]
+
+
 def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
                         forced_tangency_seq, use_anchor_points, verbose, ctx):
     Fm, R_xm, x_var = ctx['Fm'], ctx['R_xm'], ctx['x_var']
@@ -1017,7 +1059,6 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
             fx_field = R_xm(coeffs_fx_Fm)
         except Exception:
             raise RuntimeError("Could not coerce fx_SR into R_xm polynomial in finite-field mode")
-        raise
 
     try:
         Q_poly_Fm = R_xm(list(Qpoly_field.list()))
@@ -1026,7 +1067,6 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
             Q_poly_Fm = R_xm(Qpoly_field)
         except Exception:
             raise RuntimeError("Could not coerce Qpoly_field into R_xm")
-        raise
 
     prod_Fm = R_xm(1)
     for xi in xs_chosen:
@@ -1054,25 +1094,15 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
 
     r_expr = Fm(base_field(x1)) - m_symbol
 
-    def eval_poly_at(poly_Rxm, xpoint):
-        try:
-            return poly_Rxm(xpoint)
-        except Exception:
-            deg = int(poly_Rxm.degree())
-            s = Fm(0)
-            for i in range(deg + 1):
-                s += Fm(int(poly_Rxm.coefficient(i))) * (xpoint ** i)
-            return s
-
-    fx_at_r = eval_poly_at(fx_field, r_expr)
-    q2_at_r = eval_poly_at(Q2, r_expr)
-    T_at_r = [eval_poly_at(Ti, r_expr) for Ti in T_list]
+    fx_at_r = _build_one_eval_poly_at(fx_field, r_expr, Fm)
+    q2_at_r = _build_one_eval_poly_at(Q2, r_expr, Fm)
+    T_at_r = [_build_one_eval_poly_at(Ti, r_expr, Fm) for Ti in T_list]
     rows.append([T_at_r[i] for i in range(num_unknowns)])
     rhs.append(fx_at_r - q2_at_r)
 
-    dT_at_r = [eval_poly_at(Ti.derivative(x_var), r_expr) for Ti in T_list]
-    dQ2_at_r = eval_poly_at(Q2.derivative(x_var), r_expr)
-    dfx_at_r = eval_poly_at(fx_field.derivative(x_var), r_expr)
+    dT_at_r = [_build_one_eval_poly_at(Ti.derivative(x_var), r_expr, Fm) for Ti in T_list]
+    dQ2_at_r = _build_one_eval_poly_at(Q2.derivative(x_var), r_expr, Fm)
+    dfx_at_r = _build_one_eval_poly_at(fx_field.derivative(x_var), r_expr, Fm)
     rows.append([dT_at_r[i] for i in range(num_unknowns)])
     rhs.append(dfx_at_r - dQ2_at_r)
 
@@ -1099,24 +1129,22 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
     if num_tangency_eqs < 0:
         num_tangency_eqs = 0
 
-    sel_points = []
-    if num_tangency_eqs > 0:
-        if forced_tangency_seq is not None:
-            if len(forced_tangency_seq) >= num_tangency_eqs:
-                sel_points = [base_field(x) for x in forced_tangency_seq[:num_tangency_eqs]]
-            else:
-                raise RuntimeError("forced_tangency_seq too short for requested tangency count")
-        else:
-            sel_points = [random.choice(xs_chosen) for _ in range(num_tangency_eqs)]
+    sel_points = _build_one_tangency_points(
+        xs_chosen,
+        num_tangency_eqs,
+        base_field,
+        forced_tangency_seq=forced_tangency_seq,
+        avoid_x=x1,
+    )
 
     tangency_counts = {x: 0 for x in xs_chosen}
     for xv in sel_points:
         tangency_counts[xv] += 1
         order = tangency_counts[xv]
         xpoint = Fm(base_field(xv))
-        Ti_derivs_at_x = [eval_poly_at(Ti.derivative(x_var, order), xpoint) for Ti in T_list]
-        q2_deriv_at_x = eval_poly_at(Q2.derivative(x_var, order), xpoint)
-        fx_deriv_at_x = eval_poly_at(fx_field.derivative(x_var, order), xpoint)
+        Ti_derivs_at_x = [_build_one_eval_poly_at(Ti.derivative(x_var, order), xpoint, Fm) for Ti in T_list]
+        q2_deriv_at_x = _build_one_eval_poly_at(Q2.derivative(x_var, order), xpoint, Fm)
+        fx_deriv_at_x = _build_one_eval_poly_at(fx_field.derivative(x_var, order), xpoint, Fm)
         rows.append([Ti_derivs_at_x[i] for i in range(num_unknowns)])
         rhs.append(fx_deriv_at_x - q2_deriv_at_x)
 
@@ -1126,7 +1154,7 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
         inv2 = Fm(1) / Fm(2)
         x_mix = Fm(base_field(x_mix_num)) * inv2
         xmix_pows = [x_mix**i for i in range(num_unknowns)]
-        Q_at_mix = eval_poly_at(Q_poly_Fm, x_mix)
+        Q_at_mix = _build_one_eval_poly_at(Q_poly_Fm, x_mix, Fm)
         rows.append([xmix_pows[i] for i in range(num_unknowns)])
         rhs.append(Q_at_mix)
 
@@ -1206,17 +1234,15 @@ def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
     else:
         use_mixing = True
 
-    tangency_counts = {x: 0 for x in xs_chosen}
-    sel_points = []
-    if num_tangency_eqs > 0:
-        if forced_tangency_seq is not None:
-            if len(forced_tangency_seq) >= num_tangency_eqs:
-                sel_points = [x for x in forced_tangency_seq[:num_tangency_eqs]]
-            else:
-                raise RuntimeError("forced_tangency_seq too short for requested tangency count")
-        else:
-            sel_points = [random.choice(xs_chosen) for _ in range(num_tangency_eqs)]
+    sel_points = _build_one_tangency_points(
+        xs_chosen,
+        num_tangency_eqs,
+        QQ,
+        forced_tangency_seq=forced_tangency_seq,
+        avoid_x=xs_chosen[0],
+    )
 
+    tangency_counts = {x: 0 for x in xs_chosen}
     for xv in sel_points:
         tangency_counts[xv] += 1
         current_order = tangency_counts[xv]
@@ -1285,7 +1311,6 @@ def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
         'Fm': ctx['Fm'],
         'R_xm': ctx['R_xm'],
     }
-
 
 @PROFILE
 def build_one_fibration_step(fx_SR, f0, pts_x, g2, seed_int=SEED_INT,
