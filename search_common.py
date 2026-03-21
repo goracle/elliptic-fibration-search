@@ -959,8 +959,11 @@ class MorphismWrapper:
         self.callable_obj = callable_obj
         self.k = k
         self.scale = scale
-        # Store the parent ring to reconstruct the generator 'm'
-        self.parent_ring = a4_min.parent()
+        # Accept either a ring or a ring element
+        if hasattr(a4_min, 'parent'):
+            self.parent_ring = a4_min.parent()
+        else:
+            self.parent_ring = a4_min  # already a ring
 
     def __call__(self, **kwargs):
         val = self.callable_obj(**kwargs)
@@ -2806,9 +2809,9 @@ def compute_base_sections_m(cd, base_pts, tower=None):
             three_scale = map_scale(three_use.scale)
 
             # Create new wrappers over Fp(m)
-            one_use = MorphismWrapper(one_mapped, one_use.k, one_scale, Pm_p(cd.a4))
-            two_use = MorphismWrapper(two_mapped, two_use.k, two_scale, Pm_p(cd.a4))
-            three_use = MorphismWrapper(three_mapped, three_use.k, three_scale, Pm_p(cd.a4))
+            one_use   = MorphismWrapper(one_mapped,   one_use.k,   one_scale,   Pm_p)
+            two_use   = MorphismWrapper(two_mapped,   two_use.k,   two_scale,   Pm_p)
+            three_use = MorphismWrapper(three_mapped, three_use.k, three_scale, Pm_p)
         except Exception as e:
             raise RuntimeError(f"compute_base_sections (FF): morphism mapping failed: {e}")
 

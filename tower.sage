@@ -1083,6 +1083,8 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
         else:
             m_symbol = parameter_m
 
+    # ---- REPLACE lines 1086-1121 with this block ----
+
     r_expr = Fm(base_field(x1)) - m_symbol
 
     fx_at_r = _build_one_eval_poly_at(fx_field, r_expr, Fm)
@@ -1091,34 +1093,38 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
     rows.append([T_at_r[i] for i in range(num_unknowns)])
     rhs.append(fx_at_r - q2_at_r)
 
-    dT_at_r = [_build_one_eval_poly_at(Ti.derivative(x_var), r_expr, Fm) for Ti in T_list]
-    dQ2_at_r = _build_one_eval_poly_at(Q2.derivative(x_var), r_expr, Fm)
-    dfx_at_r = _build_one_eval_poly_at(fx_field.derivative(x_var), r_expr, Fm)
-    rows.append([dT_at_r[i] for i in range(num_unknowns)])
-    rhs.append(dfx_at_r - dQ2_at_r)
+    # FF-only: impose one fewer tangency condition at the base point.
+    # QQ mode always adds the derivative row (double-root / full tangency).
+    # FF mode skips it (simple-root condition only), freeing one slot that
+    # the mixing equation absorbs below.
+    if FINITE_FIELD is None:
+        dT_at_r = [_build_one_eval_poly_at(Ti.derivative(x_var), r_expr, Fm) for Ti in T_list]
+        dQ2_at_r = _build_one_eval_poly_at(Q2.derivative(x_var), r_expr, Fm)
+        dfx_at_r = _build_one_eval_poly_at(fx_field.derivative(x_var), r_expr, Fm)
+        rows.append([dT_at_r[i] for i in range(num_unknowns)])
+        rhs.append(dfx_at_r - dQ2_at_r)
 
-    drop_last_tangency = (FINITE_FIELD is not None and parameter_m is not None)
+    num_base_rows = len(rows)          # 1 (FF) or 2 (QQ)
     unknowns_order = num_unknowns
+    remaining = unknowns_order - num_base_rows
 
-    if use_anchor_points:
-        num_tangency_eqs = unknowns_order - 2 - 1
+    if FINITE_FIELD is not None:
+        # FF mode: 1 base row leaves (unknowns_order - 1) slots.
+        # Reserve one for mixing; rest are tangency conditions.
+        num_tangency_eqs = max(0, remaining - 1)
+        use_mixing = (remaining >= 1)
+    elif use_anchor_points:
+        # QQ mode with anchors: same as before (reserve 1 slot for mixing).
+        if remaining <= 0 and verbose:
+            print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
+        num_tangency_eqs = max(0, remaining - 1)
+        use_mixing = (remaining >= 1)
     else:
-        num_tangency_eqs = unknowns_order - 2
-
-    if drop_last_tangency and not use_anchor_points:
-        num_tangency_eqs = max(0, num_tangency_eqs - 1)
-        use_mixing = True
-    elif num_tangency_eqs < 0 or not use_anchor_points:
-        if use_anchor_points:
-            if verbose:
-                print("Warning: Not enough DOF for Q-mixing strategy, reverting to full tangency.")
-        num_tangency_eqs = unknowns_order - 2
+        # QQ mode without anchors: fill entirely with tangency, no mixing.
+        num_tangency_eqs = remaining
         use_mixing = False
-    else:
-        use_mixing = True
 
-    if num_tangency_eqs < 0:
-        num_tangency_eqs = 0
+    # ---- end replacement ----
 
     sel_points = _build_one_tangency_points(
         xs_chosen,

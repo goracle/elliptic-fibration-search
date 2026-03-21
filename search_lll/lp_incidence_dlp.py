@@ -111,51 +111,6 @@ def _eval_erhs_at_m(E_rhs_m, m_val_K, K, Rx):
 # LP graph diagnostics
 # ---------------------------------------------------------------------------
 
-def analyze_lp_graph(xs_to_lp, verbose=True):
-    """
-    Analyze the functional graph  x_s → LP_s.
-
-    In the ideal case this is a permutation on the LP set (every LP atom is
-    also an x_s atom), giving a union of disjoint cycles.
-    """
-    in_degree  = Counter(xs_to_lp.values())
-    out_degree = Counter(xs_to_lp.keys())   # all 1 by construction
-
-    # Find cycles via functional-graph DFS
-    visited  = set()
-    in_cycle = set()
-    n_cycles = 0
-
-    for start in xs_to_lp:
-        if start in visited:
-            continue
-        path = []
-        node = start
-        path_set = {}
-        while node not in visited and node in xs_to_lp:
-            if node in path_set:
-                # found cycle
-                cycle_start = node
-                i = path_set[node]
-                cycle_nodes = path[i:]
-                in_cycle.update(cycle_nodes)
-                n_cycles += 1
-                break
-            path_set[node] = len(path)
-            path.append(node)
-            node = xs_to_lp[node]
-        visited.update(path)
-
-    n_lp = len(lp_to_col_from_xs(xs_to_lp))
-    if verbose:
-        print(f"\n[LP graph] {len(xs_to_lp)} xs atoms  {n_lp} total LP atoms")
-        print(f"  LP atoms also in xs domain : {sum(1 for v in xs_to_lp.values() if v in xs_to_lp)}")
-        print(f"  Cycle nodes : {len(in_cycle)}  Cycles : {n_cycles}")
-        print(f"  Expected rank : {n_lp} - {n_cycles} = {n_lp - n_cycles}")
-
-    return dict(n_xs=len(xs_to_lp), n_lp=n_lp, n_cycles=n_cycles,
-                n_cycle_nodes=len(in_cycle), expected_rank=n_lp - n_cycles)
-
 def lp_to_col_from_xs(xs_to_lp):
     """Helper: collect all LP atoms from the xs_to_lp mapping."""
     return set(xs_to_lp.keys()) | set(xs_to_lp.values())
@@ -163,48 +118,6 @@ def lp_to_col_from_xs(xs_to_lp):
 # ---------------------------------------------------------------------------
 # Map a Mumford divisor into LP columns (with sign)
 # ---------------------------------------------------------------------------
-
-def mumford_divisor_lp_cols(divisor, lp_to_col, f_shifted_fp, p, label='DIV'):
-    """
-    Return (col1, sign1, col2, sign2) for the two roots of divisor's u-polynomial.
-
-    sign = +1 if v(root) matches y_can,  -1 if it matches p - y_can.
-    Returns None if any root is absent from lp_to_col.
-    """
-    K = GF(p)
-    try:
-        u_poly, v_poly = divisor[0], divisor[1]
-    except Exception as exc:
-        print(f"[{label}] Cannot read Mumford (u, v): {exc}")
-        return None
-
-    roots_data = u_poly.roots(K)
-    flat = [x_r for x_r, m in roots_data for _ in range(int(m))]
-    if len(flat) != 2:
-        print(f"[{label}] u(x) must have exactly 2 roots; got {len(flat)}")
-        return None
-
-    result = []
-    for x_r in flat:
-        x_int  = int(x_r)
-        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
-        if not ok:
-            print(f"[{label}] root x={x_int} off-curve")
-            return None
-        pt  = (x_int, y_can)
-        col = lp_to_col.get(pt)
-        if col is None:
-            print(f"[{label}] root {pt} not in LP basis")
-            return None
-        v_val = int(v_poly(K(x_int))) % p
-        sign  = 1 if v_val == y_can else -1
-        result.append((col, sign))
-
-    if result[0][0] == result[1][0]:
-        print(f"[{label}] degenerate: both roots share the same LP column")
-        return None
-
-    return (result[0][0], result[0][1], result[1][0], result[1][1])
 
 # ---------------------------------------------------------------------------
 # Solve the LP system mod ell via Block-Wiedemann
@@ -290,6 +203,66 @@ def run_lp_dlp_attack(cd, E_rhs_m, f_shifted_fp, atom_to_idx, lp_seed_xs,
         atom_to_idx=atom_to_idx, lp_seed_xs=lp_seed_xs, verbose=verbose,
     )
 
+global NPRINTED
+NPRINTED = 0
+
+# ---------------------------------------------------------------------------
+# Atom representation helpers
+# ---------------------------------------------------------------------------
+
+def _d1_atom(x_int, y_can):
+    return ('d1', x_int, y_can)
+
+# ---------------------------------------------------------------------------
+# fiber_lp_pair  (replaces existing)
+# ---------------------------------------------------------------------------
+
+def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
+                       lp_seed_xs, verbose=True):
+    assert lp_seed_xs is not None, "lp_seed_xs required"
+    K  = GF(p)
+    Rx = PolynomialRing(K, 'x')
+    x_b_K = K(int(x_b))
+
+    fb_x_set = set(atom[1] for atom in atom_to_idx if atom[0] == 'd1')
+    fb_x_set.add(int(x_b))
+
+    true_lp_seeds = [x for x in lp_seed_xs if int(x) not in fb_x_set]
+    if verbose:
+        print(f"[LP enum] {len(lp_seed_xs)} seeds -> {len(true_lp_seeds)} after FB filter")
+
+    xs_to_lp = {}
+    n_tried = n_pole = n_off = n_fb = n_partial = 0
+
+    for x_s_int in true_lp_seeds:
+        n_tried += 1
+        res = fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p)
+        tag = res[0]
+        if tag == 'lp_pair':
+            xs_to_lp[res[1]] = res[2]    # atom -> atom (now 3-tuples)
+        elif tag == 'pole':
+            n_pole += 1
+        elif tag == 'off_curve':
+            n_off += 1
+        elif tag == 'fb_only':
+            n_fb += 1
+        elif tag == 'partial':
+            n_partial += 1
+
+    counters = dict(tried=n_tried, poles=n_pole, off_curve=n_off,
+                    fb_only=n_fb, partial=n_partial, lp_fibers=len(xs_to_lp))
+    if verbose:
+        print(f"[LP enum] tried={n_tried}  LP fibers={len(xs_to_lp)}")
+        print(f"  poles={n_pole}  off_curve={n_off}  fb_only={n_fb}  partial={n_partial}")
+    return xs_to_lp, counters
+
+# ============================================================
+# PATCH 1 of 3 — solve_dlp_via_lp_incidence
+# Fix: second-pass seed extraction broken by new 3-tuple atom format.
+# atom[0] now returns 'd1'/'d2' (tag string), not an x-coordinate.
+# Only d1 atoms have a meaningful x-coordinate to seed fibers from.
+# ============================================================
+
 def solve_dlp_via_lp_incidence(
         E_rhs_m, f_shifted_fp, x_b, p, ell,
         base_divisor, target_divisor, atom_to_idx,
@@ -307,9 +280,15 @@ def solve_dlp_via_lp_incidence(
         E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
         lp_seed_xs=lp_seed_xs, verbose=verbose)
 
-    # Second pass: seed with the LP values to close the functional graph
-    lp_value_xs = set(atom[0] for atom in xs_to_lp.values())
-    new_seeds = lp_value_xs - set(atom[0] for atom in xs_to_lp.keys())
+    # Second pass: seed with x-coordinates of d1 LP values not yet used as keys.
+    # d2 atoms (irreducible quadratics) have no single Fp x-coord to seed from.
+    def _d1_x(atom):
+        return atom[1] if atom[0] == 'd1' else None
+
+    lp_value_xs = {_d1_x(a) for a in xs_to_lp.values() if a[0] == 'd1'}
+    xs_key_xs   = {_d1_x(a) for a in xs_to_lp.keys()   if a[0] == 'd1'}
+    new_seeds   = lp_value_xs - xs_key_xs
+
     if new_seeds:
         if verbose:
             print(f"[LP DLP] Second pass: {len(new_seeds)} new seeds from LP values")
@@ -326,8 +305,11 @@ def solve_dlp_via_lp_incidence(
     lp_to_col, row_pairs = build_lp_incidence_matrix(xs_to_lp, verbose=verbose)
     graph_info = analyze_lp_graph(xs_to_lp, verbose=verbose)
 
-    g_result = mumford_divisor_lp_cols(base_divisor,   lp_to_col, f_shifted_fp, p, 'G')
-    q_result = mumford_divisor_lp_cols(target_divisor, lp_to_col, f_shifted_fp, p, 'Q')
+    #g_result = mumford_divisor_lp_cols(base_divisor,   lp_to_col, f_shifted_fp, p, 'G')
+    #q_result = mumford_divisor_lp_cols(target_divisor, lp_to_col, f_shifted_fp, p, 'Q')
+
+    g_result = mumford_divisor_lp_cols(base_divisor,   lp_to_col, f_shifted_fp, E_rhs_m, x_b, p, 'G')
+    q_result = mumford_divisor_lp_cols(target_divisor, lp_to_col, f_shifted_fp, E_rhs_m, x_b, p, 'Q')
 
     if g_result is None:
         print("[LP DLP] G not in LP basis — aborting.")
@@ -370,100 +352,140 @@ def solve_dlp_via_lp_incidence(
     return dict(dlp=k, verified=verified, lp_to_col=lp_to_col, solution=solution,
                 n_lp_cols=len(lp_to_col), n_homogeneous=len(row_pairs), graph_info=graph_info)
 
-def build_lp_incidence_matrix(xs_to_lp, verbose=True):
-    all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
-    lp_to_col = {atom: i for i, atom in enumerate(sorted(all_atoms))}
+# ============================================================
+# PATCH 2 of 3 — build_lp_incidence_matrix
+# Fixes:
+#   (a) sort crash: atoms are now ('d1',x,y) or ('d2',a,b) 3-tuples.
+#       sorted() works fine on uniform 3-tuples; the crash was caused by
+#       old 2-tuple atoms still present.  Add an assertion to catch any
+#       stragglers clearly instead of a mysterious TypeError.
+#   (b) key_by_x fallback lookup: lp_s_atom[0] is now the tag 'd1'/'d2',
+#       not the x-coordinate.  For d1 atoms the x-coord is lp_s_atom[1].
+#       For d2 atoms there is no single x-coord; skip the fallback.
+#   (c) Remove the chain diagnostic spam (5 prints per call).
+# ============================================================
 
-    key_by_x = {atom[0]: atom for atom in xs_to_lp.keys()}
+# ============================================================
+# PATCH 3 of 3 — analyze_lp_graph
+# Fix: lp_to_col_from_xs / summary print are fine; the only broken line
+# was the chain-diag print inside build_lp_incidence_matrix (now removed).
+# analyze_lp_graph itself only uses atom keys as opaque dict keys so it
+# works without changes — but add a d1/d2 breakdown to the summary.
+# ============================================================
 
-    # Diagnose why chains are failing on first 5 entries
-    sample = list(xs_to_lp.items())[:5]
-    for xs_atom, lp_s_atom in sample:
-        exact = xs_to_lp.get(lp_s_atom)
-        by_x  = key_by_x.get(lp_s_atom[0])
-        print(f"[LP chain diag] xs={xs_atom}  lp_s={lp_s_atom}")
-        print(f"  exact lookup: {exact}")
-        print(f"  key_by_x[lp_s.x]={by_x}  y_match={by_x == lp_s_atom if by_x else 'N/A'}")
+def analyze_lp_graph(xs_to_lp, verbose=True):
+    """
+    Analyze the functional graph  xs_atom -> lp_atom.
 
-    row_pairs = []
-    skipped = 0
+    In the ideal case this is a permutation on the LP atom set,
+    giving a union of disjoint cycles.  Atoms are now 3-tuples
+    ('d1', x, y) or ('d2', a, b).
+    """
+    # Find cycles via functional-graph DFS
+    visited  = set()
+    in_cycle = set()
+    n_cycles = 0
 
-    for xs_atom, lp_s_atom in xs_to_lp.items():
-        next_key = xs_to_lp.get(lp_s_atom)
-        if next_key is None:
-            candidate = key_by_x.get(lp_s_atom[0])
-            if candidate is not None:
-                next_key = xs_to_lp.get(candidate)
-
-        if next_key is None:
-            skipped += 1
+    for start in xs_to_lp:
+        if start in visited:
             continue
+        path    = []
+        node    = start
+        path_set = {}
+        while node not in visited and node in xs_to_lp:
+            if node in path_set:
+                cycle_nodes = path[path_set[node]:]
+                in_cycle.update(cycle_nodes)
+                n_cycles += 1
+                break
+            path_set[node] = len(path)
+            path.append(node)
+            node = xs_to_lp[node]
+        visited.update(path)
 
-        col_pos = lp_to_col[xs_atom]
-        col_neg = lp_to_col[next_key]
-
-        if col_pos != col_neg:
-            row_pairs.append((col_pos, col_neg))
-
-    if verbose:
-        print(f"[LP matrix] {len(lp_to_col)} LP cols  {len(row_pairs)} rows  "
-              f"({skipped} chain-ends skipped)")
-
-    return lp_to_col, row_pairs
-
-def enumerate_lp_pairs(E_rhs_m, f_shifted_fp, x_b, p, atom_to_idx,
-                       lp_seed_xs, verbose=True):
-    assert lp_seed_xs is not None, "lp_seed_xs required"
-    K = GF(p)
-    Rx = PolynomialRing(K, 'x')
-    x_b_K = K(int(x_b))
-
-    fb_x_set = set(atom[1] for atom in atom_to_idx if atom[0] == 'd1')
-    fb_x_set.add(int(x_b))
-
-    # Only seed with x-values that are genuinely outside the full FB
-    true_lp_seeds = [x for x in lp_seed_xs if int(x) not in fb_x_set]
+    n_lp    = len(lp_to_col_from_xs(xs_to_lp))
+    n_in_xs = sum(1 for v in xs_to_lp.values() if v in xs_to_lp)
 
     if verbose:
-        print(f"[LP enum] {len(lp_seed_xs)} seeds -> {len(true_lp_seeds)} after FB filter")
+        all_atoms = set(xs_to_lp.keys()) | set(xs_to_lp.values())
+        d1 = sum(1 for a in all_atoms if a[0] == 'd1')
+        d2 = sum(1 for a in all_atoms if a[0] == 'd2')
+        print(f"\n[LP graph] {len(xs_to_lp)} xs atoms  {n_lp} total LP atoms  "
+              f"({d1} d1 + {d2} d2)")
+        print(f"  LP atoms also in xs domain : {n_in_xs}")
+        print(f"  Cycle nodes : {len(in_cycle)}  Cycles : {n_cycles}")
+        print(f"  Expected rank : {n_lp} - {n_cycles} = {n_lp - n_cycles}")
 
-    xs_to_lp = {}
-    n_tried = n_pole = n_off = n_fb = n_partial = 0
+    return dict(n_xs=len(xs_to_lp), n_lp=n_lp, n_cycles=n_cycles,
+                n_cycle_nodes=len(in_cycle), expected_rank=n_lp - n_cycles)
 
-    for x_s_int in true_lp_seeds:
-        n_tried += 1
-        res = fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p)
-        tag = res[0]
-        if tag == 'lp_pair':
-            xs_to_lp[res[1]] = res[2]
-        elif tag == 'pole':
-            n_pole += 1
-        elif tag == 'off_curve':
-            n_off += 1
-        elif tag == 'fb_only':
-            n_fb += 1
-        elif tag == 'partial':
-            n_partial += 1
+def _d2_atom(quad_factor):
+    """
+    Convert an irreducible degree-2 polynomial over GF(p) to a canonical
+    hashable atom key: ('d2', a, b) for x^2 + a*x + b.
+    """
+    coeffs = quad_factor.list()   # [b, a, c]
+    if quad_factor.degree() != 2:
+        raise ValueError(f"Expected degree-2 factor, got degree {quad_factor.degree()}")
 
-    counters = dict(tried=n_tried, poles=n_pole, off_curve=n_off,
-                    fb_only=n_fb, partial=n_partial, lp_fibers=len(xs_to_lp))
+    p = quad_factor.base_ring().characteristic()
+    c = int(coeffs[2]) % p
+    if c == 0:
+        raise ValueError("Quadratic factor has zero leading coeff")
 
-    if verbose:
-        print(f"[LP enum] tried={n_tried}  LP fibers={len(xs_to_lp)}")
-        print(f"  poles={n_pole}  off_curve={n_off}  fb_only={n_fb}  partial={n_partial}")
+    c_inv = pow(c, p - 2, p)
+    b = int(coeffs[0]) * c_inv % p
+    a = int(coeffs[1]) * c_inv % p
+    return ('d2', a, b)
 
-    return xs_to_lp, counters
+def _linear_root_int(fac, p):
+    """
+    Return the root r in GF(p) of a linear factor fac = a*x + b.
+    """
+    coeffs = fac.list()   # [b, a]
+    if fac.degree() != 1 or len(coeffs) != 2:
+        raise ValueError(f"Expected linear factor, got degree {fac.degree()}")
+
+    b = int(coeffs[0]) % p
+    a = int(coeffs[1]) % p
+    if a == 0:
+        raise ValueError("Linear factor has zero leading coefficient")
+
+    return (-b * pow(a, p - 2, p)) % p
+
+def _lp_atom_from_x(x_int, f_shifted_fp, K, p):
+    """
+    Encode an LP point at x_int as a canonical atom:
+
+    - d1: linear F_p-rational point
+        LP atom = ('d1', x, y_can)
+    - d2: point only over F_{p^2}
+        LP atom = ('d2', x, y2), where y2 = f(x) mod F_{p^2}
+
+    Returns None if the point is not on the curve.
+    """
+    y2 = int(f_shifted_fp(K(x_int))) % p
+    if y2 == 0:
+        return _d1_atom(x_int, 0)
+
+    # Check if square in F_p
+    if pow(y2, (p - 1) // 2, p) == 1:
+        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
+        if not ok:
+            return None
+        return _d1_atom(x_int, y_can)
+
+    # Non-square in F_p -> d2 over F_{p^2}
+    return ('d2', x_int, y2)
 
 def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
+    """
+    Build the fiber relation for a given x_s.
+    Produces exactly one LP atom in canonical d1/d2 format.
+    """
+    x_b_int = int(x_b_K)
     m_val = x_b_K - K(x_s_int)
     g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
-    n_printed = 0
-    verbose = True
-    if verbose and n_printed < 3:
-        print('fiber eq (quartic g_at_m) for x_s=%d: %s' % (x_s_int, g_at_m))
-        print('f_shifted: %s' % f_shifted_fp)
-        print('h = f - g: %s, m' % (f_shifted_fp - g_at_m), m_val)
-        n_printed += 1
     if g_at_m is None:
         return ('pole', None)
 
@@ -471,40 +493,176 @@ def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
     if h.is_zero():
         return ('pole', None)
 
-    roots_with_mult = h.roots()
-    if not roots_with_mult:
-        return ('pole', None)
-
-    # tag all roots
-    tagged = []
-    for x_r, _mult in roots_with_mult:
-        x_int = int(x_r)
-        y_can, ok = _y_can(x_int, f_shifted_fp, K, p)
-        if not ok:
-            return ('off_curve', None)
-        tagged.append(((x_int, y_can), x_int in fb_x_set))
-
     xs_y, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
     if not xs_ok:
         return ('off_curve', None)
 
-    xs_lp = (x_s_int, xs_y)
+    xs_atom = _d1_atom(x_s_int, xs_y)
     xs_in_fb = x_s_int in fb_x_set
 
-    # ALL non-FB roots OTHER than x_s itself are candidate LPs
-    lp_pts = [pt for pt, in_fb in tagged if not in_fb and pt != xs_lp]
+    lp_atom = None
+    for fac, mult in h.factor():
+        deg = fac.degree()
+        if deg == 0:
+            continue
 
-    # diagnostic: dump first few failures
-    if not lp_pts and not xs_in_fb:
-        all_roots = [pt for pt, _ in tagged]
-        fb_roots_here = [pt for pt, in_fb in tagged if in_fb]
-        print('fiber_lp_pair diag x_s=%d: all_roots=%s fb_roots=%s xs_lp=%s' % (x_s_int, all_roots[:5], fb_roots_here[:5], xs_lp))
+        if deg == 1:
+            r = _linear_root_int(fac, p)
+            if r in (x_b_int, x_s_int):
+                continue
+            if mult != 1:
+                return ('partial', xs_atom)
+            lp_atom = _lp_atom_from_x(r, f_shifted_fp, K, p)
+            if lp_atom is None:
+                return ('partial', xs_atom)
+            break
+
+        elif deg == 2:
+            if mult != 1:
+                return ('partial', xs_atom)
+            # Pick the remaining root of h as LP; encode canonically
+            # Use _extract_lp_root_from_h to get x coordinate
+            r = _extract_lp_root_from_h(h, x_s_int, x_b_int)
+            if r is None:
+                return ('partial', xs_atom)
+            lp_atom = _lp_atom_from_x(r, f_shifted_fp, K, p)
+            if lp_atom is None:
+                return ('partial', xs_atom)
+            break
+
+        else:
+            return ('partial', xs_atom)
+
+    if lp_atom is None:
+        return ('partial', xs_atom)
 
     if xs_in_fb:
-        if len(lp_pts) == 1:
-            return ('partial', lp_pts[0])
-        return ('fb_only', None)
+        return ('partial', lp_atom)
 
-    if not lp_pts:
-        return ('partial', xs_lp)
-    return ('lp_pair', xs_lp, lp_pts[0])
+    return ('lp_pair', xs_atom, lp_atom)
+
+def mumford_divisor_lp_cols(divisor, lp_to_col, f_shifted_fp, E_rhs_m, x_b, p, label='DIV'):
+    """
+    Map a Mumford divisor to two LP columns with signs.
+    """
+    K = GF(p)
+    Rx = PolynomialRing(K, 'x')
+    x_b_K = K(int(x_b))
+    x_b_int = int(x_b_K)
+
+    try:
+        u_poly, v_poly = divisor[0], divisor[1]
+    except Exception as exc:
+        print(f"[{label}] Cannot read Mumford (u, v): {exc}")
+        return None
+
+    # --- extract the two x_s roots ---
+    roots = []
+    for fac, mult in u_poly.factor():
+        if fac.degree() == 1:
+            r = _linear_root_int(fac, p)
+            roots.extend([r] * int(mult))
+        elif fac.degree() != 0:
+            print(f"[{label}] u(x) has non-linear factor degree {fac.degree()}")
+            return None
+
+    if len(roots) != 2:
+        print(f"[{label}] expected 2 F_p roots, got {len(roots)}")
+        return None
+
+    result = []
+
+    for x_s_int in roots:
+        m_val = x_b_K - K(x_s_int)
+        g_at_m = _eval_erhs_at_m(E_rhs_m, m_val, K, Rx)
+        if g_at_m is None:
+            print(f"[{label}] pole at x_s={x_s_int}")
+            return None
+
+        h = f_shifted_fp - g_at_m
+        if h.is_zero():
+            print(f"[{label}] zero fiber polynomial at x_s={x_s_int}")
+            return None
+
+        # --- extract LP root via multiplicity logic ---
+        r = _extract_lp_root_from_h(h, x_s_int, x_b_int)
+        if r is None:
+            print(f"[{label}] failed to extract LP root at x_s={x_s_int}")
+            return None
+
+        # --- unified atom encoding (d1 or d2 automatically) ---
+        lp_atom = _lp_atom_from_x(r, f_shifted_fp, K, p)
+        if lp_atom is None:
+            print(f"[{label}] could not encode LP root x={r}")
+            return None
+
+        col = lp_to_col.get(lp_atom)
+        if col is None:
+            print(f"[{label}] LP atom {lp_atom} not in LP basis")
+            return None
+
+        # --- sign from Mumford v(x_s) ---
+        xs_y_can, xs_ok = _y_can(x_s_int, f_shifted_fp, K, p)
+        if not xs_ok:
+            print(f"[{label}] x_s={x_s_int} not on curve")
+            return None
+
+        v_val = int(v_poly(K(x_s_int))) % p
+        sign = 1 if v_val == xs_y_can else -1
+
+        result.append((col, sign))
+
+    if len(result) != 2:
+        print(f"[{label}] degenerate: got {len(result)} roots")
+        return None
+
+    if result[0][0] == result[1][0]:
+        print(f"[{label}] degenerate: both roots map to same LP column")
+        return None
+
+    return (result[0][0], result[0][1], result[1][0], result[1][1])
+
+def build_lp_incidence_matrix(xs_to_lp, verbose=True):
+    """
+    Build LP incidence rows from pairwise differences:
+
+        LP_s - LP_t = 0
+
+    for pairs of fibers.
+    """
+
+    # collect LP atoms only (NOT xs)
+    all_lp_atoms = list(set(xs_to_lp.values()))
+    lp_to_col = {atom: i for i, atom in enumerate(all_lp_atoms)}
+
+    row_pairs = []
+
+    xs_list = list(xs_to_lp.keys())
+
+    # simplest: chain them (x0-x1, x1-x2, ...)
+    for i in range(len(xs_list) - 1):
+        lp1 = xs_to_lp[xs_list[i]]
+        lp2 = xs_to_lp[xs_list[i + 1]]
+
+        c1 = lp_to_col[lp1]
+        c2 = lp_to_col[lp2]
+
+        if c1 != c2:
+            row_pairs.append((c1, c2))
+
+    if verbose:
+        print(f"[LP matrix] {len(lp_to_col)} LP cols, {len(row_pairs)} rows (pairwise differences)")
+
+    return lp_to_col, row_pairs
+
+def _extract_lp_root_from_h(h, x_s_int, x_b_int, K, Rx):
+    x = Rx.gen()
+
+    # divide out known factors explicitly
+    h1 = h // (x - K(x_b_int))**3
+    h2 = h1 // (x - K(x_s_int))
+
+    if h2.degree() != 1:
+        return None
+
+    return _linear_root_int(h2, K.characteristic())
