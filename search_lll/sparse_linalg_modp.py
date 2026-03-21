@@ -272,7 +272,8 @@ def solve_with_retry(A, b, max_attempts=3, **kwargs):
 # FIX 3: Atom validation (unchanged, still valid)
 # ============================================================================
 
-def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5):
+from sage.all import Zmod, vector, Integer
+def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5, iters=None):
     """
     Solve inhomogeneous system A*x = b using Block-Wiedemann.
 
@@ -290,8 +291,6 @@ def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5):
     Returns:
         (solution_vector, success_bool)
     """
-    from sage.all import Zmod, vector, Integer
-
     mod = int(A.mod)
     m = len(A.packed_rows)
     n = A.n_cols
@@ -342,7 +341,7 @@ def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5):
 
         kernel_vec, bm_degree = block_wiedemann_solve(
             A_aug,
-            iters=None,
+            iters=iters if iters is not None else 2 * len(A.packed_rows) + 200,
             verbose=(verbose and attempt == 0),
             left_seed=left_seed,
             right_seed=right_seed,
@@ -1342,7 +1341,7 @@ def block_wiedemann_solve(A, iters=None, verbose=True, left_seed=None, right_see
     m = len(A.packed_rows)
 
     if iters is None:
-        iters = 3 * n + 200
+        iters = 2 * m + 200
     if iters % 2 != 0: iters += 1
 
     left_seed = left_seed or random.randrange(1, mod)

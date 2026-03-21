@@ -479,8 +479,6 @@ def lp_correlation_report(hdf5_paths):
     except ImportError:
         print("(install scipy for Pearson r)")
 
-
-
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("Usage: python fiber_augment_hdf5.py <file1.h5> [file2.h5 ...]")
