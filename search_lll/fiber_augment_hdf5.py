@@ -186,7 +186,7 @@ def build_fiber_augmented_relations(
         lp_state["resolver"] = resolver
 
     if x_coords is None:
-        x_coords_list = [(i, None) for i in range(len(atom_to_idx))]
+        x_coords_list = [(int(atom[1]), None) for atom in atom_to_idx if isinstance(atom, tuple) and atom[0] == 'd1']
     else:
         x_coords_list = [(int(x), None if y is None else int(y)) for x, y in x_coords]
 
@@ -478,6 +478,8 @@ def lp_correlation_report(hdf5_paths):
             print(f"\nPearson r: {r:.4f}  (p={pval:.3e})")
     except ImportError:
         print("(install scipy for Pearson r)")
+
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

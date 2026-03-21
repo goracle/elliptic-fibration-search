@@ -116,6 +116,7 @@ def analyze(path1, path2):
     all_xs0 = set(r0['xs_to_lps'].keys())
     all_xs1 = set(r1['xs_to_lps'].keys())
     xs_both = all_xs0 & all_xs1
+    print("xs in both:", xs_both)
     print(f"x_s values in run 0     : {len(all_xs0)}")
     print(f"x_s values in run 1     : {len(all_xs1)}")
     print(f"x_s in both runs        : {len(xs_both)}")
@@ -140,6 +141,7 @@ def analyze(path1, path2):
     fb0 = r0['fb_atoms']
     fb1 = r1['fb_atoms']
     fb_shared = fb0 & fb1
+    print("FB atoms shared:", fb_shared)
     print(f"FB atoms run 0      : {len(fb0)}")
     print(f"FB atoms run 1      : {len(fb1)}")
     print(f"FB atoms shared     : {len(fb_shared)}")

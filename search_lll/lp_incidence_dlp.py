@@ -522,7 +522,7 @@ def fiber_lp_pair(x_s_int, E_rhs_m, f_shifted_fp, x_b_K, K, Rx, fb_x_set, p):
                 return ('partial', xs_atom)
             # Pick the remaining root of h as LP; encode canonically
             # Use _extract_lp_root_from_h to get x coordinate
-            r = _extract_lp_root_from_h(h, x_s_int, x_b_int)
+            r = _extract_lp_root_from_h(h, x_s_int, x_b_int, K, Rx)
             if r is None:
                 return ('partial', xs_atom)
             lp_atom = _lp_atom_from_x(r, f_shifted_fp, K, p)
@@ -585,7 +585,7 @@ def mumford_divisor_lp_cols(divisor, lp_to_col, f_shifted_fp, E_rhs_m, x_b, p, l
             return None
 
         # --- extract LP root via multiplicity logic ---
-        r = _extract_lp_root_from_h(h, x_s_int, x_b_int)
+        r = _extract_lp_root_from_h(h, x_s_int, x_b_int, K, Rx)
         if r is None:
             print(f"[{label}] failed to extract LP root at x_s={x_s_int}")
             return None
