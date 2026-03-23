@@ -272,7 +272,6 @@ def solve_with_retry(A, b, max_attempts=3, **kwargs):
 # FIX 3: Atom validation (unchanged, still valid)
 # ============================================================================
 
-from sage.all import Zmod, vector, Integer
 def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5, iters=None):
     """
     Solve inhomogeneous system A*x = b using Block-Wiedemann.
@@ -339,10 +338,12 @@ def block_wiedemann_inhomogeneous_solve(A, rhs, verbose=True, max_attempts=5, it
         # Force last column (RHS column) to be nonzero in initial vector
         force_cols = [n]  # Force column n (the RHS column)
 
+        dim = min(len(A.packed_rows), A.n_cols)
+        iters = iters if iters is not None else 2 * dim + 200
         kernel_vec, bm_degree = block_wiedemann_solve(
             A_aug,
-            iters=iters if iters is not None else 2 * len(A.packed_rows) + 200,
-            verbose=(verbose and attempt == 0),
+            iters=iters,
+            verbose=verbose,
             left_seed=left_seed,
             right_seed=right_seed,
             force_cols=force_cols
@@ -447,7 +448,6 @@ def solve_dlp_mod_l_block_wiedemann(
     Returns:
         Integer: discrete log d (mod ℓ)
     """
-    from sage.all import Integer, factor, Zmod, matrix, vector
 
     if nprocs is None:
         nprocs = max(1, cpu_count() - 1)
@@ -488,11 +488,15 @@ def solve_dlp_mod_l_block_wiedemann(
 
     # Prune to pivot columns
     pruned_rows, pruned_rhs, col_map, pivot_cols = prune_factor_base_to_pivot_columns(
-        projected_rows,
-        homo_rhs,
+        projected_rows + [row_g_dict, row_q_dict],
+        homo_rhs + [0, 0],
         ell,
         verbose=verbose
     )
+
+    # strip the appended G and Q rows back off — only keep homogeneous rows
+    pruned_rows = pruned_rows[:len(projected_rows)]
+    pruned_rhs  = pruned_rhs[:len(projected_rows)]
 
     n_cols_fb = len(pivot_cols)
 
@@ -1341,7 +1345,7 @@ def block_wiedemann_solve(A, iters=None, verbose=True, left_seed=None, right_see
     m = len(A.packed_rows)
 
     if iters is None:
-        iters = 2 * m + 200
+        iters = 2 * min(m,n) + 200
     if iters % 2 != 0: iters += 1
 
     left_seed = left_seed or random.randrange(1, mod)
@@ -1414,3 +1418,4 @@ def reconstruct_d_from_solution(beta_q, row_q_dict, solution, mod):
     for k, v in row_q_dict.items():
         d = (d - int(v) * int(solution[k])) % mod
     return d
+

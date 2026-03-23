@@ -1,7 +1,8 @@
 from collections import defaultdict, Counter
-from sage.all import GF, PolynomialRing, is_prime, Zmod, matrix, vector
+from sage.all import GF, PolynomialRing, is_prime, Zmod, matrix, vector, Integer, ZZ, factor, crt, prime_factors, set_random_seed
 from search_common import FINITE_FIELD, GROUP_MODULUS, BASE_DIVISOR, TARGET_DIVISOR, DATA_PTS_GENUS2, DEBUG, PREFERRED_X_COORDS
-from .sparse_linalg_modp import SparseRelationMatrix, block_wiedemann_inhomogeneous_solve
+from .sparse_linalg_modp import *
+from prime_subgroup_projection import *
 
 """
 lp_incidence_dlp.py
@@ -114,22 +115,6 @@ def _eval_erhs_at_m(E_rhs_m, m_val_K, K, Rx):
 def lp_to_col_from_xs(xs_to_lp):
     """Helper: collect all LP atoms from the xs_to_lp mapping."""
     return set(xs_to_lp.keys()) | set(xs_to_lp.values())
-
-# ---------------------------------------------------------------------------
-# Map a Mumford divisor into LP columns (with sign)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Solve the LP system mod ell via Block-Wiedemann
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Full pipeline
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Convenience wrapper
-# ---------------------------------------------------------------------------
 
 def run_lp_dlp_attack(cd, E_rhs_m, f_shifted_fp, atom_to_idx, lp_seed_xs,
                       verbose=True):
@@ -490,57 +475,6 @@ def build_lp_incidence_matrix(xs_to_lp, fb_xs_to_lp, verbose=True):
 
     return atom_to_col, xb_col, fiber_rows
 
-def solve_lp_system(atom_to_col, xb_col, fiber_rows, g_result, q_result, ell, verbose=True):
-
-    n_cols = len(atom_to_col) + 1  # +1 for xb
-    n_fiber = len(fiber_rows)
-    n_rows = n_fiber + 1  # fiber rows + G row
-
-    g_c1, g_s1, g_c2, g_s2 = g_result
-    q_c1, q_s1, q_c2, q_s2 = q_result
-
-    if verbose:
-        print(f"[LP solve] {n_rows} x {n_cols}  mod {ell}  ({n_fiber} fiber rows + 1 G row)")
-
-    K = Zmod(ell)
-    entries = {}
-
-    for i, (xs_col, lp_col, xb_col_i) in enumerate(fiber_rows):
-        entries[(i, xs_col)] = K(1)
-        if lp_col != xs_col:
-            entries[(i, lp_col)] = K(entries.get((i, lp_col), K(0)) + K(1))
-        else:
-            entries[(i, xs_col)] = K(2)
-        entries[(i, xb_col_i)] = K(3)
-
-    # G row
-    i_g = n_fiber
-    if g_s1 != 0:
-        entries[(i_g, g_c1)] = K(int(g_s1) % ell)
-    if g_s2 != 0:
-        cur = int(entries.get((i_g, g_c2), K(0)))
-        entries[(i_g, g_c2)] = K((cur + int(g_s2)) % ell)
-
-    M = matrix(K, n_rows, n_cols, entries, sparse=True)
-    rhs = vector(K, [K(0)] * n_fiber + [K(1)])
-
-    if verbose:
-        print(f"[LP solve] solving {n_rows} x {n_cols} system...")
-
-    try:
-        sol = M.solve_right(rhs)
-    except ValueError as e:
-        if verbose:
-            print(f"[LP solve] inconsistent: {e}")
-        return None
-
-    k = (int(q_s1) * int(sol[q_c1]) + int(q_s2) * int(sol[q_c2])) % ell
-
-    if verbose:
-        print(f"[LP solve] solved. log Q = {q_s1}*sol[{q_c1}] + {q_s2}*sol[{q_c2}] = {k}")
-
-    return k
-
 def solve_dlp_via_lp_incidence(
         E_rhs_m, f_shifted_fp, x_b, p, ell,
         base_divisor, target_divisor, atom_to_idx,
@@ -633,11 +567,12 @@ def solve_dlp_via_lp_incidence(
     return dict(dlp=k, verified=verified, solution=None,
                 n_lp_cols=len(atom_to_col), n_homogeneous=len(fiber_rows), graph_info=graph_info)
 
-
-
 def solve_lp_system(atom_to_col, xb_col, fiber_rows, g_result, q_result, ell, verbose=True):
-    n_cols = len(atom_to_col) + 1
-    n_fiber = len(fiber_rows)
+    col_to_atom = {v: k for k, v in atom_to_col.items()}
+
+    def is_d2_col(col):
+        atom = col_to_atom.get(col)
+        return atom is not None and atom[0] == 'd2'
 
     g_c1, g_s1, g_c2, g_s2 = g_result
     q_c1, q_s1, q_c2, q_s2 = q_result
@@ -646,103 +581,102 @@ def solve_lp_system(atom_to_col, xb_col, fiber_rows, g_result, q_result, ell, ve
     n_d2 = sum(1 for a in atom_to_col if a[0] == 'd2')
 
     if verbose:
-        print(f"[LP solve] {n_fiber + 1} x {n_cols}  mod {ell}  ({n_fiber} fiber rows + 1 G row)")
         print(f"[LP solve] atom breakdown: {n_d1} d1, {n_d2} d2, 1 xb")
-        print(f"[LP solve] G cols=({g_c1},{g_c2})  d2? {g_c1 >= n_d1 or g_c2 >= n_d1}")
-        print(f"[LP solve] Q cols=({q_c1},{q_c2})  d2? {q_c1 >= n_d1 or q_c2 >= n_d1}")
+        print(f"[LP solve] G cols=({g_c1},{g_c2})  d2? {is_d2_col(g_c1) or is_d2_col(g_c2)}")
+        print(f"[LP solve] Q cols=({q_c1},{q_c2})  d2? {is_d2_col(q_c1) or is_d2_col(q_c2)}")
 
-    row_dicts = []
-    rhs_list  = []
-
-    for (xs_col, lp_col, xb_col_i) in fiber_rows:
-        d = {}
-        d[xs_col]   = d.get(xs_col, 0) + 1
-        d[lp_col]   = d.get(lp_col, 0) + 1
-        d[xb_col_i] = d.get(xb_col_i, 0) + 3
-        row_dicts.append({k: v % ell for k, v in d.items() if v % ell != 0})
-        rhs_list.append(0)
-
-    g_row = {}
-    if g_s1 != 0:
-        g_row[g_c1] = int(g_s1) % ell
-    if g_s2 != 0:
-        g_row[g_c2] = (g_row.get(g_c2, 0) + int(g_s2)) % ell
-    g_row = {k: v for k, v in g_row.items() if v != 0}
-    row_dicts.append(g_row)
-    rhs_list.append(1)
-
-    A = SparseRelationMatrix(row_dicts, rhs_list, ell)
-
-    if verbose:
-        print(f"[LP solve] running Block-Wiedemann ({A.n_rows} x {A.n_cols})...")
-
-    sol_vec, success = block_wiedemann_inhomogeneous_solve(A, rhs_list, verbose=verbose)
-
-    if not success or sol_vec is None:
+    if is_d2_col(g_c1) or is_d2_col(g_c2):
         if verbose:
-            print("[LP solve] Block-Wiedemann failed.")
+            print("[LP solve] G has d2 column — aborting.")
         return None
 
-    k = (int(q_s1) * int(sol_vec[q_c1]) + int(q_s2) * int(sol_vec[q_c2])) % ell
+    if is_d2_col(q_c1) or is_d2_col(q_c2):
+        if verbose:
+            print("[LP solve] Q has d2 column — aborting.")
+        return None
+
+    d1_fiber_rows = [(xs_col, lp_col)
+                     for (xs_col, lp_col, xb_col_i) in fiber_rows
+                     if not is_d2_col(xs_col) and not is_d2_col(lp_col)]
 
     if verbose:
-        print(f"[LP solve] k = {k}")
+        print(f"[LP solve] after d2 drop: {len(d1_fiber_rows)} fiber rows")
 
-    return k
+    # eliminate xb by subtracting consecutive fiber row pairs
+    homogeneous_rows = []
+    for i in range(len(d1_fiber_rows) - 1):
+        xs_i, lp_i = d1_fiber_rows[i]
+        xs_j, lp_j = d1_fiber_rows[i + 1]
+        row = {}
+        for col, coeff in [(xs_i, 1), (lp_i, 1), (xs_j, ell - 1), (lp_j, ell - 1)]:
+            row[col] = (row.get(col, 0) + coeff) % ell
+        row = {k: v for k, v in row.items() if v != 0}
+        if row:
+            homogeneous_rows.append(row)
 
+    if not homogeneous_rows:
+        if verbose:
+            print("[LP solve] no homogeneous rows after xb elimination.")
+        return None
 
-def solve_lp_system(atom_to_col, xb_col, fiber_rows, g_result, q_result, ell, verbose=True):
-    n_cols = len(atom_to_col) + 1
-    n_fiber = len(fiber_rows)
+    # remap surviving columns to contiguous indices
+    surviving_cols = set()
+    for row in homogeneous_rows:
+        surviving_cols.update(row.keys())
+    surviving_cols.add(g_c1)
+    surviving_cols.add(g_c2)
+    surviving_cols.add(q_c1)
+    surviving_cols.add(q_c2)
 
-    g_c1, g_s1, g_c2, g_s2 = g_result
-    q_c1, q_s1, q_c2, q_s2 = q_result
+    old_to_new = {old: new for new, old in enumerate(sorted(surviving_cols))}
+    n_cols = len(old_to_new)
 
-    n_d1 = sum(1 for a in atom_to_col if a[0] == 'd1')
-    n_d2 = sum(1 for a in atom_to_col if a[0] == 'd2')
+    g_c1n = old_to_new[g_c1]
+    g_c2n = old_to_new[g_c2]
+    q_c1n = old_to_new[q_c1]
+    q_c2n = old_to_new[q_c2]
 
-    if verbose:
-        print(f"[LP solve] {n_fiber + 1} x {n_cols}  mod {ell}  ({n_fiber} fiber rows + 1 G row)")
-        print(f"[LP solve] atom breakdown: {n_d1} d1, {n_d2} d2, 1 xb")
-        print(f"[LP solve] G cols=({g_c1},{g_c2})  d2? {g_c1 >= n_d1 or g_c2 >= n_d1}")
-        print(f"[LP solve] Q cols=({q_c1},{q_c2})  d2? {q_c1 >= n_d1 or q_c2 >= n_d1}")
-
-    row_dicts = []
-    rhs_list  = []
-
-    for (xs_col, lp_col, xb_col_i) in fiber_rows:
-        d = {}
-        d[xs_col]    = d.get(xs_col, 0) + 1
-        d[lp_col]    = d.get(lp_col, 0) + 1
-        d[xb_col_i]  = d.get(xb_col_i, 0) + 3
-        row_dicts.append({k: v % ell for k, v in d.items() if v % ell != 0})
-        rhs_list.append(0)
+    remapped_hom_rows = []
+    for row in homogeneous_rows:
+        new_row = {old_to_new[c]: v for c, v in row.items() if c in old_to_new}
+        if new_row:
+            remapped_hom_rows.append(new_row)
 
     g_row = {}
     if g_s1 != 0:
-        g_row[g_c1] = int(g_s1) % ell
+        g_row[g_c1n] = int(g_s1) % ell
     if g_s2 != 0:
-        g_row[g_c2] = (g_row.get(g_c2, 0) + int(g_s2)) % ell
+        g_row[g_c2n] = (g_row.get(g_c2n, 0) + int(g_s2)) % ell
     g_row = {k: v for k, v in g_row.items() if v != 0}
-    row_dicts.append(g_row)
-    rhs_list.append(1)
-
-    n_rows = len(row_dicts)
-    A = SparseRelationMatrix(row_dicts, rhs_list, ell)
 
     if verbose:
-        print(f"[LP solve] running Block-Wiedemann ({A.n_rows} x {A.n_cols}, iters={2*n_rows+200})...")
+        print(f"[LP solve] {len(remapped_hom_rows)} hom rows x {n_cols} cols before mixing")
+
+    mixed_hom_rows = mix_rows_to_target_count(
+        remapped_hom_rows, ell, target_count=n_cols - 1, mix_count=4, verbose=verbose
+    )
+
+    all_rows = mixed_hom_rows + [g_row]
+    all_rhs  = [0] * len(mixed_hom_rows) + [1]
+
+    n_rows_final = len(all_rows)
+    iters = 2 * min(n_rows_final, n_cols) + 200
+
+    if verbose:
+        print(f"[LP solve] BW on {n_rows_final} x {n_cols}  mod {ell}  (iters={iters})")
+
+    A = SparseRelationMatrix(all_rows, all_rhs, ell)
 
     sol_vec, success = block_wiedemann_inhomogeneous_solve(
-        A, rhs_list, verbose=verbose, max_attempts=5, iters=2*n_rows+200
+        A, all_rhs, verbose=verbose, max_attempts=5, iters=iters
     )
 
     if not success or sol_vec is None:
         if verbose:
-            print("[LP solve] Block-Wiedemann failed.")
+            print("[LP solve] BW failed.")
         return None
 
-    k = (int(q_s1) * int(sol_vec[q_c1]) + int(q_s2) * int(sol_vec[q_c2])) % ell
+    k = (int(q_s1) * int(sol_vec[q_c1n]) + int(q_s2) * int(sol_vec[q_c2n])) % ell
 
     if verbose:
         print(f"[LP solve] k = {k}")

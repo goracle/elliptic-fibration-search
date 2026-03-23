@@ -16,6 +16,7 @@ from .fiber_augment import *
 from .fiber_augment_hdf5 import *
 from .recursive_smoothing import *
 from typing import Dict, List, Tuple, Any, Optional
+from prime_subgroup_projection import sage_poly_from_coeffs
 
 # Standard library
 
@@ -349,13 +350,6 @@ Only G and Q (after smoothing) give us actual scalar equations.
 
 def _is_quadratic_residue(a_int, p_int):
     return pow(a_int % p_int, (p_int - 1) // 2, p_int) == 1
-
-def sage_poly_from_coeffs(coeffs, R):
-    """Build polynomial from coefficient list (highest degree first)"""
-    result = R(0)
-    for c in coeffs:
-        result = result * R.gen() + R(c)
-    return result
 
 # ============================================================================
 # DIVISOR SMOOTHNESS CHECKING
