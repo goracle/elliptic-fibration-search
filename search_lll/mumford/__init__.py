@@ -9,6 +9,7 @@ from .mumford_reconstruction import reconstruct_and_verify_mumford, reconstruct_
 from .mumford_parallel import *
 from .mumford_timing import mumford_timer_add, mumford_timer_get, mumford_timers_reset, mumford_timers_print
 from .mumford_equations import build_mumford_equations_from_fibration
+from .zeta_from_counts import *
 
 """
 Mumford divisor search module.
@@ -72,6 +73,10 @@ __all__ = [
     'reconstruct_and_verify_mumford',
     'mumford_precompute_residues_parallel',
     'build_mumford_equations_from_fibration',
+
+# zeta
+    'compute_zeta_direct',
+    'compute_zeta_from_fibration',
 
     # Height
     'compute_height_pairing_exact',

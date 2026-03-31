@@ -1,3 +1,4 @@
+import numpy as np
 from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
@@ -348,6 +349,10 @@ def _run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
         rhs_modp_list, vecs_list, num_workers=num_workers, debug=True
     )
     stats.end_phase('mumford_residues')
+
+    if FINITE_FIELD:
+        compute_zeta_direct(coeffs_genus2, int(FINITE_FIELD))
+        compute_zeta_from_fibration(mumford_residues, vecs_list, int(FINITE_FIELD))
 
     stats.start_phase('mumford_reconstruction')
     found_xs, mumford_divisors, lp_seed_xs = reconstruct_and_verify_mumford(
