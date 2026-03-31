@@ -2246,166 +2246,54 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
 
     return cd
 
-@PROFILE
-def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
+def reduce_mod_quartic(expr, y, y2):
     """
-    Compute phi_x = X/Z on the Weierstrass model.
-
-    Bimodal operation:
-    - FINITE_FIELD mode: works in GF(p)(m), handles sqrt via extension
-    - QQ mode: symbolic computation with SR
-
-    Args:
-        one, two, three: Morphism coordinate functions
-        x_coord_func: x-coordinate (in function field or QQ)
-        quartic_rhs: RHS of quartic equation y^2 = quartic_rhs
-
-    Returns:
-        phi_x = X/Z (rational function in m) or "INF" if Z=0
+    Reduce an expression modulo y^2 = y2 so that result is A + B*y.
+    Works in polynomial ring.
     """
-    ff_mode = (FINITE_FIELD is not None)
+    R = expr.parent()
+    PR = PolynomialRing(R.base_ring(), 'Y')
+    Y = PR.gen()
 
-    if ff_mode:
-        # ====================================================================
-        # FINITE FIELD MODE
-        # ====================================================================
+    f = PR(expr.subs({y: Y}))
 
-        F = GF(FINITE_FIELD)
-        PR_m = PolynomialRing(F, 'm')
-        K = PR_m.fraction_field()
+    A = PR(0)
+    B = PR(0)
 
-        # Step 1: Coerce x into K
-        try:
-            xK = K(x_coord_func)
-        except Exception:
-            try:
-                if hasattr(x_coord_func, 'parent') and x_coord_func.parent() is PR_m:
-                    xK = K(x_coord_func)
-                else:
-                    xK = K(QQ(str(x_coord_func)))
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x (FF): cannot coerce x to K: {e}")
+    for i in range(f.degree() + 1):
+        coeff = f.coefficient(i)
+        if i % 2 == 0:
+            A += coeff * (y2 ** (i // 2))
+        else:
+            B += coeff * (y2 ** ((i - 1) // 2))
 
-        # Step 2: Substitute x into quartic_rhs
-        try:
-            quartic_at_x = quartic_rhs.subs(x=xK)
-        except Exception:
-            try:
-                quartic_at_x = quartic_rhs(x=xK)
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x (FF): substitution failed: {e}")
+    return A, B
 
-        # Step 3: Coerce result into K
-        try:
-            y_poly = K(quartic_at_x)
-        except Exception:
-            try:
-                y_poly = PR_m(quartic_at_x)
-                y_poly = K(y_poly)
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x (FF): coercion to K failed: {e}")
+def reduce_Y_powers(poly, y_poly):
+    """
+    Reduce powers of Y using Y^2 = y_poly.
+    Returns polynomial of degree ≤ 1 in Y.
+    """
+    result = 0
+    for exp in range(poly.degree() + 1):
+        coeff = poly.coefficient(exp)
+        if coeff == 0:
+            continue
 
-        # Step 4: Try to extract sqrt if it exists in K
-        y_val_sqrt = None
-        try:
-            is_const = False
-            if hasattr(y_poly, 'is_constant'):
-                is_const = y_poly.is_constant()
-            elif hasattr(y_poly, 'numerator') and hasattr(y_poly, 'denominator'):
-                is_const = (y_poly.numerator().degree() <= 0 and
-                           y_poly.denominator().degree() <= 0)
+        if exp == 0:
+            result += coeff
+        elif exp == 1:
+            result += coeff * Y
+        else:
+            # Y^n = Y^(n % 2) * (y_poly)^(n // 2)
+            k = exp // 2
+            r = exp % 2
+            term = coeff * (y_poly ** k)
+            if r == 1:
+                term *= Y
+            result += term
 
-            if is_const:
-                const = F(y_poly)
-                if const.is_square():
-                    y_val_sqrt = const.sqrt()
-            else:
-                if hasattr(y_poly, 'is_square') and y_poly.is_square():
-                    y_val_sqrt = y_poly.sqrt()
-        except Exception:
-            y_val_sqrt = None
-
-        # Step 5: If sqrt exists in K, use it directly
-        if y_val_sqrt is not None:
-            try:
-                Z_sub = three.subs(x=xK, y=y_val_sqrt)
-                X_sub = one.subs(x=xK, y=y_val_sqrt)
-            except Exception as e:
-                raise RuntimeError(f"get_phi_x (FF): morphism evaluation failed: {e}")
-
-            if Z_sub == 0:
-                return "INF"
-            return X_sub / Z_sub
-
-        # Step 6: Try rationalization (eliminate sqrt by algebra)
-        try:
-            PR_Y = PolynomialRing(K, 'Y')
-            Y = PR_Y.gen()
-
-            X_as_poly = PR_Y(one.subs(x=xK, y=Y))
-            Z_as_poly = PR_Y(three.subs(x=xK, y=Y))
-
-            # Extract linear coefficients: a0 + a1*Y
-            a0 = X_as_poly.coefficient(0) if X_as_poly.degree() >= 0 else K(0)
-            a1 = X_as_poly.coefficient(1) if X_as_poly.degree() >= 1 else K(0)
-            b0 = Z_as_poly.coefficient(0) if Z_as_poly.degree() >= 0 else K(0)
-            b1 = Z_as_poly.coefficient(1) if Z_as_poly.degree() >= 1 else K(0)
-
-            # Rationalize: (a0 + a1*Y)/(b0 + b1*Y) * (b0 - b1*Y)/(b0 - b1*Y)
-            numerator_0 = a0 * b0 - a1 * b1 * y_poly
-            numerator_1 = a1 * b0 - a0 * b1
-            denominator = b0 * b0 - b1 * b1 * y_poly
-
-            if denominator == 0:
-                return "INF"
-
-            # If numerator_1 = 0, result is rational
-            if numerator_1 == 0:
-                return K(numerator_0) / K(denominator)
-
-        except Exception:
-            pass  # Fall through to extension
-
-        # Step 7: Last resort - quadratic extension
-        try:
-            T = PolynomialRing(K, 'T').gen()
-            minimal = T**2 - K(y_poly)
-            L = K.extension(minimal, 'Y')
-            Y_L = L.gen()
-
-            X_sub_L = L(one.subs(x=xK, y=Y_L))
-            Z_sub_L = L(three.subs(x=xK, y=Y_L))
-
-            if Z_sub_L == 0:
-                return "INF"
-
-            phiL = X_sub_L / Z_sub_L
-
-            # Try to bring back to K
-            try:
-                return K(phiL)
-            except Exception:
-                return phiL
-
-        except Exception as e:
-            raise RuntimeError(f"get_phi_x (FF): extension construction failed: {e}")
-
-    else:
-        # ====================================================================
-        # QQ / SR MODE
-        # ====================================================================
-
-        try:
-            y_val_sqrt = sqrt(quartic_rhs)
-            Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
-            X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
-        except Exception as e:
-            raise RuntimeError(f"get_phi_x (QQ): symbolic computation failed: {e}")
-
-        if Z_sub == 0:
-            return "INF"
-
-        return X_sub / Z_sub
+    return result
 
 @PROFILE
 def check_independence(sections, curve, cd):
@@ -3315,3 +3203,174 @@ def augment_known(known_pts, found, deg6=False):
 
 if _IS_MAIN_PROCESS:
     print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)
+
+@PROFILE
+def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
+    """
+    Compute phi_x = X/Z on the Weierstrass model.
+
+    Bimodal operation:
+    - FINITE_FIELD mode: works in GF(p)(m), rationalizes via y^2 = quartic_rhs
+    - QQ mode: symbolic computation with SR
+
+    Returns:
+        phi_x = X/Z as an element of the base fraction field when possible,
+        or "INF" if the denominator vanishes.
+    """
+    ff_mode = (FINITE_FIELD is not None)
+
+    def _reduce_to_linear_in_Y(expr, K, y2):
+        """
+        Given expr in a polynomial ring over K in variable Y,
+        reduce modulo Y^2 = y2 and return A + B*Y.
+        """
+        PRY = expr.parent()
+        Y = PRY.gen()
+        poly = PRY(expr)
+
+        A = K(0)
+        B = K(0)
+
+        deg = int(poly.degree())
+        if deg < 0:
+            return A, B
+
+        for i in range(deg + 1):
+            c = poly.coefficient(i)
+            if c == 0:
+                continue
+            if i % 2 == 0:
+                A += c * (y2 ** (i // 2))
+            else:
+                B += c * (y2 ** (i // 2))
+
+        return A, B
+
+    def _rationalize_linear_ratio(Ax, Bx, Az, Bz, K, y2):
+        """
+        Rationalize (Ax + Bx*Y)/(Az + Bz*Y) using Y^2 = y2.
+        Returns an element of K when the Y-term cancels, otherwise None.
+        """
+        denom = Az * Az - (Bz * Bz) * y2
+        if denom == 0:
+            return "INF"
+
+        num0 = Ax * Az - (Bx * Bz) * y2
+        num1 = Bx * Az - Ax * Bz
+
+        if num1 == 0:
+            return K(num0 / denom)
+
+        return None
+
+    if ff_mode:
+        F = GF(FINITE_FIELD)
+        PR_m = PolynomialRing(F, 'm')
+        K = PR_m.fraction_field()
+
+        # Coerce x into K
+        try:
+            xK = K(x_coord_func)
+        except Exception:
+            try:
+                xK = K(QQ(str(x_coord_func)))
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x (FF): cannot coerce x to K: {e}")
+
+        # Substitute x into quartic_rhs and coerce to K
+        try:
+            quartic_at_x = quartic_rhs.subs(x=xK)
+        except Exception:
+            try:
+                quartic_at_x = quartic_rhs(x=xK)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x (FF): substitution failed: {e}")
+
+        try:
+            y2 = K(quartic_at_x)
+        except Exception:
+            try:
+                y2 = K(PR_m(quartic_at_x))
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x (FF): coercion to K failed: {e}")
+
+        # Fast path: if sqrt exists in K, use it directly
+        y_val_sqrt = None
+        try:
+            is_const = False
+            if hasattr(y2, 'is_constant'):
+                is_const = y2.is_constant()
+            elif hasattr(y2, 'numerator') and hasattr(y2, 'denominator'):
+                is_const = (y2.numerator().degree() <= 0 and y2.denominator().degree() <= 0)
+
+            if is_const:
+                const = F(y2)
+                if const.is_square():
+                    y_val_sqrt = const.sqrt()
+            elif hasattr(y2, 'is_square') and y2.is_square():
+                y_val_sqrt = y2.sqrt()
+        except Exception:
+            y_val_sqrt = None
+
+        if y_val_sqrt is not None:
+            try:
+                Z_sub = three.subs(x=xK, y=y_val_sqrt)
+                X_sub = one.subs(x=xK, y=y_val_sqrt)
+            except Exception as e:
+                raise RuntimeError(f"get_phi_x (FF): morphism evaluation failed: {e}")
+
+            if Z_sub == 0:
+                return "INF"
+            return X_sub / Z_sub
+
+        # Rationalize in the quadratic basis 1, Y
+        try:
+            PRY = PolynomialRing(K, 'Y')
+            Y = PRY.gen()
+
+            X_as = PRY(one.subs(x=xK, y=Y))
+            Z_as = PRY(three.subs(x=xK, y=Y))
+
+            Ax, Bx = _reduce_to_linear_in_Y(X_as, K, y2)
+            Az, Bz = _reduce_to_linear_in_Y(Z_as, K, y2)
+
+            rational = _rationalize_linear_ratio(Ax, Bx, Az, Bz, K, y2)
+            if rational is not None:
+                return rational
+
+            # Last resort: keep the quadratic extension, but still use the same Y-ring
+            T = PolynomialRing(K, 'T').gen()
+            L = K.extension(T**2 - y2, 'Y')
+            YL = L.gen()
+
+            X_L = L(Ax) + L(Bx) * YL
+            Z_L = L(Az) + L(Bz) * YL
+
+            if Z_L == 0:
+                return "INF"
+
+            phiL = X_L / Z_L
+            try:
+                return K(phiL)
+            except Exception:
+                return phiL
+
+        except Exception as e:
+            raise RuntimeError(f"get_phi_x (FF): rationalization failed: {e}")
+
+    # QQ / SR mode
+    try:
+        y_val_sqrt = sqrt(quartic_rhs)
+    except Exception as e:
+        raise RuntimeError(f"get_phi_x (QQ): sqrt(quartic_rhs) failed: {e}")
+
+    try:
+        Z_sub = three.subs(x=x_coord_func, y=y_val_sqrt)
+        X_sub = one.subs(x=x_coord_func, y=y_val_sqrt)
+    except Exception as e:
+        raise RuntimeError(f"get_phi_x (QQ): symbolic computation failed: {e}")
+
+    if Z_sub == 0:
+        return "INF"
+
+    return X_sub / Z_sub

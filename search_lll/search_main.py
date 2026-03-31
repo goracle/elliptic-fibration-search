@@ -284,122 +284,6 @@ def search_prime_subsets_unified(prime_subsets, worker_func, num_workers=8, debu
     # Return the list of per-subset results and the merged stats
     return subset_results_list, merged_stats, all_crt_classes  # <-- Return classes
 
-def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, height_bound,
-                                         vecs, rhs_list, r_m, shift,
-                                         all_found_x, num_subsets, rationality_test_func,
-                                         sconf, coeffs_genus2,
-                                         tower_data=None,
-                                         num_workers=20, debug=False, # Replaced DEBUG global with local default
-                                         precomputed_residues=None,
-                                         x_b=None, shifted_coeffs=None):
-    """
-    Unified parallel search Router.
-    Routes to either Mumford Jacobian Element Search or Standard Lattice ModP Search.
-    """
-    USE_MUMFORD = globals().get('MUMFORD_SEARCH', False) and tower_data is not None
-
-    if USE_MUMFORD:
-        return _run_mumford_search(
-            cd, current_sections, prime_pool, vecs, rhs_list, shift,
-            rationality_test_func, coeffs_genus2, tower_data,
-            num_workers, debug, x_b, shifted_coeffs
-        )
-    else:
-        return _run_standard_lattice_search(
-            cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
-            all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
-            num_workers, debug, precomputed_residues
-        )
-
-def _run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
-                        rationality_test_func, coeffs_genus2, tower_data,
-                        num_workers, debug, x_b, shifted_coeffs):
-    """Handles the Mumford / Finite Field Index Calculus search phase."""
-    print("\n" + "="*70)
-    print("MUMFORD JACOBIAN ELEMENT SEARCH MODE")
-    print("Searching for (s,p,v_0,v_1) instead of rational m")
-    print("="*70 + "\n")
-
-    stats = SearchStats()
-
-    stats.start_phase('mumford_setup')
-    print("Building 5-equation Mumford system from fibration...")
-    eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
-    stats.end_phase('mumford_setup')
-
-    stats.start_phase('prep_mod_data')
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
-    )
-    stats.end_phase('prep_mod_data')
-
-    if not Ep_dict:
-        return set(), [], {}, stats
-
-    prime_list = sorted(list(Ep_dict.keys()))
-
-    if FINITE_FIELD and len(prime_list) > 1:
-        print(f"[FF MODE] Multi-prime consensus enabled. Using {len(prime_list)} primes.")
-
-    stats.start_phase('mumford_residues')
-    vecs_list = list(vecs)
-
-    mumford_residues = mumford_precompute_residues_parallel(
-        eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-        rhs_modp_list, vecs_list, num_workers=num_workers, debug=True
-    )
-    stats.end_phase('mumford_residues')
-
-    if FINITE_FIELD:
-        compute_zeta_direct(coeffs_genus2, int(FINITE_FIELD))
-        compute_zeta_from_fibration(mumford_residues, vecs_list, int(FINITE_FIELD))
-
-    stats.start_phase('mumford_reconstruction')
-    found_xs, mumford_divisors, lp_seed_xs = reconstruct_and_verify_mumford(
-        mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func)
-    stats.end_phase('mumford_reconstruction')
-
-    if FINITE_FIELD:
-         mumford_divisors = filter_g_q_from_list(
-             mumford_divisors, BASE_DIVISOR, TARGET_DIVISOR, FINITE_FIELD, coeffs_genus2
-         )
-
-    print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
-    if mumford_divisors:
-        rational_roots_count = sum(1 for div in mumford_divisors if div.get('has_rational_roots'))
-        print(f"  {rational_roots_count} divisors had rational roots in u(x)")
-
-        if FINITE_FIELD:
-            if len(prime_list) == 1:
-                p = int(FINITE_FIELD)
-                f_poly = sage_poly_from_coeffs(coeffs_genus2, PolynomialRing(GF(p), 'x'))
-                # Only run the expensive diagnostic if debug is True
-                if debug:
-                    diagnose_finite_field_search(mumford_divisors, f_poly, verbose=True, debug=debug)
-            else:
-                print("[Info] Skipping single-prime matrix diagnostics (Multi-prime mode active).")
-
-    if not FINITE_FIELD:
-        print(f"Mumford search found {len(found_xs)} rational points")
-        stats.incr('rational_points_unique', n=len(found_xs))
-        print(stats.summary_string())
-
-        rank_analysis = analyze_genus2_rank(
-            f_coeffs=coeffs_genus2, mumford_divisors=mumford_divisors,
-            bad_primes=prime_pool[:20], verbose=True
-        )
-        stats.counters['rank_lower_bound'] = rank_analysis['lower_bound']
-        stats.counters['rank_upper_bound'] = rank_analysis['upper_bound']
-        stats.counters['rank_exact'] = 1 if rank_analysis['exact'] else 0
-
-    if FINITE_FIELD:
-        return _run_index_calculus_attack(
-            mumford_divisors, coeffs_genus2, tower_data, found_xs,
-            mumford_residues, stats, num_workers, x_b, shifted_coeffs, lp_seed_xs
-        )
-
-    return found_xs, [], mumford_residues, stats
-
 def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, found_xs,
                                mumford_residues, stats, num_workers, x_b, shifted_coeffs,
                                lp_seed_xs=None):
@@ -512,517 +396,6 @@ def _run_index_calculus_attack(mumford_divisors, coeffs_genus2, tower_data, foun
 
     return found_xs, [], mumford_residues, stats
 
-def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
-                                 all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
-                                 num_workers, debug, precomputed_residues):
-    """
-    Handles the standard Lattice ModP Search phase.
-    Extracts LLL preparation, residue precomputation, subset generation, and rationality checks.
-    """
-    # === UNPACK: SCONF ===
-    min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
-    min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
-    max_modulus = sconf['MAX_MODULUS']
-    tmax = sconf['TMAX']
-
-    # === VECTOR-BLIND CONSENSUS OPTIMIZATION ===
-    # Check if we are running in the optimized Vector-Blind Consensus mode.
-    optimized_vecs = vecs
-
-    # Heuristic: Check the first prime in the precomputed map (if it exists)
-    # to see if the single dummy vector key (all zeros) was used.
-    if precomputed_residues and precomputed_residues is not True: # precomputed_residues=True means only compute
-        first_prime = next(iter(precomputed_residues), None)
-        if first_prime and precomputed_residues[first_prime]:
-            first_vector = next(iter(precomputed_residues[first_prime]))
-
-            # The dummy vector is a tuple of zeros
-            if all(v == 0 for v in first_vector):
-                # We found the single dummy vector key.
-                dim = len(current_sections)
-                zero_vec_tuple = tuple([0] * dim)
-
-                # --- THIS IS THE FIX ---
-                # If the dummy vector is detected, we *must* use it as the *only* search vector.
-                # The original `vecs` list (which may not contain the zero vector)
-                # is no longer relevant, as the residues are all mapped to this dummy key.
-                optimized_vecs = [zero_vec_tuple]
-                if debug:
-                    print("OPTIMIZATION: Vector-Blind Consensus detected. Forcing search vectors (`vecs`) to just the zero vector key.")
-                # --- END FIX ---
-
-    # The actual vectors list used for the main search loop
-    search_vecs = optimized_vecs
-
-    # === STATS: INIT ===
-    stats = SearchStats()
-
-    residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
-    coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
-
-    print("prime pool used for search:", prime_pool)
-
-    # === PHASE: PREP MOD DATA ===
-    stats.start_phase('prep_mod_data')
-    print("--- Preparing modular data for LLL search ---")
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
-    )
-    stats.end_phase('prep_mod_data')
-
-    if not Ep_dict:
-        print("No valid primes found for modular search. Aborting.")
-        return set(), [], precomputed_residues, stats  # <-- Return stats
-
-    # === PHASE: PRECOMPUTE RESIDUES ===
-    vecs_list = list(search_vecs)
-    if precomputed_residues is None:
-
-        stats.start_phase('precompute_residues')
-        primes_to_compute = list(Ep_dict.keys())
-        num_rhs_fns = len(rhs_list)
-
-        args_list = [
-            (
-                p,
-                Ep_dict[p],
-                mult_lll.get(p, {}),
-                vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
-                vecs_list,
-                rhs_modp_list,
-                num_rhs_fns,
-                stats  # pass the stats object (worker ignores if not used)
-            )
-            for p in primes_to_compute
-        ]
-
-        precomputed_residues = {}
-        total_modular_checks = 0
-
-        try:
-            ctx = multiprocessing.get_context("fork")
-            exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
-        except Exception:
-            exec_kwargs = {"max_workers": num_workers}
-            raise
-
-        with ProcessPoolExecutor(**exec_kwargs) as executor:
-            if TORSION_SLOPPY:
-                futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
-            else:
-                futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
-                p = futures[future]
-                try:
-                    p_ret, mapping, local_modular_checks = future.result()
-                    mapping = mapping or {}
-                    precomputed_residues[p_ret] = mapping
-                    total_modular_checks += int(local_modular_checks or 0)
-
-                    # Now compute the union of numeric residues (ignore non-int markers)
-                    residues_union = set()
-                    for vtuple, rhs_lists in mapping.items():
-                        for rl in rhs_lists:
-                            # ignore sentinel markers like "DEN_ZERO" or other non-integer entries
-                            for r in rl:
-                                if isinstance(r, int):
-                                    residues_union.add(r)
-
-                    stats.residues_by_prime[p_ret].update(residues_union)
-
-                    # update main counters per-prime
-                    stats.counters['modular_checks'] += int(local_modular_checks or 0)
-                    stats.counters[f'modular_checks_p_{p_ret}'] += int(local_modular_checks or 0)
-                    stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
-
-                except Exception as e:
-                    if debug:
-                        print(f"[precompute fail] p={p}: {e}")
-                    precomputed_residues[p] = {}
-                    stats.residues_by_prime[p].update(set())
-                    stats.counters[f'modular_checks_p_{p}'] = 0
-                    stats.counters[f'residues_seen_p_{p}'] = 0
-                    raise
-
-        if debug:
-            print(f"[precompute] total_modular_checks={total_modular_checks}, primes precomputed={len(precomputed_residues)}")
-
-        stats.end_phase('precompute_residues')
-    else:
-        # Use provided residues (already consensus-filtered)
-        print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
-        stats.incr('using_consensus_residues', n=1)
-
-    # Populate stats.residues_by_prime from precomputed residues
-    for p, p_mapping in precomputed_residues.items():
-        for v_tuple, rhs_lists in p_mapping.items():
-            for rhs_list in rhs_lists:
-                for residue in rhs_list:
-                    if isinstance(residue, (int, Integer)):
-                        stats.add_residue(p, residue)
-
-    stats.start_phase('brauer')
-
-    report = estimate_completeness_probability(precomputed_residues, PRIME_POOL)
-    print(f"[brauer] estimated survival fraction ≈ {report['estimate_survive']:.6f}")
-    print(f"[brauer] estimated ruled-out fraction ≈ {report['estimate_ruled_out']:.6f}")
-
-    mc = probe_algebraic_brauer_obstructions(precomputed_residues, PRIME_POOL, sample_size=1000)
-    print(f"[brauer] Monte Carlo blocked fraction ≈ {mc['monte_carlo']['blocked_fraction_est']:.6f}")
-
-    # optional diagnostic: test a representative m from the search range
-    some_m = QQ(1)  # or any rational under study
-    allowed, details = m_is_locally_allowed(some_m, precomputed_residues, PRIME_POOL)
-    print(f"[brauer] example m={some_m} locally allowed? {allowed}")
-
-    stats.end_phase('brauer')
-
-    ##### WHY ISN'T A PARTICULAR FIBRATION FINDING A POINT?  FIND OUT HERE!
-
-    if TARGETED_X: # comment out when not in use
-        ret = diagnose_missed_point(TARGETED_X, r_m, shift, precomputed_residues, prime_pool, vecs)
-        matched_subset = None
-        if 'matched_primes' in ret:
-            matched_subset = ret['matched_primes']
-
-        const = r_m(m=0)
-        mtarget = QQ(-1)*TARGETED_X+const
-
-        cov1 = compute_residue_coverage_for_m(mtarget, precomputed_residues, PRIME_POOL)
-        print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])
-        print("cov1: matched primes:", cov1['matched_primes'])
-
-    # Build a per-prime numeric residue set for later use (and require non-empty)
-    residues_by_prime_numeric = {}
-    for p, mapping in precomputed_residues.items():
-        residues_set = set()
-        for vtuple, rhs_lists in mapping.items():
-            for rl in rhs_lists:
-                for r in rl:
-                    if isinstance(r, int):
-                        residues_set.add(r)
-        residues_by_prime_numeric[p] = residues_set
-
-    # Only keep primes that actually gave numeric residues (not merely empty mappings)
-    usable_primes = [p for p in prime_pool if p in residues_by_prime_numeric and residues_by_prime_numeric[p]]
-    if not usable_primes:
-        print("No primes have numeric precomputed residues. Aborting.")
-        return set(), [], precomputed_residues, stats
-    if len(usable_primes) < len(prime_pool):
-        if debug:
-            print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no numeric data. Using {len(usable_primes)} usable primes.")
-        prime_pool = usable_primes
-
-    # === PHASE: AUTOTUNE PRIMES ===
-    stats.start_phase('autotune_primes')
-    prime_stats = estimate_prime_stats(prime_pool, precomputed_residues, vecs_list, num_rhs=len(rhs_list))
-    auto_extra_primes = choose_extra_primes(prime_stats,
-                                            target_density=EXTRA_PRIME_TARGET_DENSITY,
-                                            max_extra=EXTRA_PRIME_MAX,
-                                            skip_small=EXTRA_PRIME_SKIP)
-    extra_primes_for_filtering = auto_extra_primes
-    stats.end_phase('autotune_primes')
-
-    # Filtering stage: compute product estimate using distinct numeric residues per prime
-    combo_cap = ceil(50000**(7*min_prime_subset_size/3))
-    roots_threshold = ROOTS_THRESHOLD
-    if debug:
-        print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
-
-    # Get Delta polynomial from cd
-    PR_m = PolynomialRing(QQ, 'm')
-    try:
-        Delta_poly = cd.discriminant if hasattr(cd, 'discriminant') else (-16 * (4 * cd.a4**3 + 27 * cd.a6**2))
-        if hasattr(Delta_poly, 'numerator'):
-            Delta_poly = Delta_poly.numerator()
-        Delta_pr = PR_m(SR(Delta_poly))
-    except Exception as e:
-        print(f"[WARNING] Could not compute Delta_pr: {e}")
-        Delta_pr = None
-        raise
-
-    # *** Predict target QC ratio from discriminant structure ***
-    predicted_qc_ratio = None
-    if Delta_pr is not None:
-        # Use first 20-30 primes from prime_pool as sample
-        prime_sample = prime_pool[:min(30, len(prime_pool))]
-        predicted_qc_ratio = predict_qc_distribution(Delta_pr, prime_sample, debug=debug)
-
-    # Use predicted ratio if available, otherwise fall back to empirical 1.2
-    target_qc_ratio = predicted_qc_ratio if predicted_qc_ratio is not None else 1.2
-    print(f"[QC Target] Using QC ratio: {target_qc_ratio:.3f} ({'predicted' if predicted_qc_ratio else 'default'})")
-
-    # === COMPUTE ADAPTIVE NUM_SUBSETS ===
-    collision_primes = []
-    if hasattr(stats, 'rejected_primes'):
-        collision_primes = [p for p, reason in stats.rejected_primes if 'collision' in str(reason)]
-
-    density_count = 0
-    total_pairs = 0
-    for p, mapping in precomputed_residues.items():
-        for v_tuple in vecs_list:
-            total_pairs += 1
-            v_tuple_normalized = tuple(v_tuple)
-            roots_lists = mapping.get(v_tuple_normalized, [])
-            has_roots = any(roots for roots in roots_lists)
-            if has_roots:
-                density_count += 1
-
-    empirical_density = density_count / total_pairs if total_pairs > 0 else 0.08
-
-    fiber_collision_fraction = len(collision_primes) / len(prime_pool) if prime_pool else 0.0
-    num_subsets_adaptive = compute_adaptive_num_subsets(
-        fiber_collision_fraction,
-        avg_density=empirical_density,
-        target_coverage=0.40,
-        base_subsets=num_subsets
-    )
-
-    print(f"[Adaptive] Fiber collisions: {len(collision_primes)}/{len(prime_pool)} ({100*fiber_collision_fraction:.1f}%)")
-    print(f"[Adaptive] Empirical density: {empirical_density:.4f}")
-    print(f"[Adaptive] Recommended NUM_SUBSETS: {num_subsets_adaptive} (configured: {num_subsets})")
-
-    # Conservative: use the max of adaptive and configured
-    num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
-
-    # === PHASE: GEN SUBSETS ===
-    stats.start_phase('gen_subsets')
-    prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
-        prime_pool=prime_pool,
-        precomputed_residues=precomputed_residues,
-        vecs=vecs_list,
-        rhs_list=rhs_list,
-        num_subsets=num_subsets_to_use,
-        min_size=min_prime_subset_size,
-        max_size=min_max_prime_subset_size,
-        combo_cap=combo_cap,
-        seed=SEED_INT,
-        force_full_pool=False,
-        debug=debug,
-        use_qc_bias=True,
-        target_qc_ratio=target_qc_ratio
-    )
-
-    stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
-
-    filtered_subsets = []
-    for subset in prime_subsets_initial:
-        est = 1
-        is_viable = True
-        for p in subset:
-            residues_set = residues_by_prime_numeric.get(p, set())
-            roots_count = len(residues_set)
-            if roots_count == 0:
-                is_viable = False
-                break
-            if roots_count > roots_threshold:
-                est *= roots_count
-                if est > combo_cap:
-                    is_viable = False
-                    break
-            else:
-                est *= max(1, roots_count)
-                if est > combo_cap:
-                    is_viable = False
-                    break
-        if is_viable and est <= combo_cap:
-            filtered_subsets.append(subset)
-
-    filtered_out_count = len(prime_subsets_initial) - len(filtered_subsets)
-    stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
-    if debug:
-        print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
-    prime_subsets_to_process = filtered_subsets
-    stats.prime_subsets = prime_subsets_to_process
-
-    if TARGETED_X:
-        assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
-
-    count_subsets = {}
-    for subset in prime_subsets_to_process:
-        key = len(subset)
-        if key in count_subsets:
-            count_subsets[key] += 1
-        else:
-            count_subsets[key] = 0
-
-    for key in sorted(list(count_subsets)):
-        print("using", count_subsets[key], "subsets of len =", key)
-
-    # If filtering removed everything, build a deterministic fallback pool of small subsets.
-    if not prime_subsets_to_process:
-        if debug:
-            print("[fallback] coverage-based filtering removed all subsets. Building deterministic fallback subsets.")
-        fallback = []
-        max_k = min(6, len(prime_pool))
-        for k in range(3, max_k + 1):
-            for comb in combinations(prime_pool, k):
-                good = True
-                for p in comb:
-                    if not residues_by_prime_numeric.get(p):
-                        good = False
-                        break
-                if not good:
-                    continue
-                est = 1
-                for p in comb:
-                    est *= max(1, len(residues_by_prime_numeric[p]))
-                    if est > combo_cap:
-                        good = False
-                        break
-                if good:
-                    fallback.append(list(comb))
-                if len(fallback) >= max(1, num_subsets):
-                    break
-            if len(fallback) >= max(1, num_subsets):
-                break
-        if fallback:
-            prime_subsets_to_process = fallback[:num_subsets]
-            if debug:
-                print(f"[fallback] Using {len(prime_subsets_to_process)} deterministic fallback subsets.")
-        else:
-            print("No viable prime subsets generated or remaining after filtering. Aborting.")
-            stats.end_phase('gen_subsets')
-            print("\n--- Search Statistics (No Subsets) ---")
-            print(stats.summary_string())
-            return set(), [], precomputed_residues, stats
-
-    stats.end_phase('gen_subsets')
-
-    # === PHASE: SEARCH & CHECK ===
-    stats.start_phase('search_subsets_and_check')
-    worker_func = partial(
-        _process_prime_subset_precomputed,
-        vecs=search_vecs,
-        r_m=r_m,
-        shift=shift,
-        tmax=tmax,
-        combo_cap=combo_cap,
-        precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,
-        num_rhs_fns=len(rhs_list),
-        coeffs_genus2=coeffs_genus2
-    )
-
-    subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
-        prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
-    )
-
-    stats.crt_classes_tested = all_crt_classes
-    coverage_estimator.tested_classes = all_crt_classes
-    coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
-
-    if debug:
-        print("\n--- Coverage Estimate ---")
-        if coverage_report.get('direct_coverage') is not None:
-            print(f"  Direct coverage: {100 * coverage_report['direct_coverage']:.2f}%")
-        if coverage_report.get('birthday_coverage') is not None:
-            print(f"  Birthday estimate: {100 * coverage_report['birthday_coverage']:.2f}%")
-        print(f"  Heuristic (density): {100 * coverage_report.get('heuristic_coverage', 0):.4f}%")
-        print(f"  CRT classes tested: {coverage_report.get('classes_tested', 0):,}")
-        print(f"  Search space size: ~{coverage_report.get('space_size_estimate', 0):.2e}")
-        additional_runs = coverage_estimator.recommend_additional_runs(prime_subsets_to_process, target_coverage=0.95)
-        if additional_runs > 0:
-            print(f"  ⚠️  Recommend {additional_runs} more run(s) to reach 95% coverage")
-
-    stats.merge_dict(worker_stats_dict)
-    stats.incr('subsets_processed', n=len(subset_results_list))
-
-    overall_found_candidates_from_workers = set()
-    productive_subsets_data = []
-    for subset, candidates_set, _ in subset_results_list:
-        overall_found_candidates_from_workers.update(candidates_set)
-        if candidates_set:
-            productive_subsets_data.append({
-                'primes': subset,
-                'size': len(subset),
-                'candidates': len(candidates_set)
-            })
-
-    stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
-
-    print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
-    final_rational_candidates = set()
-    candidate_list = list(overall_found_candidates_from_workers)
-    if not candidate_list:
-        stats.end_phase('search_subsets_and_check')
-        print("\n--- Search Statistics (No Points Found) ---")
-        print(stats.summary_string())
-        return set(), [], precomputed_residues, stats
-
-    batch_size = max(1, floor(0.05 * len(candidate_list)))
-    for i in range(0, len(candidate_list), batch_size):
-        batch = candidate_list[i:i + batch_size]
-        newly_rational = _batch_check_rationality(
-            batch, r_m, shift, rationality_test_func, current_sections, stats
-        )
-        final_rational_candidates.update(newly_rational)
-        if debug:
-            print(f"[batch check] processed {min(i + batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
-
-    stats.end_phase('search_subsets_and_check')
-
-    try:
-        print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
-    except Exception as e:
-        if debug:
-            print(f"Failed to print productivity stats: {e}")
-        raise
-
-    if not final_rational_candidates:
-        print("\n--- Search Statistics (No Points Found) ---")
-        print(stats.summary_string())
-        return set(), [], precomputed_residues, stats
-
-    print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
-
-    # === PHASE: POST PROCESS ===
-    stats.start_phase('post_process')
-    sample_pts = []
-    new_sections_raw = []
-    processed_m_vals = {}
-
-    for m_val, v_tuple in final_rational_candidates:
-        if m_val in processed_m_vals:
-            continue
-        try:
-            x_val = r_m(m=m_val) - shift
-            y_val = rationality_test_func(x_val)
-            if y_val is not None:
-                v = vector(QQ, v_tuple)
-                sample_pts.append((x_val, y_val))
-                processed_m_vals[m_val] = v
-                if any(c != 0 for c in v):
-                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                    new_sections_raw.append(new_sec)
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            raise
-            continue
-
-    analysis = analyze_unused_residue_orders(
-        precomputed_residues=precomputed_residues,
-        rhs_list=rhs_list,
-        found_m_set=processed_m_vals,
-        prime_pool=prime_pool,
-        max_lift_k=3,
-        Delta_pr=Delta_pr,
-        Ep_dict=Ep_dict
-    )
-
-    print_residue_analysis(analysis)
-
-    new_xs = {pt[0] for pt in sample_pts}
-    new_sections = list({s: None for s in new_sections_raw}.keys())
-    stats.incr('rational_points_unique', n=len(new_xs))
-    stats.incr('new_sections_unique', n=len(new_sections))
-    stats.end_phase('post_process')
-
-    print("\n--- Search Statistics ---")
-    print(stats.summary_string())
-
-    return new_xs, new_sections, precomputed_residues, stats
-
-
 def search_candidates_adapter(xi, search_context):
     """
     Thin wrapper around existing search code.
@@ -1049,22 +422,50 @@ def search_candidates_adapter(xi, search_context):
 
     return candidates
 
+def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+                                         all_found_x, num_subsets, rationality_test_func,
+                                         sconf, coeffs_genus2,
+                                         tower_data=None,
+                                         num_workers=20, debug=False,
+                                         precomputed_residues=None,
+                                         x_b=None, shifted_coeffs=None,
+                                         markov_mode=False):
+    """
+    Unified parallel search router.
 
-def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+    If markov_mode=True, always use the lightweight standard-lattice path and
+    return candidate pools early, skipping expensive downstream attack logic.
+    """
+    USE_MUMFORD = globals().get('MUMFORD_SEARCH', False) and tower_data is not None and not markov_mode
+    print("USE_MUMFORD", USE_MUMFORD)
+    assert USE_MUMFORD
+    assert len(vecs) > 1, vecs
+
+    if USE_MUMFORD:
+        return run_mumford_search(
+            cd, current_sections, prime_pool, vecs, rhs_list, shift,
+            rationality_test_func, coeffs_genus2, tower_data,
+            num_workers, debug, x_b, shifted_coeffs
+        )
+    else:
+        return run_standard_lattice_search(
+            cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
+            all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
+            num_workers, debug, precomputed_residues,
+            markov_mode=markov_mode
+        )
+
+def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
                                  all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
-                                 num_workers, debug, precomputed_residues):
+                                 num_workers, debug, precomputed_residues,
+                                 markov_mode=False):
     """
-    Standard lattice search, rewritten to return candidate records for downstream
-    Markov/selection code.
+    Standard lattice search.
 
-    Returns a dict with:
-        - candidates: list of candidate dicts
-        - candidate_xs: set of x-values for accepted rational points
-        - new_sections: list of new sections found
-        - precomputed_residues: residue cache / precomputed modular data
-        - stats: SearchStats object
+    Normal mode: keeps the existing pipeline.
+    Markov mode: skips expensive tuning / Brauer / attack plumbing and returns
+    a compact candidate pool suitable for transition selection.
     """
-
     # === UNPACK: SCONF ===
     min_prime_subset_size = sconf['MIN_PRIME_SUBSET_SIZE']
     min_max_prime_subset_size = sconf['MIN_MAX_PRIME_SUBSET_SIZE']
@@ -1090,9 +491,6 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
     # === STATS: INIT ===
     stats = SearchStats()
 
-    residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
-    coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
-
     print("prime pool used for search:", prime_pool)
 
     # === PHASE: PREP MOD DATA ===
@@ -1111,6 +509,7 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
             "new_sections": [],
             "precomputed_residues": precomputed_residues,
             "stats": stats,
+            "final_rational_pairs": [],
         }
 
     # === PHASE: PRECOMPUTE RESIDUES ===
@@ -1142,13 +541,12 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
             exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
         except Exception:
             exec_kwargs = {"max_workers": num_workers}
-            raise
 
         with ProcessPoolExecutor(**exec_kwargs) as executor:
             if TORSION_SLOPPY:
-                futures = {executor.submit(_compute_residues_for_prime_worker, args): args[0] for args in args_list}
+                futures = {executor.submit(compute_residues_for_prime_worker, args): args[0] for args in args_list}
             else:
-                futures = {executor.submit(_compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
+                futures = {executor.submit(compute_residues_for_prime_worker_old, args): args[0] for args in args_list}
 
             for future in tqdm(as_completed(futures), total=len(futures), desc="Pre-computing residues"):
                 p = futures[future]
@@ -1187,12 +585,144 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
         print(f"Using provided precomputed residues ({len(precomputed_residues)} primes)")
         stats.incr('using_consensus_residues', n=1)
 
+    # Populate stats.residues_by_prime from precomputed residues
     for p, p_mapping in precomputed_residues.items():
         for v_tuple, rhs_lists in p_mapping.items():
             for rhs_list_item in rhs_lists:
                 for residue in rhs_list_item:
                     if isinstance(residue, (int, Integer)):
                         stats.add_residue(p, residue)
+
+    # ------------------------------------------------------------------
+    # MARKOV MODE: stop early, no Brauer/autotune/attack plumbing.
+    # ------------------------------------------------------------------
+    if markov_mode:
+        stats.start_phase('markov_subset_search')
+
+        # Keep this deliberately simple for transition generation:
+        # one subset per prime. This avoids the expensive combinatorial
+        # subset generation and still gives you a candidate pool.
+        prime_subsets_to_process = [[p] for p in prime_pool if p in precomputed_residues]
+
+        if not prime_subsets_to_process:
+            stats.end_phase('markov_subset_search')
+            return {
+                "candidates": [],
+                "candidate_xs": set(),
+                "new_sections": [],
+                "precomputed_residues": precomputed_residues,
+                "stats": stats,
+                "final_rational_pairs": [],
+            }
+
+        worker_func = partial(
+            process_prime_subset_precomputed,
+            vecs=search_vecs,
+            r_m=r_m,
+            shift=shift,
+            tmax=tmax,
+            combo_cap=max_modulus,
+            precomputed_residues=precomputed_residues,
+            prime_pool=prime_pool,
+            num_rhs_fns=len(rhs_list),
+            coeffs_genus2=coeffs_genus2
+        )
+
+        subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
+            prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
+        )
+
+        stats.merge_dict(worker_stats_dict)
+        stats.crt_classes_tested = all_crt_classes
+        stats.incr('subsets_processed', n=len(subset_results_list))
+
+        overall_found_candidates_from_workers = set()
+        for subset, candidates_set, _ in subset_results_list:
+            overall_found_candidates_from_workers.update(candidates_set)
+
+        stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
+
+        if not overall_found_candidates_from_workers:
+            stats.end_phase('markov_subset_search')
+            return {
+                "candidates": [],
+                "candidate_xs": set(),
+                "new_sections": [],
+                "precomputed_residues": precomputed_residues,
+                "stats": stats,
+                "final_rational_pairs": [],
+            }
+
+        # Keep the rationality check, but skip all the heavier analytics.
+        candidate_list = list(overall_found_candidates_from_workers)
+        final_rational_candidates = set()
+
+        batch_size = max(1, floor(0.05 * len(candidate_list)))
+        for i in range(0, len(candidate_list), batch_size):
+            batch = candidate_list[i:i + batch_size]
+            newly_rational = _batch_check_rationality(
+                batch, r_m, shift, rationality_test_func, current_sections, stats
+            )
+            final_rational_candidates.update(newly_rational)
+
+        candidate_records = []
+        candidate_xs = set()
+        new_sections_raw = []
+        processed_m_vals = {}
+
+        for m_val, v_tuple in final_rational_candidates:
+            if m_val in processed_m_vals:
+                continue
+            try:
+                x_val = r_m(m=m_val) - shift
+                y_val = rationality_test_func(x_val)
+                if y_val is None:
+                    continue
+
+                x_val_q = QQ(x_val)
+                v = vector(QQ, v_tuple)
+
+                if x_val_q in all_found_x:
+                    continue
+
+                rec = {
+                    "m": m_val,
+                    "xj": x_val_q,
+                    "y": y_val,
+                    "v": tuple(v_tuple),
+                    "section": None,
+                }
+                if any(c != 0 for c in v):
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    rec["section"] = new_sec
+                    new_sections_raw.append(new_sec)
+
+                candidate_records.append(rec)
+                processed_m_vals[m_val] = v
+                candidate_xs.add(x_val_q)
+
+            except Exception:
+                raise
+
+        new_sections = list({s: None for s in new_sections_raw}.keys())
+        stats.incr('rational_points_unique', n=len(candidate_xs))
+        stats.incr('new_sections_unique', n=len(new_sections))
+        stats.end_phase('markov_subset_search')
+
+        return {
+            "candidates": candidate_records,
+            "candidate_xs": candidate_xs,
+            "new_sections": new_sections,
+            "precomputed_residues": precomputed_residues,
+            "stats": stats,
+            "final_rational_pairs": list(final_rational_candidates),
+        }
+
+    # ------------------------------------------------------------------
+    # ORIGINAL HEAVY PATH BELOW
+    # ------------------------------------------------------------------
+    residue_counts = compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=30)
+    coverage_estimator = CoverageEstimator(prime_pool, residue_counts)
 
     stats.start_phase('brauer')
 
@@ -1241,13 +771,13 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
             "new_sections": [],
             "precomputed_residues": precomputed_residues,
             "stats": stats,
+            "final_rational_pairs": [],
         }
     if len(usable_primes) < len(prime_pool):
         if debug:
             print(f"[filter] Removed {len(prime_pool) - len(usable_primes)} primes with no numeric data. Using {len(usable_primes)} usable primes.")
         prime_pool = usable_primes
 
-    # === PHASE: AUTOTUNE PRIMES ===
     stats.start_phase('autotune_primes')
     prime_stats = estimate_prime_stats(prime_pool, precomputed_residues, vecs_list, num_rhs=len(rhs_list))
     auto_extra_primes = choose_extra_primes(
@@ -1259,7 +789,7 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
     extra_primes_for_filtering = auto_extra_primes
     stats.end_phase('autotune_primes')
 
-    combo_cap = ceil(50000**(7 * min_prime_subset_size / 3))
+    combo_cap = ceil(50000**(7*min_prime_subset_size/3))
     roots_threshold = ROOTS_THRESHOLD
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
@@ -1314,7 +844,6 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
 
     num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
 
-    # === PHASE: GEN SUBSETS ===
     stats.start_phase('gen_subsets')
     prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
         prime_pool=prime_pool,
@@ -1420,14 +949,14 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
                 "new_sections": [],
                 "precomputed_residues": precomputed_residues,
                 "stats": stats,
+                "final_rational_pairs": [],
             }
 
     stats.end_phase('gen_subsets')
 
-    # === PHASE: SEARCH & CHECK ===
     stats.start_phase('search_subsets_and_check')
     worker_func = partial(
-        _process_prime_subset_precomputed,
+        process_prime_subset_precomputed,
         vecs=search_vecs,
         r_m=r_m,
         shift=shift,
@@ -1477,10 +1006,8 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
     stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
 
     print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
-
     final_rational_candidates = set()
     candidate_list = list(overall_found_candidates_from_workers)
-
     if not candidate_list:
         stats.end_phase('search_subsets_and_check')
         print("\n--- Search Statistics (No Points Found) ---")
@@ -1491,6 +1018,7 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
             "new_sections": [],
             "precomputed_residues": precomputed_residues,
             "stats": stats,
+            "final_rational_pairs": [],
         }
 
     batch_size = max(1, floor(0.05 * len(candidate_list)))
@@ -1521,11 +1049,11 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
             "new_sections": [],
             "precomputed_residues": precomputed_residues,
             "stats": stats,
+            "final_rational_pairs": [],
         }
 
     print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
 
-    # === PHASE: POST PROCESS ===
     stats.start_phase('post_process')
 
     candidate_records = []
@@ -1536,38 +1064,28 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
     for m_val, v_tuple in final_rational_candidates:
         if m_val in processed_m_vals:
             continue
-
         try:
             x_val = r_m(m=m_val) - shift
             y_val = rationality_test_func(x_val)
-
             if y_val is not None:
                 x_val_q = QQ(x_val)
                 v = vector(QQ, v_tuple)
-
-                if x_val_q in all_found_x:
-                    continue
-
                 candidate_records.append({
                     "m": m_val,
                     "xj": x_val_q,
                     "y": y_val,
                     "v": tuple(v_tuple),
-                    "section": None,  # filled below if we build a new section
+                    "section": None,
                 })
-
                 processed_m_vals[m_val] = v
                 candidate_xs.add(x_val_q)
-
                 if any(c != 0 for c in v):
                     new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
                     new_sections_raw.append(new_sec)
                     candidate_records[-1]["section"] = new_sec
-
         except (TypeError, ZeroDivisionError, ArithmeticError):
             raise
-        except Exception:
-            raise
+            continue
 
     analysis = analyze_unused_residue_orders(
         precomputed_residues=precomputed_residues,
@@ -1597,3 +1115,142 @@ def _run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_lis
         "stats": stats,
         "final_rational_pairs": list(final_rational_candidates),
     }
+
+def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
+                      rationality_test_func, coeffs_genus2, tower_data,
+                      num_workers, debug, x_b, shifted_coeffs,
+                      markov_mode=False):
+    """
+    Mumford / Finite Field search.
+
+    Modes:
+    - markov_mode=True  → return raw Mumford residues + metadata ONLY
+    - markov_mode=False → full pipeline (reconstruction + attack)
+    """
+
+    print("\n" + "="*70)
+    print("MUMFORD SEARCH")
+    print("Mode:", "MARKOV (residues only)" if markov_mode else "FULL PIPELINE")
+    print("="*70 + "\n")
+
+    stats = SearchStats()
+
+    # --------------------------------------------------
+    # Phase 1: Build Mumford system
+    # --------------------------------------------------
+    stats.start_phase('mumford_setup')
+    eqs_dict = build_mumford_equations_from_fibration(tower_data, coeffs_genus2)
+    stats.end_phase('mumford_setup')
+
+    # --------------------------------------------------
+    # Phase 2: Modular prep
+    # --------------------------------------------------
+    stats.start_phase('prep_mod_data')
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+        cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
+    )
+    stats.end_phase('prep_mod_data')
+
+    if not Ep_dict:
+        return {
+            "residues": {},
+            "prime_list": [],
+            "vecs": [],
+            "Ep_dict": {},
+            "stats": stats,
+            "metadata": {}
+        } if markov_mode else (set(), [], {}, stats)
+
+    prime_list = sorted(Ep_dict.keys())
+    vecs_list = list(vecs)
+
+    # --------------------------------------------------
+    # Phase 3: Mumford residues (CORE)
+    # --------------------------------------------------
+    stats.start_phase('mumford_residues')
+
+    mumford_residues = mumford_precompute_residues_parallel(
+        eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+        rhs_modp_list, vecs_list,
+        num_workers=num_workers,
+        debug=debug
+    )
+
+    stats.end_phase('mumford_residues')
+
+    # --------------------------------------------------
+    # MARKOV FAST EXIT 🚀
+    # --------------------------------------------------
+    if markov_mode:
+        total_supports = 0
+        for pmap in mumford_residues.values():
+            for vmap in pmap.values():
+                total_supports += len(vmap)
+
+        return {
+            "residues": mumford_residues,
+            "prime_list": prime_list,
+            "vecs": vecs_list,
+            "Ep_dict": Ep_dict,
+            "stats": stats,
+            "metadata": {
+                "num_primes": len(prime_list),
+                "num_vectors": len(vecs_list),
+                "total_supports": total_supports,
+            }
+        }
+
+    # --------------------------------------------------
+    # Phase 4: (optional) diagnostics
+    # --------------------------------------------------
+    if FINITE_FIELD:
+        compute_zeta_direct(coeffs_genus2, int(FINITE_FIELD))
+        compute_zeta_from_fibration(mumford_residues, vecs_list, int(FINITE_FIELD))
+
+    # --------------------------------------------------
+    # Phase 5: Reconstruction (heavy)
+    # --------------------------------------------------
+    stats.start_phase('mumford_reconstruction')
+
+    found_xs, mumford_divisors, lp_seed_xs = reconstruct_and_verify_mumford(
+        mumford_residues, prime_list, coeffs_genus2, shift, rationality_test_func
+    )
+
+    stats.end_phase('mumford_reconstruction')
+
+    # --------------------------------------------------
+    # Phase 6: Optional filtering
+    # --------------------------------------------------
+    if FINITE_FIELD:
+        mumford_divisors = filter_g_q_from_list(
+            mumford_divisors,
+            BASE_DIVISOR,
+            TARGET_DIVISOR,
+            FINITE_FIELD,
+            coeffs_genus2
+        )
+
+    print(f"\nMumford search reconstructed {len(mumford_divisors)} divisors")
+
+    # --------------------------------------------------
+    # Phase 7: Attack (only in FULL mode)
+    # --------------------------------------------------
+    if FINITE_FIELD:
+        return _run_index_calculus_attack(
+            mumford_divisors,
+            coeffs_genus2,
+            tower_data,
+            found_xs,
+            mumford_residues,
+            stats,
+            num_workers,
+            x_b,
+            shifted_coeffs,
+            lp_seed_xs
+        )
+
+    # Non-FF case
+    print(f"Mumford search found {len(found_xs)} rational points")
+    stats.incr('rational_points_unique', n=len(found_xs))
+
+    return found_xs, [], mumford_residues, stats

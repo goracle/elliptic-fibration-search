@@ -481,7 +481,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 # === Main Worker Functions (Single Subset) ====================
 # ==============================================================
 
-def _process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, tmax):
+def process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, tmax):
     """
     Worker function to find m-candidates for a single subset of primes.
     (This is the OLDER version from source [22])
@@ -631,7 +631,7 @@ def r_m_numeric_top(m_val, r_m_expr):
     val = r_m_expr.subs({SR_m: m_val})
     return QQ(val)
 
-def _compute_residues_for_prime_worker(args):
+def compute_residues_for_prime_worker(args):
     """
     Worker computing residues for one prime with Hensel filtering.
     (From source [476])
@@ -824,7 +824,7 @@ def _compute_residues_for_prime_worker(args):
 
     return p, result_for_p, local_modular_checks
 
-def _compute_residues_for_prime_worker_old(args):
+def compute_residues_for_prime_worker_old(args):
     """
     Worker computing residues for one prime with Hensel filtering.
     (From source [525], no torsion filter)
@@ -1072,7 +1072,7 @@ def check_specific_t_value2(t_candidate, m0, M, residue_map_for_filter, extra_pr
 
     return True
 
-def _process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None):
+def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None):
     """
     Worker function to find m-candidates for a single subset of primes.
     This version processes each RHS function independently.

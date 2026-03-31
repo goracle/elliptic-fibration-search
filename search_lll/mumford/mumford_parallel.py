@@ -558,6 +558,18 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
 
+    if False:
+        print("eqs_dict, prime_list, Ep_dict, vecs_lll, rhs_modp_list, vecs_list")
+        print(eqs_dict, prime_list, Ep_dict, vecs_lll, rhs_modp_list, vecs_list)
+
+        for i in mult_lll:
+            count = 0
+            for j in mult_lll[i]:
+                print(j)
+                count += 1
+                if count == 5:
+                    break
+
     t_start = time.time()
 
     # Safety clamp on workers

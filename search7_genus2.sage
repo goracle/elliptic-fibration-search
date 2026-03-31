@@ -907,19 +907,21 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             all_known_x,
             num_prime_subsets,
             testfunc,
-            sconf,
+            sconf, sextic_coeffs,
             tower_data=tower_for_mumford,
             precomputed_residues=precomputed_residues,
-            coeffs_genus2=sextic_coeffs,
             x_b=x_b,
             shifted_coeffs=shifted_coeffs,
+            markov_mode=False
         )
 
         iter_stats.consensus_filter_stats = consensus_stats
     else:
+
         newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
-            cd, current_sections,
-            prime_pool, height_bound,
+            cd,
+            current_sections,
+            prime_pool,
             vecs,
             search_rhs_list,
             r_m,
@@ -928,10 +930,11 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             num_prime_subsets,
             testfunc,
             sconf,
-            tower_data=tower_for_mumford,
-            coeffs_genus2=sextic_coeffs,
+            sextic_coeffs,
+            tower_for_mumford,           # Pass positionally
             x_b=x_b,
             shifted_coeffs=shifted_coeffs,
+            markov_mode=False
         )
 
     return newly_found_x, new_sections, iter_stats
@@ -1367,14 +1370,23 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     )
 
     # Build towers
+    #print("base pts, legacy", base_pts)
     primary_tower, fibrations, tower_for_mumford = build_tower_and_fibrations(
         shifted_G_poly, base_pts
     )
+    # print("primary_tower, fibrations, tower_for_mumford")
+    #print(primary_tower, fibrations, tower_for_mumford)
 
     # Extract geometry
     E_rhs_m, r_m, roots = extract_geometry_from_tower(primary_tower, field_data['Fm'])
     cd, morphism_data = build_curve_data(E_rhs_m, roots, base_pts)
     one, two, three = morphism_data
+
+    #print("E_rhs_m, r_m, roots")
+    #print(E_rhs_m, r_m, roots)
+    #print("cd, morphism_data")
+    #print(cd, morphism_data)
+    #sys.exit()
 
     # Configure search
     sconf, prime_pool = configure_search_parameters(cd, all_known_x, base_pts, base_field)
@@ -1507,6 +1519,5 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     return new_points_original_coords, cumulative_stats
 
-if __name__ == '__main__':
+if globals().get("__name__", None) == "__main__":
     main_genus2()
-
