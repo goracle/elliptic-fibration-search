@@ -1019,7 +1019,9 @@ def _choose_candidate_record(self, candidates: List[Dict[str, Any]], context: Di
     return candidates[-1]
 
 def _make_relation(self, step_index: int, n: int, xi, m_val, xj, xk, step: Dict[str, Any], accepted=True, restart=False):
-    relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else "relation incomplete"
+    relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else (
+        f"3*{xi} + {xj} + ? - 5*∞ = 0" if xj is not None else "no xj"
+    )
     return RelationRecord(
         step_index=step_index,
         n=n,
@@ -1077,6 +1079,9 @@ class Genus2MetropolisWalker:
         self.unique_xj_seen = {self.current_x}
         # NEW: Track ALL candidate leaves across the entire walk
         self.global_leaves_seen = {self.current_x}
+        # How many times each x has been stepped *through* as xi (i.e. used as chain state).
+        # We avoid re-using high-visit-count nodes as the next xi when fresher candidates exist.
+        self.xi_visit_count: Counter = Counter({self.current_x: 1})
 
         self.history: List[RelationRecord] = []
         self.dead_end_count = 0
@@ -1232,21 +1237,42 @@ class Genus2MetropolisWalker:
 
         raise TypeError(f"Unsupported search result type: {type(result)!r}")
 
+    def _prefer_unvisited_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Partition candidates by xi_visit_count and return the least-visited tier.
+
+        We walk through visit counts 0, 1, 2, ... and return the first non-empty
+        tier, so we always prefer candidates whose xj has never (or least often)
+        been used as xi before.  Falls back to the full list if every candidate
+        has been visited.
+        """
+        if not candidates:
+            return candidates
+        def _count(c):
+            xj = c.get("xj") if isinstance(c, dict) else c
+            return self.xi_visit_count.get(xj, 0)
+        min_count = min(_count(c) for c in candidates)
+        preferred = [c for c in candidates if _count(c) == min_count]
+        return preferred
+
     def _choose_candidate_record(self, candidates: List[Dict[str, Any]], context: Dict[str, Any]):
         if not candidates:
             return None
-        if len(candidates) == 1:
-            return candidates[0]
+
+        # Prefer candidates whose xj has been stepped through least often.
+        pool = self._prefer_unvisited_candidates(candidates)
+
+        if len(pool) == 1:
+            return pool[0]
 
         if self.score_fn is None:
-            return self.rng.choice(candidates)
+            return self.rng.choice(pool)
 
-        scores = [self._score_candidate_record(c, context) for c in candidates]
+        scores = [self._score_candidate_record(c, context) for c in pool]
         temp = max(1e-12, float(self.config.metropolis_temperature))
         weights = [math.exp(-s / temp) for s in scores]
         total = sum(weights)
         if total <= 0:
-            return self.rng.choice(candidates)
+            return self.rng.choice(pool)
 
         u = self.rng.random() * total
         acc = 0.0
@@ -1254,7 +1280,7 @@ class Genus2MetropolisWalker:
             acc += w
             if u <= acc:
                 return cand
-        return candidates[-1]
+        return pool[-1]
 
     def _register_unique_xj(self, xj):
         if xj is None:
@@ -1306,7 +1332,8 @@ class Genus2MetropolisWalker:
             # per-n root breakdown if available in search_out
             per_n_info = search_out.get('per_n_roots') if isinstance(search_out, dict) else None
             n_with_roots = search_out.get('n_with_roots') if isinstance(search_out, dict) else None
-            frac_n_fertile = (n_with_roots / self.config.max_n) if (n_with_roots is not None and self.config.max_n > 0) else None
+            n_total = search_out.get('n_total') or self.config.max_n
+            frac_n_fertile = (n_with_roots / n_total) if (n_with_roots is not None and n_total > 0) else None
             print(
                 f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
                 f"xi={self.current_x} | "
@@ -1399,8 +1426,10 @@ class Genus2MetropolisWalker:
         step_payload = dict(search_out) if isinstance(search_out, dict) else {}
         unique_xj_new, unique_xj_total = self._annotate_step_counts(step_payload, xj, accepted=accepted)
 
+        xi_before = self.current_x
         if accepted:
             next_x = xj
+            self.xi_visit_count[next_x] += 1
             try:
                 next_y = self._recover_y(next_x)
             except Exception:
@@ -1413,7 +1442,7 @@ class Genus2MetropolisWalker:
                 self.current_x = next_x
 
         rec = self._make_relation(
-            len(self.history), n, self.current_x, m_val, xj, xk, step_payload,
+            len(self.history), n, xi_before, m_val, xj, xk, step_payload,
             accepted=accepted, restart=False
         )
         rec.candidate_pool = candidates
@@ -1639,8 +1668,10 @@ class Genus2MetropolisWalker:
         unique_xj_new = False
         unique_xj_total = len(self.unique_xj_seen)
 
+        xi_before = self.current_x
         if accepted:
             next_x = chosen
+            self.xi_visit_count[next_x] += 1
             unique_xj_new, unique_xj_total = self._register_unique_xj(next_x)
             try:
                 next_y = self._recover_y(next_x)
@@ -1661,7 +1692,7 @@ class Genus2MetropolisWalker:
                     step_payload = dict(step) if isinstance(step, dict) else {}
                     self._annotate_step_counts(step_payload, None, accepted=False)
                     rec = self._make_relation(
-                        len(self.history), n, self.current_x, m_val, xj, xk,
+                        len(self.history), n, xi_before, m_val, xj, xk,
                         step_payload, accepted=False, restart=True
                     )
                     self._store_record(rec)
@@ -1671,7 +1702,7 @@ class Genus2MetropolisWalker:
         self._annotate_step_counts(step_payload, chosen if accepted else None, accepted=accepted)
 
         rec = self._make_relation(
-            len(self.history), n, self.current_x, m_val, xj, xk,
+            len(self.history), n, xi_before, m_val, xj, xk,
             step_payload, accepted=accepted
         )
         self._store_record(rec)
@@ -1714,6 +1745,8 @@ class Genus2MetropolisWalker:
                 xk_str = str(rec.xk) if rec.xk is not None else "—"
                 m_str  = str(rec.m)  if rec.m  is not None else "—"
                 rel_str = rec.relation if rec.relation else "—"
+                xj_visits = self.xi_visit_count.get(rec.xj, 0) if rec.xj is not None else 0
+                xi_visits = self.xi_visit_count.get(rec.xi, 0) if rec.xi is not None else 0
 
                 # collision check: was xj already in the path?
                 path_collision = (rec.xj is not None and rec.xj in self.unique_xj_seen
@@ -1721,21 +1754,22 @@ class Genus2MetropolisWalker:
 
                 # per-n fertility from search_out if available
                 n_with_roots = step_dict.get('n_with_roots')
+                n_total = step_dict.get('n_total') or self.config.max_n
                 frac_fertile_str = (
-                    f"{n_with_roots}/{self.config.max_n} ({n_with_roots/self.config.max_n:.0%})"
+                    f"{n_with_roots}/{n_total} ({n_with_roots/n_total:.0%})"
                     if n_with_roots is not None else "n/a"
                 )
 
                 print(
                     f"\n{'='*70}",
                     f"\n[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
-                    f"\n  Path:      xi → xj  |  xi={rec.xi}",
-                    f"\n             xj={xj_str}  |  xk={xk_str}  |  m={m_str}",
+                    f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
+                    f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                     f"\n  Relation:  {rel_str}",
-                    f"\n  Outcome:   accepted={rec.accepted}  collision={'YES ← birthday!' if path_collision else 'no'}",
-                    f"\n  Walk:      accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
+                    f"\n  This step: accepted={rec.accepted}  collision={'YES ← birthday!' if path_collision else 'no'}",
+                    f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
                     f"\n  Leaves:    this step={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
-                    f"\n  Graph:     volume={total_leaves}  ({collision_frac:.4f}×√p={sqrt_p:.1f})",
+                    f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p={sqrt_p:.1f})",
                     f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
                     f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots",
                     f"\n{'='*70}\n",
@@ -1797,7 +1831,9 @@ class Genus2MetropolisWalker:
             accepted=True,
             restart=False,
         ):
-            relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else "relation incomplete"
+            relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else (
+                f"3*{xi} + {xj} + ? - 5*∞ = 0" if xj is not None else "no xj"
+            )
 
             # Memory Fix: Scrub heavy keys from the step dictionary to prevent history leaks
             clean_step = {}
@@ -1934,6 +1970,60 @@ def make_project_markov_search_fn(
 
         norm = _normalize_markov_mumford_result(raw, fallback_step=ctx)
 
+        # Fertility: fraction of n-values (vecs) that had at least one F_p root across any prime.
+        # precomputed_residues[p] is keyed only by v_tuples that had roots, so union of keys = fertile set.
+        _precomp = norm.get('precomputed_residues') or (raw.get('precomputed_residues') if isinstance(raw, dict) else None)
+        if _precomp and vecs:
+            fertile_vtups = set()
+            for p_entry in _precomp.values():
+                if isinstance(p_entry, dict):
+                    fertile_vtups.update(p_entry.keys())
+            norm['n_with_roots'] = len(fertile_vtups)
+            norm['n_total'] = len(vecs)
+            norm['per_n_roots'] = {str(k): 1 for k in fertile_vtups}  # presence only; counts would need deeper aggregation
+        else:
+            norm['n_with_roots'] = None
+            norm['n_total'] = len(vecs) if vecs else None
+
+        # Grab ingredients for xk computation.
+        # f_i is in R_xm = PolynomialRing(Frac(GF(p)['m']), 'x') — poly in x with rational-function-in-m coefficients.
+        # shifted_G_poly is the curve poly in x over GF(p).
+        # At a specific m_val: evaluate each coeff of f_i at m=m_val -> univariate poly in x over GF(p).
+        # Then G(x) - f_i(x, m_val) = 0 has roots xi(x3), xj, xk.
+        _G_poly = ctx.get('shifted_G_poly')
+        _tower = ctx.get('primary_tower')
+        _fi = None
+        if _tower and isinstance(_tower, (list, tuple)) and len(_tower) > 0:
+            last = _tower[-1]
+            if isinstance(last, dict):
+                _fi = last.get('f_i')
+
+        def _compute_xk_from_fiber(xi_val, m_val, xj_val):
+            if _fi is None or _G_poly is None or m_val is None:
+                return None
+            try:
+                Rx = _G_poly.parent()
+                Fp = Rx.base_ring()
+                # Evaluate f_i at m = m_val: coefficients are in Frac(Fp['m']),
+                # evaluate each as a rational function at m_val.
+                fi_coeffs_at_m = []
+                for c in _fi.list():
+                    num = c.numerator()
+                    den = c.denominator()
+                    den_val = den(m_val)
+                    if den_val == 0:
+                        return None
+                    fi_coeffs_at_m.append(Fp(num(m_val)) / Fp(den_val))
+                fi_at_m = Rx(fi_coeffs_at_m)
+                inter = _G_poly - fi_at_m
+                if inter.degree() < 4:
+                    return None
+                # Roots are xi(x3), xj, xk — use Vieta on the degree-5 poly.
+                known = [xi_val, xi_val, xi_val, xj_val]
+                return missing_root_by_vieta(inter, known)
+            except Exception:
+                return None
+
         enriched_candidates = []
         for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
             rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
@@ -1941,9 +2031,27 @@ def make_project_markov_search_fn(
             rec['input_n'] = n0
             rec['xi'] = x_here
             rec['yi'] = y_here
-            # Memory Fix: DO NOT attach the heavy tower_context here
-            enriched_candidates.append(rec)
 
+            xj_val = rec.get('xj')
+
+            # Skip degenerate candidates where xj == xi (walker would step to itself)
+            if xj_val is not None and xj_val == x_here:
+                continue
+
+            # Recover m from the linear relation xj = -m + xi  =>  m = xi - xj
+            if rec.get('m') is None and xj_val is not None:
+                try:
+                    rec['m'] = x_here - xj_val
+                except Exception:
+                    pass
+
+            # Compute xk now while tower context is available
+            if rec.get('xk') is None:
+                m_val = rec.get('m')
+                if m_val is not None and xj_val is not None:
+                    rec['xk'] = _compute_xk_from_fiber(x_here, m_val, xj_val)
+
+            enriched_candidates.append(rec)
         candidate_xs = {c.get('xj') for c in enriched_candidates if isinstance(c, dict) and c.get('xj') is not None}
 
         result = {
