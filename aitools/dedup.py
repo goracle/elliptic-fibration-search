@@ -60,16 +60,25 @@ class ClassInfo:
         self.name = node.name
         self.start = 0
         self.end = 0
+
+        # Keep every occurrence, not just the last one.
+        self.method_occurrences: Dict[str, List[ast.AST]] = defaultdict(list)
+
+        # Convenience view: name -> last occurrence in this class body.
         self.methods: Dict[str, ast.AST] = {}
-        self.method_nodes: Dict[str, ast.AST] = {}
 
     def analyze(self) -> None:
-        self.start = min([self.node.lineno] + [d.lineno for d in getattr(self.node, "decorator_list", [])] or [self.node.lineno])
+        decorator_lines = [d.lineno for d in getattr(self.node, "decorator_list", [])]
+        self.start = min(decorator_lines + [self.node.lineno])
         self.end = getattr(self.node, "end_lineno", self.node.lineno)
+
         for child in self.node.body:
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.methods[child.name] = child
-                self.method_nodes[child.name] = child
+                self.method_occurrences[child.name].append(child)
+
+        # Last one wins inside a single class body.
+        for name, nodes in self.method_occurrences.items():
+            self.methods[name] = nodes[-1]
 
 # -------------------------
 # Standard dedup pass
@@ -262,74 +271,6 @@ def main(argv: List[str] | None = None) -> None:
         print(f"[fatal] processing failed for {args.filename}", file=sys.stderr)
         raise
 
-class ClassMergeAnalyzer(ast.NodeVisitor):
-    """
-    Analyzes classes for merging.
-    Now supports nested classes and deep method deduplication.
-    """
-    def __init__(self, source_lines: List[str]):
-        self.source_lines = source_lines
-        self.classes: Dict[str, List[ClassInfo]] = defaultdict(list)
-        self.lines_to_remove: Set[int] = set()
-        self.injections: Dict[int, List[str]] = defaultdict(list)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        # REMOVED: col_offset == 0 check.
-        # This allows merging even if the class is indented or nested.
-        info = ClassInfo(node)
-        info.analyze()
-        self.classes[node.name].append(info)
-        self.generic_visit(node)
-
-    def process_merges(self) -> Set[str]:
-        processed: Set[str] = set()
-        for name, infos in list(self.classes.items()):
-            if len(infos) < 2:
-                continue
-
-            processed.add(name)
-            # The LAST definition in the file is the "Master"
-            master = infos[-1]
-
-            # Determine indentation from master class body
-            master_indent = "    "
-            if master.node.body:
-                first_node = master.node.body[0]
-                master_indent = " " * getattr(first_node, "col_offset", 4)
-
-            for prev in infos[:-1]:
-                # 1. Mark the entire old class block for removal
-                for ln in range(prev.start, prev.end + 1):
-                    self.lines_to_remove.add(ln)
-
-                # 2. Deep Method Merging
-                # If 'prev' has a method that 'master' doesn't, we hoist it.
-                # If 'master' already has it, we assume 'master' (being later)
-                # has the updated version and we discard the 'prev' version.
-                for mname, mnode in prev.methods.items():
-                    if mname not in master.methods:
-                        # Extract raw text for the method (including decorators)
-                        m_start = min([mnode.lineno] + [d.lineno for d in getattr(mnode, "decorator_list", [])] or [mnode.lineno])
-                        m_end = getattr(mnode, "end_lineno", mnode.lineno)
-
-                        raw = "".join(self.source_lines[m_start - 1 : m_end])
-                        dedented = textwrap.dedent(raw)
-
-                        # Re-indent to match the master class's internal indentation
-                        reindented = "".join(
-                            (master_indent + line) if line.strip() else line
-                            for line in dedented.splitlines(True)
-                        )
-
-                        # Inject into the end of the master class
-                        chunk = "\n" + reindented.rstrip() + "\n"
-                        self.injections[master.end].append(chunk)
-
-                        # Update master's method map so we don't double-inject
-                        master.methods[mname] = mnode
-
-        return processed
-
 class StandardDedupVisitor(ast.NodeVisitor):
     """
     Scans for duplicate global functions and imports.
@@ -488,6 +429,121 @@ def normalize_and_hoist_imports_grouped(source_lines: List[str], tree: ast.AST) 
 
     final_imports = [ln if ln.endswith("\n") else ln + "\n" for ln in normalized_lines]
     return preserved_prefix + final_imports + ["\n"] + remaining, import_line_numbers
+
+class ClassMergeAnalyzer(ast.NodeVisitor):
+    """
+    Analyzes classes for merging.
+
+    Behavior:
+    - For every class body, remove earlier duplicate method definitions and keep
+      the last occurrence.
+    - For duplicate top-level class definitions, keep the last class as master.
+    - Move methods that exist only in earlier duplicate class defs into the master.
+    """
+
+    def __init__(self, source_lines: List[str]):
+        self.source_lines = source_lines
+        self.classes: Dict[str, List[ClassInfo]] = defaultdict(list)
+        self.lines_to_remove: Set[int] = set()
+        self.injections: Dict[int, List[str]] = defaultdict(list)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        info = ClassInfo(node)
+        info.analyze()
+        self.classes[node.name].append(info)
+        self.generic_visit(node)
+
+    def _node_start(self, node: ast.AST) -> int:
+        start = getattr(node, "lineno", None)
+        if start is None:
+            raise DedupError("AST node missing lineno")
+        decorator_list = getattr(node, "decorator_list", None) or []
+        if decorator_list:
+            start = min([start] + [d.lineno for d in decorator_list])
+        return start
+
+    def _node_end(self, node: ast.AST) -> int:
+        end = getattr(node, "end_lineno", None)
+        if end is None:
+            raise DedupError("AST node missing end_lineno")
+        return end
+
+    def _class_body_indent(self, cls: ast.ClassDef) -> str:
+        """
+        Infer indentation from the first real statement in the class body.
+        Falls back to 4 spaces.
+        """
+        for child in cls.body:
+            if hasattr(child, "col_offset"):
+                return " " * getattr(child, "col_offset", 4)
+        return "    "
+
+    def _extract_and_reindent_method(self, method_node: ast.AST, target_indent: str) -> str:
+        start = self._node_start(method_node)
+        end = self._node_end(method_node)
+        raw = "".join(self.source_lines[start - 1 : end])
+        dedented = textwrap.dedent(raw)
+
+        out_lines: List[str] = []
+        for line in dedented.splitlines(True):
+            if line.strip():
+                out_lines.append(target_indent + line)
+            else:
+                out_lines.append(line)
+
+        return "\n" + "".join(out_lines).rstrip() + "\n"
+
+    def _mark_method_occurrence_for_removal(self, method_node: ast.AST) -> None:
+        for ln in range(self._node_start(method_node), self._node_end(method_node) + 1):
+            self.lines_to_remove.add(ln)
+
+    def process_merges(self) -> Set[str]:
+        processed: Set[str] = set()
+
+        for name, infos in list(self.classes.items()):
+            if not infos:
+                continue
+
+            # 1) Inside every class body, keep only the last occurrence of each method name.
+            for info in infos:
+                for mname, nodes in info.method_occurrences.items():
+                    if len(nodes) > 1:
+                        for dup_node in nodes[:-1]:
+                            self._mark_method_occurrence_for_removal(dup_node)
+
+            # 2) If there is only one class with this name, we are done.
+            if len(infos) < 2:
+                continue
+
+            processed.add(name)
+
+            # Last definition wins.
+            master = infos[-1]
+            master_indent = self._class_body_indent(master.node)
+
+            # Insert methods inside the master class, just before the class ends.
+            # Using class end_lineno works because we inject after the last body line.
+            insert_line = self._node_end(master.node)
+
+            master_method_names: Set[str] = set(master.methods.keys())
+
+            for prev in infos[:-1]:
+                # Remove the entire earlier class block.
+                for ln in range(prev.start, prev.end + 1):
+                    self.lines_to_remove.add(ln)
+
+                # Hoist any method missing from the master.
+                for mname, nodes in prev.method_occurrences.items():
+                    if mname in master_method_names:
+                        continue
+
+                    # Use the last occurrence from the earlier class.
+                    mnode = nodes[-1]
+                    chunk = self._extract_and_reindent_method(mnode, master_indent)
+                    self.injections[insert_line].append(chunk)
+                    master_method_names.add(mname)
+
+        return processed
 
 if __name__ == "__main__":
     try:
