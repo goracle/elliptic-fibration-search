@@ -14,33 +14,6 @@ from search_common import BLOCK_WIEDEMANN
 _LAZY_LIMIT = (1 << 61) - 1
 
 class SparseRelationMatrix:
-    def __init__(self, rows, rhs, modulus):
-        """
-        rows: list of dicts {col: coeff}
-        rhs:  list of ints
-        modulus: prime ℓ
-        """
-        self.mod = int(modulus)
-        self.n_rows = len(rows)
-        self.n_cols = max(
-            max(r.keys()) if r else 0 for r in rows
-        ) + 1
-
-        # Pack rows as (indices, values) tuples for faster access
-        self.packed_rows = []
-        for r in rows:
-            if r:
-                idxs = list(r.keys())
-                vals = [int(v) % self.mod for v in r.values()]
-                self.packed_rows.append((idxs, vals))
-            else:
-                self.packed_rows.append(([], []))
-
-        # Build column-wise view for transpose matvec
-        self.packed_cols = [[] for _ in range(self.n_cols)]
-        for i, (idxs, vals) in enumerate(self.packed_rows):
-            for j, v in zip(idxs, vals):
-                self.packed_cols[j].append((i, v))
 
     def __init__(self, rows, rhs, modulus):
         """

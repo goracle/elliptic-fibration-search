@@ -339,64 +339,6 @@ def pairify(atoms: tuple) -> tuple:
     return tuple(sorted(atoms))
 
 class RecursiveSmoother:
-    def __init__(self, roots: list, modulus: Optional[int] = None, rng: Optional[random.Random] = None):
-        self.roots = list(roots)
-        self.modulus = modulus
-        self.rng = rng or random.Random()
-        # Track divisors as tuples of atoms: () weight 0, (A,) weight 1, (A, B) weight 2
-        self.divisors = []
-        self.div_index = {}
-
-        # Initialize with atoms and pairs (the initial Factor Base)
-        for i in range(len(self.roots)):
-            self._ensure_divisor((self.roots[i],))
-            for j in range(i, len(self.roots)):
-                self._ensure_divisor((self.roots[i], self.roots[j]))
-
-        self.relations = []
-
-    def _ensure_divisor(self, d_tuple: tuple) -> int:
-        d_sorted = pairify(d_tuple)
-        if d_sorted not in self.div_index:
-            self.div_index[d_sorted] = len(self.divisors)
-            self.divisors.append(d_sorted)
-        return self.div_index[d_sorted]
-
-    def random_move(self) -> Dict[int, int]:
-        """Implements the merge-and-split walk."""
-        if len(self.divisors) < 2:
-            return {}
-
-        idx_a, idx_b = self.rng.sample(range(len(self.divisors)), 2)
-        atoms_a = self.divisors[idx_a]
-        atoms_b = self.divisors[idx_b]
-
-        combined = list(atoms_a + atoms_b)
-        self.rng.shuffle(combined)
-
-        # Random split point allows weight changes (e.g., 2+1 -> 2+1 or 3+0)
-        split = self.rng.randint(0, len(combined)) if combined else 0
-        new_a, new_b = tuple(combined[:split]), tuple(combined[split:])
-
-        idx_new_a = self._ensure_divisor(new_a)
-        idx_new_b = self._ensure_divisor(new_b)
-
-        rel = {idx_a: 1, idx_b: 1}
-        rel[idx_new_a] = rel.get(idx_new_a, 0) - 1
-        rel[idx_new_b] = rel.get(idx_new_b, 0) - 1
-
-        final_rel = {}
-        for k, v in rel.items():
-            val = v % self.modulus if self.modulus else v
-            if val != 0:
-                final_rel[k] = val
-        return final_rel
-
-    def collect_relations(self, num_moves: int):
-        for _ in range(num_moves):
-            r = self.random_move()
-            if r:
-                self.relations.append(r)
 
     def to_dense_matrix(self):
         m = len(self.relations)
@@ -438,23 +380,6 @@ class RecursiveSmoother:
             rank += 1
 
         return rank
-
-    def _ensure_divisor(self, d):
-        """
-        Returns index of d. If d is new, it's a P_junk.
-        We track if we've seen this P_junk before to detect loops.
-        """
-        if d not in self.div_index:
-            idx = len(self.divisors)
-            self.div_index[d] = idx
-            self.divisors.append(d)
-            # Mark this as a temporary P_junk if it wasn't in the starting FB
-            self.is_temporary[idx] = True
-            return idx
-
-        # If it is in div_index, we just returned an existing index.
-        # If is_temporary[idx] is True, we've hit a loop/collision.
-        return self.div_index[d]
 
     def random_move(self):
             """

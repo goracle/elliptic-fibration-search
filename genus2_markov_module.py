@@ -609,6 +609,200 @@ def _run_markov_mumford_search_for_point(
     )
     return _normalize_markov_mumford_result(raw)
 
+def _normalize_markov_mumford_result(result: Any, fallback_step: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Normalize the legacy Mumford-search return payload into a walker-friendly dict.
+
+    This version preserves more structure than the older one:
+      - candidate records are kept as dicts whenever possible
+      - x-values are still collected into candidate_xs
+      - raw payload is retained for later inspection
+      - provenance-like fields are copied through when present
+    """
+    out = {
+        'candidates': [],
+        'candidate_records': [],
+        'candidate_xs': set(),
+        'new_sections': [],
+        'precomputed_residues': None,
+        'stats': None,
+        'raw_mumford_residues': None,
+        'found_xs': set(),
+    }
+
+    def _as_set(values):
+        if values is None:
+            return set()
+        if isinstance(values, set):
+            return set(values)
+        if isinstance(values, (list, tuple)):
+            return {v for v in values if v is not None}
+        return {values}
+
+    def _dedupe_preserve_order(values):
+        seen = set()
+        out_vals = []
+        for v in values:
+            if v is None:
+                continue
+            try:
+                key = v if hash(v) is not None else repr(v)
+            except Exception:
+                key = repr(v)
+            if key in seen:
+                continue
+            seen.add(key)
+            out_vals.append(v)
+        return out_vals
+
+    def _candidate_x_from_obj(obj):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            for key in ("xj", "x", "x_val", "xcoord", "candidate_x", "x_value"):
+                if key in obj and obj[key] is not None:
+                    return obj[key]
+        return obj if not isinstance(obj, (dict, list, tuple, set)) else None
+
+    def _candidate_record_from_x(x, source='mumford_residue', **extra):
+        rec = {'xj': x, 'source': source}
+        rec.update(extra)
+        return rec
+
+    if result is None:
+        return out
+
+    if isinstance(result, dict):
+        out['raw_mumford_residues'] = result.get('raw_mumford_residues', result)
+        out['precomputed_residues'] = result.get('precomputed_residues', None)
+        out['stats'] = result.get('stats', None)
+        out['new_sections'] = result.get('new_sections', [])
+
+        # These are optional but useful to retain.
+        for key in ('input_n', 'vecs', 'tower_context', 'current_x', 'current_y', 'xi', 'yi', 'shift', 'r_expr',
+                    'n_with_roots', 'per_n_roots'):
+            if key in result:
+                out[key] = result[key]
+
+        if 'found_xs' in result:
+            out['found_xs'] = _as_set(result.get('found_xs'))
+        if 'candidate_xs' in result:
+            out['candidate_xs'] = _as_set(result.get('candidate_xs'))
+
+        # Preserve explicit candidate records if supplied.
+        raw_candidates = result.get('candidate_records', None)
+        if raw_candidates is None:
+            raw_candidates = result.get('candidates', None)
+
+        if raw_candidates is not None:
+            if isinstance(raw_candidates, (list, tuple)):
+                out['candidate_records'] = list(raw_candidates)
+            else:
+                out['candidate_records'] = [raw_candidates]
+
+        # Convert candidate records into candidate_xs without throwing away metadata.
+        for cand in out['candidate_records']:
+            if isinstance(cand, dict):
+                x = _candidate_x_from_obj(cand)
+                if x is not None:
+                    out['candidate_xs'].add(x)
+                    out['found_xs'].add(x)
+            else:
+                x = _candidate_x_from_obj(cand)
+                if x is not None:
+                    out['candidate_xs'].add(x)
+                    out['found_xs'].add(x)
+
+        # If nothing explicit was provided, mine the raw payload recursively.
+        if not out['candidate_xs']:
+            xs = _collect_mumford_candidate_x_values(out['raw_mumford_residues'], [])
+            xs = _dedupe_preserve_order(xs)
+            if xs:
+                out['candidate_xs'] = set(xs)
+                out['candidate_records'] = [_candidate_record_from_x(x) for x in xs]
+
+        # Last-resort fallback.
+        if not out['candidate_xs'] and fallback_step is not None:
+            xs = _collect_mumford_candidate_x_values(fallback_step, [])
+            xs = _dedupe_preserve_order(xs)
+            if xs:
+                out['candidate_xs'] = set(xs)
+                out['candidate_records'] = [_candidate_record_from_x(x, source='fallback_step') for x in xs]
+
+        # Maintain the older key too, but now as structured records.
+        if not out['candidate_records'] and out['candidate_xs']:
+            out['candidate_records'] = [_candidate_record_from_x(x) for x in out['candidate_xs']]
+
+        out['candidates'] = list(out['candidate_records'])
+
+        try:
+            out['candidate_counts'] = Counter(
+                cand.get('xj')
+                for cand in out['candidate_records']
+                if isinstance(cand, dict) and cand.get('xj') is not None
+            )
+        except Exception:
+            out['candidate_counts'] = Counter()
+
+        return out
+
+    if isinstance(result, (tuple, list)):
+        items = list(result)
+        out['raw_mumford_residues'] = items
+
+        xs = []
+        found_xs = set()
+
+        for item in items:
+            if isinstance(item, (list, tuple, set)):
+                for v in item:
+                    if v is not None:
+                        found_xs.add(v)
+            xs.extend(_collect_mumford_candidate_x_values(item, []))
+
+        xs = _dedupe_preserve_order(xs)
+
+        if not xs and found_xs:
+            xs = _dedupe_preserve_order(list(found_xs))
+
+        out['found_xs'] = set(found_xs) if found_xs else set(xs)
+        out['candidate_xs'] = set(xs)
+        out['candidate_records'] = [{'xj': x, 'source': 'mumford_residue'} for x in xs]
+        out['candidates'] = list(out['candidate_records'])
+
+        for item in reversed(items):
+            if isinstance(item, dict):
+                if out['stats'] is None and 'stats' in item:
+                    out['stats'] = item['stats']
+                if out['precomputed_residues'] is None and 'precomputed_residues' in item:
+                    out['precomputed_residues'] = item['precomputed_residues']
+                if not out['new_sections'] and 'new_sections' in item:
+                    out['new_sections'] = item['new_sections']
+
+        try:
+            out['candidate_counts'] = Counter(
+                cand.get('xj')
+                for cand in out['candidate_records']
+                if isinstance(cand, dict) and cand.get('xj') is not None
+            )
+        except Exception:
+            out['candidate_counts'] = Counter()
+
+        return out
+
+    xs = _collect_mumford_candidate_x_values(result, [])
+    xs = _dedupe_preserve_order(xs)
+    out['raw_mumford_residues'] = result
+    out['candidate_xs'] = set(xs)
+    out['found_xs'] = set(xs)
+    out['candidate_records'] = [{'xj': x, 'source': 'scalar_fallback'} for x in xs]
+    out['candidates'] = list(out['candidate_records'])
+    try:
+        out['candidate_counts'] = Counter(xs)
+    except Exception:
+        out['candidate_counts'] = Counter()
+    return out
+
 def _normalize_candidate_output(self, result: Any) -> Dict[str, Any]:
     if result is None:
         return {
@@ -823,6 +1017,21 @@ def _choose_candidate_record(self, candidates: List[Dict[str, Any]], context: Di
         if u <= acc:
             return cand
     return candidates[-1]
+
+def _make_relation(self, step_index: int, n: int, xi, m_val, xj, xk, step: Dict[str, Any], accepted=True, restart=False):
+    relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else "relation incomplete"
+    return RelationRecord(
+        step_index=step_index,
+        n=n,
+        xi=xi,
+        m=m_val,
+        xj=xj,
+        xk=xk,
+        relation=relation,
+        step=step,
+        accepted=accepted,
+        restart=restart,
+    )
 
 class Genus2MetropolisWalker:
     """Run the proposed x-coordinate Markov walk on a genus-2 curve.
@@ -1067,6 +1276,151 @@ class Genus2MetropolisWalker:
 
         return unique_new, unique_total
 
+    def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
+        current_point = (self.current_x, self.current_y)
+        raw = self._call_search_fn(n=n, seed=seed, current_point=current_point)
+        search_out = self._normalize_candidate_output(raw)
+
+        candidates = list(search_out.get("candidate_records") or search_out.get("candidates") or [])
+        candidate_xs = search_out.get("candidate_xs", set())
+
+        # --- LOUD EXPANDERNESS TRACKING ---
+        old_leaves_count = len(self.global_leaves_seen)
+        valid_leaves = {cx for cx in candidate_xs if cx is not None}
+        self.global_leaves_seen.update(valid_leaves)
+        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
+
+        if isinstance(search_out, dict):
+            search_out["step_leaves_found"] = len(valid_leaves)
+            search_out["step_leaves_new"] = new_leaves_this_step
+            search_out["global_leaves_total"] = len(self.global_leaves_seen)
+
+        if self.config.verbose:
+            cumulative_novelty = (
+                (len(self.global_leaves_seen) / (len(self.global_leaves_seen) + len(self.unique_xj_seen)))
+                if (self.global_leaves_seen or self.unique_xj_seen) else 0.0
+            )
+            sqrt_p = (self.p ** 0.5) if self.p is not None else float('nan')
+            collision_frac = len(self.global_leaves_seen) / sqrt_p if self.p is not None else float('nan')
+            # per-n root breakdown if available in search_out
+            per_n_info = search_out.get('per_n_roots') if isinstance(search_out, dict) else None
+            n_with_roots = search_out.get('n_with_roots') if isinstance(search_out, dict) else None
+            frac_n_fertile = (n_with_roots / self.config.max_n) if (n_with_roots is not None and self.config.max_n > 0) else None
+            print(
+                f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
+                f"xi={self.current_x} | "
+                f"Leaves this step: {len(valid_leaves)} total, {new_leaves_this_step} new "
+                f"(novelty {step_novelty_ratio:.1%}) | "
+                f"Graph volume: {len(self.global_leaves_seen)} "
+                f"({collision_frac:.3f}×√p)"
+                + (f" | fertile n-values: {n_with_roots}/{self.config.max_n} ({frac_n_fertile:.0%})" if frac_n_fertile is not None else "")
+                + (f" | per-n roots: {per_n_info}" if per_n_info is not None else "")
+            )
+        # -----------------------------------
+
+        if not candidates:
+            if self.config.restart_on_dead_end:
+                restart = self._next_restart_point()
+                if restart is not None:
+                    self.current_x, self.current_y = restart
+                    self.dead_end_count += 1
+                    step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+                    self._annotate_step_counts(step_payload, None, accepted=False)
+                    rec = self._make_relation(
+                        len(self.history), n, self.current_x, None, None, None,
+                        step_payload, accepted=False, restart=True
+                    )
+                    rec.candidate_pool = candidates
+                    self._store_record(rec)
+                    return rec
+
+            step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+            self._annotate_step_counts(step_payload, None, accepted=False)
+            rec = self._make_relation(
+                len(self.history), n, self.current_x, None, None, None,
+                step_payload, accepted=False
+            )
+            rec.candidate_pool = candidates
+            self._store_record(rec)
+            return rec
+
+        chosen = self._choose_candidate_record(
+            candidates,
+            {"n": n, "step": search_out, "current_x": self.current_x, "current_y": self.current_y},
+        )
+
+        if chosen is None:
+            if self.config.restart_on_dead_end:
+                restart = self._next_restart_point()
+                if restart is not None:
+                    self.current_x, self.current_y = restart
+                    self.dead_end_count += 1
+                    step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+                    self._annotate_step_counts(step_payload, None, accepted=False)
+                    rec = self._make_relation(
+                        len(self.history), n, self.current_x, None, None, None,
+                        step_payload, accepted=False, restart=True
+                    )
+                    rec.candidate_pool = candidates
+                    self._store_record(rec)
+                    return rec
+
+            step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+            self._annotate_step_counts(step_payload, None, accepted=False)
+            rec = self._make_relation(
+                len(self.history), n, self.current_x, None, None, None,
+                step_payload, accepted=False
+            )
+            rec.candidate_pool = candidates
+            self._store_record(rec)
+            return rec
+
+        if not isinstance(chosen, dict):
+            chosen = {"xj": chosen}
+
+        m_val = chosen.get("m")
+        xj = chosen.get("xj")
+        xk = chosen.get("xk")
+
+        if xj is None and m_val is not None:
+            xj = self._candidate_xj_from_m(self.current_x, m_val)
+
+        if xj is None and "x" in chosen:
+            xj = chosen.get("x")
+
+        if xk is None and xj is not None:
+            try:
+                xk = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            except Exception:
+                xk = None
+
+        accepted = xj is not None
+        step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+        unique_xj_new, unique_xj_total = self._annotate_step_counts(step_payload, xj, accepted=accepted)
+
+        if accepted:
+            next_x = xj
+            try:
+                next_y = self._recover_y(next_x)
+            except Exception:
+                next_y = None
+
+            if next_y is not None:
+                self.current_x, self.current_y = next_x, next_y
+                self.visited_x.add(next_x)
+            else:
+                self.current_x = next_x
+
+        rec = self._make_relation(
+            len(self.history), n, self.current_x, m_val, xj, xk, step_payload,
+            accepted=accepted, restart=False
+        )
+        rec.candidate_pool = candidates
+        rec.selected_candidate = dict(chosen)
+        self._store_record(rec)
+        return rec
+
     def _solve_m_roots(self, step: Dict[str, Any]) -> List[Any]:
         r_expr = step.get("r_expr")
         if r_expr is None:
@@ -1186,59 +1540,6 @@ class Genus2MetropolisWalker:
                 return x, y
         return None
 
-    def run_branching(self, num_steps: int, width: Optional[int] = None) -> List[List[RelationRecord]]:
-        """Small breadth-style helper for the parallel-branch idea."""
-        width = int(width or self.config.branch_width)
-        branches: List[Tuple[Any, Any, List[RelationRecord]]] = [(self.current_x, self.current_y, [])]
-        n_values = list(range(1, min(self.config.max_n, 80) + 1))
-
-        for step_idx in range(num_steps):
-            new_branches = []
-            for bx, by, hist in branches:
-                saved = (self.current_x, self.current_y, list(self.history), set(self.visited_x), set(self.unique_xj_seen))
-                self.current_x, self.current_y = bx, by
-                self.history = list(hist)
-                self.visited_x = {r.xi for r in hist if r.xi is not None} | {bx}
-                self.unique_xj_seen = set(self.visited_x)
-                rec = self.step(n=n_values[step_idx % len(n_values)])
-                if rec is not None and rec.accepted:
-                    new_branches.append((self.current_x, self.current_y, list(self.history)))
-                self.current_x, self.current_y, self.history, self.visited_x, self.unique_xj_seen = saved
-            if not new_branches:
-                break
-            branches = new_branches[:width]
-        return [hist for _x, _y, hist in branches]
-
-    def summary(self) -> str:
-        accepted = sum(1 for r in self.history if r.accepted)
-        restarts = sum(1 for r in self.history if r.restart)
-        unique_path_nodes = len(self.unique_xj_seen)
-        total_leaves = len(self.global_leaves_seen)
-
-        return (
-            f"\n--- WALK SUMMARY ---\n"
-            f"Steps taken: {len(self.history)}\n"
-            f"Path accepted: {accepted}\n"
-            f"Restarts: {restarts}\n"
-            f"Dead ends: {self.dead_end_count}\n"
-            f"Nodes in chosen path: {unique_path_nodes}\n"
-            f"Total unique leaves discovered (Graph Volume): {total_leaves}\n"
-            f"--------------------"
-        )
-
-    def _score_candidate_record(self, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
-        if self.score_fn is None:
-            return 0.0
-        xj = candidate.get("xj")
-        # Raises on failure instead of silently returning 0.0
-        return float(self.score_fn(xj, context | {"candidate": candidate}))
-
-    def _score_candidate(self, candidate_x, context: Dict[str, Any]) -> float:
-        if self.score_fn is None:
-            return 0.0
-        # Raises on failure instead of silently returning 0.0
-        return float(self.score_fn(candidate_x, context))
-
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
         n = int(n or (len(self.history) + 1))
         if n < 1:
@@ -1253,41 +1554,79 @@ class Genus2MetropolisWalker:
                 if self.config.verbose:
                     print(f"[walk] candidate search failed at n={n}: {exc}")
                 if self.config.restart_on_dead_end:
-                    # [Restart logic truncated for brevity, same as original]
-                    pass
+                    restart = self._next_restart_point()
+                    if restart is not None:
+                        self.current_x, self.current_y = restart
+                        self.dead_end_count += 1
+                        step_payload = {}
+                        self._annotate_step_counts(step_payload, None, accepted=False)
+                        rec = self._make_relation(
+                            len(self.history), n, self.current_x, None, None, None,
+                            step_payload, accepted=False, restart=True
+                        )
+                        self._store_record(rec)
+                        return rec
                 raise
 
         current_point = (self.current_x, self.current_y)
-        step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
+        try:
+            step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
+        except Exception as exc:
+            if self.config.verbose:
+                print(f"[walk] step factory failed at n={n}: {exc}")
+            if self.config.restart_on_dead_end:
+                restart = self._next_restart_point()
+                if restart is not None:
+                    self.current_x, self.current_y = restart
+                    self.dead_end_count += 1
+                    step_payload = {}
+                    self._annotate_step_counts(step_payload, None, accepted=False)
+                    rec = self._make_relation(
+                        len(self.history), n, self.current_x, None, None, None,
+                        step_payload, accepted=False, restart=True
+                    )
+                    self._store_record(rec)
+                    return rec
+            raise
 
         m_roots = self._solve_m_roots(step)
         xj_candidates = [self._candidate_xj_from_m(self.current_x, m_val) for m_val in m_roots]
 
-        # --- NOVELTY FILTER ---
-        unvisited_xj = [cx for cx in xj_candidates if cx is not None and cx not in self.visited_x]
-
+        # --- LOUD EXPANDERNESS TRACKING (Factory path) ---
         old_leaves_count = len(self.global_leaves_seen)
         valid_leaves = {cx for cx in xj_candidates if cx is not None}
         self.global_leaves_seen.update(valid_leaves)
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
 
         if isinstance(step, dict):
             step["step_leaves_found"] = len(valid_leaves)
             step["step_leaves_new"] = new_leaves_this_step
             step["global_leaves_total"] = len(self.global_leaves_seen)
 
-        # Draw only from unvisited leaves
-        xj = unvisited_xj[0] if unvisited_xj else None
+        if self.config.verbose:
+            sqrt_p = (self.p ** 0.5) if self.p is not None else float('nan')
+            collision_frac = len(self.global_leaves_seen) / sqrt_p if self.p is not None else float('nan')
+            print(
+                f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
+                f"xi={self.current_x} | "
+                f"m-roots: {len(xj_candidates)} -> {new_leaves_this_step} new leaves "
+                f"(novelty {step_novelty_ratio:.1%}) | "
+                f"Graph volume: {len(self.global_leaves_seen)} "
+                f"({collision_frac:.3f}×√p)"
+            )
+        # -----------------------------------
+
+        xj = xj_candidates[0] if xj_candidates else None
         m_val = m_roots[0] if m_roots else None
 
         xk = None
         if xj is not None:
             xk = self._recover_xk(step, self.current_x, xj)
 
-        # Force choice to only evaluate novel paths
         chosen = self._choose_between(
             xj,
-            xk if xk not in self.visited_x else None,
+            xk,
             {
                 "n": n,
                 "step": step,
@@ -1297,9 +1636,12 @@ class Genus2MetropolisWalker:
         )
         accepted = chosen is not None
 
+        unique_xj_new = False
+        unique_xj_total = len(self.unique_xj_seen)
+
         if accepted:
             next_x = chosen
-            self._register_unique_xj(next_x)
+            unique_xj_new, unique_xj_total = self._register_unique_xj(next_x)
             try:
                 next_y = self._recover_y(next_x)
             except Exception:
@@ -1353,296 +1695,172 @@ class Genus2MetropolisWalker:
 
             if self.config.verbose:
                 step_no = len(self.history)
+                accepted_count = sum(1 for r in self.history if r.accepted)
+                restarts = sum(1 for r in self.history if r.restart)
+
+                # Extract the expander stats we injected
                 step_dict = rec.step if isinstance(rec.step, dict) else {}
                 step_leaves = step_dict.get("step_leaves_found", 0)
                 new_leaves = step_dict.get("step_leaves_new", 0)
                 total_leaves = step_dict.get("global_leaves_total", len(self.global_leaves_seen))
+
                 expansion_rate = (total_leaves / step_no) if step_no > 0 else 0.0
+                sqrt_p = (self.p ** 0.5) if self.p is not None else float('nan')
+                collision_frac = total_leaves / sqrt_p if self.p is not None else float('nan')
+                novelty_ratio = (new_leaves / step_leaves) if step_leaves > 0 else 0.0
 
-                status_flag = "🔁 RESTART" if rec.restart else ("✅ ACCEPTED" if rec.accepted else "❌ DEAD END")
-                print(f"\n[{step_no:03d}] {status_flag} | n={rec.n}")
+                # chosen xj / xk / m / relation
+                xj_str = str(rec.xj) if rec.xj is not None else "—"
+                xk_str = str(rec.xk) if rec.xk is not None else "—"
+                m_str  = str(rec.m)  if rec.m  is not None else "—"
+                rel_str = rec.relation if rec.relation else "—"
 
-                if rec.accepted:
-                    print(f"      Base (xi): {rec.xi}")
-                    print(f"      Chosen Rel: {rec.relation}  <-- Walk stepped to {rec.xj}")
+                # collision check: was xj already in the path?
+                path_collision = (rec.xj is not None and rec.xj in self.unique_xj_seen
+                                  and not step_dict.get("unique_xj_new", True))
 
-                if candidate_pool := getattr(rec, 'candidate_pool', []):
-                    # Compute and print all VALID relations in the pool
-                    valid_rels = set()
-                    for cand in candidate_pool:
-                        cj = cand.get('xj')
-                        ck = cand.get('xk')
-                        # Only print relations that aren't trivial back-references to xi
-                        if cj is not None and ck is not None and str(cj) != str(rec.xi) and str(ck) != str(rec.xi):
-                            valid_rels.add(f"3*{rec.xi} + {cj} + {ck} - 5*∞ = 0")
+                # per-n fertility from search_out if available
+                n_with_roots = step_dict.get('n_with_roots')
+                frac_fertile_str = (
+                    f"{n_with_roots}/{self.config.max_n} ({n_with_roots/self.config.max_n:.0%})"
+                    if n_with_roots is not None else "n/a"
+                )
 
-                    if valid_rels:
-                        print(f"      Pool Rels: Found {len(valid_rels)} distinct valid relations in this step:")
-                        for r in sorted(list(valid_rels)):
-                            print(f"                 -> {r}")
-                    else:
-                        print(f"      Pool Rels: 0 valid non-trivial relations.")
-                    print(f"      Pool Total: {len(candidate_pool)} total roots found.")
-
-                print(f"      Graph    : {total_leaves} mapped | {new_leaves} new this step | ~{expansion_rate:.1f} unique/step")
+                print(
+                    f"\n{'='*70}",
+                    f"\n[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
+                    f"\n  Path:      xi → xj  |  xi={rec.xi}",
+                    f"\n             xj={xj_str}  |  xk={xk_str}  |  m={m_str}",
+                    f"\n  Relation:  {rel_str}",
+                    f"\n  Outcome:   accepted={rec.accepted}  collision={'YES ← birthday!' if path_collision else 'no'}",
+                    f"\n  Walk:      accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
+                    f"\n  Leaves:    this step={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
+                    f"\n  Graph:     volume={total_leaves}  ({collision_frac:.4f}×√p={sqrt_p:.1f})",
+                    f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
+                    f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots",
+                    f"\n{'='*70}\n",
+                    sep="",
+                    flush=True,
+                )
 
         return results
 
-    def _filter_visited_candidates(self, candidates: List[Any], current_xi: Any) -> List[Any]:
-        """
-        Normalize candidates and discard trivial or self-identical branches.
+    def run_branching(self, num_steps: int, width: Optional[int] = None) -> List[List[RelationRecord]]:
+        """Small breadth-style helper for the parallel-branch idea."""
+        width = int(width or self.config.branch_width)
+        branches: List[Tuple[Any, Any, List[RelationRecord]]] = [(self.current_x, self.current_y, [])]
+        n_values = list(range(1, min(self.config.max_n, 80) + 1))
 
-        Rules:
-        - keep only candidates with a usable xj
-        - drop xj == current_xi
-        - drop xj already visited
-        - drop xj == xk when both are present
-        - do not invent xk if the source did not provide it
-        """
-        filtered = []
-        visited_str = {str(v) for v in self.visited_x}
-        xi_str = str(current_xi)
+        for step_idx in range(num_steps):
+            new_branches = []
+            for bx, by, hist in branches:
+                saved = (self.current_x, self.current_y, list(self.history), set(self.visited_x), set(self.unique_xj_seen))
+                self.current_x, self.current_y = bx, by
+                self.history = list(hist)
+                self.visited_x = {r.xi for r in hist if r.xi is not None} | {bx}
+                self.unique_xj_seen = set(self.visited_x)
+                rec = self.step(n=n_values[step_idx % len(n_values)])
+                if rec is not None and rec.accepted:
+                    new_branches.append((self.current_x, self.current_y, list(self.history)))
+                self.current_x, self.current_y, self.history, self.visited_x, self.unique_xj_seen = saved
+            if not new_branches:
+                break
+            branches = new_branches[:width]
+        return [hist for _x, _y, hist in branches]
 
-        pruned_identity = 0
-        pruned_revisit = 0
-        pruned_self_pair = 0
+    def summary(self) -> str:
+        accepted = sum(1 for r in self.history if r.accepted)
+        restarts = sum(1 for r in self.history if r.restart)
+        unique_path_nodes = len(self.unique_xj_seen)
+        total_leaves = len(self.global_leaves_seen)
 
-        for cand in candidates:
-            if not isinstance(cand, dict):
-                cand = {"xj": cand}
+        return (
+            f"\n--- WALK SUMMARY ---\n"
+            f"Steps taken: {len(self.history)}\n"
+            f"Path accepted: {accepted}\n"
+            f"Restarts: {restarts}\n"
+            f"Dead ends: {self.dead_end_count}\n"
+            f"Nodes in chosen path: {unique_path_nodes}\n"
+            f"Total unique leaves discovered (Graph Volume): {total_leaves}\n"
+            f"--------------------"
+        )
 
-            xj = cand.get("xj", cand.get("x"))
-            xk = cand.get("xk", None)
+    def _make_relation(
+            self,
+            step_index: int,
+            n: int,
+            xi,
+            m_val,
+            xj,
+            xk,
+            step: Dict[str, Any],
+            accepted=True,
+            restart=False,
+        ):
+            relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else "relation incomplete"
 
-            if xj is None and "m" in cand:
-                try:
-                    xj = current_xi - cand["m"]
-                except Exception:
-                    xj = None
+            # Memory Fix: Scrub heavy keys from the step dictionary to prevent history leaks
+            clean_step = {}
+            if isinstance(step, dict):
+                bad_keys = {'raw_mumford_residues', 'precomputed_residues', 'context', 'candidates', 'candidate_records'}
+                for k, v in step.items():
+                    if k not in bad_keys:
+                        clean_step[k] = v
 
-            if isinstance(xj, (tuple, list)) and len(xj) > 0:
-                xj = xj[0]
-            if isinstance(xk, (tuple, list)) and len(xk) > 0:
-                xk = xk[0]
-
-            if xj is None:
-                continue
-
-            cand["xj"] = xj
-            cand["xk"] = xk
-
-            xj_str = str(xj)
-            xk_str = str(xk) if xk is not None else None
-
-            if xj_str == xi_str:
-                pruned_identity += 1
-                continue
-
-            if xj_str in visited_str:
-                pruned_revisit += 1
-                continue
-
-            if xk_str is not None and xk_str == xj_str:
-                pruned_self_pair += 1
-                continue
-
-            filtered.append(cand)
-
-        if getattr(self.config, 'verbose', True) and (pruned_identity or pruned_revisit or pruned_self_pair):
-            print(
-                f"      [Filter] Pruned {pruned_identity} trivial (xj=xi), "
-                f"{pruned_self_pair} self-pairs (xj=xk), and "
-                f"{pruned_revisit} visited branches."
+            return RelationRecord(
+                step_index=step_index,
+                n=n,
+                xi=xi,
+                m=m_val,
+                xj=xj,
+                xk=xk,
+                relation=relation,
+                step=clean_step,
+                accepted=accepted,
+                restart=restart,
             )
 
-        return filtered
+    def _score_candidate_record(self, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
+        if self.score_fn is None:
+            return 0.0
+        xj = candidate.get("xj")
+        # Raises on failure instead of silently returning 0.0
+        return float(self.score_fn(xj, context | {"candidate": candidate}))
+
+    def _score_candidate(self, candidate_x, context: Dict[str, Any]) -> float:
+        if self.score_fn is None:
+            return 0.0
+        # Raises on failure instead of silently returning 0.0
+        return float(self.score_fn(candidate_x, context))
 
     def _recover_xk(self, step: Dict[str, Any], xi, xj):
-        """
-        Best-effort recovery of the partner root xk.
-
-        This is deliberately conservative:
-        - if we can see a distinct leftover root, return it
-        - if the only remaining root equals xj, return None rather than
-        fabricating xk = xj
-        """
         poly = self._intersection_poly_from_step(step)
         if poly is None:
             return None
 
-        try:
-            roots = flatten_roots(poly_roots_with_multiplicity(poly))
-        except Exception:
-            roots = []
+        roots = flatten_roots(poly_roots_with_multiplicity(poly))
 
         if roots:
             leftovers = []
             xi_count = 0
             xj_count = 0
-
             for r in roots:
-                if str(r) == str(xi) and xi_count < 3:
+                if r == xi and xi_count < 3:
                     xi_count += 1
                     continue
-                if xj is not None and str(r) == str(xj) and xj_count < 1:
+                if xj is not None and r == xj and xj_count < 1:
                     xj_count += 1
                     continue
                 leftovers.append(r)
+            if leftovers:
+                return leftovers[0]
 
-            for r in leftovers:
-                if r is not None and str(r) != str(xi) and str(r) != str(xj):
-                    return r
+        if poly.degree() != self.config.degree_for_intersection:
             return None
-
-        try:
-            if poly.degree() != self.config.degree_for_intersection:
-                return None
-
-            known = [xi, xi, xi]
-            if xj is not None:
-                known.append(xj)
-
-            xk = missing_root_by_vieta(poly, known)
-            if xk is not None and str(xk) != str(xi) and str(xk) != str(xj):
-                return xk
-        except Exception:
-            return None
-
-        return None
-
-    def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
-        current_point = (self.current_x, self.current_y)
-        raw = self._call_search_fn(n=n, seed=seed, current_point=current_point)
-        search_out = self._normalize_candidate_output(raw)
-
-        candidates = list(search_out.get("candidate_records") or search_out.get("candidates") or [])
-        candidate_xs = search_out.get("candidate_xs", set())
-
-        novel_candidates = self._filter_visited_candidates(candidates, self.current_x)
-
-        old_leaves_count = len(self.global_leaves_seen)
-        valid_leaves = {cx for cx in candidate_xs if cx is not None}
-        self.global_leaves_seen.update(valid_leaves)
-        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
-
-        if isinstance(search_out, dict):
-            search_out["step_leaves_found"] = len(valid_leaves)
-            search_out["step_leaves_new"] = new_leaves_this_step
-            search_out["global_leaves_total"] = len(self.global_leaves_seen)
-
-        if not novel_candidates:
-            if self.config.restart_on_dead_end:
-                restart = self._next_restart_point()
-                if restart is not None:
-                    self.current_x, self.current_y = restart
-                    self.dead_end_count += 1
-                    step_payload = dict(search_out) if isinstance(search_out, dict) else {}
-                    self._annotate_step_counts(step_payload, None, accepted=False)
-                    rec = self._make_relation(
-                        len(self.history), n, self.current_x, None, None, None,
-                        step_payload, accepted=False, restart=True
-                    )
-                    rec.candidate_pool = candidates
-                    self._store_record(rec)
-                    return rec
-
-            step_payload = dict(search_out) if isinstance(search_out, dict) else {}
-            self._annotate_step_counts(step_payload, None, accepted=False)
-            rec = self._make_relation(
-                len(self.history), n, self.current_x, None, None, None,
-                step_payload, accepted=False
-            )
-            rec.candidate_pool = candidates
-            self._store_record(rec)
-            return rec
-
-        chosen = self._choose_candidate_record(
-            novel_candidates,
-            {"n": n, "step": search_out, "current_x": self.current_x, "current_y": self.current_y},
-        )
-
-        if not isinstance(chosen, dict):
-            chosen = {"xj": chosen}
-
-        m_val = chosen.get("m")
-        xj = chosen.get("xj")
-        xk = chosen.get("xk")
-
-        if xj is None and m_val is not None:
-            xj = self._candidate_xj_from_m(self.current_x, m_val)
-
-        if xj is None and "x" in chosen:
-            xj = chosen.get("x")
-
-        if xk is None and xj is not None:
-            try:
-                xk = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
-            except Exception:
-                xk = None
-
-        # Never keep a self-pair.
-        if xk is not None and str(xk) == str(xj):
-            xk = None
-
-        accepted = xj is not None
-        step_payload = dict(search_out) if isinstance(search_out, dict) else {}
-        self._annotate_step_counts(step_payload, xj, accepted=accepted)
-
-        if accepted:
-            next_x = xj
-            try:
-                next_y = self._recover_y(next_x)
-            except Exception:
-                next_y = None
-
-            if next_y is not None:
-                self.current_x, self.current_y = next_x, next_y
-                self.visited_x.add(next_x)
-            else:
-                self.current_x = next_x
-
-            if xk is not None and str(xk) != 'INF':
-                self.visited_x.add(xk)
-
-        rec = self._make_relation(
-            len(self.history), n, self.current_x, m_val, xj, xk,
-            step_payload, accepted=accepted, restart=False
-        )
-        rec.candidate_pool = candidates
-        rec.selected_candidate = dict(chosen)
-        self._store_record(rec)
-        return rec
-
-    def _make_relation(self, step_index: int, n: int, xi, m_val, xj, xk, step: Dict[str, Any], accepted=True, restart=False):
-        """
-        Build the log record without inventing geometry that is not explicitly present.
-        """
-        if xj is not None and xk is not None and str(xk) != str(xj):
-            relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0"
-        elif xj is not None:
-            relation = f"3*{xi} + {xj} - ?*∞ = 0"
-        else:
-            relation = "relation incomplete"
-
-        clean_step = {}
-        if isinstance(step, dict):
-            bad_keys = {'raw_mumford_residues', 'precomputed_residues', 'context', 'candidates', 'candidate_records'}
-            for k, v in step.items():
-                if k not in bad_keys:
-                    clean_step[k] = v
-
-        return RelationRecord(
-            step_index=step_index,
-            n=n,
-            xi=xi,
-            m=m_val,
-            xj=xj,
-            xk=xk,
-            relation=relation,
-            step=clean_step,
-            accepted=accepted,
-            restart=restart,
-        )
+        known = [xi, xi, xi]
+        if xj is not None:
+            known.append(xj)
+        return missing_root_by_vieta(poly, known)
 
 def make_project_markov_search_fn(
     *,
@@ -1736,6 +1954,8 @@ def make_project_markov_search_fn(
             'found_xs': norm.get('found_xs', set()),
             'input_n': n0,
             'vecs': vecs,
+            'n_with_roots': norm.get('n_with_roots', None),
+            'per_n_roots': norm.get('per_n_roots', None),
             # Memory Fix: Omit 'context', 'raw_mumford_residues', 'new_sections', 'precomputed_residues'
             # which hold uncollectable SageMath Rings and Ideals.
         }
@@ -1753,165 +1973,6 @@ def safe_solve_univariate_roots(poly, ring=None) -> List[Any]:
     """Solve poly=0 in its base ring, returning roots if Sage can see them."""
     roots = poly.roots(multiplicities=False)
     return list(roots)
-
-def _make_relation(step_index: int, n: int, xi, m_val, xj, xk, step: Dict[str, Any], accepted=True, restart=False):
-    if xj is not None and xk is not None:
-        relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0"
-    else:
-        relation = "relation incomplete"
-
-    return RelationRecord(
-        step_index=step_index,
-        n=n,
-        xi=xi,
-        m=m_val,
-        xj=xj,
-        xk=xk,
-        relation=relation,
-        step=step,
-        accepted=accepted,
-        restart=restart,
-    )
-
-def _normalize_markov_mumford_result(result: Any, fallback_step: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Normalize the legacy Mumford-search payload.
-
-    Important behavior:
-    - If the source really provides a pair (xj, xk), keep both.
-    - If the source provides only one root, keep only xj.
-    - Never auto-upgrade a singleton to xj = xk.
-    - Keep raw provenance when available, so the walker can inspect what the
-      search actually returned instead of a guessed symmetry.
-    """
-    out = {
-        'candidates': [],
-        'candidate_records': [],
-        'candidate_xs': set(),
-        'new_sections': [],
-        'precomputed_residues': None,
-        'stats': None,
-        'raw_mumford_residues': None,
-        'found_xs': set(),
-    }
-
-    if result is None:
-        return out
-
-    items = []
-    if isinstance(result, dict):
-        items = [result.get('raw_mumford_residues', result)]
-        for k in ('stats', 'new_sections', 'precomputed_residues', 'input_n', 'vecs', 'tower_context', 'shift', 'r_expr'):
-            if k in result:
-                out[k] = result[k]
-        if 'candidate_records' in result and result['candidate_records']:
-            items.append(result['candidate_records'])
-    elif isinstance(result, (list, tuple)):
-        items = list(result)
-    else:
-        items = [result]
-
-    out['raw_mumford_residues'] = items
-    records = []
-    xs = set()
-
-    def _add_record(xj=None, xk=None, source='unknown', payload=None):
-        rec = {'source': source}
-        if payload is not None and isinstance(payload, dict):
-            rec.update(payload)
-
-        if xj is not None:
-            rec['xj'] = xj
-            xs.add(xj)
-
-        if xk is not None and str(xk) != str(xj):
-            rec['xk'] = xk
-            xs.add(xk)
-        else:
-            # If xk is absent or equal to xj, do not manufacture a fake partner.
-            rec.setdefault('xk', None)
-
-        records.append(rec)
-
-    def _mine_pairs(obj):
-        if obj is None:
-            return
-
-        if isinstance(obj, dict):
-            # Explicit pair payload first.
-            if 'xj' in obj or 'xk' in obj:
-                xj = obj.get('xj', obj.get('x'))
-                xk = obj.get('xk', None)
-                if xj is not None and xk is not None and str(xj) == str(xk):
-                    xk = None
-                _add_record(xj=xj, xk=xk, source='mumford_dict', payload=obj)
-                return
-
-            # Common legacy residue-map shapes.
-            for key in ('roots', 'x_res'):
-                if key in obj and isinstance(obj[key], (list, tuple, set)):
-                    arr = list(obj[key])
-                    if len(arr) == 2:
-                        x0, x1 = arr
-                        if str(x0) == str(x1):
-                            _add_record(xj=x0, xk=None, source=f'mumford_{key}', payload=obj)
-                        else:
-                            _add_record(xj=x0, xk=x1, source=f'mumford_{key}', payload=obj)
-                            _add_record(xj=x1, xk=x0, source=f'mumford_{key}', payload=obj)
-                        return
-                    if len(arr) == 1:
-                        _add_record(xj=arr[0], xk=None, source=f'mumford_{key}', payload=obj)
-                        return
-
-            for v in obj.values():
-                _mine_pairs(v)
-            return
-
-        if isinstance(obj, (list, tuple, set)):
-            arr = list(obj)
-            if len(arr) == 2 and not isinstance(arr[0], (dict, list, tuple, set)) and not isinstance(arr[1], (dict, list, tuple, set)):
-                x0, x1 = arr
-                if str(x0) == str(x1):
-                    _add_record(xj=x0, xk=None, source='mumford_pair')
-                else:
-                    _add_record(xj=x0, xk=x1, source='mumford_pair')
-                    _add_record(xj=x1, xk=x0, source='mumford_pair')
-                return
-            if len(arr) == 1 and not isinstance(arr[0], (dict, list, tuple, set)):
-                _add_record(xj=arr[0], xk=None, source='mumford_singleton')
-                return
-
-            for v in arr:
-                _mine_pairs(v)
-            return
-
-        # Scalar leaf.
-        _add_record(xj=obj, xk=None, source='mumford_scalar')
-
-    for item in items:
-        _mine_pairs(item)
-
-    seen = set()
-    deduped = []
-    for r in records:
-        key = (str(r.get('xj')), str(r.get('xk')))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(r)
-
-    if not deduped:
-        flat_xs = _collect_mumford_candidate_x_values(items, [])
-        for x in flat_xs:
-            if x is not None:
-                deduped.append({'xj': x, 'xk': None, 'source': 'mumford_flat'})
-                xs.add(x)
-
-    out['candidate_records'] = deduped
-    out['candidates'] = deduped
-    out['candidate_xs'] = xs
-    out['found_xs'] = set(xs)
-    return out
 
 if __name__ == "__main__":
     raise SystemExit(main())
