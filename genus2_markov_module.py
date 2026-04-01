@@ -1755,21 +1755,30 @@ class Genus2MetropolisWalker:
                 # per-n fertility from search_out if available
                 n_with_roots = step_dict.get('n_with_roots')
                 n_total = step_dict.get('n_total') or self.config.max_n
+                # Fallback: per_n_roots length carries the same count if n_with_roots wasn't set
+                if n_with_roots is None:
+                    per_n = step_dict.get('per_n_roots') or {}
+                    if per_n:
+                        n_with_roots = len(per_n)
                 frac_fertile_str = (
                     f"{n_with_roots}/{n_total} ({n_with_roots/n_total:.0%})"
                     if n_with_roots is not None else "n/a"
                 )
+
+                # pool size for relation annotation
+                pool_size = len(getattr(rec, 'candidate_pool', []) or [])
+                rel_annotation = f"  (chosen from pool of {pool_size})" if pool_size > 1 else ""
 
                 print(
                     f"\n{'='*70}",
                     f"\n[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
                     f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
                     f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
-                    f"\n  Relation:  {rel_str}",
+                    f"\n  Relation (example):  {rel_str}{rel_annotation}",
                     f"\n  This step: accepted={rec.accepted}  collision={'YES ← birthday!' if path_collision else 'no'}",
                     f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
                     f"\n  Leaves:    this step={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
-                    f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p={sqrt_p:.1f})",
+                    f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
                     f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
                     f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots",
                     f"\n{'='*70}\n",
@@ -1972,16 +1981,24 @@ def make_project_markov_search_fn(
 
         # Fertility: fraction of n-values (vecs) that had at least one F_p root across any prime.
         # precomputed_residues[p] is keyed only by v_tuples that had roots, so union of keys = fertile set.
+        # We try two possible shapes: {prime: {vtup: solutions}} and the flat {vtup: solutions} fallback.
         _precomp = norm.get('precomputed_residues') or (raw.get('precomputed_residues') if isinstance(raw, dict) else None)
         if _precomp and vecs:
             fertile_vtups = set()
+            # Shape A: {prime: {vtup: solutions}}  (expected from markov_mode search)
             for p_entry in _precomp.values():
                 if isinstance(p_entry, dict):
                     fertile_vtups.update(p_entry.keys())
+            # Shape B: flat {vtup: solutions} — if Shape A found nothing, try treating the outer dict as the vtup map
+            if not fertile_vtups:
+                for k, v in _precomp.items():
+                    if not isinstance(v, dict):
+                        fertile_vtups.add(k)
             norm['n_with_roots'] = len(fertile_vtups)
             norm['n_total'] = len(vecs)
-            norm['per_n_roots'] = {str(k): 1 for k in fertile_vtups}  # presence only; counts would need deeper aggregation
+            norm['per_n_roots'] = {str(k): 1 for k in fertile_vtups}
         else:
+            # Fallback filled in below, after enriched_candidates is assembled.
             norm['n_with_roots'] = None
             norm['n_total'] = len(vecs) if vecs else None
 
@@ -2053,6 +2070,15 @@ def make_project_markov_search_fn(
 
             enriched_candidates.append(rec)
         candidate_xs = {c.get('xj') for c in enriched_candidates if isinstance(c, dict) and c.get('xj') is not None}
+
+        # Deferred fertility fallback: if precomputed_residues wasn't available, use candidate count
+        # as a lower-bound proxy for the number of fertile n-values.
+        if norm.get('n_with_roots') is None and vecs:
+            n_cands = len(enriched_candidates)
+            if n_cands > 0:
+                norm['n_with_roots'] = min(n_cands, len(vecs))
+                norm['n_total'] = len(vecs)
+                norm['per_n_roots'] = {}  # per-vec provenance not available without precomputed_residues
 
         result = {
             'candidates': enriched_candidates,
