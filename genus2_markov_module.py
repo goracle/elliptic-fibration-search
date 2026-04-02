@@ -30,6 +30,31 @@ from sage.misc.verbose import set_verbose
 load('tower.sage')
 load('search7_genus2.sage')
 
+
+try:
+    PROFILE = profile
+except NameError:
+    def profile(arg2):
+        """Line profiler default."""
+        return arg2
+    PROFILE = profile
+
+
+# ---------------------------------------------------------------------------
+# Project symbol registry.
+#
+# Symbols loaded from tower.sage / search7_genus2.sage are exec'd into this
+# dict rather than directly into globals().  This avoids the silent-loss
+# problem where exec(preparse(src), globals()) can drop symbols that are
+# defined inside conditionals or local scopes in the sage file, and it gives
+# _resolve_project_symbol a stable lookup target that doesn't depend on the
+# precise state of the module namespace at call time.
+#
+# For backward-compat, load_project_sources also copies everything into the
+# module's real globals() so that sage-level `load()` idioms keep working.
+# ---------------------------------------------------------------------------
+_PROJECT_REGISTRY: Dict[str, Any] = {}
+
 """genus2_markov_module.py
 
 A self-contained Sage-based draft for the genus-2 fibration / Markov-walk idea.
@@ -56,26 +81,59 @@ ScoreFn = Callable[[Any, Dict[str, Any]], float]
 # ---------------------------------------------------------------------------
 
 def load_project_sources(base_dir: Optional[Path] = None, verbose: bool = True) -> Dict[str, bool]:
+    """Load tower.sage and search7_genus2.sage into _PROJECT_REGISTRY.
+
+    Symbols are exec'd into the registry dict first (atomic, stable lookup),
+    then pushed into the module's real globals() for backward compat with any
+    code that references them by name at module level.  The two-stage approach
+    avoids the silent-loss problem where exec(preparse(src), globals()) can
+    drop symbols defined inside sage-level conditionals or local scopes.
+    """
+    global _PROJECT_REGISTRY
     here = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent
+    loaded: Dict[str, bool] = {}
     for name in ("tower.sage", "search7_genus2.sage"):
         path = here / name
         if verbose:
             print(f"[bootstrap] loading {path}")
+        try:
+            with open(path, "r") as f:
+                src = f.read()
+        except FileNotFoundError:
+            if verbose:
+                print(f"[bootstrap] WARNING: {path} not found, skipping")
+            loaded[name] = False
+            continue
 
-        with open(path, "r") as f:
-            src = f.read()
-
-        # kill accidental main() calls
+        # Suppress accidental top-level main() invocations.
         src = src.replace("    main_genus2()", "    pass # main_genus2() disabled")
 
-        exec(preparse(src), globals())
+        # Execute into registry first.
+        exec(preparse(src), _PROJECT_REGISTRY)
+        # Push into module globals for any code using direct name references.
+        globals().update({k: v for k, v in _PROJECT_REGISTRY.items()
+                          if not k.startswith('__')})
+        loaded[name] = True
+
+    return loaded
 
 def _resolve_project_symbol(name: str, default: Any = None, required: bool = False):
-    """Resolve a symbol loaded from tower.sage/search7_genus2.sage."""
-    if name in globals():
-        return globals()[name]
+    """Resolve a symbol loaded from tower.sage / search7_genus2.sage.
+
+    Looks in _PROJECT_REGISTRY first (populated by load_project_sources),
+    then falls back to the module globals for any symbol that was already
+    defined before load_project_sources was called.
+    """
+    if name in _PROJECT_REGISTRY:
+        return _PROJECT_REGISTRY[name]
+    g = globals()
+    if name in g:
+        return g[name]
     if required:
-        raise RuntimeError(f"Required project symbol {name!r} is not loaded. Call load_project_sources() first.")
+        raise RuntimeError(
+            f"Required project symbol {name!r} not found. "
+            "Call load_project_sources() before using this function."
+        )
     return default
 
 def _project_base_points_from_globals(current_x=None, current_y=None, p: Optional[int] = None):
@@ -134,18 +192,20 @@ def build_project_tower_context_for_point(
     This mirrors the search7_genus2.doloop_genus2 setup path but keeps only the
     ingredients needed by the Markov candidate-search branch.
     """
-    if True:
-        setup_field_and_rings = _resolve_project_symbol('setup_field_and_rings', required=True)
-        apply_shift_transformation = _resolve_project_symbol('apply_shift_transformation', required=True)
-        apply_mobius_transformation = _resolve_project_symbol('apply_mobius_transformation', required=True)
-        build_tower_and_fibrations = _resolve_project_symbol('build_tower_and_fibrations', required=True)
-        extract_geometry_from_tower = _resolve_project_symbol('extract_geometry_from_tower', required=True)
-        build_curve_data = _resolve_project_symbol('build_curve_data', required=True)
-        configure_search_parameters = _resolve_project_symbol('configure_search_parameters', required=True)
-        build_search_rhs_list = _resolve_project_symbol('build_search_rhs_list', required=True)
-        setup_rationality_test_function = _resolve_project_symbol('setup_rationality_test_function', required=True)
-        compute_base_sections_m = _resolve_project_symbol('compute_base_sections_m', required=True)
-        lll_reduce_mw_basis = _resolve_project_symbol('lll_reduce_mw_basis', required=True)
+    # Tower construction requires xi to be an F_p point (no field extensions supported).
+    # This is satisfied because xi comes from a prior m-root search over F_p, guaranteeing
+    # it is a point on C(F_p).
+    setup_field_and_rings = _resolve_project_symbol('setup_field_and_rings', required=True)
+    apply_shift_transformation = _resolve_project_symbol('apply_shift_transformation', required=True)
+    apply_mobius_transformation = _resolve_project_symbol('apply_mobius_transformation', required=True)
+    build_tower_and_fibrations = _resolve_project_symbol('build_tower_and_fibrations', required=True)
+    extract_geometry_from_tower = _resolve_project_symbol('extract_geometry_from_tower', required=True)
+    build_curve_data = _resolve_project_symbol('build_curve_data', required=True)
+    configure_search_parameters = _resolve_project_symbol('configure_search_parameters', required=True)
+    build_search_rhs_list = _resolve_project_symbol('build_search_rhs_list', required=True)
+    setup_rationality_test_function = _resolve_project_symbol('setup_rationality_test_function', required=True)
+    compute_base_sections_m = _resolve_project_symbol('compute_base_sections_m', required=True)
+    lll_reduce_mw_basis = _resolve_project_symbol('lll_reduce_mw_basis', required=True)
 
     coeffs_genus2 = coeffs_genus2 if coeffs_genus2 is not None else COEFFS_GENUS2
     print("building tower search for point:", (xi, yi))
@@ -389,11 +449,24 @@ class WalkConfig:
     allow_branching: bool = False
     branch_width: int = 2
     seed: int = 0
+    # Degree of the hyperelliptic curve polynomial (y^2 = f(x), deg f = curve_degree).
+    # The divisor relation from a double-tangency fiber intersection is:
+    #   (curve_degree - 2)*xi + xj + xk - curve_degree*∞ = 0
+    # and Vieta recovery needs curve_degree - 3 copies of xi as known roots (triple root
+    # because of the double tangency, so 3 copies for degree 5, etc.).
+    curve_degree: int = 5
+    # Alias kept for backward compat — always equal to curve_degree.
     degree_for_intersection: int = 5
     verbose: bool = True
     log_path: Optional[str] = None
     log_candidate_limit: int = 25
     log_full_candidates: bool = False
+
+    def __post_init__(self):
+        # Keep the two degree fields in sync whichever one the caller set.
+        if self.degree_for_intersection != self.curve_degree:
+            # If both were set to non-default values and differ, curve_degree wins.
+            self.degree_for_intersection = self.curve_degree
 
 # ---------------------------------------------------------------------------
 # Core walker
@@ -403,8 +476,12 @@ class WalkConfig:
 # Convenience helpers for direct use
 # ---------------------------------------------------------------------------
 
-def relation_string(xi, xj, xk) -> str:
-    return f"3*{xi} + {xj} + {xk} - 5*∞ = 0"
+def relation_string(xi, xj, xk, curve_degree: int = 5) -> str:
+    """Divisor relation: xi has double tangency (triple root), xj and xk are simple.
+    For a degree-d curve: (d-2)*xi + xj + xk - d*∞ = 0.
+    """
+    mult = curve_degree - 2
+    return f"{mult}*{xi} + {xj} + {xk} - {curve_degree}*∞ = 0"
 
 def build_default_walker(
     coeffs: Sequence[Any],
@@ -1085,6 +1162,8 @@ class Genus2MetropolisWalker:
 
         self.history: List[RelationRecord] = []
         self.dead_end_count = 0
+        self.collision_count = 0      # path collisions: chosen xj already on chain path
+        self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
         self._restart_cursor = 0
 
         if not self.base_points:
@@ -1310,39 +1389,91 @@ class Genus2MetropolisWalker:
         candidates = list(search_out.get("candidate_records") or search_out.get("candidates") or [])
         candidate_xs = search_out.get("candidate_xs", set())
 
-        # --- LOUD EXPANDERNESS TRACKING ---
+        # --- EXPANDERNESS TRACKING: separate xj leaves (from m-roots) vs xk leaves (from Vieta) ---
+        #
+        # xj_set: unique x-coordinates that came directly from m-root solutions.
+        # xk_set_raw: Vieta-derived xk values; only those not already in xj_set are truly new.
+        #
+        # This separation matters for fertility display: fertile_n counts n-values with
+        # at least one m-root, and total_m_roots is the actual root count — both are
+        # independent of how many xk values happen to coincide with xj values.
         old_leaves_count = len(self.global_leaves_seen)
-        valid_leaves = {cx for cx in candidate_xs if cx is not None}
+
+        xj_set = {cx for cx in candidate_xs if cx is not None}
+        # Only include xk candidates that come from records marked as xj-head, not xk-head,
+        # so we don't double-count a xk_head record's 'xk' field as a separate leaf.
+        xk_set_raw = {
+            c.get('xk') for c in candidates
+            if isinstance(c, dict) and c.get('xk') is not None
+            and c.get('source') != 'xk_head'
+        }
+        xk_set_new = xk_set_raw - xj_set          # xk values that are genuinely new leaves
+        xk_set_overlap = xk_set_raw & xj_set       # xk values already counted as xj leaves
+
+        valid_leaves = xj_set | xk_set_raw
         self.global_leaves_seen.update(valid_leaves)
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step
+        self.leaf_collision_count += leaf_collisions_this_step
         step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
 
+        # Pull fertility stats: n_with_roots and total_roots come from precomputed_residues
+        # keyed by m-root counts per n-vector (computed in make_project_markov_search_fn
+        # before any xj/xk enrichment).  This is the ground truth for fertility.
+        n_with_roots = search_out.get('n_with_roots') if isinstance(search_out, dict) else None
+        n_total = (search_out.get('n_total') if isinstance(search_out, dict) else None) or self.config.max_n
+        total_roots = search_out.get('total_roots') if isinstance(search_out, dict) else None
+        per_n_roots_map = (search_out.get('per_n_roots') if isinstance(search_out, dict) else None) or {}
+
         if isinstance(search_out, dict):
+            search_out["step_xj_leaves"] = len(xj_set)
+            search_out["step_xk_leaves_raw"] = len(xk_set_raw)
+            search_out["step_xk_leaves_new"] = len(xk_set_new)
+            search_out["step_xk_leaves_overlap"] = len(xk_set_overlap)
             search_out["step_leaves_found"] = len(valid_leaves)
             search_out["step_leaves_new"] = new_leaves_this_step
+            search_out["step_leaf_collisions"] = leaf_collisions_this_step
             search_out["global_leaves_total"] = len(self.global_leaves_seen)
+            search_out["global_leaf_collisions"] = self.leaf_collision_count
 
         if self.config.verbose:
-            cumulative_novelty = (
-                (len(self.global_leaves_seen) / (len(self.global_leaves_seen) + len(self.unique_xj_seen)))
-                if (self.global_leaves_seen or self.unique_xj_seen) else 0.0
-            )
             sqrt_p = (self.p ** 0.5) if self.p is not None else float('nan')
             collision_frac = len(self.global_leaves_seen) / sqrt_p if self.p is not None else float('nan')
-            # per-n root breakdown if available in search_out
-            per_n_info = search_out.get('per_n_roots') if isinstance(search_out, dict) else None
-            n_with_roots = search_out.get('n_with_roots') if isinstance(search_out, dict) else None
-            n_total = search_out.get('n_total') or self.config.max_n
-            frac_n_fertile = (n_with_roots / n_total) if (n_with_roots is not None and n_total > 0) else None
+
+            # Fertility line: show the real root distribution, not just leaf/2.
+            #   fertile_n  = n-values that had ≥1 m-root  (independent of xk)
+            #   total_roots = total m-root count across all n-values
+            #   avg_roots   = total_roots / fertile_n  (expected ~2 for uniform m over large p)
+            #   dist        = per-n root count histogram
+            if n_with_roots is not None:
+                frac_fertile = n_with_roots / n_total if n_total > 0 else 0.0
+                avg_roots = (total_roots / n_with_roots) if (total_roots and n_with_roots) else None
+                avg_str = f" avg {avg_roots:.1f} m-roots/fertile-n" if avg_roots is not None else ""
+                if per_n_roots_map and isinstance(per_n_roots_map, dict):
+                    dist = Counter(per_n_roots_map.values())
+                    dist_str = ' '.join(f'{cnt}n×{nr}r' for nr, cnt in sorted(dist.items()))
+                    fertile_str = (
+                        f"fertile {n_with_roots}/{n_total} ({frac_fertile:.0%})"
+                        f" | {total_roots} m-roots{avg_str}"
+                        f" | dist [{dist_str}]"
+                    )
+                else:
+                    fertile_str = (
+                        f"fertile {n_with_roots}/{n_total} ({frac_fertile:.0%})"
+                        + (f" | {total_roots} m-roots{avg_str}" if total_roots is not None else "")
+                    )
+            else:
+                fertile_str = "fertile n/a"
+
+            # Leaf breakdown: show xj (from m-roots) and xk (Vieta) separately.
+            xk_note = f" + {len(xk_set_new)} xk-new ({len(xk_set_overlap)} overlap xj-set)" if xk_set_raw else ""
             print(
                 f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
                 f"xi={self.current_x} | "
-                f"Leaves this step: {len(valid_leaves)} total, {new_leaves_this_step} new "
-                f"(novelty {step_novelty_ratio:.1%}) | "
-                f"Graph volume: {len(self.global_leaves_seen)} "
-                f"({collision_frac:.3f}×√p)"
-                + (f" | fertile n-values: {n_with_roots}/{self.config.max_n} ({frac_n_fertile:.0%})" if frac_n_fertile is not None else "")
-                + (f" | per-n roots: {per_n_info}" if per_n_info is not None else "")
+                f"xj-leaves={len(xj_set)}{xk_note} | "
+                f"total={len(valid_leaves)} new={new_leaves_this_step} (novelty {step_novelty_ratio:.1%}) | "
+                f"Graph vol: {len(self.global_leaves_seen)} ({collision_frac:.3f}×√p) | "
+                f"{fertile_str}"
             )
         # -----------------------------------
 
@@ -1425,6 +1556,8 @@ class Genus2MetropolisWalker:
         accepted = xj is not None
         step_payload = dict(search_out) if isinstance(search_out, dict) else {}
         unique_xj_new, unique_xj_total = self._annotate_step_counts(step_payload, xj, accepted=accepted)
+        if accepted and xj is not None and not unique_xj_new:
+            self.collision_count += 1
 
         xi_before = self.current_x
         if accepted:
@@ -1557,6 +1690,12 @@ class Genus2MetropolisWalker:
             raise
 
     def _store_record(self, rec: RelationRecord) -> RelationRecord:
+        # Trim the candidate pool stored on the record to avoid unbounded memory growth
+        # (at 80 candidates/step × many steps the full pool accumulates fast).
+        # JSONL logging respects log_full_candidates separately.
+        limit = int(getattr(self.config, 'log_candidate_limit', 25) or 25)
+        if hasattr(rec, 'candidate_pool') and rec.candidate_pool and len(rec.candidate_pool) > limit:
+            rec.candidate_pool = rec.candidate_pool[:limit]
         self.history.append(rec)
         self._append_jsonl_log(rec)
         return rec
@@ -1623,15 +1762,25 @@ class Genus2MetropolisWalker:
 
         # --- LOUD EXPANDERNESS TRACKING (Factory path) ---
         old_leaves_count = len(self.global_leaves_seen)
+        # xj leaves
         valid_leaves = {cx for cx in xj_candidates if cx is not None}
+        # xk leaves — recover for each xj candidate while step context is live
+        for _xj in xj_candidates:
+            _xk = self._recover_xk(step, self.current_x, _xj)
+            if _xk is not None:
+                valid_leaves.add(_xk)
         self.global_leaves_seen.update(valid_leaves)
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step
+        self.leaf_collision_count += leaf_collisions_this_step
         step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
 
         if isinstance(step, dict):
             step["step_leaves_found"] = len(valid_leaves)
             step["step_leaves_new"] = new_leaves_this_step
+            step["step_leaf_collisions"] = leaf_collisions_this_step
             step["global_leaves_total"] = len(self.global_leaves_seen)
+            step["global_leaf_collisions"] = self.leaf_collision_count
 
         if self.config.verbose:
             sqrt_p = (self.p ** 0.5) if self.p is not None else float('nan')
@@ -1748,26 +1897,64 @@ class Genus2MetropolisWalker:
                 xj_visits = self.xi_visit_count.get(rec.xj, 0) if rec.xj is not None else 0
                 xi_visits = self.xi_visit_count.get(rec.xi, 0) if rec.xi is not None else 0
 
-                # collision check: was xj already in the path?
-                path_collision = (rec.xj is not None and rec.xj in self.unique_xj_seen
-                                  and not step_dict.get("unique_xj_new", True))
+                # path_collision: unique_xj_new was set by _annotate_step_counts at step time.
+                # Default False = treat missing key as a collision (conservative), not as "new".
+                path_collision = (rec.xj is not None and
+                                  not step_dict.get("unique_xj_new", False))
+                if path_collision:
+                    pass  # collision_count already incremented inside _step_from_candidate_search
+                # leaf-level (birthday) collisions — any leaf already in global_leaves_seen
+                # read from the injected step dict (already accumulated on self.leaf_collision_count)
+                leaf_collisions_this_step = step_dict.get('step_leaf_collisions', 0)
 
-                # per-n fertility from search_out if available
+                # per-n fertility from step dict (written by _step_from_candidate_search)
                 n_with_roots = step_dict.get('n_with_roots')
                 n_total = step_dict.get('n_total') or self.config.max_n
-                # Fallback: per_n_roots length carries the same count if n_with_roots wasn't set
-                if n_with_roots is None:
-                    per_n = step_dict.get('per_n_roots') or {}
-                    if per_n:
-                        n_with_roots = len(per_n)
-                frac_fertile_str = (
-                    f"{n_with_roots}/{n_total} ({n_with_roots/n_total:.0%})"
-                    if n_with_roots is not None else "n/a"
+                total_roots = step_dict.get('total_roots')
+                per_n_roots_map = step_dict.get('per_n_roots') or {}
+                if n_with_roots is None and per_n_roots_map:
+                    n_with_roots = len(per_n_roots_map)
+
+                # xj/xk leaf breakdown stored by _step_from_candidate_search
+                xj_leaves_count = step_dict.get('step_xj_leaves', step_leaves)
+                xk_new_count    = step_dict.get('step_xk_leaves_new', 0)
+                xk_overlap      = step_dict.get('step_xk_leaves_overlap', 0)
+
+                if n_with_roots is not None:
+                    frac_fertile = n_with_roots / n_total if n_total > 0 else 0.0
+                    avg_roots = (total_roots / n_with_roots) if (total_roots and n_with_roots) else None
+                    avg_str = f" avg {avg_roots:.1f} roots/fertile-n" if avg_roots is not None else ""
+                    if per_n_roots_map and isinstance(per_n_roots_map, dict):
+                        dist = Counter(per_n_roots_map.values())
+                        dist_str = ' '.join(f'{cnt}n×{nr}r' for nr, cnt in sorted(dist.items()))
+                        frac_fertile_str = (
+                            f"{n_with_roots}/{n_total} ({frac_fertile:.0%})"
+                            f" | {total_roots} m-roots{avg_str}"
+                            f" | dist [{dist_str}]"
+                        )
+                    else:
+                        frac_fertile_str = (
+                            f"{n_with_roots}/{n_total} ({frac_fertile:.0%})"
+                            + (f" | {total_roots} m-roots{avg_str}" if total_roots is not None else "")
+                        )
+                else:
+                    frac_fertile_str = "n/a"
+
+                xk_leaf_note = (
+                    f" (+{xk_new_count} xk-new, {xk_overlap} xk↔xj overlap)"
+                    if xk_new_count or xk_overlap else ""
                 )
 
-                # pool size for relation annotation
-                pool_size = len(getattr(rec, 'candidate_pool', []) or [])
-                rel_annotation = f"  (chosen from pool of {pool_size})" if pool_size > 1 else ""
+                # pool breakdown: show xj-head and xk-head candidates separately
+                pool = getattr(rec, 'candidate_pool', []) or []
+                n_xk_head_pool = sum(1 for c in pool if isinstance(c, dict) and c.get('source') == 'xk_head')
+                n_xj_head_pool = len(pool) - n_xk_head_pool
+                if n_xk_head_pool:
+                    rel_annotation = f"  (pool: {n_xj_head_pool} xj-head + {n_xk_head_pool} xk-head)"
+                elif len(pool) > 1:
+                    rel_annotation = f"  (chosen from pool of {len(pool)})"
+                else:
+                    rel_annotation = ""
 
                 print(
                     f"\n{'='*70}",
@@ -1775,9 +1962,10 @@ class Genus2MetropolisWalker:
                     f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
                     f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                     f"\n  Relation (example):  {rel_str}{rel_annotation}",
-                    f"\n  This step: accepted={rec.accepted}  collision={'YES ← birthday!' if path_collision else 'no'}",
+                    f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}  | leaf_collisions_this_step={leaf_collisions_this_step}",
+                    f"\n  Collisions: path={self.collision_count} total  | graph/birthday={self.leaf_collision_count} total  (first expected near √p={sqrt_p:.0f} graph volume)",
                     f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
-                    f"\n  Leaves:    this step={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
+                    f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
                     f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
                     f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
                     f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots",
@@ -1821,6 +2009,8 @@ class Genus2MetropolisWalker:
             f"\n--- WALK SUMMARY ---\n"
             f"Steps taken: {len(self.history)}\n"
             f"Path accepted: {accepted}\n"
+            f"Path collisions (xj revisited on chain): {self.collision_count}\n"
+            f"Graph/birthday collisions (leaf already seen): {self.leaf_collision_count}\n"
             f"Restarts: {restarts}\n"
             f"Dead ends: {self.dead_end_count}\n"
             f"Nodes in chosen path: {unique_path_nodes}\n"
@@ -1840,9 +2030,14 @@ class Genus2MetropolisWalker:
             accepted=True,
             restart=False,
         ):
-            relation = f"3*{xi} + {xj} + {xk} - 5*∞ = 0" if xj is not None and xk is not None else (
-                f"3*{xi} + {xj} + ? - 5*∞ = 0" if xj is not None else "no xj"
-            )
+            deg = self.config.curve_degree
+            xi_mult = deg - 2  # double tangency → multiplicity 3 for deg-5, etc.
+            if xj is not None and xk is not None:
+                relation = f"{xi_mult}*{xi} + {xj} + {xk} - {deg}*∞ = 0"
+            elif xj is not None:
+                relation = f"{xi_mult}*{xi} + {xj} + ? - {deg}*∞ = 0"
+            else:
+                relation = "no xj"
 
             # Memory Fix: Scrub heavy keys from the step dictionary to prevent history leaks
             clean_step = {}
@@ -1883,6 +2078,8 @@ class Genus2MetropolisWalker:
         if poly is None:
             return None
 
+        xi_mult = self.config.curve_degree - 2  # double tangency → triple root for deg-5
+
         roots = flatten_roots(poly_roots_with_multiplicity(poly))
 
         if roots:
@@ -1890,7 +2087,7 @@ class Genus2MetropolisWalker:
             xi_count = 0
             xj_count = 0
             for r in roots:
-                if r == xi and xi_count < 3:
+                if r == xi and xi_count < xi_mult:
                     xi_count += 1
                     continue
                 if xj is not None and r == xj and xj_count < 1:
@@ -1900,9 +2097,9 @@ class Genus2MetropolisWalker:
             if leftovers:
                 return leftovers[0]
 
-        if poly.degree() != self.config.degree_for_intersection:
+        if poly.degree() != self.config.curve_degree:
             return None
-        known = [xi, xi, xi]
+        known = [xi] * xi_mult
         if xj is not None:
             known.append(xj)
         return missing_root_by_vieta(poly, known)
@@ -1985,22 +2182,37 @@ def make_project_markov_search_fn(
         _precomp = norm.get('precomputed_residues') or (raw.get('precomputed_residues') if isinstance(raw, dict) else None)
         if _precomp and vecs:
             fertile_vtups = set()
+            per_n_root_counts: Dict[str, int] = {}  # vtup_str -> number of F_p roots for that n
             # Shape A: {prime: {vtup: solutions}}  (expected from markov_mode search)
             for p_entry in _precomp.values():
                 if isinstance(p_entry, dict):
                     fertile_vtups.update(p_entry.keys())
-            # Shape B: flat {vtup: solutions} — if Shape A found nothing, try treating the outer dict as the vtup map
+                    for vtup, solutions in p_entry.items():
+                        k = str(vtup)
+                        if isinstance(solutions, (list, tuple, set)):
+                            cnt = len(solutions)
+                        elif solutions is not None:
+                            cnt = 1
+                        else:
+                            cnt = 0
+                        # Take max across primes (FF mode has 1 prime; guard for multi-prime callers)
+                        if cnt > 0:
+                            per_n_root_counts[k] = max(per_n_root_counts.get(k, 0), cnt)
+            # Shape B: flat {vtup: solutions} — if Shape A found nothing
             if not fertile_vtups:
                 for k, v in _precomp.items():
                     if not isinstance(v, dict):
                         fertile_vtups.add(k)
-            norm['n_with_roots'] = len(fertile_vtups)
+                        per_n_root_counts[str(k)] = 1
+            norm['n_with_roots'] = len(per_n_root_counts)
             norm['n_total'] = len(vecs)
-            norm['per_n_roots'] = {str(k): 1 for k in fertile_vtups}
+            norm['total_roots'] = sum(per_n_root_counts.values())
+            norm['per_n_roots'] = per_n_root_counts  # {vtup_str: root_count}
         else:
             # Fallback filled in below, after enriched_candidates is assembled.
             norm['n_with_roots'] = None
             norm['n_total'] = len(vecs) if vecs else None
+            norm['total_roots'] = None
 
         # Grab ingredients for xk computation.
         # f_i is in R_xm = PolynomialRing(Frac(GF(p)['m']), 'x') — poly in x with rational-function-in-m coefficients.
@@ -2014,6 +2226,9 @@ def make_project_markov_search_fn(
             last = _tower[-1]
             if isinstance(last, dict):
                 _fi = last.get('f_i')
+
+        # Curve degree from project globals, defaulting to 5.
+        _curve_degree = int(_resolve_project_symbol('CURVE_DEGREE', default=5))
 
         def _compute_xk_from_fiber(xi_val, m_val, xj_val):
             if _fi is None or _G_poly is None or m_val is None:
@@ -2033,13 +2248,26 @@ def make_project_markov_search_fn(
                     fi_coeffs_at_m.append(Fp(num(m_val)) / Fp(den_val))
                 fi_at_m = Rx(fi_coeffs_at_m)
                 inter = _G_poly - fi_at_m
-                if inter.degree() < 4:
+                if inter.degree() != _curve_degree:
                     return None
-                # Roots are xi(x3), xj, xk — use Vieta on the degree-5 poly.
-                known = [xi_val, xi_val, xi_val, xj_val]
+                # xi has double tangency → triple root (multiplicity = curve_degree - 2).
+                xi_mult = _curve_degree - 2
+                known = [xi_val] * xi_mult + [xj_val]
                 return missing_root_by_vieta(inter, known)
             except Exception:
                 return None
+
+        # Helper: check whether xk is an F_p point on C (y^2 = G(xk) must be a QR).
+        # Tower construction requires an F_p point; xk's x-coord is in F_p by Vieta but
+        # y might only exist over F_{p^2}.  We verify before injecting xk as a chain head.
+        def _xk_is_fp_point(xk_val):
+            if _G_poly is None or xk_val is None:
+                return False
+            try:
+                rhs = _G_poly(xk_val)
+                return bool(rhs.is_square())
+            except Exception:
+                return False
 
         enriched_candidates = []
         for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
@@ -2069,26 +2297,67 @@ def make_project_markov_search_fn(
                     rec['xk'] = _compute_xk_from_fiber(x_here, m_val, xj_val)
 
             enriched_candidates.append(rec)
-        candidate_xs = {c.get('xj') for c in enriched_candidates if isinstance(c, dict) and c.get('xj') is not None}
 
-        # Deferred fertility fallback: if precomputed_residues wasn't available, use candidate count
-        # as a lower-bound proxy for the number of fertile n-values.
+            # Inject xk as an alternative chain head if it is a genuine F_p point on C.
+            # xk's x-coordinate is always in F_p (computed via Vieta over F_p), but the
+            # y-coordinate only exists over F_p if G(xk) is a QR.  We check this before
+            # injecting so that tower construction (which needs an F_p point) will succeed.
+            xk_val = rec.get('xk')
+            if (xk_val is not None
+                    and xk_val != x_here
+                    and xk_val != xj_val
+                    and _xk_is_fp_point(xk_val)):
+                xk_head = {
+                    'xj': xk_val,
+                    'xk': xj_val,   # the original xj becomes xk in the reversed record
+                    'm': x_here - xk_val,   # m' = xi - xk for record-keeping consistency
+                    'source': 'xk_head',
+                    'input_n': n0,
+                    'xi': x_here,
+                    'yi': y_here,
+                }
+                enriched_candidates.append(xk_head)
+        # candidate_xs is the set of xj values derived from actual m-roots only.
+        # xk_head records must be excluded here so the leaf-tracking in
+        # _step_from_candidate_search can separate xj_set (m-root derived) from
+        # xk_set (Vieta derived).  xk_head entries are still in enriched_candidates
+        # and eligible for the Metropolis chooser.
+        candidate_xs = {
+            c.get('xj') for c in enriched_candidates
+            if isinstance(c, dict)
+            and c.get('xj') is not None
+            and c.get('source') != 'xk_head'
+        }
+
+        # Deferred fertility fallback: if precomputed_residues wasn't available, use
+        # the m-root-derived candidate count as a lower-bound proxy.
+        # Do NOT include xk_head records in this count — they are not m-roots.
         if norm.get('n_with_roots') is None and vecs:
-            n_cands = len(enriched_candidates)
-            if n_cands > 0:
-                norm['n_with_roots'] = min(n_cands, len(vecs))
+            n_mroot_cands = sum(
+                1 for c in enriched_candidates
+                if isinstance(c, dict) and c.get('source') != 'xk_head'
+            )
+            if n_mroot_cands > 0:
+                norm['n_with_roots'] = min(n_mroot_cands, len(vecs))
                 norm['n_total'] = len(vecs)
+                norm['total_roots'] = n_mroot_cands
                 norm['per_n_roots'] = {}  # per-vec provenance not available without precomputed_residues
+
+        n_xk_head = sum(1 for c in enriched_candidates
+                        if isinstance(c, dict) and c.get('source') == 'xk_head')
 
         result = {
             'candidates': enriched_candidates,
             'candidate_records': enriched_candidates,
-            'candidate_xs': candidate_xs,
+            'candidate_xs': candidate_xs,       # xj-only (m-root derived), for leaf tracking
+            'n_xk_head': n_xk_head,             # how many xk_head alternatives were injected
             'stats': norm.get('stats', None),
             'found_xs': norm.get('found_xs', set()),
             'input_n': n0,
             'vecs': vecs,
             'n_with_roots': norm.get('n_with_roots', None),
+            'n_total': norm.get('n_total', None),
+            'total_roots': norm.get('total_roots', None),
             'per_n_roots': norm.get('per_n_roots', None),
             # Memory Fix: Omit 'context', 'raw_mumford_residues', 'new_sections', 'precomputed_residues'
             # which hold uncollectable SageMath Rings and Ideals.
