@@ -2,11 +2,10 @@ import operator, random, math, sys
 from functools import reduce
 from sage.all import *
 from sage.functions.other import binomial
-from search_common import DEBUG, SEED_INT, PRIME_POOL, FINITE_FIELD
+from search_common import *
 from stats import *
 from sage.rings.rational_field import QQ
 from math import comb as _int_binom
-from search_common import *
 
 # tower.sage
 # Numeric-first fibration tower builder (strict, exact QQ arithmetic)
@@ -33,12 +32,7 @@ _WEIGHT_COLLISION = 8.0   # collisions are deadly for consensus; heavy penalty
 try:
     PROFILE = profile
 except NameError:
-    def profile(arg2):
-        """Line profiler default."""
-        return arg2
     PROFILE = profile
-
-
 
 # === normalize and check helpers (drop-in) ===
 
