@@ -154,23 +154,28 @@ def build_relation_matrix2(
                 if x is not None:
                     yield x
 
-    # Pass 1: collect atom ordering.
+    # Pass 1a: register atoms from ALL accepted non-involution records BEFORE filtering.
+    #
+    # Involution/free records are excluded here too: their xj values are just
+    # T-images of existing walk atoms (xj<->xk swap), so they add no new columns.
+    # Excluding them keeps atom_index clean and the column count honest.
     for rec in history:
         if accepted_only and not _get(rec, "accepted"):
+            continue
+
+        step = _get(rec, "step")
+        if isinstance(step, dict) and step.get("source") == "involution_closure":
             continue
 
         xi = _get(rec, "xi")
         xj = _get(rec, "xj")
         xk = _get(rec, "xk")
 
-        if xi is None or xj is None:
+        # Need at least one of xi/xj to be meaningful.
+        if xi is None and xj is None:
             continue
 
-        if xi == xj:
-            skipped_degenerate += 1
-            continue
-
-        # Relation atoms from the primary path.
+        # Register primary atoms unconditionally (no degenerate skip here).
         for x in (xi, xj, xk):
             if x is not None and x not in atom_index:
                 atom_index[x] = len(atom_index)
@@ -179,6 +184,29 @@ def build_relation_matrix2(
         for x in _iter_step_leaves(rec):
             if x is not None and x not in atom_index:
                 atom_index[x] = len(atom_index)
+
+    # Pass 1b: build used_records with full validity checks.
+    # Involution/free records are excluded: they are proven algebraically identical
+    # to existing walk rows (the relation is symmetric in xj and xk, so T(xj)=xk
+    # just produces the same row with xj and xk swapped).  Including them adds
+    # zero rank and pollutes the atom list with duplicate columns.
+    for rec in history:
+        if accepted_only and not _get(rec, "accepted"):
+            continue
+
+        step = _get(rec, "step")
+        if isinstance(step, dict) and step.get("source") == "involution_closure":
+            continue
+
+        xi = _get(rec, "xi")
+        xj = _get(rec, "xj")
+
+        if xi is None or xj is None:
+            continue
+
+        if xi == xj:
+            skipped_degenerate += 1
+            continue
 
         used_records.append(rec)
 
@@ -205,7 +233,9 @@ def build_relation_matrix2(
 
     # Pass 2: build rows.
     rows: List[List[int]] = []
+    n_involution_rows = 0
     for rec in used_records:
+        rows_before_this_rec = len(rows)
         xi = _get(rec, "xi")
         if xi is None or xi not in atom_index:
             continue
@@ -239,7 +269,15 @@ def build_relation_matrix2(
                 cxk = None
 
             if cxj not in atom_index:
-                continue
+                # This should never happen after the two-phase pass-1 fix:
+                # pass-1a registers atoms from ALL accepted records before any
+                # filtering, so every (xi, xj, xk) from every accepted record
+                # (including free/involution records) is in atom_index by now.
+                raise AssertionError(
+                    f"[relation_matrix] BUG: cxj={cxj!r} not in atom_index "
+                    f"(xi={_get(rec, 'xi')!r}, source={_get(rec, 'step')!r}).  "
+                    f"Pass-1a missed this atom — please report."
+                )
 
             # Deduplicate identical (xj, xk) and (xk, xj) pairs from the same step
             pair_key = frozenset([cxj, cxk]) if cxk is not None else frozenset([cxj])
@@ -258,6 +296,14 @@ def build_relation_matrix2(
                 row[inf_col] += inf_coeff
 
             rows.append(row)
+
+        step_src = _get(rec, "step")
+        if isinstance(step_src, dict) and step_src.get("source") == "involution_closure":
+            # Count every row emitted for involution records (there is normally 1).
+            n_involution_rows += (len(rows) - rows_before_this_rec)
+
+    if n_involution_rows:
+        print(f"[relation_matrix] Involution/free records contributed {n_involution_rows} rows.")
 
     mat = Matrix(ZZ, rows)
     return mat, atoms, used_records

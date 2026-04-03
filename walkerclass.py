@@ -25,6 +25,7 @@ from mobius import *
 from sage.misc.verbose import set_verbose
 from relation_matrix import *
 from functools import partial
+from cantor_cache import *
 
 def build_project_tower_context_for_point(
     xi,
@@ -472,6 +473,7 @@ class Genus2MetropolisWalker:
         self.xi_visit_count: Counter = Counter({self.current_x: 1})
 
         self.history: List[RelationRecord] = []
+        self.cantor_cache: Optional[CantorPairCache] = None
         self.dead_end_count = 0
         self.collision_count = 0      # path collisions: chosen xj already on chain path
         self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
@@ -890,30 +892,27 @@ class Genus2MetropolisWalker:
         return build_relation_matrix2(self.history, curve_degree=cd, **kwargs)
 
     def close_under_involution(self) -> int:
-        """For every accepted step in history, compute the 2-cycle partner xk'
-        via the T-involution T(xj) = 5*xi - xj - S(xj→m), and append a free
-        RelationRecord for the pair (xj, xk').
+        """Verify the Vieta involution T(xj) = S(m) - (d-2)*xi - xj is a
+        genuine 2-cycle on every (xi, xj) pair in the candidate pool.
 
-        Asserts T(T(xj)) == xj for every point — crashes if the 2-cycle
-        assumption is violated.
+        For each such pair this checks:
+            T(T(xj)) == xj                    (2-cycle / involution)
 
-        Iterates to closure: newly added xk' values are themselves queued for
-        partner computation until no new atoms are produced.
+        Nothing is appended to history.  The relation
+            (d-2)*xi + xj + xk - d*inf = 0
+        is symmetric in xj and xk by construction, so the xj↔xk swap
+        produces the identical algebraic relation — there is no new
+        information to record.
 
-        Returns the number of free relations appended.
+        Raises AssertionError immediately on the first violation found.
+
+        Returns the number of (xi, xj) pairs that passed the check.
         """
-        from genus2_markov_module import compute_S_of_m
-
-        p = self.p
         deg = self.config.curve_degree
         xi_mult = deg - 2
 
         # Collect S_of_m per xi from history records that have it.
-        # S_of_m is a rational function in m over F_p; we need to evaluate it
-        # numerically at a given m value.  We stash the symbolic object keyed
-        # by xi so we can reuse it across the pool.
         xi_to_S_sym: Dict[Any, Any] = {}
-        xi_to_G_poly: Dict[Any, Any] = {}
         for rec in self.history:
             if rec.accepted and rec.xi not in xi_to_S_sym:
                 S_sym = rec.step.get('S_of_m') if isinstance(rec.step, dict) else None
@@ -921,102 +920,82 @@ class Genus2MetropolisWalker:
                     xi_to_S_sym[rec.xi] = S_sym
 
         def _eval_S(xi, m_val):
-            """Evaluate S(m) at a numeric m, using the symbolic S stored for xi."""
             S_sym = xi_to_S_sym.get(xi)
             assert S_sym is not None, (
                 f"close_under_involution: no S_of_m available for xi={xi}. "
-                f"Run the walk first so compute_S_of_m is stored on candidate records."
+                f"Run the walk first so S_of_m is stored on candidate records."
             )
             Fp = self.base_ring
             m_fp = Fp(m_val)
             try:
-                # S_sym is a Sage rational function in m; call it directly.
                 return Fp(S_sym(m_fp))
             except Exception:
-                # Fallback: evaluate numerator/denominator separately.
                 num = S_sym.numerator()
                 den = S_sym.denominator()
                 dv = Fp(den(m_fp))
                 assert dv != 0, f"close_under_involution: S(m) denominator zero at m={m_val}"
                 raise
-                return Fp(num(m_fp)) / dv
 
         def _T(xi, xj_val):
-            """One application of the involution: xj → xk' = T(xj)."""
             Fp = self.base_ring
-            # m = xi - xj  (from xj = xi - m)
             m_val = Fp(xi) - Fp(xj_val)
             S_val = _eval_S(xi, m_val)
-            return Fp(5 * Fp(xi) - Fp(xj_val) - S_val)
+            return Fp(S_val - xi_mult * Fp(xi) - Fp(xj_val))
 
-        def _assert_2cycle(xi, xj_val, partner):
+        def _check_pair(xi, xj_val):
+            Fp = self.base_ring
+            S_sym = xi_to_S_sym.get(xi, "<missing>")
+            m1 = Fp(xi) - Fp(xj_val)
+            S1 = _eval_S(xi, m1)
+            partner = _T(xi, xj_val)
+            m2 = Fp(xi) - Fp(partner)
+            S2 = _eval_S(xi, m2)
             roundtrip = _T(xi, partner)
-            assert roundtrip == self.base_ring(xj_val), (
-                f"close_under_involution: 2-cycle violated for xi={xi}, "
-                f"xj={xj_val}, T(xj)={partner}, T(T(xj))={roundtrip} != xj"
-            )
+            if roundtrip != Fp(xj_val):
+                raise AssertionError(
+                    f"close_under_involution: 2-cycle violated\n"
+                    f"  xi          = {xi}\n"
+                    f"  S_of_m      = {S_sym}\n"
+                    f"  xj          = {xj_val}\n"
+                    f"  m1=xi-xj    = {m1}\n"
+                    f"  S(m1)       = {S1}\n"
+                    f"  T(xj)       = {partner}\n"
+                    f"  m2=xi-T(xj) = {m2}\n"
+                    f"  S(m2)       = {S2}\n"
+                    f"  T(T(xj))    = {roundtrip}  (expected {xj_val})\n"
+                )
 
-        # Collect all (xi, xj) pairs already in history so we don't duplicate.
-        existing_pairs: set = set()
+        n_checked = 0
+        seen_pairs: set = set()
+
         for rec in self.history:
-            if rec.accepted and rec.xi is not None and rec.xj is not None:
-                existing_pairs.add((rec.xi, rec.xj))
-
-        # Queue of (xi, xj) pairs to process — seeded from accepted history.
-        from collections import deque
-        queue: deque = deque()
-        for rec in self.history:
-            if rec.accepted and rec.xi is not None and rec.xj is not None:
-                queue.append((rec.xi, rec.xj))
-
-        n_added = 0
-        step_base = len(self.history)
-
-        while queue:
-            xi_val, xj_val = queue.popleft()
-
-            # Skip if we have no S_of_m for this xi.
-            if xi_val not in xi_to_S_sym:
+            if not rec.accepted or rec.xi is None:
+                continue
+            if rec.xi not in xi_to_S_sym:
+                continue
+            # Skip involution-closure sentinels — they have no real m-fiber.
+            step = rec.step if isinstance(rec.step, dict) else {}
+            if step.get('source') == 'involution_closure':
                 continue
 
-            partner = _T(xi_val, xj_val)
-            _assert_2cycle(xi_val, xj_val, partner)
-
-            pair_fwd = (xi_val, partner)
-            if pair_fwd in existing_pairs:
-                continue
-
-            # New atom: build a free RelationRecord for  xi_val → partner.
-            existing_pairs.add(pair_fwd)
-            xk_of_partner = xj_val   # by the 2-cycle: T(partner) = xj_val
-
-            relation_str = (
-                f"{xi_mult}*{xi_val} + {partner} + {xk_of_partner} - {deg}*∞ = 0"
-                f"  [free/involution]"
-            )
-            free_rec = RelationRecord(
-                step_index=step_base + n_added,
-                n=-1,                      # sentinel: not from an m-root search
-                xi=xi_val,
-                m=None,                    # no fiber solve needed
-                xj=partner,
-                xk=xk_of_partner,
-                relation=relation_str,
-                step={'source': 'involution_closure'},
-                accepted=True,
-                restart=False,
-            )
-            self.history.append(free_rec)
-            n_added += 1
-
-            # Queue the partner itself so its own partner gets computed.
-            queue.append((xi_val, partner))
+            pool = list(rec.candidate_pool or [])
+            for cand in pool:
+                xj_cand = cand.get('xj') if isinstance(cand, dict) else cand
+                if xj_cand is None or xj_cand == rec.xi:
+                    continue
+                key = (rec.xi, xj_cand)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                _check_pair(rec.xi, xj_cand)
+                n_checked += 1
 
         print(
-            f"[close_under_involution] appended {n_added} free relations "
-            f"({n_added} new d1 atoms). History size now {len(self.history)}."
+            f"[close_under_involution] T(T(xj))==xj verified on {n_checked} "
+            f"(xi, xj) pairs across {len(self.history)} history records. "
+            f"History unchanged."
         )
-        return n_added
+        return n_checked
 
     def _call_search_fn(self, n: int, seed: Optional[int] = None, current_point=None):
         if self.search_fn is None:
@@ -1209,8 +1188,23 @@ class Genus2MetropolisWalker:
                 self.current_x = next_x
 
         step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+
         if chosen.get('intersection_poly') is not None:
             step_payload['intersection_poly'] = chosen['intersection_poly']
+        elif chosen.get('source') == 'xk_head':
+            # xk_head is a synthetic reversal of a mumford_residue — find the
+            # original partner (xj/xk swapped) and borrow its intersection_poly.
+            orig_xj = chosen.get('xk')
+            orig_xk = chosen.get('xj')
+            for cand in candidates:
+                if (isinstance(cand, dict)
+                        and cand.get('source') != 'xk_head'
+                        and cand.get('xj') == orig_xj
+                        and cand.get('xk') == orig_xk
+                        and cand.get('intersection_poly') is not None):
+                    step_payload['intersection_poly'] = cand['intersection_poly']
+                    break
+
         unique_xj_new, unique_xj_total = self._annotate_step_counts(
             step_payload,
             xj if accepted else None,
@@ -1507,8 +1501,25 @@ class Genus2MetropolisWalker:
                     pass
 
         self.history.append(rec)
+        if rec.accepted:
+            if self.cantor_cache is None and self.p is not None:
+                self.cantor_cache = CantorPairCache(
+                    self.curve_poly, self.p,
+                    curve_degree=self.config.curve_degree,
+                    verbose=getattr(self.config, 'verbose', True),
+                )
+            if self.cantor_cache is not None:
+                self.cantor_cache.on_new_step(rec)
+
         self._append_jsonl_log(rec)
         return rec
+
+    def cantor_summary(self) -> None:
+        """Print the Cantor pair cache collision summary."""
+        if self.cantor_cache is None:
+            print("[cantor_summary] No cache yet — run some steps first.")
+            return
+        self.cantor_cache.summary()
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """

@@ -1119,7 +1119,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
                       rationality_test_func, coeffs_genus2, tower_data,
                       num_workers, debug, x_b, shifted_coeffs,
-                      markov_mode=False):
+                      markov_mode=False, pool=None, chunk_size=8):
     """
     Mumford / Finite Field search.
 
@@ -1173,7 +1173,7 @@ def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
         eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
         rhs_modp_list, vecs_list,
         num_workers=num_workers,
-        debug=debug
+        debug=debug, pool=pool, chunk_size=chunk_size
     )
 
     stats.end_phase('mumford_residues')

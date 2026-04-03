@@ -28,7 +28,7 @@ def mumford_precompute_residues_sequential(eqs_dict, prime_pool, Ep_dict, mult_l
     return mumford_precompute_residues_parallel(eqs_dict, prime_pool, Ep_dict, mult_lll, vecs_lll,
                                                 rhs_modp_list, vecs_list, num_workers=1, debug=debug)
 
-def _init_worker():
+def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 def _reconstruct_worker_parallel(args):
@@ -548,38 +548,69 @@ def _solve_worker_wrapper(args):
 
 # Similarly, add assertions to mumford_precompute_residues_parallel:
 
-def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                                         rhs_modp_list, vecs_list, num_workers=16, debug=False):
+def mumford_precompute_residues_parallel(
+    eqs_dict,
+    prime_list,
+    Ep_dict,
+    mult_lll,
+    vecs_lll,
+    rhs_modp_list,
+    vecs_list,
+    num_workers=16,
+    debug=False,
+    chunk_size=4,
+    pool=None,
+):
     """
-    Generates tasks with fail-fast validation and polynomial degree safety clamp.
+    Generate residue-computation tasks and solve them in parallel.
+
+    Improvements over the old version:
+      - batches multiple vectors per worker task via chunk_size
+      - supports reusing an existing multiprocessing pool
+      - fails fast on bad inputs and propagates exceptions
+      - keeps Sage-heavy work in the main process
+      - uses spawn by default when creating its own pool
+
+    Args:
+        eqs_dict: must contain 'f_coeffs' and 'const'
+        prime_list: primes to process
+        Ep_dict: prime -> elliptic curve / point container
+        mult_lll: prime -> section multiples data
+        vecs_lll: prime -> LLL vectors data
+        rhs_modp_list: kept for API compatibility
+        vecs_list: list of vectors to try
+        num_workers: number of worker processes to create if pool is None
+        debug: verbose printing
+        chunk_size: number of (v_tuple, coeffs_ints) items per worker task
+        pool: optional existing multiprocessing pool to reuse
+
+    Returns:
+        results_dict: {p: {v_tuple: {x_res: [sols...]}}}
     """
-    assert eqs_dict and 'f_coeffs' in eqs_dict, "Invalid eqs_dict"
+    assert isinstance(eqs_dict, dict) and "f_coeffs" in eqs_dict and "const" in eqs_dict, \
+        "Invalid eqs_dict: must contain 'f_coeffs' and 'const'"
     assert prime_list, "Empty prime_list"
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
 
-    if False:
-        print("eqs_dict, prime_list, Ep_dict, vecs_lll, rhs_modp_list, vecs_list")
-        print(eqs_dict, prime_list, Ep_dict, vecs_lll, rhs_modp_list, vecs_list)
+    if chunk_size is None or int(chunk_size) < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    chunk_size = int(chunk_size)
 
-        for i in mult_lll:
-            count = 0
-            for j in mult_lll[i]:
-                print(j)
-                count += 1
-                if count == 5:
-                    break
+    if num_workers is None or int(num_workers) < 1:
+        raise ValueError(f"num_workers must be >= 1, got {num_workers}")
+    num_workers = int(num_workers)
 
-    t_start = time.time()
-
-    # Safety clamp on workers
+    # Safety clamp for memory-heavy Sage workloads.
     if num_workers > 16:
         print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
         num_workers = 16
 
-    f_coeffs = eqs_dict['f_coeffs']
+    t_start = time.time()
+
+    f_coeffs = eqs_dict["f_coeffs"]
     f_coeffs_ints = [int(c) for c in f_coeffs]
-    const_val_int = int(QQ(eqs_dict['const']))
+    const_val_int = int(QQ(eqs_dict["const"]))
 
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
@@ -587,32 +618,36 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
 
     t0 = time.time()
     tasks_with_metadata = []
-    skipped_count = 0
 
-    # CRITICAL: All Sage operations in main process
+    # Build all tasks in the main process.
+    # Each task is a batch of size up to chunk_size.
     for p in prime_list:
         assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
 
         Ep = Ep_dict[p]
         p_vecs = vecs_lll.get(p)
-
         assert p_vecs is not None, f"Prime {p} missing from vecs_lll"
+        assert len(p_vecs) >= len(vecs_list), \
+            f"Prime {p}: vecs_lll[p] shorter than vecs_list ({len(p_vecs)} < {len(vecs_list)})"
 
-        # Sage operations HERE - workers get only Python ints
         Fp = GF(p)
-        R_m = Fp['m']
+        R_m = Fp["m"]
         m_var = R_m.gen()
         rhs_poly = -m_var + Fp(const_val_int)
         p_mults = mult_lll.get(p, {})
+
+        current_chunk = []
+        current_chunk_degree = 0
 
         for v_idx, v_tuple in enumerate(vecs_list):
             if not v_tuple:
                 continue
 
-            # Build section multiple
+            v_coeffs = p_vecs[v_idx]
+
+            # Build the section multiple Pm = sum_i k_i * mults_for_sec[i][k_i]
             Pm = Ep(0)
             valid_vec = True
-            v_coeffs = p_vecs[v_idx]
 
             for i, c in enumerate(v_coeffs):
                 k = int(c)
@@ -627,18 +662,19 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
                         valid_vec = False
                         break
                 except (IndexError, KeyError, TypeError) as e:
-                    # DO NOT CATCH - this indicates a data structure bug
                     raise RuntimeError(
-                        f"Failed to build section multiple: p={p}, "
-                        f"v_idx={v_idx}, i={i}, k={k}, error={e}"
+                        f"Failed to build section multiple: p={p}, v_idx={v_idx}, i={i}, k={k}, error={e}"
                     )
 
-            if not valid_vec or Pm[2] == 0:
-                continue
-            if hasattr(Pm, 'is_zero') and Pm.is_zero():
+            if not valid_vec:
                 continue
 
-            # Extract polynomial coefficients
+            if Pm[2] == 0:
+                continue
+
+            if hasattr(Pm, "is_zero") and Pm.is_zero():
+                continue
+
             try:
                 diff = Pm[0] - Pm[2] * rhs_poly
                 diff_num = diff.numerator()
@@ -648,51 +684,87 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
 
                 coeffs = diff_num.list()
                 poly_degree = len(coeffs) - 1
-
-                # Degree cap disabled per your comment
-                # if poly_degree > MAX_TASK_DEGREE: continue
-
                 coeffs_ints = [int(c) for c in coeffs]
 
-                task = (int(p), f_coeffs_ints, [(v_tuple, coeffs_ints)], const_val_int)
-                tasks_with_metadata.append((poly_degree, task))
+                current_chunk.append((v_tuple, coeffs_ints))
+                current_chunk_degree += max(poly_degree, 0)
+
+                if len(current_chunk) >= chunk_size:
+                    task = (int(p), f_coeffs_ints, current_chunk, const_val_int)
+                    tasks_with_metadata.append((current_chunk_degree, task))
+                    current_chunk = []
+                    current_chunk_degree = 0
 
             except Exception as e:
-                # DO NOT CATCH - propagate data errors
                 raise RuntimeError(
-                    f"Failed to extract polynomial: p={p}, v_idx={v_idx}, "
-                    f"v_tuple={v_tuple}, error={e}"
+                    f"Failed to extract polynomial: p={p}, v_idx={v_idx}, v_tuple={v_tuple}, error={e}"
                 )
 
-    # Sort by degree (descending) for load balancing
+        # Flush any leftover items for this prime.
+        if current_chunk:
+            task = (int(p), f_coeffs_ints, current_chunk, const_val_int)
+            tasks_with_metadata.append((current_chunk_degree, task))
+
+    # Sort by estimated work, descending.
     tasks_with_metadata.sort(key=lambda x: -x[0])
-    tasks = [task for degree, task in tasks_with_metadata]
+    tasks = [task for _, task in tasks_with_metadata]
 
     if debug:
-        if tasks:
+        if tasks_with_metadata:
             degrees = [deg for deg, _ in tasks_with_metadata]
-            print(f"[mumford] Task degrees: min={min(degrees)}, max={max(degrees)}, "
-                  f"median={sorted(degrees)[len(degrees)//2]}")
-            print(f"[mumford] Generated {len(tasks)} tasks for {num_workers} workers "
-                  f"({len(tasks)/num_workers:.1f} tasks per worker)")
+            degrees_sorted = sorted(degrees)
+            median_degree = degrees_sorted[len(degrees_sorted) // 2]
+            print(
+                f"[mumford] Task degrees: min={min(degrees)}, max={max(degrees)}, "
+                f"median={median_degree}"
+            )
+            print(
+                f"[mumford] Generated {len(tasks)} batched tasks "
+                f"with chunk_size={chunk_size} for {num_workers} workers "
+                f"({len(tasks) / float(num_workers):.1f} tasks per worker)"
+            )
         sys.stdout.flush()
 
     mumford_timer_add("task_generation", time.time() - t0)
 
     assert tasks, "No tasks generated - this indicates a configuration error"
 
-    # Spawn workers (clean process space)
-    t0 = time.time()
-    ctx = multiprocessing.get_context("spawn")
-    pool_obj = ctx.Pool(num_workers, initializer=_init_worker)
+    owns_pool = pool is None
+    terminated = False
+
+    if owns_pool:
+        ctx = multiprocessing.get_context("spawn")
+        pool = ctx.Pool(num_workers, initializer=init_worker)
 
     results_dict = {}
-    with pool_obj as pool:
-        for p, result_map in tqdm(pool.imap_unordered(_solve_worker_wrapper, tasks),
-                                  total=len(tasks), desc="Solving Mumford Mod P"):
+
+    try:
+        for p, result_map in tqdm(
+            pool.imap_unordered(_solve_worker_wrapper, tasks),
+            total=len(tasks),
+            desc="Solving Mumford Mod P",
+        ):
             if p not in results_dict:
                 results_dict[p] = {}
             results_dict[p].update(result_map)
+
+    except KeyboardInterrupt:
+        terminated = True
+        if owns_pool:
+            pool.terminate()
+        raise
+    except Exception:
+        terminated = True
+        if owns_pool:
+            pool.terminate()
+        raise
+    finally:
+        if owns_pool:
+            try:
+                if not terminated:
+                    pool.close()
+            finally:
+                pool.join()
 
     mumford_timer_add("parallel_solving", time.time() - t0)
     mumford_timer_add("residue_computation_total", time.time() - t_start)
@@ -701,7 +773,6 @@ def mumford_precompute_residues_parallel(eqs_dict, prime_list, Ep_dict, mult_lll
         print(f"[mumford] Residue computation took {time.time() - t_start:.2f}s")
         sys.stdout.flush()
 
-    # ASSERT: Must have results for at least one prime
     assert results_dict, "Worker pool returned empty results - this indicates a failure"
 
     return results_dict

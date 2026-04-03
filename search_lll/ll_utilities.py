@@ -558,70 +558,41 @@ def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
 
 def compute_all_mults_for_section(Pi, required_ks, stats,
                                   max_k=None, debug=False):
-    """
-    Compute specific multiples {k: k*Pi} for a reduced section Pi.
-    Handles None input for Pi (returns None).
-    """
-    # --- FIX 1 ---
-    # Handle failed reduction input from LLL basis
     if Pi is None:
         return None
-    # -------------
 
-    # Original function logic continues...
+    required_ks = [int(k) for k in required_ks]
+    if not required_ks:
+        return {}
 
-    if max_k is None:
+    top = min(max(abs(k) for k in required_ks), MAX_K_ABS)
+
+    computed = {0: Pi.curve()(0), 1: Pi}
+
+    prev = Pi
+    for k in range(2, top + 1):
         try:
-            max_k = max(abs(k) for k in required_ks)
-        except ValueError:
-            max_k = MAX_K_ABS # fallback
-            raise
-
-    max_k = min(int(max_k), MAX_K_ABS)
-
-    computed = {}
-    try:
-        identity = Pi.curve()(0)
-        computed[0] = identity
-    except Exception:
-        # Fallback if curve is weird
-        computed[0] = None
-
-    computed[1] = Pi
-
-    # Store by absolute value to minimize computations
-    # e.g., if we need -5, compute 5 and then negate
-    for k_abs in range(2, max_k + 1):
-        if (not k_abs in required_ks and not -1*k_abs in required_ks):
-            continue
-        if k_abs in computed:
-            continue
-        try:
-            computed[k_abs] = k_abs * Pi
-            if stats: stats.incr('modular_mults')
+            prev = prev + Pi
+            computed[k] = prev
         except Exception:
-            # If 2*Pi fails, we can't compute much
             if debug:
-                print(f"    [mults] k*Pi failed at k={k_abs}")
-            break # Stop computing
+                print(f"    [mults] addition failed at k={k}")
+            break
 
-    # Now build the final map from the required_ks
+    if stats:
+        stats.incr('modular_mults', top - 1)
+
     final_mults = {}
     for k in required_ks:
-        k_abs = abs(int(k))
-        if k_abs not in computed:
-            continue # Couldn't compute this multiple
-
-        k_val = computed[k_abs]
-        if k_val is None:
+        k_abs = abs(k)
+        val = computed.get(k_abs)
+        if val is None:
             continue
-
-        if k < 0:
-            final_mults[k] = -k_val
-        else:
-            final_mults[k] = k_val
+        final_mults[k] = -val if k < 0 else val
 
     return final_mults
+
+
 
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""
