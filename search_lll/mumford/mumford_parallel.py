@@ -438,115 +438,7 @@ def find_poly_roots_fp_python(coeffs, p):
     except Exception as e:
         raise RuntimeError(f"Sage root finding failed for p={p}, coeffs={coeffs}: {e}")
 
-# In mumford_parallel.py, add these improvements to _solve_worker_wrapper:
 
-def _solve_worker_wrapper(args):
-    """
-    Worker with fail-fast error handling and detailed diagnostics.
-
-    CRITICAL: All exceptions propagate - no silent failures.
-    """
-    p, f_coeffs_ints, chunk_items, const_val_int = args
-
-    # Validate inputs
-    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
-    assert f_coeffs_ints, "Empty f_coeffs"
-    assert chunk_items, "Empty chunk_items"
-
-    roots_cache = {}
-    p_results = {}
-    chunk_start = time.time()
-
-    for item_idx, (v_tuple, diff_coeffs_list) in enumerate(chunk_items):
-        assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
-        assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
-
-        item_start = time.time()
-
-        # Normalize coefficients mod p
-        coeff_key = tuple(c % p for c in diff_coeffs_list)
-
-        # Skip zero polynomial
-        if all(c == 0 for c in coeff_key):
-            continue
-
-        # Find roots (with caching)
-        t0 = time.time()
-        if coeff_key not in roots_cache:
-            roots = find_poly_roots_fp_python(coeff_key, p)
-            roots_cache[coeff_key] = roots
-        else:
-            roots = roots_cache[coeff_key]
-        root_time = time.time() - t0
-
-        if not roots:
-            continue
-
-        # Solve Mumford equations
-        t0 = time.time()
-        x_res_to_sols = {}
-
-        for m_root in roots:
-            assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
-
-            x_val = (-m_root + const_val_int) % p
-
-            # Respect FINITE_FIELD flag
-            max_sols = 10000 if FINITE_FIELD else 500
-
-            try:
-                sols = solve_mumford_mod_p_optimized(
-                    f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols
-                )
-            except Exception as e:
-                # DO NOT CATCH - let it propagate
-                raise RuntimeError(
-                    f"Mumford solver failed: p={p}, x_val={x_val}, "
-                    f"v_tuple={v_tuple}, error={e}"
-                )
-
-            # Verify solutions
-            verified_sols = []
-            for sol in sols:
-                assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
-                s, p_val, v0, v1 = sol
-
-                # Verify algebraically mod p
-                if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
-                    # Verification failure is a DATA BUG, not a search failure
-                    raise RuntimeError(
-                        f"Mumford pair failed verification: "
-                        f"p={p}, sol={sol}, v_tuple={v_tuple}"
-                    )
-
-                verified_sols.append(sol)
-
-            if verified_sols:
-                x_res_to_sols[x_val] = verified_sols
-
-        mumford_time = time.time() - t0
-        item_time = time.time() - item_start
-
-        # Diagnostic for slow items
-        if item_time > 0.5:
-            sys.stderr.write(
-                f"[Worker p={p}] Vector {v_tuple}: deg={len(coeff_key)-1}, "
-                f"roots={len(roots)}, root_time={root_time:.3f}s, "
-                f"mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n"
-            )
-            sys.stderr.flush()
-
-        if x_res_to_sols:
-            p_results[v_tuple] = x_res_to_sols
-
-    chunk_time = time.time() - chunk_start
-    if chunk_time > 1.0:
-        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
-        sys.stderr.flush()
-
-    return p, p_results
-
-# Similarly, add assertions to mumford_precompute_residues_parallel:
 
 def mumford_precompute_residues_parallel(
     eqs_dict,
@@ -633,7 +525,45 @@ def mumford_precompute_residues_parallel(
         Fp = GF(p)
         R_m = Fp["m"]
         m_var = R_m.gen()
-        rhs_poly = -m_var + Fp(const_val_int)
+
+
+        # Build rhs_polys list for this prime from rhs_modp_list.
+        # Simultaneously build rhs_reconstruction = [(num_coeffs_ints, den_coeffs_ints), ...]
+        # using low-to-high coefficient order, all values as non-negative ints mod p.
+        # Workers use rhs_reconstruction to evaluate rhs(m_root) without Sage.
+        rhs_polys_for_p = []
+        rhs_reconstruction = []
+
+        for rhs_dict in rhs_modp_list:
+            rhs_val = rhs_dict.get(p)
+            if rhs_val is not None:
+                try:
+                    num_poly = R_m(rhs_val.numerator())
+                    den_poly = R_m(rhs_val.denominator())
+                    rhs_polys_for_p.append(num_poly / den_poly)
+                    num_coeffs = [int(c) % p for c in num_poly.list()]
+                    den_coeffs = [int(c) % p for c in den_poly.list()]
+                    if not num_coeffs:
+                        num_coeffs = [0]
+                    if not den_coeffs:
+                        den_coeffs = [0]
+                    rhs_reconstruction.append((num_coeffs, den_coeffs))
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to build rhs_reconstruction: p={p}, rhs_val={rhs_val}, error={e}"
+                    )
+
+        # Fallback to the hardcoded xj equation if nothing came through.
+        # xj(m) = xi - m  =>  numerator = [xi % p, p-1] (low-to-high), denominator = [1]
+        if not rhs_polys_for_p:
+            rhs_polys_for_p = [-m_var + Fp(const_val_int)]
+            rhs_reconstruction = [([const_val_int % p, p - 1], [1])]
+
+        assert len(rhs_polys_for_p) == len(rhs_reconstruction), \
+            f"p={p}: rhs list length mismatch: {len(rhs_polys_for_p)} vs {len(rhs_reconstruction)}"
+
+
+        #rhs_poly = -m_var + Fp(const_val_int)
         p_mults = mult_lll.get(p, {})
 
         current_chunk = []
@@ -675,34 +605,34 @@ def mumford_precompute_residues_parallel(
             if hasattr(Pm, "is_zero") and Pm.is_zero():
                 continue
 
-            try:
-                diff = Pm[0] - Pm[2] * rhs_poly
-                diff_num = diff.numerator()
 
-                if diff_num.is_zero():
-                    continue
 
-                coeffs = diff_num.list()
-                poly_degree = len(coeffs) - 1
-                coeffs_ints = [int(c) for c in coeffs]
+            for rhs_idx, rhs_poly in enumerate(rhs_polys_for_p):
+                try:
+                    diff = Pm[0] - Pm[2] * rhs_poly
+                    diff_num = diff.numerator()
+                    if diff_num.is_zero():
+                        continue
+                    coeffs = diff_num.list()
+                    poly_degree = len(coeffs) - 1
+                    coeffs_ints = [int(c) for c in coeffs]
+                    current_chunk.append((v_tuple, coeffs_ints, rhs_idx))
+                    current_chunk_degree += max(poly_degree, 0)
+                    if len(current_chunk) >= chunk_size:
+                        task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction)
+                        tasks_with_metadata.append((current_chunk_degree, task))
+                        current_chunk = []
+                        current_chunk_degree = 0
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to extract polynomial: p={p}, v_idx={v_idx}, "
+                        f"v_tuple={v_tuple}, rhs_idx={rhs_idx}, rhs={rhs_poly}, error={e}"
+                    )
 
-                current_chunk.append((v_tuple, coeffs_ints))
-                current_chunk_degree += max(poly_degree, 0)
-
-                if len(current_chunk) >= chunk_size:
-                    task = (int(p), f_coeffs_ints, current_chunk, const_val_int)
-                    tasks_with_metadata.append((current_chunk_degree, task))
-                    current_chunk = []
-                    current_chunk_degree = 0
-
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to extract polynomial: p={p}, v_idx={v_idx}, v_tuple={v_tuple}, error={e}"
-                )
 
         # Flush any leftover items for this prime.
         if current_chunk:
-            task = (int(p), f_coeffs_ints, current_chunk, const_val_int)
+            task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction)
             tasks_with_metadata.append((current_chunk_degree, task))
 
     # Sort by estimated work, descending.
@@ -776,3 +706,126 @@ def mumford_precompute_residues_parallel(
     assert results_dict, "Worker pool returned empty results - this indicates a failure"
 
     return results_dict
+
+
+
+def _solve_worker_wrapper(args):
+    """
+    Worker with fail-fast error handling and detailed diagnostics.
+
+    chunk_items elements are (v_tuple, diff_coeffs_list, rhs_idx).
+    rhs_reconstruction is a list of (num_coeffs_ints, den_coeffs_ints) in
+    low-to-high coefficient order, one entry per RHS.  The worker evaluates
+    rhs(m_root) = num(m_root) / den(m_root)  mod p to recover x_val, so each
+    RHS gets the right x-coordinate regardless of whether it is the linear
+    xj equation or the rational xk(m) equation.
+
+    const_val_int (xi) is kept as a separate arg because solve_mumford_mod_p_optimized
+    needs it to set up the fiber equations — it is NOT the xj reconstruction formula.
+    """
+    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction = args
+
+    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
+    assert f_coeffs_ints, "Empty f_coeffs"
+    assert chunk_items, "Empty chunk_items"
+    assert rhs_reconstruction, "Empty rhs_reconstruction"
+
+    roots_cache = {}
+    p_results = {}
+    chunk_start = time.time()
+
+    for item_idx, (v_tuple, diff_coeffs_list, rhs_idx) in enumerate(chunk_items):
+        assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
+        assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
+        assert 0 <= rhs_idx < len(rhs_reconstruction), \
+            f"Item {item_idx}: rhs_idx={rhs_idx} out of range (len={len(rhs_reconstruction)})"
+
+        item_start = time.time()
+
+        coeff_key = tuple(c % p for c in diff_coeffs_list)
+
+        if all(c == 0 for c in coeff_key):
+            continue
+
+        t0 = time.time()
+        if coeff_key not in roots_cache:
+            roots = find_poly_roots_fp_python(coeff_key, p)
+            roots_cache[coeff_key] = roots
+        else:
+            roots = roots_cache[coeff_key]
+        root_time = time.time() - t0
+
+        if not roots:
+            continue
+
+        num_coeffs, den_coeffs = rhs_reconstruction[rhs_idx]
+
+        t0 = time.time()
+        x_res_to_sols = {}
+
+        for m_root in roots:
+            assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
+
+            # Evaluate rhs(m_root) mod p using Horner's method.
+            # coeffs are low-to-high: rhs = sum(c_i * m^i).
+            num_val = 0
+            for c in reversed(num_coeffs):
+                num_val = (num_val * m_root + c) % p
+            den_val = 0
+            for c in reversed(den_coeffs):
+                den_val = (den_val * m_root + c) % p
+
+            if den_val == 0:
+                # Pole of the RHS rational function at this m — no candidate here.
+                continue
+
+            x_val = (num_val * pow(den_val, -1, p)) % p
+
+            max_sols = 10000 if FINITE_FIELD else 500
+
+            try:
+                sols = solve_mumford_mod_p_optimized(
+                    f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Mumford solver failed: p={p}, x_val={x_val}, "
+                    f"v_tuple={v_tuple}, rhs_idx={rhs_idx}, error={e}"
+                )
+
+            verified_sols = []
+            for sol in sols:
+                assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
+                s, p_val, v0, v1 = sol
+
+                if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
+                    raise RuntimeError(
+                        f"Mumford pair failed verification: "
+                        f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
+                    )
+
+                verified_sols.append(sol)
+
+            if verified_sols:
+                x_res_to_sols[x_val] = verified_sols
+
+        mumford_time = time.time() - t0
+        item_time = time.time() - item_start
+
+        if item_time > 0.5:
+            sys.stderr.write(
+                f"[Worker p={p}] Vector {v_tuple} rhs={rhs_idx}: deg={len(coeff_key)-1}, "
+                f"roots={len(roots)}, root_time={root_time:.3f}s, "
+                f"mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n"
+            )
+            sys.stderr.flush()
+
+        if x_res_to_sols:
+            p_results[v_tuple] = x_res_to_sols
+
+    chunk_time = time.time() - chunk_start
+    if chunk_time > 1.0:
+        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
+        sys.stderr.flush()
+
+    return p, p_results

@@ -384,16 +384,22 @@ def print_relation_matrix_summary(
     if n_rows == 0 or n_cols == 0:
         print("\n  Rank: N/A (empty matrix)")
     else:
-        print("\n  Computing rank over QQ for speed and exactness...")
-        use_ring = QQ if n_rows * n_cols > 10_000 else ZZ
-        mat_for_rank = mat.change_ring(use_ring) if use_ring is not ZZ else mat
-        rank = mat_for_rank.rank()
+        # Use mod-p rank for memory efficiency.
+        # The matrix has only small integer coefficients (-d, 1, d-2),
+        # so rank mod a large prime equals the true rank with probability
+        # 1 - n_cols/p > 1 - 1e-9 for our choice of p.  This avoids
+        # materialising a dense QQ matrix which OOMs at scale.
+        _RANK_PRIME = 2**31 - 1  # Mersenne prime, fits in Sage GF
+        from sage.all import GF
+        print(f"\n  Computing rank mod {_RANK_PRIME} (exact w.h.p., O(1) memory vs dense QQ)...")
+        mat_modp = mat.change_ring(GF(_RANK_PRIME))
+        rank = mat_modp.rank()
 
         print(f"\n  ┌─────────────────────────────────────────┐")
         print(f"  │  Rows    (relations)    : {n_rows:>6}          │")
         print(f"  │  Columns (atoms + ∞)    : {n_cols:>6}          │")
-        print(f"  │  Rank                   : {rank:>6}          │")
-        print(f"  │  Nullity                : {n_cols - rank:>6}          │")
+        print(f"  │  Rank    (mod p)        : {rank:>6}          │")
+        print(f"  │  Nullity (mod p)        : {n_cols - rank:>6}          │")
         print(f"  └─────────────────────────────────────────┘")
 
         if rank < n_cols:

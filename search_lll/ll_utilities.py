@@ -119,14 +119,19 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     PR_m = PolynomialRing(QQ, 'm')
     var_sym = var('m')
 
-    # Now build processed_rhs_list using robust helper
+    # Now build processed_rhs_list using robust helper.
+    # Two entry kinds:
+    #   {'num': PR_m_poly, 'den': PR_m_poly}          -- characteristic-zero path
+    #   {'raw_ffrac': sage_frac_field_element}         -- FINITE_FIELD path (already in Frac(Fp[m]))
     processed_rhs_list = []
     for rhs in rhs_list:
         try:
             n_pr, d_pr = _decompose_rhs_to_PRm(rhs)
             processed_rhs_list.append({'num': n_pr, 'den': d_pr})
-        except TypeError as e:
-            continue
+        except TypeError:
+            # FINITE_FIELD mode: rhs is already a Frac(Fp[m]) element.
+            # Stash it for prime-level coercion below.
+            processed_rhs_list.append({'raw_ffrac': rhs})
         except Exception as e:
             print(f"[prepare_modular_data_lll] Skipping RHS={rhs}: {e}")
             continue
@@ -235,15 +240,32 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 raise
                 continue
 
-            # Build rhs_modp for this prime
+            # Build rhs_modp for this prime.
+            # Handles two entry kinds from processed_rhs_list:
+            #   {'num': QQ[m], 'den': QQ[m]}       -- reduce mod p via change_ring
+            #   {'raw_ffrac': Frac(Fp'[m])}         -- coerce directly into Fp_m
             rhs_modp_for_p = {}
             for i, rhs_data in enumerate(processed_rhs_list):
                 try:
-                    if rhs_data['den'].change_ring(GF(p)).is_zero():
-                        if DEBUG:
-                            print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: denominator zero mod p")
-                        continue
-                    rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+                    if 'raw_ffrac' in rhs_data:
+                        # FINITE_FIELD path: rhs already lives in some Frac(Fp'[m]).
+                        # Coerce numerator and denominator into the current Fp_m.
+                        raw = rhs_data['raw_ffrac']
+                        raw_num = raw.numerator()
+                        raw_den = raw.denominator()
+                        # Check for pole (denominator zero mod p)
+                        den_modp = Fp_m.ring()(raw_den)
+                        if den_modp.is_zero():
+                            if DEBUG:
+                                print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: raw_ffrac denominator zero mod p")
+                            continue
+                        rhs_modp_for_p[i] = Fp_m(raw_num) / Fp_m(raw_den)
+                    else:
+                        if rhs_data['den'].change_ring(GF(p)).is_zero():
+                            if DEBUG:
+                                print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: denominator zero mod p")
+                            continue
+                        rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
                 except Exception:
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")

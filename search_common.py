@@ -288,11 +288,11 @@ TERMINATE_WHEN_6 = 3
 # $$y^2 = x^5 + x + 2$$
 COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
 #DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
-DATA_PTS_GENUS2 = [QQ(1)]
 DATA_PTS_GENUS2 = None # placeholder for random.
-DATA_PTS_GENUS2 = [QQ(15998132)]
-DATA_PTS_GENUS2 = [QQ(12862063)]
 DATA_PTS_GENUS2 = [QQ(10598399)]
+DATA_PTS_GENUS2 = [QQ(15998132)] # 1
+DATA_PTS_GENUS2 = [QQ(12862063)] # 2
+DATA_PTS_GENUS2 = [QQ(1)]
 TERMINATE_WHEN_6 = 30
 
 ##### END TEST CURVES ######
@@ -309,8 +309,8 @@ PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 sh
 
 # CRYPTOGRAPHY RELATED PARAMS
 FINITE_FIELD = None
-FINITE_FIELD = next_prime(2**25)
-MAXN = 80 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
+FINITE_FIELD = next_prime(2**16)
+MAXN = 20 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
 SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
 BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
 BLOCK_WIEDEMANN = False   # set True to always use block Wiedemann in the final solve

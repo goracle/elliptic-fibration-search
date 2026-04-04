@@ -26,6 +26,100 @@ from sage.misc.verbose import set_verbose
 from relation_matrix import *
 from functools import partial
 from cantor_cache import *
+from mixing_diagnostics import *
+
+
+
+def xk_is_fp_point(xk_val, G_poly):
+    if G_poly is None or xk_val is None:
+        return False
+
+    try:
+        rhs = G_poly(xk_val)
+        return bool(rhs.is_square())
+    except Exception:
+        raise
+
+def compute_S_of_m(fi, G_poly, curve_degree):
+    """Return the x^(d-1) coefficient of (G(x) - f_i(x, m)) as a symbolic
+    rational function in m, without evaluating m numerically.
+
+    fi lives in R_xm = PolynomialRing(Frac(GF(p)['m']), 'x'), so its
+    coefficients are already rational functions in m.  G_poly lives in
+    GF(p)[x] with constant coefficients.  We lift G into the same ring and
+    subtract to get the bivariate intersection polynomial, then read off the
+    x^(d-1) coefficient.
+
+    Returns (S_of_m, inter_sym) where:
+      S_of_m   -- negated x^(d-1) coeff of monic inter, a rational function in m
+      inter_sym -- full symbolic intersection poly in R_xm[x]
+
+    Returns (None, None) if fi or G_poly are unavailable.
+    """
+    if fi is None or G_poly is None:
+        return None, None
+    try:
+        R_xm = fi.parent()                          # PolynomialRing(Frac(Fp[m]), 'x')
+        base = R_xm.base_ring()                     # Frac(Fp[m])
+        # Lift G_poly coefficients into Frac(Fp[m]) so subtraction is valid.
+        G_lifted = R_xm([base(c) for c in G_poly.list()])
+        inter_sym = G_lifted - fi
+        lc = inter_sym.leading_coefficient()
+        monic_sym = inter_sym / lc
+        deg = int(monic_sym.degree())
+        coeffs = monic_sym.list()                   # low-to-high
+        # x^(d-1) coeff is at index deg-1; sum-of-roots = -that coeff
+        a_dm1 = coeffs[deg - 1] if deg - 1 < len(coeffs) else base(0)
+        S_of_m = -a_dm1
+        return S_of_m, inter_sym
+    except Exception:
+        raise
+
+def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
+    if fi is None or G_poly is None or m_val is None:
+        return None, None
+
+    try:
+        Rx = G_poly.parent()
+        Fp = Rx.base_ring()
+        m_fp = Fp(m_val)
+
+        def eval_at_m(obj):
+            try:
+                return obj(m_fp) if callable(obj) else obj
+            except TypeError:
+                raise
+                return obj
+
+        coeffs = []
+        for c in fi.list():
+            num = c.numerator()
+            den = c.denominator()
+
+            nv = eval_at_m(num)
+            dv = eval_at_m(den)
+
+            dv_fp = Fp(dv)
+            if dv_fp == Fp(0):
+                return None, None
+
+            coeffs.append(Fp(nv) / dv_fp)
+
+        fi_at_m = Rx(coeffs)
+        inter = G_poly - fi_at_m
+
+        if inter.degree() != curve_degree:
+            return None, None
+
+        xi_mult = curve_degree - 2
+        known = [xi_val] * xi_mult + [xj_val]
+        return missing_root_by_vieta(inter, known), inter
+
+    except Exception:
+        raise
+
+
+
 
 def build_project_tower_context_for_point(
     xi,
@@ -121,6 +215,33 @@ def build_project_tower_context_for_point(
     sconf, prime_pool = configure_search_parameters(cd, {xi}, base_pts, field_data['base_field'])
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] if not resolve_project_symbol('FINITE_FIELD', default=None) else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
+
+
+    # Append the symbolic xk(m) as an additional RHS target.
+    # xk(m) = S(m) - (d-1)*xi - (-m) = S(m) - (d-1)*xi + m
+    # where S(m) is the x^(d-1) Vieta sum from the intersection poly.
+    # fi and shifted_G_poly are in scope from the tower construction above.
+    _fi_sym = primary_tower[-1].get('f_i') if primary_tower else None
+    _curve_degree_sym = int(resolve_project_symbol('CURVE_DEGREE', default=5))
+    assert _fi_sym, _fi_sym
+
+    if _fi_sym is not None:
+        S_of_m_sym, _inter_sym = compute_S_of_m(_fi_sym, shifted_G_poly, _curve_degree_sym)
+        assert S_of_m_sym, S_of_m_sym
+        if S_of_m_sym is not None:
+            # S_of_m_sym lives in Frac(Fp[m]); xi is a constant in Fp.
+            # Lift xi into the same base ring.
+            _base = S_of_m_sym.parent()   # Frac(Fp[m])
+            _xi_lifted = _base(xi)
+            _m_sym = _base.ring().gen()   # the generator m of Fp[m]
+            _m_in_frac = _base(_m_sym)
+            xk_rhs_sym = S_of_m_sym - (_curve_degree_sym - 1) * _xi_lifted + _m_in_frac
+            print("adding xk(m)", xk_rhs_sym, "to search rhs list")
+            search_rhs_list = list(search_rhs_list) + [xk_rhs_sym]
+
+
+    assert len(search_rhs_list) > 1, search_rhs_list
+
     testfunc, shift = setup_rationality_test_function(shift, T, T_inv)
 
     base_sections = compute_base_sections_m(cd, base_pts, tower=primary_tower)
@@ -417,6 +538,12 @@ class WalkConfig:
     diagnostic_show_poly: bool = True
     diagnostic_show_roots: bool = True
 
+    # Spectral gap reporting via adjacency matrix.
+    # spectral_enabled=False turns the whole thing off silently.
+    spectral_report_every: int = 10
+    spectral_min_collisions: int = 3
+    spectral_enabled: bool = True
+
     def __post_init__(self):
         # Keep the two degree fields in sync whichever one the caller set.
         if self.degree_for_intersection != self.curve_degree:
@@ -477,7 +604,34 @@ class Genus2MetropolisWalker:
         self.dead_end_count = 0
         self.collision_count = 0      # path collisions: chosen xj already on chain path
         self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
+        self.first_birthday_step: Optional[int] = None  # step_index of first graph/birthday collision
+        self.first_birthday_n: Optional[int] = None     # outer n of first graph/birthday collision
+        self.collision_log: list = []  # [(step_index, outer_n, graph_vol, count, colliding_xs[:10]), ...]
         self._restart_cursor = 0
+
+        # Adjacency / transition matrices for spectral gap estimation.
+        # mat_chain = accepted steps only   (the actual Markov chain)
+        # mat_graph = full candidate pool   (denser; better spectral estimate)
+        if getattr(self.config, 'spectral_enabled', True):
+            from adjacency_matrix import MarkovAdjacencyMatrix
+            _p  = self.p
+            _re = getattr(self.config, 'spectral_report_every', 10)
+            _mc = getattr(self.config, 'spectral_min_collisions', 3)
+            self.mat_chain = MarkovAdjacencyMatrix(
+                p=_p, label="chain",
+                use_candidate_pool=False,
+                normalize_per_step=False,
+                report_every=_re, min_collisions=_mc,
+            )
+            self.mat_graph = MarkovAdjacencyMatrix(
+                p=_p, label="graph",
+                use_candidate_pool=True,
+                normalize_per_step=True,
+                report_every=_re, min_collisions=_mc,
+            )
+        else:
+            self.mat_chain = None
+            self.mat_graph = None
 
         if not self.base_points:
             self.base_points.append((self.current_x, self.current_y))
@@ -780,18 +934,31 @@ class Genus2MetropolisWalker:
         unique_path_nodes = len(self.unique_xj_seen)
         total_leaves = len(self.global_leaves_seen)
 
-        return (
+        base = (
             f"\n--- WALK SUMMARY ---\n"
             f"Steps taken: {len(self.history)}\n"
             f"Path accepted: {accepted}\n"
             f"Path collisions (xj revisited on chain): {self.collision_count}\n"
             f"Graph/birthday collisions (leaf already seen): {self.leaf_collision_count}\n"
+            f"First birthday collision: step={self.first_birthday_step}  outer_n={self.first_birthday_n}  (graph vol at that point: {self.collision_log[0][2] if self.collision_log else 'none'})\n"
             f"Restarts: {restarts}\n"
             f"Dead ends: {self.dead_end_count}\n"
             f"Nodes in chosen path: {unique_path_nodes}\n"
             f"Total unique leaves discovered (Graph Volume): {total_leaves}\n"
             f"--------------------"
         )
+        extras = []
+        if getattr(self, 'mat_chain', None) is not None:
+            extras.append(
+                f"Chain matrix  : {self.mat_chain.n_atoms} atoms, "
+                f"{self.mat_chain.n_steps} steps ingested"
+            )
+        if getattr(self, 'mat_graph', None) is not None:
+            extras.append(
+                f"Graph matrix  : {self.mat_graph.n_atoms} atoms, "
+                f"{self.mat_graph.n_steps} steps ingested"
+            )
+        return base + ("\n" + "\n".join(extras) if extras else "")
 
     def _make_relation(
             self,
@@ -1078,8 +1245,10 @@ class Genus2MetropolisWalker:
 
         # Leaf bookkeeping for the search branch.
         # We treat the candidate x-values as the leaves discovered by this step.
-        old_leaves_count = len(self.global_leaves_seen)
         valid_leaves = {cx for cx in candidate_xs if cx is not None}
+        # Snapshot before update so we can identify exact colliders cheaply.
+        colliding_xs = sorted(valid_leaves & self.global_leaves_seen)[:10]
+        old_leaves_count = len(self.global_leaves_seen)
 
         if valid_leaves:
             self.global_leaves_seen.update(valid_leaves)
@@ -1090,6 +1259,13 @@ class Genus2MetropolisWalker:
             leaf_collisions_this_step = 0
 
         self.leaf_collision_count += leaf_collisions_this_step
+        if leaf_collisions_this_step > 0:
+            _step_idx = len(self.history)  # not yet appended
+            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
+            self.collision_log.append(_entry)
+            if self.first_birthday_step is None:
+                self.first_birthday_step = _step_idx
+                self.first_birthday_n = n
 
         search_out["step_leaves_found"] = len(valid_leaves)
         search_out["step_leaves_new"] = new_leaves_this_step
@@ -1279,13 +1455,16 @@ class Genus2MetropolisWalker:
         xj_candidates = [self._candidate_xj_from_m(self.current_x, m_val) for m_val in m_roots]
         assert xj_candidates, xj_candidates
 
-        old_leaves_count = len(self.global_leaves_seen)
         valid_leaves = {cx for cx in xj_candidates if cx is not None}
 
         for _xj in xj_candidates:
             _xk = self._recover_xk(step, self.current_x, _xj)
             if _xk is not None:
                 valid_leaves.add(_xk)
+
+        # Snapshot before update so we can identify exact colliders cheaply.
+        colliding_xs = sorted(valid_leaves & self.global_leaves_seen)[:10]
+        old_leaves_count = len(self.global_leaves_seen)
 
         if valid_leaves:
             self.global_leaves_seen.update(valid_leaves)
@@ -1296,6 +1475,13 @@ class Genus2MetropolisWalker:
             leaf_collisions_this_step = 0
 
         self.leaf_collision_count += leaf_collisions_this_step
+        if leaf_collisions_this_step > 0:
+            _step_idx = len(self.history)  # not yet appended
+            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
+            self.collision_log.append(_entry)
+            if self.first_birthday_step is None:
+                self.first_birthday_step = _step_idx
+                self.first_birthday_n = n
         step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
 
         step_payload = dict(step) if isinstance(step, dict) else {}
@@ -1476,7 +1662,8 @@ class Genus2MetropolisWalker:
                 f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                 f"\n  Relation (example):  {rel_str}{rel_annotation}",
                 f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}  | leaf_collisions_this_step={leaf_collisions_this_step}",
-                f"\n  Collisions: path={self.collision_count} total  | graph/birthday={self.leaf_collision_count} total  (first expected near √p={sqrt_p:.0f} graph volume)",
+                f"\n  Collisions: path={self.collision_count} total  | graph/birthday={self.leaf_collision_count} total  (first expected near √p={sqrt_p:.0f} graph volume)"
+                + (f"  [first birthday: step={self.first_birthday_step} n={self.first_birthday_n} vol={self.collision_log[0][2]} xs={self.collision_log[0][4]}]" if self.collision_log else ""),
                 f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
                 f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
                 f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
@@ -1486,6 +1673,20 @@ class Genus2MetropolisWalker:
                 sep="",
                 flush=True,
             )
+            print(mixing_one_liner(self, step_no))
+
+            # Spectral gap report (every N steps, once enough collisions seen).
+            _step_no = len(self.history)
+            if getattr(self, 'mat_chain', None) is not None:
+                self.mat_chain.maybe_report(_step_no)
+            if getattr(self, 'mat_graph', None) is not None:
+                self.mat_graph.maybe_report(_step_no)
+
+        # Final forced spectral report regardless of cadence.
+        if getattr(self, 'mat_chain', None) is not None:
+            self.mat_chain.maybe_report(len(self.history), force=True)
+        if getattr(self, 'mat_graph', None) is not None:
+            self.mat_graph.maybe_report(len(self.history), force=True)
 
         return results
 
@@ -1512,6 +1713,15 @@ class Genus2MetropolisWalker:
                 self.cantor_cache.on_new_step(rec)
 
         self._append_jsonl_log(rec)
+
+        # Feed both adjacency matrices.
+        if getattr(self, 'mat_chain', None) is not None:
+            self.mat_chain.ingest(rec,
+                graph_collision_count=self.leaf_collision_count)
+        if getattr(self, 'mat_graph', None) is not None:
+            self.mat_graph.ingest(rec,
+                graph_collision_count=self.leaf_collision_count)
+
         return rec
 
     def cantor_summary(self) -> None:
@@ -1666,4 +1876,6 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class.step = step_with_diagnostics
     return walker_class
 
-enable_step_diagnostics()
+
+
+
