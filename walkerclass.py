@@ -543,6 +543,10 @@ class WalkConfig:
     spectral_report_every: int = 10
     spectral_min_collisions: int = 3
     spectral_enabled: bool = True
+    # How many eigenvalues to request from the sparse Arnoldi solver.
+    # 50 is cheap (<<1s) for matrices up to ~10k nodes; raise further to
+    # probe deeper into the tail for expander-bound analysis.
+    spectral_n_eigenvalues: int = 50
 
     def __post_init__(self):
         # Keep the two degree fields in sync whichever one the caller set.
@@ -610,35 +614,31 @@ class Genus2MetropolisWalker:
         self._restart_cursor = 0
 
         # Adjacency / transition matrices for spectral gap estimation.
-        # mat_chain = accepted steps only   (the actual Markov chain)
-        # mat_graph = full candidate pool   (denser; better spectral estimate)
-        # mat_full  = true Markov kernel: leaves(t) -> pool(t+1)  (primary authority)
+        # mat_chain = accepted steps only          (path diagnostic, d~1)
+        # mat_graph = full candidate pool per xi   (row-truncated average operator)
         if getattr(self.config, 'spectral_enabled', True):
             from adjacency_matrix import MarkovAdjacencyMatrix
-            _p  = self.p
-            _re = getattr(self.config, 'spectral_report_every', 10)
-            _mc = getattr(self.config, 'spectral_min_collisions', 3)
+            _p   = self.p
+            _re  = getattr(self.config, 'spectral_report_every', 10)
+            _mc  = getattr(self.config, 'spectral_min_collisions', 3)
+            _nev = getattr(self.config, 'spectral_n_eigenvalues', 50)
             self.mat_chain = MarkovAdjacencyMatrix(
                 p=_p, label="chain",
                 use_candidate_pool=False,
                 normalize_per_step=False,
                 report_every=_re, min_collisions=_mc,
+                n_eigenvalues=_nev,
             )
             self.mat_graph = MarkovAdjacencyMatrix(
                 p=_p, label="graph",
                 use_candidate_pool=True,
                 normalize_per_step=True,
                 report_every=_re, min_collisions=_mc,
-            )
-            self.mat_full = MarkovAdjacencyMatrix(
-                p=_p, label="full_markov",
-                use_full_markov=True,
-                report_every=_re, min_collisions=_mc,
+                n_eigenvalues=_nev,
             )
         else:
             self.mat_chain = None
             self.mat_graph = None
-            self.mat_full  = None
 
         if not self.base_points:
             self.base_points.append((self.current_x, self.current_y))
@@ -965,11 +965,7 @@ class Genus2MetropolisWalker:
                 f"Graph matrix  : {self.mat_graph.n_atoms} atoms, "
                 f"{self.mat_graph.n_steps} steps ingested"
             )
-        if getattr(self, 'mat_full', None) is not None:
-            extras.append(
-                f"Full-Markov   : {self.mat_full.n_atoms} atoms, "
-                f"{self.mat_full.n_steps} steps ingested"
-            )
+
         return base + ("\n" + "\n".join(extras) if extras else "")
 
     def _make_relation(
@@ -1217,8 +1213,8 @@ class Genus2MetropolisWalker:
         if not candidates:
             return None
 
-        # Prefer candidates whose xj has been stepped through least often.
-        pool = self._prefer_unvisited_candidates(candidates)
+        # Pick uniformly from all candidates.
+        pool = candidates
 
         if len(pool) == 1:
             return pool[0]
@@ -1687,22 +1683,11 @@ class Genus2MetropolisWalker:
             )
             print(mixing_one_liner(self, step_no))
 
-            # Spectral gap report (every N steps, once enough collisions seen).
-            _step_no = len(self.history)
-            if getattr(self, 'mat_chain', None) is not None:
-                self.mat_chain.maybe_report(_step_no)
-            if getattr(self, 'mat_graph', None) is not None:
-                self.mat_graph.maybe_report(_step_no)
-            if getattr(self, 'mat_full', None) is not None:
-                self.mat_full.maybe_report(_step_no)
-
-        # Final forced spectral report regardless of cadence.
+        # Spectral reports only at end-of-run (mid-run printing is too slow).
         if getattr(self, 'mat_chain', None) is not None:
             self.mat_chain.maybe_report(len(self.history), force=True)
         if getattr(self, 'mat_graph', None) is not None:
             self.mat_graph.maybe_report(len(self.history), force=True)
-        if getattr(self, 'mat_full', None) is not None:
-            self.mat_full.maybe_report(len(self.history), force=True)
 
         return results
 
@@ -1737,9 +1722,7 @@ class Genus2MetropolisWalker:
         if getattr(self, 'mat_graph', None) is not None:
             self.mat_graph.ingest(rec,
                 graph_collision_count=self.leaf_collision_count)
-        if getattr(self, 'mat_full', None) is not None:
-            self.mat_full.ingest(rec,
-                graph_collision_count=self.leaf_collision_count)
+
 
         return rec
 

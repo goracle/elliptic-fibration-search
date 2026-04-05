@@ -2,65 +2,43 @@
 
 Row-stochastic transition matrix for the genus-2 Markov walk.
 
-Three flavours are maintained in parallel:
-  - "chain"  : transitions from accepted (xi -> xj) steps only.
-               Rows are the actual chain xi; columns are the chosen xj.
-               This is the matrix whose mixing time you care about for the
-               cryptographic argument.  Requires path collisions to get
-               multi-observation rows; useless until xi is revisited.
-  - "graph"  : transitions weighted over the full candidate_pool.
-               Every (xi, xj) and (xi, xk) leaf pair contributes weight.
-               Denser, better-conditioned for spectral estimation even at
-               small step counts.  Suffers from dest-only node pruning.
-  - "full"   : the literal Markov process over all observed x-coordinates.
-               M_ij = P(next position is j | current position is i).
-               Construction: at step t, xi_t was reached because it was a
-               leaf at step t-1.  So every leaf x of step t-1 gets a row
-               whose outgoing distribution is the pool of step t (the step
-               that x "feeds into" as xi).  xi itself also gets a row for
-               the same pool.  This makes every observed x-coordinate a
-               first-class node with a meaningful outgoing distribution,
-               regardless of whether it was ever walked as xi.  The spectral
-               gap of this matrix is the correct mixing-time diagnostic.
+Two flavours are maintained in parallel:
+  - "chain" : transitions from accepted (xi -> xj) steps only.
+              One row per walked xi, column is the chosen xj.
+              Path diagnostic only -- d~1 by construction.
+  - "graph" : one row per walked xi, uniform weight over the full L(xi)
+              candidate pool.  This is the row-truncated average operator:
+              P(xi -> xj) = 1/|L(xi)| if xj in L(xi), else 0.
+              Rows are exact and deterministic (L(xi) is fixed by the curve
+              arithmetic).  Spectral gap of the source-induced subgraph is
+              the correct mixing-time diagnostic.
 
 Spectral gap
 ------------
-Computed via scipy.sparse.linalg.eigs on the sparse row-stochastic matrix.
-For a matrix of size n we need at most k=min(n-2, 6) eigenvalues, which is
-cheap even when n ~ 10,000.
-
-With 76 leaves/step the graph matrix will have O(steps x 76) distinct atoms.
-After 150 steps that is ~11,000 atoms.  The sparse eigensolver runs in well
-under a second at that size.
+Computed via scipy.sparse.linalg.eigs on the source-induced sparse subgraph.
+Dest-only atoms (leaves never walked as xi) are excluded -- they have no
+outgoing row in the true operator.
 
 Reporting cadence
 -----------------
-Call maybe_report(step_no) from the run loop.  The default is to print every
-10 steps once 3+ graph collisions are seen, then always at the end.
-Adjust with MarkovAdjacencyMatrix(report_every=N, min_collisions=K).
+Reports are suppressed until min_collisions graph collisions are seen.
+Printed once at end-of-run via maybe_report(force=True).
 
 Usage
 -----
     from adjacency_matrix import MarkovAdjacencyMatrix
 
-    mat_chain = MarkovAdjacencyMatrix(p=33554467, label="chain")
-    mat_graph = MarkovAdjacencyMatrix(p=33554467, label="graph",
+    mat_chain = MarkovAdjacencyMatrix(p=65537, label="chain")
+    mat_graph = MarkovAdjacencyMatrix(p=65537, label="graph",
                                       use_candidate_pool=True,
                                       normalize_per_step=True)
-    mat_full  = MarkovAdjacencyMatrix(p=33554467, label="full",
-                                      use_full_markov=True)
 
-    # chain and graph: ingest one record at a time
     for rec in walker.history:
         mat_chain.ingest(rec)
         mat_graph.ingest(rec)
 
-    # full: must be ingested in pairs so leaves of step t point to pool of t+1
-    mat_full.ingest_all(walker.history)
-
     mat_chain.maybe_report(step_no=len(walker.history), force=True)
     mat_graph.maybe_report(step_no=len(walker.history), force=True)
-    mat_full.maybe_report(step_no=len(walker.history), force=True)
 """
 
 from __future__ import annotations
@@ -124,17 +102,20 @@ class MarkovAdjacencyMatrix:
         label: str = "matrix",
         use_candidate_pool: bool = False,
         normalize_per_step: bool = False,
-        use_full_markov: bool = False,
         min_collisions: int = 3,
         report_every: int = 10,
+        n_eigenvalues: int = 20,
     ):
         self.p = p
         self.label = label
         self.use_candidate_pool = use_candidate_pool
         self.normalize_per_step = normalize_per_step
-        self.use_full_markov = use_full_markov
         self.min_collisions = min_collisions
         self.report_every = report_every
+        # How many eigenvalues to request from the sparse solver.
+        # Increase this to probe deeper into the spectrum.
+        # The actual k used is min(n_eigenvalues, n_sources - 2).
+        self.n_eigenvalues = n_eigenvalues
 
         # raw_counts[w_int][r_int] = accumulated float weight
         self._raw: Dict[Any, Dict[Any, float]] = defaultdict(lambda: defaultdict(float))
@@ -146,10 +127,6 @@ class MarkovAdjacencyMatrix:
         self._steps_ingested: int = 0
         self._collision_count: int = 0       # graph collisions seen from walker
         self._last_report_at: int = 0
-
-        # full-markov flavor: buffer the previous step's leaves so we can
-        # wire them to the current step's pool on the next ingest call.
-        self._prev_leaves: List[Any] = []    # leaf x-ints from the last step
 
     # ------------------------------------------------------------------
     # Indexing
@@ -194,40 +171,6 @@ class MarkovAdjacencyMatrix:
 
         # ------ full-markov flavor ------
         # Every leaf x from the previous step points to the pool distribution
-        # of the current step (the step that x "feeds into" as xi).
-        # xi itself also gets a row for the current pool.
-        if self.use_full_markov:
-            cur_pool_leaves: List[Any] = []
-            seen_fm: set = set()
-            for cand in pool:
-                if isinstance(cand, dict):
-                    for key in ("xj", "xk"):
-                        v = cand.get(key)
-                        if v is not None:
-                            v_int = _int_key(v)
-                            if v_int != xi_int and v_int not in seen_fm:
-                                cur_pool_leaves.append(v_int)
-                                seen_fm.add(v_int)
-
-            if cur_pool_leaves:
-                weight = 1.0 / len(cur_pool_leaves)
-                for v_int in cur_pool_leaves:
-                    self._idx(v_int)
-                # xi row -> current pool
-                self._idx(xi_int)
-                for v_int in cur_pool_leaves:
-                    self._raw[xi_int][v_int] += weight
-                # every previous-step leaf -> same pool distribution
-                for src in self._prev_leaves:
-                    self._idx(src)
-                    for v_int in cur_pool_leaves:
-                        self._raw[src][v_int] += weight
-
-            # buffer current pool leaves for the next step
-            self._prev_leaves = cur_pool_leaves
-            self._steps_ingested += 1
-            return
-
         # ------ collect leaves (chain / graph flavors) ------
         leaves: List[Any] = []
 
@@ -282,18 +225,32 @@ class MarkovAdjacencyMatrix:
         return [x for x in self._atoms if self._raw.get(x)]
 
     def _build_sparse(self):
-        """Return (P_sparse, source_atoms) restricted to the induced subgraph
-        on source nodes.  Returns (None, []) if scipy unavailable."""
+        """Return (P_sparse, source_atoms, all_atoms) where P is the honest
+        rectangular row-stochastic matrix: rows = sources (walked xi),
+        columns = all atoms ever seen (sources + dest-only leaves).
+
+        Every row sums to exactly 1.  No column restriction is applied —
+        dest-only leaves are valid destinations and keeping them is what makes
+        the matrix honest.  Spectral analysis is done on P @ P.T (square,
+        496x496) rather than P directly.
+
+        Returns (None, [], []) if scipy unavailable or no data.
+        """
         if not _SCIPY_AVAILABLE:
-            return None, []
+            return None, [], []
 
         sources = self._source_atoms()
-        n = len(sources)
-        if n == 0:
-            return None, []
+        n_src = len(sources)
+        if n_src == 0:
+            return None, [], []
 
-        # Local re-index over source atoms only.
-        local_idx = {x: i for i, x in enumerate(sources)}
+        # Row index: sources only.
+        row_idx = {x: i for i, x in enumerate(sources)}
+
+        # Column index: all atoms (sources + dest-only).
+        all_atoms = self._atoms          # stable insertion-ordered list
+        n_all = len(all_atoms)
+        col_idx = {x: j for j, x in enumerate(all_atoms)}
 
         rows, cols, data = [], [], []
         for xi_int in sources:
@@ -301,46 +258,64 @@ class MarkovAdjacencyMatrix:
             total = sum(outgoing.values())
             if total == 0:
                 continue
-            i = local_idx[xi_int]
+            i = row_idx[xi_int]
             inv = 1.0 / total
             for xr_int, wt in outgoing.items():
-                j = local_idx.get(xr_int)
+                j = col_idx.get(xr_int)
                 if j is None:
-                    # Destination not yet a source — skip for spectral purposes.
-                    continue
+                    continue   # shouldn't happen — all destinations are indexed
                 rows.append(i)
                 cols.append(j)
                 data.append(wt * inv)
 
         if not data:
-            return None, []
+            return None, [], []
 
-        P = sp.csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float64)
-        return P, sources
+        P = sp.csr_matrix((data, (rows, cols)), shape=(n_src, n_all), dtype=np.float64)
 
-    def transition_matrix_dense(self) -> Tuple[np.ndarray, List[Any]]:
-        """Return (P_dense, source_atoms) restricted to the induced subgraph.
+        # L2-normalize each row so that sigma_1(P) = 1 exactly.
+        # P is already L1-normalized (row-stochastic); dividing by the L2 norm
+        # rescales each row to a unit vector, making PP^T a proper Gram matrix
+        # whose top eigenvalue is 1 and whose gap is 1 - sigma_2.
+        row_l2 = np.sqrt(np.array(P.multiply(P).sum(axis=1)).ravel())
+        row_l2[row_l2 == 0] = 1.0   # guard against empty rows
+        D_inv = sp.diags(1.0 / row_l2)
+        P = D_inv @ P
 
+        return P, sources, all_atoms
+
+    def transition_matrix_dense(self) -> Tuple[np.ndarray, List[Any], List[Any]]:
+        """Return (P_dense, source_atoms, all_atoms) as honest rectangular matrix.
+
+        P has shape (n_sources, n_all_atoms).  Every row sums to 1.
         Only practical for small matrices (<5000 source atoms).
         """
         sources = self._source_atoms()
-        n = len(sources)
-        local_idx = {x: i for i, x in enumerate(sources)}
+        n_src = len(sources)
+        all_atoms = self._atoms
+        n_all = len(all_atoms)
+        row_idx = {x: i for i, x in enumerate(sources)}
+        col_idx = {x: j for j, x in enumerate(all_atoms)}
 
-        P = np.zeros((n, n), dtype=np.float64)
+        P = np.zeros((n_src, n_all), dtype=np.float64)
         for xi_int in sources:
             outgoing = self._raw[xi_int]
             total = sum(outgoing.values())
             if total == 0:
                 continue
-            i = local_idx[xi_int]
+            i = row_idx[xi_int]
             inv = 1.0 / total
             for xr_int, wt in outgoing.items():
-                j = local_idx.get(xr_int)
+                j = col_idx.get(xr_int)
                 if j is None:
                     continue
                 P[i, j] = wt * inv
-        return P, sources
+
+        # L2-normalize rows
+        row_l2 = np.linalg.norm(P, axis=1, keepdims=True)
+        row_l2[row_l2 == 0] = 1.0
+        P = P / row_l2
+        return P, sources, all_atoms
 
     # ------------------------------------------------------------------
     # Spectral gap
@@ -359,58 +334,80 @@ class MarkovAdjacencyMatrix:
             return 0.0
         return sum(len(v) for v in self._raw.values() if v) / len(sources)
 
-    def spectral_gap(self) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-        """Return (gap, |lam1|, |lam2|).
+    def spectral_gap(
+        self,
+        n_eigenvalues: Optional[int] = None,
+    ) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[np.ndarray]]:
+        """Return (gap, sigma_1, sigma_2, singular_values).
 
-        Uses scipy sparse eigs (Arnoldi) for speed.  Falls back to dense
-        numpy eigvals for small matrices or when scipy is absent.
+        The honest transition matrix P is rectangular (n_sources × n_all_atoms),
+        L2-row-normalized.  We compute singular values via svds and then
+        normalize the full spectrum by sigma_1 (the operator norm), so all
+        reported values lie in [0, 1] with sigma_1 = 1 by construction.
 
-        gap = |lam1| - |lam2|   (for row-stochastic, lam1 ~= 1.0)
+        The mixing-time diagnostic is:
+
+            gap = 1 - sigma_2   (= sigma_1 - sigma_2 after normalization)
+            O(1/gap) steps to mix
+
+        This is equivalent to ChatGPT's "divide everything by lambda_1" rescaling
+        but done cleanly in one place rather than mentally at read time.
+
+        singular_values is a sorted descending array, all in [0,1].
         """
-        n = len(self._atoms)
-        if n < 4:
-            return None, None, None
+        if n_eigenvalues is None:
+            n_eigenvalues = self.n_eigenvalues
 
         n_nonempty = sum(1 for v in self._raw.values() if v)
         if n_nonempty < 4:
-            return None, None, None
+            return None, None, None, None
 
-        k = min(n_nonempty - 2, 6)
+        k = min(n_nonempty - 2, n_eigenvalues)
         if k < 2:
-            return None, None, None
+            return None, None, None, None
 
         # --- sparse path (preferred) ---
-        if _SCIPY_AVAILABLE and n >= 10:
-            P_sparse, sources = self._build_sparse()
+        if _SCIPY_AVAILABLE and n_nonempty >= 10:
+            P, sources, _ = self._build_sparse()
             n_src = len(sources)
-            if P_sparse is not None and n_src >= 4:
+            if P is not None and n_src >= 4:
+                k_actual = min(n_src - 2, k, P.shape[1] - 1)
                 try:
-                    vals = spla.eigs(
-                        P_sparse, k=min(n_src - 2, k), which="LM",
-                        return_eigenvectors=False,
-                        v0=np.ones(n_src) / math.sqrt(n_src),
-                        maxiter=n_src * 10,
+                    # svds on the L2-row-normalized rectangular P.
+                    # sigma_1 is the operator norm; we normalize the full
+                    # spectrum by sigma_1 so the reported values lie in [0,1]
+                    # and the gap = 1 - sigma_2_norm is the mixing diagnostic.
+                    singular_vals = spla.svds(
+                        P, k=k_actual, which="LM",
+                        return_singular_vectors=False,
+                        v0=np.ones(min(P.shape)) / math.sqrt(min(P.shape)),
                         tol=1e-6,
                     )
-                    abs_vals = np.sort(np.abs(vals))[::-1]
-                    lam1 = float(abs_vals[0])
-                    lam2 = float(abs_vals[1])
-                    return lam1 - lam2, lam1, lam2
+                    singular_vals = np.sort(singular_vals)[::-1]
+                    # normalize by sigma_1
+                    if singular_vals[0] > 1e-12:
+                        singular_vals = singular_vals / singular_vals[0]
+                    sigma1 = float(singular_vals[0])   # = 1.0 by construction
+                    sigma2 = float(singular_vals[1])
+                    return sigma1 - sigma2, sigma1, sigma2, singular_vals
                 except Exception:
                     pass  # fall through to dense
 
         # --- dense fallback ---
-        if n > 5000:
-            return None, None, None   # too large for dense
+        n_src = n_nonempty
+        if n_src > 5000:
+            return None, None, None, None
         try:
-            P, _ = self.transition_matrix_dense()
-            eigs = np.linalg.eigvals(P)
-            abs_eigs = np.sort(np.abs(eigs))[::-1]
-            lam1 = float(abs_eigs[0])
-            lam2 = float(abs_eigs[1])
-            return lam1 - lam2, lam1, lam2
+            P, sources, _ = self.transition_matrix_dense()
+            _, singular_vals, _ = np.linalg.svd(P, full_matrices=False)
+            singular_vals = np.sort(singular_vals)[::-1]
+            if singular_vals[0] > 1e-12:
+                singular_vals = singular_vals / singular_vals[0]
+            sigma1 = float(singular_vals[0])
+            sigma2 = float(singular_vals[1])
+            return sigma1 - sigma2, sigma1, sigma2, singular_vals
         except np.linalg.LinAlgError:
-            return None, None, None
+            return None, None, None, None
 
     # ------------------------------------------------------------------
     # Reporting
@@ -435,24 +432,21 @@ class MarkovAdjacencyMatrix:
                 return None
 
         self._last_report_at = step_no
-        gap, lam1, lam2 = self.spectral_gap()
-        self._print_report(gap, lam1, lam2)
+        gap, lam1, lam2, all_eigs = self.spectral_gap()
+        self._print_report(gap, lam1, lam2, all_eigs)
         return gap
 
-    def _print_report(self, gap, lam1, lam2) -> None:
+    def _print_report(self, gap, lam1, lam2, all_eigs=None) -> None:
         n_total = len(self._atoms)
         n_sources = sum(1 for v in self._raw.values() if v)
         n_dest_only = n_total - n_sources
         sqrt_p = self.p ** 0.5 if self.p else None
-        if self.use_full_markov:
-            pool_note = "full-markov (leaves -> next pool)"
-        elif self.use_candidate_pool:
+        if self.use_candidate_pool:
             pool_note = "candidate-pool weighted"
         else:
             pool_note = "chain (accepted xj only)"
 
         # --- in-degree distribution ---
-        # Count how many times each atom appears as a destination across all rows.
         in_deg: Dict[Any, int] = defaultdict(int)
         for outgoing in self._raw.values():
             for xr in outgoing:
@@ -510,12 +504,7 @@ class MarkovAdjacencyMatrix:
         d = self.mean_out_degree()
         lines.append(f"|   mean out-degree: {d:.2f}  (distinct dest atoms per source)")
 
-        # Whether this matrix's spectral gap estimates mixing time.
-        # Chain matrix (d~1) is a realized sample path -- its gap measures
-        # path structure, not the branching walk.  Only the graph/full matrix
-        # (row-normalized transition kernel over the full candidate pool) is
-        # the correct mixing-time object.
-        is_mixing_estimator = self.use_candidate_pool or self.use_full_markov
+        is_mixing_estimator = self.use_candidate_pool
 
         if not is_mixing_estimator:
             lines.append(
@@ -529,34 +518,107 @@ class MarkovAdjacencyMatrix:
         else:
             trustworthy = cv_density >= 0.05
             trust = "" if trustworthy else f"  [regime: {regime.split()[0]}]"
-            lines.append(f"|   |lam1|         : {lam1:.6f}  (should be ~= 1){trust}")
-            lines.append(f"|   |lam2|         : {lam2:.6f}{trust}")
-            lines.append(f"|   spectral gap   : {gap:.6f}  (= |lam1| - |lam2|){trust}")
-            if gap > 1e-12:
-                t_mix = 1.0 / gap
-                if is_mixing_estimator:
-                    lines.append(f"|   O(1/gap)       : {t_mix:.1f} steps{trust}")
-                    if sqrt_p and trustworthy:
+
+            # ---- full eigenvalue spectrum ----
+            lines.append(f"|")
+            lines.append(f"|   --- Singular Value Spectrum ({len(all_eigs) if all_eigs is not None else '?'} values, normalized) ---")
+            if all_eigs is not None and len(all_eigs) >= 2:
+                # Print each eigenvalue with its consecutive gap and a bar chart
+                bar_width = 30
+                lines.append(f"|   {'idx':>4}  {'sigma_i':>10}  {'gap(i,i+1)':>12}  {'ratio s_{i+1}/s_i':>18}  bar")
+                lines.append(f"|   " + "-" * 75)
+                for i, lam in enumerate(all_eigs):
+                    bar_fill = int(float(lam) * bar_width + 0.5)
+                    bar = "█" * bar_fill + "░" * (bar_width - bar_fill)
+                    if i + 1 < len(all_eigs):
+                        consec_gap = float(lam) - float(all_eigs[i + 1])
+                        ratio = float(all_eigs[i + 1]) / float(lam) if float(lam) > 1e-12 else float("nan")
                         lines.append(
-                            f"|   O(1/gap)/√p    : {t_mix/sqrt_p:.4f}  (want O(1) or polylog)"
+                            f"|   {i:>4}  {float(lam):>10.6f}  {consec_gap:>12.6f}  {ratio:>18.6f}  {bar}"
+                        )
+                    else:
+                        lines.append(
+                            f"|   {i:>4}  {float(lam):>10.6f}  {'(last)':>12}  {'':>18}  {bar}"
+                        )
+
+                # ---- spectral gap summary ----
+                lines.append(f"|")
+                lines.append(f"|   --- Gap Summary ---")
+                lines.append(f"|   sigma_1 = {lam1:.6f}  (should be ~= 1 for row-stochastic P){trust}")
+                lines.append(f"|   sigma_2 = {lam2:.6f}{trust}")
+                lines.append(f"|   spectral gap (sigma_1 - sigma_2) = {gap:.6f}{trust}")
+
+                # Identify the largest consecutive gap beyond lam1→lam2 (spectral clustering hint)
+                if len(all_eigs) >= 3:
+                    consec_gaps = [
+                        (i, float(all_eigs[i]) - float(all_eigs[i + 1]))
+                        for i in range(1, len(all_eigs) - 1)
+                    ]
+                    if consec_gaps:
+                        best_i, best_gap = max(consec_gaps, key=lambda x: x[1])
+                        lines.append(
+                            f"|   largest sub-gap : gap({best_i},{best_i+1}) = {best_gap:.6f}  "
+                            f"(sigma_{best_i} = {float(all_eigs[best_i]):.6f}  "
+                            f"→  sigma_{best_i+1} = {float(all_eigs[best_i+1]):.6f})"
+                        )
+                        lines.append(
+                            f"|     → suggests {best_i+1} near-stationary component(s) in the operator"
+                        )
+
+                # ---- mixing time estimates ----
+                if gap > 1e-12:
+                    t_mix = 1.0 / gap
+                    if is_mixing_estimator:
+                        lines.append(f"|   O(1/gap)       : {t_mix:.1f} steps{trust}")
+                        if sqrt_p and trustworthy:
+                            lines.append(
+                                f"|   O(1/gap)/√p    : {t_mix/sqrt_p:.4f}  (want O(1) or polylog)"
+                            )
+                    else:
+                        lines.append(
+                            f"|   O(1/gap)       : {t_mix:.1f}  (path diagnostic only — not mixing time)"
                         )
                 else:
-                    # Chain: report gap for completeness but suppress mixing interpretation
                     lines.append(
-                        f"|   O(1/gap)       : {t_mix:.1f}  (path diagnostic only — not mixing time)"
+                        f"|   O(1/gap)       : inf  "
+                        + ("(gap ~= 0 -- disconnected?)" if trustworthy
+                           else "(expected -- matrix still a forest/sparse)")
                     )
             else:
-                lines.append(
-                    f"|   O(1/gap)       : inf  "
-                    + ("(gap ~= 0 -- disconnected?)" if trustworthy
-                       else "(expected -- matrix still a forest/sparse)")
-                )
+                # Fallback: no eigenvalue array (shouldn't happen if gap is set)
+                lines.append(f"|   sigma_1        : {lam1:.6f}  (should be ~= 1){trust}")
+                lines.append(f"|   sigma_2        : {lam2:.6f}{trust}")
+                lines.append(f"|   spectral gap   : {gap:.6f}  (= sigma_1 - sigma_2){trust}")
 
         if not _SCIPY_AVAILABLE:
-            lines.append(f"|   [note] scipy not found; used dense numpy eigvals")
+            lines.append(f"|   [note] scipy not found; used dense numpy eigvals (all eigenvalues computed)")
 
         lines.append(f"+{'-'*60}")
         print("\n".join(lines), flush=True)
+
+    def full_spectrum(self, n_eigenvalues: Optional[int] = None) -> Optional[np.ndarray]:
+        """Return sorted descending array of |eigenvalue| for all computed eigenvalues.
+
+        This is the raw array for downstream analysis — plotting, plateau detection,
+        expander-bound checking, etc.  Returns None if the matrix is too small.
+
+        Parameters
+        ----------
+        n_eigenvalues : int, optional
+            How many eigenvalues to request.  Defaults to self.n_eigenvalues.
+            Pass a larger value (or None to use the instance default) to probe
+            deeper into the tail of the spectrum.
+        """
+        _, _, _, all_eigs = self.spectral_gap(n_eigenvalues=n_eigenvalues)
+        return all_eigs
+
+    def print_spectrum(self, n_eigenvalues: Optional[int] = None) -> None:
+        """Print the full eigenvalue spectrum report unconditionally.
+
+        Useful for post-run analysis without triggering the cadence gate.
+        """
+        gap, lam1, lam2, all_eigs = self.spectral_gap(n_eigenvalues=n_eigenvalues)
+        self._print_report(gap, lam1, lam2, all_eigs)
 
     def summary(self) -> None:
         n = len(self._atoms)
@@ -576,8 +638,12 @@ class MarkovAdjacencyMatrix:
         xi_int = _int_key(x)
         if xi_int not in self._index:
             return None
-        P, _ = self.transition_matrix_dense()
-        return P[self._index[xi_int]]
+        P, sources, _ = self.transition_matrix_dense()
+        src_idx = {s: i for i, s in enumerate(sources)}
+        i = src_idx.get(xi_int)
+        if i is None:
+            return None
+        return P[i]
 
     def top_transitions(self, x, k: int = 10) -> List[Tuple[Any, float]]:
         """Return the k largest outgoing transition probabilities from atom x."""
