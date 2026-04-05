@@ -246,7 +246,7 @@ def build_relation_matrix2(
             if pool:
                 for cand in pool:
                     if isinstance(cand, dict):
-                        c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x") or cand.get("x_value")
+                        c_xj = next((cand[k] for k in ("xj", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
                         c_xk = cand.get("xk")
                         cands_to_add.append((c_xj, c_xk))
                     elif cand is not None:

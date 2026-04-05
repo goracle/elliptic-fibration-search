@@ -65,8 +65,8 @@ def print_mixing_report(walker, label: str = "") -> None:
         walker.history
         walker.xi_visit_count
     """
-    #p = walker.p
-    p = FINITE_FIELD
+    
+    p = getattr(walker, "p", None) or FINITE_FIELD
     if p is None:
         raise ValueError("walker.p is None — diagnostics require a finite field prime")
 
@@ -212,7 +212,7 @@ class CollisionTracker:
     """
 
     def __init__(self, p: int):
-        self.p = FINITE_FIELD
+        self.p = p
         self.sqrt_p = math.sqrt(p)
         self.V_theory = birthday_expected_volume_at_collision(p)
         self._first_collision_volumes: List[float] = []
@@ -310,8 +310,8 @@ def mixing_one_liner(walker, step: int) -> str:
     Example output:
         [mix] V=6012 (1.037×√p)  C=1  E[C]=0.54  ratio=1.85  birthday: ✓
     """
-    #p = walker.p
-    p = FINITE_FIELD
+    
+    p = getattr(walker, "p", None) or FINITE_FIELD
     if p is None:
         return "[mix] p=None, skipping"
     sqrt_p = math.sqrt(p)

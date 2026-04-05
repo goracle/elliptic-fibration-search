@@ -1,0 +1,194 @@
+
+----------------------------------------------------------------------
+i have one global section from xi,yi
+i then form
+x([n]P)(m)=-m+xi
+which is a univariate root equation in fiber param m.  the rhs is the x intersection locus between the genus 2 curve and the fibration.  notice it is linear and therefore invertible in m and x, which means the curve is embedded in the fibration.  xj is taken from xj=-m+xi
+for a particule F_p root m.  we have some choice over xj, and so we were planning to set up a kummer surface and form a metropolis algorithm to further bias xj.
+we then take the m fiber and we know four of the five intersection points with the genus 2 curve, which we are supposing for convenience to be degree 5 in x.  the fifth intersection, which we can read off from vieta, is xk.  since the intersection between an elliptic curve and the genus 2 curve is a principal divisor we get our relation equation.
+
+edit:  forgot to mention
+
+xi has double tangency with the genus 2 curve that's why it has a triple root
+
+xj and xk then are the other two roots
+
+we get about 0 to three F_p roots for each n, and we go out to 80 in n.  57% of the n's have F_p roots.  the key thing is all the complexity is in the crazy big polynomials in m of the section multiple x coord.  that entropy is why we think it mixes well, in part
+
+we then form a markov chain, where the next xi is taken as xj, unless xk happens to be an F_p point, then we flip some kinda coin (maybe biased).  each step gives us a principal divisor in the form of the elliptic curve that is the fiber intersecting the genus 2 curve.  this gives a relation like
+3xi+xj+xk-5inf=0
+since we are supposing for convenience that the genus 2 curve has degree 5 in x.  xi has a double tangency, so it gives a triple root.
+
+since the space of d1 atoms is of size p, we get mixing / graph closure on a time scale of sqrt(p), assuming it doesn't get stuck and indeed explores the full space of x's.  if this is true it breaks genus 2 cryptography, eliminating its key size advantage over genus 1, so the crucial thing to examine or prove is how well it mixes.
+
+the following is way over my head, but roughly:
+the basic theory on weil bounds suggests that as long as our relations don't form a bunch of disconnected components, we obtain sqrt(p) mixing time times log corrections.  we can restart our markov chain with an unused F_p point if it ever gets stuck/finds no roots.  empirically we do not expect this to happen.  we could also consider expanding over multiple xj in parallel and then back tracking/killing any branches that terminate too early.
+
+empirical:
+
+Updated:
+
+---
+
+**Genus 2 Curve Markov Chain — Empirical Mixing Result**
+
+We constructed a Markov chain on the x-coordinates of a genus 2 curve over F_p (p ≈ 39 million) using an elliptic fibration structure.
+
+**Construction:** Starting from a global section point xi, we solve x([n]P)(m) = -m + xi for m over F_p across n=1..80, yielding ~39 valid transitions per step. Each transition gives xj from the linear relation and xk from Vieta's formulas on the degree-5 intersection, satisfying the divisor relation 3[xi] + [xj] + [xk] - 5[∞] = 0. The Markov chain steps xi → xj (with possible bias toward xk).
+
+**Results:** Running the chain with full branching:
+- 146 steps with zero dead ends
+- 6000+ unique x-coordinates visited
+- First collision at step 146
+- sqrt(39M) ≈ 6245, so collision at ~6000 unique points matches the birthday bound almost exactly
+
+The collision timescale matches expander graph / random walk theory on a space of size p. Zero dead ends across 146 steps confirms the graph is genuinely well-connected with no fragmentation. This suggests mixing time is O(sqrt(p)), which eliminates the key size advantage of genus 2 cryptography over genus 1 (elliptic curves). If the mixing argument holds theoretically, genus 2 offers no security benefit over elliptic curves at equivalent field size.
+
+more:
+
+oh this thing also does other stuff too.  it can crt together rational points in poly time of the log height search upper bound.  it can also quickly generate a full set of independent divisors that span J(C(Q)) and thus quickly check the rank.  it can also find rational points the same way over arbitrary genus, and we've so far even tested this on an mit database of genus 3 curves.  the prime data looks uncorrelated between primes
+
+basically im saying because the prime data is mostly uncorrelated, we only need a handful of small primes to reconstruct global structure.  everything else gets cancelled out.
+
+of course if it's a rational point it should be true mod p for any p, and indeed what we see is that this is true, and the only thing preventing it being true at all primes in our model is the handful of bad primes we have to exclude.  this prevents us from solving over Q, but we can cap our prime pool at 100 as the largest prime and it will happily find even very large height points.  I've found no high height point that is known it couldn't find on lmfdb
+
+one demystifying step to take is to notice that if we plug in our value of x=-m+xi into the fibration equation, we get, iirc
+y^2=A(m)^2/B(m)^3
+so factoring off the square piece, we see rationality at m,y depends on the rationality (iff) at m,z of auxiliary curve
+z^2=B(m)
+and this turns out to be an exact copy of C.
+
+my rough pov:  the point is that all we're doing is doing the elliptic curve group law on this curve, and storing the fact that it doesn't quite work as complications of the section multiple, so eventually we lose the ability to iterate as the poly gets too high of degree, but up until that point, it's just a different way of viewing the symmetries/geometry of the curve.
+
+it doesn't depend on the base point very much, but it's true that low height base points seem more productive.  and this also makes sense because iterating the ellipitic curve group law tends to increase heights, so if you don't start low enough you're bound to miss something.
+
+the section can't see everything on the curve.  since basically the genus 2 Jacobian is still in charge we're not gonna be able to iterate and see everything without a good basis, which the section can't give, but what ends up being true is that the image of the section does get smooshed mod p onto the stuff it misses, and when we crt, these constraints that both our target and the section meet mod p are enough to constrain it over Q enough to define it.  this to me is magic, but it seems like the basic result is due to us capturing generator information mod p, and those few possibilities rapidly constrain what solutions can exist globally.  sorry if vague
+
+in fact, our prime subsets are sized between 3 and 9 inclusive, determined empirically, and this is consistently enough to give us all known points on all curves we've seen.
+
+----
+
+update new result:
+markov rank is always nullity - 2, because every leaf we add two cols and one row
+the extra two columns are one for inf and one for, presumably, the starting xi.
+N.B. our relations live in the full Jacobian, we're just indexing by the d1 atoms.
+
+------
+
+theoretical/programming questions now:  we want to print out equation for xk in terms of m.  we should be able to do this.  if we have five roots of diff(x,m)=0, we should be able to take vieta in terms of m and plug in xi (numeric) and xj (symbolic, =-m+xi), which would give us xk in terms of m.
+
+then, the basic idea is to take a given xk from an xj,xk pair, set it equal to -m+xi, solve for that m, and plug it in to get xk'.  the idea is then to do the same thing on that xk' and get an alternative markov chain.  what does this do for us?  well, we hope this recurrence is relatively simple, so we can find out when it links back up with one of our leaves.  furthemore, we suppose, roughly, schematically, that these relations in this secondary markov chain telescope in a way that allows us to eliminate all the intermediate x values.
+
+^ dream i had on my walk this morning :)
+---------------------------------------
+^ some time ago.
+
+we found out that the dream idea was actually an involution symmetry we call vieta symmetry, so that got programmed in as a must-pass check.
+
+what's interesting is that although the relation is the same, the m-values are different, so we're actually apparently finding two fibers per relation, at least in m-space.  not sure if there's anything else we could do with this, but that's the status.
+
+we've run out to n=200 and found 4 collisions, which is expected since sqrt(p)/40 is when birthday collisions should start.
+-----------------
+In[1]:= xi = 10598399
+
+Out[1]= 10598399
+
+In[2]:= p = 33554467
+
+Out[2]= 33554467
+
+In[3]:= S[m_] := 
+ Mod[(33554466*m^2 + 19437528*m + 18798399)*
+   PowerMod[(m + 16777235), -1, p], p]
+
+In[14]:= xj[m_] := Mod[10598399 - m, p]
+
+In[15]:= xk[m_] := Mod[S[m] - 3*10598399 - xj[m], p]
+
+In[16]:= xk[m] // FullSimplify
+
+Out[16]= Mod[-31795197 - Mod[10598399 - m, 33554467] + 
+  Mod[3 (6266133 + 22 m (294508 + 508401 m)) PowerMod[
+     16777235 + m, -1, 33554467], 33554467], 33554467]
+
+In[22]:= Mod[(xi - Mod[xk[xi - Mod[xk[12046765], p]], p]), p]
+
+Out[22]= 12046765
+
+DIAG:
+========================================================================================
+[DIAG] step=0  outer_n=1  accepted=True  restart=False
+       xi=10598399
+       m =12046765
+       xj=32106101
+       xk=7242413
+       relation = 3*10598399 + 32106101 + 7242413 - 5*∞ = 0
+  candidate_pool size = 65
+    cand[0] source=mumford_residue m=10254767 xj=343632 xk=14790517
+    cand[1] source=mumford_residue m=7239383 xj=3359016 xk=19794866
+    cand[2] source=xk_head m=24358000 xj=19794866 xk=3359016
+    cand[3] source=mumford_residue m=8521260 xj=2077139 xk=17457624
+    cand[4] source=mumford_residue m=9286211 xj=1312188 xk=14044481
+    cand[5] source=mumford_residue m=10923434 xj=33229432 xk=9864565
+    cand[6] source=xk_head m=733834 xj=9864565 xk=33229432
+    cand[7] source=mumford_residue m=28725544 xj=15427322 xk=21331695
+    cand[8] source=xk_head m=22821171 xj=21331695 xk=15427322
+    cand[9] source=mumford_residue m=9666781 xj=931618 xk=7270089
+    cand[10] source=mumford_residue m=12885632 xj=31267234 xk=22961583
+    cand[11] source=xk_head m=21191283 xj=22961583 xk=31267234
+    ... 53 more candidates
+  intersection_poly degree = 5
+  leading coefficient      = 1
+  intersection_poly        = x^5 + 29519690*x^4 + 15796381*x^3 + 17455631*x^2 + 24709412*x + 1412832
+  roots with multiplicity   = [(32106101, 1), (7242413, 1), (10598399, 3)]
+  monic sum-of-roots       = 4034777  (S evaluated at this m)
+  known-root sum           = 30346831
+  Vieta-predicted xk       = 7242413
+  xk residual              = 0
+  S(m) symbolic            = (33554466*m^2 + 19437528*m + 18798399)/(m + 16777235)
+  recurrence (symbolic)    = xk(m) = S(m) - 3*10598399 - xj(m)      [xj(m) = 10598399 - m]
+========================================================================================
+
+
+second example:
+
+In[2]:= p = 33554467
+
+Out[2]= 33554467
+
+In[3]:= xi = 11652055
+
+Out[3]= 11652055
+
+In[4]:= S[m_] := (33554466*m^2 + 24705808*m + 15843898)*
+  PowerMod[(m + 16777235), -1, p]
+
+In[9]:= xk[m_] := Mod[S[m] - 3*xi - xj[m], p]
+
+In[6]:= xj[m_] := xi - m
+
+In[7]:= m0 = 7265927
+
+Out[7]= 7265927
+
+In[10]:= xk[m0]
+
+Out[10]= 19516428
+
+In[13]:= m2 = Mod[xi - xk[m0], p]
+
+Out[13]= 25690094
+
+In[16]:= xj2 = xk[m0]
+
+Out[16]= 19516428
+
+In[17]:= xk2 = Mod[S[m2] - 3*xi - xj2, p]
+
+Out[17]= 4386128
+
+m0 == xi - xk2 (*involution condition*)
+
+Out[19]= True
+
+

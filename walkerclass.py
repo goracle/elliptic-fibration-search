@@ -612,6 +612,7 @@ class Genus2MetropolisWalker:
         # Adjacency / transition matrices for spectral gap estimation.
         # mat_chain = accepted steps only   (the actual Markov chain)
         # mat_graph = full candidate pool   (denser; better spectral estimate)
+        # mat_full  = true Markov kernel: leaves(t) -> pool(t+1)  (primary authority)
         if getattr(self.config, 'spectral_enabled', True):
             from adjacency_matrix import MarkovAdjacencyMatrix
             _p  = self.p
@@ -629,9 +630,15 @@ class Genus2MetropolisWalker:
                 normalize_per_step=True,
                 report_every=_re, min_collisions=_mc,
             )
+            self.mat_full = MarkovAdjacencyMatrix(
+                p=_p, label="full_markov",
+                use_full_markov=True,
+                report_every=_re, min_collisions=_mc,
+            )
         else:
             self.mat_chain = None
             self.mat_graph = None
+            self.mat_full  = None
 
         if not self.base_points:
             self.base_points.append((self.current_x, self.current_y))
@@ -957,6 +964,11 @@ class Genus2MetropolisWalker:
             extras.append(
                 f"Graph matrix  : {self.mat_graph.n_atoms} atoms, "
                 f"{self.mat_graph.n_steps} steps ingested"
+            )
+        if getattr(self, 'mat_full', None) is not None:
+            extras.append(
+                f"Full-Markov   : {self.mat_full.n_atoms} atoms, "
+                f"{self.mat_full.n_steps} steps ingested"
             )
         return base + ("\n" + "\n".join(extras) if extras else "")
 
@@ -1681,12 +1693,16 @@ class Genus2MetropolisWalker:
                 self.mat_chain.maybe_report(_step_no)
             if getattr(self, 'mat_graph', None) is not None:
                 self.mat_graph.maybe_report(_step_no)
+            if getattr(self, 'mat_full', None) is not None:
+                self.mat_full.maybe_report(_step_no)
 
         # Final forced spectral report regardless of cadence.
         if getattr(self, 'mat_chain', None) is not None:
             self.mat_chain.maybe_report(len(self.history), force=True)
         if getattr(self, 'mat_graph', None) is not None:
             self.mat_graph.maybe_report(len(self.history), force=True)
+        if getattr(self, 'mat_full', None) is not None:
+            self.mat_full.maybe_report(len(self.history), force=True)
 
         return results
 
@@ -1714,12 +1730,15 @@ class Genus2MetropolisWalker:
 
         self._append_jsonl_log(rec)
 
-        # Feed both adjacency matrices.
+        # Feed all three adjacency matrices.
         if getattr(self, 'mat_chain', None) is not None:
             self.mat_chain.ingest(rec,
                 graph_collision_count=self.leaf_collision_count)
         if getattr(self, 'mat_graph', None) is not None:
             self.mat_graph.ingest(rec,
+                graph_collision_count=self.leaf_collision_count)
+        if getattr(self, 'mat_full', None) is not None:
+            self.mat_full.ingest(rec,
                 graph_collision_count=self.leaf_collision_count)
 
         return rec
