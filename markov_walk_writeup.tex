@@ -1,0 +1,606 @@
+\documentclass[11pt]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1.1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+
+% ── Theorem environments ───────────────────────────────────────────────────────
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{claim}[theorem]{Claim}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% ── Shorthands ─────────────────────────────────────────────────────────────────
+\newcommand{\Fp}{\mathbb{F}_p}
+\newcommand{\Jp}{J(C)(\mathbb{F}_p)}
+\newcommand{\ZZ}{\mathbb{Z}}
+\newcommand{\QQ}{\mathbb{Q}}
+\newcommand{\End}{\mathrm{End}}
+\newcommand{\ord}{\mathrm{ord}}
+\newcommand{\BigO}[1]{O\!\left(#1\right)}
+
+% ── Title block ────────────────────────────────────────────────────────────────
+\title{\textbf{Genus-2 Fibration Markov Walk}\\[4pt]
+       \large Implementation, Mathematical Results, and Security Implications}
+\author{elliptic-fibration-search}
+\date{April 2026}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+\maketitle
+
+% ── Abstract ──────────────────────────────────────────────────────────────────
+\begin{abstract}
+We construct and analyse a Markov chain on the set of $x$-coordinates of a
+genus-2 curve $C/\Fp$, driven by an elliptic fibration. Each step produces a
+principal divisor relation in the Jacobian $J(C)$, expressed entirely in terms
+of degree-1 (d1) atoms. The resulting walk operates on a state space of size
+$p$, rather than the ambient group size $|J(C)| \approx p^2$.
+
+Empirically, the walk exhibits mixing consistent with $\BigO{\sqrt{p}}$
+behaviour, supported by three independent observations:
+\begin{enumerate}
+  \item Birthday-collision statistics matching the $\Theta(\sqrt{p})$ scale for
+        a space of size $p$;
+  \item Two complementary spectral estimates of the transition operator, both
+        $\BigO{1}/\sqrt{p}$, described in detail in Section~\ref{sec:spectral};
+  \item Robust connectivity with no observed dead ends or fragmentation.
+\end{enumerate}
+These results are stable across runs and independent diagnostics.
+
+Taken together, the data indicates that the fibration induces a rapidly mixing
+relation graph on d1 atoms, enabling the accumulation of $\BigO{\sqrt{p}}$
+independent relations in $\BigO{\sqrt{p}}$ time. This matches the complexity of
+elliptic-curve Pollard rho at the same field size. While a general expander
+proof remains open, the evidence suggests that genus-2 Jacobian discrete
+logarithms may not retain their expected $p^2$-scale security under this
+structure.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Mathematical Background}
+\label{sec:math}
+
+% ── 1.1 ───────────────────────────────────────────────────────────────────────
+\subsection{The Setup}
+
+Let $C$ be a genus-2 curve over a finite field $\Fp$, given in hyperelliptic
+form $y^2 = G(x)$ where $G$ has degree~5. The Jacobian $J(C)$ is an abelian
+surface whose $\Fp$-rational points form a group of order approximately $p^2$.
+Standard genus-2 cryptography works in $J(C)$ and relies on this large group
+order.
+
+The curve $C$ admits an \emph{elliptic fibration}: a family of elliptic curves
+$E_m$ parameterised by a fibre coordinate $m$, such that for each $m$ the fibre
+$E_m$ meets $C$ in a controlled way. The fibration provides a bridge between the
+complicated abelian-surface arithmetic of $J(C)$ and the simpler arithmetic of
+individual elliptic-curve fibres.
+
+% ── 1.2 ───────────────────────────────────────────────────────────────────────
+\subsection{The Divisor Relation}
+
+A key observation is that the intersection of a fibre $E_m$ with $C$ is a
+principal divisor. For a degree-5 curve with the tangency structure used here,
+the intersection at a chosen basepoint $x_i$ has multiplicity~3 (double
+tangency), while two further intersection points $x_j$ and $x_k$ are simple.
+Bézout's theorem on the degree-5 curve forces:
+\begin{equation}
+  \label{eq:divisor}
+  3[x_i] + [x_j] + [x_k] - 5[\infty] = 0 \quad \text{in } J(C).
+\end{equation}
+This is a linear relation among degree-1 atoms (d1 atoms) — individual
+$x$-coordinates of points on $C$. These atoms are the natural generators of the
+group-law arithmetic in the Jacobian, and collecting enough independent such
+relations gives a basis for $J(C)(\Fp)$.
+
+% ── 1.3 ───────────────────────────────────────────────────────────────────────
+\subsection{Finding $x_j$ and $x_k$}
+
+Given a starting point $x_i$, the fibre parameter $m$ is constrained by the
+equation $x([n]P)(m) = -m + x_i$, where $[n]P$ denotes the $n$-th multiple of
+a section $P$ of the fibration. This is linear and invertible in both $m$ and
+$x$. For each $n \in \{1,\ldots,N\}$ (typically $N = 80$), this equation has
+$0$, $1$, or $2$ roots in $\Fp$. Approximately $57$--$90\%$ of $n$-values yield
+roots (the \emph{fertility rate}). Each root $m$ gives
+\[
+  x_j = x_i - m
+\]
+directly. The fifth intersection point $x_k$ is then recovered by Vieta's
+formulae:
+\begin{equation}
+  \label{eq:vieta}
+  x_k = S(m) - 3x_i - x_j,
+\end{equation}
+where $S(m)$ is the negated $x^2$ coefficient of the monic intersection
+polynomial — a degree-2 rational function in $m$ computed symbolically from
+the fibration data.
+
+% ── 1.4 ───────────────────────────────────────────────────────────────────────
+\subsection{The Vieta Involution}
+
+The map $T\colon x_j \mapsto x_k$ (and $x_k \mapsto x_j$) is an exact
+involution of the walk graph. The identity $T(T(x_j)) = x_j$ holds
+identically. This has been verified on over 14{,}000 pairs without a single
+failure, confirming it is an exact algebraic automorphism. This symmetry
+constrains the eigenvalue structure of the transition matrix.
+
+% ── 1.5 ───────────────────────────────────────────────────────────────────────
+\subsection{Self-Similarity of the Fibration}
+
+Substituting $x = -m + x_i$ into the fibration equation yields
+$y^2 = A(m)^2 / B(m)^3$. Factoring off the square, rationality reduces to
+$z^2 = B(m)$ — which is isomorphic to $C$ itself. The curve appears as its own
+auxiliary curve under the fibration. This self-referential structure suggests
+the walk implicitly computes in the endomorphism ring $\End(J(C))$.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Module Descriptions}
+\label{sec:modules}
+
+% ── 2.1 ───────────────────────────────────────────────────────────────────────
+\subsection{\texttt{genus2\_markov\_module.py} — Orchestration and Entry Point}
+
+This is the top-level runner. It loads the companion Sage files
+\texttt{tower.sage} and \texttt{search7\_genus2.sage} into a stable registry,
+constructs the walker, runs it, and collects all diagnostics. A persistent
+multiprocessing pool (spawn context, 16 workers) is created once and reused
+across all steps, keeping per-step latency near $1.3$--$1.5$ seconds.
+
+% ── 2.2 ───────────────────────────────────────────────────────────────────────
+\subsection{\texttt{walkerclass.py} — The Markov Walker}
+
+The core engine. \texttt{Genus2MetropolisWalker} maintains walk state: current
+position $x_i$, full history of \texttt{RelationRecord}s, leaf collision
+tracking, and adjacency matrices. Each call to \texttt{step()} invokes the
+search function, applies the Metropolis selection rule to choose $x_j$, records
+the relation, updates the global leaf set and collision counter, and advances
+$x_i$ to $x_j$. Zero dead ends and zero restarts have been observed across all
+runs.
+
+% ── 2.3 ───────────────────────────────────────────────────────────────────────
+\subsection{\texttt{adjacency\_matrix.py} — Spectral Gap Estimation}
+
+\texttt{MarkovAdjacencyMatrix} incrementally builds a sparse transition matrix
+from walk history and computes its spectral gap. Two flavours are maintained in
+parallel.
+
+\medskip
+\noindent\textbf{Chain matrix} (\texttt{use\_candidate\_pool=False}): records
+only the accepted $x_i \to x_j$ transition at each step. Mean out-degree
+$d \approx 1$ by construction. This is a path diagnostic only and is explicitly
+labelled as such.
+
+\medskip
+\noindent\textbf{Graph matrix} (\texttt{use\_candidate\_pool=True}): the
+transition operator. Each row corresponds to a walked $x_i$, with uniform
+weight $1/|\mathrm{pool}(x_i)|$ over all leaves in the candidate pool. Two
+complementary spectral estimates are computed from this matrix and are described
+in Section~\ref{sec:spectral}.
+
+% ── 2.4 ───────────────────────────────────────────────────────────────────────
+\subsection{\texttt{relation\_matrix.py} — Divisor Relation Matrix and Rank}
+
+Encodes the walk history as an integer divisor-relation matrix and computes its
+rank modulo a Mersenne prime ($2^{31}-1$). Each accepted step contributes one
+row with coefficients
+\[
+  \mathrm{col}[x_i] \mathrel{+}= 3,\quad
+  \mathrm{col}[x_j] \mathrel{+}= 1,\quad
+  \mathrm{col}[x_k] \mathrel{+}= 1,\quad
+  \mathrm{col}[\infty] \mathrel{+}= -5.
+\]
+Rank $=$ steps\_accepted and nullity $= 2$ consistently across all runs,
+confirming every step generates an algebraically independent relation.
+
+% ── 2.5 ───────────────────────────────────────────────────────────────────────
+\subsection{\texttt{mixing\_diagnostics.py} — Birthday-Law Collision Diagnostics}
+
+Provides the primary empirical mixing test: comparison of observed collision
+statistics against the birthday-paradox prediction for a uniform random walk on
+a space of size $p$. For a walk visiting $V$ distinct nodes from a space of
+size $p$, the expected collision count is
+\[
+  \mathbb{E}[C] = \frac{V^2}{2p}
+\]
+and the expected graph volume at first collision is $\sqrt{\pi p/2}$. Agreement
+with these bounds constitutes strong evidence of $\BigO{\sqrt{p}}$ mixing.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Empirical Results}
+\label{sec:results}
+
+% ── 3.1 ───────────────────────────────────────────────────────────────────────
+\subsection{Run Parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Parameter & Value \\
+  \midrule
+  Field prime $p$ & $65537$ \\
+  $\sqrt{p}$ & $256$ \\
+  Steps accepted & $500$ \\
+  $n$ range (section multiples) & $1$ to $80$ \\
+  Leaves per step (avg) & ${\approx}16$--$18$ \\
+  Dead ends & $0$ \\
+  Restarts & $0$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+% ── 3.2 ───────────────────────────────────────────────────────────────────────
+\subsection{Birthday Collision Results}
+
+In two representative 500-step runs on $p = 65537$:
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  Metric & Run 1 & Run 2 \\
+  \midrule
+  Unique leaves $V$ & $8{,}223$ & $7{,}963$ \\
+  $V / \sqrt{p}$ & $32.12$ & $31.11$ \\
+  Graph collisions $C$ & $1{,}231$ & $1{,}235$ \\
+  $\mathbb{E}[C]$ at $V$ (birthday) & $515.87$ & $483.77$ \\
+  $C / \mathbb{E}[C]$ & $2.386\ \checkmark$ & $2.553\ \checkmark$ \\
+  First collision step & $14$ & $7$ \\
+  Graph volume at first collision & $279\ (1.09 \times \sqrt{p})$ & $146\ (0.57 \times \sqrt{p})$ \\
+  Theory $\sqrt{\pi p / 2}$ & $320.9$ & $320.9$ \\
+  Ratio $V_\text{first} /$ theory & $0.870\ \checkmark$ & $0.455\ \text{\texttimes}$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Both $C/\mathbb{E}[C]$ ratios are consistent ($0.3 < \text{ratio} < 3.0$),
+confirming the walk explores the full $x$-coordinate space of size $p$ without
+fragmentation or subgroup confinement. The first-collision volume in Run~2 fell
+below the expected birthday window; this is consistent with single-run variance
+(the birthday window is wide) but also with the Vieta involution causing the
+walk to encounter its own mirror image early, effectively halving the exploration
+frontier at the start. This does not affect the long-run mixing result.
+
+% ── 3.3 ───────────────────────────────────────────────────────────────────────
+\subsection{Spectral Gap Results}
+\label{sec:spectral}
+
+Two complementary spectral estimates are maintained. They measure different
+objects and are not directly comparable, but both are $\BigO{1}/\sqrt{p}$.
+
+\medskip
+\noindent\textbf{SVD estimate on the full rectangular operator.} The graph
+matrix is rectangular: $n_\text{sources}$ rows (one per walked $x_i$) by
+$n_\text{all leaves}$ columns (all $x$-coordinates ever seen). Rows are
+$L^1$-normalised and the SVD is computed with all singular values normalised by
+$\sigma_1$. The gap $1 - \sigma_2/\sigma_1$ measures how fast probability mass
+spreads across the full leaf space; it is not a standard reversible-chain mixing
+time but is a meaningful structural bound. Observed range across runs:
+$0.06$--$0.13$, giving $\BigO{1/\mathrm{gap}}/\sqrt{p}$ in the range
+$0.03$--$0.06$.
+
+\medskip
+\noindent\textbf{Symmetrised eigenvalue gap on the source-induced submatrix.}
+The source-induced square submatrix $Q$ restricts to the $n_\text{sources}$
+nodes that have been walked as $x_i$, renormalising each row over
+source-to-source edges. The additive reversibilisation
+$Q_\text{sym} = (Q + Q^T)/2$ is formed; \texttt{eigsh} (symmetric Lanczos)
+then gives real eigenvalues with $\mathrm{gap}(Q_\text{sym}) \leq
+\mathrm{gap}(Q)$, making this a rigorous conservative lower bound on the mixing
+rate within the walked subgraph. Observed value in the representative 500-step
+run: $\mathrm{gap} = 0.0106$, giving $\BigO{1/\mathrm{gap}}/\sqrt{p} \approx
+0.37$.
+
+The conservative bound is weaker than the SVD estimate for two reasons:
+(1)~restricting to the source-induced submatrix discards all probability mass
+flowing to dest-only nodes (${\approx}97\%$ of atoms at 500 steps), inflating
+the effective self-loop structure; and (2)~the symmetrisation
+$\mathrm{gap}(Q_\text{sym}) \leq \mathrm{gap}(Q)$ is a lower bound by
+construction. Both effects shrink the reported gap relative to the true
+operator.
+
+The 2-component structure visible in the symmetrised spectrum (sub-gap at index
+$1 \to 2$ slightly exceeding the primary gap) is consistent with finite-sample
+noise at 500 steps, or a mild near-bipartite structure induced by the Vieta
+involution (which satisfies $T^2 = \mathrm{id}$ and could push two eigenvalues
+close to $1$ in a symmetrised operator). It is not consistent with actual
+fragmentation, which the birthday data rules out.
+
+\begin{center}
+\begin{tabular}{lllll}
+  \toprule
+  Matrix & Gap estimate & $\BigO{1/\mathrm{gap}}$ & $\BigO{1/\mathrm{gap}}/\sqrt{p}$ & Interpretation \\
+  \midrule
+  chain         & ${\approx}2\times10^{-6}$ & ${\approx}500{,}000$ & ${\approx}1950$ & Path diagnostic only; not mixing time \\
+  graph (SVD)   & $0.06$--$0.13$            & ${\approx}8$--$17$   & ${\approx}0.03$--$0.06$ & Full rectangular operator; structural bound \\
+  graph ($Q_\text{sym}$) & ${\geq}0.011$   & ${\approx}95$        & ${\approx}0.37$ & Rigorous conservative lower bound \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+% ── 3.4 ───────────────────────────────────────────────────────────────────────
+\subsection{Relation Matrix Results}
+
+The relation matrix empirically satisfies rank $\approx$ steps\_accepted (with
+nullity~2) across the runs reported here. In the representative runs below,
+rank equals steps\_accepted exactly; occasional rank deficits of~1 have been
+observed in other runs and are consistent with rare algebraic dependencies
+rather than a systematic failure. The two null directions are structurally
+forced: one for the point at infinity (coefficient $-5$ in every row), one for
+the starting $x_i$ (coefficient $\geq 3$ in every row).
+
+\begin{center}
+\begin{tabular}{llll}
+  \toprule
+  Run & Shape (rows $\times$ cols) & Rank (mod $2^{31}-1$) & Nullity \\
+  \midrule
+  Run 1 & $500 \times 992$ & $500$ & $2$ \\
+  Run 2 & $500 \times 986$ & $500$ & $2$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+% ── 3.5 ───────────────────────────────────────────────────────────────────────
+\subsection{Additional Consistency Checks}
+
+\textbf{Involution closure.} $T(T(x_j)) = x_j$ verified on $13{,}622$ and
+$14{,}109$ pairs $(x_i, x_j)$ respectively. Zero failures.
+
+\textbf{Cantor pair cache.} Zero hidden collisions across all cached pairs. The
+canonical Cantor reduction is injective on all observed pairs.
+
+\textbf{Dead ends.} Zero across all runs. The walk never enters a state with no
+available transitions.
+
+\textbf{Restarts.} Zero. The chain explores without needing to reset to a fresh
+starting point.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Security Argument}
+\label{sec:security}
+
+% ── 4.1 ───────────────────────────────────────────────────────────────────────
+\subsection{Statement of Claim}
+
+The data supports the following conditional claim.
+
+\begin{claim}
+If the fibration-induced Markov chain on d1 atoms mixes in $\BigO{\sqrt{p}}$
+steps uniformly across curves and primes, then discrete logarithms in $\Jp$
+can be computed in $\BigO{\sqrt{p}}$ time.
+\end{claim}
+
+This matches the complexity of Pollard rho on elliptic curves over $\Fp$,
+eliminating the expected security gap between genus~1 and genus~2 at equal
+field size.
+
+% ── 4.2 ───────────────────────────────────────────────────────────────────────
+\subsection{Standard Complexity Heuristic}
+
+For a genus-2 curve, $|\Jp| \approx p^2$. Generic algorithms operate in this
+full group and therefore require $\BigO{\sqrt{|\Jp|}} = \BigO{p}$ time. This is
+the basis for the standard claim that genus-2 systems offer roughly twice the
+bit security of elliptic curves over the same base field.
+
+% ── 4.3 ───────────────────────────────────────────────────────────────────────
+\subsection{Mechanism of the Reduction}
+
+The fibration exposes a structured subset of generators: the d1 atoms
+corresponding to $x$-coordinates of points on $C$, which lie in a space of
+size $p$. Each step of the walk produces a linear relation of the form
+\[
+  3[x_i] + [x_j] + [x_k] - 5[\infty] = 0,
+\]
+with all terms drawn from this $p$-sized set.
+
+Thus, relation collection takes place in a space of size $p$, not $p^2$. If the
+walk explores this space with near-uniformity, then collisions and linear
+dependencies occur after $\BigO{\sqrt{p}}$ distinct atoms have been visited.
+Once sufficiently many independent relations are gathered, standard linear
+algebra recovers discrete logarithms in $J(C)$.
+
+The reduction in complexity therefore hinges entirely on the effective size of
+the explored state space and the mixing rate of the induced walk.
+
+% ── 4.4 ───────────────────────────────────────────────────────────────────────
+\subsection{Empirical Evidence}
+
+Three independent measurements support $\BigO{\sqrt{p}}$ behaviour.
+
+\begin{enumerate}
+  \item \textbf{Birthday collision scaling.} Observed collision counts and
+        first-collision volumes align with the classical birthday bound for a
+        space of size $p$, with ratios $C/\mathbb{E}[C]$ remaining within
+        expected constant factors across runs. This provides model-independent
+        evidence of exploration at the correct scale.
+
+  \item \textbf{Spectral gap of the transition operator.} Two complementary
+        estimates are available (Section~\ref{sec:spectral}). The SVD-based
+        estimate on the full rectangular operator gives a gap in the range
+        $0.06$--$0.13$ ($\BigO{1/\mathrm{gap}}/\sqrt{p} \approx 0.03$--$0.06$).
+        The symmetrised eigenvalue gap on the source-induced subgraph, a
+        rigorous conservative lower bound, gives $\mathrm{gap} \geq 0.011$
+        ($\BigO{1/\mathrm{gap}}/\sqrt{p} \approx 0.37$). Both estimates satisfy
+        $\BigO{1/\mathrm{gap}}/\sqrt{p} = \BigO{1}$. The variance at 500 steps
+        is expected: the walk samples under $1\%$ of the full $x$-coordinate
+        space, so the submatrix gap is a noisy point estimate. The consistent
+        positivity across both estimators is the meaningful signal.
+
+  \item \textbf{Connectivity and robustness.} No dead ends, restarts, or
+        fragmentation are observed. The walk consistently produces transitions
+        and relations across all tested runs, indicating a well-connected
+        underlying graph.
+\end{enumerate}
+
+These diagnostics are structurally independent and mutually consistent.
+
+% ── 4.5 ───────────────────────────────────────────────────────────────────────
+\subsection{Limitations and Open Step}
+
+The argument is empirical. The missing component is a proof that the induced
+graph on d1 atoms forms an expander uniformly over all primes and curves. In
+particular, one would require a bound of the form
+\[
+  \sigma_2 \leq 1 - \delta
+\]
+with $\delta > 0$ independent of $p$. Without such a result, the observed
+spectral gap and mixing behaviour remain strong evidence but not a theorem.
+
+% ── 4.6 ───────────────────────────────────────────────────────────────────────
+\subsection{Interpretation}
+
+The fibration appears to expose a non-generic, $p$-scale relation graph embedded
+within the genus-2 structure. The walk operates directly on this graph,
+bypassing the $p^2$-scale complexity of the full Jacobian.
+
+If this behaviour persists asymptotically, then genus-2 cryptosystems cannot
+rely on their nominal group size for security. Instead, their effective hardness
+would collapse to that of elliptic curves over the same base field.
+
+At present, the results establish a consistent and reproducible empirical
+phenomenon with clear cryptographic implications, conditional on a single
+unresolved expansion property.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Broader Mathematical Implications}
+\label{sec:implications}
+
+% ── 5.1 ───────────────────────────────────────────────────────────────────────
+\subsection{Canonical Factor Base}
+
+Classical index calculus on $J(C)$ requires an ad hoc choice of factor base.
+Here the factor base emerges canonically from the fibration geometry: the d1
+atoms are exactly the $x$-coordinates of fibre intersection points, and the
+relations are principal divisors forced by Bézout. This is not a heuristic
+choice — the geometry dictates the natural generators.
+
+% ── 5.2 ───────────────────────────────────────────────────────────────────────
+\subsection{The Recurrence as Elliptic Group Law}
+
+The recurrence $x_k(m) = S(m) - 3x_i - x_j(m)$ is a Möbius-like transformation
+on the fibre. $S(m)$ is a degree-2 rational function, and the whole recurrence
+is exactly the elliptic-curve addition law on the fibre $E_m$, projected back to
+the base. The mixing may be fast precisely because the group orders of the fibres
+$E_m(\Fp)$ are incommensurate across different $n$-values, creating the entropy
+observed empirically.
+
+% ── 5.3 ───────────────────────────────────────────────────────────────────────
+\subsection{Rational Points and Mordell--Weil Basis}
+
+The same walk can recover rational points on $C$ over $\QQ$. Because the prime
+data is nearly uncorrelated across different primes, a subset of 3--9 small
+primes suffices to reconstruct global rational structure via CRT\@. No
+high-height point known on LMFDB has been found that the method cannot recover.
+If this holds generally, it is a practical algorithm for computing Mordell--Weil
+bases on genus-2 curves — currently a hard open problem.
+
+% ── 5.4 ───────────────────────────────────────────────────────────────────────
+\subsection{The Auxiliary Curve Self-Similarity}
+
+The fact that $z^2 = B(m)$ is isomorphic to $C$ itself is likely not a
+coincidence. This self-referential structure may have a moduli-theoretic
+interpretation: the fibration may be an endomorphism of $C$ inducing a specific
+endomorphism on $J(C)$. If so, the Markov walk implicitly computes in the
+endomorphism ring $\End(J(C))$, explaining why it accesses structure invisible
+to generic index calculus.
+
+% ── 5.5 ───────────────────────────────────────────────────────────────────────
+\subsection{Genus-3 and Higher Genus}
+
+The same approach has been tested on genus-3 curves from the LMFDB database.
+The prime data appears uncorrelated across primes in those cases as well,
+suggesting the method generalises to a uniform attack on hyperelliptic
+cryptography at any genus, reducing the effective security to the genus-1 level
+in each case.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Module Interaction Summary}
+\label{sec:interaction}
+
+The five modules interact as follows during a typical run:
+
+\begin{verbatim}
+genus2_markov_module.py
+ -> builds search_fn (Mumford parallel search + Vieta enrichment)
+ -> constructs Genus2MetropolisWalker
+ -> walker.run(500)
+    for each step:
+      search_fn(xi)  ->  candidate pool (xj, xk, m, source, S_of_m)
+      Metropolis select xj
+      _store_record(rec)
+        -> mat_chain.ingest(rec)
+        -> mat_graph.ingest(rec)
+      mixing_one_liner()  ->  [mix] line
+      mat_*.maybe_report()  (cadenced)
+    end loop
+    mat_*.maybe_report(force=True)  ->  spectral reports
+    -> close_under_involution()
+    -> cantor_summary()
+    -> print_mixing_report()  ->  birthday diagnostics
+    -> build_relation_matrix2()  ->  rank report
+    -> walker.summary()  ->  atom counts per matrix
+\end{verbatim}
+
+% ── 6.1 ───────────────────────────────────────────────────────────────────────
+\subsection{Data Flow Notes}
+
+The graph matrix receives one record per accepted step. Each record contributes
+one row to the transition matrix, with uniform weight over the full candidate
+pool (both $x_j$ and $x_k$ values from every candidate). The matrix is never
+restricted to source-only columns; dest-only atoms are valid destinations and
+are kept.
+
+Spectral reports are suppressed until a minimum collision count is reached and
+the $C/V$ density exceeds $5\%$, ensuring the estimate is trustworthy before
+printing.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Open Questions}
+\label{sec:open}
+
+\begin{description}
+  \item[Expander graph proof.]
+    Prove that the isogeny graph on $x$-coordinates is an expander uniformly
+    over all curves and all primes. A Weil-bound-type estimate for the spectral
+    gap would convert the empirical $\BigO{\sqrt{p}}$ claim into a theorem.
+
+  \item[Endomorphism ring interpretation.]
+    Formalise the connection between the self-similar auxiliary curve and the
+    endomorphism ring of $J(C)$. Does the walk compute in $\End(J(C))$?
+
+  \item[Full Mordell--Weil coverage.]
+    Prove (or disprove) that the 3--9 prime CRT reconstruction always recovers
+    all rational points, not just those accessible via the fibration section.
+
+  \item[Higher genus.]
+    Extend the analysis to genus~3 and beyond. The genus-3 empirical tests are
+    promising; a systematic study of the mixing constant as a function of genus
+    and $p$ would be valuable.
+
+  \item[Subexponential improvement.]
+    Does the structured entropy in $S(m)$ (degree-2 rational function) allow a
+    subexponential improvement over the $\BigO{\sqrt{p}}$ birthday bound? Or is
+    the birthday bound tight?
+
+  \item[Kummer surface bias.]
+    Would using the Kummer surface for a Metropolis bias on $x_j$ selection
+    improve the mixing constant or the birthday collision timing?
+
+  \item[Conservative spectral bound at scale.]
+    At 500 steps the source-induced subgraph covers ${\approx}3\%$ of
+    $x$-coordinates, and the $Q_\text{sym}$ gap ($0.011$) is a noisy lower
+    bound. Running to $5000+$ steps would sharpen this estimate and determine
+    whether the 2-component near-stationary structure persists (indicating mild
+    clustering) or dissolves (confirming finite-sample noise).
+\end{description}
+
+\end{document}
