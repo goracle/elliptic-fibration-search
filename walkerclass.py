@@ -1360,6 +1360,7 @@ class Genus2MetropolisWalker:
 
         if accepted:
             next_x = xj
+            self.xi_visit_count[xi_before] += 1
             try:
                 next_y = self._recover_y(next_x)
             except Exception:
@@ -1539,7 +1540,7 @@ class Genus2MetropolisWalker:
         xi_before = self.current_x
         if accepted:
             next_x = chosen
-            self.xi_visit_count[next_x] += 1
+            self.xi_visit_count[xi_before] += 1
             unique_xj_new, unique_xj_total = self._register_unique_xj(next_x)
             if not unique_xj_new:
                 self.collision_count += 1

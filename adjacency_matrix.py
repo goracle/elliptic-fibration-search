@@ -225,14 +225,20 @@ class MarkovAdjacencyMatrix:
         return [x for x in self._atoms if self._raw.get(x)]
 
     def _build_sparse(self):
-        """Return (P_sparse, source_atoms, all_atoms) where P is the honest
-        rectangular row-stochastic matrix: rows = sources (walked xi),
-        columns = all atoms ever seen (sources + dest-only leaves).
+        """Return (Q_sparse, source_atoms, all_atoms).
 
-        Every row sums to exactly 1.  No column restriction is applied —
-        dest-only leaves are valid destinations and keeping them is what makes
-        the matrix honest.  Spectral analysis is done on P @ P.T (square,
-        496x496) rather than P directly.
+        Q is the square source-induced row-stochastic submatrix:
+          rows = sources (walked xi), columns = sources only.
+        Transitions to dest-only leaves are absorbed into a virtual sink
+        (their probability mass is redistributed by row-renormalisation so
+        each row of Q still sums to <= 1; rows with no source-to-source edge
+        are left as all-zero and excluded from the eigs call).
+
+        This is the correct matrix for eigendecomposition: eigs(Q) gives the
+        true second eigenvalue λ₂ of the source-induced chain, and the mixing
+        time is O(1 / (1 - |λ₂|)).
+
+        Also returns all_atoms for reporting purposes.
 
         Returns (None, [], []) if scipy unavailable or no data.
         """
@@ -244,51 +250,37 @@ class MarkovAdjacencyMatrix:
         if n_src == 0:
             return None, [], []
 
-        # Row index: sources only.
-        row_idx = {x: i for i, x in enumerate(sources)}
+        all_atoms = self._atoms
 
-        # Column index: all atoms (sources + dest-only).
-        all_atoms = self._atoms          # stable insertion-ordered list
-        n_all = len(all_atoms)
-        col_idx = {x: j for j, x in enumerate(all_atoms)}
+        # Index maps.
+        src_idx = {x: i for i, x in enumerate(sources)}
+        src_set = set(sources)
 
         rows, cols, data = [], [], []
         for xi_int in sources:
             outgoing = self._raw[xi_int]
-            total = sum(outgoing.values())
+            # Only keep edges whose destination is also a source node.
+            sub_edges = {xr: wt for xr, wt in outgoing.items() if xr in src_set}
+            total = sum(sub_edges.values())
             if total == 0:
-                continue
-            i = row_idx[xi_int]
+                continue   # this source only points to dest-only leaves; skip row
+            i = src_idx[xi_int]
             inv = 1.0 / total
-            for xr_int, wt in outgoing.items():
-                j = col_idx.get(xr_int)
-                if j is None:
-                    continue   # shouldn't happen — all destinations are indexed
+            for xr_int, wt in sub_edges.items():
                 rows.append(i)
-                cols.append(j)
+                cols.append(src_idx[xr_int])
                 data.append(wt * inv)
 
         if not data:
             return None, [], []
 
-        P = sp.csr_matrix((data, (rows, cols)), shape=(n_src, n_all), dtype=np.float64)
-
-        # L2-normalize each row so that sigma_1(P) = 1 exactly.
-        # P is already L1-normalized (row-stochastic); dividing by the L2 norm
-        # rescales each row to a unit vector, making PP^T a proper Gram matrix
-        # whose top eigenvalue is 1 and whose gap is 1 - sigma_2.
-        row_l2 = np.sqrt(np.array(P.multiply(P).sum(axis=1)).ravel())
-        row_l2[row_l2 == 0] = 1.0   # guard against empty rows
-        D_inv = sp.diags(1.0 / row_l2)
-        P = D_inv @ P
-
-        return P, sources, all_atoms
+        Q = sp.csr_matrix((data, (rows, cols)), shape=(n_src, n_src), dtype=np.float64)
+        return Q, sources, all_atoms
 
     def transition_matrix_dense(self) -> Tuple[np.ndarray, List[Any], List[Any]]:
-        """Return (P_dense, source_atoms, all_atoms) as honest rectangular matrix.
-
-        P has shape (n_sources, n_all_atoms).  Every row sums to 1.
-        Only practical for small matrices (<5000 source atoms).
+        """Return (P_dense, source_atoms, all_atoms) as honest rectangular
+        row-stochastic matrix.  P has shape (n_sources, n_all_atoms).
+        Every row sums to 1.  Only practical for small matrices (<5000 sources).
         """
         sources = self._source_atoms()
         n_src = len(sources)
@@ -311,11 +303,33 @@ class MarkovAdjacencyMatrix:
                     continue
                 P[i, j] = wt * inv
 
-        # L2-normalize rows
-        row_l2 = np.linalg.norm(P, axis=1, keepdims=True)
-        row_l2[row_l2 == 0] = 1.0
-        P = P / row_l2
         return P, sources, all_atoms
+
+    def _transition_matrix_square_dense(self) -> Tuple[np.ndarray, List[Any]]:
+        """Return (Q_dense, source_atoms): square source-induced submatrix.
+
+        Q has shape (n_sources, n_sources).  Rows are renormalised over
+        source-to-source edges only; rows with no such edges are all-zero.
+        This is the correct matrix for np.linalg.eig eigendecomposition.
+        """
+        sources = self._source_atoms()
+        n_src = len(sources)
+        src_set = set(sources)
+        src_idx = {x: i for i, x in enumerate(sources)}
+
+        Q = np.zeros((n_src, n_src), dtype=np.float64)
+        for xi_int in sources:
+            outgoing = self._raw[xi_int]
+            sub = {xr: wt for xr, wt in outgoing.items() if xr in src_set}
+            total = sum(sub.values())
+            if total == 0:
+                continue
+            i = src_idx[xi_int]
+            inv = 1.0 / total
+            for xr_int, wt in sub.items():
+                Q[i, src_idx[xr_int]] = wt * inv
+
+        return Q, sources
 
     # ------------------------------------------------------------------
     # Spectral gap
@@ -338,22 +352,20 @@ class MarkovAdjacencyMatrix:
         self,
         n_eigenvalues: Optional[int] = None,
     ) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[np.ndarray]]:
-        """Return (gap, sigma_1, sigma_2, singular_values).
+        """Return (gap, lambda_1, lambda_2, eigenvalues).
 
-        The honest transition matrix P is rectangular (n_sources × n_all_atoms),
-        L2-row-normalized.  We compute singular values via svds and then
-        normalize the full spectrum by sigma_1 (the operator norm), so all
-        reported values lie in [0, 1] with sigma_1 = 1 by construction.
+        Computes the top eigenvalues of the square source-induced row-stochastic
+        submatrix Q (sources × sources, renormalised).  For a connected
+        row-stochastic matrix λ₁ = 1 exactly; the mixing-time diagnostic is:
 
-        The mixing-time diagnostic is:
-
-            gap = 1 - sigma_2   (= sigma_1 - sigma_2 after normalization)
+            gap = 1 - |λ₂|
             O(1/gap) steps to mix
 
-        This is equivalent to ChatGPT's "divide everything by lambda_1" rescaling
-        but done cleanly in one place rather than mentally at read time.
+        eigenvalues is a sorted descending array of |λᵢ|, all in [0,1],
+        normalised by λ₁ so the top value is 1 by construction.
 
-        singular_values is a sorted descending array, all in [0,1].
+        Uses scipy.sparse.linalg.eigs (Arnoldi) on the sparse Q when available,
+        falling back to np.linalg.eig on the dense Q for small matrices.
         """
         if n_eigenvalues is None:
             n_eigenvalues = self.n_eigenvalues
@@ -368,28 +380,28 @@ class MarkovAdjacencyMatrix:
 
         # --- sparse path (preferred) ---
         if _SCIPY_AVAILABLE and n_nonempty >= 10:
-            P, sources, _ = self._build_sparse()
+            Q, sources, _ = self._build_sparse()
             n_src = len(sources)
-            if P is not None and n_src >= 4:
-                k_actual = min(n_src - 2, k, P.shape[1] - 1)
+            if Q is not None and n_src >= 4:
+                k_actual = min(n_src - 2, k)
                 try:
-                    # svds on the L2-row-normalized rectangular P.
-                    # sigma_1 is the operator norm; we normalize the full
-                    # spectrum by sigma_1 so the reported values lie in [0,1]
-                    # and the gap = 1 - sigma_2_norm is the mixing diagnostic.
-                    singular_vals = spla.svds(
-                        P, k=k_actual, which="LM",
-                        return_singular_vectors=False,
-                        v0=np.ones(min(P.shape)) / math.sqrt(min(P.shape)),
+                    # eigs on the square row-stochastic Q.
+                    # which="LM" returns the k eigenvalues of largest magnitude.
+                    # v0 seed avoids non-determinism in Arnoldi.
+                    eig_vals = spla.eigs(
+                        Q, k=k_actual, which="LM",
+                        return_eigenvectors=False,
+                        v0=np.ones(n_src) / math.sqrt(n_src),
                         tol=1e-6,
                     )
-                    singular_vals = np.sort(singular_vals)[::-1]
-                    # normalize by sigma_1
-                    if singular_vals[0] > 1e-12:
-                        singular_vals = singular_vals / singular_vals[0]
-                    sigma1 = float(singular_vals[0])   # = 1.0 by construction
-                    sigma2 = float(singular_vals[1])
-                    return sigma1 - sigma2, sigma1, sigma2, singular_vals
+                    # Take absolute values, sort descending.
+                    eig_vals = np.sort(np.abs(eig_vals))[::-1]
+                    # Normalise by λ₁ (should be ~1.0 already for row-stochastic Q).
+                    if eig_vals[0] > 1e-12:
+                        eig_vals = eig_vals / eig_vals[0]
+                    lam1 = float(eig_vals[0])   # = 1.0 by construction
+                    lam2 = float(eig_vals[1])
+                    return lam1 - lam2, lam1, lam2, eig_vals
                 except Exception:
                     pass  # fall through to dense
 
@@ -398,14 +410,14 @@ class MarkovAdjacencyMatrix:
         if n_src > 5000:
             return None, None, None, None
         try:
-            P, sources, _ = self.transition_matrix_dense()
-            _, singular_vals, _ = np.linalg.svd(P, full_matrices=False)
-            singular_vals = np.sort(singular_vals)[::-1]
-            if singular_vals[0] > 1e-12:
-                singular_vals = singular_vals / singular_vals[0]
-            sigma1 = float(singular_vals[0])
-            sigma2 = float(singular_vals[1])
-            return sigma1 - sigma2, sigma1, sigma2, singular_vals
+            Q, sources = self._transition_matrix_square_dense()
+            eig_vals = np.linalg.eigvals(Q)
+            eig_vals = np.sort(np.abs(eig_vals))[::-1]
+            if eig_vals[0] > 1e-12:
+                eig_vals = eig_vals / eig_vals[0]
+            lam1 = float(eig_vals[0])
+            lam2 = float(eig_vals[1])
+            return lam1 - lam2, lam1, lam2, eig_vals
         except np.linalg.LinAlgError:
             return None, None, None, None
 
@@ -521,11 +533,11 @@ class MarkovAdjacencyMatrix:
 
             # ---- full eigenvalue spectrum ----
             lines.append(f"|")
-            lines.append(f"|   --- Singular Value Spectrum ({len(all_eigs) if all_eigs is not None else '?'} values, normalized) ---")
+            lines.append(f"|   --- Eigenvalue Spectrum ({len(all_eigs) if all_eigs is not None else '?'} values, |λᵢ| normalized) ---")
             if all_eigs is not None and len(all_eigs) >= 2:
                 # Print each eigenvalue with its consecutive gap and a bar chart
                 bar_width = 30
-                lines.append(f"|   {'idx':>4}  {'sigma_i':>10}  {'gap(i,i+1)':>12}  {'ratio s_{i+1}/s_i':>18}  bar")
+                lines.append(f"|   {'idx':>4}  {'|lambda_i|':>10}  {'gap(i,i+1)':>12}  {'ratio |λ_{i+1}|/|λ_i|':>22}  bar")
                 lines.append(f"|   " + "-" * 75)
                 for i, lam in enumerate(all_eigs):
                     bar_fill = int(float(lam) * bar_width + 0.5)
@@ -534,19 +546,19 @@ class MarkovAdjacencyMatrix:
                         consec_gap = float(lam) - float(all_eigs[i + 1])
                         ratio = float(all_eigs[i + 1]) / float(lam) if float(lam) > 1e-12 else float("nan")
                         lines.append(
-                            f"|   {i:>4}  {float(lam):>10.6f}  {consec_gap:>12.6f}  {ratio:>18.6f}  {bar}"
+                            f"|   {i:>4}  {float(lam):>10.6f}  {consec_gap:>12.6f}  {ratio:>22.6f}  {bar}"
                         )
                     else:
                         lines.append(
-                            f"|   {i:>4}  {float(lam):>10.6f}  {'(last)':>12}  {'':>18}  {bar}"
+                            f"|   {i:>4}  {float(lam):>10.6f}  {'(last)':>12}  {'':>22}  {bar}"
                         )
 
                 # ---- spectral gap summary ----
                 lines.append(f"|")
                 lines.append(f"|   --- Gap Summary ---")
-                lines.append(f"|   sigma_1 = {lam1:.6f}  (should be ~= 1 for row-stochastic P){trust}")
-                lines.append(f"|   sigma_2 = {lam2:.6f}{trust}")
-                lines.append(f"|   spectral gap (sigma_1 - sigma_2) = {gap:.6f}{trust}")
+                lines.append(f"|   lambda_1 = {lam1:.6f}  (should be ~= 1 for row-stochastic Q){trust}")
+                lines.append(f"|   lambda_2 = {lam2:.6f}{trust}")
+                lines.append(f"|   spectral gap (1 - |lambda_2|) = {gap:.6f}{trust}")
 
                 # Identify the largest consecutive gap beyond lam1→lam2 (spectral clustering hint)
                 if len(all_eigs) >= 3:
@@ -558,8 +570,8 @@ class MarkovAdjacencyMatrix:
                         best_i, best_gap = max(consec_gaps, key=lambda x: x[1])
                         lines.append(
                             f"|   largest sub-gap : gap({best_i},{best_i+1}) = {best_gap:.6f}  "
-                            f"(sigma_{best_i} = {float(all_eigs[best_i]):.6f}  "
-                            f"→  sigma_{best_i+1} = {float(all_eigs[best_i+1]):.6f})"
+                            f"(|λ_{best_i}| = {float(all_eigs[best_i]):.6f}  "
+                            f"→  |λ_{best_i+1}| = {float(all_eigs[best_i+1]):.6f})"
                         )
                         lines.append(
                             f"|     → suggests {best_i+1} near-stationary component(s) in the operator"
@@ -586,9 +598,9 @@ class MarkovAdjacencyMatrix:
                     )
             else:
                 # Fallback: no eigenvalue array (shouldn't happen if gap is set)
-                lines.append(f"|   sigma_1        : {lam1:.6f}  (should be ~= 1){trust}")
-                lines.append(f"|   sigma_2        : {lam2:.6f}{trust}")
-                lines.append(f"|   spectral gap   : {gap:.6f}  (= sigma_1 - sigma_2){trust}")
+                lines.append(f"|   lambda_1       : {lam1:.6f}  (should be ~= 1){trust}")
+                lines.append(f"|   lambda_2       : {lam2:.6f}{trust}")
+                lines.append(f"|   spectral gap   : {gap:.6f}  (= 1 - |lambda_2|){trust}")
 
         if not _SCIPY_AVAILABLE:
             lines.append(f"|   [note] scipy not found; used dense numpy eigvals (all eigenvalues computed)")
