@@ -220,16 +220,17 @@ class CantorPairCache:
             raise ValueError(f"Cannot coerce to F_p: {xa!r}, {xb!r}: {e}") from e
 
         try:
-            # Lift to points on C
             Pa = self.C.lift_x(xa_fp)
+        except (ValueError, TypeError):
+            return None   # xa not on C over F_p
+        try:
             Pb = self.C.lift_x(xb_fp)
-            # Form the divisor and reduce in J
-            D = J(Pa) + J(Pb)
-            u, v = D
-            return ReducedRep.from_mumford(u, v)
-        except Exception:
-            # xa or xb not on C over F_p, or arithmetic failure — skip silently
-            return None
+        except (ValueError, TypeError):
+            return None   # xb not on C over F_p
+        # Jacobian arithmetic — let genuine errors propagate
+        D = J(Pa) + J(Pb)
+        u, v = D
+        return ReducedRep.from_mumford(u, v)
 
     # ------------------------------------------------------------------
     # Public API
@@ -269,10 +270,17 @@ class CantorPairCache:
         if xj is not None and xk is not None:
             pairs_with_slots.append((s([xj, xk]), "xj-xk"))
 
-        # Optional: warn if {xi,xj} and {xi,xk} are already equivalent (degenerate)
+        # Optional: warn if {xi,xj} and {xi,xk} are already equivalent (degenerate).
+        # Compute and cache these reductions so the main loop below can reuse them.
+        _precomputed: Dict[FrozenSet, Optional[ReducedRep]] = {}
+        if xj is not None:
+            _precomputed[frozenset([xi, xj])] = self._reduce_pair(xi, xj)
+        if xk is not None:
+            _precomputed[frozenset([xi, xk])] = self._reduce_pair(xi, xk)
+
         if self.check_involution and xj is not None and xk is not None:
-            r_ij = self._reduce_pair(xi, xj)
-            r_ik = self._reduce_pair(xi, xk)
+            r_ij = _precomputed[frozenset([xi, xj])]
+            r_ik = _precomputed[frozenset([xi, xk])]
             if r_ij is not None and r_ik is not None and r_ij == r_ik:
                 if self.verbose:
                     print(
@@ -289,7 +297,8 @@ class CantorPairCache:
                 continue
 
             xa, xb = tuple(pair)
-            rep = self._reduce_pair(xa, xb)
+            # Reuse precomputed reduction if available, otherwise compute now
+            rep = _precomputed.get(pair, self._reduce_pair(xa, xb))
             if rep is None:
                 continue
 
@@ -425,10 +434,13 @@ class CantorPairCache:
         if isinstance(step, dict) and step.get("source") == "involution_closure":
             return []
 
+        # Pass step_index so CantorHit.relation_index_new matches walker.history index.
+        step_index = _get(rec, "step_index")
         return self.add_relation(
             _get(rec, "xi"),
             _get(rec, "xj"),
             _get(rec, "xk"),
+            relation_index=step_index,
         )
 
     # ------------------------------------------------------------------
