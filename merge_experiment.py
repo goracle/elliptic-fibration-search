@@ -52,10 +52,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT = "walk_A_leaves.json"
-DEFAULT_STEPS_A  = 15    # ≈ √p × 1.0  for p=33554467
-DEFAULT_STEPS_B  = 15    # generous headroom; merge usually happens <<√p
-DEFAULT_SEED_A   = 12
-DEFAULT_SEED_B   = 67
+DEFAULT_STEPS_A  = 10    # ≈ √p × 1.0  for p=33554467
+DEFAULT_STEPS_B  = 10    # generous headroom; merge usually happens <<√p
+DEFAULT_SEED_A   = 1
+DEFAULT_SEED_B   = 6
 
 # These are read from your project globals if _HAS_PROJECT; otherwise supply
 # them directly here as fallbacks.
