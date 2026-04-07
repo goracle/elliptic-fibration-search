@@ -23,12 +23,11 @@ from stats import *
 from consensus import *
 from mobius import *
 from sage.misc.verbose import set_verbose
-from relation_matrix import *
+from .relation_matrix import *
 from functools import partial
-from cantor_cache import *
-from mixing_diagnostics import *
-
-
+from .cantor_cache import *
+from .mixing_diagnostics import *
+from .adjacency_matrix import *
 
 def xk_is_fp_point(xk_val, G_poly):
     if G_poly is None or xk_val is None:
@@ -117,9 +116,6 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
 
     except Exception:
         raise
-
-
-
 
 def build_project_tower_context_for_point(
     xi,
@@ -216,7 +212,6 @@ def build_project_tower_context_for_point(
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] if not resolve_project_symbol('FINITE_FIELD', default=None) else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
 
-
     # Append the symbolic xk(m) as an additional RHS target.
     # xk(m) = S(m) - (d-1)*xi - (-m) = S(m) - (d-1)*xi + m
     # where S(m) is the x^(d-1) Vieta sum from the intersection poly.
@@ -238,7 +233,6 @@ def build_project_tower_context_for_point(
             xk_rhs_sym = S_of_m_sym - (_curve_degree_sym - 1) * _xi_lifted + _m_in_frac
             print("adding xk(m)", xk_rhs_sym, "to search rhs list")
             search_rhs_list = list(search_rhs_list) + [xk_rhs_sym]
-
 
     assert len(search_rhs_list) > 1, search_rhs_list
 
@@ -531,7 +525,6 @@ class WalkConfig:
     degree_for_intersection: int = 5
     verbose: bool = True
     log_path: Optional[str] = None
-    from sage.all import infinity
     log_candidate_limit: int = 25*infinity
     log_full_candidates: bool = True
     diagnostic_print: bool = True
@@ -599,6 +592,9 @@ class Genus2MetropolisWalker:
         self.unique_xj_seen = {self.current_x}
         # NEW: Track ALL candidate leaves across the entire walk
         self.global_leaves_seen = {self.current_x}
+        # Cumulative count of leaf insertions (not deduplicated) — the true
+        # "effort" metric for merge-time analysis, independent of step count.
+        self.total_leaf_insertions: int = 1  # seed x counts as one insertion
         # How many times each x has been stepped *through* as xi (i.e. used as chain state).
         # We avoid re-using high-visit-count nodes as the next xi when fresher candidates exist.
         self.xi_visit_count: Counter = Counter({self.current_x: 1})
@@ -606,6 +602,15 @@ class Genus2MetropolisWalker:
         self.history: List[RelationRecord] = []
         self.cantor_cache: Optional[CantorPairCache] = None
         self.dead_end_count = 0
+
+        # Cross-chain merge tracking.
+        # Set via load_foreign_leaves(); once a leaf from this walk hits
+        # foreign_leaves, merge_log records (step_index, graph_vol, leaf).
+        self.foreign_leaves: Optional[set] = None     # leaf set from walk A
+        self.merge_log: list = []                     # [(step_index, graph_vol, leaf), ...]
+        self.first_merge_step: Optional[int] = None   # step_index of first hit
+        self.first_merge_vol: Optional[int] = None    # total_leaf_insertions at first hit
+        self._merged_leaves: set = set()              # dedup across all merge hits
         self.collision_count = 0      # path collisions: chosen xj already on chain path
         self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
         self.first_birthday_step: Optional[int] = None  # step_index of first graph/birthday collision
@@ -617,7 +622,6 @@ class Genus2MetropolisWalker:
         # mat_chain = accepted steps only          (path diagnostic, d~1)
         # mat_graph = full candidate pool per xi   (row-truncated average operator)
         if getattr(self.config, 'spectral_enabled', True):
-            from adjacency_matrix import MarkovAdjacencyMatrix
             _p   = self.p
             _re  = getattr(self.config, 'spectral_report_every', 10)
             _mc  = getattr(self.config, 'spectral_min_collisions', 3)
@@ -870,7 +874,7 @@ class Genus2MetropolisWalker:
         candidate_pool = list(getattr(rec, 'candidate_pool', []) or [])
         selected = dict(getattr(rec, 'selected_candidate', {}) or {})
 
-        limit = int(getattr(self.config, 'log_candidate_limit', 25*infinity) or 25*infinity)
+        limit = getattr(self.config, 'log_candidate_limit', 25*infinity) or 25*infinity
         pool_summary = candidate_pool if self.config.log_full_candidates else candidate_pool[:limit]
 
         return {
@@ -1260,6 +1264,7 @@ class Genus2MetropolisWalker:
 
         if valid_leaves:
             self.global_leaves_seen.update(valid_leaves)
+            self.total_leaf_insertions += len(valid_leaves)
 
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
         leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step if valid_leaves else 0
@@ -1477,6 +1482,7 @@ class Genus2MetropolisWalker:
 
         if valid_leaves:
             self.global_leaves_seen.update(valid_leaves)
+            self.total_leaf_insertions += len(valid_leaves)
 
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
         leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step if valid_leaves else 0
@@ -1724,8 +1730,131 @@ class Genus2MetropolisWalker:
             self.mat_graph.ingest(rec,
                 graph_collision_count=self.leaf_collision_count)
 
+        # Cross-chain merge detection.
+        if self.foreign_leaves is not None:
+            step_payload = rec.step if isinstance(rec.step, dict) else {}
+            # Collect all leaves touched this step: accepted triple + pool candidates.
+            this_step_leaves: set = set()
+            if rec.xi is not None:
+                this_step_leaves.add(rec.xi)
+            if rec.xj is not None:
+                this_step_leaves.add(rec.xj)
+            if rec.xk is not None:
+                this_step_leaves.add(rec.xk)
+            for cand in (rec.candidate_pool or []):
+                if not isinstance(cand, dict):
+                    continue
+                for key in ("xj", "x", "candidate_x", "xk"):
+                    v = cand.get(key)
+                    if v is not None:
+                        this_step_leaves.add(v)
+
+            # Exclude base points (trivial hits) and already-reported leaves.
+            base_xs = {bp[0] for bp in self.base_points if bp and len(bp) > 0}
+            hits = (this_step_leaves & self.foreign_leaves) - base_xs - self._merged_leaves
+            if hits:
+                vol = len(self.global_leaves_seen)
+                ins = self.total_leaf_insertions
+                label = getattr(self, '_foreign_label', 'A')
+                sqrt_p = (self.p ** 0.5) if self.p is not None else float("nan")
+                for leaf in sorted(hits, key=int):
+                    self._merged_leaves.add(leaf)
+                    entry = (rec.step_index, ins, vol, leaf)
+                    self.merge_log.append(entry)
+                    if self.first_merge_step is None:
+                        self.first_merge_step = rec.step_index
+                        self.first_merge_vol = ins
+                        print(
+                            f"\n*** [MERGE] step={rec.step_index}  "
+                            f"leaf_insertions={ins} ({ins/sqrt_p:.4f}×√p)  "
+                            f"B-vol={vol} ({vol/sqrt_p:.4f}×√p)  "
+                            f"leaf={leaf}  ∩ walk-{label} ***\n",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"  [merge+] step={rec.step_index}  leaf={leaf}  "
+                            f"(total merge hits: {len(self.merge_log)})",
+                            flush=True,
+                        )
 
         return rec
+
+    def save_leaf_snapshot(self, path: str) -> None:
+        """Serialise global_leaves_seen to a JSON file as a list of ints.
+
+        The elements are GF(p) field elements; we lift them to Python ints so
+        the file is plain JSON and doesn't depend on Sage being importable.
+
+        Usage (walk A):
+            walker_A.run(5000)
+            walker_A.save_leaf_snapshot("walk_A_leaves.json")
+        """
+        import json as _json
+        leaves = sorted(int(x) for x in self.global_leaves_seen)
+        payload = {
+            "p": int(self.p) if self.p is not None else None,
+            "n_leaves": len(leaves),
+            "step_count": len(self.history),
+            "leaves": leaves,
+        }
+        with open(path, "w") as fh:
+            _json.dump(payload, fh)
+        print(f"[save_leaf_snapshot] wrote {len(leaves)} leaves → {path}")
+
+    def load_foreign_leaves(self, path_or_set, *, label: str = "A") -> int:
+        """Load a foreign leaf set to track cross-chain merge events.
+
+        ``path_or_set`` can be:
+          - a str/Path pointing to a JSON file written by save_leaf_snapshot()
+          - a plain Python set/frozenset of ints or GF(p) elements
+
+        After loading, every call to _store_record checks whether any new leaf
+        from the current step is in foreign_leaves and appends to merge_log.
+
+        Returns the number of foreign leaves loaded.
+        """
+        import json as _json
+        if isinstance(path_or_set, (str, Path)):
+            with open(path_or_set) as fh:
+                data = _json.load(fh)
+            raw = data["leaves"]
+        else:
+            raw = path_or_set
+
+        if self.p is not None:
+            Fp = self.base_ring
+            self.foreign_leaves = {Fp(x) for x in raw}
+        else:
+            self.foreign_leaves = set(raw)
+
+        # Exclude base points so trivial shared starting regions don't
+        # produce false-positive merge signals.
+        base_xs = {bp[0] for bp in self.base_points if bp and len(bp) > 0}
+        self.foreign_leaves -= base_xs
+
+        self._foreign_label = label
+        print(
+            f"[load_foreign_leaves] loaded {len(self.foreign_leaves)} leaves "
+            f"from walk {label!r}  (current walk vol = {len(self.global_leaves_seen)})"
+        )
+
+        # Sanity check: if seeds are truly independent the initial overlap
+        # should be zero.  A nonzero value means the two walkers share starting
+        # state and the merge metric will be artificially low.
+        initial_overlap = len(self.global_leaves_seen & self.foreign_leaves) - len(
+            self.global_leaves_seen & self.foreign_leaves & base_xs
+        )
+        initial_overlap = len((self.global_leaves_seen - base_xs) & self.foreign_leaves)
+        if initial_overlap > 0:
+            print(
+                f"[load_foreign_leaves] WARNING: initial overlap = {initial_overlap} leaves "
+                f"— seeds are not fully independent; merge metric will be artificially low."
+            )
+        else:
+            print(f"[load_foreign_leaves] [sanity] initial overlap = 0  (seeds are independent)")
+
+        return len(self.foreign_leaves)
 
     def cantor_summary(self) -> None:
         """Print the Cantor pair cache collision summary."""
@@ -1878,7 +2007,4 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class._emit_step_diagnostics = _emit_step_diagnostics
     walker_class.step = step_with_diagnostics
     return walker_class
-
-
-
 

@@ -1,3 +1,9 @@
+from __future__ import annotations
+import math, statistics
+from collections import Counter
+from typing import Any, List, Optional, Sequence, Tuple
+from search_common import *
+
 """mixing_diagnostics.py
 
 Birthday-law / Pollard-rho style mixing diagnostics for the genus-2 Markov walk.
@@ -14,15 +20,6 @@ All diagnostics are plain Python / numpy — no Sage required.
 """
 # DEAR AI READING THIS:  RAISE ALL EXCEPTIONS
 
-from __future__ import annotations
-
-import math
-import statistics
-from collections import Counter
-from typing import Any, List, Optional, Sequence, Tuple
-
-from search_common import *
-
 # ---------------------------------------------------------------------------
 # Theoretical reference values
 # ---------------------------------------------------------------------------
@@ -35,20 +32,16 @@ def birthday_expected_collision_step(p: int, leaves_per_step: float) -> float:
     """
     return math.sqrt(math.pi * p / 2.0) / leaves_per_step
 
-
 def birthday_expected_volume_at_collision(p: int) -> float:
     """Expected number of unique nodes visited at first collision: sqrt(pi*p/2)."""
     return math.sqrt(math.pi * p / 2.0)
-
 
 def expected_collisions_at_volume(V: float, p: int) -> float:
     """Birthday estimate: E[collisions] ~ V^2 / (2p) for V << p."""
     return V * V / (2.0 * p)
 
-
 def cv_density(C: int, V: int) -> float:
     return C / V if V > 0 else 0.0
-
 
 # ---------------------------------------------------------------------------
 # Single-run collision report
@@ -65,7 +58,7 @@ def print_mixing_report(walker, label: str = "") -> None:
         walker.history
         walker.xi_visit_count
     """
-    
+
     p = getattr(walker, "p", None) or FINITE_FIELD
     if p is None:
         raise ValueError("walker.p is None — diagnostics require a finite field prime")
@@ -194,7 +187,6 @@ def print_mixing_report(walker, label: str = "") -> None:
 
     print(f"\n{hdr}\n")
 
-
 # ---------------------------------------------------------------------------
 # Multi-run collision statistics (Pollard-rho distribution check)
 # ---------------------------------------------------------------------------
@@ -298,7 +290,6 @@ class CollisionTracker:
     def n_runs(self) -> int:
         return len(self._first_collision_volumes) + self._no_collision_runs
 
-
 # ---------------------------------------------------------------------------
 # Incremental per-step summary line (drop into walk loop)
 # ---------------------------------------------------------------------------
@@ -310,7 +301,7 @@ def mixing_one_liner(walker, step: int) -> str:
     Example output:
         [mix] V=6012 (1.037×√p)  C=1  E[C]=0.54  ratio=1.85  birthday: ✓
     """
-    
+
     p = getattr(walker, "p", None) or FINITE_FIELD
     if p is None:
         return "[mix] p=None, skipping"

@@ -438,8 +438,6 @@ def find_poly_roots_fp_python(coeffs, p):
     except Exception as e:
         raise RuntimeError(f"Sage root finding failed for p={p}, coeffs={coeffs}: {e}")
 
-
-
 def mumford_precompute_residues_parallel(
     eqs_dict,
     prime_list,
@@ -526,7 +524,6 @@ def mumford_precompute_residues_parallel(
         R_m = Fp["m"]
         m_var = R_m.gen()
 
-
         # Build rhs_polys list for this prime from rhs_modp_list.
         # Simultaneously build rhs_reconstruction = [(num_coeffs_ints, den_coeffs_ints), ...]
         # using low-to-high coefficient order, all values as non-negative ints mod p.
@@ -561,7 +558,6 @@ def mumford_precompute_residues_parallel(
 
         assert len(rhs_polys_for_p) == len(rhs_reconstruction), \
             f"p={p}: rhs list length mismatch: {len(rhs_polys_for_p)} vs {len(rhs_reconstruction)}"
-
 
         #rhs_poly = -m_var + Fp(const_val_int)
         p_mults = mult_lll.get(p, {})
@@ -605,8 +601,6 @@ def mumford_precompute_residues_parallel(
             if hasattr(Pm, "is_zero") and Pm.is_zero():
                 continue
 
-
-
             for rhs_idx, rhs_poly in enumerate(rhs_polys_for_p):
                 try:
                     diff = Pm[0] - Pm[2] * rhs_poly
@@ -628,7 +622,6 @@ def mumford_precompute_residues_parallel(
                         f"Failed to extract polynomial: p={p}, v_idx={v_idx}, "
                         f"v_tuple={v_tuple}, rhs_idx={rhs_idx}, rhs={rhs_poly}, error={e}"
                     )
-
 
         # Flush any leftover items for this prime.
         if current_chunk:
@@ -706,8 +699,6 @@ def mumford_precompute_residues_parallel(
     assert results_dict, "Worker pool returned empty results - this indicates a failure"
 
     return results_dict
-
-
 
 def _solve_worker_wrapper(args):
     """

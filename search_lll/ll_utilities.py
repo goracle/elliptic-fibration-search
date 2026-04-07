@@ -614,8 +614,6 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
 
     return final_mults
 
-
-
 def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=1):
     """Estimate average residue survival ratio r_p for each prime."""
     stats = {}

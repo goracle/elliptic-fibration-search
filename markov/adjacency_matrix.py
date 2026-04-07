@@ -1,3 +1,8 @@
+from __future__ import annotations
+import math, numpy as np
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
+
 """adjacency_matrix.py
 
 Row-stochastic transition matrix for the genus-2 Markov walk.
@@ -41,21 +46,12 @@ Usage
     mat_graph.maybe_report(step_no=len(walker.history), force=True)
 """
 
-from __future__ import annotations
-
-import math
-from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
-
 try:
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
     _SCIPY_AVAILABLE = True
 except ImportError:
     _SCIPY_AVAILABLE = False
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -66,7 +62,6 @@ def _int_key(x) -> Any:
         return int(x)
     except Exception:
         return x  # fallback: keep as-is for hashable Sage elements
-
 
 # ---------------------------------------------------------------------------
 # Core class

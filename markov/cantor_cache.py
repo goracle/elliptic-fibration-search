@@ -330,6 +330,11 @@ class CantorPairCache:
         """Replay a full walker history list and accumulate all hits.
 
         Handles both RelationRecord dataclasses and plain dicts.
+
+        ``accepted_only`` gates whether the relation triple (xi, xj, xk) itself
+        is registered.  Candidate-pool entries are *always* swept because they
+        are valid F_p points regardless of whether the step was accepted — they
+        represent the full geometric neighbourhood explored at each step.
         """
         all_hits: List[CantorHit] = []
 
@@ -339,10 +344,7 @@ class CantorPairCache:
             return getattr(rec, key, None)
 
         for idx, rec in enumerate(history):
-            if accepted_only and not _get(rec, "accepted"):
-                continue
-
-            # Skip involution-closure synthetic records — they add no new pairs
+            # Skip involution-closure synthetic records — they add no new pairs.
             step = _get(rec, "step")
             if isinstance(step, dict) and step.get("source") == "involution_closure":
                 continue
@@ -351,22 +353,25 @@ class CantorPairCache:
             xj = _get(rec, "xj")
             xk = _get(rec, "xk")
 
-            if xi is None:
-                continue
+            # Register the relation triple only for accepted (or when not filtering).
+            if xi is not None and (not accepted_only or _get(rec, "accepted")):
+                hits = self.add_relation(xi, xj, xk, relation_index=idx)
+                all_hits.extend(hits)
 
-            hits = self.add_relation(xi, xj, xk, relation_index=idx)
-            all_hits.extend(hits)
-
-            # Also sweep xj/xk candidates from the pool if present
-            pool = _get(rec, "candidate_pool") or []
-            for cand in pool:
-                if not isinstance(cand, dict):
-                    continue
-                c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x")
-                c_xk = cand.get("xk")
-                if c_xj is not None and c_xj != xj:
-                    hits = self.add_relation(xi, c_xj, c_xk, relation_index=idx)
-                    all_hits.extend(hits)
+            # Always sweep the candidate pool — valid F_p points regardless of acceptance.
+            if xi is not None:
+                pool = _get(rec, "candidate_pool") or []
+                for cand in pool:
+                    if not isinstance(cand, dict):
+                        continue
+                    c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                    c_xk = cand.get("xk")
+                    # Skip the already-registered accepted pair.
+                    if c_xj is not None and c_xj == xj and c_xk == xk:
+                        continue
+                    if c_xj is not None:
+                        hits = self.add_relation(xi, c_xj, c_xk, relation_index=idx)
+                        all_hits.extend(hits)
 
         return all_hits
 
@@ -422,26 +427,56 @@ class CantorPairCache:
         """Convenience wrapper to call from inside a walker step loop.
 
         Pass the RelationRecord (or dict) directly.  Returns any hits.
+
+        Processes two sources of pairs:
+        1. The accepted relation's (xi, xj, xk) triple.
+        2. All candidate-pool entries for this step — these are geometrically
+           valid F_p points already computed by the walker, so sweeping them
+           costs only Cantor-reduce calls (cheap) and surfaces hits much earlier
+           than accepted-only feeding would.  Pool candidates are indexed as
+           sub-entries of the same step_index so hit attribution is correct.
         """
         def _get(r, k):
             if isinstance(r, dict):
                 return r.get(k)
             return getattr(r, k, None)
 
-        if not _get(rec, "accepted"):
-            return []
         step = _get(rec, "step")
         if isinstance(step, dict) and step.get("source") == "involution_closure":
             return []
 
-        # Pass step_index so CantorHit.relation_index_new matches walker.history index.
         step_index = _get(rec, "step_index")
-        return self.add_relation(
-            _get(rec, "xi"),
-            _get(rec, "xj"),
-            _get(rec, "xk"),
-            relation_index=step_index,
-        )
+        xi = _get(rec, "xi")
+        all_hits: List[CantorHit] = []
+
+        # 1. Accepted relation triple.
+        if _get(rec, "accepted") and xi is not None:
+            hits = self.add_relation(
+                xi,
+                _get(rec, "xj"),
+                _get(rec, "xk"),
+                relation_index=step_index,
+            )
+            all_hits.extend(hits)
+
+        # 2. Candidate pool — sweep regardless of accepted flag.
+        # Each pool entry is a dict with at least one of xj/x/candidate_x and
+        # optionally xk.  We use xi from the record (the step's source node).
+        if xi is not None:
+            pool = _get(rec, "candidate_pool") or []
+            for cand in pool:
+                if not isinstance(cand, dict):
+                    continue
+                c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                c_xk = cand.get("xk")
+                # Skip the already-accepted pair to avoid double-counting.
+                if c_xj is not None and c_xj == _get(rec, "xj") and c_xk == _get(rec, "xk"):
+                    continue
+                if c_xj is not None:
+                    hits = self.add_relation(xi, c_xj, c_xk, relation_index=step_index)
+                    all_hits.extend(hits)
+
+        return all_hits
 
     # ------------------------------------------------------------------
     # Reporting
