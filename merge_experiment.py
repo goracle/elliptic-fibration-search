@@ -66,8 +66,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 2*int(ceil(0.1*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 2*int(ceil(0.1*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 8*int(ceil(0.1*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 8*int(ceil(0.1*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -315,6 +315,9 @@ def main(argv=None):
     # chains rather than just the walk's own history.  This prevents B from
     # looking artificially high-novelty when it's really just re-covering A's ground.
     collective_leaves: set = set(walker_a.global_leaves_seen) if walker_a is not None else set()
+    # peer_walkers accumulates finished walkers so nullity checks during C/D
+    # see the combined rank of A+B, A+B+C, etc. rather than just their own rows.
+    peer_walkers_done: List = [walker_a] if walker_a is not None else []
 
     def _run_secondary(label, x0, seed, log_path):
         role = _ROLE.get(label, "?")
@@ -328,8 +331,16 @@ def main(argv=None):
         )
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
+        # Spectral reports are expensive and not useful on sub-chains mid-run.
+        # The primary walk (A) already gives the full spectrum; sub-chains would
+        # re-compute it on every run(1) call (52 times each) for no benefit.
+        w.config.spectral_enabled = False
+        w.mat_chain = None
+        w.mat_graph = None
         _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
-                   label=label, collective_leaves=collective_leaves)
+                   label=label, collective_leaves=collective_leaves,
+                   nullity_every=100, peer_walkers=list(peer_walkers_done))
+        peer_walkers_done.append(w)
         return w
 
     walker_b = _run_secondary("B", x0_b, seed=1, log_path="walk_B.jsonl")
@@ -420,6 +431,8 @@ def _quiet_run(
     checkpoint_every: int = 1,
     label: str = "?",
     collective_leaves: Optional[set] = None,
+    nullity_every: int = 100,
+    peer_walkers: Optional[List] = None,
 ) -> None:
     """Run a secondary walk with full per-step verbose output.
 
@@ -431,6 +444,11 @@ def _quiet_run(
     (A + all prior secondary chains) is printed after each run(1) call.
     Pass a set that starts from walker_a.global_leaves_seen; it is updated
     in-place as each step runs so later chains see the correct baseline.
+
+    nullity_every -- compute and print combined nullity every N steps.
+    peer_walkers  -- walkers already finished (e.g. [walker_a, walker_b]);
+    their relation matrices are stacked with the current walker's to get the
+    true combined nullity as this walk accumulates rows.
     """
     walker.config.verbose = True
 
@@ -485,6 +503,57 @@ def _quiet_run(
                 f"  leaf={merge_leaf}  own_vol={own_vol} ({own_vol/sqrt_p:.4f}\u00d7\u221ap)"
                 f"  elapsed={elapsed:.1f}s\n"
             )
+
+        # -- optional nullity checkpoint ----------------------------------
+        nullity_str2 = ""
+        if nullity_every > 0 and display_step % nullity_every == 0:
+            try:
+                from sage.all import GF, matrix as sage_matrix
+                # Build combined matrix from peer walkers + current walker.
+                all_walkers = list(peer_walkers or []) + [walker]
+                mats, atom_lists = [], []
+                for w in all_walkers:
+                    try:
+                        mat, atoms, _ = w.relation_matrix(include_step_leaves=False)
+                        if mat.nrows() > 0:
+                            mats.append(mat)
+                            atom_lists.append(atoms)
+                    except Exception:
+                        pass
+                if mats:
+                    # Union atoms
+                    all_atoms = list(atom_lists[0])
+                    atom_set = set(map(str, all_atoms))
+                    for atms in atom_lists[1:]:
+                        for a in atms:
+                            if str(a) not in atom_set:
+                                all_atoms.append(a)
+                                atom_set.add(str(a))
+                    nc = len(all_atoms)
+                    aidx = {str(a): i for i, a in enumerate(all_atoms)}
+                    from sage.all import ZZ
+                    rows = []
+                    for mat, atms in zip(mats, atom_lists):
+                        cols_src = [aidx[str(a)] for a in atms]
+                        for r in range(mat.nrows()):
+                            row = [0] * nc
+                            for c_src, c_dst in enumerate(cols_src):
+                                row[c_dst] = int(mat[r, c_src])
+                            rows.append(row)
+                    # Use a fast test prime to estimate rank
+                    _Fp = GF(2**31 - 1)
+                    M = sage_matrix(_Fp, rows)
+                    rk = M.rank()
+                    nullity = nc - rk
+                    total_rows = len(rows)
+                    nullity_str2 = (
+                        f"  [nullity check @ step {display_step}]"
+                        f"  rows={total_rows}  cols={nc}  rank={rk}  nullity={nullity}"
+                        f"  (need {max(0, nullity-1)} more independent rows)"
+                    )
+                    _log(f"{tag}{nullity_str2}")
+            except Exception as exc:
+                _log(f"{tag} [nullity check failed: {exc}]")
 
         # Summary line with chain label so you always know which walk this is.
         _log(
@@ -773,23 +842,42 @@ def dlp_from_merged_walks(
         _log(f"[dlp_list] solving {A.nrows()}×{A.ncols()} system over GF({n}) ...")
 
     # ------------------------------------------------------------------
-    # 6. Solve the normalized system
+    # 6. Rank diagnostics (before solve — always printed even if solve fails)
     # ------------------------------------------------------------------
-    try:
-        sol = A.solve_right(b)
-    except Exception as exc:
-        _log(f"[dlp_list] normalized solve failed: {exc}")
-        result["method"] = "solve_right_failed"
-        raise
-
-    # Sage caches the echelon form after solve_right; rank() reuses it (no extra work).
     rank_aug = A.rank()
     result["rank_augmented"] = rank_aug
     result["kernel_dim"] = n_cols - rank_aug
     if verbose:
         _log(
-            f"[dlp_list] rank_augmented={rank_aug}  nullity≈{result['kernel_dim']}"
+            f"[dlp_list] rank_augmented={rank_aug}  nullity={result['kernel_dim']}"
+            f"  (need nullity=1 for unique solution)"
         )
+    if result["kernel_dim"] > 1:
+        _log(
+            f"[dlp_list] UNDERDETERMINED: nullity={result['kernel_dim']} — need {result['kernel_dim']-1} more "
+            f"independent relation rows before solve is possible.  "
+            f"(rows={M_combined.nrows()}, cols={n_cols}, rank={result['rank_combined']})"
+        )
+        result["method"] = "underdetermined"
+        return result
+
+    # ------------------------------------------------------------------
+    # 7. Solve the normalized system
+    # ------------------------------------------------------------------
+    try:
+        sol = A.solve_right(b)
+    except ValueError as exc:
+        _log(
+            f"[dlp_list] solve_right failed: {exc}\n"
+            f"  anchor constraint (α[gen_x]+α[gen_partner_x]=1) inconsistent with relation rows\n"
+            f"  — check that generator columns are present and group_order is correct."
+        )
+        result["method"] = "solve_right_failed"
+        return result
+    except Exception as exc:
+        _log(f"[dlp_list] solve_right unexpected error: {exc}")
+        result["method"] = "solve_right_failed"
+        raise
 
     residual = A * sol - b
     if any(v != 0 for v in residual):
