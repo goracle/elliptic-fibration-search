@@ -2,9 +2,11 @@ from __future__ import annotations
 import argparse, json, math, random as _random, sys, time
 from pathlib import Path
 from typing import Optional, List, Tuple
-from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL
+from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS
 from sage.all import *
 from markov import *
+from genus2_markov_module import make_project_markov_search_fn, load_project_sources
+from math import sqrt, ceil
 
 """merge_experiment.py
 
@@ -53,23 +55,22 @@ Usage
 # ---------------------------------------------------------------------------
 # Project imports
 # ---------------------------------------------------------------------------
-from genus2_markov_module import make_project_markov_search_fn, load_project_sources
 try:
     _HAS_PROJECT = True
 except ImportError:
     _HAS_PROJECT = False
+    raise
 
 # ---------------------------------------------------------------------------
 # Experiment configuration
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 320
-DEFAULT_STEPS_BCD     = 320
+DEFAULT_STEPS_A       = 2*int(ceil(0.1*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 2*int(ceil(0.1*sqrt(FINITE_FIELD)))
 
-_FALLBACK_P      = 33554467
+_FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
-
 
 # ---------------------------------------------------------------------------
 # Divisor-root seed computation
@@ -104,14 +105,9 @@ def _divisor_seed_xs() -> List[int]:
     assert len(result) == 4, f"Expected 4 divisor roots, got {len(result)}: {result}"
     return result
 
-
 # ---------------------------------------------------------------------------
 # Walker construction
 # ---------------------------------------------------------------------------
-
-def _log(msg: str, **kw) -> None:
-    print(msg, flush=True, **kw)
-
 
 def _build_walker(
     seed: int,
@@ -136,202 +132,12 @@ def _build_walker(
         search_fn=search_fn,
         log_path=log_path,
         log_full_candidates=True,
+        preferred_xs=PREFERRED_X_COORDS
     )
-
 
 # ---------------------------------------------------------------------------
 # DLP stream-merge solve
 # ---------------------------------------------------------------------------
-
-def dlp_from_merged_walks(
-    walker_a: Genus2MetropolisWalker,
-    walker_b: Genus2MetropolisWalker,
-    target_x,
-    group_order: Optional[int] = None,
-    generator_x=None,
-    verbose: bool = True,
-) -> Optional[dict]:
-    """Attempt a DLP solve from the combined relation matrices of two walks.
-
-    The merge event means the two walks share a common leaf, giving us a path
-    in the Cayley graph from the generator to the target through that leaf.
-    The relation matrix encodes each walk step as a linear equation over Z/nZ
-    relating the discrete logs of the x-coordinates involved.
-
-    Parameters
-    ----------
-    walker_a, walker_b : completed walkers with non-empty history.
-    target_x           : x-coordinate of the DLP target point T.
-    group_order        : order n of the Jacobian (or known subgroup order).
-                         If None, we attempt to read it from walker globals.
-    generator_x        : x-coordinate of the generator G.  If None, the
-                         function uses the first leaf seen by walk A.
-    verbose            : print intermediate diagnostics.
-
-    Returns
-    -------
-    dict with keys:
-        "dlp"          : integer k such that T = k·G  (mod n), or None.
-        "method"       : description of the solve path used.
-        "rank_A"       : rank of A's relation matrix mod a large prime.
-        "rank_B"       : rank of B's relation matrix mod a large prime.
-        "rank_combined": rank of the stacked matrix.
-        "n_cols"       : number of distinct leaf columns.
-    """
-    _P_TEST = 2**31 - 1   # large prime for rank testing
-
-    result = {
-        "dlp": None,
-        "method": None,
-        "rank_A": None,
-        "rank_B": None,
-        "rank_combined": None,
-        "n_cols": None,
-    }
-
-    # --- Build individual relation matrices --------------------------------
-    try:
-        mat_a, atoms_a, used_a = walker_a.relation_matrix(include_step_leaves=False)
-        mat_b, atoms_b, used_b = walker_b.relation_matrix(include_step_leaves=False)
-    except Exception as exc:
-        _log(f"[dlp] relation_matrix() failed: {exc}")
-        return result
-
-    if mat_a.nrows() == 0 or mat_b.nrows() == 0:
-        _log("[dlp] one or both walks have empty relation matrices — no solve possible.")
-        return result
-
-    # --- Merge the atom (column) sets -------------------------------------
-    # atoms_* are lists of x-coordinates (leaves).  We need a unified column
-    # ordering so both matrices can be stacked consistently.
-    all_atoms_ordered = list(atoms_a)
-    atom_set = set(map(str, atoms_a))
-    extra_b = [a for a in atoms_b if str(a) not in atom_set]
-    all_atoms_ordered.extend(extra_b)
-    n_cols = len(all_atoms_ordered)
-    atom_index = {str(a): i for i, a in enumerate(all_atoms_ordered)}
-
-    result["n_cols"] = n_cols
-
-    def _reindex_matrix(mat, atoms_src):
-        """Re-embed mat (which lives in atom_src's column space) into the
-        unified n_cols-wide column space."""
-        cols_src = [atom_index[str(a)] for a in atoms_src]
-        M = matrix(ZZ, mat.nrows(), n_cols)
-        for r in range(mat.nrows()):
-            for c_src, c_dst in enumerate(cols_src):
-                M[r, c_dst] = mat[r, c_src]
-        return M
-
-    M_a = _reindex_matrix(mat_a, atoms_a)
-    M_b = _reindex_matrix(mat_b, atoms_b)
-    M_combined = M_a.stack(M_b)
-
-    # --- Rank diagnostics -------------------------------------------------
-    Fp_test = GF(_P_TEST)
-    result["rank_A"]        = mat_a.change_ring(Fp_test).rank()
-    result["rank_B"]        = mat_b.change_ring(Fp_test).rank()
-    result["rank_combined"] = M_combined.change_ring(Fp_test).rank()
-
-    if verbose:
-        _log(f"[dlp] atoms: A={mat_a.ncols()}, B={mat_b.ncols()}, combined={n_cols}")
-        _log(f"[dlp] rows:  A={mat_a.nrows()}, B={mat_b.nrows()}, combined={M_combined.nrows()}")
-        _log(f"[dlp] rank:  A={result['rank_A']}, B={result['rank_B']}, combined={result['rank_combined']}")
-
-    # --- Identify target and generator columns ----------------------------
-    if target_x is None:
-        _log("[dlp] target_x is None — cannot solve.")
-        return result
-
-    target_col = atom_index.get(str(target_x))
-    if target_col is None:
-        _log(f"[dlp] target x={target_x} not in combined leaf set — walk did not reach it.")
-        return result
-
-    gen_col = None
-    if generator_x is not None:
-        gen_col = atom_index.get(str(generator_x))
-        if gen_col is None:
-            _log(f"[dlp] generator x={generator_x} not in combined leaf set.")
-
-    # --- Solve over Z/nZ --------------------------------------------------
-    # We want a vector v in the right kernel of M_combined mod n such that
-    # v[target_col] ≠ 0.  Then dlp = -v[gen_col] * v[target_col]^{-1} mod n.
-    #
-    # If group_order is unknown, try Smith Normal Form over Z to read off
-    # torsion structure, then reduce.
-    n = group_order
-    if n is None:
-        try:
-            n_sym = resolve_project_symbol('GROUP_ORDER', default=None)
-            if n_sym is not None:
-                n = int(n_sym)
-        except Exception:
-            pass
-
-    if n is None:
-        if verbose:
-            _log("[dlp] group_order unknown — computing Smith Normal Form over Z.")
-        try:
-            D, U, V = M_combined.smith_form()
-            # Diagonal of D gives torsion invariants.  The last non-zero diagonal
-            # entry is the largest invariant factor and bounds the group order.
-            diag = [D[i, i] for i in range(min(D.nrows(), D.ncols()))]
-            non_trivial = [d for d in diag if d not in (0, 1)]
-            if non_trivial:
-                n = non_trivial[-1]
-                _log(f"[dlp] inferred group order bound from SNF: n={n}")
-            else:
-                _log("[dlp] SNF gave trivial invariant factors — cannot extract n.")
-                result["method"] = "snf_trivial"
-                return result
-        except Exception as exc:
-            _log(f"[dlp] SNF failed: {exc}")
-            return result
-
-    # Right kernel of M_combined mod n
-    try:
-        Zn = Integers(n)
-        M_mod = M_combined.change_ring(Zn)
-        K = M_mod.right_kernel()
-        if verbose:
-            _log(f"[dlp] right kernel dimension mod {n}: {K.dimension()}")
-    except Exception as exc:
-        _log(f"[dlp] kernel computation failed: {exc}")
-        result["method"] = "kernel_failed"
-        return result
-
-    # Search kernel basis for a vector with non-zero target_col entry
-    dlp_val = None
-    for v in K.basis():
-        t_entry = Zn(v[target_col])
-        if t_entry == 0:
-            continue
-        if gen_col is not None:
-            g_entry = Zn(v[gen_col])
-            if g_entry == 0:
-                continue
-            try:
-                dlp_val = int(-t_entry * g_entry.__invert__()) % n
-                result["method"] = "kernel_ratio"
-                result["dlp"] = dlp_val
-                break
-            except ZeroDivisionError:
-                continue
-        else:
-            # No generator identified; report the raw target coefficient
-            result["method"] = "kernel_target_only"
-            result["dlp"] = int(t_entry)
-            break
-
-    if verbose:
-        if dlp_val is not None:
-            _log(f"[dlp] SOLVED: k = {dlp_val}  (T = {dlp_val}·G mod {n})")
-        else:
-            _log("[dlp] kernel basis exhausted without finding usable vector.")
-
-    return result
-
 
 # ---------------------------------------------------------------------------
 # Merge-path DLP: birthday-paradox collision path
@@ -367,15 +173,33 @@ def _collision_path_dlp(
         _log(f"[collision_dlp] merge leaf = {merge_leaf}")
         _log(f"[collision_dlp] delegating to dlp_from_merged_walks "
              f"(target=merge_leaf, generator=walk_A_start)")
-    gen_x = walker_a.history[0].xi if walker_a.history else None
+    # Walk A is seeded from BASE_DIVISOR root 0; walk B from root 1.
+    # merge_leaf is the collision point — NOT the DLP target.
+    # The DLP target is the TARGET_DIVISOR root (x0_c from PREFERRED_X_COORDS).
+    try:
+        div_xs = _divisor_seed_xs()
+        gen_x, gen_partner_x, target_x_override, target_partner_x = div_xs
+    except Exception:
+        gen_x             = walker_a.history[0].xi if walker_a.history else None
+        gen_partner_x     = walker_b.history[0].xi if walker_b.history else None
+        target_x_override = merge_leaf   # last-resort fallback only
+        target_partner_x  = None
+        raise
+
+    if verbose:
+        _log(f"[collision_dlp] merge_leaf={merge_leaf}  (collision, not DLP target)")
+        _log(f"[collision_dlp] generator roots: {gen_x}, {gen_partner_x}")
+        _log(f"[collision_dlp] target    roots: {target_x_override}, {target_partner_x}")
+
     return dlp_from_merged_walks(
         walker_a, walker_b,
-        target_x=merge_leaf,
+        target_x=target_x_override,
         group_order=group_order,
         generator_x=gen_x,
+        generator_x_partner=gen_partner_x,
+        target_x_partner=target_partner_x,
         verbose=verbose,
     )
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -480,9 +304,22 @@ def main(argv=None):
         _log(f"[skip-a]  loading snapshot from {args.snapshot}")
 
     # -- Helper: build + run one of the B/C/D walks -----------------------
+    _ROLE = {
+        "B": "BASE_DIVISOR root 1",
+        "C": "TARGET_DIVISOR root 0",
+        "D": "TARGET_DIVISOR root 1",
+    }
+
+    # collective_leaves starts as walk A's leaf set (or empty if --skip-a).
+    # Each secondary walk adds to it, so novelty is measured against ALL prior
+    # chains rather than just the walk's own history.  This prevents B from
+    # looking artificially high-novelty when it's really just re-covering A's ground.
+    collective_leaves: set = set(walker_a.global_leaves_seen) if walker_a is not None else set()
+
     def _run_secondary(label, x0, seed, log_path):
+        role = _ROLE.get(label, "?")
         _log(f"\n{'='*70}")
-        _log(f"PHASE {label}  x0={x0}  steps={args.steps_bcd}  (quiet mode)")
+        _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
         _log(f"{'='*70}\n")
         w = _build_walker(
             seed=seed, p=p, coeffs=coeffs, x0=x0, y0=None,
@@ -490,8 +327,9 @@ def main(argv=None):
             search_fn=search_fn,
         )
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
-        _log(f"  [{label}] foreign leaves loaded: {n_foreign}")
-        _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every)
+        _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
+        _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
+                   label=label, collective_leaves=collective_leaves)
         return w
 
     walker_b = _run_secondary("B", x0_b, seed=1, log_path="walk_B.jsonl")
@@ -527,34 +365,34 @@ def main(argv=None):
         "first_merge_step_global": first_merge_step,
     }
 
-    # -- DLP solve (optional) -- use first walk that merged ---------------
-    if args.dlp and walker_a is not None and first_merger is not None:
-        merge_label, merge_walker = first_merger
+    # -- DLP solve (optional) -- all four walks stacked -------------------
+    if args.dlp and walker_a is not None:
         _log(f"\n{'='*70}")
-        _log(f"DLP SOLVE using walk {merge_label} (first to merge with A)")
+        _log(f"DLP SOLVE  (A + B + C + D relation matrices stacked)")
         _log(f"{'='*70}\n")
 
-        merge_leaf = None
-        if merge_walker.merge_log:
-            merge_leaf = merge_walker.merge_log[0][3]
-            _log(f"[dlp] merge leaf (first collision): {merge_leaf}")
-
-        target_x = args.dlp_target if args.dlp_target is not None else merge_leaf
+        # PREFERRED_X_COORDS order: [x0_A, x0_B, x0_C, x0_D]
+        #   x0_A, x0_B = BASE_DIVISOR roots  (generator G)
+        #   x0_C, x0_D = TARGET_DIVISOR roots (challenge T)
+        target_x         = args.dlp_target if args.dlp_target is not None else x0_c
+        target_x_partner = x0_d
 
         if target_x is not None:
             dlp_result = dlp_from_merged_walks(
-                walker_a, merge_walker,
+                [walker_a, walker_b, walker_c, walker_d],
                 target_x=target_x,
                 group_order=args.group_order,
                 generator_x=x0_a,
+                generator_x_partner=x0_b,
+                target_x_partner=target_x_partner,
                 verbose=True,
             )
             metrics["dlp"] = dlp_result
             _log(f"[dlp] result: {dlp_result}")
         else:
-            _log("[dlp] no merge occurred and no --dlp-target given; skipping solve.")
+            _log("[dlp] no --dlp-target given; skipping solve.")
     elif args.dlp:
-        _log("[dlp] skipped: walk A not run (--skip-a) or no merge detected in B/C/D.")
+        _log("[dlp] skipped: walk A not run (--skip-a).")
 
     # -- Write results -----------------------------------------------------
     with open(args.results, "w") as fh:
@@ -572,40 +410,98 @@ def main(argv=None):
 
     return metrics
 
-
 # ---------------------------------------------------------------------------
-# Quiet runner (unchanged from original)
+# Secondary-walk runner (verbose, label-aware)
 # ---------------------------------------------------------------------------
 
-def _quiet_run(walker: Genus2MetropolisWalker, steps: int, checkpoint_every: int = 5) -> None:
-    original_verbose = walker.config.verbose
-    walker.config.verbose = False
+def _quiet_run(
+    walker: Genus2MetropolisWalker,
+    steps: int,
+    checkpoint_every: int = 1,
+    label: str = "?",
+    collective_leaves: Optional[set] = None,
+) -> None:
+    """Run a secondary walk with full per-step verbose output.
+
+    Uses walker.run(1) per step so the secondary chain gets the exact same
+    ====== block as the primary walk — you can see what chain/walk you're on
+    from the [walk-LABEL] header lines bracketing each step.
+
+    collective_leaves -- if supplied, novelty rate vs the shared pool
+    (A + all prior secondary chains) is printed after each run(1) call.
+    Pass a set that starts from walker_a.global_leaves_seen; it is updated
+    in-place as each step runs so later chains see the correct baseline.
+    """
+    walker.config.verbose = True
 
     sqrt_p = math.sqrt(walker.p) if walker.p is not None else float("nan")
-    t0 = time.time()
+    t0     = time.time()
+    tag    = f"[walk-{label}]"
+
+    _log(f"\n{tag} starting  steps={steps}  xi={getattr(walker, 'current_x', '?')}  "
+         f"foreign_leaves={len(walker.foreign_leaves) if walker.foreign_leaves is not None else 'none'}"
+         f"  collective_ref={'yes ('+str(len(collective_leaves))+' leaves)' if collective_leaves is not None else 'own'}")
 
     for i in range(steps):
-        walker.step()
+        # Snapshot only the leaves that are genuinely new-to-collective this step.
+        # We compare collective BEFORE vs AFTER the step, but only counting leaves
+        # the walker itself just discovered (intersection of new own-leaves with
+        # collective).  Do NOT use collective.update(global_leaves_seen) — that
+        # would dump the walker's full accumulated history every step, inflating
+        # the before→after delta and producing >100% novelty.
+        own_before = set(walker.global_leaves_seen)
+        coll_size_before = len(collective_leaves) if collective_leaves is not None else None
+
+        # Use run(1) so the full ====== diagnostic block is printed, identical
+        # to the on-chain (walk A) output.  The walker label header below it
+        # makes clear which chain produced it.
+        walker.run(1)
         display_step = i + 1
 
-        if display_step % checkpoint_every == 0:
-            vol  = len(walker.global_leaves_seen)
-            ins  = walker.total_leaf_insertions
-            hits = len(walker.merge_log) if walker.foreign_leaves is not None else "n/a"
-            elapsed = time.time() - t0
+        # Novelty vs collective: count only the leaves this step actually added
+        # to global_leaves_seen that were absent from the collective pool.
+        if collective_leaves is not None:
+            new_own_this_step = walker.global_leaves_seen - own_before
+            new_to_coll = new_own_this_step - collective_leaves
+            collective_leaves.update(new_own_this_step)   # only add genuinely new leaves
+            leaves_found = len(new_own_this_step)
+            novelty_coll = len(new_to_coll) / leaves_found if leaves_found > 0 else 0.0
+            novelty_str  = f"novelty={novelty_coll:.1%} vs collective ({len(collective_leaves)} total)"
+        else:
+            step_dict   = {}  # run(1) already printed stats; no need to re-extract
+            novelty_str = ""
+
+        own_vol  = len(walker.global_leaves_seen)
+        ins      = walker.total_leaf_insertions
+        merges   = len(walker.merge_log) if walker.foreign_leaves is not None else "n/a"
+        elapsed  = time.time() - t0
+
+        # -- merge announcement (fires exactly once, immediately) ----------
+        if (walker.first_merge_step is not None
+                and len(walker.history) - 1 == walker.first_merge_step):
+            merge_leaf = walker.merge_log[0][3] if walker.merge_log else "?"
             _log(
-                f"  [B step {display_step:>5}]  vol={vol:>7}  ({vol/sqrt_p:.4f}×√p)  "
-                f"ins={ins}  ({ins/sqrt_p:.4f}×√p)  "
-                f"merge_hits={hits}  elapsed={elapsed:.1f}s"
+                f"\n{tag} *** FIRST MERGE at step {display_step} ***"
+                f"  leaf={merge_leaf}  own_vol={own_vol} ({own_vol/sqrt_p:.4f}\u00d7\u221ap)"
+                f"  elapsed={elapsed:.1f}s\n"
             )
 
-        if (walker.first_merge_step is not None
-                and display_step == walker.first_merge_step
-                and display_step > 0):
-            _log(f"  [B] first merge recorded at step {walker.first_merge_step}, continuing…")
+        # Summary line with chain label so you always know which walk this is.
+        _log(
+            f"{tag} step {display_step:>5}/{steps}"
+            f"  own_vol={own_vol} ({own_vol/sqrt_p:.4f}\u00d7\u221ap)"
+            f"  ins={ins} ({ins/sqrt_p:.4f}\u00d7\u221ap)"
+            f"  merges={merges}"
+            f"  {novelty_str}"
+            f"  elapsed={elapsed:.1f}s"
+        )
 
-    walker.config.verbose = original_verbose
-
+    vol_final = len(walker.global_leaves_seen)
+    _log(
+        f"\n{tag} done  vol={vol_final} ({vol_final/sqrt_p:.4f}\u00d7\u221ap)"
+        f"  total_merges={len(walker.merge_log) if walker.foreign_leaves is not None else 'n/a'}"
+        f"  elapsed={time.time()-t0:.1f}s"
+    )
 
 def _merge_report(walker: Genus2MetropolisWalker, total_steps: int) -> dict:
     p = walker.p
@@ -666,6 +562,262 @@ def _merge_report(walker: Genus2MetropolisWalker, total_steps: int) -> dict:
 
     return metrics
 
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+def dlp_from_merged_walks(
+    walkers,
+    target_x,
+    group_order=None,
+    generator_x=None,
+    generator_x_partner=None,
+    target_x_partner=None,
+    verbose: bool = True,
+) -> Optional[dict]:
+    """DLP solve from the union of all walkers' relation matrices.
+
+    This version avoids arbitrary kernel-vector selection.
+    It solves the normalized affine system
+
+        M_combined * alpha = 0
+        alpha[gen_x] + alpha[gen_partner_x] = 1
+
+    over GF(ℓ), then reads off alpha[target_x] as the DLP coefficient.
+    """
+
+    from sage.all import matrix, ZZ, GF, Integer, vector
+
+    _P_TEST = 2**31 - 1
+
+    result = {
+        "dlp": None,
+        "method": None,
+        "ranks": [],
+        "rank_combined": None,
+        "rank_augmented": None,
+        "kernel_dim": None,   # nullity of the normalized system
+        "n_cols": None,
+        "verified": False,
+    }
+
+    if not walkers:
+        raise ValueError("dlp_from_merged_walks: no walkers supplied")
+
+    # ------------------------------------------------------------------
+    # 1. Build individual relation matrices
+    # ------------------------------------------------------------------
+    mats = []
+    atom_lists = []
+    for i, w in enumerate(walkers):
+        try:
+            mat, atoms, _used = w.relation_matrix(include_step_leaves=False)
+        except Exception as exc:
+            _log(f"[dlp_list] walker[{i}] relation_matrix() failed: {exc}")
+            raise
+
+        if mat.nrows() == 0:
+            if verbose:
+                _log(f"[dlp_list] walker[{i}] has empty relation matrix — skipping")
+            continue
+
+        mats.append(mat)
+        atom_lists.append(atoms)
+
+    if not mats:
+        _log("[dlp_list] all walks have empty relation matrices — no solve possible.")
+        return result
+
+    # ------------------------------------------------------------------
+    # 2. Union column spaces
+    # ------------------------------------------------------------------
+    all_atoms_ordered = list(atom_lists[0])
+    atom_set = set(map(str, all_atoms_ordered))
+    for atoms in atom_lists[1:]:
+        for a in atoms:
+            if str(a) not in atom_set:
+                all_atoms_ordered.append(a)
+                atom_set.add(str(a))
+
+    n_cols = len(all_atoms_ordered)
+    atom_index = {str(a): i for i, a in enumerate(all_atoms_ordered)}
+    result["n_cols"] = n_cols
+
+    def _reindex(mat, atoms_src):
+        cols_src = [atom_index[str(a)] for a in atoms_src]
+        M = matrix(ZZ, mat.nrows(), n_cols)
+        for r in range(mat.nrows()):
+            for c_src, c_dst in enumerate(cols_src):
+                M[r, c_dst] = mat[r, c_src]
+        return M
+
+    Fp_test = GF(_P_TEST)
+
+    reindexed = []
+    for mat, atoms in zip(mats, atom_lists):
+        M_i = _reindex(mat, atoms)
+        reindexed.append(M_i)
+        if verbose:
+            rk = mat.change_ring(Fp_test).rank()
+            result["ranks"].append(rk)
+            _log(f"[dlp_list]   walker rows={mat.nrows()} atoms={mat.ncols()} rank={rk}")
+
+    M_combined = reindexed[0]
+    for M_i in reindexed[1:]:
+        M_combined = M_combined.stack(M_i)
+
+    # Defer combined-rank computation: we'll compute it from M_fp (after change_ring
+    # to the actual GF(n)) so we don't materialise a third large matrix over Fp_test.
+    if verbose:
+        _log(
+            f"[dlp_list] combined: rows={M_combined.nrows()} cols={n_cols} "
+            f"(rank deferred to post-change_ring over GF(ℓ))"
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Resolve required columns
+    # ------------------------------------------------------------------
+    if target_x is None:
+        _log("[dlp_list] target_x is None — cannot solve.")
+        return result
+
+    target_col = atom_index.get(str(target_x))
+    if target_col is None:
+        _log(f"[dlp_list] target x={target_x} not in combined leaf set.")
+        return result
+
+    if generator_x is None:
+        _log("[dlp_list] generator_x is None — cannot anchor.")
+        return result
+
+    gen_col = atom_index.get(str(generator_x))
+    if gen_col is None:
+        _log(f"[dlp_list] generator x={generator_x} not in combined leaf set.")
+        return result
+
+    gen_partner_col = None
+    if generator_x_partner is not None:
+        gen_partner_col = atom_index.get(str(generator_x_partner))
+        if gen_partner_col is None and verbose:
+            _log(
+                f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
+                f"— anchor will use single-column form."
+            )
+
+    # ------------------------------------------------------------------
+    # 4. Resolve group order
+    # ------------------------------------------------------------------
+    n = group_order
+    if n is None:
+        try:
+            if GROUP_MODULUS is not None:
+                n = int(GROUP_MODULUS)
+        except Exception:
+            raise
+
+    if n is None:
+        _log("[dlp_list] group_order unknown — cannot solve mod ℓ.")
+        result["method"] = "no_group_order"
+        return result
+
+    if verbose:
+        _log(f"[dlp_list] working mod ℓ = {n}")
+
+    # ------------------------------------------------------------------
+    # 5. Build normalized affine system A * alpha = b
+    # ------------------------------------------------------------------
+    # Walk rows are homogeneous:      M_combined * alpha = 0
+    # Anchor row is inhomogeneous:    alpha[gen_col] + alpha[gen_partner_col] = 1
+    #
+    # This removes the arbitrary kernel-vector ratio step entirely.
+    #
+    # Memory note: use change_ring() not matrix(Fp, [[...], ...]).
+    # The list-of-lists path does element-by-element GF coercion, creating
+    # O(rows*cols) transient Python objects (~70 MB for a 1k×1.2k system)
+    # before packing them into the C array.  change_ring() stays in C the
+    # whole time and avoids the spike entirely.
+    Fp = GF(n)
+
+    # Lift M_combined ZZ -> GF(n) in one C-level pass.
+    M_fp = M_combined.change_ring(Fp)
+    result["rank_combined"] = M_fp.rank()
+    if verbose:
+        _log(
+            f"[dlp_list] combined over GF({n}): rows={M_combined.nrows()} cols={n_cols} "
+            f"rank={result['rank_combined']} "
+            f"nullity_pre_anchor={n_cols - result['rank_combined']}"
+        )
+
+    # Append anchor row directly as a Sage matrix row (no Python list detour).
+    anchor_row_fp = vector(Fp, n_cols)
+    anchor_row_fp[gen_col] = Fp(1)
+    if gen_partner_col is not None:
+        anchor_row_fp[gen_partner_col] = Fp(1)
+
+    A = M_fp.stack(matrix(Fp, [anchor_row_fp]))
+    b = vector(Fp, [Fp(0)] * M_combined.nrows() + [Fp(1)])
+
+    # rank() triggers a full echelon pass; solve_right does the same internally.
+    # Skip the pre-solve rank call to avoid computing echelon form twice.
+    # We report rank_augmented after the solve from the echelon form Sage already holds.
+    result["rank_augmented"] = None   # filled in below after solve
+    result["kernel_dim"] = None
+
+    if verbose:
+        anchor_desc = (
+            f"α[{generator_x}] + α[{generator_x_partner}] = 1"
+            if gen_partner_col is not None
+            else f"α[{generator_x}] = 1"
+        )
+        _log(f"[dlp_list] anchor row   : {anchor_desc}")
+        _log(f"[dlp_list] solving {A.nrows()}×{A.ncols()} system over GF({n}) ...")
+
+    # ------------------------------------------------------------------
+    # 6. Solve the normalized system
+    # ------------------------------------------------------------------
+    try:
+        sol = A.solve_right(b)
+    except Exception as exc:
+        _log(f"[dlp_list] normalized solve failed: {exc}")
+        result["method"] = "solve_right_failed"
+        raise
+
+    # Sage caches the echelon form after solve_right; rank() reuses it (no extra work).
+    rank_aug = A.rank()
+    result["rank_augmented"] = rank_aug
+    result["kernel_dim"] = n_cols - rank_aug
+    if verbose:
+        _log(
+            f"[dlp_list] rank_augmented={rank_aug}  nullity≈{result['kernel_dim']}"
+        )
+
+    residual = A * sol - b
+    if any(v != 0 for v in residual):
+        raise RuntimeError("[dlp_list] solve_right returned a non-solution")
+
+    dlp_val = int(sol[target_col]) % n
+    result["dlp"] = dlp_val
+    result["method"] = "normalized_solve_right"
+
+    if verbose:
+        _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}·G  mod {n})")
+
+    # ------------------------------------------------------------------
+    # 7. Verification
+    # ------------------------------------------------------------------
+    try:
+        if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
+            check = Integer(dlp_val) * BASE_DIVISOR
+            result["verified"] = bool(check == TARGET_DIVISOR)
+            if verbose:
+                status = "✓ VERIFIED" if result["verified"] else "✗ MISMATCH"
+                _log(f"[dlp_list] Jacobian verification: {dlp_val}·G == T?  {status}")
+    except Exception as exc:
+        if verbose:
+            _log(f"[dlp_list] verification skipped ({exc})")
+        raise
+
+    return result
 
 if __name__ == "__main__":
     main()

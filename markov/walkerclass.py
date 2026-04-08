@@ -401,6 +401,7 @@ def build_default_walker(
     log_path: Optional[str] = None,
     log_full_candidates: bool = False,
     log_candidate_limit: int = 25*infinity,
+    preferred_xs: Optional[list] = None,
 ) -> Genus2MetropolisWalker:
     if load_sources:
         load_project_sources(verbose=verbose)
@@ -422,6 +423,7 @@ def build_default_walker(
         search_fn=search_fn,
         score_fn=score_fn,
         config=cfg,
+        preferred_xs=preferred_xs,
     )
 
 PROJECT_REGISTRY: Dict[str, Any] = {}
@@ -568,6 +570,7 @@ class Genus2MetropolisWalker:
         config: Optional[WalkConfig] = None,
         rng: Optional[random.Random] = None,
         base_ring: Optional[Any] = None,
+        preferred_xs: Optional[List[Any]] = None,
     ):
         self.config = config or WalkConfig()
         self.rng = rng or random.Random(self.config.seed)
@@ -581,6 +584,7 @@ class Genus2MetropolisWalker:
         self.base_points = list(base_points or [])
         self.log_path = Path(self.config.log_path).expanduser() if self.config.log_path else None
         self.relation_matrix = self._relation_matrix
+        self.preferred_xs = list(preferred_xs or [])
 
         if initial_x is None:
             raise ValueError("initial_x is required")
@@ -1342,6 +1346,8 @@ class Genus2MetropolisWalker:
             rec.candidate_pool = candidates
             rec.selected_candidate = {}
             self._store_record(rec)
+            if rec.accepted:
+                self.inject_preferred_relations(rec)
             return rec
 
         if not isinstance(chosen, dict):
@@ -1410,6 +1416,8 @@ class Genus2MetropolisWalker:
         rec.candidate_pool = candidates
         rec.selected_candidate = dict(chosen)
         self._store_record(rec)
+        if rec.accepted:
+            self.inject_preferred_relations(rec)
         return rec
 
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
@@ -1582,6 +1590,8 @@ class Genus2MetropolisWalker:
             step_payload, accepted=accepted
         )
         self._store_record(rec)
+        if rec.accepted:
+            self.inject_preferred_relations(rec)
         return rec
 
     def run(self, num_steps: int, n_values: Optional[Sequence[int]] = None) -> List[RelationRecord]:
@@ -1862,6 +1872,116 @@ class Genus2MetropolisWalker:
             print("[cantor_summary] No cache yet — run some steps first.")
             return
         self.cantor_cache.summary()
+
+    def _get_S_of_m_for_rec(self, rec) -> Optional[Any]:
+        """Return the S(m) symbolic rational function for the xi of *rec*.
+
+        Priority order (mirrors _emit_step_diagnostics):
+        1. rec.step['S_of_m']  – stored by the search path on accepted steps
+        2. first candidate_pool entry that carries S_of_m
+        Returns None if unavailable (injection is silently skipped for that step).
+        """
+        step = rec.step if isinstance(rec.step, dict) else {}
+        S_sym = step.get('S_of_m')
+        if S_sym is not None:
+            return S_sym
+        for cand in (rec.candidate_pool or []):
+            if isinstance(cand, dict):
+                S_sym = cand.get('S_of_m')
+                if S_sym is not None:
+                    return S_sym
+        return None
+
+    def inject_preferred_relations(self, accepted_rec) -> int:
+        """After an accepted walk step, inject one synthetic relation per preferred
+        x-coord by inverting xj = xi - m  =>  m = xi - t.
+
+        For each t in self.preferred_xs:
+        m   = xi - t
+        xk  = S(m) - (d-2)*xi - t        [Vieta sum identity]
+
+        A RelationRecord with source='preferred_injection' is appended via
+        _store_record so leaf bookkeeping, merge detection, and JSONL logging
+        all happen normally.  The xk involution (different m, same relation) is
+        not inserted because it adds no new linear constraint.
+
+        Returns the number of relations successfully injected this call.
+        """
+        if not self.preferred_xs:
+            return 0
+
+        S_sym = self._get_S_of_m_for_rec(accepted_rec)
+        if S_sym is None:
+            # Tower not rebuilt yet or S_of_m not stored — skip silently.
+            return 0
+
+        xi    = accepted_rec.xi
+        Fp    = self.base_ring
+        deg   = self.config.curve_degree
+        xi_mult = deg - 2          # coefficient of xi in the divisor relation
+
+        xi_fp = Fp(xi)
+        n_injected = 0
+
+        for t in self.preferred_xs:
+            t_fp = Fp(t)
+            if t_fp == xi_fp:
+                # xj == xi is degenerate (m=0); skip.
+                continue
+
+            m_fp = xi_fp - t_fp    # m = xi - t  =>  xj = xi - m = t
+
+            # Evaluate S(m): S_sym lives in Frac(Fp[m]).
+            try:
+                num = S_sym.numerator()
+                den = S_sym.denominator()
+                den_val = Fp(den(m_fp))
+                if den_val == Fp(0):
+                    continue       # pole at this m — skip
+                S_val = Fp(num(m_fp)) / den_val
+            except Exception:
+                raise
+
+            # xk from Vieta: S(m) = (d-2)*xi + xj + xk
+            xk_fp = S_val - xi_mult * xi_fp - t_fp
+
+            relation_str = (
+                f"{xi_mult}*{xi} + {int(t_fp)} + {int(xk_fp)} - {deg}*∞ = 0"
+                f"  [preferred_injection t={int(t_fp)}]"
+            )
+
+            step_payload = {
+                'source': 'preferred_injection',
+                'preferred_target': int(t_fp),
+                'S_of_m': S_sym,          # keep for downstream involution checks
+                'intersection_poly': None,
+            }
+
+            rec = self._make_relation(
+                step_index=len(self.history),
+                n=accepted_rec.n,
+                xi=xi_fp,
+                m_val=m_fp,
+                xj=t_fp,
+                xk=xk_fp,
+                step=step_payload,
+                accepted=True,
+                restart=False,
+            )
+            # Snapshot membership BEFORE adding so collision count is correct.
+            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
+            for leaf in (t_fp, xk_fp):
+                if leaf not in self.global_leaves_seen:
+                    self.global_leaves_seen.add(leaf)
+                    self.total_leaf_insertions += 1
+            if already_seen:
+                self.leaf_collision_count += already_seen
+
+            # Let _store_record handle history append, merge detection, JSONL log.
+            self._store_record(rec)
+            n_injected += 1
+
+        return n_injected
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """
