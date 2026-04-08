@@ -279,22 +279,24 @@ COEFFS_GENUS2 = [QQ(-3), QQ(11), QQ(6), QQ(-9), QQ(2), QQ(1), QQ(25)]
 DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] # just the x values lol
 TERMINATE_WHEN_6 = 2
 
-# y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
-DATA_PTS_GENUS2 = [QQ(0)/QQ(1)]
-DATA_PTS_GENUS2 = [457208]
-TERMINATE_WHEN_6 = 3
-
 # $$y^2 = x^5 + x + 2$$
-COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(2)]
+COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(7)]
 #DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
 DATA_PTS_GENUS2 = None # placeholder for random.
 DATA_PTS_GENUS2 = [QQ(10598399)]
 DATA_PTS_GENUS2 = [QQ(15998132)] # 1
 DATA_PTS_GENUS2 = [QQ(12862063)] # 2
-DATA_PTS_GENUS2 = [QQ(1)]
 DATA_PTS_GENUS2 = [QQ(366)]
+DATA_PTS_GENUS2 = [QQ(1)]
 TERMINATE_WHEN_6 = 30
+
+
+
+# y^2 = x^5 + 3x^3 + 2x^2 + 5x + 5
+COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
+DATA_PTS_GENUS2 = [457208]
+DATA_PTS_GENUS2 = [QQ(1)/QQ(1)]
+TERMINATE_WHEN_6 = 3
 
 ##### END TEST CURVES ######
 
