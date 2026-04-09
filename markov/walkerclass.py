@@ -76,6 +76,7 @@ def compute_S_of_m(fi, G_poly, curve_degree):
 
 def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
     if fi is None or G_poly is None or m_val is None:
+        assert None, None
         return None, None
 
     try:
@@ -100,7 +101,7 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
 
             dv_fp = Fp(dv)
             if dv_fp == Fp(0):
-                return None, None
+                return "∞", None
 
             coeffs.append(Fp(nv) / dv_fp)
 
@@ -108,6 +109,7 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
         inter = G_poly - fi_at_m
 
         if inter.degree() != curve_degree:
+            assert False, f"inter.degree()={inter.degree()} != curve_degree={curve_degree}, xi={xi_val} m={m_val} xj={xj_val}"
             return None, None
 
         xi_mult = curve_degree - 2
@@ -241,7 +243,8 @@ def build_project_tower_context_for_point(
     base_sections = compute_base_sections_m(cd, base_pts, tower=primary_tower)
     if not base_sections:
         raise RuntimeError('compute_base_sections_m returned no sections for the rebuilt tower')
-    base_sections = lll_reduce_mw_basis(cd, base_sections)
+    if len(base_sections) > 1:
+        base_sections = lll_reduce_mw_basis(cd, base_sections)
     current_sections = list(set(base_sections))
     if not current_sections:
         raise RuntimeError('No usable current sections after LLL reduction')
@@ -1610,7 +1613,10 @@ class Genus2MetropolisWalker:
 
             results.append(rec)
 
-            step_no = len(self.history)
+            step_no = sum(
+                1 for r in self.history
+                if not (isinstance(r.step, dict) and r.step.get('source') == 'preferred_injection')
+            )
             accepted_count = sum(1 for r in self.history if r.accepted)
             restarts = sum(1 for r in self.history if r.restart)
 

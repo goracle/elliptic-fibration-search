@@ -66,8 +66,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 8*int(ceil(0.1*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 8*int(ceil(0.1*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 16*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -244,7 +244,7 @@ def main(argv=None):
 
         ctx = multiprocessing.get_context("spawn")
         pool = ctx.Pool(processes=args.num_workers, initializer=init_worker)
-        chunk_size = 8
+        chunk_size = 2
 
         search_fn = make_project_markov_search_fn(
             coeffs_genus2=coeffs,
@@ -295,7 +295,12 @@ def main(argv=None):
             base_points=_bp(x0_a), verbose=True, log_path="walk_A.jsonl",
             search_fn=search_fn,
         )
-        walker_a.run(args.steps_a)
+        walker_a.config.spectral_enabled = False
+        walker_a.mat_chain = None
+        walker_a.mat_graph = None
+        _quiet_run(walker_a, args.steps_a, checkpoint_every=args.checkpoint_every,
+                   label="A", collective_leaves=None,
+                   nullity_every=0, peer_walkers=[])
         walker_a.save_leaf_snapshot(args.snapshot)
 
         vol_a = len(walker_a.global_leaves_seen)
@@ -339,7 +344,7 @@ def main(argv=None):
         w.mat_graph = None
         _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
                    label=label, collective_leaves=collective_leaves,
-                   nullity_every=100, peer_walkers=list(peer_walkers_done))
+                   nullity_every=0, peer_walkers=list(peer_walkers_done))
         peer_walkers_done.append(w)
         return w
 
@@ -421,6 +426,7 @@ def main(argv=None):
 
     return metrics
 
+from sage.all import GF, ZZ, matrix as sage_matrix
 # ---------------------------------------------------------------------------
 # Secondary-walk runner (verbose, label-aware)
 # ---------------------------------------------------------------------------
@@ -460,6 +466,26 @@ def _quiet_run(
          f"foreign_leaves={len(walker.foreign_leaves) if walker.foreign_leaves is not None else 'none'}"
          f"  collective_ref={'yes ('+str(len(collective_leaves))+' leaves)' if collective_leaves is not None else 'own'}")
 
+    # -- Precompute peer relation matrices once, outside the step loop --------
+    # Rebuilding all peer walker matrices on every nullity checkpoint is O(peers
+    # * rows * cols) per check, growing quadratically.  The peers are finished
+    # walkers whose matrices never change, so we fetch them once here and reuse
+    # the cached result on every checkpoint.  Only the current walker's matrix
+    # is re-fetched inside the loop (it grows by one row per step).
+    _Fp_rank = GF(2**31 - 1)   # Mersenne prime; fast rank over this field
+
+    _peer_mats: List       = []
+    _peer_atom_lists: List = []
+    if nullity_every > 0:
+        for w in (peer_walkers or []):
+            try:
+                mat, atoms, _ = w.relation_matrix(include_step_leaves=False)
+                if mat.nrows() > 0:
+                    _peer_mats.append(mat)
+                    _peer_atom_lists.append(list(atoms))
+            except Exception:
+                pass
+
     for i in range(steps):
         # Snapshot only the leaves that are genuinely new-to-collective this step.
         # We compare collective BEFORE vs AFTER the step, but only counting leaves
@@ -468,7 +494,7 @@ def _quiet_run(
         # would dump the walker's full accumulated history every step, inflating
         # the before→after delta and producing >100% novelty.
         own_before = set(walker.global_leaves_seen)
-        coll_size_before = len(collective_leaves) if collective_leaves is not None else None
+        coll_size_before = len(collective_leaves) if collective_leaves is not None else None  # noqa: F841
 
         # Use run(1) so the full ====== diagnostic block is printed, identical
         # to the on-chain (walk A) output.  The walker label header below it
@@ -486,7 +512,6 @@ def _quiet_run(
             novelty_coll = len(new_to_coll) / leaves_found if leaves_found > 0 else 0.0
             novelty_str  = f"novelty={novelty_coll:.1%} vs collective ({len(collective_leaves)} total)"
         else:
-            step_dict   = {}  # run(1) already printed stats; no need to re-extract
             novelty_str = ""
 
         own_vol  = len(walker.global_leaves_seen)
@@ -505,51 +530,65 @@ def _quiet_run(
             )
 
         # -- optional nullity checkpoint ----------------------------------
-        nullity_str2 = ""
+        # Two fixes applied here vs the original:
+        #
+        # 1. Peer matrices are precomputed above the loop (see _peer_mats /
+        #    _peer_atom_lists).  Only the *current* walker's matrix is fetched
+        #    fresh; peer matrices are constant and reused each checkpoint.
+        #
+        # 2. The combined row list is accumulated into a ZZ matrix and then
+        #    converted to GF via .change_ring().  The old code passed a Python
+        #    list-of-lists directly to sage_matrix(GF(...), rows), which performs
+        #    one GF coercion per element in Python — O(rows*cols) transient
+        #    objects.  change_ring() does the same conversion entirely in C,
+        #    avoiding the object-creation overhead.
         if nullity_every > 0 and display_step % nullity_every == 0:
             try:
-                from sage.all import GF, matrix as sage_matrix
-                # Build combined matrix from peer walkers + current walker.
-                all_walkers = list(peer_walkers or []) + [walker]
-                mats, atom_lists = [], []
-                for w in all_walkers:
-                    try:
-                        mat, atoms, _ = w.relation_matrix(include_step_leaves=False)
-                        if mat.nrows() > 0:
-                            mats.append(mat)
-                            atom_lists.append(atoms)
-                    except Exception:
-                        pass
-                if mats:
-                    # Union atoms
-                    all_atoms = list(atom_lists[0])
+                # Fetch only the current walker's fresh matrix.
+                cur_mats       = list(_peer_mats)
+                cur_atom_lists = list(_peer_atom_lists)
+                try:
+                    mat, atoms, _ = walker.relation_matrix(include_step_leaves=False)
+                    if mat.nrows() > 0:
+                        cur_mats.append(mat)
+                        cur_atom_lists.append(list(atoms))
+                except Exception:
+                    pass
+
+                if cur_mats:
+                    # Union atom sets across all matrices.
+                    all_atoms: List = list(cur_atom_lists[0])
                     atom_set = set(map(str, all_atoms))
-                    for atms in atom_lists[1:]:
+                    for atms in cur_atom_lists[1:]:
                         for a in atms:
                             if str(a) not in atom_set:
                                 all_atoms.append(a)
                                 atom_set.add(str(a))
-                    nc = len(all_atoms)
-                    aidx = {str(a): i for i, a in enumerate(all_atoms)}
-                    from sage.all import ZZ
-                    rows = []
-                    for mat, atms in zip(mats, atom_lists):
+                    nc   = len(all_atoms)
+                    aidx = {str(a): idx for idx, a in enumerate(all_atoms)}
+
+                    # Build a flat list of ZZ rows (Python ints stay as ints
+                    # until we call matrix(ZZ, ...) which packs them in one shot).
+                    rows_int: List[List[int]] = []
+                    for mat, atms in zip(cur_mats, cur_atom_lists):
                         cols_src = [aidx[str(a)] for a in atms]
                         for r in range(mat.nrows()):
                             row = [0] * nc
                             for c_src, c_dst in enumerate(cols_src):
                                 row[c_dst] = int(mat[r, c_src])
-                            rows.append(row)
-                    # Use a fast test prime to estimate rank
-                    _Fp = GF(2**31 - 1)
-                    M = sage_matrix(_Fp, rows)
-                    rk = M.rank()
+                            rows_int.append(row)
+
+                    # Build ZZ matrix first (one C-level allocation), then
+                    # change_ring to GF (one C-level pass — no per-element Python
+                    # objects, unlike sage_matrix(GF(...), rows_int)).
+                    M_zz = sage_matrix(ZZ, rows_int)
+                    rk      = M_zz.change_ring(_Fp_rank).rank()
                     nullity = nc - rk
-                    total_rows = len(rows)
+                    total_rows = len(rows_int)
                     nullity_str2 = (
                         f"  [nullity check @ step {display_step}]"
                         f"  rows={total_rows}  cols={nc}  rank={rk}  nullity={nullity}"
-                        f"  (need {max(0, nullity-1)} more independent rows)"
+                        f"  (need {max(0, nullity - 1)} more independent rows)"
                     )
                     _log(f"{tag}{nullity_str2}")
             except Exception as exc:
@@ -906,6 +945,9 @@ def dlp_from_merged_walks(
         raise
 
     return result
+
+
+
 
 if __name__ == "__main__":
     main()

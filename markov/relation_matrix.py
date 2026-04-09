@@ -289,7 +289,10 @@ def build_relation_matrix2(
             row[atom_index[xi]] += xi_mult
             row[atom_index[cxj]] += 1
 
-            if cxk is not None and cxk in atom_index:
+            if cxk == "∞":
+                if inf_col is not None:
+                    row[inf_col] += 1
+            elif cxk is not None and cxk in atom_index:
                 row[atom_index[cxk]] += 1
 
             if inf_col is not None:
@@ -408,3 +411,99 @@ def print_relation_matrix_summary(
             print(f"\n  Note: the relations span the full column space.")
 
     print("=" * 70 + "\n")
+
+
+
+
+def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
+    """Pretty-print a full nullity decomposition report."""
+    bottlenecks, report = find_bottleneck_atoms(mat, atoms, fp_prime=fp_prime)
+
+    print("\n" + "=" * 70)
+    print("NULLITY DECOMPOSITION REPORT")
+    print("=" * 70)
+    print(f"  Rank              : {report['rank']}")
+    print(f"  Nullity (total)   : {report['nullity']}")
+    print(f"  ∞ contribution    : {1 if report['inf_atom_in_null'] else 0}  (irreducible)")
+    print(f"  Dest-only atoms   : {len(report['dest_only_atoms'])}  (each needs one xi-step through it)")
+    print(f"  Residual nullity  : {report['residual_nullity']}  (disconnected components?)")
+    print()
+
+    if report["dest_only_atoms"]:
+        print("  Dest-only atoms (restart walker from these):")
+        for a in report["dest_only_atoms"]:
+            print(f"    xi = {a}")
+    
+    if report["residual_nullity"] > 0:
+        print(f"\n  Residual bottleneck atoms:")
+        for b in bottlenecks:
+            if b["reason"] == "residual":
+                print(f"    xi = {b['atom']}  ({b['col_nnz']} relations)  — {b['action']}")
+
+    print("=" * 70 + "\n")
+    return bottlenecks, report
+
+
+def prune_dest_only(mat, atoms):
+    """
+    Iteratively remove dest-only atoms (columns with exactly 1 nonzero entry)
+    and their single incident row until fixed point.
+
+    Returns:
+        pruned_mat   : relation matrix with pendant leaves removed
+        pruned_atoms : corresponding atom list
+        removed      : list of (atom, row_index) pairs removed, in order
+    """
+    import numpy as np
+    from sage.all import Matrix, ZZ
+
+    rows = [list(r) for r in mat.rows()]
+    cur_atoms = list(atoms)
+    removed = []
+    inf_sentinel = "∞"
+
+    while True:
+        n_cols = len(cur_atoms)
+        if not rows:
+            break
+
+        # Column nnz over current live rows
+        col_nnz = [0] * n_cols
+        for row in rows:
+            for j, v in enumerate(row):
+                if v != 0:
+                    col_nnz[j] += 1
+
+        # Find dest-only cols: nnz == 1, and not the ∞ column
+        victims = [
+            j for j in range(n_cols)
+            if col_nnz[j] == 1 and cur_atoms[j] != inf_sentinel
+        ]
+        if not victims:
+            break
+
+        # For each victim column, find and remove its single incident row
+        rows_to_remove = set()
+        for j in victims:
+            for i, row in enumerate(rows):
+                if row[j] != 0:
+                    rows_to_remove.add(i)
+                    removed.append((cur_atoms[j], i))
+                    break
+
+        # Remove rows (descending so indices stay valid)
+        for i in sorted(rows_to_remove, reverse=True):
+            rows.pop(i)
+
+        # Remove victim columns
+        victim_set = set(victims)
+        keep_cols = [j for j in range(n_cols) if j not in victim_set]
+        rows = [[row[j] for j in keep_cols] for row in rows]
+        cur_atoms = [cur_atoms[j] for j in keep_cols]
+
+    if not rows:
+        pruned_mat = Matrix(ZZ, 0, len(cur_atoms))
+    else:
+        pruned_mat = Matrix(ZZ, rows)
+
+    return pruned_mat, cur_atoms, removed

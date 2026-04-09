@@ -218,13 +218,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"[matrix] shape = {mat.nrows()} x {mat.ncols()}")
     print(f"[matrix] rank  = {mat.change_ring(_GF(_P)).rank()}  (mod {_P})")
 
-    mat_walk_only, _, _ = build_relation_matrix2(
+    mat_walk_only, atoms_walk_only, _ = build_relation_matrix2(
         [r for r in walker.history if r.n >= 0],
         curve_degree=5,
         include_step_leaves=False,
     )
     print(f"walk-only rank: {mat_walk_only.change_ring(_GF(_P)).rank()} "
-          f"shape: {mat_walk_only.nrows()}x{mat_walk_only.ncols()}  (mod {_P})")
+        f"shape: {mat_walk_only.nrows()}x{mat_walk_only.ncols()}  (mod {_P})")
+
+    pruned_mat, pruned_atoms, removed = prune_dest_only(mat_walk_only, atoms_walk_only)
+    print(f"[nullity] pruned {len(removed)} dest-only atoms, {len(pruned_atoms)} atoms remain")
+    print_nullity_report(pruned_mat, pruned_atoms)
 
     print(walker.summary())
     # print_relation_matrix_summary omitted: recomputes rank internally (third change_ring)

@@ -492,9 +492,9 @@ def mumford_precompute_residues_parallel(
     num_workers = int(num_workers)
 
     # Safety clamp for memory-heavy Sage workloads.
-    if num_workers > 16:
-        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 16 to prevent memory exhaustion.")
-        num_workers = 16
+    if num_workers > 20:
+        print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 20 to prevent memory exhaustion.")
+        num_workers = 20
 
     t_start = time.time()
 
