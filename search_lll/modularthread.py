@@ -266,33 +266,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
 
     return new_basis, Uinv
 
-def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
-    """
-    Detect if discriminant Delta(m) has repeated roots mod p.
-    Returns (has_collision, gcd_poly).
-    """
-    from sage.all import GF, PolynomialRing, gcd
-
-    try:
-        Fp = GF(p)
-        R = PolynomialRing(Fp, 'm')
-
-        Delta_modp = R([int(c) % p for c in Delta_poly.list()])
-        dDelta = Delta_modp.derivative()
-
-        g = gcd(Delta_modp, dDelta)
-        has_collision = (g.degree() > 1)
-
-        if has_collision and debug:
-            print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
-
-        return has_collision, g
-
-    except Exception as e:
-        if debug:
-            print(f"[detect_fiber_collision] p={p}: error {e}")
-        return False, None
-
 # ==============================================================
 # === Preparation and LLL Reduction (Modular) ==================
 # ==============================================================

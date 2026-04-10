@@ -707,6 +707,9 @@ def make_project_markov_search_fn(
             if rec.get('m') is None and xj_val is not None:
                 try:
                     rec['m'] = x_here - xj_val
+                except TypeError:
+                    # Catch rogue strings scraped from dictionaries and skip them # nope, raise.  we should put in proper error handling here, not to silently skip!
+                    raise
                 except Exception:
                     raise
 

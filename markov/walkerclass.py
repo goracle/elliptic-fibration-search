@@ -218,11 +218,16 @@ def build_project_tower_context_for_point(
     # xk(m) = S(m) - (d-1)*xi - (-m) = S(m) - (d-1)*xi + m
     # where S(m) is the x^(d-1) Vieta sum from the intersection poly.
     # fi and shifted_G_poly are in scope from the tower construction above.
+    #
+    # NOTE: only valid in the rational/over-Q path.  In FF mode the mumford
+    # search expects concrete Fp elements in rhs_list; a symbolic Frac(Fp[m])
+    # entry causes a "no common canonical parent" coercion error at search time.
+    _is_ff_mode = bool(resolve_project_symbol('FINITE_FIELD', default=None))
     _fi_sym = primary_tower[-1].get('f_i') if primary_tower else None
     _curve_degree_sym = int(resolve_project_symbol('CURVE_DEGREE', default=5))
     assert _fi_sym, _fi_sym
 
-    if _fi_sym is not None:
+    if _fi_sym is not None and not _is_ff_mode:
         S_of_m_sym, _inter_sym = compute_S_of_m(_fi_sym, shifted_G_poly, _curve_degree_sym)
         assert S_of_m_sym, S_of_m_sym
         if S_of_m_sym is not None:
@@ -236,7 +241,7 @@ def build_project_tower_context_for_point(
             print("adding xk(m)", xk_rhs_sym, "to search rhs list")
             search_rhs_list = list(search_rhs_list) + [xk_rhs_sym]
 
-    assert len(search_rhs_list) > 1, search_rhs_list
+    assert len(search_rhs_list) >= 1, search_rhs_list
 
     testfunc, shift = setup_rationality_test_function(shift, T, T_inv)
 
@@ -1448,9 +1453,7 @@ class Genus2MetropolisWalker:
                             step_payload, accepted=False, restart=True
                         )
                         self._store_record(rec)
-                        raise
                         return rec
-                raise
 
         current_point = (self.current_x, self.current_y)
         try:
@@ -1470,9 +1473,18 @@ class Genus2MetropolisWalker:
                         step_payload, accepted=False, restart=True
                     )
                     self._store_record(rec)
-                    raise
                     return rec
-            raise
+            # step_factory failed and no restart available (or restart disabled):
+            # record a dead-end and return rather than falling through with step unbound.
+            self.dead_end_count += 1
+            step_payload = {}
+            self._annotate_step_counts(step_payload, None, accepted=False)
+            rec = self._make_relation(
+                len(self.history), n, self.current_x, None, None, None,
+                step_payload, accepted=False, restart=False
+            )
+            self._store_record(rec)
+            return rec
 
         m_roots = self._solve_m_roots(step)
         assert m_roots, m_roots

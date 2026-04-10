@@ -1,12 +1,13 @@
 from __future__ import annotations
-import argparse, json, math, random as _random, sys, time
+import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
 from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS
 from sage.all import *
 from markov import *
-from genus2_markov_module import make_project_markov_search_fn, load_project_sources
+from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
 from math import sqrt, ceil
+from search_lll.mumford.mumford_parallel import init_worker
 
 """merge_experiment.py
 
@@ -66,8 +67,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 8*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 8*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -90,11 +91,9 @@ def _divisor_seed_xs() -> List[int]:
 
     Returns a list of 4 ints in the same order as PREFERRED_X_COORDS.
     """
-    import search_common as _sc
-    xs = getattr(_sc, 'PREFERRED_X_COORDS', None)
+    xs = PREFERRED_X_COORDS
     if xs is None:
         # Fallback: try PROJECT_REGISTRY via resolve_project_symbol
-        from genus2_markov_module import resolve_project_symbol
         xs = resolve_project_symbol('PREFERRED_X_COORDS', default=None)
     if xs is None:
         raise RuntimeError(
@@ -235,8 +234,6 @@ def main(argv=None):
     pool = None
     if _HAS_PROJECT:
         load_project_sources(verbose=False)
-        import multiprocessing
-        from search_lll.mumford.mumford_parallel import init_worker
 
         p          = FINITE_FIELD
         coeffs     = COEFFS_GENUS2
@@ -352,6 +349,15 @@ def main(argv=None):
     walker_c = _run_secondary("C", x0_c, seed=2, log_path="walk_C.jsonl")
     walker_d = _run_secondary("D", x0_d, seed=3, log_path="walk_D.jsonl")
 
+    # -- Close worker pool as soon as walks are done ----------------------
+    # All multiprocessing work is finished; release workers immediately so
+    # their RAM is reclaimed before the (potentially large) DLP solve.
+    if pool is not None:
+        pool.close()
+        pool.join()
+        pool = None
+        _log("[pool] worker pool closed")
+
     # -- Per-walk merge reports --------------------------------------------
     all_metrics = {}
     first_merger = None   # whichever of B/C/D merged first
@@ -419,14 +425,8 @@ def main(argv=None):
         if getattr(w, 'cantor_cache', None) is not None:
             w.cantor_summary()
 
-    # -- Cleanup ----------------------------------------------------------
-    if pool is not None:
-        pool.close()
-        pool.join()
-
     return metrics
 
-from sage.all import GF, ZZ, matrix as sage_matrix
 # ---------------------------------------------------------------------------
 # Secondary-walk runner (verbose, label-aware)
 # ---------------------------------------------------------------------------
@@ -484,7 +484,7 @@ def _quiet_run(
                     _peer_mats.append(mat)
                     _peer_atom_lists.append(list(atoms))
             except Exception:
-                pass
+                raise
 
     for i in range(steps):
         # Snapshot only the leaves that are genuinely new-to-collective this step.
@@ -553,7 +553,7 @@ def _quiet_run(
                         cur_mats.append(mat)
                         cur_atom_lists.append(list(atoms))
                 except Exception:
-                    pass
+                    raise
 
                 if cur_mats:
                     # Union atom sets across all matrices.
@@ -593,6 +593,7 @@ def _quiet_run(
                     _log(f"{tag}{nullity_str2}")
             except Exception as exc:
                 _log(f"{tag} [nullity check failed: {exc}]")
+                raise
 
         # Summary line with chain label so you always know which walk this is.
         _log(
@@ -673,48 +674,11 @@ def _merge_report(walker: Genus2MetropolisWalker, total_steps: int) -> dict:
 def _log(msg: str) -> None:
     print(msg, flush=True)
 
+def _dlp_collect_matrices(walkers, verbose: bool):
+    """Step 1: Build per-walker relation matrices, skipping empty ones.
 
-def dlp_from_merged_walks(
-    walkers,
-    target_x,
-    group_order=None,
-    generator_x=None,
-    generator_x_partner=None,
-    target_x_partner=None,
-    verbose: bool = True,
-) -> Optional[dict]:
-    """DLP solve from the union of all walkers' relation matrices.
-
-    This version avoids arbitrary kernel-vector selection.
-    It solves the normalized affine system
-
-        M_combined * alpha = 0
-        alpha[gen_x] + alpha[gen_partner_x] = 1
-
-    over GF(ℓ), then reads off alpha[target_x] as the DLP coefficient.
+    Returns (mats, atom_lists).  Raises on relation_matrix() failure.
     """
-
-    from sage.all import matrix, ZZ, GF, Integer, vector
-
-    _P_TEST = 2**31 - 1
-
-    result = {
-        "dlp": None,
-        "method": None,
-        "ranks": [],
-        "rank_combined": None,
-        "rank_augmented": None,
-        "kernel_dim": None,   # nullity of the normalized system
-        "n_cols": None,
-        "verified": False,
-    }
-
-    if not walkers:
-        raise ValueError("dlp_from_merged_walks: no walkers supplied")
-
-    # ------------------------------------------------------------------
-    # 1. Build individual relation matrices
-    # ------------------------------------------------------------------
     mats = []
     atom_lists = []
     for i, w in enumerate(walkers):
@@ -726,19 +690,23 @@ def dlp_from_merged_walks(
 
         if mat.nrows() == 0:
             if verbose:
-                _log(f"[dlp_list] walker[{i}] has empty relation matrix — skipping")
+                _log(f"[dlp_list] walker[{i}] has empty relation matrix -- skipping")
             continue
 
         mats.append(mat)
         atom_lists.append(atoms)
 
-    if not mats:
-        _log("[dlp_list] all walks have empty relation matrices — no solve possible.")
-        return result
+    return mats, atom_lists
 
-    # ------------------------------------------------------------------
-    # 2. Union column spaces
-    # ------------------------------------------------------------------
+def _dlp_union_columns(mats, atom_lists, verbose: bool):
+    """Step 2: Reindex all matrices into a shared column space and stack them.
+
+    Returns (M_combined, all_atoms_ordered, atom_index, ranks).
+    Per-walker rank computation is skipped here (expensive and not needed
+    before pruning); only row/col dims are logged.  The single rank that
+    matters is computed on the pruned matrix before the solve.
+    """
+
     all_atoms_ordered = list(atom_lists[0])
     atom_set = set(map(str, all_atoms_ordered))
     for atoms in atom_lists[1:]:
@@ -749,7 +717,6 @@ def dlp_from_merged_walks(
 
     n_cols = len(all_atoms_ordered)
     atom_index = {str(a): i for i, a in enumerate(all_atoms_ordered)}
-    result["n_cols"] = n_cols
 
     def _reindex(mat, atoms_src):
         cols_src = [atom_index[str(a)] for a in atoms_src]
@@ -759,49 +726,51 @@ def dlp_from_merged_walks(
                 M[r, c_dst] = mat[r, c_src]
         return M
 
-    Fp_test = GF(_P_TEST)
-
     reindexed = []
+    ranks = []   # kept for API compatibility; values are None (not computed)
     for mat, atoms in zip(mats, atom_lists):
         M_i = _reindex(mat, atoms)
         reindexed.append(M_i)
         if verbose:
-            rk = mat.change_ring(Fp_test).rank()
-            result["ranks"].append(rk)
-            _log(f"[dlp_list]   walker rows={mat.nrows()} atoms={mat.ncols()} rank={rk}")
+            _log(f"[dlp_list]   walker rows={mat.nrows()} atoms={mat.ncols()}")
 
     M_combined = reindexed[0]
     for M_i in reindexed[1:]:
         M_combined = M_combined.stack(M_i)
 
-    # Defer combined-rank computation: we'll compute it from M_fp (after change_ring
-    # to the actual GF(n)) so we don't materialise a third large matrix over Fp_test.
-    if verbose:
+    return M_combined, all_atoms_ordered, atom_index, ranks
+
+def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
+    """Step 3: Drop dest-only (pendant) columns and their single incident rows.
+
+    A dest-only atom appears only as xj/xk (coefficient 1), never as xi
+    (coefficient d-2 = 3).  It contributes a free variable to the kernel and
+    adds directly to the nullity without adding rank.  Pruning removes these
+    pendant leaves iteratively to fixed point, which (a) reduces n_cols,
+    (b) removes the rows that only served those leaves, and (c) strictly
+    reduces nullity without affecting the DLP solution for any non-pruned atom.
+
+    Returns (M_pruned, pruned_atoms, pruned_atom_index).
+    """
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(M_combined, all_atoms_ordered)
+    if removed and verbose:
         _log(
-            f"[dlp_list] combined: rows={M_combined.nrows()} cols={n_cols} "
-            f"(rank deferred to post-change_ring over GF(ℓ))"
+            f"[dlp_list] pruned {len(removed)} dest-only atoms "
+            f"and {len(removed)} pendant rows"
         )
+    pruned_atom_index = {str(a): i for i, a in enumerate(pruned_atoms)}
+    return M_pruned, pruned_atoms, pruned_atom_index
 
-    # ------------------------------------------------------------------
-    # 3. Resolve required columns
-    # ------------------------------------------------------------------
-    if target_x is None:
-        _log("[dlp_list] target_x is None — cannot solve.")
-        return result
+def _dlp_resolve_cols(atom_index: dict, target_x, generator_x, generator_x_partner, verbose: bool):
+    """Step 4: Map target/generator x-values to column indices.
 
-    target_col = atom_index.get(str(target_x))
-    if target_col is None:
-        _log(f"[dlp_list] target x={target_x} not in combined leaf set.")
-        return result
-
-    if generator_x is None:
-        _log("[dlp_list] generator_x is None — cannot anchor.")
-        return result
-
-    gen_col = atom_index.get(str(generator_x))
-    if gen_col is None:
-        _log(f"[dlp_list] generator x={generator_x} not in combined leaf set.")
-        return result
+    Returns (target_col, gen_col, gen_partner_col).
+    target_col or gen_col being None means the atom was pruned or absent;
+    callers must treat either as a hard failure.
+    """
+    target_col = atom_index.get(str(target_x)) if target_x is not None else None
+    gen_col    = atom_index.get(str(generator_x)) if generator_x is not None else None
 
     gen_partner_col = None
     if generator_x_partner is not None:
@@ -809,113 +778,92 @@ def dlp_from_merged_walks(
         if gen_partner_col is None and verbose:
             _log(
                 f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
-                f"— anchor will use single-column form."
+                f"-- anchor will use single-column form."
             )
 
-    # ------------------------------------------------------------------
-    # 4. Resolve group order
-    # ------------------------------------------------------------------
-    n = group_order
-    if n is None:
-        try:
-            if GROUP_MODULUS is not None:
-                n = int(GROUP_MODULUS)
-        except Exception:
-            raise
+    return target_col, gen_col, gen_partner_col
 
-    if n is None:
-        _log("[dlp_list] group_order unknown — cannot solve mod ℓ.")
-        result["method"] = "no_group_order"
-        return result
+def _dlp_build_affine_system(
+    M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,
+    generator_x, generator_x_partner, verbose: bool,
+):
+    """Step 5: Lift M_combined to GF(n), append the anchor row, return (M_fp, A, b).
 
-    if verbose:
-        _log(f"[dlp_list] working mod ℓ = {n}")
+    Walk rows are homogeneous:    M_combined * alpha = 0
+    Anchor row is inhomogeneous:  alpha[gen_col] (+ alpha[gen_partner_col]) = 1
 
-    # ------------------------------------------------------------------
-    # 5. Build normalized affine system A * alpha = b
-    # ------------------------------------------------------------------
-    # Walk rows are homogeneous:      M_combined * alpha = 0
-    # Anchor row is inhomogeneous:    alpha[gen_col] + alpha[gen_partner_col] = 1
-    #
-    # This removes the arbitrary kernel-vector ratio step entirely.
-    #
-    # Memory note: use change_ring() not matrix(Fp, [[...], ...]).
-    # The list-of-lists path does element-by-element GF coercion, creating
-    # O(rows*cols) transient Python objects (~70 MB for a 1k×1.2k system)
-    # before packing them into the C array.  change_ring() stays in C the
-    # whole time and avoids the spike entirely.
-    Fp = GF(n)
+    Rank is NOT computed here — deferred to post-solve diagnostics to avoid OOM
+    on large combined matrices.
+    """
 
-    # Lift M_combined ZZ -> GF(n) in one C-level pass.
-    M_fp = M_combined.change_ring(Fp)
-    result["rank_combined"] = M_fp.rank()
+    char = int(Fp.characteristic())
     if verbose:
         _log(
-            f"[dlp_list] combined over GF({n}): rows={M_combined.nrows()} cols={n_cols} "
-            f"rank={result['rank_combined']} "
-            f"nullity_pre_anchor={n_cols - result['rank_combined']}"
+            f"[dlp_list] combined over GF({char}): "
+            f"rows={M_combined.nrows()} cols={n_cols} "
+            f"(rank deferred to post-solve)"
         )
 
-    # Append anchor row directly as a Sage matrix row (no Python list detour).
-    anchor_row_fp = vector(Fp, n_cols)
-    anchor_row_fp[gen_col] = Fp(1)
+    # ZZ -> GF(n) in one C-level pass; avoids O(rows*cols) Python object spike.
+    M_fp = M_combined.change_ring(Fp)
+
+    anchor_row = vector(Fp, n_cols)
+    anchor_row[gen_col] = Fp(1)
     if gen_partner_col is not None:
-        anchor_row_fp[gen_partner_col] = Fp(1)
+        anchor_row[gen_partner_col] = Fp(1)
 
-    A = M_fp.stack(matrix(Fp, [anchor_row_fp]))
+    A = M_fp.stack(matrix(Fp, [anchor_row]))
     b = vector(Fp, [Fp(0)] * M_combined.nrows() + [Fp(1)])
-
-    # rank() triggers a full echelon pass; solve_right does the same internally.
-    # Skip the pre-solve rank call to avoid computing echelon form twice.
-    # We report rank_augmented after the solve from the echelon form Sage already holds.
-    result["rank_augmented"] = None   # filled in below after solve
-    result["kernel_dim"] = None
 
     if verbose:
         anchor_desc = (
-            f"α[{generator_x}] + α[{generator_x_partner}] = 1"
+            f"a[{generator_x}] + a[{generator_x_partner}] = 1"
             if gen_partner_col is not None
-            else f"α[{generator_x}] = 1"
+            else f"a[{generator_x}] = 1"
         )
         _log(f"[dlp_list] anchor row   : {anchor_desc}")
-        _log(f"[dlp_list] solving {A.nrows()}×{A.ncols()} system over GF({n}) ...")
+        _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
 
-    # ------------------------------------------------------------------
-    # 6. Rank diagnostics (before solve — always printed even if solve fails)
-    # ------------------------------------------------------------------
+    return M_fp, A, b
+
+def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, verbose: bool):
+    """Step 6: Compute rank of augmented system; return (rank_aug, kernel_dim).
+
+    kernel_dim > 1 means underdetermined; caller should bail out.
+    """
     rank_aug = A.rank()
-    result["rank_augmented"] = rank_aug
-    result["kernel_dim"] = n_cols - rank_aug
+    kernel_dim = n_cols - rank_aug
     if verbose:
         _log(
-            f"[dlp_list] rank_augmented={rank_aug}  nullity={result['kernel_dim']}"
+            f"[dlp_list] rank_augmented={rank_aug}  nullity={kernel_dim}"
             f"  (need nullity=1 for unique solution)"
         )
-    if result["kernel_dim"] > 1:
+    if kernel_dim > 1:
         _log(
-            f"[dlp_list] UNDERDETERMINED: nullity={result['kernel_dim']} — need {result['kernel_dim']-1} more "
+            f"[dlp_list] UNDERDETERMINED: nullity={kernel_dim} -- need {kernel_dim - 1} more "
             f"independent relation rows before solve is possible.  "
-            f"(rows={M_combined.nrows()}, cols={n_cols}, rank={result['rank_combined']})"
+            f"(rows={n_rows_combined}, cols={n_cols}, rank={rank_combined})"
         )
-        result["method"] = "underdetermined"
-        return result
+    return rank_aug, kernel_dim
 
-    # ------------------------------------------------------------------
-    # 7. Solve the normalized system
-    # ------------------------------------------------------------------
+def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
+    """Step 7: solve_right; return dlp_val mod n, or None on ValueError.
+
+    Raises RuntimeError if solve_right returns a non-solution.
+    Re-raises on unexpected solver errors.
+    """
     try:
         sol = A.solve_right(b)
     except ValueError as exc:
         _log(
             f"[dlp_list] solve_right failed: {exc}\n"
-            f"  anchor constraint (α[gen_x]+α[gen_partner_x]=1) inconsistent with relation rows\n"
-            f"  — check that generator columns are present and group_order is correct."
+            f"  anchor constraint inconsistent with relation rows\n"
+            f"  -- check that generator columns are present and group_order is correct."
         )
-        result["method"] = "solve_right_failed"
-        return result
+        raise
+        return None
     except Exception as exc:
         _log(f"[dlp_list] solve_right unexpected error: {exc}")
-        result["method"] = "solve_right_failed"
         raise
 
     residual = A * sol - b
@@ -923,31 +871,155 @@ def dlp_from_merged_walks(
         raise RuntimeError("[dlp_list] solve_right returned a non-solution")
 
     dlp_val = int(sol[target_col]) % n
-    result["dlp"] = dlp_val
-    result["method"] = "normalized_solve_right"
-
     if verbose:
-        _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}·G  mod {n})")
+        _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}*G  mod {n})")
+    return dlp_val
 
-    # ------------------------------------------------------------------
-    # 7. Verification
-    # ------------------------------------------------------------------
+def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
+    """Step 8: Jacobian verification against module-level BASE/TARGET divisors."""
+
     try:
         if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
             check = Integer(dlp_val) * BASE_DIVISOR
-            result["verified"] = bool(check == TARGET_DIVISOR)
+            verified = bool(check == TARGET_DIVISOR)
             if verbose:
-                status = "✓ VERIFIED" if result["verified"] else "✗ MISMATCH"
-                _log(f"[dlp_list] Jacobian verification: {dlp_val}·G == T?  {status}")
+                status = "VERIFIED" if verified else "MISMATCH"
+                _log(f"[dlp_list] Jacobian verification: {dlp_val}*G == T?  {status}")
+            return verified
     except Exception as exc:
         if verbose:
             _log(f"[dlp_list] verification skipped ({exc})")
         raise
+    return False
+
+def dlp_from_merged_walks(
+    walkers,
+    target_x,
+    group_order=None,
+    generator_x=None,
+    generator_x_partner=None,
+    target_x_partner=None,
+    verbose: bool = True,
+):
+    """DLP solve from the union of all walkers' relation matrices.
+
+    Solves the normalized affine system
+
+        M_combined * alpha = 0
+        alpha[gen_x] + alpha[gen_partner_x] = 1
+
+    over GF(l), then reads off alpha[target_x] as the DLP coefficient.
+    Dest-only (pendant) atoms are pruned from M_combined before the solve to
+    reduce nullity.
+    """
+
+    result = {
+        "dlp": None,
+        "method": None,
+        "ranks": [],
+        "rank_combined": None,
+        "rank_augmented": None,
+        "kernel_dim": None,
+        "n_cols": None,
+        "verified": False,
+    }
+
+    if not walkers:
+        raise ValueError("dlp_from_merged_walks: no walkers supplied")
+
+    # 1. Per-walker matrices
+    mats, atom_lists = _dlp_collect_matrices(walkers, verbose)
+    if not mats:
+        _log("[dlp_list] all walks have empty relation matrices -- no solve possible.")
+        return result
+
+    # 2. Union column spaces, reindex, stack
+    M_combined, all_atoms_ordered, atom_index, ranks = _dlp_union_columns(
+        mats, atom_lists, verbose
+    )
+    result["ranks"] = ranks
+    if verbose:
+        _log(
+            f"[dlp_list] combined: rows={M_combined.nrows()} cols={len(all_atoms_ordered)} "
+            f"(pruning next, rank deferred to post-solve)"
+        )
+
+    # 3. Prune dest-only pendant columns/rows before resolving column indices.
+    #    target_col/gen_col must be resolved against the post-prune atom_index.
+    M_combined, all_atoms_ordered, atom_index = _dlp_prune(
+        M_combined, all_atoms_ordered, verbose
+    )
+    n_cols = len(all_atoms_ordered)
+    result["n_cols"] = n_cols
+
+    # 4. Resolve column indices (after pruning so indices are correct)
+    if target_x is None:
+        _log("[dlp_list] target_x is None -- cannot solve.")
+        return result
+    if generator_x is None:
+        _log("[dlp_list] generator_x is None -- cannot anchor.")
+        return result
+
+    target_col, gen_col, gen_partner_col = _dlp_resolve_cols(
+        atom_index, target_x, generator_x, generator_x_partner, verbose
+    )
+    if target_col is None:
+        _log(f"[dlp_list] target x={target_x} not in combined leaf set after pruning.")
+        return result
+    if gen_col is None:
+        _log(f"[dlp_list] generator x={generator_x} not in combined leaf set after pruning.")
+        return result
+
+    # 5. Resolve group order
+    n = group_order
+    if n is None:
+        try:
+            if GROUP_MODULUS is not None:
+                n = int(GROUP_MODULUS)
+        except Exception:
+            raise
+    if n is None:
+        _log("[dlp_list] group_order unknown -- cannot solve mod l.")
+        result["method"] = "no_group_order"
+        return result
+    if verbose:
+        _log(f"[dlp_list] working mod l = {n}")
+
+    # 6. Build affine system over GF(n)  (no rank call here)
+    Fp = GF(n)
+    _M_fp, A, b = _dlp_build_affine_system(
+        M_combined, n_cols, gen_col, gen_partner_col, Fp,
+        generator_x, generator_x_partner, verbose
+    )
+
+    # 7. Attempt solve_right directly — cheapest path, skip rank entirely if it works
+    try:
+        dlp_val = _dlp_solve(A, b, n_cols, target_col, n, verbose)
+    except ValueError:
+        dlp_val = None
+        result["method"] = "solve_right_failed"
+
+    if dlp_val is not None:
+        result["dlp"] = dlp_val
+        result["method"] = "normalized_solve_right"
+
+        # 8. Verify
+        result["verified"] = _dlp_verify(dlp_val, verbose)
+
+    # 9. Rank diagnostics — always last, only after solve attempt
+    if verbose:
+        _log("[dlp_list] computing rank diagnostics (deferred, may be slow) ...")
+    rank_combined = _M_fp.rank()
+    result["rank_combined"] = rank_combined
+    rank_aug, kernel_dim = _dlp_rank_check(
+        A, n_cols, rank_combined, M_combined.nrows(), verbose
+    )
+    result["rank_augmented"] = rank_aug
+    result["kernel_dim"] = kernel_dim
+    if kernel_dim > 1 and result.get("method") is None:
+        result["method"] = "underdetermined"
 
     return result
-
-
-
 
 if __name__ == "__main__":
     main()

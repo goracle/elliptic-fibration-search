@@ -1,41 +1,42 @@
-import math
-from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var
+import math, random, statistics
+from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var, SR, EllipticCurve, identity_matrix, vector, matrix, kronecker, Integer as SageInteger
 from .search_config import *
 from search_common import *
 from collections import defaultdict, Counter
+from sage.rings.infinity import infinity
+from itertools import product
+from diagnostics2 import find_singular_fibers
+from math import gcd
 
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
+def detect_fiber_collision(Delta_poly, p, debug=DEBUG):
+    """
+    Detect if discriminant Delta(m) has repeated roots mod p.
+    Returns (has_collision, gcd_poly).
+    """
+    from sage.all import GF, PolynomialRing, gcd
 
-"""
-ll_utilities.py: Matrix and lattice reduction helpers.
-"""
+    try:
+        Fp = GF(p)
+        R = PolynomialRing(Fp, 'm')
 
-# Add near other helpers in search_lll.py (no leading underscores)
+        Delta_modp = R([int(c) % p for c in Delta_poly.list()])
+        dDelta = Delta_modp.derivative()
 
-# ----------------------------------------
-# helpers for residue orders
-# ----------------------------------------
+        g = gcd(Delta_modp, dDelta)
+        has_collision = (g.degree() > 1)
 
-"""
-Complete residue analysis with proper diagnostics.
-Add this to ll_utilities.py, replacing the incomplete versions.
-"""
+        if has_collision and debug:
+            print(f"⚠️  Fiber collision detected at p={p}: gcd degree {g.degree()}")
 
-# ============================================================================
-# HELPER FUNCTIONS (keep existing ones, add these)
-# ============================================================================
+        return has_collision, g
 
-"""
-Enhanced prime subset generation with QC-aware biasing.
-Add this to ll_utilities.py
-"""
-# Drop-in replacement wrapper
-
-"""
-ll_utilities.py: Matrix and lattice reduction helpers.
-"""
+    except Exception as e:
+        if debug:
+            print(f"[detect_fiber_collision] p={p}: error {e}")
+        return False, None
 
 def _compute_column_norms(M):
     """
@@ -90,13 +91,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
     Prepare modular data for LLL-based search across multiple primes.
     NOW RECORDS REJECTED PRIMES IN STATS FOR POSTERIOR ADJUSTMENT.
     """
-    from sage.all import GF, PolynomialRing, QQ, SR, var, EllipticCurve, Integer, identity_matrix, vector, matrix
 
     if search_primes is None:
         search_primes = prime_pool
 
     # === NEW: FINITE FIELD MODE SHORTCUT ===
-    from search_common import FINITE_FIELD
     if FINITE_FIELD:
         # In FF mode, only process the field characteristic
         if FINITE_FIELD not in search_primes:
@@ -132,6 +131,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             # FINITE_FIELD mode: rhs is already a Frac(Fp[m]) element.
             # Stash it for prime-level coercion below.
             processed_rhs_list.append({'raw_ffrac': rhs})
+            # do not raise!
         except Exception as e:
             print(f"[prepare_modular_data_lll] Skipping RHS={rhs}: {e}")
             continue
@@ -178,7 +178,6 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
                 print(f"Analyzing surface: y^2 = x^3 + a4_mod{p}(m)*x + a6_mod{p}(m)")
                 try:
-                    from diagnostics2 import find_singular_fibers
                     mod_p_fiber_report = find_singular_fibers(a4=a4_modp, a6=a6_modp, verbose=True)
                     print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
                 except Exception as e_diag:
@@ -211,15 +210,20 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 else:
                     Delta_pr = PR_m(Delta_poly)
 
-                from search_lll import detect_fiber_collision
                 has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
 
                 if has_collision:
                     deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
-                    if DEBUG:
-                        print(f"Skipping prime {p}: fiber collision detected (gcd degree={deg})")
-                    rejected_primes.append((p, f"fiber_collision_deg_{deg}"))
-                    continue
+                    if FINITE_FIELD:
+                        if DEBUG:
+                            print(f"⚠️  Ignoring fiber collision deg {deg} at p={p} because we are in FF mode. Proceeding.")
+                        # Do NOT reject the prime; we must search the generic fiber!
+                    else:
+                        if DEBUG:
+                            print(f"Skipping prime {p}: fiber collision detected (gcd degree={deg})")
+                        rejected_primes.append((p, f"fiber_collision_deg_{deg}"))
+                        continue
+
             except Exception as e:
                 if DEBUG:
                     print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
@@ -270,7 +274,6 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     if DEBUG:
                         print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
                     raise
-                    raise
 
             # Run LLL reduction
             # Note: lll_reduce_basis_modp needs to work with MockCurve if used.
@@ -280,6 +283,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             except Exception as e:
                 if DEBUG: print(f"LLL reduction failed for p={p} ({e}), skipping LLL")
                 new_basis, Uinv = None, None
+                raise
 
             # Fallback for Uinv
             if Uinv is None:
@@ -408,7 +412,6 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
     If a reduction fails or a basis vector can't be computed,
     it places 'None' in that slot.
     """
-    from sage.all import ZZ, identity_matrix, diagonal_matrix
 
     r = len(sections)
     if r == 0:
@@ -447,6 +450,7 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
         except AttributeError:
              # Case where they might not be fraction field elements but polys
              Xp, Yp, Zp = Xr, Yr, Zr
+             raise
 
         xc, dx = _get_coeff_data(Xp)
         yc, dy = _get_coeff_data(Yp)
@@ -599,6 +603,7 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
         except Exception:
             if debug:
                 print(f"    [mults] addition failed at k={k}")
+            raise
             break
 
     if stats:
@@ -707,7 +712,6 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
     forced_subsets = []
     num_forced = min(20, max(2, num_subsets // 10))  # Increased from 10 to 20
     if len(top_primes) >= 2:
-        import random
         for i in range(num_forced):
             # Vary the size: alternate between small (min_size) and larger
             if i % 3 == 0:
@@ -924,7 +928,6 @@ def residue_order_additive(residue, p):
     """Order of residue in additive group Z/pZ"""
     if residue % p == 0:
         return 1
-    from math import gcd
     return p // gcd(residue, p)
 
 def summarize_order_stats(order_list):
@@ -947,7 +950,6 @@ def quadratic_character(r, p):
     """Legendre symbol (r/p). RAISES on error."""
     if r % p == 0:
         return 0
-    from sage.all import kronecker
     return kronecker(r, p)
 
 def discriminant_valuation(r, p, Delta_pr):
@@ -969,13 +971,11 @@ def compute_trace_of_frobenius(r, p, Ep_m):
     disc_r = -16 * (4 * a4_r**3 + 27 * a6_r**2)
     if disc_r == 0:
         return "sing"
-    from sage.all import EllipticCurve, GF
     Ep_r = EllipticCurve(GF(p), [0, 0, 0, a4_r, a6_r])
     return Ep_r.trace_of_frobenius()
 
 def local_height_contribution(r, p, rhs_fn):
     """Local height lambda_p(r). RAISES on error."""
-    from sage.all import var, Integer, QQ
     m = var('m')
     f_r = rhs_fn.subs({m: r})
     f_r_qq = QQ(f_r)
@@ -1106,7 +1106,6 @@ def analyze_unused_residue_orders(precomputed_residues,
     Complete residue analysis with all diagnostics.
     RAISES ALL EXCEPTIONS - NO SILENT FAILURES.
     """
-    from sage.all import ZZ, QQ, GF, Integer as SageInteger
 
     # Build numeric residues
     residues_by_prime = {}
@@ -1176,7 +1175,6 @@ def analyze_unused_residue_orders(precomputed_residues,
             continue
 
         # Ensure we have a symbolic expression
-        from sage.all import SR
         rhs_fn = SR(rhs_list_as_list[0])
 
         if debug:
@@ -1191,7 +1189,6 @@ def analyze_unused_residue_orders(precomputed_residues,
             lh = local_height_contribution(r, p, rhs_fn)
 
             # --- FIX START ---
-            from sage.rings.infinity import infinity
 
             # Composite diagnostics
             # Safely compute lift_disc
@@ -1273,7 +1270,6 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
     Strategy: Primes with QC ratios matching the target are more likely productive.
     If target_qc_ratio is None, don't use QC bias (fall back to coverage only).
     """
-    from sage.all import kronecker, QQ
 
     scores = {}
 
@@ -1309,6 +1305,7 @@ def compute_qc_bias_scores(prime_pool, precomputed_residues, rhs_list,
                 qc = kronecker(r, p)
                 qc_counts[qc] += 1
             except Exception:
+                raise
                 continue
 
         # Compute ratio (with smoothing to avoid division by zero)
@@ -1471,7 +1468,7 @@ def detect_residue_patterns(per_prime):
                     if lh_float == 0.0:
                         patterns['composite_patterns']['used_zero_local_height'] += 1
                 except (TypeError, ValueError):
-                    pass  # Skip non-numeric values
+                    raise
 
             lift = d.get('liftability_order', 0)
             if lift < -1:
@@ -1518,7 +1515,7 @@ def detect_residue_patterns(per_prime):
                     if lh_float == 0.0:
                         patterns['composite_patterns']['unused_zero_local_height'] += 1
                 except (TypeError, ValueError):
-                    pass  # Skip non-numeric values
+                    raise # raise exceptions ffs!
 
             lift = d.get('liftability_order', 0)
             if lift < -1:
@@ -1550,7 +1547,6 @@ def detect_residue_patterns(per_prime):
 
     # Compute stats - RAISES on error
     if patterns['local_height_used']:
-        import statistics
         patterns['local_height_stats_used'] = {
             'mean': statistics.mean(patterns['local_height_used']),
             'median': statistics.median(patterns['local_height_used']),
@@ -1571,8 +1567,6 @@ def _robust_coerce_to_modp(val, Fp_m, p):
     Handles cases where direct coercion fails by manually mapping coefficients.
     Returns None if denominator vanishes mod p.
     """
-    from sage.all import QQ, PolynomialRing, GF
-
     # 1. Try direct coercion first (fastest)
     try:
         return Fp_m(val)
@@ -1588,7 +1582,9 @@ def _robust_coerce_to_modp(val, Fp_m, p):
             val_qq = val.polynomial(QQ)
         except Exception:
             # Fallback: try string parsing or direct numerator/denominator access
+            raise
             return None
+        raise
 
     # 3. Extract numerator and denominator polynomials
     num_poly = val_qq.numerator()
@@ -1615,6 +1611,7 @@ def _robust_coerce_to_modp(val, Fp_m, p):
 
     except Exception as e:
         # print(f"Debug: Manual coef map failed for p={p}: {e}")
+        raise
         return None
 
 def generate_qc_biased_prime_subsets(prime_pool, precomputed_residues, vecs,
@@ -1824,8 +1821,6 @@ def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
     Generate diverse search vectors for finite field mode.
     Returns canonicalized vectors (first non-zero element positive).
     """
-    from itertools import product
-
     vecs = set()
 
     # Phase 1: All single-section multiples [1..max_coeff]

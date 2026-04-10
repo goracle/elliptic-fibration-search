@@ -1,5 +1,6 @@
 from __future__ import annotations
-from sage.all import Matrix, ZZ, QQ
+import types
+from sage.all import Matrix, ZZ, QQ, GF
 from typing import Any, List, Optional, Sequence, Tuple
 
 """relation_matrix.py
@@ -75,7 +76,6 @@ def attach_to_walker(walker_class) -> None:
         mat, atoms, used = walker.relation_matrix()
         walker.print_relation_summary()
     """
-    import types
 
     def _relation_matrix(self, **kwargs):
         cd = getattr(getattr(self, "config", None), "curve_degree", 5)
@@ -393,7 +393,6 @@ def print_relation_matrix_summary(
         # 1 - n_cols/p > 1 - 1e-9 for our choice of p.  This avoids
         # materialising a dense QQ matrix which OOMs at scale.
         _RANK_PRIME = 2**31 - 1  # Mersenne prime, fits in Sage GF
-        from sage.all import GF
         print(f"\n  Computing rank mod {_RANK_PRIME} (exact w.h.p., O(1) memory vs dense QQ)...")
         mat_modp = mat.change_ring(GF(_RANK_PRIME))
         rank = mat_modp.rank()
@@ -411,9 +410,6 @@ def print_relation_matrix_summary(
             print(f"\n  Note: the relations span the full column space.")
 
     print("=" * 70 + "\n")
-
-
-
 
 def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     """Pretty-print a full nullity decomposition report."""
@@ -433,7 +429,7 @@ def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
         print("  Dest-only atoms (restart walker from these):")
         for a in report["dest_only_atoms"]:
             print(f"    xi = {a}")
-    
+
     if report["residual_nullity"] > 0:
         print(f"\n  Residual bottleneck atoms:")
         for b in bottlenecks:
@@ -443,67 +439,96 @@ def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     print("=" * 70 + "\n")
     return bottlenecks, report
 
-
 def prune_dest_only(mat, atoms):
     """
     Iteratively remove dest-only atoms (columns with exactly 1 nonzero entry)
     and their single incident row until fixed point.
+
+    Fully sparse: uses row_data (dict per row) and col_rows (set per col)
+    so no dense matrix is ever materialised.  A worklist propagates removals
+    incrementally — no full rescan per iteration.  col_rows is kept exact by
+    discard() so no set-intersection with live_rows is needed in the hot path.
 
     Returns:
         pruned_mat   : relation matrix with pendant leaves removed
         pruned_atoms : corresponding atom list
         removed      : list of (atom, row_index) pairs removed, in order
     """
-    import numpy as np
-    from sage.all import Matrix, ZZ
-
-    rows = [list(r) for r in mat.rows()]
-    cur_atoms = list(atoms)
-    removed = []
     inf_sentinel = "∞"
+    cur_atoms    = list(atoms)
 
-    while True:
-        n_cols = len(cur_atoms)
-        if not rows:
-            break
+    n_rows = mat.nrows()
+    n_cols = mat.ncols()
 
-        # Column nnz over current live rows
-        col_nnz = [0] * n_cols
-        for row in rows:
-            for j, v in enumerate(row):
-                if v != 0:
-                    col_nnz[j] += 1
+    # row_data[i] = {col_index: int_value}  — only nonzero entries
+    # col_rows[j] = set of row indices with a nonzero in column j
+    # col_rows is kept exact: every discard() call happens at removal time,
+    # so len(col_rows[j]) == number of *live* rows touching col j at all times.
+    row_data = [{} for _ in range(n_rows)]
+    col_rows = [set() for _ in range(n_cols)]
 
-        # Find dest-only cols: nnz == 1, and not the ∞ column
-        victims = [
-            j for j in range(n_cols)
-            if col_nnz[j] == 1 and cur_atoms[j] != inf_sentinel
-        ]
-        if not victims:
-            break
+    # nonzero_positions() returns (i, j) pairs; fetch value separately.
+    for (i, j) in mat.nonzero_positions(copy=False):
+        row_data[i][j] = int(mat[i, j])
+        col_rows[j].add(i)
 
-        # For each victim column, find and remove its single incident row
-        rows_to_remove = set()
-        for j in victims:
-            for i, row in enumerate(rows):
-                if row[j] != 0:
-                    rows_to_remove.add(i)
-                    removed.append((cur_atoms[j], i))
-                    break
+    live_cols = set(range(n_cols))
+    inf_cols  = {j for j, a in enumerate(cur_atoms) if str(a) == inf_sentinel}
+    removed   = []
 
-        # Remove rows (descending so indices stay valid)
-        for i in sorted(rows_to_remove, reverse=True):
-            rows.pop(i)
+    # Seed worklist: cols with exactly one live row, excluding inf.
+    # len(col_rows[j]) is exact because col_rows is maintained by discard().
+    worklist = {
+        j for j in live_cols
+        if j not in inf_cols and len(col_rows[j]) == 1
+    }
 
-        # Remove victim columns
-        victim_set = set(victims)
-        keep_cols = [j for j in range(n_cols) if j not in victim_set]
-        rows = [[row[j] for j in keep_cols] for row in rows]
-        cur_atoms = [cur_atoms[j] for j in keep_cols]
+    dead_rows: set = set()   # rows removed so far
 
-    if not rows:
-        pruned_mat = Matrix(ZZ, 0, len(cur_atoms))
-    else:
-        pruned_mat = Matrix(ZZ, rows)
+    while worklist:
+        j = worklist.pop()
+        if j not in live_cols:
+            continue
+        if len(col_rows[j]) != 1:
+            # Stale enqueue: another removal already drained this col.
+            continue
 
-    return pruned_mat, cur_atoms, removed
+        # The one remaining entry in col_rows[j] is the row to remove.
+        (i,) = col_rows[j]
+        removed.append((cur_atoms[j], i))
+        dead_rows.add(i)
+        live_cols.discard(j)
+
+        # Propagate: for every col that row i touched, remove i from col_rows.
+        # If that reduces a qualifying col to nnz==1, enqueue it.
+        for k, _val in row_data[i].items():
+            if k == j:
+                continue
+            col_rows[k].discard(i)
+            if k in live_cols and k not in inf_cols and len(col_rows[k]) == 1:
+                worklist.add(k)
+
+    # --- Reconstruct Sage matrix from surviving rows/cols ----------------
+    sorted_cols  = sorted(live_cols)
+    col_remap    = {old_j: new_j for new_j, old_j in enumerate(sorted_cols)}
+    pruned_atoms = [cur_atoms[j] for j in sorted_cols]
+    n_pruned_cols = len(sorted_cols)
+
+    # Build as a flat {(i,j): val} dict — the format Sage's sparse Matrix
+    # constructor actually expects — to avoid dense zero-filled row allocations.
+    surviving = {}
+    new_row_idx = 0
+    for i in range(n_rows):
+        if i in dead_rows:
+            continue
+        for old_j, val in row_data[i].items():
+            if old_j in col_remap:
+                surviving[(new_row_idx, col_remap[old_j])] = val
+        new_row_idx += 1
+
+    n_surviving_rows = new_row_idx
+    if n_surviving_rows == 0:
+        return Matrix(ZZ, 0, n_pruned_cols), pruned_atoms, removed
+
+    pruned_mat = Matrix(ZZ, n_surviving_rows, n_pruned_cols, surviving)
+    return pruned_mat, pruned_atoms, removed

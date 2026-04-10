@@ -708,6 +708,11 @@ def build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three):
             rhs_scaled_SR = (phi_x_r_SR.subs({m_sym: m_sym**k}) if k != 0 else phi_x_r_SR) / SR(str(total_x_scale_factor))
             search_rhs_list.append(rhs_scaled_SR)
 
+    n_before = len(search_rhs_list)
+    search_rhs_list = [r for r in search_rhs_list if r != "INF"]
+    if len(search_rhs_list) < n_before:
+        print(f"[build_search_rhs_list] dropped {n_before - len(search_rhs_list)} INF rhs (denominator vanished at root)")
+
     return search_rhs_list
 
 @PROFILE
