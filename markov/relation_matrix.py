@@ -439,7 +439,7 @@ def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     print("=" * 70 + "\n")
     return bottlenecks, report
 
-def prune_dest_only(mat, atoms):
+def prune_dest_only(mat, atoms, protected=None):
     """
     Iteratively remove dest-only atoms (columns with exactly 1 nonzero entry)
     and their single incident row until fixed point.
@@ -449,6 +449,15 @@ def prune_dest_only(mat, atoms):
     incrementally — no full rescan per iteration.  col_rows is kept exact by
     discard() so no set-intersection with live_rows is needed in the hot path.
 
+    Parameters
+    ----------
+    mat       : Sage integer matrix (relation matrix)
+    atoms     : list of atom labels corresponding to mat's columns
+    protected : optional collection of atom values (ints or strings) that must
+                never be pruned, even if they are dest-only.  Pass the target
+                and base-divisor x-coordinates here so they survive into the
+                affine solve regardless of their role in the walk.
+
     Returns:
         pruned_mat   : relation matrix with pendant leaves removed
         pruned_atoms : corresponding atom list
@@ -456,6 +465,12 @@ def prune_dest_only(mat, atoms):
     """
     inf_sentinel = "∞"
     cur_atoms    = list(atoms)
+
+    # Build a set of string representations of protected atoms for O(1) lookup.
+    _protected_strs: set = set()
+    if protected:
+        for p in protected:
+            _protected_strs.add(str(p))
 
     n_rows = mat.nrows()
     n_cols = mat.ncols()
@@ -473,10 +488,12 @@ def prune_dest_only(mat, atoms):
         col_rows[j].add(i)
 
     live_cols = set(range(n_cols))
-    inf_cols  = {j for j, a in enumerate(cur_atoms) if str(a) == inf_sentinel}
+    # Columns immune from pruning: ∞ sentinel and any explicitly protected atom.
+    inf_cols  = {j for j, a in enumerate(cur_atoms)
+                 if str(a) == inf_sentinel or str(a) in _protected_strs}
     removed   = []
 
-    # Seed worklist: cols with exactly one live row, excluding inf.
+    # Seed worklist: cols with exactly one live row, excluding immune cols.
     # len(col_rows[j]) is exact because col_rows is maintained by discard().
     worklist = {
         j for j in live_cols
@@ -500,11 +517,12 @@ def prune_dest_only(mat, atoms):
         live_cols.discard(j)
 
         # Propagate: for every col that row i touched, remove i from col_rows.
-        # If that reduces a qualifying col to nnz==1, enqueue it.
+        # If that reduces a qualifying (non-immune) col to nnz==1, enqueue it.
         for k, _val in row_data[i].items():
             if k == j:
                 continue
             col_rows[k].discard(i)
+            # inf_cols now covers both ∞ and explicitly protected atoms.
             if k in live_cols and k not in inf_cols and len(col_rows[k]) == 1:
                 worklist.add(k)
 

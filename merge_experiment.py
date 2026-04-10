@@ -67,8 +67,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 16*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 16*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -321,8 +321,47 @@ def main(argv=None):
     # see the combined rank of A+B, A+B+C, etc. rather than just their own rows.
     peer_walkers_done: List = [walker_a] if walker_a is not None else []
 
+    # The four divisor x-coords are always protected (already injected via
+    # preferred_xs at walk construction time).  Kernel atoms exclude these so
+    # we don't double-inject what's already guaranteed.
+    _divisor_protected: set = set(int(x) for x in divisor_xs)
+
+    # nullity_preferred_xs accumulates across phases: after A we get hints for B,
+    # after A+B we get hints for C, etc.  Each subsequent walk inherits ALL
+    # previously identified kernel atoms plus the new ones, so the injection set
+    # only grows.
+    _nullity_xs: list = []
+
     def _run_secondary(label, x0, seed, log_path):
+        nonlocal _nullity_xs
+
         role = _ROLE.get(label, "?")
+
+        # -- Compute nullity-based preferred injection hints from all finished walks.
+        _log(f"\n[nullity_xs] Computing kernel-support atoms from {len(peer_walkers_done)} "
+             f"finished walk(s) before phase {label} ...")
+        new_nullity_xs = _nullity_preferred_xs(
+            done_walkers=peer_walkers_done,
+            p=p,
+            protected=_divisor_protected,
+            label=label,
+        )
+        # Merge with previously accumulated hints (union, preserving order).
+        existing_set = set(_nullity_xs)
+        for x in new_nullity_xs:
+            if x not in existing_set:
+                _nullity_xs.append(x)
+                existing_set.add(x)
+
+        # Combined preferred_xs: divisor seeds (already in walker's preferred_xs
+        # by construction) plus nullity-derived atoms.
+        combined_preferred = list(divisor_xs) + _nullity_xs
+        _log(
+            f"[nullity_xs:{label}] injecting {len(_nullity_xs)} nullity atom(s) "
+            f"on top of {len(divisor_xs)} divisor seeds "
+            f"({len(combined_preferred)} total preferred_xs)"
+        )
+
         _log(f"\n{'='*70}")
         _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
         _log(f"{'='*70}\n")
@@ -331,11 +370,17 @@ def main(argv=None):
             base_points=_bp(x0), verbose=False, log_path=log_path,
             search_fn=search_fn,
         )
+        # Inject nullity-derived atoms with a finite budget so they are visited
+        # at most twice as xj targets and then discarded.  Divisor seeds stay in
+        # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
+        existing_preferred_strs = {str(x) for x in w.preferred_xs}
+        for x in _nullity_xs:
+            if str(x) not in existing_preferred_strs:
+                w.preferred_xs_budget[x] = 2
+
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
         # Spectral reports are expensive and not useful on sub-chains mid-run.
-        # The primary walk (A) already gives the full spectrum; sub-chains would
-        # re-compute it on every run(1) call (52 times each) for no benefit.
         w.config.spectral_enabled = False
         w.mat_chain = None
         w.mat_graph = None
@@ -581,7 +626,7 @@ def _quiet_run(
                     # Build ZZ matrix first (one C-level allocation), then
                     # change_ring to GF (one C-level pass — no per-element Python
                     # objects, unlike sage_matrix(GF(...), rows_int)).
-                    M_zz = sage_matrix(ZZ, rows_int)
+                    M_zz = matrix(ZZ, rows_int)
                     rk      = M_zz.change_ring(_Fp_rank).rank()
                     nullity = nc - rk
                     total_rows = len(rows_int)
@@ -673,6 +718,149 @@ def _merge_report(walker: Genus2MetropolisWalker, total_steps: int) -> dict:
 
 def _log(msg: str) -> None:
     print(msg, flush=True)
+
+_INFINITY_SENTINEL = "∞"
+_RANK_PRIME_NULLITY = 2**31 - 1   # Mersenne prime for nullity kernel computation
+
+def _nullity_preferred_xs(
+    done_walkers: list,
+    p: int,
+    protected: set,
+    label: str = "?",
+) -> list:
+    """Compute the nullity kernel of the combined relation matrix across
+    done_walkers and return a deduplicated list of atom x-values that
+    (a) appear in the support of at least one kernel vector,
+    (b) are NOT the infinity sentinel,
+    (c) are valid F_p curve points (i.e. were already seen as walk leaves —
+        if they're in the atom list they were leaves by construction), and
+    (d) are not already in `protected` (the fixed preferred_xs that every
+        walker already injects unconditionally).
+
+    These atoms represent columns that the current relation set has not
+    yet pinned to a unique value; injecting them as preferred_xs on the
+    next walk forces the fibration to generate relations that pass through
+    them as xj, adding rank directly in the directions the system needs.
+
+    Cost: one right_kernel() call on the pruned combined matrix over
+    GF(2^31-1).  Cheap compared to a full walk.
+
+    Returns [] on any failure (the caller treats this as "no extra hints").
+    """
+    try:
+        # 1. Build per-walker matrices (reuse the same helper as the DLP path).
+        mats = []
+        atom_lists_raw = []
+        for w in done_walkers:
+            try:
+                mat, atoms, _ = w.relation_matrix(include_step_leaves=False)
+            except Exception as exc:
+                _log(f"[nullity_xs] relation_matrix() failed for a walker: {exc}")
+                return []
+            if mat.nrows() > 0:
+                mats.append(mat)
+                atom_lists_raw.append(list(atoms))
+
+        if not mats:
+            _log(f"[nullity_xs:{label}] no non-empty matrices — skipping")
+            return []
+
+        # 2. Union column spaces (same logic as _dlp_union_columns, inline for
+        #    independence — we don't want to drag in the verbose DLP path).
+        all_atoms: list = list(atom_lists_raw[0])
+        atom_set = set(map(str, all_atoms))
+        for atms in atom_lists_raw[1:]:
+            for a in atms:
+                if str(a) not in atom_set:
+                    all_atoms.append(a)
+                    atom_set.add(str(a))
+
+        n_cols = len(all_atoms)
+        aidx = {str(a): i for i, a in enumerate(all_atoms)}
+
+        rows_int: list = []
+        for mat, atms in zip(mats, atom_lists_raw):
+            cols_src = [aidx[str(a)] for a in atms]
+            for r in range(mat.nrows()):
+                row = [0] * n_cols
+                for c_src, c_dst in enumerate(cols_src):
+                    row[c_dst] = int(mat[r, c_src])
+                rows_int.append(row)
+
+        M_zz = matrix(ZZ, rows_int)
+
+        # 3. Prune dest-only atoms so the kernel is as small as possible.
+        #    Pass protected so those columns survive regardless.
+        M_pruned, pruned_atoms, _ = prune_dest_only(
+            M_zz, all_atoms, protected=protected
+        )
+        if M_pruned.nrows() == 0 or M_pruned.ncols() == 0:
+            _log(f"[nullity_xs:{label}] matrix empty after pruning — skipping")
+            return []
+
+        # 4. Compute right kernel over GF(large prime).
+        Fp_r = GF(_RANK_PRIME_NULLITY)
+        M_fp = M_pruned.change_ring(Fp_r)
+        ker = M_fp.right_kernel()
+        nullity = ker.dimension()
+
+        if nullity <= 1:
+            # nullity == 1 is the ∞-gauge degree of freedom — nothing actionable.
+            _log(
+                f"[nullity_xs:{label}] nullity={nullity} "
+                f"(≤1 means system is rank-sufficient; no extra injection needed)"
+            )
+            return []
+
+        _log(
+            f"[nullity_xs:{label}] rows={M_fp.nrows()} cols={M_fp.ncols()} "
+            f"rank={M_fp.ncols() - nullity} nullity={nullity} — "
+            f"collecting kernel-support atoms"
+        )
+
+        # 5. Collect the support of every kernel basis vector.
+        #    Each basis vector is a column-indexed weight over the pruned atoms.
+        #    An atom at column j is "free" if *any* basis vector has a nonzero
+        #    at position j — meaning the system leaves that column undetermined.
+        inf_str = str(_INFINITY_SENTINEL)
+        protected_strs = {str(x) for x in protected}
+
+        free_atom_xs: list = []
+        seen_str: set = set()
+
+        for vec in ker.basis():
+            for j, coeff in enumerate(vec):
+                if coeff == 0:
+                    continue
+                atom = pruned_atoms[j]
+                atom_str = str(atom)
+                if atom_str == inf_str:
+                    continue
+                if atom_str in protected_strs:
+                    continue
+                if atom_str in seen_str:
+                    continue
+                # Atoms are already F_p x-coordinates that appeared as walk
+                # leaves — no extra curve-point check needed.
+                try:
+                    free_atom_xs.append(int(atom))
+                    seen_str.add(atom_str)
+                except (TypeError, ValueError):
+                    pass  # non-integer atom (shouldn't happen), skip
+
+        _log(
+            f"[nullity_xs:{label}] {len(free_atom_xs)} kernel-support atoms "
+            f"will be injected as preferred_xs into the next walk"
+        )
+        if free_atom_xs:
+            _log(f"[nullity_xs:{label}]   atoms: {free_atom_xs[:20]}"
+                 + (" ..." if len(free_atom_xs) > 20 else ""))
+
+        return free_atom_xs
+
+    except Exception as exc:
+        _log(f"[nullity_xs:{label}] ERROR: {exc} — returning empty list")
+        raise
 
 def _dlp_collect_matrices(walkers, verbose: bool):
     """Step 1: Build per-walker relation matrices, skipping empty ones.
@@ -787,19 +975,30 @@ def _dlp_solve(A, b, verbose: bool):
     try:
         sol = A.solve_right(b)
     except ValueError as exc:
-        _log(
-            f"[dlp_list] solve_right failed: {exc}\n"
-            f"  anchor constraint inconsistent with relation rows\n"
-            f"  -- check that generator columns are present and group_order is correct."
+        msg = (
+            f"[dlp_list] no solution for the affine system "
+            f"({A.nrows()} rows, {A.ncols()} cols over GF({A.base_ring().characteristic()})).\n"
+            f"  The anchor row is not compatible with the relation rows.\n"
+            f"  This usually means one of:\n"
+            f"    - the generator/target columns were pruned or never included,\n"
+            f"    - the anchor was built from atoms not present in the matrix,\n"
+            f"    - the group order/modulus is wrong,\n"
+            f"    - or the relation set is missing enough independent constraints.\n"
+            f"  Original solver error: {exc}"
         )
-        raise
+        _log(msg)
+        raise ValueError(msg) from exc
     except Exception as exc:
-        _log(f"[dlp_list] solve_right unexpected error: {exc}")
+        msg = f"[dlp_list] solve_right raised an unexpected error: {exc}"
+        _log(msg)
         raise
 
     residual = A * sol - b
     if any(v != 0 for v in residual):
-        raise RuntimeError("[dlp_list] solve_right returned a non-solution")
+        raise RuntimeError(
+            "[dlp_list] solve_right returned a vector, but A*sol != b "
+            "(internal consistency check failed)"
+        )
 
     return sol
 
@@ -1092,8 +1291,6 @@ def _dlp_extract_target_atom_logs(
             )
 
     return target_log, target_partner_log, total_target_log
-
-_INFINITY_SENTINEL = "∞"
 
 def _dlp_build_affine_system(
     M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,

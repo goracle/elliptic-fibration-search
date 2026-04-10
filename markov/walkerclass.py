@@ -593,6 +593,10 @@ class Genus2MetropolisWalker:
         self.log_path = Path(self.config.log_path).expanduser() if self.config.log_path else None
         self.relation_matrix = self._relation_matrix
         self.preferred_xs = list(preferred_xs or [])
+        # Nullity-derived injection atoms with a finite budget.
+        # Each entry x -> remaining is decremented on use and deleted at zero.
+        # Divisor seeds go in preferred_xs (permanent); nullity hints go here.
+        self.preferred_xs_budget: Dict[Any, int] = {}
 
         if initial_x is None:
             raise ValueError("initial_x is required")
@@ -1925,7 +1929,7 @@ class Genus2MetropolisWalker:
 
         Returns the number of relations successfully injected this call.
         """
-        if not self.preferred_xs:
+        if not self.preferred_xs and not self.preferred_xs_budget:
             return 0
 
         S_sym = self._get_S_of_m_for_rec(accepted_rec)
@@ -1998,6 +2002,63 @@ class Genus2MetropolisWalker:
             # Let _store_record handle history append, merge detection, JSONL log.
             self._store_record(rec)
             n_injected += 1
+
+        # Budget injections: nullity-derived atoms with a finite remaining count.
+        exhausted = []
+        for t, remaining in list(self.preferred_xs_budget.items()):
+            t_fp = Fp(t)
+            if t_fp == xi_fp:
+                continue
+
+            m_fp = xi_fp - t_fp
+
+            try:
+                num = S_sym.numerator()
+                den = S_sym.denominator()
+                den_val = Fp(den(m_fp))
+                if den_val == Fp(0):
+                    continue
+                S_val = Fp(num(m_fp)) / den_val
+            except Exception:
+                raise
+
+            xk_fp = S_val - xi_mult * xi_fp - t_fp
+
+            step_payload = {
+                'source': 'preferred_injection',
+                'preferred_target': int(t_fp),
+                'S_of_m': S_sym,
+                'intersection_poly': None,
+            }
+
+            rec = self._make_relation(
+                step_index=len(self.history),
+                n=accepted_rec.n,
+                xi=xi_fp,
+                m_val=m_fp,
+                xj=t_fp,
+                xk=xk_fp,
+                step=step_payload,
+                accepted=True,
+                restart=False,
+            )
+            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
+            for leaf in (t_fp, xk_fp):
+                if leaf not in self.global_leaves_seen:
+                    self.global_leaves_seen.add(leaf)
+                    self.total_leaf_insertions += 1
+            if already_seen:
+                self.leaf_collision_count += already_seen
+
+            self._store_record(rec)
+            n_injected += 1
+
+            self.preferred_xs_budget[t] = remaining - 1
+            if self.preferred_xs_budget[t] <= 0:
+                exhausted.append(t)
+
+        for t in exhausted:
+            del self.preferred_xs_budget[t]
 
         return n_injected
 
