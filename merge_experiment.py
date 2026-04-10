@@ -762,27 +762,6 @@ def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
     pruned_atom_index = {str(a): i for i, a in enumerate(pruned_atoms)}
     return M_pruned, pruned_atoms, pruned_atom_index
 
-def _dlp_resolve_cols(atom_index: dict, target_x, generator_x, generator_x_partner, verbose: bool):
-    """Step 4: Map target/generator x-values to column indices.
-
-    Returns (target_col, gen_col, gen_partner_col).
-    target_col or gen_col being None means the atom was pruned or absent;
-    callers must treat either as a hard failure.
-    """
-    target_col = atom_index.get(str(target_x)) if target_x is not None else None
-    gen_col    = atom_index.get(str(generator_x)) if generator_x is not None else None
-
-    gen_partner_col = None
-    if generator_x_partner is not None:
-        gen_partner_col = atom_index.get(str(generator_x_partner))
-        if gen_partner_col is None and verbose:
-            _log(
-                f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
-                f"-- anchor will use single-column form."
-            )
-
-    return target_col, gen_col, gen_partner_col
-
 def _dlp_build_affine_system(
     M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,
     generator_x, generator_x_partner, verbose: bool,
@@ -846,12 +825,44 @@ def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, ve
         )
     return rank_aug, kernel_dim
 
-def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
-    """Step 7: solve_right; return dlp_val mod n, or None on ValueError.
+def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
+    """Step 8: Jacobian verification against module-level BASE/TARGET divisors."""
 
-    Raises RuntimeError if solve_right returns a non-solution.
-    Re-raises on unexpected solver errors.
-    """
+    try:
+        if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
+            check = Integer(dlp_val) * BASE_DIVISOR
+            verified = bool(check == TARGET_DIVISOR)
+            if verbose:
+                status = "VERIFIED" if verified else "MISMATCH"
+                _log(f"[dlp_list] Jacobian verification: {dlp_val}*G == T?  {status}")
+            return verified
+    except Exception as exc:
+        if verbose:
+            _log(f"[dlp_list] verification skipped ({exc})")
+        raise
+    return False
+
+def _dlp_resolve_cols(atom_index: dict, target_x, target_x_partner, generator_x, generator_x_partner, verbose: bool):
+    """Step 4: Map target/generator x-values to column indices."""
+    target_col = atom_index.get(str(target_x)) if target_x is not None else None
+    gen_col    = atom_index.get(str(generator_x)) if generator_x is not None else None
+
+    target_partner_col = None
+    if target_x_partner is not None:
+        target_partner_col = atom_index.get(str(target_x_partner))
+        if target_partner_col is None and verbose:
+            _log(f"[dlp_list] target partner x={target_x_partner} not in leaf set -- target sum will use single-column form.")
+
+    gen_partner_col = None
+    if generator_x_partner is not None:
+        gen_partner_col = atom_index.get(str(generator_x_partner))
+        if gen_partner_col is None and verbose:
+            _log(f"[dlp_list] generator partner x={generator_x_partner} not in leaf set -- anchor will use single-column form.")
+
+    return target_col, target_partner_col, gen_col, gen_partner_col
+
+def _dlp_solve(A, b, n_cols: int, target_col: int, target_partner_col, n: int, verbose: bool):
+    """Step 7: solve_right; return dlp_val mod n, or None on ValueError."""
     try:
         sol = A.solve_right(b)
     except ValueError as exc:
@@ -870,27 +881,16 @@ def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
     if any(v != 0 for v in residual):
         raise RuntimeError("[dlp_list] solve_right returned a non-solution")
 
-    dlp_val = int(sol[target_col]) % n
+    # Sum the two roots of the target divisor!
+    dlp_val = int(sol[target_col])
+    if target_partner_col is not None:
+        dlp_val += int(sol[target_partner_col])
+
+    dlp_val %= n
+
     if verbose:
         _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}*G  mod {n})")
     return dlp_val
-
-def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
-    """Step 8: Jacobian verification against module-level BASE/TARGET divisors."""
-
-    try:
-        if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
-            check = Integer(dlp_val) * BASE_DIVISOR
-            verified = bool(check == TARGET_DIVISOR)
-            if verbose:
-                status = "VERIFIED" if verified else "MISMATCH"
-                _log(f"[dlp_list] Jacobian verification: {dlp_val}*G == T?  {status}")
-            return verified
-    except Exception as exc:
-        if verbose:
-            _log(f"[dlp_list] verification skipped ({exc})")
-        raise
-    return False
 
 def dlp_from_merged_walks(
     walkers,
@@ -901,18 +901,7 @@ def dlp_from_merged_walks(
     target_x_partner=None,
     verbose: bool = True,
 ):
-    """DLP solve from the union of all walkers' relation matrices.
-
-    Solves the normalized affine system
-
-        M_combined * alpha = 0
-        alpha[gen_x] + alpha[gen_partner_x] = 1
-
-    over GF(l), then reads off alpha[target_x] as the DLP coefficient.
-    Dest-only (pendant) atoms are pruned from M_combined before the solve to
-    reduce nullity.
-    """
-
+    """DLP solve from the union of all walkers' relation matrices."""
     result = {
         "dlp": None,
         "method": None,
@@ -945,7 +934,6 @@ def dlp_from_merged_walks(
         )
 
     # 3. Prune dest-only pendant columns/rows before resolving column indices.
-    #    target_col/gen_col must be resolved against the post-prune atom_index.
     M_combined, all_atoms_ordered, atom_index = _dlp_prune(
         M_combined, all_atoms_ordered, verbose
     )
@@ -960,9 +948,10 @@ def dlp_from_merged_walks(
         _log("[dlp_list] generator_x is None -- cannot anchor.")
         return result
 
-    target_col, gen_col, gen_partner_col = _dlp_resolve_cols(
-        atom_index, target_x, generator_x, generator_x_partner, verbose
+    target_col, target_partner_col, gen_col, gen_partner_col = _dlp_resolve_cols(
+        atom_index, target_x, target_x_partner, generator_x, generator_x_partner, verbose
     )
+
     if target_col is None:
         _log(f"[dlp_list] target x={target_x} not in combined leaf set after pruning.")
         return result
@@ -985,16 +974,16 @@ def dlp_from_merged_walks(
     if verbose:
         _log(f"[dlp_list] working mod l = {n}")
 
-    # 6. Build affine system over GF(n)  (no rank call here)
+    # 6. Build affine system over GF(n)
     Fp = GF(n)
     _M_fp, A, b = _dlp_build_affine_system(
         M_combined, n_cols, gen_col, gen_partner_col, Fp,
         generator_x, generator_x_partner, verbose
     )
 
-    # 7. Attempt solve_right directly — cheapest path, skip rank entirely if it works
+    # 7. Attempt solve_right directly
     try:
-        dlp_val = _dlp_solve(A, b, n_cols, target_col, n, verbose)
+        dlp_val = _dlp_solve(A, b, n_cols, target_col, target_partner_col, n, verbose)
     except ValueError:
         dlp_val = None
         result["method"] = "solve_right_failed"
@@ -1006,7 +995,7 @@ def dlp_from_merged_walks(
         # 8. Verify
         result["verified"] = _dlp_verify(dlp_val, verbose)
 
-    # 9. Rank diagnostics — always last, only after solve attempt
+    # 9. Rank diagnostics
     if verbose:
         _log("[dlp_list] computing rank diagnostics (deferred, may be slow) ...")
     rank_combined = _M_fp.rank()
