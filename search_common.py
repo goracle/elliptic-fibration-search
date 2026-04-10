@@ -383,13 +383,14 @@ NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR
 
 # project into mod ell subgroup to remove torsion/cofactor complications
 # project into mod ell subgroup to remove torsion/cofactor complications
+COFACTOR = None
 if FINITE_FIELD is not None:
 
     # Fix: Force deterministic generation of the cryptosystem parameters (G, Q)
     # so they are identical across all worker processes.
     set_random_seed(12345)
 
-    GROUP_MODULUS, DATA_PTS_GENUS2, BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS, SECRET_KEY = \
+    GROUP_MODULUS, DATA_PTS_GENUS2, BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS, SECRET_KEY, COFACTOR = \
         setup_prime_subgroup_cryptosystem(
             FINITE_FIELD,
             COEFFS_GENUS2,

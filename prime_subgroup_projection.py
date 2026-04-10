@@ -270,4 +270,4 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key, 
         print(f"G has u(x) = {G[0]} (splits)")
         print(f"Q has u(x) = {Q[0]} (splits)")
 
-    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret
+    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret, cofactor

@@ -518,7 +518,6 @@ def prune_dest_only(mat, atoms, protected_atoms=None):
 
     n_surviving_rows = new_row_idx
     if n_surviving_rows == 0:
-        from sage.all import Matrix, ZZ
         return Matrix(ZZ, 0, n_pruned_cols), pruned_atoms, removed
 
     pruned_mat = Matrix(ZZ, n_surviving_rows, n_pruned_cols, surviving)

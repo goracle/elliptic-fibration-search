@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
-from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS
+from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, COFACTOR
 from sage.all import *
 from markov import *
 from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
@@ -67,8 +67,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -822,7 +822,6 @@ def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
 
 def _dlp_prune(M_combined, all_atoms_ordered: list, protected_atoms: set, verbose: bool):
     """Step 3: Drop pendant columns while protecting boundary roots."""
-    from relation_matrix import prune_dest_only
 
     M_pruned, pruned_atoms, removed = prune_dest_only(
         M_combined, all_atoms_ordered, protected_atoms=protected_atoms
@@ -884,14 +883,28 @@ def dlp_from_merged_walks(
     target_x_partner=None,
     verbose: bool = True,
 ):
-    """Refined DLP solve protecting boundary roots and summing Mumford roots."""
+    """DLP solve over the ℓ-torsion subgroup.
+
+    Walk relations hold over ZZ: Σ c_i * atom_i = 0 in J(F_p).
+    To reduce consistently mod ell (the prime group order we work in),
+    we rescale the integer relation matrix by the cofactor h = |J| // ell
+    before lifting to GF(ell).  After rescaling, h * (Σ c_i * atom_i) = 0
+    still holds, but now reducing mod ell is valid because all Jacobian
+    elements have been projected into J(F_p)[ell].
+
+    The anchor row fixes the normalization: log_ell(gen_root1) [+
+    log_ell(gen_root2)] = 1.  The solution vector gives log_ell of each
+    atom; summing the two target-divisor root columns yields k mod ell.
+    """
     result = {"dlp": None, "verified": False}
 
-    # 1 & 2: Collection and Union
+    # Steps 1 & 2: collect per-walker matrices and union their column spaces.
     mats, atom_lists = _dlp_collect_matrices(walkers, verbose)
-    M_combined, all_atoms_ordered, atom_index, ranks = _dlp_union_columns(mats, atom_lists, verbose)
+    M_combined, all_atoms_ordered, atom_index, ranks = _dlp_union_columns(
+        mats, atom_lists, verbose
+    )
 
-    # 3. Prune while protecting the 4 boundary x-coordinates
+    # Step 3: prune dest-only (pendant) atoms, protecting the 4 boundary roots.
     protected_roots = {
         x for x in [target_x, target_x_partner, generator_x, generator_x_partner]
         if x is not None
@@ -901,25 +914,44 @@ def dlp_from_merged_walks(
     )
     n_cols = len(all_atoms_ordered)
 
-    # 4. Resolve column indices
+    # Step 4: resolve divisor roots to column indices.
     t_col, tp_col, g_col, gp_col = _dlp_resolve_cols(
         atom_index, target_x, target_x_partner, generator_x, generator_x_partner, verbose
     )
 
     if t_col is None or g_col is None:
-        _log("[dlp_list] Essential roots missing from matrix.")
+        _log("[dlp_list] Essential roots missing from matrix -- aborting solve.")
         return result
 
-    # 5 & 6: Setup Affine System
-    n = group_order or int(GROUP_MODULUS)
-    Fp = GF(n)
+    # Step 5: cofactor rescaling — project integer relations into J(F_p)[ell].
+    #
+    # GROUP_MODULUS = ell (the prime subgroup order, e.g. 25373).
+    # COFACTOR      = h   = |J| // ell (e.g. 10494).
+    #
+    # Multiplying M_combined by h over ZZ means: for every relation
+    #   Σ c_i * atom_i = 0  in J(F_p),
+    # we get
+    #   Σ (h*c_i) * atom_i = 0  in J(F_p)[ell],
+    # which reduces consistently mod ell.  Without this step, reducing
+    # the raw integer coefficients mod ell yields a corrupted system
+    # (the residues have nothing to do with the ell-torsion structure).
+    ell = int(GROUP_MODULUS)
+    h   = int(COFACTOR)
+    if verbose:
+        _log(f"[dlp_list] cofactor rescaling: h={h}, ell={ell}  (h*ell = {h*ell})")
+
+    M_rescaled = h * M_combined   # still over ZZ; change_ring happens inside _dlp_build_affine_system
+
+    Fp = GF(ell)
+
+    # Step 6: build affine system over GF(ell) and solve.
     _M_fp, A, b = _dlp_build_affine_system(
-        M_combined, n_cols, g_col, gp_col, Fp, generator_x, generator_x_partner, verbose
+        M_rescaled, n_cols, g_col, gp_col, Fp, generator_x, generator_x_partner, verbose
     )
 
-    # 7. Solve and Sum roots
+    # Step 7: solve and extract k mod ell.
     try:
-        dlp_val = _dlp_solve(A, b, n_cols, t_col, tp_col, n, verbose)
+        dlp_val = _dlp_solve(A, b, n_cols, t_col, tp_col, ell, verbose)
         result["dlp"] = dlp_val
         result["verified"] = _dlp_verify(dlp_val, verbose)
     except Exception:
