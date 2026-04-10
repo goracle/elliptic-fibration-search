@@ -304,6 +304,51 @@ def _candidate_record_from_x(x, source="mumford_residue", **extra):
     rec.update(extra)
     return rec
 
+def _candidates_from_residues(residues, p):
+    """Extract candidate records from mumford_residues {p: {vtup: {x_val: sols}}}.
+
+    Each solution is now (mumford_tuple, yj_sign, v0, v1) as written by
+    _solve_worker_wrapper.  We emit one candidate record per (x_val, yj_sign)
+    pair so that the relation matrix gets the correct signed coefficient.
+
+    Returns a list of dicts with keys: xj, yj_sign, v0, v1, source.
+    Falls back gracefully if solutions are in the old (4-tuple only) format.
+    """
+    records = []
+    seen = set()  # (x_val, yj_sign) dedup
+
+    pmap = residues.get(p, {})
+    for vtup, xmap in pmap.items():
+        if not isinstance(xmap, dict):
+            continue
+        for x_val, sols in xmap.items():
+            if not sols:
+                continue
+            # Take the first solution's sign (multiple solutions at the same
+            # x_val should agree on yj_sign since v(xj) is deterministic).
+            first = sols[0]
+            if isinstance(first, (tuple, list)) and len(first) == 4:
+                # New format: (mumford_tuple, yj_sign, v0, v1)
+                _mtup, yj_sign, v0, v1 = first
+            else:
+                # Old format: plain 4-tuple — sign unknown, default +1.
+                yj_sign, v0, v1 = 1, None, None
+
+            key = (int(x_val), yj_sign)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            records.append({
+                "xj": int(x_val),
+                "yj_sign": yj_sign,
+                "v0": v0,
+                "v1": v1,
+                "source": "mumford_residue",
+            })
+
+    return records
+
 def _collect_mumford_candidate_x_values(obj, out=None):
     """
     Recursively collect candidate x-values from a Mumford payload.
@@ -622,6 +667,17 @@ def make_project_markov_search_fn(
 
         norm = _normalize_markov_mumford_result(raw, fallback_step=ctx)
 
+        # Override candidate_records with sign-aware records extracted directly
+        # from the raw residues dict, where each solution now carries yj_sign
+        # and the v-polynomial coefficients needed to compute yk_sign.
+        _raw_residues = raw.get('residues') if isinstance(raw, dict) else None
+        if _raw_residues:
+            sign_records = _candidates_from_residues(_raw_residues, p)
+            if sign_records:
+                norm['candidate_records'] = sign_records
+                norm['candidates'] = sign_records
+                norm['candidate_xs'] = {r['xj'] for r in sign_records}
+
         # Fertility: fraction of n-values (vecs) that had at least one F_p root across any prime.
         # precomputed_residues[p] is keyed only by v_tuples that had roots, so union of keys = fertile set.
         # We try two possible shapes: {prime: {vtup: solutions}} and the flat {vtup: solutions} fallback.
@@ -676,77 +732,30 @@ def make_project_markov_search_fn(
         # Curve degree from project globals, defaulting to 5.
         _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
 
-        # Helper: check whether xk is an F_p point on C (y^2 = G(xk) must be a QR).
-        # Tower construction requires an F_p point; xk's x-coord is in F_p by Vieta but
-        # y might only exist over F_{p^2}.  We verify before injecting xk as a chain head.
-        def _xk_is_fp_point(xk_val):
-            if _G_poly is None or xk_val is None:
-                return False
-            try:
-                rhs = _G_poly(xk_val)
-                return bool(rhs.is_square())
-            except Exception:
-                raise
-                return False
+        # enrich_candidates handles: degenerate-xj skip, m recovery, xk computation
+        # via compute_xk_from_fiber, yk_sign computation from v(xk), yj_sign/yk_sign
+        # defaults, and xk_head injection with roles swapped.  It replaces the old
+        # inline loop which computed xk but never computed yk_sign.
+        enriched_candidates = enrich_candidates(
+            norm,
+            x_here=x_here,
+            y_here=y_here,
+            n0=n0,
+            fi=_fi,
+            G_poly=_G_poly,
+            curve_degree=_curve_degree,
+            p=p,
+        )
 
-        enriched_candidates = []
-        for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
-            rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
-            rec.setdefault('xj', rec.get('x', None))
-            rec['input_n'] = n0
-            rec['xi'] = x_here
-            rec['yi'] = y_here
-
-            xj_val = rec.get('xj')
-
-            # Skip degenerate candidates where xj == xi (walker would step to itself)
-            if xj_val is not None and xj_val == x_here:
-                continue
-
-            # Recover m from the linear relation xj = -m + xi  =>  m = xi - xj
-            if rec.get('m') is None and xj_val is not None:
-                try:
-                    rec['m'] = x_here - xj_val
-                except TypeError:
-                    # Catch rogue strings scraped from dictionaries and skip them # nope, raise.  we should put in proper error handling here, not to silently skip!
-                    raise
-                except Exception:
-                    raise
-
-            # Compute xk now while tower context is available.
-            if rec.get('xk') is None:
-                m_val = rec.get('m')
-                if m_val is not None and xj_val is not None:
-                    rec['xk'], inter = compute_xk_from_fiber(x_here, m_val, xj_val, _fi, _G_poly, _curve_degree)
-                    rec['intersection_poly'] = inter
-            # S_of_m is a property of the fibration (fi, G_poly) alone — independent of
-            # which (m, xj) candidate we're on.  Compute once and attach to every rec.
-            if rec.get('S_of_m') is None and _fi is not None and _G_poly is not None:
-                S_of_m, inter_sym = compute_S_of_m(_fi, _G_poly, _curve_degree)
-                rec['S_of_m'] = S_of_m
-                rec['inter_sym'] = inter_sym
-
-            enriched_candidates.append(rec)
-
-            # Inject xk as an alternative chain head if it is a genuine F_p point on C.
-            # xk's x-coordinate is always in F_p (computed via Vieta over F_p), but the
-            # y-coordinate only exists over F_p if G(xk) is a QR.  We check this before
-            # injecting so that tower construction (which needs an F_p point) will succeed.
-            xk_val = rec.get('xk')
-            if (xk_val is not None
-                    and xk_val != x_here
-                    and xk_val != xj_val
-                    and _xk_is_fp_point(xk_val)):
-                xk_head = {
-                    'xj': xk_val,
-                    'xk': xj_val,   # the original xj becomes xk in the reversed record
-                    'm': x_here - xk_val,   # m' = xi - xk for record-keeping consistency
-                    'source': 'xk_head',
-                    'input_n': n0,
-                    'xi': x_here,
-                    'yi': y_here,
-                }
-                enriched_candidates.append(xk_head)
+        # Attach S_of_m and inter_sym to every record while the tower context is
+        # still available.  This is a fibration property of xi (not of any xj), so
+        # we compute once and stamp it on all records.
+        if _fi is not None and _G_poly is not None:
+            _S_of_m_rec, _inter_sym_rec = compute_S_of_m(_fi, _G_poly, _curve_degree)
+            for rec in enriched_candidates:
+                if isinstance(rec, dict):
+                    rec.setdefault('S_of_m', _S_of_m_rec)
+                    rec.setdefault('inter_sym', _inter_sym_rec)
         # candidate_xs is the set of xj values derived from actual m-roots only.
         # xk_head records must be excluded here so the leaf-tracking in
         # _step_from_candidate_search can separate xj_set (m-root derived) from
@@ -857,8 +866,27 @@ def enrich_candidates(
     fi,
     G_poly,
     curve_degree,
+    p=None,
 ):
     enriched = []
+
+    # Helper: canonical positive sqrt mod p (min(y, p-y) convention).
+    def _canonical_sqrt(x_val):
+        if p is None or G_poly is None:
+            return None
+        try:
+            rhs = int(G_poly(x_val))
+            if rhs == 0:
+                return 0
+            if (p % 4) == 3:
+                y = pow(rhs, (p + 1) // 4, p)
+            else:
+                y = pow(rhs, (p + 1) // 4, p)
+                if (y * y) % p != rhs % p:
+                    return None
+            return min(y, p - y)
+        except Exception:
+            return None
 
     for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
         rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
@@ -887,10 +915,34 @@ def enrich_candidates(
                 rec['xk'] = xk_val
                 rec['intersection_poly'] = inter
 
+        # Compute yk_sign from the v-polynomial if available.
+        # v(xk) = v0 + v1*xk; compare against canonical sqrt of f(xk).
+        v0 = rec.get('v0')
+        v1 = rec.get('v1')
+        xk = rec.get('xk')
+        if (v0 is not None and v1 is not None
+                and xk is not None and isinstance(xk, (int, Integer))
+                and p is not None):
+            try:
+                yk_v = (v0 + v1 * int(xk)) % p
+                canonical_yk = _canonical_sqrt(int(xk))
+                if canonical_yk is not None:
+                    yk_canonical = min(yk_v, p - yk_v) if yk_v != 0 else 0
+                    rec['yk_sign'] = 1 if yk_canonical == canonical_yk else -1
+                else:
+                    rec.setdefault('yk_sign', 1)
+            except Exception:
+                rec.setdefault('yk_sign', 1)
+        else:
+            rec.setdefault('yk_sign', 1)
+
+        # Ensure yj_sign has a default.
+        rec.setdefault('yj_sign', 1)
+
         enriched.append(rec)
 
-        # inject xk-head
-        xk = rec.get('xk')
+        # inject xk-head — xk_head records inherit the roles but swap signs:
+        # in the reversed record xk becomes xj so its sign is the original yk_sign.
         if (
             xk is not None
             and xk != x_here
@@ -900,6 +952,8 @@ def enrich_candidates(
             enriched.append({
                 'xj': xk,
                 'xk': xj,
+                'yj_sign': rec.get('yk_sign', 1),
+                'yk_sign': rec.get('yj_sign', 1),
                 'm': x_here - xk,
                 'source': 'xk_head',
                 'input_n': n0,

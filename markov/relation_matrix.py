@@ -248,16 +248,20 @@ def build_relation_matrix2(
                     if isinstance(cand, dict):
                         c_xj = next((cand[k] for k in ("xj", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
                         c_xk = cand.get("xk")
-                        cands_to_add.append((c_xj, c_xk))
+                        c_yj = int(cand.get("yj_sign", 1))
+                        c_yk = int(cand.get("yk_sign", 1))
+                        cands_to_add.append((c_xj, c_xk, c_yj, c_yk))
                     elif cand is not None:
-                        cands_to_add.append((cand, None))
+                        cands_to_add.append((cand, None, 1, 1))
 
         # Always include the primary accepted path
-        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk")))
+        _rec_yj = int(_get(rec, "yj_sign") or 1)
+        _rec_yk = int(_get(rec, "yk_sign") or 1)
+        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_yj, _rec_yk))
 
         seen_pairs = set()
 
-        for cxj, cxk in cands_to_add:
+        for cxj, cxk, yj_sign, yk_sign in cands_to_add:
             if cxj is None or cxj == xi:
                 continue
 
@@ -269,10 +273,6 @@ def build_relation_matrix2(
                 cxk = None
 
             if cxj not in atom_index:
-                # This should never happen after the two-phase pass-1 fix:
-                # pass-1a registers atoms from ALL accepted records before any
-                # filtering, so every (xi, xj, xk) from every accepted record
-                # (including free/involution records) is in atom_index by now.
                 raise AssertionError(
                     f"[relation_matrix] BUG: cxj={cxj!r} not in atom_index "
                     f"(xi={_get(rec, 'xi')!r}, source={_get(rec, 'step')!r}).  "
@@ -287,13 +287,13 @@ def build_relation_matrix2(
 
             row = [0] * n_cols
             row[atom_index[xi]] += xi_mult
-            row[atom_index[cxj]] += 1
+            row[atom_index[cxj]] += yj_sign
 
             if cxk == "∞":
                 if inf_col is not None:
                     row[inf_col] += 1
             elif cxk is not None and cxk in atom_index:
-                row[atom_index[cxk]] += 1
+                row[atom_index[cxk]] += yk_sign
 
             if inf_col is not None:
                 row[inf_col] += inf_coeff

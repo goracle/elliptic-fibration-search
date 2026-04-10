@@ -515,6 +515,10 @@ class RelationRecord:
     restart: bool = False
     candidate_pool: List[Dict[str, Any]] = field(default_factory=list)
     selected_candidate: Dict[str, Any] = field(default_factory=dict)
+    # y-branch signs for xj and xk: +1 = canonical (positive) root, -1 = conjugate.
+    # Default to +1 (old behaviour) when signs are not available (e.g. preferred_injection).
+    yj_sign: int = 1
+    yk_sign: int = 1
 
 @dataclass
 class WalkConfig:
@@ -664,18 +668,30 @@ class Genus2MetropolisWalker:
             self.base_points.append((self.current_x, self.current_y))
 
     def _recover_y(self, x_val, explicit_y=None):
-        if explicit_y is not None:
-            return self.base_ring(explicit_y)
-
-        rhs = self.curve_poly(x_val)
+        # Canonical convention: always return min(y, p-y) as the representative.
+        # This makes the divisor-class label deterministic regardless of which
+        # branch the tower shift / Mobius transformation landed on, so xi's
+        # column coefficient in the relation matrix is always +1 by definition.
         if self.p is not None:
-            if hasattr(rhs, "is_square") and rhs.is_square():
-                try:
-                    return rhs.sqrt()
-                except Exception:
-                    raise
-            raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
+            p = int(self.p)
+            if explicit_y is not None:
+                y_int = int(self.base_ring(explicit_y))
+                return self.base_ring(min(y_int, p - y_int))
 
+            rhs = self.curve_poly(x_val)
+            if not (hasattr(rhs, "is_square") and rhs.is_square()):
+                raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
+            try:
+                y_any = rhs.sqrt()
+            except Exception:
+                raise
+            y_int = int(y_any)
+            return self.base_ring(min(y_int, p - y_int))
+
+        # Non-finite-field path (rational, over QQ): no branch ambiguity issue.
+        if explicit_y is not None:
+            return explicit_y
+        rhs = self.curve_poly(x_val)
         sq = sqrt(rhs)
         if sq * sq != rhs:
             raise ValueError(f"No rational y at x={x_val!r}")
@@ -999,6 +1015,8 @@ class Genus2MetropolisWalker:
             step: Dict[str, Any],
             accepted=True,
             restart=False,
+            yj_sign: int = 1,
+            yk_sign: int = 1,
         ):
             deg = self.config.curve_degree
             xi_mult = deg - 2  # double tangency → multiplicity 3 for deg-5, etc.
@@ -1028,6 +1046,8 @@ class Genus2MetropolisWalker:
                 step=clean_step,
                 accepted=accepted,
                 restart=restart,
+                yj_sign=yj_sign,
+                yk_sign=yk_sign,
             )
 
     def _score_candidate_record(self, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
@@ -1423,7 +1443,9 @@ class Genus2MetropolisWalker:
 
         rec = self._make_relation(
             len(self.history), n, xi_before, m_val, xj, xk,
-            step_payload, accepted=accepted, restart=False
+            step_payload, accepted=accepted, restart=False,
+            yj_sign=int(chosen.get('yj_sign', 1)),
+            yk_sign=int(chosen.get('yk_sign', 1)),
         )
         rec.candidate_pool = candidates
         rec.selected_candidate = dict(chosen)
@@ -1979,6 +2001,10 @@ class Genus2MetropolisWalker:
                 'intersection_poly': None,
             }
 
+            # yj_sign / yk_sign are not available here: preferred injections are
+            # synthetic Vieta relations with no associated Mumford solution, so we
+            # have no v(x) polynomial to evaluate.  They default to +1 in
+            # _make_relation, which is the pre-sign-tracking behaviour.
             rec = self._make_relation(
                 step_index=len(self.history),
                 n=accepted_rec.n,
@@ -2031,6 +2057,7 @@ class Genus2MetropolisWalker:
                 'intersection_poly': None,
             }
 
+            # yj_sign / yk_sign default to +1 — no v(x) available on this path.
             rec = self._make_relation(
                 step_index=len(self.history),
                 n=accepted_rec.n,

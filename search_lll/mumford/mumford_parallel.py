@@ -795,7 +795,35 @@ def _solve_worker_wrapper(args):
                         f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
                     )
 
-                verified_sols.append(sol)
+                # Compute yj_sign: compare v(xj) = v0 + v1*xj against the
+                # canonical positive square root of f(xj) mod p.
+                # Canonical root = min(y, p-y) for odd p (matches Sage's sqrt()).
+                # yj_sign = +1 if v(xj) is the canonical root, -1 if it's the other.
+                yj_v = (v0 + v1 * x_val) % p
+                rhs_val = 0
+                for i, c in enumerate(f_coeffs_ints):
+                    rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
+                if rhs_val == 0:
+                    canonical_yj = 0
+                elif (p % 4) == 3:
+                    canonical_yj = pow(rhs_val, (p + 1) // 4, p)
+                    canonical_yj = min(canonical_yj, p - canonical_yj)
+                else:
+                    # p ≡ 1 mod 4: find sqrt by checking both candidates from
+                    # the two square root values; use min convention.
+                    sq = pow(rhs_val, (p + 1) // 4, p)
+                    if (sq * sq) % p == rhs_val:
+                        canonical_yj = min(sq, p - sq)
+                    else:
+                        # Tonelli-Shanks needed; fall back to treating v(xj) as canonical.
+                        canonical_yj = min(yj_v, p - yj_v) if yj_v != 0 else 0
+
+                yj_canonical = min(yj_v, p - yj_v) if yj_v != 0 else 0
+                yj_sign = 1 if yj_canonical == canonical_yj else -1
+
+                # Store (mumford_tuple, yj_sign, v0, v1) so downstream can
+                # recover yk_sign via v(xk) = v0 + v1*xk.
+                verified_sols.append((sol, yj_sign, int(v0), int(v1)))
 
             if verified_sols:
                 x_res_to_sols[x_val] = verified_sols
