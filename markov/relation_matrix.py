@@ -411,140 +411,6 @@ def print_relation_matrix_summary(
 
     print("=" * 70 + "\n")
 
-def find_bottleneck_atoms(
-    mat,
-    atoms: List[Any],
-    *,
-    fp_prime: int = 2**31 - 1,
-) -> Tuple[List[dict], dict]:
-    """Decompose the nullity of *mat* into structural contributions.
-
-    Three disjoint sources of nullity are identified:
-
-    1. **∞ atom** — the point at infinity always contributes exactly 1 to the
-       nullity when *include_infinity=True* (it is a structural dependency by
-       the principal-divisor sum-zero constraint).
-
-    2. **Dest-only atoms** — finite atoms that appear only as *xj* / *xk*
-       destinations, never as *xi* sources.  Structurally identified as columns
-       whose every nonzero entry has |value| == 1 (coefficient +1 from xj/xk
-       slot), i.e. they never carry the xi multiplier d-2 ≥ 3.
-
-    3. **Residual nullity** — nullity remaining after subtracting ∞ and
-       dest-only contributions.  Positive residual signals disconnected
-       components or deeper linear dependencies.
-
-    Returns
-    -------
-    bottlenecks : list[dict]
-        One entry per bottleneck atom, keys:
-            atom     – the atom value
-            col      – column index in *mat*
-            col_nnz  – number of nonzero rows for this column
-            reason   – "inf" | "dest_only" | "residual"
-            action   – human-readable suggestion
-    report : dict
-        rank, nullity, inf_atom_in_null (bool),
-        dest_only_atoms (list), residual_nullity (int)
-    """
-    if mat.nrows() == 0 or mat.ncols() == 0:
-        report = {
-            "rank": 0,
-            "nullity": len(atoms),
-            "inf_atom_in_null": False,
-            "dest_only_atoms": [],
-            "residual_nullity": len(atoms),
-        }
-        return [], report
-
-    n_rows, n_cols = mat.nrows(), mat.ncols()
-
-    # --- rank / nullity over GF(fp_prime) -----------------------------------
-    mat_modp = mat.change_ring(GF(fp_prime))
-    rank = int(mat_modp.rank())
-    nullity = n_cols - rank
-
-    # --- identify ∞ column --------------------------------------------------
-    inf_col: Optional[int] = None
-    for j, a in enumerate(atoms):
-        if str(a) == _INFINITY_SENTINEL:
-            inf_col = j
-            break
-    inf_atom_in_null = inf_col is not None
-
-    # --- identify dest-only columns -----------------------------------------
-    # A column is dest-only when ALL of its nonzero entries have |value| == 1,
-    # meaning it only ever appears as xj or xk (coeff +1), never as xi
-    # (coeff d-2 >= 3).  Excludes ∞ column.
-    dest_only_cols: List[int] = []
-    dest_only_atoms: List[Any] = []
-    for j in range(n_cols):
-        if j == inf_col:
-            continue
-        col_entries = [int(mat[i, j]) for i in range(n_rows) if mat[i, j] != 0]
-        if not col_entries:
-            continue
-        if all(abs(v) == 1 for v in col_entries):
-            dest_only_cols.append(j)
-            dest_only_atoms.append(atoms[j])
-
-    # --- residual nullity ----------------------------------------------------
-    accounted = (1 if inf_atom_in_null else 0) + len(dest_only_cols)
-    residual_nullity = max(0, nullity - accounted)
-
-    # --- build bottleneck list -----------------------------------------------
-    bottlenecks: List[dict] = []
-
-    if inf_col is not None:
-        col_nnz = sum(1 for i in range(n_rows) if mat[i, inf_col] != 0)
-        bottlenecks.append({
-            "atom": _INFINITY_SENTINEL,
-            "col": inf_col,
-            "col_nnz": col_nnz,
-            "reason": "inf",
-            "action": "irreducible — ∞ always contributes 1 to nullity",
-        })
-
-    for j, a in zip(dest_only_cols, dest_only_atoms):
-        col_nnz = sum(1 for i in range(n_rows) if mat[i, j] != 0)
-        bottlenecks.append({
-            "atom": a,
-            "col": j,
-            "col_nnz": col_nnz,
-            "reason": "dest_only",
-            "action": f"run walker with xi={a} to promote it to a source atom",
-        })
-
-    if residual_nullity > 0:
-        # Surface the finite non-dest-only columns with the fewest relations
-        # (lowest col_nnz) as the most likely disconnected components.
-        candidate_cols = [
-            j for j in range(n_cols)
-            if j != inf_col and j not in dest_only_cols
-        ]
-        candidate_cols.sort(
-            key=lambda j: sum(1 for i in range(n_rows) if mat[i, j] != 0)
-        )
-        for j in candidate_cols[:residual_nullity]:
-            col_nnz = sum(1 for i in range(n_rows) if mat[i, j] != 0)
-            bottlenecks.append({
-                "atom": atoms[j],
-                "col": j,
-                "col_nnz": col_nnz,
-                "reason": "residual",
-                "action": f"walk more steps through xi={atoms[j]} to connect components",
-            })
-
-    report = {
-        "rank": rank,
-        "nullity": nullity,
-        "inf_atom_in_null": inf_atom_in_null,
-        "dest_only_atoms": dest_only_atoms,
-        "residual_nullity": residual_nullity,
-    }
-    return bottlenecks, report
-
-
 def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     """Pretty-print a full nullity decomposition report."""
     bottlenecks, report = find_bottleneck_atoms(mat, atoms, fp_prime=fp_prime)
@@ -573,13 +439,20 @@ def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     print("=" * 70 + "\n")
     return bottlenecks, report
 
-def prune_dest_only(mat, atoms, protected_atoms=None):
+def prune_dest_only(mat, atoms):
     """
     Iteratively remove dest-only atoms (columns with exactly 1 nonzero entry)
     and their single incident row until fixed point.
 
-    protected_atoms: An optional set of atoms that should NEVER be pruned,
-                     even if they are pendant leaves (e.g., target/generator roots).
+    Fully sparse: uses row_data (dict per row) and col_rows (set per col)
+    so no dense matrix is ever materialised.  A worklist propagates removals
+    incrementally — no full rescan per iteration.  col_rows is kept exact by
+    discard() so no set-intersection with live_rows is needed in the hot path.
+
+    Returns:
+        pruned_mat   : relation matrix with pendant leaves removed
+        pruned_atoms : corresponding atom list
+        removed      : list of (atom, row_index) pairs removed, in order
     """
     inf_sentinel = "∞"
     cur_atoms    = list(atoms)
@@ -587,59 +460,62 @@ def prune_dest_only(mat, atoms, protected_atoms=None):
     n_rows = mat.nrows()
     n_cols = mat.ncols()
 
+    # row_data[i] = {col_index: int_value}  — only nonzero entries
+    # col_rows[j] = set of row indices with a nonzero in column j
+    # col_rows is kept exact: every discard() call happens at removal time,
+    # so len(col_rows[j]) == number of *live* rows touching col j at all times.
     row_data = [{} for _ in range(n_rows)]
     col_rows = [set() for _ in range(n_cols)]
 
+    # nonzero_positions() returns (i, j) pairs; fetch value separately.
     for (i, j) in mat.nonzero_positions(copy=False):
         row_data[i][j] = int(mat[i, j])
         col_rows[j].add(i)
 
     live_cols = set(range(n_cols))
     inf_cols  = {j for j, a in enumerate(cur_atoms) if str(a) == inf_sentinel}
-
-    # Map protected atoms to their column indices
-    protected_cols = set()
-    if protected_atoms:
-        protected_strs = {str(pa) for pa in protected_atoms}
-        protected_cols = {j for j, a in enumerate(cur_atoms) if str(a) in protected_strs}
-
     removed   = []
 
-    # Seed worklist: cols with exactly one live row, excluding inf and protected atoms.
+    # Seed worklist: cols with exactly one live row, excluding inf.
+    # len(col_rows[j]) is exact because col_rows is maintained by discard().
     worklist = {
         j for j in live_cols
-        if j not in inf_cols and j not in protected_cols and len(col_rows[j]) == 1
+        if j not in inf_cols and len(col_rows[j]) == 1
     }
 
-    dead_rows: set = set()
+    dead_rows: set = set()   # rows removed so far
 
     while worklist:
         j = worklist.pop()
         if j not in live_cols:
             continue
         if len(col_rows[j]) != 1:
+            # Stale enqueue: another removal already drained this col.
             continue
 
+        # The one remaining entry in col_rows[j] is the row to remove.
         (i,) = col_rows[j]
         removed.append((cur_atoms[j], i))
         dead_rows.add(i)
         live_cols.discard(j)
 
-        # Propagate
+        # Propagate: for every col that row i touched, remove i from col_rows.
+        # If that reduces a qualifying col to nnz==1, enqueue it.
         for k, _val in row_data[i].items():
             if k == j:
                 continue
             col_rows[k].discard(i)
-            # Add to worklist if it became a pendant AND is not protected
-            if k in live_cols and k not in inf_cols and k not in protected_cols and len(col_rows[k]) == 1:
+            if k in live_cols and k not in inf_cols and len(col_rows[k]) == 1:
                 worklist.add(k)
 
-    # --- Reconstruct Sage matrix ---
+    # --- Reconstruct Sage matrix from surviving rows/cols ----------------
     sorted_cols  = sorted(live_cols)
     col_remap    = {old_j: new_j for new_j, old_j in enumerate(sorted_cols)}
     pruned_atoms = [cur_atoms[j] for j in sorted_cols]
     n_pruned_cols = len(sorted_cols)
 
+    # Build as a flat {(i,j): val} dict — the format Sage's sparse Matrix
+    # constructor actually expects — to avoid dense zero-filled row allocations.
     surviving = {}
     new_row_idx = 0
     for i in range(n_rows):

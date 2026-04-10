@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
-from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, COFACTOR
+from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS
 from sage.all import *
 from markov import *
 from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
@@ -67,8 +67,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
@@ -740,6 +740,49 @@ def _dlp_union_columns(mats, atom_lists, verbose: bool):
 
     return M_combined, all_atoms_ordered, atom_index, ranks
 
+def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
+    """Step 3: Drop dest-only (pendant) columns and their single incident rows.
+
+    A dest-only atom appears only as xj/xk (coefficient 1), never as xi
+    (coefficient d-2 = 3).  It contributes a free variable to the kernel and
+    adds directly to the nullity without adding rank.  Pruning removes these
+    pendant leaves iteratively to fixed point, which (a) reduces n_cols,
+    (b) removes the rows that only served those leaves, and (c) strictly
+    reduces nullity without affecting the DLP solution for any non-pruned atom.
+
+    Returns (M_pruned, pruned_atoms, pruned_atom_index).
+    """
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(M_combined, all_atoms_ordered)
+    if removed and verbose:
+        _log(
+            f"[dlp_list] pruned {len(removed)} dest-only atoms "
+            f"and {len(removed)} pendant rows"
+        )
+    pruned_atom_index = {str(a): i for i, a in enumerate(pruned_atoms)}
+    return M_pruned, pruned_atoms, pruned_atom_index
+
+def _dlp_resolve_cols(atom_index: dict, target_x, generator_x, generator_x_partner, verbose: bool):
+    """Step 4: Map target/generator x-values to column indices.
+
+    Returns (target_col, gen_col, gen_partner_col).
+    target_col or gen_col being None means the atom was pruned or absent;
+    callers must treat either as a hard failure.
+    """
+    target_col = atom_index.get(str(target_x)) if target_x is not None else None
+    gen_col    = atom_index.get(str(generator_x)) if generator_x is not None else None
+
+    gen_partner_col = None
+    if generator_x_partner is not None:
+        gen_partner_col = atom_index.get(str(generator_x_partner))
+        if gen_partner_col is None and verbose:
+            _log(
+                f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
+                f"-- anchor will use single-column form."
+            )
+
+    return target_col, gen_col, gen_partner_col
+
 def _dlp_build_affine_system(
     M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,
     generator_x, generator_x_partner, verbose: bool,
@@ -803,6 +846,35 @@ def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, ve
         )
     return rank_aug, kernel_dim
 
+def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
+    """Step 7: solve_right; return dlp_val mod n, or None on ValueError.
+
+    Raises RuntimeError if solve_right returns a non-solution.
+    Re-raises on unexpected solver errors.
+    """
+    try:
+        sol = A.solve_right(b)
+    except ValueError as exc:
+        _log(
+            f"[dlp_list] solve_right failed: {exc}\n"
+            f"  anchor constraint inconsistent with relation rows\n"
+            f"  -- check that generator columns are present and group_order is correct."
+        )
+        raise
+        return None
+    except Exception as exc:
+        _log(f"[dlp_list] solve_right unexpected error: {exc}")
+        raise
+
+    residual = A * sol - b
+    if any(v != 0 for v in residual):
+        raise RuntimeError("[dlp_list] solve_right returned a non-solution")
+
+    dlp_val = int(sol[target_col]) % n
+    if verbose:
+        _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}*G  mod {n})")
+    return dlp_val
+
 def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
     """Step 8: Jacobian verification against module-level BASE/TARGET divisors."""
 
@@ -820,60 +892,6 @@ def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
         raise
     return False
 
-def _dlp_prune(M_combined, all_atoms_ordered: list, protected_atoms: set, verbose: bool):
-    """Step 3: Drop pendant columns while protecting boundary roots."""
-
-    M_pruned, pruned_atoms, removed = prune_dest_only(
-        M_combined, all_atoms_ordered, protected_atoms=protected_atoms
-    )
-    if removed and verbose:
-        _log(
-            f"[dlp_list] pruned {len(removed)} dest-only atoms "
-            f"and {len(removed)} pendant rows (protected {len(protected_atoms)} boundary roots)"
-        )
-    pruned_atom_index = {str(a): i for i, a in enumerate(pruned_atoms)}
-    return M_pruned, pruned_atoms, pruned_atom_index
-
-def _dlp_resolve_cols(atom_index: dict, target_x, target_x_partner, generator_x, generator_x_partner, verbose: bool):
-    """Step 4: Map divisor roots to matrix column indices."""
-    target_col = atom_index.get(str(target_x))
-    gen_col = atom_index.get(str(generator_x))
-
-    target_partner_col = None
-    if target_x_partner is not None:
-        target_partner_col = atom_index.get(str(target_x_partner))
-        if target_partner_col is None and verbose:
-            _log(f"[dlp_list] target partner x={target_x_partner} not in atom set.")
-
-    gen_partner_col = None
-    if generator_x_partner is not None:
-        gen_partner_col = atom_index.get(str(generator_x_partner))
-        if gen_partner_col is None and verbose:
-            _log(f"[dlp_list] generator partner x={generator_x_partner} not in atom set.")
-
-    return target_col, target_partner_col, gen_col, gen_partner_col
-
-def _dlp_solve(A, b, n_cols: int, target_col: int, target_partner_col, n: int, verbose: bool):
-    """Step 7: Solve for k mod n, summing both roots of the target divisor."""
-    try:
-        sol = A.solve_right(b)
-    except ValueError as exc:
-        _log(f"[dlp_list] solve_right failed: {exc}")
-        raise
-
-    # Extract log(T_root1)
-    dlp_val = int(sol[target_col])
-
-    # Add log(T_root2) to get total log(T)
-    if target_partner_col is not None:
-        dlp_val += int(sol[target_partner_col])
-
-    dlp_val %= n
-
-    if verbose:
-        _log(f"[dlp_list] SOLVED: k = {dlp_val} mod {n}")
-    return dlp_val
-
 def dlp_from_merged_walks(
     walkers,
     target_x,
@@ -883,79 +901,123 @@ def dlp_from_merged_walks(
     target_x_partner=None,
     verbose: bool = True,
 ):
-    """DLP solve over the ℓ-torsion subgroup.
+    """DLP solve from the union of all walkers' relation matrices.
 
-    Walk relations hold over ZZ: Σ c_i * atom_i = 0 in J(F_p).
-    To reduce consistently mod ell (the prime group order we work in),
-    we rescale the integer relation matrix by the cofactor h = |J| // ell
-    before lifting to GF(ell).  After rescaling, h * (Σ c_i * atom_i) = 0
-    still holds, but now reducing mod ell is valid because all Jacobian
-    elements have been projected into J(F_p)[ell].
+    Solves the normalized affine system
 
-    The anchor row fixes the normalization: log_ell(gen_root1) [+
-    log_ell(gen_root2)] = 1.  The solution vector gives log_ell of each
-    atom; summing the two target-divisor root columns yields k mod ell.
+        M_combined * alpha = 0
+        alpha[gen_x] + alpha[gen_partner_x] = 1
+
+    over GF(l), then reads off alpha[target_x] as the DLP coefficient.
+    Dest-only (pendant) atoms are pruned from M_combined before the solve to
+    reduce nullity.
     """
-    result = {"dlp": None, "verified": False}
 
-    # Steps 1 & 2: collect per-walker matrices and union their column spaces.
+    result = {
+        "dlp": None,
+        "method": None,
+        "ranks": [],
+        "rank_combined": None,
+        "rank_augmented": None,
+        "kernel_dim": None,
+        "n_cols": None,
+        "verified": False,
+    }
+
+    if not walkers:
+        raise ValueError("dlp_from_merged_walks: no walkers supplied")
+
+    # 1. Per-walker matrices
     mats, atom_lists = _dlp_collect_matrices(walkers, verbose)
+    if not mats:
+        _log("[dlp_list] all walks have empty relation matrices -- no solve possible.")
+        return result
+
+    # 2. Union column spaces, reindex, stack
     M_combined, all_atoms_ordered, atom_index, ranks = _dlp_union_columns(
         mats, atom_lists, verbose
     )
+    result["ranks"] = ranks
+    if verbose:
+        _log(
+            f"[dlp_list] combined: rows={M_combined.nrows()} cols={len(all_atoms_ordered)} "
+            f"(pruning next, rank deferred to post-solve)"
+        )
 
-    # Step 3: prune dest-only (pendant) atoms, protecting the 4 boundary roots.
-    protected_roots = {
-        x for x in [target_x, target_x_partner, generator_x, generator_x_partner]
-        if x is not None
-    }
+    # 3. Prune dest-only pendant columns/rows before resolving column indices.
+    #    target_col/gen_col must be resolved against the post-prune atom_index.
     M_combined, all_atoms_ordered, atom_index = _dlp_prune(
-        M_combined, all_atoms_ordered, protected_roots, verbose
+        M_combined, all_atoms_ordered, verbose
     )
     n_cols = len(all_atoms_ordered)
+    result["n_cols"] = n_cols
 
-    # Step 4: resolve divisor roots to column indices.
-    t_col, tp_col, g_col, gp_col = _dlp_resolve_cols(
-        atom_index, target_x, target_x_partner, generator_x, generator_x_partner, verbose
-    )
-
-    if t_col is None or g_col is None:
-        _log("[dlp_list] Essential roots missing from matrix -- aborting solve.")
+    # 4. Resolve column indices (after pruning so indices are correct)
+    if target_x is None:
+        _log("[dlp_list] target_x is None -- cannot solve.")
+        return result
+    if generator_x is None:
+        _log("[dlp_list] generator_x is None -- cannot anchor.")
         return result
 
-    # Step 5: cofactor rescaling — project integer relations into J(F_p)[ell].
-    #
-    # GROUP_MODULUS = ell (the prime subgroup order, e.g. 25373).
-    # COFACTOR      = h   = |J| // ell (e.g. 10494).
-    #
-    # Multiplying M_combined by h over ZZ means: for every relation
-    #   Σ c_i * atom_i = 0  in J(F_p),
-    # we get
-    #   Σ (h*c_i) * atom_i = 0  in J(F_p)[ell],
-    # which reduces consistently mod ell.  Without this step, reducing
-    # the raw integer coefficients mod ell yields a corrupted system
-    # (the residues have nothing to do with the ell-torsion structure).
-    ell = int(GROUP_MODULUS)
-    h   = int(COFACTOR)
+    target_col, gen_col, gen_partner_col = _dlp_resolve_cols(
+        atom_index, target_x, generator_x, generator_x_partner, verbose
+    )
+    if target_col is None:
+        _log(f"[dlp_list] target x={target_x} not in combined leaf set after pruning.")
+        return result
+    if gen_col is None:
+        _log(f"[dlp_list] generator x={generator_x} not in combined leaf set after pruning.")
+        return result
+
+    # 5. Resolve group order
+    n = group_order
+    if n is None:
+        try:
+            if GROUP_MODULUS is not None:
+                n = int(GROUP_MODULUS)
+        except Exception:
+            raise
+    if n is None:
+        _log("[dlp_list] group_order unknown -- cannot solve mod l.")
+        result["method"] = "no_group_order"
+        return result
     if verbose:
-        _log(f"[dlp_list] cofactor rescaling: h={h}, ell={ell}  (h*ell = {h*ell})")
+        _log(f"[dlp_list] working mod l = {n}")
 
-    M_rescaled = h * M_combined   # still over ZZ; change_ring happens inside _dlp_build_affine_system
-
-    Fp = GF(ell)
-
-    # Step 6: build affine system over GF(ell) and solve.
+    # 6. Build affine system over GF(n)  (no rank call here)
+    Fp = GF(n)
     _M_fp, A, b = _dlp_build_affine_system(
-        M_rescaled, n_cols, g_col, gp_col, Fp, generator_x, generator_x_partner, verbose
+        M_combined, n_cols, gen_col, gen_partner_col, Fp,
+        generator_x, generator_x_partner, verbose
     )
 
-    # Step 7: solve and extract k mod ell.
+    # 7. Attempt solve_right directly — cheapest path, skip rank entirely if it works
     try:
-        dlp_val = _dlp_solve(A, b, n_cols, t_col, tp_col, ell, verbose)
+        dlp_val = _dlp_solve(A, b, n_cols, target_col, n, verbose)
+    except ValueError:
+        dlp_val = None
+        result["method"] = "solve_right_failed"
+
+    if dlp_val is not None:
         result["dlp"] = dlp_val
+        result["method"] = "normalized_solve_right"
+
+        # 8. Verify
         result["verified"] = _dlp_verify(dlp_val, verbose)
-    except Exception:
-        raise
+
+    # 9. Rank diagnostics — always last, only after solve attempt
+    if verbose:
+        _log("[dlp_list] computing rank diagnostics (deferred, may be slow) ...")
+    rank_combined = _M_fp.rank()
+    result["rank_combined"] = rank_combined
+    rank_aug, kernel_dim = _dlp_rank_check(
+        A, n_cols, rank_combined, M_combined.nrows(), verbose
+    )
+    result["rank_augmented"] = rank_aug
+    result["kernel_dim"] = kernel_dim
+    if kernel_dim > 1 and result.get("method") is None:
+        result["method"] = "underdetermined"
 
     return result
 
