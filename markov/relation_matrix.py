@@ -411,6 +411,140 @@ def print_relation_matrix_summary(
 
     print("=" * 70 + "\n")
 
+def find_bottleneck_atoms(
+    mat,
+    atoms: List[Any],
+    *,
+    fp_prime: int = 2**31 - 1,
+) -> Tuple[List[dict], dict]:
+    """Decompose the nullity of *mat* into structural contributions.
+
+    Three disjoint sources of nullity are identified:
+
+    1. **∞ atom** — the point at infinity always contributes exactly 1 to the
+       nullity when *include_infinity=True* (it is a structural dependency by
+       the principal-divisor sum-zero constraint).
+
+    2. **Dest-only atoms** — finite atoms that appear only as *xj* / *xk*
+       destinations, never as *xi* sources.  Structurally identified as columns
+       whose every nonzero entry has |value| == 1 (coefficient +1 from xj/xk
+       slot), i.e. they never carry the xi multiplier d-2 ≥ 3.
+
+    3. **Residual nullity** — nullity remaining after subtracting ∞ and
+       dest-only contributions.  Positive residual signals disconnected
+       components or deeper linear dependencies.
+
+    Returns
+    -------
+    bottlenecks : list[dict]
+        One entry per bottleneck atom, keys:
+            atom     – the atom value
+            col      – column index in *mat*
+            col_nnz  – number of nonzero rows for this column
+            reason   – "inf" | "dest_only" | "residual"
+            action   – human-readable suggestion
+    report : dict
+        rank, nullity, inf_atom_in_null (bool),
+        dest_only_atoms (list), residual_nullity (int)
+    """
+    if mat.nrows() == 0 or mat.ncols() == 0:
+        report = {
+            "rank": 0,
+            "nullity": len(atoms),
+            "inf_atom_in_null": False,
+            "dest_only_atoms": [],
+            "residual_nullity": len(atoms),
+        }
+        return [], report
+
+    n_rows, n_cols = mat.nrows(), mat.ncols()
+
+    # --- rank / nullity over GF(fp_prime) -----------------------------------
+    mat_modp = mat.change_ring(GF(fp_prime))
+    rank = int(mat_modp.rank())
+    nullity = n_cols - rank
+
+    # --- identify ∞ column --------------------------------------------------
+    inf_col: Optional[int] = None
+    for j, a in enumerate(atoms):
+        if str(a) == _INFINITY_SENTINEL:
+            inf_col = j
+            break
+    inf_atom_in_null = inf_col is not None
+
+    # --- identify dest-only columns -----------------------------------------
+    # A column is dest-only when ALL of its nonzero entries have |value| == 1,
+    # meaning it only ever appears as xj or xk (coeff +1), never as xi
+    # (coeff d-2 >= 3).  Excludes ∞ column.
+    dest_only_cols: List[int] = []
+    dest_only_atoms: List[Any] = []
+    for j in range(n_cols):
+        if j == inf_col:
+            continue
+        col_entries = [int(mat[i, j]) for i in range(n_rows) if mat[i, j] != 0]
+        if not col_entries:
+            continue
+        if all(abs(v) == 1 for v in col_entries):
+            dest_only_cols.append(j)
+            dest_only_atoms.append(atoms[j])
+
+    # --- residual nullity ----------------------------------------------------
+    accounted = (1 if inf_atom_in_null else 0) + len(dest_only_cols)
+    residual_nullity = max(0, nullity - accounted)
+
+    # --- build bottleneck list -----------------------------------------------
+    bottlenecks: List[dict] = []
+
+    if inf_col is not None:
+        col_nnz = sum(1 for i in range(n_rows) if mat[i, inf_col] != 0)
+        bottlenecks.append({
+            "atom": _INFINITY_SENTINEL,
+            "col": inf_col,
+            "col_nnz": col_nnz,
+            "reason": "inf",
+            "action": "irreducible — ∞ always contributes 1 to nullity",
+        })
+
+    for j, a in zip(dest_only_cols, dest_only_atoms):
+        col_nnz = sum(1 for i in range(n_rows) if mat[i, j] != 0)
+        bottlenecks.append({
+            "atom": a,
+            "col": j,
+            "col_nnz": col_nnz,
+            "reason": "dest_only",
+            "action": f"run walker with xi={a} to promote it to a source atom",
+        })
+
+    if residual_nullity > 0:
+        # Surface the finite non-dest-only columns with the fewest relations
+        # (lowest col_nnz) as the most likely disconnected components.
+        candidate_cols = [
+            j for j in range(n_cols)
+            if j != inf_col and j not in dest_only_cols
+        ]
+        candidate_cols.sort(
+            key=lambda j: sum(1 for i in range(n_rows) if mat[i, j] != 0)
+        )
+        for j in candidate_cols[:residual_nullity]:
+            col_nnz = sum(1 for i in range(n_rows) if mat[i, j] != 0)
+            bottlenecks.append({
+                "atom": atoms[j],
+                "col": j,
+                "col_nnz": col_nnz,
+                "reason": "residual",
+                "action": f"walk more steps through xi={atoms[j]} to connect components",
+            })
+
+    report = {
+        "rank": rank,
+        "nullity": nullity,
+        "inf_atom_in_null": inf_atom_in_null,
+        "dest_only_atoms": dest_only_atoms,
+        "residual_nullity": residual_nullity,
+    }
+    return bottlenecks, report
+
+
 def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     """Pretty-print a full nullity decomposition report."""
     bottlenecks, report = find_bottleneck_atoms(mat, atoms, fp_prime=fp_prime)
