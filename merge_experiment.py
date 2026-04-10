@@ -67,8 +67,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 32*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
