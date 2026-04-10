@@ -399,6 +399,32 @@ if FINITE_FIELD is not None:
             verbose=_IS_MAIN_PROCESS
         )
 
+    order = Integer(GROUP_MODULUS * COFACTOR)
+
+    assert GROUP_MODULUS is not None and COFACTOR is not None
+    assert Integer(GROUP_MODULUS) > 1
+    assert Integer(COFACTOR) > 0
+    assert Integer(GROUP_MODULUS).is_prime(), f"GROUP_MODULUS={GROUP_MODULUS} is not prime"
+    assert order == Integer(GROUP_MODULUS) * Integer(COFACTOR), (
+        order, GROUP_MODULUS, COFACTOR
+    )
+    assert gcd(Integer(GROUP_MODULUS), Integer(COFACTOR)) == 1, (
+        GROUP_MODULUS, COFACTOR
+    )
+
+    assert (Integer(GROUP_MODULUS) * BASE_DIVISOR).is_zero(), "BASE_DIVISOR not in ℓ-torsion"
+    assert (Integer(GROUP_MODULUS) * TARGET_DIVISOR).is_zero(), "TARGET_DIVISOR not in ℓ-torsion"
+
+    assert not BASE_DIVISOR.is_zero(), "BASE_DIVISOR is zero"
+    assert not TARGET_DIVISOR.is_zero(), "TARGET_DIVISOR is zero"
+
+    assert TARGET_DIVISOR == Integer(SECRET_KEY % GROUP_MODULUS) * BASE_DIVISOR, (
+        TARGET_DIVISOR,
+        Integer(SECRET_KEY % GROUP_MODULUS) * BASE_DIVISOR,
+    )
+    assert Integer(COFACTOR) % Integer(GROUP_MODULUS) != 0, (
+        COFACTOR, GROUP_MODULUS
+    )
     assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
     assert BASE_DIVISOR*SECRET_KEY == TARGET_DIVISOR, (BASE_DIVISOR*SECRET_KEY, TARGET_DIVISOR)
     assert (GROUP_MODULUS * BASE_DIVISOR).is_zero()

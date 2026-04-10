@@ -762,70 +762,6 @@ def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
     pruned_atom_index = {str(a): i for i, a in enumerate(pruned_atoms)}
     return M_pruned, pruned_atoms, pruned_atom_index
 
-def _dlp_resolve_cols(atom_index: dict, target_x, generator_x, generator_x_partner, verbose: bool):
-    """Step 4: Map target/generator x-values to column indices.
-
-    Returns (target_col, gen_col, gen_partner_col).
-    target_col or gen_col being None means the atom was pruned or absent;
-    callers must treat either as a hard failure.
-    """
-    target_col = atom_index.get(str(target_x)) if target_x is not None else None
-    gen_col    = atom_index.get(str(generator_x)) if generator_x is not None else None
-
-    gen_partner_col = None
-    if generator_x_partner is not None:
-        gen_partner_col = atom_index.get(str(generator_x_partner))
-        if gen_partner_col is None and verbose:
-            _log(
-                f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
-                f"-- anchor will use single-column form."
-            )
-
-    return target_col, gen_col, gen_partner_col
-
-def _dlp_build_affine_system(
-    M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,
-    generator_x, generator_x_partner, verbose: bool,
-):
-    """Step 5: Lift M_combined to GF(n), append the anchor row, return (M_fp, A, b).
-
-    Walk rows are homogeneous:    M_combined * alpha = 0
-    Anchor row is inhomogeneous:  alpha[gen_col] (+ alpha[gen_partner_col]) = 1
-
-    Rank is NOT computed here — deferred to post-solve diagnostics to avoid OOM
-    on large combined matrices.
-    """
-
-    char = int(Fp.characteristic())
-    if verbose:
-        _log(
-            f"[dlp_list] combined over GF({char}): "
-            f"rows={M_combined.nrows()} cols={n_cols} "
-            f"(rank deferred to post-solve)"
-        )
-
-    # ZZ -> GF(n) in one C-level pass; avoids O(rows*cols) Python object spike.
-    M_fp = M_combined.change_ring(Fp)
-
-    anchor_row = vector(Fp, n_cols)
-    anchor_row[gen_col] = Fp(1)
-    if gen_partner_col is not None:
-        anchor_row[gen_partner_col] = Fp(1)
-
-    A = M_fp.stack(matrix(Fp, [anchor_row]))
-    b = vector(Fp, [Fp(0)] * M_combined.nrows() + [Fp(1)])
-
-    if verbose:
-        anchor_desc = (
-            f"a[{generator_x}] + a[{generator_x_partner}] = 1"
-            if gen_partner_col is not None
-            else f"a[{generator_x}] = 1"
-        )
-        _log(f"[dlp_list] anchor row   : {anchor_desc}")
-        _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
-
-    return M_fp, A, b
-
 def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, verbose: bool):
     """Step 6: Compute rank of augmented system; return (rank_aug, kernel_dim).
 
@@ -846,12 +782,8 @@ def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, ve
         )
     return rank_aug, kernel_dim
 
-def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
-    """Step 7: solve_right; return dlp_val mod n, or None on ValueError.
-
-    Raises RuntimeError if solve_right returns a non-solution.
-    Re-raises on unexpected solver errors.
-    """
+def _dlp_solve(A, b, verbose: bool):
+    """Solve A * x = b and return the full solution vector."""
     try:
         sol = A.solve_right(b)
     except ValueError as exc:
@@ -861,7 +793,6 @@ def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
             f"  -- check that generator columns are present and group_order is correct."
         )
         raise
-        return None
     except Exception as exc:
         _log(f"[dlp_list] solve_right unexpected error: {exc}")
         raise
@@ -870,10 +801,7 @@ def _dlp_solve(A, b, n_cols: int, target_col: int, n: int, verbose: bool):
     if any(v != 0 for v in residual):
         raise RuntimeError("[dlp_list] solve_right returned a non-solution")
 
-    dlp_val = int(sol[target_col]) % n
-    if verbose:
-        _log(f"[dlp_list] SOLVED: k = {dlp_val}  (T = {dlp_val}*G  mod {n})")
-    return dlp_val
+    return sol
 
 def _dlp_verify(dlp_val: int, verbose: bool) -> bool:
     """Step 8: Jacobian verification against module-level BASE/TARGET divisors."""
@@ -960,9 +888,15 @@ def dlp_from_merged_walks(
         _log("[dlp_list] generator_x is None -- cannot anchor.")
         return result
 
-    target_col, gen_col, gen_partner_col = _dlp_resolve_cols(
-        atom_index, target_x, generator_x, generator_x_partner, verbose
+    target_col, target_partner_col, gen_col, gen_partner_col = _dlp_resolve_cols(
+        atom_index,
+        target_x,
+        target_x_partner,
+        generator_x,
+        generator_x_partner,
+        verbose,
     )
+
     if target_col is None:
         _log(f"[dlp_list] target x={target_x} not in combined leaf set after pruning.")
         return result
@@ -985,25 +919,36 @@ def dlp_from_merged_walks(
     if verbose:
         _log(f"[dlp_list] working mod l = {n}")
 
-    # 6. Build affine system over GF(n)  (no rank call here)
+    # 6. Build affine system over GF(n)
     Fp = GF(n)
     _M_fp, A, b = _dlp_build_affine_system(
         M_combined, n_cols, gen_col, gen_partner_col, Fp,
-        generator_x, generator_x_partner, verbose
+        generator_x, generator_x_partner, verbose,
+        atom_index=atom_index,   # NEW
     )
 
-    # 7. Attempt solve_right directly — cheapest path, skip rank entirely if it works
+    # 7. Solve, then decode target-root logs from the solution vector
     try:
-        dlp_val = _dlp_solve(A, b, n_cols, target_col, n, verbose)
+        sol = _dlp_solve(A, b, verbose)
     except ValueError:
-        dlp_val = None
+        sol = None
         result["method"] = "solve_right_failed"
 
-    if dlp_val is not None:
+    if sol is not None:
+        target_log, target_partner_log, dlp_val = _dlp_extract_target_atom_logs(
+            sol, target_col, target_partner_col, n, verbose
+        )
         result["dlp"] = dlp_val
         result["method"] = "normalized_solve_right"
+        result["target_atom_logs"] = {
+            "target_x": int(target_x) if target_x is not None else None,
+            "target_x_partner": int(target_x_partner) if target_x_partner is not None else None,
+            "target_log": target_log,
+            "target_partner_log": target_partner_log,
+            "target_total_log": dlp_val,
+        }
 
-        # 8. Verify
+        # 8. Verify using the total target divisor log
         result["verified"] = _dlp_verify(dlp_val, verbose)
 
     # 9. Rank diagnostics — always last, only after solve attempt
@@ -1020,6 +965,200 @@ def dlp_from_merged_walks(
         result["method"] = "underdetermined"
 
     return result
+
+def extract_target_atom_logs(Q, alpha, ell):
+    """
+    Given:
+        Q     : target divisor in J(F_p)[ℓ]
+        alpha : dict or array mapping x -> log(x)
+        ell   : subgroup order
+
+    Returns:
+        (x1, log_x1), (x2, log_x2), total_log
+
+    Raises:
+        RuntimeError if structure is not as expected.
+    """
+
+    if Q.is_zero():
+        raise RuntimeError("Target divisor Q is zero")
+
+    u_poly = Q[0]
+
+    if u_poly.degree() != 2:
+        raise RuntimeError(f"Expected degree-2 u(x), got degree {u_poly.degree()}")
+
+    roots = u_poly.roots()
+
+    if len(roots) != 2:
+        raise RuntimeError(f"Expected 2 roots, got {roots}")
+
+    x_vals = []
+    for root, mult in roots:
+        if mult != 1:
+            raise RuntimeError(f"Non-simple root in target divisor: {root}^{mult}")
+        x_vals.append(int(root))
+
+    x1, x2 = x_vals
+
+    if x1 not in alpha:
+        raise RuntimeError(f"x1={x1} not in solution vector")
+    if x2 not in alpha:
+        raise RuntimeError(f"x2={x2} not in solution vector")
+
+    log_x1 = int(alpha[x1]) % ell
+    log_x2 = int(alpha[x2]) % ell
+
+    total = (log_x1 + log_x2) % ell
+
+    return (x1, log_x1), (x2, log_x2), total
+
+def verify_target_log(G, Q, total_log, ell):
+    """
+    Check that computed log actually reconstructs Q.
+    """
+    if (Integer(total_log) * G - Q).is_zero():
+        return True
+    else:
+        raise RuntimeError(
+            f"Log mismatch: computed log does not reproduce Q\n"
+            f"log={total_log}"
+        )
+
+def _dlp_resolve_cols(
+    atom_index: dict,
+    target_x,
+    target_x_partner,
+    generator_x,
+    generator_x_partner,
+    verbose: bool,
+):
+    """Map target/generator x-values to column indices."""
+    target_col = atom_index.get(str(target_x)) if target_x is not None else None
+    target_partner_col = atom_index.get(str(target_x_partner)) if target_x_partner is not None else None
+
+    gen_col = atom_index.get(str(generator_x)) if generator_x is not None else None
+
+    gen_partner_col = None
+    if generator_x_partner is not None:
+        gen_partner_col = atom_index.get(str(generator_x_partner))
+        if gen_partner_col is None and verbose:
+            _log(
+                f"[dlp_list] generator partner x={generator_x_partner} not in leaf set "
+                f"-- anchor will use single-column form."
+            )
+
+    if target_x_partner is not None and target_partner_col is None and verbose:
+        _log(
+            f"[dlp_list] target partner x={target_x_partner} not in leaf set "
+            f"-- target will use single-column form."
+        )
+
+    return target_col, target_partner_col, gen_col, gen_partner_col
+
+def _dlp_extract_target_atom_logs(
+    sol,
+    target_col: int,
+    target_partner_col,
+    n: int,
+    verbose: bool,
+):
+    """
+    Extract the target atom logs from the solution vector.
+
+    Returns:
+        target_log, target_partner_log, total_target_log
+    """
+    if target_col is None:
+        raise RuntimeError("[dlp_list] target_col is None in _dlp_extract_target_atom_logs")
+
+    target_log = int(sol[target_col]) % n
+    target_partner_log = None
+
+    if target_partner_col is not None:
+        target_partner_log = int(sol[target_partner_col]) % n
+        total_target_log = (target_log + target_partner_log) % n
+    else:
+        total_target_log = target_log
+
+    if verbose:
+        if target_partner_log is None:
+            _log(f"[dlp_list] target atom log: a[T1]={target_log}")
+        else:
+            _log(
+                f"[dlp_list] target atom logs: "
+                f"a[T1]={target_log}, a[T2]={target_partner_log}, "
+                f"sum={total_target_log}"
+            )
+
+    return target_log, target_partner_log, total_target_log
+
+_INFINITY_SENTINEL = "∞"
+
+def _dlp_build_affine_system(
+    M_combined, n_cols: int, gen_col: int, gen_partner_col, Fp,
+    generator_x, generator_x_partner, verbose: bool,
+    atom_index=None,   # NEW
+):
+    """Step 5: Lift M_combined to GF(n), append gauge-fix and anchor rows."""
+
+    char = int(Fp.characteristic())
+    if verbose:
+        _log(
+            f"[dlp_list] combined over GF({char}): "
+            f"rows={M_combined.nrows()} cols={n_cols} "
+            f"(rank deferred to post-solve)"
+        )
+
+    M_fp = M_combined.change_ring(Fp)
+
+    rows = []
+    rhs = []
+
+    # Homogeneous walk relations.
+    for r in range(M_fp.nrows()):
+        rows.append(M_fp.row(r))
+        rhs.append(Fp(0))
+
+    # NEW: gauge-fix infinity.
+    inf_col = None
+    if atom_index is not None:
+        inf_col = atom_index.get(_INFINITY_SENTINEL)
+        if inf_col is None:
+            inf_col = atom_index.get(str(_INFINITY_SENTINEL))
+
+    if inf_col is not None:
+        inf_row = vector(Fp, n_cols)
+        inf_row[inf_col] = Fp(1)
+        rows.append(inf_row)
+        rhs.append(Fp(0))
+        if verbose:
+            _log("[dlp_list] gauge fix   : a[∞] = 0")
+    elif verbose:
+        _log("[dlp_list] gauge fix   : ∞ column not found, skipping a[∞] = 0")
+
+    # Anchor row.
+    anchor_row = vector(Fp, n_cols)
+    anchor_row[gen_col] = Fp(1)
+    if gen_partner_col is not None:
+        anchor_row[gen_partner_col] = Fp(1)
+
+    rows.append(anchor_row)
+    rhs.append(Fp(1))
+
+    A = matrix(Fp, rows)
+    b = vector(Fp, rhs)
+
+    if verbose:
+        anchor_desc = (
+            f"a[{generator_x}] + a[{generator_x_partner}] = 1"
+            if gen_partner_col is not None
+            else f"a[{generator_x}] = 1"
+        )
+        _log(f"[dlp_list] anchor row   : {anchor_desc}")
+        _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
+
+    return M_fp, A, b
 
 if __name__ == "__main__":
     main()
