@@ -41,116 +41,15 @@ _SAGE = True
 _SEP = "=" * 70
 _INFINITY = "∞"
 
-def _log(msg: str) -> None:
-    print(msg, flush=True)
-
-def _section(title: str) -> None:
-    _log(f"\n{_SEP}")
-    _log(f"CHECK: {title}")
-    _log(_SEP)
-
 # ---------------------------------------------------------------------------
 # Shared matrix-building helper
 # (mirrors _dlp_union_columns + _dlp_prune from merge_experiment, but local
 #  so this file has no circular import dependency)
 # ---------------------------------------------------------------------------
 
-def _build_combined_matrix(walkers, include_step_leaves: bool = False):
-    """Build the combined pruned ZZ relation matrix from all walkers.
-
-    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
-    """
-    mats, atom_lists = [], []
-    for i, w in enumerate(walkers):
-        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
-        if mat.nrows() > 0:
-            mats.append(mat)
-            atom_lists.append(list(atoms))
-
-    assert mats, "All walkers have empty relation matrices — nothing to work with."
-
-    # Union column spaces
-    all_atoms = list(atom_lists[0])
-    atom_set = set(map(str, all_atoms))
-    for atms in atom_lists[1:]:
-        for a in atms:
-            if str(a) not in atom_set:
-                all_atoms.append(a)
-                atom_set.add(str(a))
-
-    n_cols = len(all_atoms)
-    aidx = {str(a): i for i, a in enumerate(all_atoms)}
-
-    rows = []
-    for mat, atms in zip(mats, atom_lists):
-        cols_src = [aidx[str(a)] for a in atms]
-        for r in range(mat.nrows()):
-            row = [0] * n_cols
-            for c_src, c_dst in enumerate(cols_src):
-                row[c_dst] = int(mat[r, c_src])
-            rows.append(row)
-
-    M_raw = Matrix(ZZ, rows)
-
-    # Prune dest-only columns (no protection here — we want to see the raw kernel)
-    M_pruned, pruned_atoms, removed = prune_dest_only(M_raw, all_atoms)
-    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
-
-    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
-    _log(f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
-         f"  ({len(removed)} dest-only atoms removed)")
-
-    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
-
 # ===========================================================================
 # CHECK 1 — Kernel decomposition
 # ===========================================================================
-
-def check_kernel(walkers, group_order: int, divisor_xs: Sequence = ()):
-    """Print the full kernel basis of the combined pruned matrix over GF(l).
-
-    For each kernel vector, show which atoms have nonzero weight.
-    Flag whether target / generator atoms appear in any kernel direction.
-    """
-    _section("KERNEL DECOMPOSITION")
-
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
-    n_cols = len(atoms)
-    Fp = GF(group_order)
-    M_fp = M.change_ring(Fp)
-
-    rank = M_fp.rank()
-    ker  = M_fp.right_kernel()
-    null = ker.dimension()
-
-    _log(f"  rows={M.nrows()}  cols={n_cols}  rank={rank}  nullity={null}")
-    _log(f"  (need nullity=1 for unique solution after gauge-fix a[∞]=0)")
-
-    div_strs = {str(x) for x in divisor_xs}
-
-    for i, vec in enumerate(ker.basis()):
-        nz = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
-        is_inf  = any(str(a) == _INFINITY for a, _ in nz)
-        is_div  = any(str(a) in div_strs  for a, _ in nz)
-        tags    = []
-        if is_inf: tags.append("∞-gauge")
-        if is_div: tags.append("DIVISOR-ATOM ← KEY")
-        tag_str = f"  [{', '.join(tags)}]" if tags else ""
-        _log(f"\n  kernel[{i}]:{tag_str}")
-        for atom, coeff in nz:
-            marker = " ← TARGET/GEN" if str(atom) in div_strs else ""
-            _log(f"    atom={atom}  coeff={coeff}{marker}")
-
-    if null == 1:
-        _log("\n  ✓  Nullity=1 — only the ∞ gauge direction is free.  System is determined.")
-    elif null == 2:
-        _log("\n  ✗  Nullity=2 — one extra free direction beyond the ∞ gauge.")
-        _log("     Look at kernel[1] above: the atoms there are the underdetermined ones.")
-        _log("     You need one more walk step where xi = one of those atoms.")
-    else:
-        _log(f"\n  ✗  Nullity={null} — {null-1} extra free directions beyond ∞ gauge.")
-
-    return ker, atoms, aidx
 
 # ===========================================================================
 # CHECK 2 — Fiber sign check
@@ -279,93 +178,6 @@ def check_divisor_injection(walkers, divisor_xs: Sequence):
 # Master runner
 # ===========================================================================
 
-def run_all_checks(
-    walkers,
-    divisor_xs: Sequence,
-    group_order: int,
-    known_key: int,
-    p: int,
-    coeffs=None,
-    n_fiber_spot_checks: int = 5,
-):
-    """Run all six integration checks and print a summary verdict."""
-
-    _log(f"\n{'#'*70}")
-    _log(f"# DLP INTEGRATION DIAGNOSTICS")
-    _log(f"#  walkers       : {len(walkers)}")
-    _log(f"#  divisor_xs    : {[int(x) for x in divisor_xs]}")
-    _log(f"#  group_order   : {group_order}")
-    _log(f"#  known_key     : {known_key}")
-    _log(f"#  p             : {p}  (sqrt_p={math.sqrt(p):.2f})")
-    _log(f"{'#'*70}\n")
-
-    results = {}
-
-    # 1. Kernel
-    try:
-        ker, atoms, aidx = check_kernel(walkers, group_order, divisor_xs)
-        results["kernel"] = "ok" if ker.dimension() <= 1 else f"nullity={ker.dimension()}"
-    except Exception as exc:
-        _log(f"  [check_kernel FAILED: {exc}]")
-        results["kernel"] = f"ERROR: {exc}"
-        raise
-
-    # 2. Fiber sign
-    try:
-        viols = check_fiber_sign(walkers, p, coeffs, n_spot_checks=n_fiber_spot_checks)
-        results["fiber_sign"] = "ok" if not viols else f"{len(viols)} violations"
-    except Exception as exc:
-        _log(f"  [check_fiber_sign FAILED: {exc}]")
-        results["fiber_sign"] = f"ERROR: {exc}"
-        raise
-
-    # 3. Involution symmetry
-    try:
-        check_involution_symmetry(walkers)
-        results["involution"] = "ok"
-    except Exception as exc:
-        _log(f"  [check_involution_symmetry FAILED: {exc}]")
-        results["involution"] = f"VIOLATION: {exc}"
-        raise
-
-    # 4. Divisor injection
-    try:
-        check_divisor_injection(walkers, divisor_xs)
-        results["divisor_injection"] = "ok"
-    except Exception as exc:
-        _log(f"  [check_divisor_injection FAILED: {exc}]")
-        results["divisor_injection"] = f"ERROR: {exc}"
-        raise
-
-    # 5. Known key compatibility
-    try:
-        nonzero = check_known_key(walkers, divisor_xs, group_order, known_key)
-        results["known_key"] = "ok" if nonzero == [] else f"{len(nonzero or [])} residual rows"
-    except Exception as exc:
-        _log(f"  [check_known_key FAILED: {exc}]")
-        results["known_key"] = f"ERROR: {exc}"
-        raise
-
-    # 6. Zero compatibility
-    try:
-        check_zero_compatibility(walkers, divisor_xs, group_order)
-        results["zero_compat"] = "ok"
-    except Exception as exc:
-        _log(f"  [check_zero_compatibility FAILED: {exc}]")
-        results["zero_compat"] = f"ERROR: {exc}"
-        raise
-
-    # Summary
-    _log(f"\n{'#'*70}")
-    _log(f"# DIAGNOSTIC SUMMARY")
-    _log(f"{'#'*70}")
-    for name, status in results.items():
-        icon = "✓" if status == "ok" else "✗"
-        _log(f"  {icon}  {name:<25s}  {status}")
-    _log(f"{'#'*70}\n")
-
-    return results
-
 def _col(aidx: dict, key):
     """Stable column lookup that does not break when the index is 0."""
     if key is None:
@@ -374,34 +186,162 @@ def _col(aidx: dict, key):
         return aidx[key]
     return aidx.get(str(key))
 
+_SEP = "=" * 70
+_INFINITY = "∞"
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+def _section(title: str) -> None:
+    _log(f"\n{_SEP}")
+    _log(f"CHECK: {title}")
+    _log(_SEP)
+
+def _safe_int(x):
+    try:
+        return int(x)
+    except Exception:
+        return None
+
+def _step_dict(rec):
+    step = getattr(rec, "step", None)
+    return step if isinstance(step, dict) else {}
+
+def _first_present(rec, step, *names):
+    for name in names:
+        if isinstance(step, dict) and name in step and step[name] is not None:
+            return step[name]
+        if hasattr(rec, name):
+            val = getattr(rec, name)
+            if val is not None:
+                return val
+    return None
+
+def _branch_sign_from_residue(val, p: int) -> int:
+    """
+    Canonical branch convention:
+      +1 if residue is the canonical representative in [0, floor(p/2)]
+      -1 otherwise.
+    """
+    y = int(val) % p
+    if y == 0:
+        return 0
+    return 1 if y <= (p - y) else -1
+
+def _build_combined_matrix(walkers, include_step_leaves: bool = False):
+    """
+    Build the combined pruned ZZ relation matrix from all walkers.
+
+    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
+    """
+    mats, atom_lists = [], []
+    for w in walkers:
+        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
+        if mat.nrows() > 0:
+            mats.append(mat)
+            atom_lists.append(list(atoms))
+
+    assert mats, "All walkers have empty relation matrices — nothing to work with."
+
+    # Union column spaces
+    all_atoms = list(atom_lists[0])
+    atom_set = set(map(str, all_atoms))
+    for atms in atom_lists[1:]:
+        for a in atms:
+            if str(a) not in atom_set:
+                all_atoms.append(a)
+                atom_set.add(str(a))
+
+    n_cols = len(all_atoms)
+    aidx = {str(a): i for i, a in enumerate(all_atoms)}
+
+    rows = []
+    for mat, atms in zip(mats, atom_lists):
+        cols_src = [aidx[str(a)] for a in atms]
+        for r in range(mat.nrows()):
+            row = [0] * n_cols
+            for c_src, c_dst in enumerate(cols_src):
+                row[c_dst] = int(mat[r, c_src])
+            rows.append(row)
+
+    M_raw = Matrix(ZZ, rows)
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(M_raw, all_atoms)
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
+    _log(
+        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  ({len(removed)} dest-only atoms removed)"
+    )
+
+    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
+
+def check_kernel(walkers, group_order: int, divisor_xs=()):
+    _section("KERNEL DECOMPOSITION")
+
+    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
+    n_cols = len(atoms)
+    Fp = GF(group_order)
+    M_fp = M.change_ring(Fp)
+
+    rank = M_fp.rank()
+    ker = M_fp.right_kernel()
+    null = ker.dimension()
+
+    _log(f"  rows={M.nrows()}  cols={n_cols}  rank={rank}  nullity={null}")
+    _log("  (need nullity=1 for unique solution after gauge-fix a[∞]=0)")
+
+    div_strs = {str(x) for x in divisor_xs}
+
+    for i, vec in enumerate(ker.basis()):
+        nz = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
+        tags = []
+        if any(str(a) == _INFINITY for a, _ in nz):
+            tags.append("∞-gauge")
+        if any(str(a) in div_strs for a, _ in nz):
+            tags.append("DIVISOR-ATOM")
+        tag_str = f"  [{', '.join(tags)}]" if tags else ""
+
+        _log(f"\n  kernel[{i}]:{tag_str}")
+        for atom, coeff in nz:
+            marker = " ← divisor" if str(atom) in div_strs else ""
+            _log(f"    atom={atom}  coeff={coeff}{marker}")
+
+    if null == 1:
+        _log("\n  ✓  Nullity=1 — only the ∞ gauge direction is free.")
+    elif null == 2:
+        _log("\n  ✗  Nullity=2 — one extra free direction beyond the ∞ gauge.")
+    else:
+        _log(f"\n  ✗  Nullity={null} — {null - 1} extra free directions beyond ∞ gauge.")
+
+    return ker, atoms, aidx
+
 def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
-    """Spot-check that relation rows match the actual fiber geometry.
+    """
+    Conservative sign checker.
 
-    Checks:
-      1) Vieta sum matches the expected fiber coefficient.
-      2) y-sign metadata, if present, is well-formed (±1 or missing).
-      3) The reported x-values are actually on the curve, if a curve evaluator
-         is available.
-
-    This function does NOT treat y-sign = -1 as an error by itself.
-    A negative sign is a legitimate branch/orientation marker in many
-    Cantor/Mumford pipelines.
+    This does NOT assume that yj_sign/yk_sign are errors just because they are
+    negative. It checks only what can be justified from the stored line data:
+      - Vieta sum consistency
+      - sign metadata is ±1
+      - if line coefficients v0,v1 are available, yj should match v(xj)
+        and yk should match -v(xk), both compared against the canonical branch
+        convention used by the project.
     """
     _section("FIBER SIGN CHECK")
-    yfun = get_y_unshifted_genus2
-    Fp = GF(p)
 
     checked = 0
     violations = []
 
     for w in walkers:
         for rec in w.history:
-            if not rec.accepted:
+            if not getattr(rec, "accepted", False):
                 continue
             if rec.xi is None or rec.xj is None or rec.xk is None:
                 continue
 
-            step = rec.step if isinstance(rec.step, dict) else {}
+            step = _step_dict(rec)
             if step.get("source") == "involution_closure":
                 continue
 
@@ -414,59 +354,70 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
 
             # (a) Vieta sum check.
             S_sym = step.get("S_of_m")
-            m_val = rec.m
+            m_val = getattr(rec, "m", None)
             if S_sym is not None and m_val is not None:
                 try:
+                    Fp = GF(p)
                     m_fp = Fp(m_val)
                     S_val = Fp(S_sym(m_fp))
                     vieta_sum = Fp(xi_mult * xi + xj + xk)
                     if vieta_sum != S_val:
                         violations.append(
-                            f"  VIETA MISMATCH  step={rec.step_index} "
+                            f"  VIETA MISMATCH  step={getattr(rec, 'step_index', '?')} "
                             f"xi={xi} xj={xj} xk={xk}  "
-                            f"xi_mult*xi+xj+xk={vieta_sum}  S(m)={S_val}  "
-                            f"DIFF={vieta_sum - S_val}"
+                            f"xi_mult*xi+xj+xk={vieta_sum}  S(m)={S_val}"
                         )
                 except Exception as exc:
-                    violations.append(f"  VIETA CHECK ERROR step={rec.step_index}: {exc}")
+                    violations.append(f"  VIETA CHECK ERROR step={getattr(rec, 'step_index', '?')}: {exc}")
 
-            # (b) Sign metadata sanity check.
-            yj = getattr(rec, "yj_sign", None)
-            yk = getattr(rec, "yk_sign", None)
-
-            if yj is not None and int(yj) not in (1, -1):
+            # (b) Metadata sanity.
+            yj_sign = getattr(rec, "yj_sign", None)
+            yk_sign = getattr(rec, "yk_sign", None)
+            if yj_sign is not None and int(yj_sign) not in (1, -1):
                 violations.append(
-                    f"  BAD SIGN METADATA  step={rec.step_index}  yj_sign={yj}  "
-                    f"(expected ±1 or missing)"
+                    f"  BAD SIGN METADATA  step={getattr(rec, 'step_index', '?')}  yj_sign={yj_sign}"
                 )
-            if yk is not None and int(yk) not in (1, -1):
+            if yk_sign is not None and int(yk_sign) not in (1, -1):
                 violations.append(
-                    f"  BAD SIGN METADATA  step={rec.step_index}  yk_sign={yk}  "
-                    f"(expected ±1 or missing)"
+                    f"  BAD SIGN METADATA  step={getattr(rec, 'step_index', '?')}  yk_sign={yk_sign}"
                 )
 
-            # (c) Curve-value sanity check, if available.
-            # This is intentionally conservative: it only checks that the
-            # evaluator does not claim an impossible curve value.
-            if yfun is not None:
+            # (c) If we have the line parameters, compare against the actual
+            # branch values the group law implies.
+            v0 = _first_present(rec, step, "v0", "line_v0", "mumford_v0")
+            v1 = _first_present(rec, step, "v1", "line_v1", "mumford_v1")
+
+            line_info = ""
+            if v0 is not None and v1 is not None:
                 try:
-                    for xval, label in ((xj, "xj"), (xk, "xk")):
-                        val = yfun(xval, p, coeffs)
-                        if val is None:
-                            continue
-                        # If the helper returns a RHS value y^2, it should be a square.
-                        # If it returns a y-value directly, then this test is harmless
-                        # only if it already behaves like a residue-class representative.
-                        try:
-                            if not Fp(val).is_square():
-                                violations.append(
-                                    f"  {label.upper()} NOT CURVE-CONSISTENT  "
-                                    f"step={rec.step_index}  {label}={xval}  value={val}"
-                                )
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                    v0 = int(v0)
+                    v1 = int(v1)
+                    yj_from_line = (v0 + v1 * xj) % p
+                    yk_from_line = (- (v0 + v1 * xk)) % p
+                    yj_branch = _branch_sign_from_residue(yj_from_line, p)
+                    yk_branch = _branch_sign_from_residue(yk_from_line, p)
+                    line_info = (
+                        f"  v(xj)={yj_from_line}  branch={yj_branch:+d}"
+                        f"  -v(xk)={yk_from_line}  branch={yk_branch:+d}"
+                    )
+
+                    if yj_sign is not None and int(yj_sign) != yj_branch:
+                        violations.append(
+                            f"  YJ SIGN MISMATCH  step={getattr(rec, 'step_index', '?')} "
+                            f"xi={xi} xj={xj} xk={xk}  yj_sign={yj_sign}  expected={yj_branch}"
+                        )
+                    if yk_sign is not None and int(yk_sign) != yk_branch:
+                        violations.append(
+                            f"  YK SIGN MISMATCH  step={getattr(rec, 'step_index', '?')} "
+                            f"xi={xi} xj={xj} xk={xk}  yk_sign={yk_sign}  expected={yk_branch}"
+                        )
+                except Exception as exc:
+                    violations.append(f"  LINE SIGN CHECK ERROR step={getattr(rec, 'step_index', '?')}: {exc}")
+
+            _log(
+                f"  step={getattr(rec, 'step_index', '?'):>4}  xi={xi} xj={xj} xk={xk}  "
+                f"yj_sign={yj_sign}  yk_sign={yk_sign}{line_info}"
+            )
 
             checked += 1
             if checked >= n_spot_checks:
@@ -479,19 +430,22 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
         for v in violations:
             _log(v)
     else:
-        _log(f"\n  ✓  {checked} spot-checks passed — Vieta sums and sign metadata look sane.")
+        _log(f"\n  ✓  {checked} spot-checks passed.")
 
     return violations
 
 def check_known_key(
     walkers,
-    divisor_xs: Sequence,
+    divisor_xs,
     group_order: int,
     known_key: int,
 ):
-    """Check whether the known DLP answer is consistent with the relation matrix.
+    """
+    Check whether the known DLP answer is consistent with the relation matrix.
 
-    This is a consistency test, not a proof of correctness.
+    This version probes the four obvious sign conventions for the generator /
+    target anchor, so it can distinguish a true algebraic failure from a
+    normalization mismatch.
     """
     _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
 
@@ -502,11 +456,11 @@ def check_known_key(
     Fp = GF(group_order)
     M_fp = M.change_ring(Fp)
 
-    inf_col   = _col(aidx, _INFINITY)
-    gen_col   = _col(aidx, x0_a)
-    gen_p_col = _col(aidx, x0_b)
-    tgt_col   = _col(aidx, x0_c)
-    tgt_p_col = _col(aidx, x0_d)
+    inf_col = aidx.get(_INFINITY)
+    gen_col = aidx.get(str(x0_a))
+    gen_p_col = aidx.get(str(x0_b))
+    tgt_col = aidx.get(str(x0_c))
+    tgt_p_col = aidx.get(str(x0_d))
 
     missing = []
     if inf_col is None:
@@ -518,45 +472,57 @@ def check_known_key(
 
     if missing:
         _log(f"  ✗  Cannot build test vector — columns missing after prune: {missing}")
-        _log("     These atoms were pruned or never represented in the combined matrix.")
         return None
 
-    v = vector(Fp, n_cols)
-    if inf_col is not None:
-        v[inf_col] = Fp(0)
-    if gen_col is not None:
-        v[gen_col] = Fp(1)
-    if gen_p_col is not None:
-        v[gen_p_col] = Fp(0)
-    if tgt_col is not None:
-        v[tgt_col] = Fp(known_key)
-    if tgt_p_col is not None:
-        v[tgt_p_col] = Fp(0)
+    def build_vec(gen_sign: int, tgt_sign: int):
+        v = vector(Fp, n_cols)
+        if inf_col is not None:
+            v[inf_col] = Fp(0)
+        v[gen_col] = Fp(gen_sign)
+        if gen_p_col is not None:
+            v[gen_p_col] = Fp(0)
+        v[tgt_col] = Fp(tgt_sign * known_key)
+        if tgt_p_col is not None:
+            v[tgt_p_col] = Fp(0)
+        return v
 
-    residual = M_fp * v
-    nonzero_rows = [(i, int(residual[i])) for i in range(len(residual)) if residual[i] != 0]
+    hypotheses = [
+        ("gen=+1, tgt=+k",  1,  1),
+        ("gen=+1, tgt=-k",  1, -1),
+        ("gen=-1, tgt=+k", -1,  1),
+        ("gen=-1, tgt=-k", -1, -1),
+    ]
 
-    if not nonzero_rows:
-        _log(f"  ✓  key={known_key} is CONSISTENT with all {M_fp.nrows()} relation rows.")
-    else:
-        _log(f"  ✗  key={known_key} is INCONSISTENT: {len(nonzero_rows)} nonzero residual rows.")
-        _log("     First 10 violating rows:")
-        for row_i, val in nonzero_rows[:10]:
-            nz_cols = [(atoms[j], int(M[row_i, j])) for j in range(n_cols) if M[row_i, j] != 0]
-            _log(f"    row {row_i:5d}  residual={val}  atoms={nz_cols}")
-        _log(
-            "\n     Possible causes:\n"
-            "       1. A relation row has a sign or branch error.\n"
-            "       2. group_order is wrong (wrong subgroup).\n"
-            "       3. The known key is correct but expressed in a different normalization.\n"
-            "       4. The generator/target anchor is inconsistent with how the walkers were seeded."
-        )
+    scored = []
+    for label, gsgn, tsgn in hypotheses:
+        v = build_vec(gsgn, tsgn)
+        residual = M_fp * v
+        nonzero = [(i, int(residual[i])) for i in range(len(residual)) if residual[i] != 0]
+        scored.append((len(nonzero), label, nonzero))
 
-    return nonzero_rows
+    scored.sort(key=lambda t: t[0])
+    best_count, best_label, best_nonzero = scored[0]
+
+    _log("  Hypothesis scan:")
+    for count, label, _ in scored:
+        _log(f"    {label:<18s} -> {count} residual rows")
+
+    if best_count == 0:
+        _log(f"\n  ✓  key={known_key} is CONSISTENT under convention '{best_label}'.")
+        return []
+
+    _log(f"\n  ✗  key={known_key} is INCONSISTENT under the best convention '{best_label}'.")
+    _log(f"     Best residual count: {best_count}")
+    _log("     First 10 violating rows:")
+    for row_i, val in best_nonzero[:10]:
+        nz_cols = [(atoms[j], int(M[row_i, j])) for j in range(n_cols) if M[row_i, j] != 0]
+        _log(f"    row {row_i:5d}  residual={val}  atoms={nz_cols}")
+
+    return best_nonzero
 
 def check_zero_compatibility(
     walkers,
-    divisor_xs: Sequence,
+    divisor_xs,
     group_order: int,
 ):
     """Check whether the target/generator atoms are uniquely determined up to gauge."""
@@ -570,7 +536,6 @@ def check_zero_compatibility(
     ker = M_fp.right_kernel()
     null = ker.dimension()
 
-    div_strs = {str(x): x for x in (x0_a, x0_b, x0_c, x0_d)}
     labels = {
         str(x0_a): "GEN_x0 (A seed)",
         str(x0_b): "GEN_x1 (B seed)",
@@ -587,7 +552,7 @@ def check_zero_compatibility(
             if coeff == 0:
                 continue
             atom_str = str(atoms[j])
-            if atom_str in div_strs:
+            if atom_str in labels:
                 kernel_hits.setdefault(atom_str, []).append(int(coeff))
 
     any_target_in_kernel = False
@@ -606,13 +571,13 @@ def check_zero_compatibility(
         else:
             _log(f"    x={atom_str:6s}  [{label}]  ✓ not in kernel")
 
-    gen_col   = _col(aidx, x0_a)
-    gen_p_col = _col(aidx, x0_b)
-    tgt_col   = _col(aidx, x0_c)
-    tgt_p_col = _col(aidx, x0_d)
-    inf_col   = _col(aidx, _INFINITY)
+    gen_col = aidx.get(str(x0_a))
+    gen_p_col = aidx.get(str(x0_b))
+    tgt_col = aidx.get(str(x0_c))
+    tgt_p_col = aidx.get(str(x0_d))
+    inf_col = aidx.get(_INFINITY)
 
-    _log(f"\n  Column presence after prune:")
+    _log("\n  Column presence after prune:")
     _log(f"    ∞       : col={inf_col}")
     _log(f"    gen_x0  : col={gen_col}")
     _log(f"    gen_x1  : col={gen_p_col}")
@@ -629,25 +594,91 @@ def check_zero_compatibility(
 
     if any_target_in_kernel:
         _log(
-            f"\n  ✗  Target atoms appear in kernel support.\n"
-            f"     The target direction is not uniquely pinned by the current relation span.\n"
-            f"     Add more xi occurrences for the target atoms before trusting the solve."
+            "\n  ✗  Target atoms appear in kernel support.\n"
+            "     The target direction is not uniquely pinned by the current relation span."
         )
     else:
-        _log(
-            f"\n  ✓  No target atoms in kernel support.\n"
-            f"     The remaining nullity lies in non-target directions."
-        )
+        _log("\n  ✓  No target atoms in kernel support.")
 
-    _log(f"\n  Steps where xi == target atom:")
+    _log("\n  Steps where xi == target atom:")
     for i, w in enumerate(walkers):
         label = getattr(w, "_label", f"walker[{i}]")
         tgt_xi_steps = [
             r.step_index for r in w.history
-            if r.accepted and int(r.xi or -1) in (x0_c, x0_d)
+            if getattr(r, "accepted", False) and _safe_int(getattr(r, "xi", None)) in (x0_c, x0_d)
         ]
-        if tgt_xi_steps:
-            preview = f"  (step indices: {tgt_xi_steps[:10]}{'...' if len(tgt_xi_steps) > 10 else ''})"
-        else:
-            preview = ""
+        preview = f"  (step indices: {tgt_xi_steps[:10]}{'...' if len(tgt_xi_steps) > 10 else ''})" if tgt_xi_steps else ""
         _log(f"    {label}: {len(tgt_xi_steps)} accepted steps with xi in target atoms{preview}")
+
+def run_all_checks(
+    walkers,
+    divisor_xs,
+    group_order: int,
+    known_key: int,
+    p: int,
+    coeffs=None,
+    n_fiber_spot_checks: int = 5,
+):
+    """Run all diagnostics and print a summary verdict."""
+    _log(f"\n{'#' * 70}")
+    _log("# DLP INTEGRATION DIAGNOSTICS")
+    _log(f"#  walkers       : {len(walkers)}")
+    _log(f"#  divisor_xs    : {[int(x) for x in divisor_xs]}")
+    _log(f"#  group_order   : {group_order}")
+    _log(f"#  known_key     : {known_key}")
+    _log(f"#  p             : {p}  (sqrt_p={math.sqrt(p):.2f})")
+    _log(f"{'#' * 70}\n")
+
+    results = {}
+
+    try:
+        ker, atoms, aidx = check_kernel(walkers, group_order, divisor_xs)
+        results["kernel"] = "ok" if ker.dimension() <= 1 else f"nullity={ker.dimension()}"
+    except Exception as exc:
+        _log(f"  [check_kernel FAILED: {exc}]")
+        raise
+
+    try:
+        viols = check_fiber_sign(walkers, p, coeffs, n_spot_checks=n_fiber_spot_checks)
+        results["fiber_sign"] = "ok" if not viols else f"{len(viols)} violations"
+    except Exception as exc:
+        _log(f"  [check_fiber_sign FAILED: {exc}]")
+        raise
+
+    try:
+        check_involution_symmetry(walkers)
+        results["involution"] = "ok"
+    except Exception as exc:
+        _log(f"  [check_involution_symmetry FAILED: {exc}]")
+        raise
+
+    try:
+        check_divisor_injection(walkers, divisor_xs)
+        results["divisor_injection"] = "ok"
+    except Exception as exc:
+        _log(f"  [check_divisor_injection FAILED: {exc}]")
+        raise
+
+    try:
+        nonzero = check_known_key(walkers, divisor_xs, group_order, known_key)
+        results["known_key"] = "ok" if nonzero == [] else f"{len(nonzero or [])} residual rows"
+    except Exception as exc:
+        _log(f"  [check_known_key FAILED: {exc}]")
+        raise
+
+    try:
+        check_zero_compatibility(walkers, divisor_xs, group_order)
+        results["zero_compat"] = "ok"
+    except Exception as exc:
+        _log(f"  [check_zero_compatibility FAILED: {exc}]")
+        raise
+
+    _log(f"\n{'#' * 70}")
+    _log("# DIAGNOSTIC SUMMARY")
+    _log(f"{'#' * 70}")
+    for name, status in results.items():
+        icon = "✓" if status == "ok" else "✗"
+        _log(f"  {icon}  {name:<25s}  {status}")
+    _log(f"{'#' * 70}\n")
+
+    return results
