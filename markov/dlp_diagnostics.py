@@ -38,24 +38,6 @@ _SAGE = True
 _SEP = "=" * 70
 _INFINITY = "∞"
 
-# ---------------------------------------------------------------------------
-# Shared matrix-building helper
-# (mirrors _dlp_union_columns + _dlp_prune from merge_experiment, but local
-#  so this file has no circular import dependency)
-# ---------------------------------------------------------------------------
-
-# ===========================================================================
-# CHECK 1 — Kernel decomposition
-# ===========================================================================
-
-# ===========================================================================
-# CHECK 2 — Fiber sign check
-# ===========================================================================
-
-# ===========================================================================
-# CHECK 3 — Involution symmetry (why it's not running in merge_experiment)
-# ===========================================================================
-
 def check_involution_symmetry(walkers):
     """Run close_under_involution() on each walker and report.
 
@@ -603,19 +585,21 @@ def check_known_key(
     """
     Check whether the supplied known key is consistent with the relation matrix.
 
-    This treats the known key as an affine constraint problem over mod group_order:
-      - build the integer relation matrix,
-      - prune with divisor atoms protected,
-      - reduce only at the end modulo group_order,
-      - fix only the known columns,
-      - leave all other columns free,
-      - and test consistency of the resulting linear system.
+    Pins the known columns (∞, gen_x0, tgt_x0) and tests whether any row
+    whose support is entirely within the pinned columns is contradicted.
+    Rows with free variables are inconclusive when the system is underdetermined
+    and are not counted as violations.
+
+    Returns a dict with keys:
+        ok            : True / False / None (None = underdetermined, no contradiction found)
+        nullity       : kernel dimension of the homogeneous system
+        violations    : list of directly contradicted rows (empty = no hard contradiction)
+        best_label    : sign convention with fewest violations
     """
     _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
 
-    # Protect the seed divisor atoms so prune_dest_only does not eliminate them.
     M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
         walkers,
         protected=divisor_xs,
@@ -626,14 +610,15 @@ def check_known_key(
     F = GF(Integer(group_order))
     M = M_ZZ.change_ring(F)
 
+    # Compute nullity of the homogeneous system once.
+    nullity = n_cols - M.rank()
+
     def col_of(x):
         return aidx.get(str(int(x)))
 
-    inf_col = aidx.get(_INFINITY)
-    gen_col = col_of(x0_a)
-    gen_p_col = col_of(x0_b)
-    tgt_col = col_of(x0_c)
-    tgt_p_col = col_of(x0_d)
+    inf_col  = aidx.get(_INFINITY)
+    gen_col  = col_of(x0_a)
+    tgt_col  = col_of(x0_c)
 
     missing = []
     if inf_col is None:
@@ -645,11 +630,7 @@ def check_known_key(
 
     if missing:
         _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
-        return {
-            "ok": False,
-            "reason": "missing_columns",
-            "missing": missing,
-        }
+        return {"ok": False, "reason": "missing_columns", "missing": missing}
 
     hypotheses = [
         ("gen=+1, tgt=+k",  1,  1),
@@ -661,92 +642,94 @@ def check_known_key(
     scored = []
 
     for label, gsgn, tsgn in hypotheses:
-        fixed = {}
-
-        # Gauge fixing.
-        fixed[inf_col] = F(0)
-
-        # Known atoms only.
-        fixed[gen_col] = F(gsgn)
-        fixed[tgt_col] = F(tsgn * known_key)
-
+        fixed = {
+            inf_col: F(0),
+            gen_col: F(gsgn),
+            tgt_col: F(tsgn * known_key),
+        }
         fixed_cols = set(fixed.keys())
-        free_cols = [j for j in range(n_cols) if j not in fixed_cols]
 
-        # Move fixed contributions to the RHS: M_free * x_free = rhs.
-        rhs = vector(F, n_rows)
-        for j, val in fixed.items():
-            if val != 0:
-                rhs -= M.column(j) * val
-
-        A = M.matrix_from_columns(free_cols) if free_cols else matrix(F, n_rows, 0)
-
-        rank_A = A.rank()
-        rank_aug = A.augment(rhs.column()).rank()
-        consistent = (rank_A == rank_aug)
-
-        fully_testable_violations = []
-        if not consistent:
-            # Rows whose entire support is fixed give direct contradictions.
-            for i in range(n_rows):
-                nz = [j for j in range(n_cols) if M[i, j] != 0]
-                if nz and all(j in fixed_cols for j in nz):
-                    resid = F(0)
-                    for j in nz:
-                        resid += M[i, j] * fixed[j]
-                    if resid != 0:
-                        fully_testable_violations.append(
-                            (i, int(resid), [(atoms[j], int(M[i, j])) for j in nz])
-                        )
+        # Only rows whose entire nonzero support falls within fixed_cols
+        # can be directly tested — they have no free variables.
+        violations = []
+        for i in range(n_rows):
+            nz = [j for j in range(n_cols) if M[i, j] != 0]
+            if not nz:
+                continue
+            if not all(j in fixed_cols for j in nz):
+                continue  # has free variables — inconclusive
+            resid = sum(M[i, j] * fixed[j] for j in nz)
+            if resid != 0:
+                violations.append(
+                    (i, int(resid), [(atoms[j], int(M[i, j])) for j in nz])
+                )
 
         scored.append({
             "label": label,
-            "consistent": consistent,
-            "rank_A": int(rank_A),
-            "rank_aug": int(rank_aug),
-            "free_cols": len(free_cols),
-            "violations": fully_testable_violations,
+            "violations": violations,
+            "n_violations": len(violations),
         })
 
-    scored.sort(key=lambda d: (not d["consistent"], d["rank_aug"] - d["rank_A"], d["label"]))
-
-    _log("  Hypothesis scan:")
-    for item in scored:
-        delta = item["rank_aug"] - item["rank_A"]
-        status = "OK" if item["consistent"] else "NO"
-        _log(
-            f"    {item['label']:<18s} -> {status}  "
-            f"rank(A)={item['rank_A']}  rank([A|b])={item['rank_aug']}  "
-            f"Δ={delta}  free_cols={item['free_cols']}"
-        )
-
+    scored.sort(key=lambda d: d["n_violations"])
     best = scored[0]
 
-    if best["consistent"]:
-        _log(f"\n  ✓  key={known_key} is CONSISTENT under convention '{best['label']}'.")
-        return {
-            "ok": True,
-            "label": best["label"],
-            "rank_A": best["rank_A"],
-            "rank_aug": best["rank_aug"],
-            "free_cols": best["free_cols"],
-        }
+    _log(f"  Nullity of homogeneous system: {nullity}")
+    _log(f"  (nullity=1 means fully determined up to gauge; "
+         f"nullity>1 means underdetermined — only direct contradictions are conclusive)\n")
 
-    _log(f"\n  ✗  key={known_key} is INCONSISTENT under the best convention '{best['label']}'.")
-    _log(f"     rank(A)={best['rank_A']}  rank([A|b])={best['rank_aug']}")
+    _log("  Hypothesis scan (direct contradictions only):")
+    for item in scored:
+        status = "OK" if item["n_violations"] == 0 else f"{item['n_violations']} violation(s)"
+        _log(f"    {item['label']:<18s} -> {status}")
 
-    if best["violations"]:
-        _log("     Rows fully determined by the fixed columns that fail:")
-        for row_i, resid, nz_cols in best["violations"][:10]:
-            _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+    if nullity == 1:
+        # System is fully determined up to gauge. Consistency test is conclusive.
+        if best["n_violations"] == 0:
+            # Do the full rank test to confirm.
+            fixed = {inf_col: F(0), gen_col: F(1), tgt_col: F(known_key)}
+            fixed_cols = set(fixed.keys())
+            free_cols = [j for j in range(n_cols) if j not in fixed_cols]
+            rhs = vector(F, n_rows)
+            for j, val in fixed.items():
+                if val != 0:
+                    rhs -= M.column(j) * val
+            A = M.matrix_from_columns(free_cols) if free_cols else matrix(F, n_rows, 0)
+            rank_A = A.rank()
+            rank_aug = A.augment(rhs.column()).rank()
+            if rank_A == rank_aug:
+                _log(f"\n  ✓  key={known_key} is CONSISTENT (nullity=1, no contradictions, "
+                     f"full system consistent).")
+                return {"ok": True, "label": best["label"], "nullity": nullity,
+                        "violations": []}
+            else:
+                _log(f"\n  ✗  key={known_key} is INCONSISTENT (nullity=1, rank test fails). "
+                     f"rank(A)={rank_A}  rank([A|b])={rank_aug}")
+                return {"ok": False, "label": best["label"], "nullity": nullity,
+                        "violations": [], "rank_A": rank_A, "rank_aug": rank_aug}
+        else:
+            _log(f"\n  ✗  key={known_key} is INCONSISTENT — "
+                 f"{best['n_violations']} directly contradicted row(s):")
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
+
     else:
-        _log("     No row is fully determined by the fixed columns; contradiction only appears after eliminating free atoms.")
-
-    return {
-        "ok": False,
-        "label": best["label"],
-        "rank_A": best["rank_A"],
-        "rank_aug": best["rank_aug"],
-        "free_cols": best["free_cols"],
-        "violations": best["violations"][:10],
-    }
+        # Underdetermined. Only hard contradictions (fully-fixed rows) are conclusive.
+        if best["n_violations"] == 0:
+            _log(f"\n  ?  key={known_key} is UNVERIFIABLE — system is underdetermined "
+                 f"(nullity={nullity}, need nullity=1).\n"
+                 f"     No direct contradiction found under any sign convention.\n"
+                 f"     Need {nullity - 1} more independent relation rows before "
+                 f"this check is conclusive.")
+            return {"ok": None, "reason": "underdetermined", "nullity": nullity,
+                    "violations": []}
+        else:
+            _log(f"\n  ✗  key={known_key} has a HARD CONTRADICTION even in the "
+                 f"underdetermined case — {best['n_violations']} row(s) whose support "
+                 f"is entirely within fixed columns fail:\n"
+                 f"     (This is a genuine error regardless of nullity.)")
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
