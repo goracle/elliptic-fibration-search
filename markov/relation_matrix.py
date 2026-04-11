@@ -18,10 +18,11 @@ accepted, complete relations.  The point at infinity is appended as the last
 column.
 
 Each row encodes one relation:
-    col[xi]  += (d - 2)
-    col[xj]  += 1
-    col[xk]  += 1
+    col[xi]  += (d - 2)*
+    col[xj]  += 1*
+    col[xk]  += 1*
     col[∞]   += -d
+*=not always
 
 The matrix lives over ZZ.  Rank is computed via Sage's exact arithmetic
 (Matrix_integer_dense or Matrix_rational_dense, depending on what Sage gives

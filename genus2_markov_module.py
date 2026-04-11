@@ -780,6 +780,27 @@ def make_project_markov_search_fn(
             and c.get('source') != 'xk_head'
         }
 
+        # Dead-end reason classification — emitted into the result dict so the
+        # walker can log *why* a step produced no candidates rather than silently
+        # restarting.  Distinguishes failure modes:
+        #   no_roots    — Mumford search found zero F_p roots for all vecs
+        #   torsion     — roots found but all equal xi (xi is torsion / Weierstrass pt)
+        #   ok          — candidates available
+        # Note: all_inf_xk is no longer a reachable case — compute_xk_from_fiber now
+        # raises AssertionError on a fiber pole rather than returning "∞".
+        _dead_end_reason = 'ok'
+        if not enriched_candidates:
+            raw_candidate_records = norm.get('candidate_records', []) or []
+            if not raw_candidate_records:
+                _dead_end_reason = 'no_roots'
+            else:
+                xjs = [r.get('xj') for r in raw_candidate_records if isinstance(r, dict)]
+                xjs_nondegenerate = [xj for xj in xjs if xj is not None and xj != x_here]
+                if not xjs_nondegenerate:
+                    _dead_end_reason = 'torsion'
+                else:
+                    _dead_end_reason = 'no_roots'  # shouldn't happen; fallback
+
         # Deferred fertility fallback: if precomputed_residues wasn't available, use
         # the m-root-derived candidate count as a lower-bound proxy.
         # Do NOT include xk_head records in this count — they are not m-roots.
@@ -814,6 +835,7 @@ def make_project_markov_search_fn(
             'n_total': norm.get('n_total', None),
             'total_roots': norm.get('total_roots', None),
             'per_n_roots': norm.get('per_n_roots', None),
+            'dead_end_reason': _dead_end_reason,
             # Memory Fix: Omit 'context', 'raw_mumford_residues', 'new_sections', 'precomputed_residues'
             # which hold uncollectable SageMath Rings and Ideals.
         }
@@ -933,7 +955,10 @@ def enrich_candidates(
                             actual_xi_mult = int(m_root)
                             break
                     if actual_xi_mult == 0:
-                        actual_xi_mult = curve_degree - 2
+                        raise AssertionError(
+                            f"compute_xk_from_fiber: xi={x_here} is not a root of "
+                            f"intersection_poly (roots={roots_wm}); xj={xj}, m={m_val}"
+                        )
                     rec['xi_mult'] = actual_xi_mult
                 else:
                     rec.setdefault('xi_mult', curve_degree - 2)
@@ -971,7 +996,6 @@ def enrich_candidates(
         if (
             xk is not None
             and xk != x_here
-            and xk != xj
             and xk_is_fp_point(xk, G_poly)
         ):
             enriched.append({

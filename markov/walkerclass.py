@@ -29,6 +29,14 @@ from .cantor_cache import *
 from .mixing_diagnostics import *
 from .adjacency_matrix import *
 
+import json as _json
+
+def poly_roots_with_multiplicity(poly) -> List[Tuple[Any, int]]:
+    """Return roots as (root, multiplicity) pairs over the polynomial's base field."""
+    roots = poly.roots(multiplicities=True)
+    assert roots, roots
+    return [(r, int(m)) for r, m in roots]
+
 def xk_is_fp_point(xk_val, G_poly):
     if G_poly is None or xk_val is None:
         return False
@@ -101,7 +109,14 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
 
             dv_fp = Fp(dv)
             if dv_fp == Fp(0):
-                return "∞", None
+                raise AssertionError(
+                    f"compute_xk_from_fiber: fiber pole at m={m_val} "
+                    f"(denominator of fi coefficient vanished).\n"
+                    f"  xi={xi_val}  xj={xj_val}\n"
+                    f"  fi={fi}\n"
+                    f"  G_poly={G_poly}\n"
+                    f"  coeffs so far={coeffs}"
+                )
 
             coeffs.append(Fp(nv) / dv_fp)
 
@@ -121,8 +136,12 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
             if Fp(r) == Fp(xi_val):
                 actual_xi_mult = int(m)
                 break
-        if actual_xi_mult == 0:
-            actual_xi_mult = curve_degree - 2  # fallback to double-tangency assumption
+        assert actual_xi_mult > 0, (
+            f"compute_xk_from_fiber: xi={xi_val} is not a root of the fiber intersection poly "
+            f"at m={m_val}, xj={xj_val}. roots={roots_wm}. "
+            f"This means the fiber was constructed for a different xi or the multiplicity "
+            f"assumptions are wrong."
+        )
 
         known = [xi_val] * actual_xi_mult + [xj_val]
         return missing_root_by_vieta(inter, known), inter
@@ -631,6 +650,10 @@ class Genus2MetropolisWalker:
         # Cumulative count of leaf insertions (not deduplicated) — the true
         # "effort" metric for merge-time analysis, independent of step count.
         self.total_leaf_insertions: int = 1  # seed x counts as one insertion
+        # Xs that are structurally pre-known (seed, preferred_xs, budget keys).
+        # Birthday collision accounting excludes these: collisions on injected
+        # xs are guaranteed by construction and not diagnostic of walk mixing.
+        self._injected_xs: set = {self.current_x} | {self.base_ring(x) for x in (preferred_xs or [])}
         # How many times each x has been stepped *through* as xi (i.e. used as chain state).
         # We avoid re-using high-visit-count nodes as the next xi when fresher candidates exist.
         self.xi_visit_count: Counter = Counter({self.current_x: 1})
@@ -638,6 +661,7 @@ class Genus2MetropolisWalker:
         self.history: List[RelationRecord] = []
         self.cantor_cache: Optional[CantorPairCache] = None
         self.dead_end_count = 0
+        self.dead_end_reasons: Counter = Counter()  # reason -> count
 
         # Cross-chain merge tracking.
         # Set via load_foreign_leaves(); once a leaf from this walk hits
@@ -971,7 +995,7 @@ class Genus2MetropolisWalker:
             f"Graph/birthday collisions (leaf already seen): {self.leaf_collision_count}\n"
             f"First birthday collision: step={self.first_birthday_step}  outer_n={self.first_birthday_n}  (graph vol at that point: {self.collision_log[0][2] if self.collision_log else 'none'})\n"
             f"Restarts: {restarts}\n"
-            f"Dead ends: {self.dead_end_count}\n"
+            f"Dead ends: {self.dead_end_count}  {dict(self.dead_end_reasons) if self.dead_end_reasons else ''}\n"
             f"Nodes in chosen path: {unique_path_nodes}\n"
             f"Total unique leaves discovered (Graph Volume): {total_leaves}\n"
             f"--------------------"
@@ -1058,33 +1082,39 @@ class Genus2MetropolisWalker:
         assert poly, poly
         if poly is None:
             assert None, None
-            return None
+            return None, -1
 
-        xi_mult = self.config.curve_degree - 2  # double tangency → triple root for deg-5
+        roots_wm = poly_roots_with_multiplicity(poly)
+        actual_xi_mult = 0
+        for r, m in roots_wm:
+            if r == xi:
+                actual_xi_mult = int(m)
+                break
+        assert actual_xi_mult > 0, (
+            f"_recover_xk: xi={xi} is not a root of intersection poly. roots={roots_wm}"
+        )
 
-        roots = flatten_roots(poly_roots_with_multiplicity(poly))
-
-        if roots:
-            leftovers = []
-            xi_count = 0
-            xj_count = 0
-            for r in roots:
-                if r == xi and xi_count < xi_mult:
-                    xi_count += 1
-                    continue
-                if xj is not None and r == xj and xj_count < 1:
-                    xj_count += 1
-                    continue
-                leftovers.append(r)
-            if leftovers:
-                return leftovers[0]
+        roots = flatten_roots(roots_wm)
+        leftovers = []
+        xi_count = 0
+        xj_count = 0
+        for r in roots:
+            if r == xi and xi_count < actual_xi_mult:
+                xi_count += 1
+                continue
+            if xj is not None and r == xj and xj_count < 1:
+                xj_count += 1
+                continue
+            leftovers.append(r)
+        if leftovers:
+            return leftovers[0], actual_xi_mult
 
         if poly.degree() != self.config.curve_degree:
-            return None
-        known = [xi] * xi_mult
+            return None, actual_xi_mult
+        known = [xi] * actual_xi_mult
         if xj is not None:
             known.append(xj)
-        return missing_root_by_vieta(poly, known)
+        return missing_root_by_vieta(poly, known), actual_xi_mult
 
     def print_relation_summary(self, **kwargs):
         """Prints the shape, column mapping, and rank of the relation matrix."""
@@ -1284,8 +1314,11 @@ class Genus2MetropolisWalker:
         # Leaf bookkeeping for the search branch.
         # We treat the candidate x-values as the leaves discovered by this step.
         valid_leaves = {cx for cx in candidate_xs if cx is not None}
-        # Snapshot before update so we can identify exact colliders cheaply.
-        colliding_xs = sorted(valid_leaves & self.global_leaves_seen)[:10]
+        # Organic leaves only: exclude structurally pre-known xs from birthday accounting.
+        organic_leaves = valid_leaves - self._injected_xs
+        # Snapshot BEFORE update to measure true collisions.
+        organic_already_seen = organic_leaves & self.global_leaves_seen
+        colliding_xs = sorted(organic_already_seen)[:10]
         old_leaves_count = len(self.global_leaves_seen)
 
         if valid_leaves:
@@ -1293,9 +1326,7 @@ class Genus2MetropolisWalker:
             self.total_leaf_insertions += len(valid_leaves)
 
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
-        leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step if valid_leaves else 0
-        if leaf_collisions_this_step < 0:
-            leaf_collisions_this_step = 0
+        leaf_collisions_this_step = len(organic_already_seen)
 
         self.leaf_collision_count += leaf_collisions_this_step
         if leaf_collisions_this_step > 0:
@@ -1313,28 +1344,12 @@ class Genus2MetropolisWalker:
         search_out["global_leaf_collisions"] = self.leaf_collision_count
 
         if not candidates:
-            if self.config.restart_on_dead_end:
-                restart = self._next_restart_point()
-                if restart is not None:
-                    self.current_x, self.current_y = restart
-                    self.dead_end_count += 1
-                    rec = self._make_relation(
-                        len(self.history), n, self.current_x, None, None, None,
-                        search_out, accepted=False, restart=True
-                    )
-                    rec.candidate_pool = []
-                    rec.selected_candidate = {}
-                    self._store_record(rec)
-                    return rec
-
-            rec = self._make_relation(
-                len(self.history), n, self.current_x, None, None, None,
-                search_out, accepted=False
+            _reason = search_out.get('dead_end_reason', 'unknown')
+            raise RuntimeError(
+                f"Dead end at xi={self.current_x}  reason={_reason}  "
+                f"n_with_roots={search_out.get('n_with_roots')}  "
+                f"n_total={search_out.get('n_total')}"
             )
-            rec.candidate_pool = []
-            rec.selected_candidate = {}
-            self._store_record(rec)
-            return rec
 
         chosen = self._choose_candidate_record(
             candidates,
@@ -1347,30 +1362,10 @@ class Genus2MetropolisWalker:
         )
 
         if chosen is None:
-            if self.config.restart_on_dead_end:
-                restart = self._next_restart_point()
-                if restart is not None:
-                    self.current_x, self.current_y = restart
-                    self.dead_end_count += 1
-                    rec = self._make_relation(
-                        len(self.history), n, self.current_x, None, None, None,
-                        search_out, accepted=False, restart=True
-                    )
-                    rec.candidate_pool = candidates
-                    rec.selected_candidate = {}
-                    self._store_record(rec)
-                    return rec
-
-            rec = self._make_relation(
-                len(self.history), n, self.current_x, None, None, None,
-                search_out, accepted=False
+            raise RuntimeError(
+                f"_choose_candidate_record returned None despite {len(candidates)} candidates "
+                f"at xi={self.current_x} n={n}"
             )
-            rec.candidate_pool = candidates
-            rec.selected_candidate = {}
-            self._store_record(rec)
-            if rec.accepted:
-                self.inject_preferred_relations(rec)
-            return rec
 
         if not isinstance(chosen, dict):
             chosen = {"xj": chosen}
@@ -1389,15 +1384,38 @@ class Genus2MetropolisWalker:
         # Falls back to _recover_xk's computed value, then to -1 (sentinel → relation_matrix uses default).
         chosen_xi_mult = int(chosen.get('xi_mult', -1)) if isinstance(chosen, dict) else -1
 
+        # Build _chosen_for_recover: a step dict that carries intersection_poly.
+        # xk_head candidates don't carry it directly — borrow from the m-root sibling
+        # that shares the same (xj, xk) pair (with roles swapped back).
+        _chosen_for_recover = dict(chosen) if isinstance(chosen, dict) else {}
+        if _chosen_for_recover.get('intersection_poly') is None:
+            if _chosen_for_recover.get('source') == 'xk_head':
+                orig_xj = _chosen_for_recover.get('xk')   # xk_head swaps roles
+                orig_xk = _chosen_for_recover.get('xj')
+                for cand in candidates:
+                    if (isinstance(cand, dict)
+                            and cand.get('source') != 'xk_head'
+                            and cand.get('xj') == orig_xj
+                            and cand.get('xk') == orig_xk
+                            and cand.get('intersection_poly') is not None):
+                        _chosen_for_recover['intersection_poly'] = cand['intersection_poly']
+                        break
+            elif isinstance(search_out, dict) and search_out.get('intersection_poly') is not None:
+                _chosen_for_recover['intersection_poly'] = search_out['intersection_poly']
+
         if xk is None and xj is not None:
-            xk, recovered_xi_mult = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            xk, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
             if chosen_xi_mult < 0:
                 chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
         elif chosen_xi_mult < 0 and xk is not None and xj is not None:
             # xk already known from candidate dict; compute xi_mult from the poly if available.
-            _, recovered_xi_mult = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            _, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
             chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
 
+        if xj is None:
+            raise RuntimeError(
+                f"chosen candidate produced no xj at xi={self.current_x} n={n}: chosen={chosen}"
+            )
         accepted = xj is not None
         xi_before = self.current_x
 
@@ -1463,55 +1481,10 @@ class Genus2MetropolisWalker:
             n = self.config.max_n
 
         if self.search_fn is not None:
-            try:
-                return self._step_from_candidate_search(n=n, seed=seed)
-            except Exception as exc:
-                if self.config.verbose:
-                    print(f"[walk] candidate search failed at n={n}: {exc}")
-                if self.config.restart_on_dead_end:
-                    restart = self._next_restart_point()
-                    if restart is not None:
-                        self.current_x, self.current_y = restart
-                        self.dead_end_count += 1
-                        step_payload = {}
-                        self._annotate_step_counts(step_payload, None, accepted=False)
-                        rec = self._make_relation(
-                            len(self.history), n, self.current_x, None, None, None,
-                            step_payload, accepted=False, restart=True
-                        )
-                        self._store_record(rec)
-                        return rec
+            return self._step_from_candidate_search(n=n, seed=seed)
 
         current_point = (self.current_x, self.current_y)
-        try:
-            step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
-        except Exception as exc:
-            if self.config.verbose:
-                print(f"[walk] step factory failed at n={n}: {exc}")
-            if self.config.restart_on_dead_end:
-                restart = self._next_restart_point()
-                if restart is not None:
-                    self.current_x, self.current_y = restart
-                    self.dead_end_count += 1
-                    step_payload = {}
-                    self._annotate_step_counts(step_payload, None, accepted=False)
-                    rec = self._make_relation(
-                        len(self.history), n, self.current_x, None, None, None,
-                        step_payload, accepted=False, restart=True
-                    )
-                    self._store_record(rec)
-                    return rec
-            # step_factory failed and no restart available (or restart disabled):
-            # record a dead-end and return rather than falling through with step unbound.
-            self.dead_end_count += 1
-            step_payload = {}
-            self._annotate_step_counts(step_payload, None, accepted=False)
-            rec = self._make_relation(
-                len(self.history), n, self.current_x, None, None, None,
-                step_payload, accepted=False, restart=False
-            )
-            self._store_record(rec)
-            return rec
+        step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
 
         m_roots = self._solve_m_roots(step)
         assert m_roots, m_roots
@@ -1522,12 +1495,14 @@ class Genus2MetropolisWalker:
         valid_leaves = {cx for cx in xj_candidates if cx is not None}
 
         for _xj in xj_candidates:
-            _xk = self._recover_xk(step, self.current_x, _xj)
+            _xk, _ = self._recover_xk(step, self.current_x, _xj)
             if _xk is not None:
                 valid_leaves.add(_xk)
 
-        # Snapshot before update so we can identify exact colliders cheaply.
-        colliding_xs = sorted(valid_leaves & self.global_leaves_seen)[:10]
+        # Organic leaves only: exclude structurally pre-known xs from birthday accounting.
+        organic_leaves = valid_leaves - self._injected_xs
+        organic_already_seen = organic_leaves & self.global_leaves_seen
+        colliding_xs = sorted(organic_already_seen)[:10]
         old_leaves_count = len(self.global_leaves_seen)
 
         if valid_leaves:
@@ -1535,9 +1510,7 @@ class Genus2MetropolisWalker:
             self.total_leaf_insertions += len(valid_leaves)
 
         new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
-        leaf_collisions_this_step = len(valid_leaves) - new_leaves_this_step if valid_leaves else 0
-        if leaf_collisions_this_step < 0:
-            leaf_collisions_this_step = 0
+        leaf_collisions_this_step = len(organic_already_seen)
 
         self.leaf_collision_count += leaf_collisions_this_step
         if leaf_collisions_this_step > 0:
@@ -1847,7 +1820,6 @@ class Genus2MetropolisWalker:
             walker_A.run(5000)
             walker_A.save_leaf_snapshot("walk_A_leaves.json")
         """
-        import json as _json
         leaves = sorted(int(x) for x in self.global_leaves_seen)
         payload = {
             "p": int(self.p) if self.p is not None else None,
@@ -1871,7 +1843,6 @@ class Genus2MetropolisWalker:
 
         Returns the number of foreign leaves loaded.
         """
-        import json as _json
         if isinstance(path_or_set, (str, Path)):
             with open(path_or_set) as fh:
                 data = _json.load(fh)
@@ -2000,20 +1971,21 @@ class Genus2MetropolisWalker:
                 return
             m_fp = xi_fp - t_fp
 
-            xk_val, actual_xi_mult = compute_xk_from_fiber(
+            xk_val, inter = compute_xk_from_fiber(
                 xi_fp, m_fp, t_fp, fi, G_poly, deg
             )
 
-            if xk_val is None or xk_val == "∞":
+            if xk_val is None:
                 return
             xk_fp = Fp(xk_val)
 
-            # Skip degenerate: xk == xj means double root at t (not a valid 2-cycle).
-            if xk_fp == t_fp:
-                return
-
-            if actual_xi_mult is None or actual_xi_mult <= 0:
-                actual_xi_mult = deg - 2
+            # Read actual xi multiplicity from the intersection poly roots.
+            actual_xi_mult = deg - 2  # fallback
+            if inter is not None:
+                for r, mult in inter.roots():
+                    if Fp(r) == Fp(xi_fp):
+                        actual_xi_mult = int(mult)
+                        break
 
             step_payload = {
                 'source': 'preferred_injection',
@@ -2036,13 +2008,12 @@ class Genus2MetropolisWalker:
                 restart=False,
                 xi_mult=actual_xi_mult,
             )
-            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
+            self._injected_xs.add(t_fp)
+            self._injected_xs.add(xk_fp)
             for leaf in (t_fp, xk_fp):
                 if leaf not in self.global_leaves_seen:
                     self.global_leaves_seen.add(leaf)
                     self.total_leaf_insertions += 1
-            if already_seen:
-                self.leaf_collision_count += already_seen
             self._store_record(rec)
             n_injected += 1
 
@@ -2099,8 +2070,6 @@ class Genus2MetropolisWalker:
             if S_val is None:
                 return
             xk_fp = S_val - xi_mult * xi_fp - t_fp
-            if xk_fp == t_fp:
-                return
             step_payload = {
                 'source': 'preferred_injection',
                 'preferred_target': int(t_fp),
@@ -2119,13 +2088,12 @@ class Genus2MetropolisWalker:
                 restart=False,
                 xi_mult=xi_mult,
             )
-            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
+            self._injected_xs.add(t_fp)
+            self._injected_xs.add(xk_fp)
             for leaf in (t_fp, xk_fp):
                 if leaf not in self.global_leaves_seen:
                     self.global_leaves_seen.add(leaf)
                     self.total_leaf_insertions += 1
-            if already_seen:
-                self.leaf_collision_count += already_seen
             self._store_record(rec)
             n_injected += 1
 
@@ -2191,8 +2159,6 @@ class Genus2MetropolisWalker:
             assert None, None
             return None, None
 
-        assumed_xi_mult = self.config.curve_degree - 2  # double-tangency assumption
-
         # Determine actual xi multiplicity from the poly roots.
         roots_wm = poly_roots_with_multiplicity(poly)  # [(root, mult), ...]
         actual_xi_mult = 0
@@ -2200,8 +2166,10 @@ class Genus2MetropolisWalker:
             if r == xi:
                 actual_xi_mult = int(m)
                 break
-        if actual_xi_mult == 0:
-            actual_xi_mult = assumed_xi_mult
+        assert actual_xi_mult > 0, (
+            f"_recover_xk: xi={xi} is not a root of intersection poly. "
+            f"roots={roots_wm}"
+        )
 
         roots = flatten_roots(roots_wm)
 
@@ -2372,4 +2340,3 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class._emit_step_diagnostics = _emit_step_diagnostics
     walker_class.step = step_with_diagnostics
     return walker_class
-
