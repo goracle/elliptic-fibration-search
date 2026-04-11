@@ -646,13 +646,6 @@ def run_all_checks(
         raise
 
     try:
-        check_involution_symmetry(walkers)
-        results["involution"] = "ok"
-    except Exception as exc:
-        _log(f"  [check_involution_symmetry FAILED: {exc}]")
-        raise
-
-    try:
         check_divisor_injection(walkers, divisor_xs)
         results["divisor_injection"] = "ok"
     except Exception as exc:
@@ -672,6 +665,14 @@ def run_all_checks(
     except Exception as exc:
         _log(f"  [check_zero_compatibility FAILED: {exc}]")
         raise
+
+    try:
+        check_involution_symmetry(walkers)
+        results["involution"] = "ok"
+    except Exception as exc:
+        _log(f"  [check_involution_symmetry FAILED: {exc}]")
+        raise
+
 
     _log(f"\n{'#' * 70}")
     _log("# DIAGNOSTIC SUMMARY")

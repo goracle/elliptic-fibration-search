@@ -99,7 +99,7 @@ def build_relation_matrix2(
     curve_degree: int = 5,
     include_infinity: bool = True,
     accepted_only: bool = True,
-    require_xk: bool = False,
+    require_xk: bool = True,
     include_step_leaves: bool = True,
 ) -> Tuple[Any, List[Any], List[Any]]:
     """Build the integer divisor-relation matrix from a walker history.
@@ -107,6 +107,7 @@ def build_relation_matrix2(
     This version explodes step-level leaf data (candidate_pool) into full rows,
     generating a divisor relation for EVERY candidate found during the step.
     """
+    assert require_xk
     xi_mult = curve_degree - 2
     inf_coeff = -curve_degree
 
@@ -287,13 +288,14 @@ def build_relation_matrix2(
 
             row = [0] * n_cols
             row[atom_index[xi]] += xi_mult
-            row[atom_index[cxj]] += yj_sign
+
+            row[atom_index[cxj]] += 1
 
             if cxk == "∞":
                 if inf_col is not None:
                     row[inf_col] += 1
             elif cxk is not None and cxk in atom_index:
-                row[atom_index[cxk]] += yk_sign
+                row[atom_index[cxk]] += 1
 
             if inf_col is not None:
                 row[inf_col] += inf_coeff

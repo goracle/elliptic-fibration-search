@@ -147,6 +147,58 @@ def _force_divisor_xi_steps(
         # Return to original position so the main _quiet_run continues from there.
         walker.current_x, walker.current_y = saved_x, saved_y
 
+
+
+def _force_divisor_xi_steps(
+    walker: Genus2MetropolisWalker,
+    divisor_xs,
+    steps_per_atom: int = 5,
+    label: str = "?",
+) -> None:
+    """
+    Force the walker to take accepted steps with xi equal to each divisor atom.
+
+    IMPORTANT:
+      - We always reset BOTH (x, y) to a canonical branch.
+      - We do NOT skip just because x matches — branch may be wrong.
+      - State is restored even if stepping fails.
+    """
+    Fp = walker.base_ring
+
+    for x in divisor_xs:
+        x_fp = Fp(x)
+
+        # Count how many accepted xi hits we already have
+        xi_count = sum(
+            1 for r in walker.history
+            if r.accepted and r.xi == x_fp
+        )
+        if xi_count >= steps_per_atom:
+            continue
+
+        # Save full state
+        saved_x = walker.current_x
+        saved_y = walker.current_y
+
+        try:
+            # Force a canonical branch at this x
+            walker.current_x = x_fp
+            walker.current_y = walker._recover_y(x_fp)
+
+            _log(f"[force_xi:{label}] stepping {steps_per_atom}× from xi={int(x_fp)}")
+
+            for _ in range(steps_per_atom):
+                walker.run(1)
+
+        finally:
+            # Always restore original state
+            walker.current_x = saved_x
+            walker.current_y = saved_y
+
+
+
+
+
 def _build_walker(
     seed: int,
     p: int,
@@ -1414,6 +1466,25 @@ def _dlp_build_affine_system(
         _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
 
     return M_fp, A, b
+
+
+
+
+def _recover_y(self, x):
+    """
+    Deterministically choose a branch for y at given x.
+    Ensures consistency across forced reseeds and walkers.
+    """
+    y = super()._recover_y(x)
+
+    # Normalize: pick canonical representative
+    # (example: smallest integer lift)
+    if int(y) > int(-y):
+        return -y
+    return y
+
+
+
 
 if __name__ == "__main__":
     main()

@@ -887,18 +887,13 @@ def enrich_candidates(
         if p is None or G_poly is None:
             return None
         try:
-            rhs = int(G_poly(x_val))
-            if rhs == 0:
-                return 0
-            if (p % 4) == 3:
-                y = pow(rhs, (p + 1) // 4, p)
-            else:
-                y = pow(rhs, (p + 1) // 4, p)
-                if (y * y) % p != rhs % p:
-                    return None
-            return min(y, p - y)
+            Fp = GF(int(p))
+            y = Fp(G_poly(x_val)).sqrt()
+            y_int = int(y) % int(p)
+            return min(y_int, int(p) - y_int)
         except Exception:
             return None
+
 
     for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
         rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}

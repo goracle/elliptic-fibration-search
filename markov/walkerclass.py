@@ -1405,7 +1405,7 @@ class Genus2MetropolisWalker:
             next_x = xj
             self.xi_visit_count[xi_before] += 1
             try:
-                next_y = self._recover_y(next_x)
+                next_y = self._recover_y(next_x, y_sign=chosen.get("yj_sign", 1))
             except Exception:
                 raise
 
@@ -1989,6 +1989,11 @@ class Genus2MetropolisWalker:
             # xk from Vieta: S(m) = (d-2)*xi + xj + xk
             xk_fp = S_val - xi_mult * xi_fp - t_fp
 
+            # Branch point: fiber has a double root at t, so T(xj)==xj and
+            # no valid 2-cycle exists.  Skip rather than recording a bad relation.
+            if xk_fp == t_fp:
+                continue
+
             relation_str = (
                 f"{xi_mult}*{xi} + {int(t_fp)} + {int(xk_fp)} - {deg}*∞ = 0"
                 f"  [preferred_injection t={int(t_fp)}]"
@@ -2049,6 +2054,11 @@ class Genus2MetropolisWalker:
                 raise
 
             xk_fp = S_val - xi_mult * xi_fp - t_fp
+
+            # Branch point: fiber has a double root at t, so T(xj)==xj and
+            # no valid 2-cycle exists.  Skip rather than recording a bad relation.
+            if xk_fp == t_fp:
+                continue
 
             step_payload = {
                 'source': 'preferred_injection',
@@ -2234,3 +2244,41 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class.step = step_with_diagnostics
     return walker_class
 
+
+def _recover_y(self, x_val, explicit_y=None, y_sign: Optional[int] = None):
+    """
+    Recover a y-coordinate for x_val.
+
+    Rules:
+      - If explicit_y is given, keep it exactly.
+      - If y_sign is given, choose that branch consistently.
+      - If no sign is given, fall back to a deterministic canonical choice.
+    """
+    if self.p is not None:
+        p = int(self.p)
+
+        # Caller already knows the branch: preserve it exactly.
+        if explicit_y is not None:
+            return self.base_ring(explicit_y)
+
+        rhs = self.curve_poly(x_val)
+        if not (hasattr(rhs, "is_square") and rhs.is_square()):
+            raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
+
+        y_any = self.base_ring(rhs.sqrt())
+        y_can = self.base_ring(min(int(y_any), p - int(y_any)))
+
+        if y_sign is None:
+            return y_can
+
+        return y_can if int(y_sign) >= 0 else -y_can
+
+    # Non-finite-field path
+    if explicit_y is not None:
+        return explicit_y
+
+    rhs = self.curve_poly(x_val)
+    sq = sqrt(rhs)
+    if sq * sq != rhs:
+        raise ValueError(f"No rational y at x={x_val!r}")
+    return sq
