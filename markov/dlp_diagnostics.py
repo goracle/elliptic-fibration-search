@@ -104,22 +104,6 @@ def check_involution_symmetry(walkers):
         "  The matrix coefficient for xk should always be +1 (|yk_sign|=1, not the branch sign)."
     )
 
-# ===========================================================================
-# CHECK 4 — Divisor atom injection quality
-# ===========================================================================
-
-# ===========================================================================
-# CHECK 5 — Known key compatibility
-# ===========================================================================
-
-# ===========================================================================
-# CHECK 6 — Zero compatibility of base/target atom logs
-# ===========================================================================
-
-# ===========================================================================
-# Master runner
-# ===========================================================================
-
 def _col(aidx: dict, key):
     """Stable column lookup that does not break when the index is 0."""
     if key is None:
@@ -130,55 +114,6 @@ def _col(aidx: dict, key):
 
 _SEP = "=" * 70
 _INFINITY = "∞"
-
-def _build_combined_matrix(walkers, include_step_leaves: bool = False):
-    """
-    Build the combined pruned ZZ relation matrix from all walkers.
-
-    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
-    """
-    mats, atom_lists = [], []
-    for w in walkers:
-        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
-        if mat.nrows() > 0:
-            mats.append(mat)
-            atom_lists.append(list(atoms))
-
-    assert mats, "All walkers have empty relation matrices — nothing to work with."
-
-    # Union column spaces
-    all_atoms = list(atom_lists[0])
-    atom_set = set(map(str, all_atoms))
-    for atms in atom_lists[1:]:
-        for a in atms:
-            if str(a) not in atom_set:
-                all_atoms.append(a)
-                atom_set.add(str(a))
-
-    n_cols = len(all_atoms)
-    aidx = {str(a): i for i, a in enumerate(all_atoms)}
-
-    rows = []
-    for mat, atms in zip(mats, atom_lists):
-        cols_src = [aidx[str(a)] for a in atms]
-        for r in range(mat.nrows()):
-            row = [0] * n_cols
-            for c_src, c_dst in enumerate(cols_src):
-                row[c_dst] = int(mat[r, c_src])
-            rows.append(row)
-
-    M_raw = Matrix(ZZ, rows)
-
-    M_pruned, pruned_atoms, removed = prune_dest_only(M_raw, all_atoms)
-    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
-
-    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
-    _log(
-        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
-        f"  ({len(removed)} dest-only atoms removed)"
-    )
-
-    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
 
 def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
     """
@@ -421,92 +356,6 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
 
     return ker, atoms, aidx
 
-def check_known_key(
-    walkers,
-    divisor_xs,
-    group_order: int,
-    known_key: int,
-):
-    """
-    Check whether the supplied known key is consistent with the relation matrix.
-
-    The test probes the four obvious sign conventions for the generator/target
-    anchor. It reports residual row counts only; it does not guess why a
-    mismatch occurs.
-    """
-    _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
-
-    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
-
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
-    n_cols = len(atoms)
-    Fp = GF(group_order)
-    M_fp = M.change_ring(Fp)
-
-    inf_col = aidx.get(_INFINITY)
-    gen_col = aidx.get(str(x0_a))
-    gen_p_col = aidx.get(str(x0_b))
-    tgt_col = aidx.get(str(x0_c))
-    tgt_p_col = aidx.get(str(x0_d))
-
-    missing = []
-    if inf_col is None:
-        missing.append("∞")
-    if gen_col is None:
-        missing.append(f"gen_x0={x0_a}")
-    if tgt_col is None:
-        missing.append(f"target_x0={x0_c}")
-
-    if missing:
-        _log(f"  ✗  Cannot build test vector — columns missing after prune: {missing}")
-        return None
-
-    def build_vec(gen_sign: int, tgt_sign: int):
-        v = vector(Fp, n_cols)
-        if inf_col is not None:
-            v[inf_col] = Fp(0)
-        v[gen_col] = Fp(gen_sign)
-        if gen_p_col is not None:
-            v[gen_p_col] = Fp(0)
-        v[tgt_col] = Fp(tgt_sign * known_key)
-        if tgt_p_col is not None:
-            v[tgt_p_col] = Fp(0)
-        return v
-
-    hypotheses = [
-        ("gen=+1, tgt=+k",  1,  1),
-        ("gen=+1, tgt=-k",  1, -1),
-        ("gen=-1, tgt=+k", -1,  1),
-        ("gen=-1, tgt=-k", -1, -1),
-    ]
-
-    scored = []
-    for label, gsgn, tsgn in hypotheses:
-        v = build_vec(gsgn, tsgn)
-        residual = M_fp * v
-        nonzero = [(i, int(residual[i])) for i in range(len(residual)) if residual[i] != 0]
-        scored.append((len(nonzero), label, nonzero))
-
-    scored.sort(key=lambda t: t[0])
-    best_count, best_label, best_nonzero = scored[0]
-
-    _log("  Hypothesis scan:")
-    for count, label, _ in scored:
-        _log(f"    {label:<18s} -> {count} residual rows")
-
-    if best_count == 0:
-        _log(f"\n  ✓  key={known_key} is CONSISTENT under convention '{best_label}'.")
-        return []
-
-    _log(f"\n  ✗  key={known_key} is INCONSISTENT under the best convention '{best_label}'.")
-    _log(f"     Best residual count: {best_count}")
-    _log("     First 10 violating rows:")
-    for row_i, val in best_nonzero[:10]:
-        nz_cols = [(atoms[j], int(M[row_i, j])) for j in range(n_cols) if M[row_i, j] != 0]
-        _log(f"    row {row_i:5d}  residual={val}  atoms={nz_cols}")
-
-    return best_nonzero
-
 def check_zero_compatibility(
     walkers,
     divisor_xs,
@@ -680,3 +529,224 @@ def run_all_checks(
     _log(f"{'#' * 70}\n")
 
     return results
+
+def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
+    """
+    Build the combined pruned ZZ relation matrix from all walkers.
+
+    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
+
+    Parameters
+    ----------
+    walkers
+        Iterable of walker objects.
+    include_step_leaves
+        Forwarded into each walker's relation_matrix().
+    protected
+        Optional collection of atom labels that must survive pruning,
+        even if they become dest-only.
+    """
+    mats, atom_lists = [], []
+    for w in walkers:
+        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
+        if mat.nrows() > 0:
+            mats.append(mat)
+            atom_lists.append(list(atoms))
+
+    assert mats, "All walkers have empty relation matrices — nothing to work with."
+
+    # Union column spaces, preserving the first-seen order.
+    all_atoms = list(atom_lists[0])
+    atom_set = set(map(str, all_atoms))
+    for atms in atom_lists[1:]:
+        for a in atms:
+            sa = str(a)
+            if sa not in atom_set:
+                all_atoms.append(a)
+                atom_set.add(sa)
+
+    n_cols = len(all_atoms)
+    aidx = {str(a): i for i, a in enumerate(all_atoms)}
+
+    rows = []
+    for mat, atms in zip(mats, atom_lists):
+        cols_src = [aidx[str(a)] for a in atms]
+        for r in range(mat.nrows()):
+            row = [0] * n_cols
+            for c_src, c_dst in enumerate(cols_src):
+                row[c_dst] += int(mat[r, c_src])
+            rows.append(row)
+
+    M_raw = Matrix(ZZ, rows)
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(
+        M_raw,
+        all_atoms,
+        protected=protected,
+    )
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
+    _log(
+        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  ({len(removed)} dest-only atoms removed)"
+    )
+
+    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
+
+def check_known_key(
+    walkers,
+    divisor_xs,
+    group_order: int,
+    known_key: int,
+):
+    """
+    Check whether the supplied known key is consistent with the relation matrix.
+
+    This treats the known key as an affine constraint problem over mod group_order:
+      - build the integer relation matrix,
+      - prune with divisor atoms protected,
+      - reduce only at the end modulo group_order,
+      - fix only the known columns,
+      - leave all other columns free,
+      - and test consistency of the resulting linear system.
+    """
+    _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
+
+    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
+
+    # Protect the seed divisor atoms so prune_dest_only does not eliminate them.
+    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
+        walkers,
+        protected=divisor_xs,
+    )
+    n_rows = M_ZZ.nrows()
+    n_cols = M_ZZ.ncols()
+
+    F = GF(Integer(group_order))
+    M = M_ZZ.change_ring(F)
+
+    def col_of(x):
+        return aidx.get(str(int(x)))
+
+    inf_col = aidx.get(_INFINITY)
+    gen_col = col_of(x0_a)
+    gen_p_col = col_of(x0_b)
+    tgt_col = col_of(x0_c)
+    tgt_p_col = col_of(x0_d)
+
+    missing = []
+    if inf_col is None:
+        missing.append("∞")
+    if gen_col is None:
+        missing.append(f"gen_x0={x0_a}")
+    if tgt_col is None:
+        missing.append(f"tgt_x0={x0_c}")
+
+    if missing:
+        _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
+        return {
+            "ok": False,
+            "reason": "missing_columns",
+            "missing": missing,
+        }
+
+    hypotheses = [
+        ("gen=+1, tgt=+k",  1,  1),
+        ("gen=+1, tgt=-k",  1, -1),
+        ("gen=-1, tgt=+k", -1,  1),
+        ("gen=-1, tgt=-k", -1, -1),
+    ]
+
+    scored = []
+
+    for label, gsgn, tsgn in hypotheses:
+        fixed = {}
+
+        # Gauge fixing.
+        fixed[inf_col] = F(0)
+
+        # Known atoms only.
+        fixed[gen_col] = F(gsgn)
+        fixed[tgt_col] = F(tsgn * known_key)
+
+        fixed_cols = set(fixed.keys())
+        free_cols = [j for j in range(n_cols) if j not in fixed_cols]
+
+        # Move fixed contributions to the RHS: M_free * x_free = rhs.
+        rhs = vector(F, n_rows, 0)
+        for j, val in fixed.items():
+            if val != 0:
+                rhs -= M.column(j) * val
+
+        A = M.matrix_from_columns(free_cols) if free_cols else matrix(F, n_rows, 0)
+
+        rank_A = A.rank()
+        rank_aug = A.augment(rhs.column()).rank()
+        consistent = (rank_A == rank_aug)
+
+        fully_testable_violations = []
+        if not consistent:
+            # Rows whose entire support is fixed give direct contradictions.
+            for i in range(n_rows):
+                nz = [j for j in range(n_cols) if M[i, j] != 0]
+                if nz and all(j in fixed_cols for j in nz):
+                    resid = F(0)
+                    for j in nz:
+                        resid += M[i, j] * fixed[j]
+                    if resid != 0:
+                        fully_testable_violations.append(
+                            (i, int(resid), [(atoms[j], int(M[i, j])) for j in nz])
+                        )
+
+        scored.append({
+            "label": label,
+            "consistent": consistent,
+            "rank_A": int(rank_A),
+            "rank_aug": int(rank_aug),
+            "free_cols": len(free_cols),
+            "violations": fully_testable_violations,
+        })
+
+    scored.sort(key=lambda d: (not d["consistent"], d["rank_aug"] - d["rank_A"], d["label"]))
+
+    _log("  Hypothesis scan:")
+    for item in scored:
+        delta = item["rank_aug"] - item["rank_A"]
+        status = "OK" if item["consistent"] else "NO"
+        _log(
+            f"    {item['label']:<18s} -> {status}  "
+            f"rank(A)={item['rank_A']}  rank([A|b])={item['rank_aug']}  "
+            f"Δ={delta}  free_cols={item['free_cols']}"
+        )
+
+    best = scored[0]
+
+    if best["consistent"]:
+        _log(f"\n  ✓  key={known_key} is CONSISTENT under convention '{best['label']}'.")
+        return {
+            "ok": True,
+            "label": best["label"],
+            "rank_A": best["rank_A"],
+            "rank_aug": best["rank_aug"],
+            "free_cols": best["free_cols"],
+        }
+
+    _log(f"\n  ✗  key={known_key} is INCONSISTENT under the best convention '{best['label']}'.")
+    _log(f"     rank(A)={best['rank_A']}  rank([A|b])={best['rank_aug']}")
+
+    if best["violations"]:
+        _log("     Rows fully determined by the fixed columns that fail:")
+        for row_i, resid, nz_cols in best["violations"][:10]:
+            _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+    else:
+        _log("     No row is fully determined by the fixed columns; contradiction only appears after eliminating free atoms.")
+
+    return {
+        "ok": False,
+        "label": best["label"],
+        "rank_A": best["rank_A"],
+        "rank_aug": best["rank_aug"],
+        "free_cols": best["free_cols"],
+        "violations": best["violations"][:10],
+    }

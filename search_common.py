@@ -398,7 +398,6 @@ if FINITE_FIELD is not None:
             SECRET_KEY,
             verbose=_IS_MAIN_PROCESS
         )
-
     order = Integer(GROUP_MODULUS * COFACTOR)
 
     assert GROUP_MODULUS is not None and COFACTOR is not None

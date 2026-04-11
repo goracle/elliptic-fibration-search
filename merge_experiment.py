@@ -1422,6 +1422,5 @@ def _dlp_build_affine_system(
 
     return M_fp, A, b
 
-
 if __name__ == "__main__":
     main()
