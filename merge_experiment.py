@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
-from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS
+from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, SECRET_KEY
 from sage.all import *
 from markov import *
 from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
@@ -107,6 +107,45 @@ def _divisor_seed_xs() -> List[int]:
 # ---------------------------------------------------------------------------
 # Walker construction
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Force divisor atoms to appear as xi (chain state) in each walker
+# ---------------------------------------------------------------------------
+
+def _force_divisor_xi_steps(
+    walker: Genus2MetropolisWalker,
+    divisor_xs,
+    steps_per_atom: int = 5,
+    label: str = "?",
+) -> None:
+    """Teleport current_x to each divisor atom that has not yet appeared as xi,
+    run steps_per_atom steps from it, then let the walk continue normally.
+
+    This guarantees every divisor atom appears in the xi role at least
+    steps_per_atom times, which is required for the affine DLP system to be
+    consistent: the anchor row a[G_x0] + a[G_x1] = 1 can only be satisfied
+    if both generator columns have xi-role rows in the relation matrix.
+    """
+    Fp = walker.base_ring
+    for x in divisor_xs:
+        x_fp = Fp(x)
+        if x_fp == walker.current_x:
+            continue  # already starting here — main run covers it
+        xi_count = sum(1 for r in walker.history if r.accepted and r.xi == x_fp)
+        if xi_count >= steps_per_atom:
+            continue  # already covered from a prior forced stint or natural walk
+        # Teleport and run steps_per_atom accepted steps.
+        saved_x, saved_y = walker.current_x, walker.current_y
+        try:
+            walker.current_x = x_fp
+            walker.current_y = walker._recover_y(x_fp)
+        except Exception:
+            raise
+        _log(f"[force_xi:{label}] stepping {steps_per_atom}× from divisor atom xi={int(x_fp)}")
+        for _ in range(steps_per_atom):
+            walker.run(1)
+        # Return to original position so the main _quiet_run continues from there.
+        walker.current_x, walker.current_y = saved_x, saved_y
 
 def _build_walker(
     seed: int,
@@ -295,6 +334,10 @@ def main(argv=None):
         walker_a.config.spectral_enabled = False
         walker_a.mat_chain = None
         walker_a.mat_graph = None
+
+        # Force all four divisor atoms as xi before the main run.
+        _force_divisor_xi_steps(walker_a, divisor_xs, steps_per_atom=5, label="A")
+
         _quiet_run(walker_a, args.steps_a, checkpoint_every=args.checkpoint_every,
                    label="A", collective_leaves=None,
                    nullity_every=0, peer_walkers=[])
@@ -384,6 +427,12 @@ def main(argv=None):
         w.config.spectral_enabled = False
         w.mat_chain = None
         w.mat_graph = None
+
+        # Force each divisor atom to appear as xi at least 5 times so the
+        # affine DLP system anchor row a[G_x0]+a[G_x1]=1 is satisfiable.
+        # Without this every walker only steps through its own seed as xi.
+        _force_divisor_xi_steps(w, divisor_xs, steps_per_atom=5, label=label)
+
         _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
                    label=label, collective_leaves=collective_leaves,
                    nullity_every=0, peer_walkers=list(peer_walkers_done))
@@ -460,6 +509,15 @@ def main(argv=None):
             _log("[dlp] no --dlp-target given; skipping solve.")
     elif args.dlp:
         _log("[dlp] skipped: walk A not run (--skip-a).")
+
+    run_all_checks(
+        walkers     = [walker_a, walker_b, walker_c, walker_d],
+        divisor_xs  = divisor_xs,
+        group_order = int(GROUP_MODULUS),
+        known_key   = SECRET_KEY,
+        p           = p,
+        coeffs      = coeffs,
+    )
 
     # -- Write results -----------------------------------------------------
     with open(args.results, "w") as fh:

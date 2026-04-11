@@ -3,6 +3,7 @@ from .cantor_cache import *
 from .mixing_diagnostics import *
 from .adjacency_matrix import *
 from .walkerclass import *
+from .dlp_diagnostics import *
 
 """markov/__init__.py
 

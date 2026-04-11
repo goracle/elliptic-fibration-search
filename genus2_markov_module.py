@@ -328,11 +328,21 @@ def _candidates_from_residues(residues, p):
             # x_val should agree on yj_sign since v(xj) is deterministic).
             first = sols[0]
             if isinstance(first, (tuple, list)) and len(first) == 4:
-                # New format: (mumford_tuple, yj_sign, v0, v1)
+                # Expected format: (mumford_tuple, yj_sign, v0, v1)
                 _mtup, yj_sign, v0, v1 = first
+                if yj_sign not in (1, -1):
+                    raise AssertionError(
+                        f"_candidates_from_residues: yj_sign={yj_sign!r} is not +-1 "
+                        f"for x_val={x_val!r}. _solve_worker_wrapper must emit "
+                        f"(mumford_tuple, yj_sign, v0, v1) with yj_sign in {{+1, -1}}."
+                    )
             else:
-                # Old format: plain 4-tuple — sign unknown, default +1.
-                yj_sign, v0, v1 = 1, None, None
+                raise AssertionError(
+                    f"_candidates_from_residues: unexpected solution format "
+                    f"type={type(first)!r} for x_val={x_val!r}. "
+                    f"Expected 4-tuple (mumford_tuple, yj_sign, v0, v1). "
+                    f"Update _solve_worker_wrapper in mumford_parallel.py to emit this format."
+                )
 
             key = (int(x_val), yj_sign)
             if key in seen:
@@ -390,6 +400,7 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
         "candidate_xs": set(),
         "new_sections": [],
         "precomputed_residues": None,
+        "residues": None,          # markov_mode fast-exit: {p: {vtup: {x_val: [(sol, yj_sign, v0, v1)]}}}
         "stats": None,
         "raw_mumford_residues": None,
         "found_xs": set(),
@@ -401,6 +412,7 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
     if isinstance(result, dict):
         out["raw_mumford_residues"] = result.get("raw_mumford_residues", result)
         out["precomputed_residues"] = result.get("precomputed_residues", None)
+        out["residues"] = result.get("residues", None)   # signed residues from markov fast-exit
         out["stats"] = result.get("stats", None)
         out["new_sections"] = result.get("new_sections", [])
 
@@ -670,7 +682,7 @@ def make_project_markov_search_fn(
         # Override candidate_records with sign-aware records extracted directly
         # from the raw residues dict, where each solution now carries yj_sign
         # and the v-polynomial coefficients needed to compute yk_sign.
-        _raw_residues = raw.get('residues') if isinstance(raw, dict) else None
+        _raw_residues = norm.get('residues') if isinstance(norm, dict) else None
         if _raw_residues:
             sign_records = _candidates_from_residues(_raw_residues, p)
             if sign_records:
@@ -916,7 +928,9 @@ def enrich_candidates(
                 rec['intersection_poly'] = inter
 
         # Compute yk_sign from the v-polynomial if available.
-        # v(xk) = v0 + v1*xk; compare against canonical sqrt of f(xk).
+        # In Cantor/Mumford addition the third intersection point satisfies
+        # yk = -v(xk) mod p  (the line y=v(x) meets the curve at (xk, -v(xk))).
+        # So we evaluate -v(xk) and compare against canonical_sqrt(f(xk)).
         v0 = rec.get('v0')
         v1 = rec.get('v1')
         xk = rec.get('xk')
@@ -924,10 +938,10 @@ def enrich_candidates(
                 and xk is not None and isinstance(xk, (int, Integer))
                 and p is not None):
             try:
-                yk_v = (v0 + v1 * int(xk)) % p
+                yk_raw = (-(v0 + v1 * int(xk))) % p   # yk = -v(xk) mod p
                 canonical_yk = _canonical_sqrt(int(xk))
                 if canonical_yk is not None:
-                    yk_canonical = min(yk_v, p - yk_v) if yk_v != 0 else 0
+                    yk_canonical = min(yk_raw, p - yk_raw) if yk_raw != 0 else 0
                     rec['yk_sign'] = 1 if yk_canonical == canonical_yk else -1
                 else:
                     rec.setdefault('yk_sign', 1)
