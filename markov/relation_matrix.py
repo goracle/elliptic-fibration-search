@@ -108,7 +108,11 @@ def build_relation_matrix2(
     generating a divisor relation for EVERY candidate found during the step.
     """
     assert require_xk
-    xi_mult = curve_degree - 2
+    # NOTE: xi_mult is intentionally NOT set as a global constant here.
+    # Each row uses the actual multiplicity stored on the record or candidate dict
+    # (rec.xi_mult / cand['xi_mult']), falling back to curve_degree - 2 only when
+    # the sentinel value -1 is present (old records or preferred-injection synthetics).
+    _default_xi_mult = curve_degree - 2
     inf_coeff = -curve_degree
 
     atom_index: dict[Any, int] = {}
@@ -251,18 +255,23 @@ def build_relation_matrix2(
                         c_xk = cand.get("xk")
                         c_yj = int(cand.get("yj_sign", 1))
                         c_yk = int(cand.get("yk_sign", 1))
-                        cands_to_add.append((c_xj, c_xk, c_yj, c_yk))
+                        # Per-candidate xi_mult: -1 sentinel means use record-level or default.
+                        c_xi_mult = int(cand.get("xi_mult", -1))
+                        cands_to_add.append((c_xj, c_xk, c_yj, c_yk, c_xi_mult))
                     elif cand is not None:
-                        cands_to_add.append((cand, None, 1, 1))
+                        cands_to_add.append((cand, None, 1, 1, -1))
 
-        # Always include the primary accepted path
+        # Always include the primary accepted path.
+        # Use the xi_mult stored on the record itself (set by _make_relation from
+        # _recover_xk's actual multiplicity); -1 means unset / use default.
         _rec_yj = int(_get(rec, "yj_sign") or 1)
         _rec_yk = int(_get(rec, "yk_sign") or 1)
-        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_yj, _rec_yk))
+        _rec_xi_mult = int(_get(rec, "xi_mult") or -1)
+        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_yj, _rec_yk, _rec_xi_mult))
 
         seen_pairs = set()
 
-        for cxj, cxk, yj_sign, yk_sign in cands_to_add:
+        for cxj, cxk, yj_sign, yk_sign, cand_xi_mult in cands_to_add:
             if cxj is None or cxj == xi:
                 continue
 
@@ -286,8 +295,17 @@ def build_relation_matrix2(
                 continue
             seen_pairs.add(pair_key)
 
+            # Resolve the actual xi multiplicity for this row.
+            # Priority: per-candidate > per-record > curve_degree - 2 default.
+            if cand_xi_mult > 0:
+                row_xi_mult = cand_xi_mult
+            elif _rec_xi_mult > 0:
+                row_xi_mult = _rec_xi_mult
+            else:
+                row_xi_mult = _default_xi_mult
+
             row = [0] * n_cols
-            row[atom_index[xi]] += xi_mult
+            row[atom_index[xi]] += row_xi_mult
 
             row[atom_index[cxj]] += 1
 

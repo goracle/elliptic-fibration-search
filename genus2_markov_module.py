@@ -807,6 +807,8 @@ def make_project_markov_search_fn(
             'found_xs': norm.get('found_xs', set()),
             'input_n': n0,
             'S_of_m': S_of_m_step,   # fibration property of this xi, not of any xj
+            'fi': _fi,               # symbolic fiber poly in x over Frac(Fp[m]); needed for synthetic injection
+            'G_poly': _G_poly,       # curve poly in x over Fp; needed for synthetic injection
             'vecs': vecs,
             'n_with_roots': norm.get('n_with_roots', None),
             'n_total': norm.get('n_total', None),
@@ -920,6 +922,21 @@ def enrich_candidates(
                 )
                 rec['xk'] = xk_val
                 rec['intersection_poly'] = inter
+                # Store actual xi multiplicity so relation_matrix uses the right coefficient.
+                if inter is not None:
+                    roots_wm = inter.roots()
+                    actual_xi_mult = 0
+                    Fp = GF(int(p)) if p is not None else None
+                    xi_fp = Fp(x_here) if Fp is not None else x_here
+                    for r, m_root in roots_wm:
+                        if r == xi_fp:
+                            actual_xi_mult = int(m_root)
+                            break
+                    if actual_xi_mult == 0:
+                        actual_xi_mult = curve_degree - 2
+                    rec['xi_mult'] = actual_xi_mult
+                else:
+                    rec.setdefault('xi_mult', curve_degree - 2)
 
         # Compute yk_sign from the v-polynomial if available.
         # In Cantor/Mumford addition the third intersection point satisfies

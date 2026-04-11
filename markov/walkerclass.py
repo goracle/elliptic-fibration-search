@@ -112,8 +112,19 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
             assert False, f"inter.degree()={inter.degree()} != curve_degree={curve_degree}, xi={xi_val} m={m_val} xj={xj_val}"
             return None, None
 
-        xi_mult = curve_degree - 2
-        known = [xi_val] * xi_mult + [xj_val]
+        #xi_mult = curve_degree - 2
+
+        # Replace the hardcoded xi_mult with the actual multiplicity from the fiber poly.
+        roots_wm = inter.roots()  # Sage: [(root, mult), ...]
+        actual_xi_mult = 0
+        for r, m in roots_wm:
+            if Fp(r) == Fp(xi_val):
+                actual_xi_mult = int(m)
+                break
+        if actual_xi_mult == 0:
+            actual_xi_mult = curve_degree - 2  # fallback to double-tangency assumption
+
+        known = [xi_val] * actual_xi_mult + [xj_val]
         return missing_root_by_vieta(inter, known), inter
 
     except Exception:
@@ -521,6 +532,9 @@ class RelationRecord:
     # Default to +1 (old behaviour) when signs are not available (e.g. preferred_injection).
     yj_sign: int = 1
     yk_sign: int = 1
+    # Actual multiplicity of xi in the fiber intersection poly.
+    # Defaults to -1 (sentinel: not set); build_relation_matrix2 falls back to curve_degree-2.
+    xi_mult: int = -1
 
 @dataclass
 class WalkConfig:
@@ -989,13 +1003,15 @@ class Genus2MetropolisWalker:
             restart=False,
             yj_sign: int = 1,
             yk_sign: int = 1,
+            xi_mult: int = -1,
         ):
             deg = self.config.curve_degree
-            xi_mult = deg - 2  # double tangency → multiplicity 3 for deg-5, etc.
+            # Use provided xi_mult if valid, else fall back to double-tangency assumption.
+            effective_xi_mult = xi_mult if xi_mult > 0 else (deg - 2)
             if xj is not None and xk is not None:
-                relation = f"{xi_mult}*{xi} + {xj} + {xk} - {deg}*∞ = 0"
+                relation = f"{effective_xi_mult}*{xi} + {xj} + {xk} - {deg}*∞ = 0"
             elif xj is not None:
-                relation = f"{xi_mult}*{xi} + {xj} + ? - {deg}*∞ = 0"
+                relation = f"{effective_xi_mult}*{xi} + {xj} + ? - {deg}*∞ = 0"
             else:
                 relation = "no xj"
 
@@ -1020,6 +1036,7 @@ class Genus2MetropolisWalker:
                 restart=restart,
                 yj_sign=yj_sign,
                 yk_sign=yk_sign,
+                xi_mult=xi_mult,
             )
 
     def _score_candidate_record(self, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
@@ -1123,11 +1140,12 @@ class Genus2MetropolisWalker:
                 assert dv != 0, f"close_under_involution: S(m) denominator zero at m={m_val}"
                 raise
 
-        def _T(xi, xj_val):
+        def _T(xi, xj_val, xi_mult_override=None):
             Fp = self.base_ring
+            xi_mult_for_T = xi_mult_override if xi_mult_override is not None else xi_mult
             m_val = Fp(xi) - Fp(xj_val)
             S_val = _eval_S(xi, m_val)
-            return Fp(S_val - xi_mult * Fp(xi) - Fp(xj_val))
+            return Fp(S_val - xi_mult_for_T * Fp(xi) - Fp(xj_val))
 
         def _check_pair(xi, xj_val):
             Fp = self.base_ring
@@ -1367,8 +1385,18 @@ class Genus2MetropolisWalker:
         if xj is None and "x" in chosen:
             xj = chosen.get("x")
 
+        # xi_mult from chosen candidate dict (set by upstream mumford search or xk_head path).
+        # Falls back to _recover_xk's computed value, then to -1 (sentinel → relation_matrix uses default).
+        chosen_xi_mult = int(chosen.get('xi_mult', -1)) if isinstance(chosen, dict) else -1
+
         if xk is None and xj is not None:
-            xk = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            xk, recovered_xi_mult = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            if chosen_xi_mult < 0:
+                chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
+        elif chosen_xi_mult < 0 and xk is not None and xj is not None:
+            # xk already known from candidate dict; compute xi_mult from the poly if available.
+            _, recovered_xi_mult = self._recover_xk(search_out if isinstance(search_out, dict) else {}, self.current_x, xj)
+            chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
 
         accepted = xj is not None
         xi_before = self.current_x
@@ -1418,6 +1446,7 @@ class Genus2MetropolisWalker:
             step_payload, accepted=accepted, restart=False,
             yj_sign=int(chosen.get('yj_sign', 1)),
             yk_sign=int(chosen.get('yk_sign', 1)),
+            xi_mult=chosen_xi_mult,
         )
         rec.candidate_pool = candidates
         rec.selected_candidate = dict(chosen)
@@ -1545,7 +1574,9 @@ class Genus2MetropolisWalker:
             raise ValueError(f"No xj candidate produced at n={n}")
         m_val = m_roots[0] if m_roots else None
 
-        xk = self._recover_xk(step, self.current_x, xj)
+        xk, sf_xi_mult = self._recover_xk(step, self.current_x, xj)
+        if sf_xi_mult is None:
+            sf_xi_mult = -1
         if xk is None:
             raise ValueError(f"No xk recovered at n={n} for xi={self.current_x}, xj={xj}")
 
@@ -1600,7 +1631,7 @@ class Genus2MetropolisWalker:
 
         rec = self._make_relation(
             len(self.history), n, xi_before, m_val, xj, xk,
-            step_payload, accepted=accepted
+            step_payload, accepted=accepted, xi_mult=sf_xi_mult,
         )
         self._store_record(rec)
         if rec.accepted:
@@ -1908,139 +1939,174 @@ class Genus2MetropolisWalker:
                     return S_sym
         return None
 
+    def _get_fiber_context_for_rec(self, rec):
+        """Return (fi, G_poly) for the xi of *rec*, or (None, None) if unavailable.
+
+        fi is the symbolic fiber poly in x over Frac(Fp[m]).
+        G_poly is the curve poly in x over Fp.
+        Both are stored on the step payload by make_project_markov_search_fn.
+        """
+        step = rec.step if isinstance(rec.step, dict) else {}
+        fi = step.get('fi')
+        G_poly = step.get('G_poly')
+        if fi is not None and G_poly is not None:
+            return fi, G_poly
+        # Fall back to candidate pool entries.
+        for cand in (rec.candidate_pool or []):
+            if isinstance(cand, dict):
+                fi = fi or cand.get('fi')
+                G_poly = G_poly or cand.get('G_poly')
+                if fi is not None and G_poly is not None:
+                    return fi, G_poly
+        return None, None
+
     def inject_preferred_relations(self, accepted_rec) -> int:
         """After an accepted walk step, inject one synthetic relation per preferred
         x-coord by inverting xj = xi - m  =>  m = xi - t.
 
         For each t in self.preferred_xs:
-        m   = xi - t
-        xk  = S(m) - (d-2)*xi - t        [Vieta sum identity]
+          m   = xi - t
+          xk, actual_xi_mult = compute_xk_from_fiber(xi, m, t, fi, G_poly, deg)
+
+        Uses the actual fiber intersection poly so xi's multiplicity is computed
+        correctly at each specific m, rather than assumed to be deg-2.
 
         A RelationRecord with source='preferred_injection' is appended via
         _store_record so leaf bookkeeping, merge detection, and JSONL logging
-        all happen normally.  The xk involution (different m, same relation) is
-        not inserted because it adds no new linear constraint.
+        all happen normally.
 
         Returns the number of relations successfully injected this call.
         """
         if not self.preferred_xs and not self.preferred_xs_budget:
             return 0
 
+        fi, G_poly = self._get_fiber_context_for_rec(accepted_rec)
+        if fi is None or G_poly is None:
+            # No fiber context available — fall back to S(m) shortcut with default xi_mult.
+            # This preserves backward compat for steps that predate fi/G_poly storage.
+            assert None, "do not fallback to incorrect code lol"
+            #return self._inject_preferred_relations_legacy(accepted_rec)
+
+        xi    = accepted_rec.xi
+        Fp    = self.base_ring
+        deg   = self.config.curve_degree
+
+        xi_fp = Fp(xi)
+        n_injected = 0
+
+        def _do_inject(t_fp):
+            nonlocal n_injected
+            if t_fp == xi_fp:
+                return
+            m_fp = xi_fp - t_fp
+
+            xk_val, actual_xi_mult = compute_xk_from_fiber(
+                xi_fp, m_fp, t_fp, fi, G_poly, deg
+            )
+
+            if xk_val is None or xk_val == "∞":
+                return
+            xk_fp = Fp(xk_val)
+
+            # Skip degenerate: xk == xj means double root at t (not a valid 2-cycle).
+            if xk_fp == t_fp:
+                return
+
+            if actual_xi_mult is None or actual_xi_mult <= 0:
+                actual_xi_mult = deg - 2
+
+            step_payload = {
+                'source': 'preferred_injection',
+                'preferred_target': int(t_fp),
+                'S_of_m': self._get_S_of_m_for_rec(accepted_rec),
+                'fi': fi,
+                'G_poly': G_poly,
+                'intersection_poly': None,  # not stored to avoid memory cost
+            }
+
+            rec = self._make_relation(
+                step_index=len(self.history),
+                n=accepted_rec.n,
+                xi=xi_fp,
+                m_val=m_fp,
+                xj=t_fp,
+                xk=xk_fp,
+                step=step_payload,
+                accepted=True,
+                restart=False,
+                xi_mult=actual_xi_mult,
+            )
+            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
+            for leaf in (t_fp, xk_fp):
+                if leaf not in self.global_leaves_seen:
+                    self.global_leaves_seen.add(leaf)
+                    self.total_leaf_insertions += 1
+            if already_seen:
+                self.leaf_collision_count += already_seen
+            self._store_record(rec)
+            n_injected += 1
+
+        for t in self.preferred_xs:
+            _do_inject(Fp(t))
+
+        exhausted = []
+        for t, remaining in list(self.preferred_xs_budget.items()):
+            _do_inject(Fp(t))
+            self.preferred_xs_budget[t] = remaining - 1
+            if self.preferred_xs_budget[t] <= 0:
+                exhausted.append(t)
+
+        for t in exhausted:
+            del self.preferred_xs_budget[t]
+
+        return n_injected
+
+    def _inject_preferred_relations_legacy(self, accepted_rec) -> int:
+        """Fallback for steps that lack fi/G_poly: uses S(m) Vieta shortcut with
+        xi_mult assumed to be curve_degree - 2.  Only reached when the step predates
+        fi/G_poly storage on the step payload."""
+        assert None, "dead code"
         S_sym = self._get_S_of_m_for_rec(accepted_rec)
         if S_sym is None:
-            # Tower not rebuilt yet or S_of_m not stored — skip silently.
             assert None, "canary"
             return 0
 
         xi    = accepted_rec.xi
         Fp    = self.base_ring
         deg   = self.config.curve_degree
-        xi_mult = deg - 2          # coefficient of xi in the divisor relation
+        xi_mult = deg - 2
 
         xi_fp = Fp(xi)
         n_injected = 0
 
-        for t in self.preferred_xs:
-            t_fp = Fp(t)
-            if t_fp == xi_fp:
-                # xj == xi is degenerate (m=0); skip.
-                continue
-
-            m_fp = xi_fp - t_fp    # m = xi - t  =>  xj = xi - m = t
-
-            # Evaluate S(m): S_sym lives in Frac(Fp[m]).
+        def _eval_S(m_fp):
             try:
                 num = S_sym.numerator()
                 den = S_sym.denominator()
                 den_val = Fp(den(m_fp))
                 if den_val == Fp(0):
-                    continue       # pole at this m — skip
-                S_val = Fp(num(m_fp)) / den_val
+                    return None
+                return Fp(num(m_fp)) / den_val
             except Exception:
                 raise
 
-            # xk from Vieta: S(m) = (d-2)*xi + xj + xk
-            xk_fp = S_val - xi_mult * xi_fp - t_fp
-
-            # Branch point: fiber has a double root at t, so T(xj)==xj and
-            # no valid 2-cycle exists.  Skip rather than recording a bad relation.
-            if xk_fp == t_fp:
-                continue
-
-            relation_str = (
-                f"{xi_mult}*{xi} + {int(t_fp)} + {int(xk_fp)} - {deg}*∞ = 0"
-                f"  [preferred_injection t={int(t_fp)}]"
-            )
-
-            step_payload = {
-                'source': 'preferred_injection',
-                'preferred_target': int(t_fp),
-                'S_of_m': S_sym,          # keep for downstream involution checks
-                'intersection_poly': None,
-            }
-
-            # yj_sign / yk_sign are not available here: preferred injections are
-            # synthetic Vieta relations with no associated Mumford solution, so we
-            # have no v(x) polynomial to evaluate.  They default to +1 in
-            # _make_relation, which is the pre-sign-tracking behaviour.
-            rec = self._make_relation(
-                step_index=len(self.history),
-                n=accepted_rec.n,
-                xi=xi_fp,
-                m_val=m_fp,
-                xj=t_fp,
-                xk=xk_fp,
-                step=step_payload,
-                accepted=True,
-                restart=False,
-            )
-            # Snapshot membership BEFORE adding so collision count is correct.
-            already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
-            for leaf in (t_fp, xk_fp):
-                if leaf not in self.global_leaves_seen:
-                    self.global_leaves_seen.add(leaf)
-                    self.total_leaf_insertions += 1
-            if already_seen:
-                self.leaf_collision_count += already_seen
-
-            # Let _store_record handle history append, merge detection, JSONL log.
-            self._store_record(rec)
-            n_injected += 1
-
-        # Budget injections: nullity-derived atoms with a finite remaining count.
-        exhausted = []
-        for t, remaining in list(self.preferred_xs_budget.items()):
-            t_fp = Fp(t)
+        def _do_inject(t_fp, budget_key=None):
+            nonlocal n_injected
             if t_fp == xi_fp:
-                continue
-
+                return
             m_fp = xi_fp - t_fp
-
-            try:
-                num = S_sym.numerator()
-                den = S_sym.denominator()
-                den_val = Fp(den(m_fp))
-                if den_val == Fp(0):
-                    continue
-                S_val = Fp(num(m_fp)) / den_val
-            except Exception:
-                raise
-
+            S_val = _eval_S(m_fp)
+            if S_val is None:
+                return
             xk_fp = S_val - xi_mult * xi_fp - t_fp
-
-            # Branch point: fiber has a double root at t, so T(xj)==xj and
-            # no valid 2-cycle exists.  Skip rather than recording a bad relation.
             if xk_fp == t_fp:
-                continue
-
+                return
             step_payload = {
                 'source': 'preferred_injection',
                 'preferred_target': int(t_fp),
                 'S_of_m': S_sym,
                 'intersection_poly': None,
             }
-
-            # yj_sign / yk_sign default to +1 — no v(x) available on this path.
             rec = self._make_relation(
                 step_index=len(self.history),
                 n=accepted_rec.n,
@@ -2051,6 +2117,7 @@ class Genus2MetropolisWalker:
                 step=step_payload,
                 accepted=True,
                 restart=False,
+                xi_mult=xi_mult,
             )
             already_seen = sum(1 for lf in (t_fp, xk_fp) if lf in self.global_leaves_seen)
             for leaf in (t_fp, xk_fp):
@@ -2059,14 +2126,18 @@ class Genus2MetropolisWalker:
                     self.total_leaf_insertions += 1
             if already_seen:
                 self.leaf_collision_count += already_seen
-
             self._store_record(rec)
             n_injected += 1
 
+        for t in self.preferred_xs:
+            _do_inject(Fp(t))
+
+        exhausted = []
+        for t, remaining in list(self.preferred_xs_budget.items()):
+            _do_inject(Fp(t))
             self.preferred_xs_budget[t] = remaining - 1
             if self.preferred_xs_budget[t] <= 0:
                 exhausted.append(t)
-
         for t in exhausted:
             del self.preferred_xs_budget[t]
 
@@ -2109,6 +2180,53 @@ class Genus2MetropolisWalker:
         if sq * sq != rhs:
             raise ValueError(f"No rational y at x={x_val!r}")
         return sq
+
+
+    def _recover_xk(self, step: Dict[str, Any], xi, xj):
+        """Return (xk, actual_xi_mult) where actual_xi_mult is the true multiplicity
+        of xi in the fiber intersection poly (not assumed to be curve_degree-2)."""
+        poly = self._intersection_poly_from_step(step)
+        assert poly, poly
+        if poly is None:
+            assert None, None
+            return None, None
+
+        assumed_xi_mult = self.config.curve_degree - 2  # double-tangency assumption
+
+        # Determine actual xi multiplicity from the poly roots.
+        roots_wm = poly_roots_with_multiplicity(poly)  # [(root, mult), ...]
+        actual_xi_mult = 0
+        for r, m in roots_wm:
+            if r == xi:
+                actual_xi_mult = int(m)
+                break
+        if actual_xi_mult == 0:
+            actual_xi_mult = assumed_xi_mult
+
+        roots = flatten_roots(roots_wm)
+
+        if roots:
+            leftovers = []
+            xi_count = 0
+            xj_count = 0
+            for r in roots:
+                if r == xi and xi_count < actual_xi_mult:
+                    xi_count += 1
+                    continue
+                if xj is not None and r == xj and xj_count < 1:
+                    xj_count += 1
+                    continue
+                leftovers.append(r)
+            if leftovers:
+                return leftovers[0], actual_xi_mult
+
+        # Vieta fallback
+        if poly.degree() != self.config.curve_degree:
+            return None, actual_xi_mult
+        known = [xi] * actual_xi_mult
+        if xj is not None:
+            known.append(xj)
+        return missing_root_by_vieta(poly, known), actual_xi_mult
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """
