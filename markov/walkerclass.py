@@ -2244,7 +2244,6 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class.step = step_with_diagnostics
     return walker_class
 
-
 def _recover_y(self, x_val, explicit_y=None, y_sign: Optional[int] = None):
     """
     Recover a y-coordinate for x_val.

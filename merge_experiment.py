@@ -118,43 +118,6 @@ def _force_divisor_xi_steps(
     steps_per_atom: int = 5,
     label: str = "?",
 ) -> None:
-    """Teleport current_x to each divisor atom that has not yet appeared as xi,
-    run steps_per_atom steps from it, then let the walk continue normally.
-
-    This guarantees every divisor atom appears in the xi role at least
-    steps_per_atom times, which is required for the affine DLP system to be
-    consistent: the anchor row a[G_x0] + a[G_x1] = 1 can only be satisfied
-    if both generator columns have xi-role rows in the relation matrix.
-    """
-    Fp = walker.base_ring
-    for x in divisor_xs:
-        x_fp = Fp(x)
-        if x_fp == walker.current_x:
-            continue  # already starting here — main run covers it
-        xi_count = sum(1 for r in walker.history if r.accepted and r.xi == x_fp)
-        if xi_count >= steps_per_atom:
-            continue  # already covered from a prior forced stint or natural walk
-        # Teleport and run steps_per_atom accepted steps.
-        saved_x, saved_y = walker.current_x, walker.current_y
-        try:
-            walker.current_x = x_fp
-            walker.current_y = walker._recover_y(x_fp)
-        except Exception:
-            raise
-        _log(f"[force_xi:{label}] stepping {steps_per_atom}× from divisor atom xi={int(x_fp)}")
-        for _ in range(steps_per_atom):
-            walker.run(1)
-        # Return to original position so the main _quiet_run continues from there.
-        walker.current_x, walker.current_y = saved_x, saved_y
-
-
-
-def _force_divisor_xi_steps(
-    walker: Genus2MetropolisWalker,
-    divisor_xs,
-    steps_per_atom: int = 5,
-    label: str = "?",
-) -> None:
     """
     Force the walker to take accepted steps with xi equal to each divisor atom.
 
@@ -194,10 +157,6 @@ def _force_divisor_xi_steps(
             # Always restore original state
             walker.current_x = saved_x
             walker.current_y = saved_y
-
-
-
-
 
 def _build_walker(
     seed: int,
@@ -1467,9 +1426,6 @@ def _dlp_build_affine_system(
 
     return M_fp, A, b
 
-
-
-
 def _recover_y(self, x):
     """
     Deterministically choose a branch for y at given x.
@@ -1482,9 +1438,6 @@ def _recover_y(self, x):
     if int(y) > int(-y):
         return -y
     return y
-
-
-
 
 if __name__ == "__main__":
     main()

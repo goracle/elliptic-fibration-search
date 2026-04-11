@@ -673,7 +673,6 @@ def run_all_checks(
         _log(f"  [check_involution_symmetry FAILED: {exc}]")
         raise
 
-
     _log(f"\n{'#' * 70}")
     _log("# DIAGNOSTIC SUMMARY")
     _log(f"{'#' * 70}")

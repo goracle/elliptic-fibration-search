@@ -894,7 +894,6 @@ def enrich_candidates(
         except Exception:
             return None
 
-
     for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
         rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
 
