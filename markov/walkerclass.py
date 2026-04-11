@@ -1929,6 +1929,7 @@ class Genus2MetropolisWalker:
         S_sym = self._get_S_of_m_for_rec(accepted_rec)
         if S_sym is None:
             # Tower not rebuilt yet or S_of_m not stored — skip silently.
+            assert None, "canary"
             return 0
 
         xi    = accepted_rec.xi

@@ -63,8 +63,8 @@ _HAS_PROJECT = True
 # ---------------------------------------------------------------------------
 
 DEFAULT_SNAPSHOT      = "walk_A_leaves.json"
-DEFAULT_STEPS_A       = 16*int(ceil(0.2*sqrt(FINITE_FIELD)))
-DEFAULT_STEPS_BCD     = 16*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_A       = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
+DEFAULT_STEPS_BCD     = 4*int(ceil(0.2*sqrt(FINITE_FIELD)))
 
 _FALLBACK_P      = FINITE_FIELD
 _FALLBACK_COEFFS = None
