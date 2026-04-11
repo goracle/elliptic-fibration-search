@@ -667,36 +667,6 @@ class Genus2MetropolisWalker:
         if not self.base_points:
             self.base_points.append((self.current_x, self.current_y))
 
-    def _recover_y(self, x_val, explicit_y=None):
-        # Canonical convention: always return min(y, p-y) as the representative.
-        # This makes the divisor-class label deterministic regardless of which
-        # branch the tower shift / Mobius transformation landed on, so xi's
-        # column coefficient in the relation matrix is always +1 by definition.
-        if self.p is not None:
-            p = int(self.p)
-            if explicit_y is not None:
-                y_int = int(self.base_ring(explicit_y))
-                return self.base_ring(min(y_int, p - y_int))
-
-            rhs = self.curve_poly(x_val)
-            if not (hasattr(rhs, "is_square") and rhs.is_square()):
-                raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
-            try:
-                y_any = rhs.sqrt()
-            except Exception:
-                raise
-            y_int = int(y_any)
-            return self.base_ring(min(y_int, p - y_int))
-
-        # Non-finite-field path (rational, over QQ): no branch ambiguity issue.
-        if explicit_y is not None:
-            return explicit_y
-        rhs = self.curve_poly(x_val)
-        sq = sqrt(rhs)
-        if sq * sq != rhs:
-            raise ValueError(f"No rational y at x={x_val!r}")
-        return sq
-
     def _default_step_factory(self, current_x, n, seed=None, current_point=None):
         if "build_one_fibration_step" not in globals():
             raise RuntimeError(
@@ -2099,6 +2069,44 @@ class Genus2MetropolisWalker:
 
         return n_injected
 
+    def _recover_y(self, x_val, explicit_y=None, y_sign: Optional[int] = None):
+        """
+        Recover a y-coordinate for x_val.
+
+        Rules:
+        - If explicit_y is given, keep it exactly.
+        - If y_sign is given, choose that branch consistently.
+        - If no sign is given, fall back to a deterministic canonical choice.
+        """
+        if self.p is not None:
+            p = int(self.p)
+
+            # Caller already knows the branch: preserve it exactly.
+            if explicit_y is not None:
+                return self.base_ring(explicit_y)
+
+            rhs = self.curve_poly(x_val)
+            if not (hasattr(rhs, "is_square") and rhs.is_square()):
+                raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
+
+            y_any = self.base_ring(rhs.sqrt())
+            y_can = self.base_ring(min(int(y_any), p - int(y_any)))
+
+            if y_sign is None:
+                return y_can
+
+            return y_can if int(y_sign) >= 0 else -y_can
+
+        # Non-finite-field path
+        if explicit_y is not None:
+            return explicit_y
+
+        rhs = self.curve_poly(x_val)
+        sq = sqrt(rhs)
+        if sq * sq != rhs:
+            raise ValueError(f"No rational y at x={x_val!r}")
+        return sq
+
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """
     Monkey-patch Genus2MetropolisWalker.step so every accepted/rejected step
@@ -2244,40 +2252,3 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class.step = step_with_diagnostics
     return walker_class
 
-def _recover_y(self, x_val, explicit_y=None, y_sign: Optional[int] = None):
-    """
-    Recover a y-coordinate for x_val.
-
-    Rules:
-      - If explicit_y is given, keep it exactly.
-      - If y_sign is given, choose that branch consistently.
-      - If no sign is given, fall back to a deterministic canonical choice.
-    """
-    if self.p is not None:
-        p = int(self.p)
-
-        # Caller already knows the branch: preserve it exactly.
-        if explicit_y is not None:
-            return self.base_ring(explicit_y)
-
-        rhs = self.curve_poly(x_val)
-        if not (hasattr(rhs, "is_square") and rhs.is_square()):
-            raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
-
-        y_any = self.base_ring(rhs.sqrt())
-        y_can = self.base_ring(min(int(y_any), p - int(y_any)))
-
-        if y_sign is None:
-            return y_can
-
-        return y_can if int(y_sign) >= 0 else -y_can
-
-    # Non-finite-field path
-    if explicit_y is not None:
-        return explicit_y
-
-    rhs = self.curve_poly(x_val)
-    sq = sqrt(rhs)
-    if sq * sq != rhs:
-        raise ValueError(f"No rational y at x={x_val!r}")
-    return sq

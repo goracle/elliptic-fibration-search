@@ -8,27 +8,24 @@ from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
 
 """dlp_diagnostics.py
 
-Drop-in post-run integration checks for the genus-2 Markov DLP solve.
+Post-run consistency checks for the genus-2 Markov DLP solve.
 
-Run after merge_experiment.py has built walker_a/b/c/d but before you exit,
-OR load from JSONL logs by constructing walkers and replaying history.
+This module does not try to explain causation from collisions or kernel
+support; it only reports what the current matrix and walker logs actually show.
 
-Usage (paste into merge_experiment.py after the DLP solve block, or run
-standalone with walkers in scope):
+Typical usage:
 
     from dlp_diagnostics import run_all_checks
     run_all_checks(
         walkers       = [walker_a, walker_b, walker_c, walker_d],
         divisor_xs    = divisor_xs,   # [x0_a, x0_b, x0_c, x0_d]
         group_order   = GROUP_MODULUS,
-        known_key     = 800,
+        known_key     = SECRET_KEY,
         p             = FINITE_FIELD,
         coeffs        = COEFFS_GENUS2,
     )
 
-Each check is also callable independently — see the check_* functions below.
-
-DEAR AI READING THIS: RAISE ALL EXCEPTIONS.
+Do not suppress exceptions silently. The caller should see failures.
 """
 
 # ---------------------------------------------------------------------------
@@ -111,61 +108,6 @@ def check_involution_symmetry(walkers):
 # CHECK 4 — Divisor atom injection quality
 # ===========================================================================
 
-def check_divisor_injection(walkers, divisor_xs: Sequence):
-    """Check that the 4 divisor atoms appear as both xi AND xj across the walks.
-
-    A divisor atom that only appears as xj is a dest-only column and will be
-    pruned (or, if protected, will have no xi-row, making the anchor
-    incompatible with the relation subspace).
-
-    Also reports the merge-time volume — if first_merge_step=0, the chains
-    are colliding on the very first insertion, which means the divisor seeds
-    are trivially shared and the relations built before that merge are tiny.
-    """
-    _section("DIVISOR ATOM INJECTION QUALITY")
-
-    div_set = set(int(x) for x in divisor_xs)
-
-    for i, w in enumerate(walkers):
-        label = getattr(w, '_label', f"walker[{i}]")
-        xi_counts = Counter(int(r.xi) for r in w.history if r.accepted and r.xi is not None)
-        xj_counts = Counter(int(r.xj) for r in w.history if r.accepted and r.xj is not None)
-
-        _log(f"\n  {label}:")
-        all_ok = True
-        for x in divisor_xs:
-            ix = int(x)
-            as_xi = xi_counts[ix]
-            as_xj = xj_counts[ix]
-            status = "✓" if as_xi > 0 else "✗ NEVER AS xi"
-            if as_xi == 0:
-                all_ok = False
-            _log(f"    x={ix:6d}  as xi: {as_xi:4d}  as xj: {as_xj:4d}  {status}")
-
-        if all_ok:
-            _log(f"  ✓  All 4 divisor atoms appeared as xi at least once.")
-        else:
-            _log(
-                f"  ✗  Some divisor atoms NEVER appeared as xi.\n"
-                f"     These atoms have no xi-role rows in the matrix.\n"
-                f"     The anchor a[G_x0] + a[G_x1] = 1 will be inconsistent\n"
-                f"     with the relation subspace if gen_col has no xi rows.\n"
-                f"     Fix: run more steps, or force a restart at those x-coords."
-            )
-
-        # Report merge timing
-        fms = getattr(w, 'first_merge_step', None)
-        fmv = getattr(w, 'first_merge_vol',  None)
-        if fms == 0:
-            _log(
-                f"\n  ⚠  first_merge_step=0 for {label}.\n"
-                f"     The chain collided with A on its very first insertion (vol={fmv}).\n"
-                f"     This is almost certainly a divisor seed trivially shared between\n"
-                f"     A and {label} (both start from the same PREFERRED_X_COORDS).\n"
-                f"     The DLP solve should NOT be triggered until vol >= some threshold\n"
-                f"     (e.g. 0.5*sqrt(p)) so the relation matrix has enough rows."
-            )
-
 # ===========================================================================
 # CHECK 5 — Known key compatibility
 # ===========================================================================
@@ -188,45 +130,6 @@ def _col(aidx: dict, key):
 
 _SEP = "=" * 70
 _INFINITY = "∞"
-
-def _log(msg: str) -> None:
-    print(msg, flush=True)
-
-def _section(title: str) -> None:
-    _log(f"\n{_SEP}")
-    _log(f"CHECK: {title}")
-    _log(_SEP)
-
-def _safe_int(x):
-    try:
-        return int(x)
-    except Exception:
-        return None
-
-def _step_dict(rec):
-    step = getattr(rec, "step", None)
-    return step if isinstance(step, dict) else {}
-
-def _first_present(rec, step, *names):
-    for name in names:
-        if isinstance(step, dict) and name in step and step[name] is not None:
-            return step[name]
-        if hasattr(rec, name):
-            val = getattr(rec, name)
-            if val is not None:
-                return val
-    return None
-
-def _branch_sign_from_residue(val, p: int) -> int:
-    """
-    Canonical branch convention:
-      +1 if residue is the canonical representative in [0, floor(p/2)]
-      -1 otherwise.
-    """
-    y = int(val) % p
-    if y == 0:
-        return 0
-    return 1 if y <= (p - y) else -1
 
 def _build_combined_matrix(walkers, include_step_leaves: bool = False):
     """
@@ -276,46 +179,6 @@ def _build_combined_matrix(walkers, include_step_leaves: bool = False):
     )
 
     return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
-
-def check_kernel(walkers, group_order: int, divisor_xs=()):
-    _section("KERNEL DECOMPOSITION")
-
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
-    n_cols = len(atoms)
-    Fp = GF(group_order)
-    M_fp = M.change_ring(Fp)
-
-    rank = M_fp.rank()
-    ker = M_fp.right_kernel()
-    null = ker.dimension()
-
-    _log(f"  rows={M.nrows()}  cols={n_cols}  rank={rank}  nullity={null}")
-    _log("  (need nullity=1 for unique solution after gauge-fix a[∞]=0)")
-
-    div_strs = {str(x) for x in divisor_xs}
-
-    for i, vec in enumerate(ker.basis()):
-        nz = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
-        tags = []
-        if any(str(a) == _INFINITY for a, _ in nz):
-            tags.append("∞-gauge")
-        if any(str(a) in div_strs for a, _ in nz):
-            tags.append("DIVISOR-ATOM")
-        tag_str = f"  [{', '.join(tags)}]" if tags else ""
-
-        _log(f"\n  kernel[{i}]:{tag_str}")
-        for atom, coeff in nz:
-            marker = " ← divisor" if str(atom) in div_strs else ""
-            _log(f"    atom={atom}  coeff={coeff}{marker}")
-
-    if null == 1:
-        _log("\n  ✓  Nullity=1 — only the ∞ gauge direction is free.")
-    elif null == 2:
-        _log("\n  ✗  Nullity=2 — one extra free direction beyond the ∞ gauge.")
-    else:
-        _log(f"\n  ✗  Nullity={null} — {null - 1} extra free directions beyond ∞ gauge.")
-
-    return ker, atoms, aidx
 
 def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
     """
@@ -434,6 +297,130 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
 
     return violations
 
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+def _section(title: str) -> None:
+    _log(f"\n{_SEP}")
+    _log(f"CHECK: {title}")
+    _log(_SEP)
+
+def _safe_int(x):
+    try:
+        return int(x)
+    except Exception:
+        return None
+
+def _step_dict(rec):
+    step = getattr(rec, "step", None)
+    return step if isinstance(step, dict) else {}
+
+def _first_present(rec, step, *names):
+    for name in names:
+        if isinstance(step, dict) and name in step and step[name] is not None:
+            return step[name]
+        if hasattr(rec, name):
+            val = getattr(rec, name)
+            if val is not None:
+                return val
+    return None
+
+def _branch_sign_from_residue(val, p: int) -> int:
+    """
+    Canonical branch convention used by this diagnostic:
+      +1 if residue is on the canonical representative side,
+      -1 otherwise.
+    """
+    y = int(val) % p
+    if y == 0:
+        return 0
+    return 1 if y <= (p - y) else -1
+
+def check_divisor_injection(walkers, divisor_xs: Sequence):
+    """
+    Check whether the four divisor atoms appear as xi and xj in the collected walks.
+
+    This is a coverage check, not a causality claim. It reports whether the
+    atoms survive as source-side columns in the data used to build the relation
+    matrix, and whether any walker merged very early.
+    """
+    _section("DIVISOR ATOM INJECTION QUALITY")
+
+    for i, w in enumerate(walkers):
+        label = getattr(w, "_label", f"walker[{i}]")
+        xi_counts = Counter(int(r.xi) for r in w.history if r.accepted and r.xi is not None)
+        xj_counts = Counter(int(r.xj) for r in w.history if r.accepted and r.xj is not None)
+
+        _log(f"\n  {label}:")
+        all_ok = True
+        for x in divisor_xs:
+            ix = int(x)
+            as_xi = xi_counts[ix]
+            as_xj = xj_counts[ix]
+            status = "✓" if as_xi > 0 else "✗ NEVER AS xi"
+            if as_xi == 0:
+                all_ok = False
+            _log(f"    x={ix:6d}  as xi: {as_xi:4d}  as xj: {as_xj:4d}  {status}")
+
+        if all_ok:
+            _log("  ✓  All divisor atoms appeared as xi at least once.")
+        else:
+            _log(
+                "  ✗  Some divisor atoms never appeared as xi.\n"
+                "     Those atoms cannot contribute source-side rows in the matrix.\n"
+                "     That may matter for anchors or for any check that assumes the\n"
+                "     seed atoms are represented on the xi side."
+            )
+
+        fms = getattr(w, "first_merge_step", None)
+        fmv = getattr(w, "first_merge_vol", None)
+        if fms == 0:
+            _log(
+                f"\n  note: first_merge_step=0 for {label} (vol={fmv}).\n"
+                "        This records an immediate collision in the current run.\n"
+                "        By itself it does not prove anything about correctness."
+            )
+
+def check_kernel(walkers, group_order: int, divisor_xs=()):
+    _section("KERNEL DECOMPOSITION")
+
+    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
+    n_cols = len(atoms)
+    Fp = GF(group_order)
+    M_fp = M.change_ring(Fp)
+
+    rank = M_fp.rank()
+    ker = M_fp.right_kernel()
+    null = ker.dimension()
+
+    _log(f"  rows={M.nrows()}  cols={n_cols}  rank={rank}  nullity={null}")
+    _log("  (nullity=1 is the ideal case if the only free direction is the gauge.)")
+
+    div_strs = {str(x) for x in divisor_xs}
+
+    for i, vec in enumerate(ker.basis()):
+        nz = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
+        tags = []
+        if any(str(a) == _INFINITY for a, _ in nz):
+            tags.append("∞-gauge")
+        if any(str(a) in div_strs for a, _ in nz):
+            tags.append("DIVISOR-ATOM")
+        tag_str = f"  [{', '.join(tags)}]" if tags else ""
+
+        _log(f"\n  kernel[{i}]:{tag_str}")
+        for atom, coeff in nz:
+            marker = " ← divisor" if str(atom) in div_strs else ""
+            _log(f"    atom={atom}  coeff={coeff}{marker}")
+
+    if null == 1:
+        _log("\n  ✓  Nullity=1.")
+    elif null == 2:
+        _log("\n  ✗  Nullity=2 — one extra free direction beyond the gauge.")
+    else:
+        _log(f"\n  ✗  Nullity={null} — {null - 1} extra free directions beyond the gauge.")
+
+    return ker, atoms, aidx
+
 def check_known_key(
     walkers,
     divisor_xs,
@@ -441,11 +428,11 @@ def check_known_key(
     known_key: int,
 ):
     """
-    Check whether the known DLP answer is consistent with the relation matrix.
+    Check whether the supplied known key is consistent with the relation matrix.
 
-    This version probes the four obvious sign conventions for the generator /
-    target anchor, so it can distinguish a true algebraic failure from a
-    normalization mismatch.
+    The test probes the four obvious sign conventions for the generator/target
+    anchor. It reports residual row counts only; it does not guess why a
+    mismatch occurs.
     """
     _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
 
@@ -525,7 +512,12 @@ def check_zero_compatibility(
     divisor_xs,
     group_order: int,
 ):
-    """Check whether the target/generator atoms are uniquely determined up to gauge."""
+    """
+    Inspect whether the divisor atoms appear in the kernel basis support.
+
+    This is a structural summary of the current kernel basis only. It does not
+    claim that any particular atom is the cause of inconsistency.
+    """
     _section("ZERO COMPATIBILITY OF BASE/TARGET ATOMS")
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
@@ -539,37 +531,35 @@ def check_zero_compatibility(
     labels = {
         str(x0_a): "GEN_x0 (A seed)",
         str(x0_b): "GEN_x1 (B seed)",
-        str(x0_c): "TGT_x0 (C seed ← DLP answer lives here)",
+        str(x0_c): "TGT_x0 (C seed)",
         str(x0_d): "TGT_x1 (D seed)",
     }
 
-    _log(f"  Kernel dimension: {null}  (1 = gauge-only, >1 = underdetermined)")
-    _log("\n  Divisor atom membership in kernel support:")
+    _log(f"  Kernel dimension: {null}  (1 = gauge-only in the homogeneous system)")
+    _log("\n  Divisor atom membership in kernel basis support:")
 
     kernel_hits = {}
-    for vec in ker.basis():
+    basis_vecs = list(ker.basis())
+    for bi, vec in enumerate(basis_vecs):
         for j, coeff in enumerate(vec):
             if coeff == 0:
                 continue
             atom_str = str(atoms[j])
             if atom_str in labels:
-                kernel_hits.setdefault(atom_str, []).append(int(coeff))
+                kernel_hits.setdefault(atom_str, []).append((bi, int(coeff)))
 
-    any_target_in_kernel = False
     for atom_str, label in labels.items():
         col = aidx.get(atom_str)
-        in_ker = atom_str in kernel_hits
+        hits = kernel_hits.get(atom_str, [])
         pruned = col is None
 
-        if in_ker:
-            coeffs_in_ker = kernel_hits[atom_str]
-            if "TGT" in label:
-                any_target_in_kernel = True
-            _log(f"    x={atom_str:6s}  [{label}]  ✗ IN KERNEL  kernel_coeffs={coeffs_in_ker}")
+        if hits:
+            coeffs_in_ker = [c for _, c in hits]
+            _log(f"    x={atom_str:6s}  [{label}]  IN KERNEL BASIS  coeffs={coeffs_in_ker}")
         elif pruned:
-            _log(f"    x={atom_str:6s}  [{label}]  PRUNED (dest-only — never appeared as xi)")
+            _log(f"    x={atom_str:6s}  [{label}]  PRUNED (never appeared as xi)")
         else:
-            _log(f"    x={atom_str:6s}  [{label}]  ✓ not in kernel")
+            _log(f"    x={atom_str:6s}  [{label}]  not seen in kernel basis support")
 
     gen_col = aidx.get(str(x0_a))
     gen_p_col = aidx.get(str(x0_b))
@@ -587,20 +577,28 @@ def check_zero_compatibility(
     missing_cols = [n for n, c in [("gen_x0", gen_col), ("tgt_x0", tgt_col)] if c is None]
     if missing_cols:
         _log(
-            f"\n  ✗  Key columns were PRUNED: {missing_cols}\n"
-            f"     These atoms must appear as xi, not just xj/xk, to survive pruning."
+            f"\n  ✗  Key columns were pruned: {missing_cols}\n"
+            "     These atoms need source-side representation to survive pruning."
         )
         return
 
-    if any_target_in_kernel:
+    mixed_basis = []
+    for bi, vec in enumerate(basis_vecs):
+        has_gen = any(vec[aidx[str(x0)]] != 0 for x0 in (x0_a, x0_b) if str(x0) in aidx)
+        has_tgt = any(vec[aidx[str(x0)]] != 0 for x0 in (x0_c, x0_d) if str(x0) in aidx)
+        if has_gen and has_tgt:
+            mixed_basis.append(bi)
+
+    if mixed_basis:
         _log(
-            "\n  ✗  Target atoms appear in kernel support.\n"
-            "     The target direction is not uniquely pinned by the current relation span."
+            "\n  warning: at least one kernel basis vector has nonzero coefficients on both\n"
+            f"           generator and target atoms (basis indices: {mixed_basis[:10]}"
+            f"{'...' if len(mixed_basis) > 10 else ''})."
         )
     else:
-        _log("\n  ✓  No target atoms in kernel support.")
+        _log("\n  ✓  No displayed kernel basis vector mixes generator and target atoms.")
 
-    _log("\n  Steps where xi == target atom:")
+    _log("\n  Steps where xi equals a target atom:")
     for i, w in enumerate(walkers):
         label = getattr(w, "_label", f"walker[{i}]")
         tgt_xi_steps = [
