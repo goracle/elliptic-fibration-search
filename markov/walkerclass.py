@@ -153,6 +153,8 @@ def build_project_tower_context_for_point(
 
     #base_points = list(base_points or _project_base_points_from_globals(xi, yi, p=p))
     base_points = [(xi, yi)]
+    assert xi, xi
+    assert yi, yi
     if yi is None:
         yfun = resolve_project_symbol('get_y_unshifted_genus2', default=None)
         if yfun is not None:

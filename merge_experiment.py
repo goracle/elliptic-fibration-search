@@ -56,11 +56,7 @@ Usage
 # ---------------------------------------------------------------------------
 # Project imports
 # ---------------------------------------------------------------------------
-try:
-    _HAS_PROJECT = True
-except ImportError:
-    _HAS_PROJECT = False
-    raise
+_HAS_PROJECT = True
 
 # ---------------------------------------------------------------------------
 # Experiment configuration
@@ -1426,18 +1422,6 @@ def _dlp_build_affine_system(
 
     return M_fp, A, b
 
-def _recover_y(self, x):
-    """
-    Deterministically choose a branch for y at given x.
-    Ensures consistency across forced reseeds and walkers.
-    """
-    y = super()._recover_y(x)
-
-    # Normalize: pick canonical representative
-    # (example: smallest integer lift)
-    if int(y) > int(-y):
-        return -y
-    return y
 
 if __name__ == "__main__":
     main()

@@ -165,8 +165,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Build a persistent pool once
     ctx = multiprocessing.get_context("spawn")  # safe for Sage / heavy objects
-    pool = ctx.Pool(processes=16, initializer=init_worker)  # adjust num processes
-    chunk_size = 8 # how many multiples of the section to search per chunk
+    pool = ctx.Pool(processes=num_workers, initializer=init_worker)  # adjust num processes
+    chunk_size = 2 # how many multiples of the section to search per chunk
 
     search_fn = make_project_markov_search_fn(
         coeffs_genus2=coeffs,

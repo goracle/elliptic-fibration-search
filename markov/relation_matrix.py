@@ -292,8 +292,9 @@ def build_relation_matrix2(
             row[atom_index[cxj]] += 1
 
             if cxk == "∞":
-                if inf_col is not None:
-                    row[inf_col] += 1
+                continue # this is safer
+                #if inf_col is not None:
+                #    row[inf_col] += 1 # this is not correct
             elif cxk is not None and cxk in atom_index:
                 row[atom_index[cxk]] += 1
 
