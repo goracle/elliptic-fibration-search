@@ -674,7 +674,7 @@ def check_known_key(
         free_cols = [j for j in range(n_cols) if j not in fixed_cols]
 
         # Move fixed contributions to the RHS: M_free * x_free = rhs.
-        rhs = vector(F, n_rows, 0)
+        rhs = vector(F, n_rows)
         for j, val in fixed.items():
             if val != 0:
                 rhs -= M.column(j) * val

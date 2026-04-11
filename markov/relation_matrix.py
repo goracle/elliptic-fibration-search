@@ -532,3 +532,150 @@ def prune_dest_only(mat, atoms, protected=None):
     pruned_mat = Matrix(ZZ, new_row_idx, n_pruned_cols, surviving)
     return pruned_mat, pruned_atoms, removed
 
+
+
+def prune_dest_only(mat, atoms, protected=None):
+    """
+    Iteratively remove dest-only atoms (columns with exactly 1 nonzero entry)
+    and their single incident row, AND degree-1 rows (rows with exactly 1
+    nonzero entry in live columns) and their single live column, until fixed
+    point. Both directions are rank-preserving over any field.
+
+    Protected atoms are never removed even if they become prunable.
+    """
+    inf_sentinel = "∞"
+    cur_atoms = list(atoms)
+
+    protected_strs = set()
+    if protected:
+        for p in protected:
+            protected_strs.add(str(p))
+
+    n_rows = mat.nrows()
+    n_cols = mat.ncols()
+
+    row_data = [{} for _ in range(n_rows)]
+    col_rows = [set() for _ in range(n_cols)]
+
+    for (i, j) in mat.nonzero_positions(copy=False):
+        val = int(mat[i, j])
+        if val != 0:
+            row_data[i][j] = val
+            col_rows[j].add(i)
+
+    live_cols = set(range(n_cols))
+    live_rows = set(range(n_rows))
+
+    immune_cols = {
+        j for j, a in enumerate(cur_atoms)
+        if str(a) == inf_sentinel or str(a) in protected_strs
+    }
+
+    removed = []
+    dead_rows = set()
+
+    def col_worklist_seed():
+        return {
+            j for j in live_cols
+            if j not in immune_cols and len(col_rows[j] & live_rows) == 1
+        }
+
+    def row_worklist_seed():
+        return {
+            i for i in live_rows
+            if len({k for k in row_data[i] if k in live_cols}) == 1
+        }
+
+    col_worklist = col_worklist_seed()
+    row_worklist = row_worklist_seed()
+
+    while col_worklist or row_worklist:
+        # --- column pass: dest-only atom ---
+        while col_worklist:
+            j = col_worklist.pop()
+            if j not in live_cols or j in immune_cols:
+                continue
+            live_incident = col_rows[j] & live_rows
+            if len(live_incident) != 1:
+                continue
+
+            (i,) = live_incident
+            removed.append((cur_atoms[j], i))
+            dead_rows.add(i)
+            live_rows.discard(i)
+            live_cols.discard(j)
+
+            for k in list(row_data[i].keys()):
+                if k == j or k not in live_cols:
+                    continue
+                col_rows[k].discard(i)
+                live_inc = col_rows[k] & live_rows
+                if k not in immune_cols and len(live_inc) == 1:
+                    col_worklist.add(k)
+                # If a surviving row now has degree 1, add to row worklist.
+                for ii in list(live_inc):
+                    live_support = {kk for kk in row_data[ii] if kk in live_cols}
+                    if len(live_support) == 1:
+                        row_worklist.add(ii)
+
+        # --- row pass: degree-1 row forces column ---
+        while row_worklist:
+            i = row_worklist.pop()
+            if i not in live_rows:
+                continue
+            live_support = {k for k in row_data[i] if k in live_cols}
+            if len(live_support) != 1:
+                continue
+
+            (j,) = live_support
+            if j in immune_cols:
+                # Row is degree-1 on a protected column: just drop the row,
+                # the column survives (it's pinned to zero by this row but
+                # we can't remove it, so we just drop the redundant row).
+                dead_rows.add(i)
+                live_rows.discard(i)
+                col_rows[j].discard(i)
+                live_inc = col_rows[j] & live_rows
+                if j not in immune_cols and len(live_inc) == 1:
+                    col_worklist.add(j)
+                continue
+
+            removed.append((cur_atoms[j], i))
+            dead_rows.add(i)
+            live_rows.discard(i)
+            live_cols.discard(j)
+
+            for ii in list(col_rows[j] & live_rows):
+                col_rows[j].discard(ii)
+                # Check if any other column in that row is now degree-1.
+                for k in list(row_data[ii].keys()):
+                    if k not in live_cols:
+                        continue
+                    live_inc = col_rows[k] & live_rows
+                    if k not in immune_cols and len(live_inc) == 1:
+                        col_worklist.add(k)
+                live_support2 = {k for k in row_data[ii] if k in live_cols}
+                if len(live_support2) == 1:
+                    row_worklist.add(ii)
+
+    # Reconstruct surviving matrix.
+    sorted_cols = sorted(live_cols)
+    col_remap = {old_j: new_j for new_j, old_j in enumerate(sorted_cols)}
+    pruned_atoms = [cur_atoms[j] for j in sorted_cols]
+    n_pruned_cols = len(sorted_cols)
+
+    surviving = {}
+    new_row_idx = 0
+    for i in range(n_rows):
+        if i in dead_rows:
+            continue
+        for old_j, val in row_data[i].items():
+            if old_j in col_remap:
+                surviving[(new_row_idx, col_remap[old_j])] = val
+        new_row_idx += 1
+
+    if new_row_idx == 0:
+        return Matrix(ZZ, 0, n_pruned_cols), pruned_atoms, removed
+
+    pruned_mat = Matrix(ZZ, new_row_idx, n_pruned_cols, surviving)
+    return pruned_mat, pruned_atoms, removed
