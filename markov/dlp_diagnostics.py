@@ -482,8 +482,18 @@ def run_all_checks(
         raise
 
     try:
-        nonzero = check_known_key(walkers, divisor_xs, group_order, known_key)
-        results["known_key"] = "ok" if nonzero == [] else f"{len(nonzero or [])} residual rows"
+        kk = check_known_key(walkers, divisor_xs, group_order, known_key)
+        ok = kk.get("ok")
+        if ok is True:
+            results["known_key"] = "ok"
+        elif ok is None:
+            results["known_key"] = f"underdetermined (nullity={kk.get('nullity', '?')})"
+        else:
+            viols = kk.get("violations", [])
+            if viols:
+                results["known_key"] = f"{len(viols)} hard contradiction(s)"
+            else:
+                results["known_key"] = f"inconsistent (rank test, nullity={kk.get('nullity', '?')})"
     except Exception as exc:
         _log(f"  [check_known_key FAILED: {exc}]")
         raise
@@ -506,7 +516,12 @@ def run_all_checks(
     _log("# DIAGNOSTIC SUMMARY")
     _log(f"{'#' * 70}")
     for name, status in results.items():
-        icon = "✓" if status == "ok" else "✗"
+        if status == "ok":
+            icon = "✓"
+        elif status.startswith("underdetermined"):
+            icon = "?"
+        else:
+            icon = "✗"
         _log(f"  {icon}  {name:<25s}  {status}")
     _log(f"{'#' * 70}\n")
 
