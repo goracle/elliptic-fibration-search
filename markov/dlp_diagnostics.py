@@ -6,11 +6,9 @@ from sage.all import GF, ZZ, Matrix, vector, matrix, Integer
 from .relation_matrix import *
 from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
 
-try:
-    import h5py
-    _HAS_H5PY = True
-except ImportError:
-    _HAS_H5PY = False
+from scipy.sparse import csr_matrix as _csr
+import h5py
+_HAS_H5PY = True
 
 """dlp_diagnostics.py
 
@@ -91,9 +89,6 @@ def check_involution_symmetry(walkers):
         "  at xk is independently chosen — there is no forced sign relationship between them.\n"
         "  The matrix coefficient for xk should always be +1 (|yk_sign|=1, not the branch sign)."
     )
-
-_SEP = "=" * 70
-_INFINITY = "∞"
 
 def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
     """
@@ -423,6 +418,13 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
 
     if null == 1:
         _log("\n  ✓  Nullity=1.")
+    elif null == 0:
+        _log(
+            "\n  ✗  Nullity=0 — system is over-constrained (no kernel, not even gauge).\n"
+            "     The relation rows have killed all free directions, including the gauge.\n"
+            "     This usually means the anchor/gauge columns were aliased or the\n"
+            "     relation matrix is inconsistent."
+        )
     elif null == 2:
         _log("\n  ✗  Nullity=2 — one extra free direction beyond the gauge.")
     else:
@@ -601,7 +603,6 @@ def dump_matrix_hdf5(
 
     # CSR via scipy if available, otherwise manual.
     try:
-        from scipy.sparse import csr_matrix as _csr
         sp = _csr(M_np)
         csr_data    = sp.data.astype(np.int32)
         csr_indices = sp.indices.astype(np.int32)
@@ -652,11 +653,12 @@ def dump_matrix_hdf5(
         # Metadata.
         f.create_dataset("divisor_xs",  data=np.array([x0_a, x0_b, x0_c, x0_d], dtype=np.int64))
         f.create_dataset("group_order", data=np.int64(group_order))
-        f.create_dataset("col_inf",     data=_col(_INFINITY if _INFINITY in aidx else -1))
         f.create_dataset("col_gen0",    data=_col(x0_a))
         f.create_dataset("col_gen1",    data=_col(x0_b))
         f.create_dataset("col_tgt0",    data=_col(x0_c))
         f.create_dataset("col_tgt1",    data=_col(x0_d))
+        inf_col_idx = aidx.get(_INFINITY)
+        f.create_dataset("col_inf",     data=np.int64(-1 if inf_col_idx is None else inf_col_idx))
 
     _log(f"[dump_matrix_hdf5] written -> {path}")
     return path
@@ -969,8 +971,31 @@ def check_known_key(
             return {"ok": False, "label": best["label"], "nullity": nullity,
                     "violations": best["violations"][:10]}
 
+    elif nullity == 0:
+        # Over-constrained: the gauge direction itself has been killed.
+        # The anchor row has no solution space to land in.
+        if best["n_violations"] == 0:
+            _log(
+                f"\n  ✗  key={known_key} is LIKELY INCONSISTENT — nullity=0 means no kernel\n"
+                f"     at all (not even the gauge direction survives).\n"
+                f"     The anchor row has no solution space to land in.\n"
+                f"     This usually means the relation matrix is over-determined, or\n"
+                f"     the anchor/gauge columns were aliased by the pruning step."
+            )
+            return {"ok": False, "reason": "nullity_zero", "nullity": nullity,
+                    "violations": []}
+        else:
+            _log(
+                f"\n  ✗  key={known_key} is INCONSISTENT — nullity=0 (over-constrained) AND\n"
+                f"     {best['n_violations']} directly contradicted row(s):"
+            )
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
+
     else:
-        # Underdetermined. Only hard contradictions (fully-fixed rows) are conclusive.
+        # nullity > 1 — underdetermined. Only hard contradictions are conclusive.
         if best["n_violations"] == 0:
             _log(f"\n  ?  key={known_key} is UNVERIFIABLE — system is underdetermined "
                  f"(nullity={nullity}, need nullity=1).\n"

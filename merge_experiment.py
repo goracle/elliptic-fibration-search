@@ -524,6 +524,7 @@ def main(argv=None):
         known_key   = SECRET_KEY,
         p           = p,
         coeffs      = coeffs,
+        dump_path   = "relation_matrix.h5",   # ← add this
     )
 
     # -- Write results -----------------------------------------------------
