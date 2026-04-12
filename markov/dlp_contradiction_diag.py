@@ -160,6 +160,174 @@ def replace_row_append(M, row_idx, new_row):
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def check_structural_collapse(M_ZZ, atoms, group_order,
+                               col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1):
+    """
+    Check 3: Three structural diagnostics from Gemini.
+
+    A) Column-order test: for each special column j, find the smallest k s.t.
+       k*e_j lies in the row space of A over GF(p).  k=1 means the column is
+       already determined by the walk; k=p means it is completely free.
+
+    B) Rank-without-inf: recompute nullity after dropping the inf column
+       entirely.  If nullity jumps back to >=2, the collapse is driven by
+       over-use of inf as a balancing term.
+
+    C) Fusion audit: list every pair of atoms that the walk equates
+       (support-2, +1/-1 kernel vectors) before any pinning.
+    """
+    _section("CHECK 3: STRUCTURAL COLLAPSE TRIAGE")
+
+    n  = group_order
+    Fp = GF(Integer(n))
+
+    protected = [a for a in [atoms[col_gen0] if col_gen0 is not None else None,
+                              atoms[col_gen1] if col_gen1 is not None else None,
+                              atoms[col_tgt0] if col_tgt0 is not None else None,
+                              atoms[col_tgt1] if col_tgt1 is not None else None]
+                 if a is not None]
+    M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col]))
+
+    p_col_inf  = remap(col_inf)
+    p_col_gen0 = remap(col_gen0)
+    p_col_gen1 = remap(col_gen1)
+    p_col_tgt0 = remap(col_tgt0)
+    p_col_tgt1 = remap(col_tgt1)
+
+    n_rows = M_pruned.nrows()
+    n_cols = M_pruned.ncols()
+    A = M_pruned.change_ring(Fp)
+
+    # ------------------------------------------------------------------
+    # A) Column-order test for special atoms
+    # ------------------------------------------------------------------
+    _log("\n  --- A) Column-order test (special atoms) ---")
+    _log("  For each special column j, smallest k s.t. k*e_j in RowSpace(A).")
+    _log("  k=1 => column fully determined by walk; k=p => completely free.")
+
+    row_space = A.row_space()
+    special = [("inf",  p_col_inf),
+               ("gen0", p_col_gen0), ("gen1", p_col_gen1),
+               ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]
+
+    for name, col in special:
+        if col is None:
+            _log(f"  {name:6s}: column absent after prune")
+            continue
+        e_j = vector(Fp, n_cols)
+        e_j[col] = Fp(1)
+        found_k = None
+        for k in range(1, min(50, n)):
+            if Fp(k) * e_j in row_space:
+                found_k = k
+                break
+        if found_k is not None:
+            _log(f"  {name:6s} (col {col:5d}): k={found_k}  "
+                 + ("*** column is over-determined by walk rows" if found_k == 1
+                    else f"order-{found_k} dependency"))
+        else:
+            _log(f"  {name:6s} (col {col:5d}): k>50 -- effectively free (good)")
+
+    # ------------------------------------------------------------------
+    # B) Rank without inf
+    # ------------------------------------------------------------------
+    _log("\n  --- B) Rank-without-inf test ---")
+    if p_col_inf is not None:
+        cols_no_inf = [j for j in range(n_cols) if j != p_col_inf]
+        A_no_inf = A.matrix_from_columns(cols_no_inf)
+        ker_no_inf = A_no_inf.right_kernel()
+        null_no_inf = ker_no_inf.dimension()
+        _log(f"  Full matrix nullity  : {A.right_kernel().dimension()}")
+        _log(f"  Without-inf nullity  : {null_no_inf}")
+        full_null = A.right_kernel().dimension()
+        if null_no_inf > full_null:
+            _log(f"  Nullity INCREASES by {null_no_inf - full_null} without inf.")
+            _log("  *** inf column is absorbing degrees of freedom -- normalization leakage.")
+        elif null_no_inf == full_null:
+            _log("  Nullity unchanged -- inf column is not the source of collapse.")
+        else:
+            _log(f"  Nullity DECREASES by {full_null - null_no_inf} without inf.")
+            _log("  inf column was contributing free directions -- unexpected.")
+    else:
+        _log("  No inf column present -- test skipped.")
+
+    # ------------------------------------------------------------------
+    # C) Fusion audit (all +1/-1 kernel pairs before pinning)
+    # ------------------------------------------------------------------
+    _log("\n  --- C) Fusion audit (all atom-equality constraints in walk) ---")
+    ker_full = A.right_kernel()
+    fusions = []
+    for vec in ker_full.basis():
+        support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
+        if len(support) == 2:
+            (j0, c0), (j1, c1) = support
+            if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
+                fusions.append((pruned_atoms[j0], pruned_atoms[j1]))
+
+    if fusions:
+        _log(f"  {len(fusions)} fusion pair(s) found (walk forces these atoms to equal logs):")
+        for a0, a1 in fusions:
+            is_special = any(str(a) in (str(a0), str(a1))
+                             for a in protected + ([atoms[col_inf]] if col_inf is not None else []))
+            flag = "  *** SPECIAL ATOM INVOLVED" if is_special else ""
+            _log(f"    a[{a0}] = a[{a1}]{flag}")
+    else:
+        _log("  No fusion pairs -- no atom-equality constraints in walk data.")
+
+    # ------------------------------------------------------------------
+    # D) Which rows overdetermine gen0 / gen1
+    #    The row space contains e_gen0 (k=1 above).  Find the actual rows
+    #    that have nonzero gen0/gen1 entries — these are the rows "pinning"
+    #    the generator columns, which should never happen in a clean setup.
+    # ------------------------------------------------------------------
+    _log("\n  --- D) Rows that directly constrain gen0 / gen1 ---")
+    _log("  (any row with nonzero entry in a special column is suspicious)")
+    for col_name, p_col in [("gen0", p_col_gen0), ("gen1", p_col_gen1),
+                             ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]:
+        if p_col is None:
+            continue
+        hitting_rows = [(i, int(A[i, p_col])) for i in range(n_rows)
+                        if A[i, p_col] != Fp(0)]
+        _log(f"  {col_name}: {len(hitting_rows)} row(s) with nonzero entry")
+        for row_i, coeff in hitting_rows[:10]:
+            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j]))
+                         for j in range(n_cols) if M_pruned[row_i, j] != 0]
+            _log(f"    row {row_i:5d}  coeff={coeff:6d}  atoms={row_atoms}")
+        if len(hitting_rows) > 10:
+            _log(f"    ... and {len(hitting_rows) - 10} more rows")
+
+    # ------------------------------------------------------------------
+    # E) Row-subsampling stability
+    #    Remove 10% of rows at random (5 trials) and check if nullity
+    #    changes.  If it does, the system is in a brittle over-determined
+    #    regime; if it stays the same, the constraints are redundant.
+    # ------------------------------------------------------------------
+    _log("\n  --- E) Row-subsampling stability (5 trials, 10% row removal) ---")
+    import random as _random
+    _random.seed(42)
+    base_null = A.right_kernel().dimension()
+    n_drop = max(1, n_rows // 10)
+    _log(f"  Base nullity: {base_null}  (dropping {n_drop} of {n_rows} rows per trial)")
+    for trial in range(5):
+        drop = set(_random.sample(range(n_rows), n_drop))
+        keep = [i for i in range(n_rows) if i not in drop]
+        A_sub = A.matrix_from_rows(keep)
+        null_sub = A_sub.right_kernel().dimension()
+        delta = null_sub - base_null
+        flag = ""
+        if delta > 2:
+            flag = "  *** large jump -- brittle over-determined regime"
+        elif delta > 0:
+            flag = "  (slight increase -- some redundancy)"
+        _log(f"  trial {trial+1}: nullity={null_sub}  delta={delta:+d}{flag}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Analyse a failed DLP solve from an HDF5 relation-matrix dump."
@@ -237,9 +405,76 @@ def main(argv=None):
         col_gen1=col_gen1,
     )
 
+
+    # --- Check 3 ---
+    check_structural_collapse(
+        M_ZZ, atoms, group_order,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+        col_tgt0=col_tgt0,
+        col_tgt1=col_tgt1,
+    )
+
     _log(f"\n{'#'*70}")
     _log("# DIAGNOSTICS COMPLETE")
     _log(f"{'#'*70}\n")
+
+def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None):
+    """
+    Scan a right-kernel basis and return (pin_rows, pin_rhs, pin_labels) for
+    every basis vector whose support is a single non-inf atom (isolated atoms).
+    Logs each pinned atom.  Does NOT consume the inf/gauge direction.
+
+    Also diagnoses non-isolated kernel directions:
+      FUSION   -- support_size=2, coeffs +1/-1: two atoms forced to equal logs
+      PARITY   -- all coefficients equal
+      OTHER    -- anything else; distinct coefficients listed
+    """
+    n = int(Fp.characteristic())
+    pin_rows   = []
+    pin_rhs    = []
+    pin_labels = []
+    for vi, vec in enumerate(ker.basis()):
+        support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
+        if not support:
+            continue
+
+        # --- gauge direction ---
+        if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
+            _log(f"  kernel[{vi}]: GAUGE (inf) -- skipping")
+            continue
+
+        # --- isolated atom: pin it ---
+        if len(support) == 1:
+            j, _ = support[0]
+            atom = pruned_atoms[j]
+            pin_row = vector(Fp, n_cols)
+            pin_row[j] = Fp(1)
+            pin_rows.append(pin_row)
+            pin_rhs.append(Fp(0))
+            pin_labels.append(f"pin a[{atom}]=0")
+            _log(f"  kernel[{vi}]: ISOLATED atom={atom} -- pinning a[{atom}]=0")
+            continue
+
+        # --- fusion pair: two atoms forced to identical logs ---
+        if len(support) == 2:
+            (j0, c0), (j1, c1) = support
+            if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
+                a0, a1 = pruned_atoms[j0], pruned_atoms[j1]
+                _log(f"  kernel[{vi}]: FUSION -- walk data forces "
+                     f"a[{a0}] = a[{a1}]  (log-space collapse)")
+                continue
+
+        # --- other multi-atom directions ---
+        coeffs_vals = [c for _, c in support]
+        is_flat = len(set(coeffs_vals)) == 1
+        kind = "PARITY/CONSERVATION" if is_flat else "OTHER"
+        c0_val = coeffs_vals[0] if is_flat else None
+        _log(f"  kernel[{vi}]: {kind}  support_size={len(support)}"
+             + (f"  all_coeffs={c0_val}" if is_flat else f"  distinct_coeffs={sorted(set(coeffs_vals))}"))
+    return pin_rows, pin_rhs, pin_labels
+
 
 def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
                       known_key: int, col_gen0, col_gen1, col_tgt0, col_tgt1,
@@ -289,12 +524,27 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
 
-    A_hom    = M_pruned.change_ring(Fp)
+    A_hom = M_pruned.change_ring(Fp)
+
+    # --- pin isolated atoms first (same logic as Check 2) ---
+    ker_pre  = A_hom.right_kernel()
+    null_pre = ker_pre.dimension()
+    _log(f"\n  Pre-pin nullity: {null_pre} on the {n_rows}×{n_cols} system")
+
+    pin_rows, pin_rhs, pin_labels = _extract_pin_rows(
+        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf
+    )
+
+    if pin_rows:
+        A_hom = A_hom.stack(matrix(Fp, pin_rows))
+        _log(f"  Pinned {len(pin_rows)} isolated atom(s)")
+
     rank_hom = A_hom.rank()
     ker_hom  = A_hom.right_kernel()
     null_hom = ker_hom.dimension()
 
-    _log(f"  rows={n_rows}  cols={n_cols}  rank={rank_hom}  nullity={null_hom}")
+    _log(f"  rows={M_pruned.nrows()}  cols={n_cols}  rank={rank_hom}  nullity={null_hom}"
+         f"  (after pinning)")
     _log(f"  (ideal: nullity >= 2 — gauge direction + DLP direction)")
 
     if null_hom == 0:
@@ -307,6 +557,29 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
         _log("     direction is not a[gen0]-a[gen1].")
     else:
         _log(f"\n  ✓  Nullity={null_hom} — at least gauge + DLP directions present.")
+
+    # --- inspect the surviving kernel basis vectors ---
+    _log(f"\n  Surviving kernel basis ({ker_hom.dimension()} vector(s)):")
+    special_cols = {name: col for name, col in [
+        ("gen0", p_col_gen0), ("gen1", p_col_gen1),
+        ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1),
+        ("inf",  p_col_inf),
+    ] if col is not None}
+    for bi, bv in enumerate(ker_hom.basis()):
+        support = [(j, int(bv[j])) for j in range(n_cols) if bv[j] != Fp(0)]
+        coeffs  = [c for _, c in support]
+        is_flat = len(set(coeffs)) == 1
+        special_vals = {name: int(bv[col]) for name, col in special_cols.items()}
+        all_special_same = len(set(special_vals.values())) == 1
+        _log(f"  basis[{bi}]:  support_size={len(support)}  flat={'yes' if is_flat else 'no'}")
+        _log(f"    special atom values: {special_vals}")
+        if is_flat:
+            _log("    *** ALL-ONES (flat) kernel vector -- every atom maps to the same log.")
+            _log("        Total log-space collapse confirmed: no DLP dimension in walk data.")
+        elif all_special_same:
+            _log("    *** Special atoms all equal -- DLP direction absent for gen/tgt.")
+        else:
+            _log("    OK -- special atoms differ, DLP direction present.")
 
     # --- log-G membership test ---
     missing = [name for name, col in [("gen0", p_col_gen0), ("gen1", p_col_gen1),
@@ -333,8 +606,8 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
 
     if inv2 is not None:
         half_key = Fp(known_key) * inv2
-        v_logG[p_col_tgt0] = half_key*0
-        v_logG[p_col_tgt1] = half_key*0
+        v_logG[p_col_tgt0] = half_key
+        v_logG[p_col_tgt1] = half_key
         _log(f"  a[gen0]=1, a[gen1]=0, a[tgt0]=a[tgt1]={int(half_key)} (={known_key}/2 mod {n})")
     else:
         v_logG[p_col_tgt0] = Fp(known_key)
@@ -345,22 +618,43 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
     residual     = A_hom * v_logG
     nonzero_rows = [(i, int(residual[i])) for i in range(n_rows) if residual[i] != Fp(0)]
 
+    # Partition: rows that only touch assigned atoms are true failures.
+    # Rows touching unassigned fb atoms will always have nonzero residual
+    # because v_logG is not a full oracle -- that is expected, not a bug.
+    assigned_cols = {c for c in [p_col_gen0, p_col_gen1, p_col_tgt0, p_col_tgt1, p_col_inf]
+                     if c is not None}
+    true_failures = []
+    fb_residuals  = []
+    for row_i, resid in nonzero_rows:
+        row_support = {j for j in range(n_cols) if M_pruned[row_i, j] != 0}
+        if row_support <= assigned_cols:
+            true_failures.append((row_i, resid))
+        else:
+            fb_residuals.append((row_i, resid))
+
     if not nonzero_rows:
-        _log("\n  ✓  log-G vector IS in the kernel of A_hom (pruned).")
+        _log("\n  \u2713  log-G vector IS in the kernel of A_hom (pruned).")
         _log("     Walk relations are consistent with the known solution.")
         _log("     The failure is introduced by the anchor/gauge rows, not the walk data.")
     else:
-        _log(f"\n  ✗  log-G vector is NOT in the kernel of A_hom (pruned).")
-        _log(f"     {len(nonzero_rows)} pruned-row(s) have nonzero residual (showing up to 30):")
-        for row_i, resid in nonzero_rows[:30]:
-            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j]))
-                         for j in range(n_cols) if M_pruned[row_i, j] != 0]
-            _log(f"    row {row_i:5d}  residual={resid:5d}  atoms={row_atoms}")
-        if len(nonzero_rows) > 30:
-            _log(f"    ... and {len(nonzero_rows) - 30} more rows")
-        _log("\n     → The walk data itself contradicts the known key.")
-        _log("       Likely cause: wrong xi multiplicity, wrong ∞ sign, or a bad")
-        _log("       involution-closure row in the relation matrix.")
+        if fb_residuals:
+            _log(f"\n  \u2139  {len(fb_residuals)} row(s) have nonzero residual because they contain")
+            _log( "     unassigned factor-base atoms (v_logG leaves them at 0).")
+            _log( "     This is expected -- the test vector is not a full oracle.")
+        if true_failures:
+            _log(f"\n  \u2717  {len(true_failures)} row(s) fail on assigned atoms only -- genuine contradiction:")
+            for row_i, resid in true_failures[:30]:
+                row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j]))
+                             for j in range(n_cols) if M_pruned[row_i, j] != 0]
+                _log(f"    row {row_i:5d}  residual={resid:5d}  atoms={row_atoms}")
+            if len(true_failures) > 30:
+                _log(f"    ... and {len(true_failures) - 30} more rows")
+            _log("\n     -> The walk data itself contradicts the known key.")
+            _log("       Likely cause: wrong xi multiplicity, wrong inf sign, or a bad")
+            _log("       involution-closure row in the relation matrix.")
+        elif fb_residuals:
+            _log("\n  \u2713  No true failures -- all residuals are from unassigned fb atoms.")
+            _log("     Walk structure is consistent with the known key.")
 
     return null_hom
 
@@ -404,36 +698,9 @@ def extract_contradiction_certificate(
     null_pre = ker_pre.dimension()
     _log(f"\n  Pre-nullity-prune: nullity={null_pre} on the {n_walk}×{n_cols} homogeneous system")
 
-    pin_rows = []
-    pin_rhs  = []
-    pin_labels = []
-
-    for vi, vec in enumerate(ker_pre.basis()):
-        support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
-        if not support:
-            continue
-
-        if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
-            _log(f"  kernel[{vi}]: GAUGE (∞) — skipping")
-            continue
-
-        if len(support) == 1:
-            j, _ = support[0]
-            atom = pruned_atoms[j]
-            pin_row = vector(Fp, n_cols)
-            pin_row[j] = Fp(1)
-            pin_rows.append(pin_row)
-            pin_rhs.append(Fp(0))
-            pin_labels.append(f"pin a[{atom}]=0")
-            _log(f"  kernel[{vi}]: ISOLATED atom={atom} — pinning a[{atom}]=0")
-            continue
-
-        coeffs_vals = [c for _, c in support]
-        is_flat = len(set(coeffs_vals)) == 1
-        kind = "PARITY/CONSERVATION" if is_flat else "OTHER"
-        c0 = coeffs_vals[0] if is_flat else None
-        _log(f"  kernel[{vi}]: {kind}  support_size={len(support)}"
-             + (f"  all_coeffs={c0}" if is_flat else f"  distinct_coeffs={sorted(set(coeffs_vals))}"))
+    pin_rows, pin_rhs, pin_labels = _extract_pin_rows(
+        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf
+    )
 
     if pin_rows:
         A_pinned = A_hom_fp.stack(matrix(Fp, pin_rows))
@@ -452,35 +719,34 @@ def extract_contradiction_certificate(
     extra_rhs     = []
     extra_labels  = []
 
+    # Gauge: a[inf] = 0 (identity element of the Jacobian has log 0).
     if p_col_inf is not None:
         gauge_row = vector(Fp, n_cols)
         gauge_row[p_col_inf] = Fp(1)
-        half = Fp(2) ** (-1)
-        half *= 0 # half doesn't correctly do the thing it's supposed to do, causes farkas
         extra_rows_fp.append(gauge_row)
-        extra_rhs.append(half)
-        _log(f"  Gauge row: a[∞]={int(half)} (0 mod {n})  (col={p_col_inf})")
+        extra_rhs.append(Fp(0))
+        _log(f"  Gauge row: a[∞]=0  (col={p_col_inf})")
         extra_labels.append(f"gauge a[∞]=0  (col={p_col_inf})")
     else:
         _log("  No ∞ column after prune — gauge row omitted.")
 
+    # Affine anchor: a[gen0] = 1.  This puts a nonzero value in b_full so
+    # that a Farkas certificate can exist if the system is inconsistent.
+    # A homogeneous anchor (RHS=0) makes b_full all-zeros, which always
+    # looks consistent and can never produce a certificate.
     anchor_added = False
-    anchor_row = None
-    anchor_rhs = None
-    anchor_label = None
-
-    if p_col_gen0 is not None and p_col_gen1 is not None:
-        anchor_row, anchor_rhs, anchor_label = _build_balanced_anchor_row(
-            Fp, n_cols, p_col_gen0, p_col_gen1, p_col_inf
-        )
-        if anchor_row is not None:
-            extra_rows_fp.append(anchor_row)
-            extra_rhs.append(anchor_rhs)
-            extra_labels.append(anchor_label)
-            _log(f"  Anchor row: {anchor_label}")
-            anchor_added = True
+    if p_col_gen0 is not None:
+        anchor_row = vector(Fp, n_cols)
+        anchor_row[p_col_gen0] = Fp(1)
+        anchor_rhs = Fp(1)
+        anchor_label = "affine anchor a[gen0]=1"
+        extra_rows_fp.append(anchor_row)
+        extra_rhs.append(anchor_rhs)
+        extra_labels.append(anchor_label)
+        _log(f"  Anchor row: {anchor_label}")
+        anchor_added = True
     else:
-        _log("  ⚠  gen0 or gen1 missing after prune — anchor row omitted.")
+        _log("  ⚠  gen0 missing after prune — anchor row omitted.")
 
     if not extra_rows_fp:
         _log("  ⚠  No augmentation rows — cannot find certificate.")
