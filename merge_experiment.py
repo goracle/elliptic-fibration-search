@@ -1143,7 +1143,6 @@ def _dlp_nullity_prune(
 
     return A_fixed, b_fixed, fixable
 
-
 def _dlp_solve(A, b, verbose: bool):
     """Solve A * x = b and return the full solution vector."""
     try:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, json, dataclasses, math, random, itertools, bounds, warnings, sys, inspect
+import argparse, json, dataclasses, math, random, itertools, bounds, warnings, sys, inspect, json as _json
 from dataclasses import dataclass, field
 from pathlib import Path
 from fractions import Fraction
@@ -28,8 +28,6 @@ from functools import partial
 from .cantor_cache import *
 from .mixing_diagnostics import *
 from .adjacency_matrix import *
-
-import json as _json
 
 def poly_roots_with_multiplicity(poly) -> List[Tuple[Any, int]]:
     """Return roots as (root, multiplicity) pairs over the polynomial's base field."""
@@ -1077,45 +1075,6 @@ class Genus2MetropolisWalker:
         # Raises on failure instead of silently returning 0.0
         return float(self.score_fn(candidate_x, context))
 
-    def _recover_xk(self, step: Dict[str, Any], xi, xj):
-        poly = self._intersection_poly_from_step(step)
-        assert poly, poly
-        if poly is None:
-            assert None, None
-            return None, -1
-
-        roots_wm = poly_roots_with_multiplicity(poly)
-        actual_xi_mult = 0
-        for r, m in roots_wm:
-            if r == xi:
-                actual_xi_mult = int(m)
-                break
-        assert actual_xi_mult > 0, (
-            f"_recover_xk: xi={xi} is not a root of intersection poly. roots={roots_wm}"
-        )
-
-        roots = flatten_roots(roots_wm)
-        leftovers = []
-        xi_count = 0
-        xj_count = 0
-        for r in roots:
-            if r == xi and xi_count < actual_xi_mult:
-                xi_count += 1
-                continue
-            if xj is not None and r == xj and xj_count < 1:
-                xj_count += 1
-                continue
-            leftovers.append(r)
-        if leftovers:
-            return leftovers[0], actual_xi_mult
-
-        if poly.degree() != self.config.curve_degree:
-            return None, actual_xi_mult
-        known = [xi] * actual_xi_mult
-        if xj is not None:
-            known.append(xj)
-        return missing_root_by_vieta(poly, known), actual_xi_mult
-
     def print_relation_summary(self, **kwargs):
         """Prints the shape, column mapping, and rank of the relation matrix."""
         mat, atoms, used = self.relation_matrix()
@@ -2153,7 +2112,6 @@ class Genus2MetropolisWalker:
         if sq * sq != rhs:
             raise ValueError(f"No rational y at x={x_val!r}")
         return sq
-
 
     def _recover_xk(self, step: Dict[str, Any], xi, xj):
         """Return (xk, actual_xi_mult) where actual_xi_mult is the true multiplicity
