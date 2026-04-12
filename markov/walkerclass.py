@@ -183,8 +183,8 @@ def build_project_tower_context_for_point(
 
     #base_points = list(base_points or _project_base_points_from_globals(xi, yi, p=p))
     base_points = [(xi, yi)]
-    assert xi, xi
-    assert yi, yi
+    assert xi is not None, xi
+    assert yi is not None, yi
     if yi is None:
         yfun = resolve_project_symbol('get_y_unshifted_genus2', default=None)
         if yfun is not None:
@@ -1971,9 +1971,14 @@ class Genus2MetropolisWalker:
                 return
             m_fp = xi_fp - t_fp
 
-            xk_val, inter = compute_xk_from_fiber(
-                xi_fp, m_fp, t_fp, fi, G_poly, deg
-            )
+            try:
+                xk_val, inter = compute_xk_from_fiber(
+                    xi_fp, m_fp, t_fp, fi, G_poly, deg
+                )
+            except AssertionError as e:
+                if "fiber pole" in str(e):
+                    return
+                raise
 
             if xk_val is None:
                 return
