@@ -1035,6 +1035,115 @@ def _dlp_rank_check(A, n_cols: int, rank_combined: int, n_rows_combined: int, ve
         )
     return rank_aug, kernel_dim
 
+def _dlp_nullity_prune(
+    A,
+    b,
+    pruned_atoms: list,
+    atom_index: dict,
+    n: int,
+    inf_col,
+    gen_col: int,
+    gen_partner_col,
+    target_col: int,
+    verbose: bool = True,
+) -> tuple:
+    """Pre-solve nullity check.  Returns (A_fixed, b_fixed, fixable).
+
+    Classifies each kernel direction of the current augmented system A:
+
+      - GAUGE (single entry at ∞): leave it, expected.
+      - ISOLATED (single entry, not ∞): pin a[atom] = 0 by appending a row.
+        Safe because isolated atoms have no relation rows constraining them.
+      - PARITY / CONSERVATION (all nonzero coefficients equal): cannot be
+        auto-fixed without knowing the conserved value.  Reports the conflict
+        and returns fixable=False.
+      - OTHER: also reported as unfixable.
+
+    After pinning all isolated atoms the augmented system is rebuilt and its
+    nullity re-checked.  If it reaches 0 the solve should succeed.
+    """
+    Fp = GF(n)
+    ker = A.right_kernel()
+    nullity = ker.dimension()
+
+    if verbose:
+        _log(f"[pre-solve nullity] A is {A.nrows()}×{A.ncols()}  nullity={nullity}")
+
+    if nullity == 0:
+        if verbose:
+            _log("[pre-solve nullity] ✓ fully determined — no pinning needed")
+        return A, b, True
+
+    extra_rows = []
+    extra_rhs  = []
+    fixable    = True
+
+    for vi, vec in enumerate(ker.basis()):
+        support = [(j, int(vec[j])) for j in range(len(vec)) if vec[j] != Fp(0)]
+
+        # Gauge — skip
+        if len(support) == 1 and inf_col is not None and support[0][0] == inf_col:
+            if verbose:
+                _log(f"[pre-solve nullity]   kernel[{vi}]: gauge (∞) — skipping")
+            continue
+
+        # Isolated atom — pin to 0
+        if len(support) == 1:
+            j, _ = support[0]
+            atom = pruned_atoms[j]
+            pin_row = vector(Fp, A.ncols())
+            pin_row[j] = Fp(1)
+            extra_rows.append(pin_row)
+            extra_rhs.append(Fp(0))
+            if verbose:
+                _log(f"[pre-solve nullity]   kernel[{vi}]: isolated atom={atom} — pinning a[{atom}]=0")
+            continue
+
+        # Parity or other — unfixable
+        fixable = False
+        coeffs = sorted(set(int(c) for _, c in support))
+        is_flat = len(coeffs) == 1
+        kind = "PARITY" if is_flat else "OTHER"
+        if verbose:
+            c0 = coeffs[0] if is_flat else None
+            _log(
+                f"[pre-solve nullity]   kernel[{vi}]: {kind}  support_size={len(support)}"
+                + (f"  all_coeffs={c0}" if is_flat else f"  distinct_coeffs={coeffs}")
+            )
+            if is_flat:
+                inv5 = pow(5, -1, n) if n > 5 else None
+                _log(
+                    f"[pre-solve nullity]     Conservation law: {c0}·Σa[x]=0 over {len(support)} atoms."
+                    f"\n[pre-solve nullity]     Anchor likely needs RHS=inv(5) mod {n} = {inv5}"
+                    f" instead of 1."
+                )
+
+    if not extra_rows:
+        if verbose:
+            _log("[pre-solve nullity] no isolated atoms found — nothing pinned")
+        return A, b, fixable
+
+    A_extra = matrix(Fp, extra_rows)
+    b_extra = vector(Fp, extra_rhs)
+    A_fixed = A.stack(A_extra)
+    b_fixed = vector(Fp, b.list() + extra_rhs)
+
+    new_nullity = A_fixed.right_kernel().dimension()
+    if verbose:
+        _log(
+            f"[pre-solve nullity] pinned {len(extra_rows)} isolated atom(s) — "
+            f"nullity {nullity} → {new_nullity}"
+        )
+        if new_nullity == 0:
+            _log("[pre-solve nullity] ✓ fully determined after pinning")
+        elif fixable:
+            # This would be surprising — isolated pinning didn't finish the job
+            fixable = False
+            _log(f"[pre-solve nullity] ✗ still underdetermined (nullity={new_nullity}) after pinning")
+
+    return A_fixed, b_fixed, fixable
+
+
 def _dlp_solve(A, b, verbose: bool):
     """Solve A * x = b and return the full solution vector."""
     try:
@@ -1190,6 +1299,26 @@ def dlp_from_merged_walks(
         generator_x, generator_x_partner, verbose,
         atom_index=atom_index,   # NEW
     )
+
+    # 6b. Pre-solve nullity check: compute kernel of A, pin isolated atoms to 0,
+    #     report parity/conservation directions that can't be auto-fixed.
+    inf_col_val = atom_index.get(_INFINITY_SENTINEL) or atom_index.get(str(_INFINITY_SENTINEL))
+    A, b, _fixable = _dlp_nullity_prune(
+        A, b,
+        pruned_atoms=all_atoms_ordered,
+        atom_index=atom_index,
+        n=n,
+        inf_col=inf_col_val,
+        gen_col=gen_col,
+        gen_partner_col=gen_partner_col,
+        target_col=target_col,
+        verbose=verbose,
+    )
+    if not _fixable and verbose:
+        _log(
+            "[dlp_list] system has non-trivial free direction(s) that cannot be auto-pinned.\n"
+            "[dlp_list] proceeding to solve anyway — expect failure or underdetermined result."
+        )
 
     # 7. Solve, then decode target-root logs from the solution vector
     try:
@@ -1399,25 +1528,33 @@ def _dlp_build_affine_system(
     elif verbose:
         _log("[dlp_list] gauge fix   : ∞ column not found, skipping a[∞] = 0")
 
-    # Anchor row.
-    anchor_row = vector(Fp, n_cols)
-    anchor_row[gen_col] = Fp(1)
-    if gen_partner_col is not None:
-        anchor_row[gen_partner_col] = Fp(1)
+    # Anchor rows: pin a[gen0]=0 and a[gen1]=1 to break translation symmetry.
+    # Two separate single-atom rows are required — a sum row a[gen0]+a[gen1]=1
+    # does not break the all-ones kernel direction because translation by c
+    # shifts both sides equally.
+    if gen_partner_col is None:
+        raise RuntimeError(
+            "_dlp_build_affine_system: gen_partner_col is None — "
+            "cannot pin two generator atoms to break translation symmetry. "
+            "Ensure both BASE_DIVISOR roots are present in the leaf set."
+        )
 
-    rows.append(anchor_row)
+    row0 = vector(Fp, n_cols)
+    row0[gen_col] = Fp(1)
+    rows.append(row0)
+    rhs.append(Fp(0))
+
+    row1 = vector(Fp, n_cols)
+    row1[gen_partner_col] = Fp(1)
+    rows.append(row1)
     rhs.append(Fp(1))
 
     A = matrix(Fp, rows)
     b = vector(Fp, rhs)
 
     if verbose:
-        anchor_desc = (
-            f"a[{generator_x}] + a[{generator_x_partner}] = 1"
-            if gen_partner_col is not None
-            else f"a[{generator_x}] = 1"
-        )
-        _log(f"[dlp_list] anchor row   : {anchor_desc}")
+        _log(f"[dlp_list] anchor row 0 : a[{generator_x}] = 0")
+        _log(f"[dlp_list] anchor row 1 : a[{generator_x_partner}] = 1")
         _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
 
     return M_fp, A, b

@@ -298,6 +298,46 @@ def check_divisor_injection(walkers, divisor_xs: Sequence):
                 "        By itself it does not prove anything about correctness."
             )
 
+def _classify_kernel_vec(vec, atoms, n_cols, inf_str, div_strs, gen_strs, tgt_strs):
+    """Classify a single kernel basis vector.
+
+    Returns a dict with keys:
+      kind         : 'gauge' | 'isolated' | 'parity' | 'other'
+      support      : list of (atom, coeff) for nonzero entries
+      touches_gen  : bool
+      touches_tgt  : bool
+      is_flat      : bool (all nonzero coefficients equal)
+      flat_coeff   : the common coefficient value if is_flat, else None
+    """
+    support = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
+    atom_strs = [str(a) for a, _ in support]
+    coeffs = [c for _, c in support]
+
+    touches_inf = any(s == inf_str for s in atom_strs)
+    touches_gen = any(s in gen_strs for s in atom_strs)
+    touches_tgt = any(s in tgt_strs for s in atom_strs)
+
+    is_flat = len(set(coeffs)) == 1
+    flat_coeff = coeffs[0] if (is_flat and coeffs) else None
+
+    if len(support) == 1 and touches_inf:
+        kind = 'gauge'
+    elif len(support) == 1:
+        kind = 'isolated'
+    elif is_flat:
+        kind = 'parity'
+    else:
+        kind = 'other'
+
+    return {
+        'kind': kind,
+        'support': support,
+        'touches_gen': touches_gen,
+        'touches_tgt': touches_tgt,
+        'is_flat': is_flat,
+        'flat_coeff': flat_coeff,
+    }
+
 def check_kernel(walkers, group_order: int, divisor_xs=()):
     _section("KERNEL DECOMPOSITION")
 
@@ -314,20 +354,72 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
     _log("  (nullity=1 is the ideal case if the only free direction is the gauge.)")
 
     div_strs = {str(x) for x in divisor_xs}
+    # First two divisor_xs are gen, last two are tgt (matches seed convention).
+    div_list = [str(x) for x in divisor_xs]
+    gen_strs = set(div_list[:2]) if len(div_list) >= 2 else set()
+    tgt_strs = set(div_list[2:]) if len(div_list) >= 4 else set()
+
+    kind_counts = Counter()
 
     for i, vec in enumerate(ker.basis()):
-        nz = [(atoms[j], int(vec[j])) for j in range(n_cols) if vec[j] != 0]
+        info = _classify_kernel_vec(vec, atoms, n_cols, _INFINITY, div_strs, gen_strs, tgt_strs)
+        kind = info['kind']
+        kind_counts[kind] += 1
+        support = info['support']
+
         tags = []
-        if any(str(a) == _INFINITY for a, _ in nz):
+        if any(str(a) == _INFINITY for a, _ in support):
             tags.append("∞-gauge")
-        if any(str(a) in div_strs for a, _ in nz):
+        if any(str(a) in div_strs for a, _ in support):
             tags.append("DIVISOR-ATOM")
-        tag_str = f"  [{', '.join(tags)}]" if tags else ""
+        tags.append(kind.upper())
+        tag_str = f"  [{', '.join(tags)}]"
 
         _log(f"\n  kernel[{i}]:{tag_str}")
-        for atom, coeff in nz:
+
+        if kind == 'gauge':
+            _log(f"    atom=∞  coeff={support[0][1]}  (expected gauge direction)")
+
+        elif kind == 'isolated':
+            atom, coeff = support[0]
             marker = " ← divisor" if str(atom) in div_strs else ""
             _log(f"    atom={atom}  coeff={coeff}{marker}")
+            _log(f"    → Isolated atom: no relation pins this column.")
+            _log(f"    → Fix: ensure at least one accepted step has xi={atom} (coeff 3).")
+
+        elif kind == 'parity':
+            c0 = info['flat_coeff']
+            _log(f"    All {len(support)} nonzero coefficients = {c0}  (conservation law)")
+            _log(f"    → Enforces: {c0} · Σ a[x] ≡ 0 (mod {group_order}) "
+                 f"over this direction's support.")
+            _log(f"    → Touches generator atoms: {info['touches_gen']}")
+            _log(f"    → Touches target atoms:    {info['touches_tgt']}")
+            if info['touches_gen'] and info['touches_tgt']:
+                _log(f"    ✗ CRITICAL: anchor a[gen0]+a[gen1]=1 contradicts this law.")
+                _log(f"      Each step contributes 3·a[xi]+a[xj]+a[xk]=0 (coeff-sum=5).")
+                _log(f"      The conservation forces anchor RHS → 0, not 1.")
+                _log(f"      Fix: change anchor RHS from 1 to the inverse of the")
+                _log(f"      conserved coefficient (e.g. try RHS = inverse(5) mod {group_order}"
+                     f" = {pow(5, -1, group_order) if group_order > 5 else '?'}).")
+            # Print atom list (truncated — can be huge)
+            for atom, coeff in support[:30]:
+                marker = " ← divisor" if str(atom) in div_strs else ""
+                _log(f"    atom={atom}  coeff={coeff}{marker}")
+            if len(support) > 30:
+                _log(f"    atom=[...]")
+            for atom, coeff in support[-4:] if len(support) > 30 else []:
+                marker = " ← divisor" if str(atom) in div_strs else ""
+                _log(f"    atom={atom}  coeff={coeff}{marker}")
+
+        else:  # 'other'
+            coeff_vals = sorted(set(c for _, c in support))
+            _log(f"    support_size={len(support)}  distinct_coeffs={coeff_vals}")
+            for atom, coeff in support:
+                marker = " ← divisor" if str(atom) in div_strs else ""
+                _log(f"    atom={atom}  coeff={coeff}{marker}")
+
+    _log(f"\n  Direction summary: "
+         + "  ".join(f"{k}={v}" for k, v in sorted(kind_counts.items())))
 
     if null == 1:
         _log("\n  ✓  Nullity=1.")
