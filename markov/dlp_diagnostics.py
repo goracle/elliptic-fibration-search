@@ -1,13 +1,12 @@
 from __future__ import annotations
-import math, json, numpy as np
+import math, json, numpy as np, h5py
 from typing import Any, List, Optional, Sequence
 from collections import Counter
 from sage.all import GF, ZZ, Matrix, vector, matrix, Integer
 from .relation_matrix import *
 from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
-
 from scipy.sparse import csr_matrix as _csr
-import h5py
+
 _HAS_H5PY = True
 
 """dlp_diagnostics.py

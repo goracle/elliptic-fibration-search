@@ -1,3 +1,11 @@
+from __future__ import annotations
+import argparse, json, sys
+from pathlib import Path
+from typing import List, Optional
+from markov.walkerclass import RelationRecord, WalkConfig
+from markov.relation_matrix import build_relation_matrix2
+from markov.dlp_diagnostics import dump_matrix_hdf5
+
 """dump_matrix_from_jsonl.py
 
 Reconstruct the four relation matrices from the JSONL walk logs and dump
@@ -24,11 +32,6 @@ The relation matrix rank saturates at n_cols (a few thousand), so 20k rows
 per walker is more than enough.  Default is 25000.
 """
 
-from __future__ import annotations
-import argparse, json, sys
-from pathlib import Path
-from typing import List, Optional
-
 try:
     from sage.all import GF, ZZ, Integer
 except ImportError:
@@ -42,11 +45,6 @@ except ImportError:
     FINITE_FIELD = None
     GROUP_MODULUS = None
     PREFERRED_X_COORDS = None
-
-from markov.walkerclass import RelationRecord, WalkConfig
-from markov.relation_matrix import build_relation_matrix2
-from markov.dlp_diagnostics import dump_matrix_hdf5
-
 
 # ---------------------------------------------------------------------------
 # Minimal stub walker
@@ -66,7 +64,6 @@ class _StubWalker:
             curve_degree=self.config.curve_degree,
             include_step_leaves=include_step_leaves,
         )
-
 
 # ---------------------------------------------------------------------------
 # JSONL loader
@@ -181,7 +178,6 @@ def load_jsonl_history(
     )
     return records
 
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -264,7 +260,6 @@ def main(argv=None):
         f" --group-order {group_order or '???'} --known-key <SECRET_KEY>",
         flush=True,
     )
-
 
 if __name__ == "__main__":
     main()
