@@ -1,17 +1,16 @@
 from __future__ import annotations
-import math
-import json
-import numpy as np
+import math, json, numpy as np
 from typing import Any, List, Optional, Sequence
 from collections import Counter
 from sage.all import GF, ZZ, Matrix, vector, matrix, Integer
+from .relation_matrix import *
+from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
+
 try:
     import h5py
     _HAS_H5PY = True
 except ImportError:
     _HAS_H5PY = False
-from .relation_matrix import *
-from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
 
 """dlp_diagnostics.py
 
@@ -92,14 +91,6 @@ def check_involution_symmetry(walkers):
         "  at xk is independently chosen — there is no forced sign relationship between them.\n"
         "  The matrix coefficient for xk should always be +1 (|yk_sign|=1, not the branch sign)."
     )
-
-def _col(aidx: dict, key):
-    """Stable column lookup that does not break when the index is 0."""
-    if key is None:
-        return None
-    if key in aidx:
-        return aidx[key]
-    return aidx.get(str(key))
 
 _SEP = "=" * 70
 _INFINITY = "∞"
@@ -670,7 +661,6 @@ def dump_matrix_hdf5(
     _log(f"[dump_matrix_hdf5] written -> {path}")
     return path
 
-
 def run_all_checks(
     walkers,
     divisor_xs,
@@ -776,259 +766,6 @@ def run_all_checks(
     _log(f"{'#' * 70}\n")
 
     return results
-
-def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
-    """
-    Build the combined pruned ZZ relation matrix from all walkers.
-
-    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
-
-    Parameters
-    ----------
-    walkers
-        Iterable of walker objects.
-    include_step_leaves
-        Forwarded into each walker's relation_matrix().
-    protected
-        Optional collection of atom labels that must survive pruning,
-        even if they become dest-only.
-    """
-    mats, atom_lists = [], []
-    for w in walkers:
-        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
-        if mat.nrows() > 0:
-            mats.append(mat)
-            atom_lists.append(list(atoms))
-
-    assert mats, "All walkers have empty relation matrices — nothing to work with."
-
-    # Union column spaces, preserving the first-seen order.
-    all_atoms = list(atom_lists[0])
-    atom_set = set(map(str, all_atoms))
-    for atms in atom_lists[1:]:
-        for a in atms:
-            sa = str(a)
-            if sa not in atom_set:
-                all_atoms.append(a)
-                atom_set.add(sa)
-
-    n_cols = len(all_atoms)
-    aidx = {str(a): i for i, a in enumerate(all_atoms)}
-
-    rows = []
-    for mat, atms in zip(mats, atom_lists):
-        cols_src = [aidx[str(a)] for a in atms]
-        for r in range(mat.nrows()):
-            row = [0] * n_cols
-            for c_src, c_dst in enumerate(cols_src):
-                row[c_dst] += int(mat[r, c_src])
-            rows.append(row)
-
-    M_raw = Matrix(ZZ, rows)
-
-    M_pruned, pruned_atoms, removed = prune_dest_only(
-        M_raw,
-        all_atoms,
-        protected=protected,
-    )
-    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
-
-    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
-    _log(
-        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
-        f"  ({len(removed)} dest-only atoms removed)"
-    )
-
-    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
-
-def check_known_key(
-    walkers,
-    divisor_xs,
-    group_order: int,
-    known_key: int,
-):
-    """
-    Check whether the supplied known key is consistent with the pruned relation
-    matrix using the balanced anchor a[gen0] - a[gen1] = k.
-
-    The balanced anchor respects the conservation law (coeff-sum = 1-1 = 0).
-    Single-atom pinning (a[gen0]=1 etc.) violates the conservation and will
-    always produce an inconsistent system regardless of the key.
-
-    We test four hypotheses corresponding to sign conventions on the generator
-    and target atoms, using k = ±1 for the anchor and key = ±known_key for
-    the target log sum.
-
-    Returns a dict with keys:
-        ok         : True / False / None
-        nullity    : kernel dimension of the homogeneous system
-        violations : list of contradicted rows (for hard-contradiction cases)
-        best_label : hypothesis label with fewest violations
-    """
-    _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
-
-    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
-
-    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
-        walkers, protected=divisor_xs,
-    )
-    n_rows = M_ZZ.nrows()
-    n_cols = M_ZZ.ncols()
-
-    F = GF(Integer(group_order))
-    M  = M_ZZ.change_ring(F)
-
-    nullity = n_cols - M.rank()
-
-    def col_of(x):
-        return aidx.get(str(int(x)))
-
-    inf_col      = aidx.get(_INFINITY)
-    gen_col      = col_of(x0_a)
-    gen_p_col    = col_of(x0_b)
-    tgt_col      = col_of(x0_c)
-    tgt_p_col    = col_of(x0_d)
-
-    missing = []
-    if inf_col  is None: missing.append("∞")
-    if gen_col  is None: missing.append(f"gen_x0={x0_a}")
-    if gen_p_col is None: missing.append(f"gen_x1={x0_b}")
-    if tgt_col  is None: missing.append(f"tgt_x0={x0_c}")
-
-    if missing:
-        _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
-        return {"ok": False, "reason": "missing_columns", "missing": missing}
-
-    # Balanced hypotheses: anchor is a[gen0] - a[gen1] = anchor_k (coeff-sum=0).
-    # Target log is a[tgt0] + a[tgt1] = tgt_k (we test ±known_key).
-    # We fix {∞=0, gen0-gen1=anchor_k} and substitute into every fully-pinned row.
-    # Rows with free variables are skipped (inconclusive when underdetermined).
-    hypotheses = [
-        ("anchor=+1, key=+k",  F(1),  F(known_key)),
-        ("anchor=+1, key=-k",  F(1),  F(-known_key)),
-        ("anchor=-1, key=+k",  F(-1), F(known_key)),
-        ("anchor=-1, key=-k",  F(-1), F(-known_key)),
-    ]
-
-    scored = []
-
-    for label, anchor_k, tgt_k in hypotheses:
-        # Build a partial assignment for the fully-determined atoms.
-        # a[gen0] - a[gen1] = anchor_k  means we can parameterise as
-        # a[gen1] = t, a[gen0] = t + anchor_k for free t.
-        # Only rows whose support is contained in {inf, gen0, gen1, tgt0, tgt1}
-        # can be directly evaluated; everything else has additional free columns.
-        pinned = {}
-        if inf_col  is not None: pinned[inf_col]   = F(0)
-        # We don't assign absolute values to gen0/gen1 — only their difference
-        # is fixed.  So rows that contain *only* gen0 or *only* gen1 (but not
-        # both) still have a free variable and are skipped.
-        # Rows that contain both gen0 and gen1 can be evaluated via the difference.
-        if tgt_col  is not None: pinned[tgt_col]   = tgt_k          # a[tgt0]
-        if tgt_p_col is not None: pinned[tgt_p_col] = F(0)           # a[tgt1]=0, sum=tgt_k
-
-        fixed_cols = set(pinned.keys()) | ({gen_col, gen_p_col} if gen_col is not None and gen_p_col is not None else set())
-
-        violations = []
-        for i in range(n_rows):
-            nz = [j for j in range(n_cols) if M[i, j] != 0]
-            if not nz:
-                continue
-            if not all(j in fixed_cols for j in nz):
-                continue  # free variables — inconclusive
-
-            # Evaluate row using pinned values; for gen columns use difference.
-            has_gen0 = gen_col   in nz
-            has_gen1 = gen_p_col in nz
-            if (has_gen0 or has_gen1) and not (has_gen0 and has_gen1):
-                continue  # only one gen column — free variable via t
-
-            resid = F(0)
-            for j in nz:
-                if j == gen_col:
-                    # a[gen0] = t + anchor_k; coefficient is M[i,gen_col]
-                    # t terms cancel when both gen0 and gen1 appear (checked above)
-                    resid += M[i, j] * anchor_k
-                elif j == gen_p_col:
-                    # a[gen1] = t; coefficient is M[i,gen_p_col]
-                    # t term cancels with gen0's t term
-                    pass
-                else:
-                    resid += M[i, j] * pinned[j]
-
-            if resid != F(0):
-                violations.append(
-                    (i, int(resid), [(atoms[j], int(M[i, j])) for j in nz])
-                )
-
-        scored.append({
-            "label": label,
-            "violations": violations,
-            "n_violations": len(violations),
-        })
-
-    scored.sort(key=lambda d: d["n_violations"])
-    best = scored[0]
-
-    _log(f"  Nullity of homogeneous system: {nullity}")
-    _log(f"  (nullity=1 means fully determined up to gauge; "
-         f"nullity>1 means underdetermined — only direct contradictions are conclusive)\n")
-    _log(f"  Anchor convention: a[gen0] - a[gen1] = k  (balanced, coeff-sum=0)")
-    _log(f"  Target convention: a[tgt0] + a[tgt1] = known_key (or negated)\n")
-
-    _log("  Hypothesis scan (direct contradictions only):")
-    for item in scored:
-        status = "OK" if item["n_violations"] == 0 else f"{item['n_violations']} violation(s)"
-        _log(f"    {item['label']:<22s} -> {status}")
-
-    if nullity == 1:
-        if best["n_violations"] == 0:
-            # Full rank test: substitute anchor and solve for free columns.
-            anchor_row = vector(F, n_cols)
-            anchor_row[gen_col]   = F(1)
-            anchor_row[gen_p_col] = F(-1)
-            inf_row = vector(F, n_cols)
-            inf_row[inf_col] = F(1)
-
-            rows_aug = [M.row(i) for i in range(n_rows)]
-            rows_aug.append(inf_row)
-            rows_aug.append(anchor_row)
-            rhs_aug  = [F(0)] * (n_rows + 1) + [F(1)]
-
-            A_aug = matrix(F, rows_aug)
-            b_aug = vector(F, rhs_aug)
-            rank_A   = A_aug.rank()
-            rank_aug = A_aug.augment(b_aug.column()).rank()
-
-            if rank_A == rank_aug:
-                _log(f"\n  ✓  key={known_key} is CONSISTENT (nullity=1, full system consistent).")
-                return {"ok": True, "label": best["label"], "nullity": nullity, "violations": []}
-            else:
-                _log(f"\n  ✗  key={known_key} is INCONSISTENT (nullity=1, rank test fails). "
-                     f"rank(A)={rank_A}  rank([A|b])={rank_aug}")
-                return {"ok": False, "label": best["label"], "nullity": nullity,
-                        "violations": [], "rank_A": rank_A, "rank_aug": rank_aug}
-        else:
-            _log(f"\n  ✗  key={known_key} INCONSISTENT — {best['n_violations']} contradicted row(s):")
-            for row_i, resid, nz_cols in best["violations"][:10]:
-                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
-            return {"ok": False, "label": best["label"], "nullity": nullity,
-                    "violations": best["violations"][:10]}
-    else:
-        if best["n_violations"] == 0:
-            _log(f"\n  ?  key={known_key} is UNVERIFIABLE — system is underdetermined "
-                 f"(nullity={nullity}, need nullity=1).\n"
-                 f"     No direct contradiction found under any sign convention.\n"
-                 f"     Need {nullity - 1} more independent relation rows before "
-                 f"this check is conclusive.")
-            return {"ok": None, "reason": "underdetermined", "nullity": nullity, "violations": []}
-        else:
-            _log(f"\n  ✗  key={known_key} has HARD CONTRADICTION (nullity={nullity}) — "
-                 f"{best['n_violations']} row(s) with support in fixed columns fail:")
-            for row_i, resid, nz_cols in best["violations"][:10]:
-                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
-            return {"ok": False, "label": best["label"], "nullity": nullity,
-                    "violations": best["violations"][:10]}
 
 def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
     """

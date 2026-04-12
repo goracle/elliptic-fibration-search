@@ -1386,9 +1386,12 @@ class Genus2MetropolisWalker:
             except Exception:
                 raise
 
-            if next_y is not None:
+            if next_y is not None and next_y != self.base_ring(0):
                 self.current_x, self.current_y = next_x, next_y
                 self.visited_x.add(next_x)
+            elif next_y == self.base_ring(0):
+                # Weierstrass point (y=0): degenerate fiber, reject move.
+                accepted = False
             else:
                 self.current_x = next_x
 

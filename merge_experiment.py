@@ -1143,7 +1143,6 @@ def _dlp_nullity_prune(
 
     return A_fixed, b_fixed, fixable
 
-
 def _dlp_search_free_parameter(
     A, b, all_atoms_ordered, atom_index, n, target_col, target_partner_col, verbose
 ):
@@ -1286,7 +1285,6 @@ def _dlp_search_free_parameter(
     if verbose:
         _log("[free_param] BSGS exhausted — no solution found")
     return None, None, "bsgs_exhausted"
-
 
 def _dlp_solve(A, b, verbose: bool):
     """Solve A * x = b and return the full solution vector."""
