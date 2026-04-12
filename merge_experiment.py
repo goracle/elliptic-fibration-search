@@ -177,7 +177,8 @@ def _build_walker(
         search_fn=search_fn,
         log_path=log_path,
         log_full_candidates=True,
-        preferred_xs=PREFERRED_X_COORDS
+        # preferred_xs intentionally omitted: no leaf injection of divisor seeds.
+        # The system must evolve organically without steering toward known atoms.
     )
 
 # ---------------------------------------------------------------------------
@@ -420,13 +421,11 @@ def main(argv=None):
             base_points=_bp(x0), verbose=False, log_path=log_path,
             search_fn=search_fn,
         )
-        # Inject nullity-derived atoms with a finite budget so they are visited
-        # at most twice as xj targets and then discarded.  Divisor seeds stay in
-        # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
-        existing_preferred_strs = {str(x) for x in w.preferred_xs}
-        for x in _nullity_xs:
-            if str(x) not in existing_preferred_strs:
-                w.preferred_xs_budget[x] = 2
+        # Nullity-derived injection disabled: walk evolves organically.
+        # (preferred_xs_budget intentionally left empty)
+        # for x in _nullity_xs:
+        #     if str(x) not in {str(x) for x in w.preferred_xs}:
+        #         w.preferred_xs_budget[x] = 2
 
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")

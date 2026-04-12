@@ -260,26 +260,96 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     # ------------------------------------------------------------------
     # C) Fusion audit (all +1/-1 kernel pairs before pinning)
     # ------------------------------------------------------------------
-    _log("\n  --- C) Fusion audit (all atom-equality constraints in walk) ---")
+    # ------------------------------------------------------------------
+    # C) Direct fusion audit
+    #    Fusion = proportional columns over GF(p).
+    #    This is the cleanest test: if col_i = λ col_j, then the walk
+    #    relations cannot distinguish those atoms.
+    # ------------------------------------------------------------------
+    _log("\n  --- C) Direct fusion audit (proportional columns) ---")
+
+    special_by_col = {
+        c: name for name, c in [
+            ("inf", p_col_inf),
+            ("gen0", p_col_gen0),
+            ("gen1", p_col_gen1),
+            ("tgt0", p_col_tgt0),
+            ("tgt1", p_col_tgt1),
+        ] if c is not None
+    }
+
+    # Map: normalized column signature -> list of columns with that signature.
+    # Two columns are in the same bucket iff they are proportional over GF(p).
+    col_groups: dict = {}
+    zero_cols = []
+
+    for j in range(n_cols):
+        sig = []
+        lead_inv = None
+
+        for i in range(n_rows):
+            v = A[i, j]
+            if v != Fp(0):
+                if lead_inv is None:
+                    lead_inv = v ** (-1)
+                sig.append((i, int(v * lead_inv)))
+
+        if lead_inv is None:
+            zero_cols.append(j)
+            continue
+
+        sig_t = tuple(sig)
+        col_groups.setdefault(sig_t, []).append(j)
+
+    fusion_groups = [cols for cols in col_groups.values() if len(cols) > 1]
+
+    if zero_cols:
+        _log(f"  {len(zero_cols)} zero column(s) found -- completely absent from walk rows.")
+        if len(zero_cols) <= 20:
+            _log("    " + ", ".join(f"{pruned_atoms[j]}(col={j})" for j in zero_cols))
+        else:
+            preview = ", ".join(f"{pruned_atoms[j]}(col={j})" for j in zero_cols[:20])
+            _log(f"    {preview}")
+            _log("    ...")
+
+    if fusion_groups:
+        _log(f"  {len(fusion_groups)} fusion class(es) found (proportional columns):")
+        for cols in fusion_groups[:20]:
+            labels = []
+            special_hits = []
+            for j in cols:
+                atom = str(pruned_atoms[j])
+                if j in special_by_col:
+                    special_hits.append(special_by_col[j])
+                    labels.append(f"{atom}({special_by_col[j]})")
+                else:
+                    labels.append(atom)
+            flag = ""
+            if special_hits:
+                flag = f"  *** SPECIAL ATOMS: {sorted(set(special_hits))}"
+            _log(f"    {labels}{flag}")
+        if len(fusion_groups) > 20:
+            _log(f"    ... and {len(fusion_groups) - 20} more fusion class(es)")
+    else:
+        _log("  No proportional column classes found -- no direct fusion detected.")
+
+    # Keep the old kernel-basis fusion scan as a sanity check.
+    _log("\n  --- C2) Kernel-basis fusion sanity check ---")
     ker_full = A.right_kernel()
-    fusions = []
+    kernel_fusions = []
     for vec in ker_full.basis():
         support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
         if len(support) == 2:
             (j0, c0), (j1, c1) = support
             if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
-                fusions.append((pruned_atoms[j0], pruned_atoms[j1]))
+                kernel_fusions.append((pruned_atoms[j0], pruned_atoms[j1]))
 
-    if fusions:
-        _log(f"  {len(fusions)} fusion pair(s) found (walk forces these atoms to equal logs):")
-        for a0, a1 in fusions:
-            is_special = any(str(a) in (str(a0), str(a1))
-                             for a in protected + ([atoms[col_inf]] if col_inf is not None else []))
-            flag = "  *** SPECIAL ATOM INVOLVED" if is_special else ""
-            _log(f"    a[{a0}] = a[{a1}]{flag}")
+    if kernel_fusions:
+        _log(f"  {len(kernel_fusions)} support-2 kernel fusion(s):")
+        for a0, a1 in kernel_fusions:
+            _log(f"    a[{a0}] = a[{a1}]")
     else:
-        _log("  No fusion pairs -- no atom-equality constraints in walk data.")
-
+        _log("  No support-2 kernel fusions.")
     # ------------------------------------------------------------------
     # D) Which rows overdetermine gen0 / gen1
     #    The row space contains e_gen0 (k=1 above).  Find the actual rows

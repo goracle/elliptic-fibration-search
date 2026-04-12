@@ -1,6 +1,7 @@
 *.~*
 *.h5
 *.sage.py
+err.txt
 \#*
 *.pyc
 *.sage.py
