@@ -939,9 +939,12 @@ def enrich_candidates(
         if rec.get('xk') is None:
             m_val = rec.get('m')
             if m_val is not None and xj is not None:
-                xk_val, inter = compute_xk_from_fiber(
-                    x_here, m_val, xj, fi, G_poly, curve_degree
-                )
+                try:
+                    xk_val, inter = compute_xk_from_fiber(
+                        x_here, m_val, xj, fi, G_poly, curve_degree
+                    )
+                except ZeroDivisionError:
+                    continue
                 rec['xk'] = xk_val
                 rec['intersection_poly'] = inter
                 # Store actual xi multiplicity so relation_matrix uses the right coefficient.

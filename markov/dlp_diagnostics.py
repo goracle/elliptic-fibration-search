@@ -1,8 +1,15 @@
 from __future__ import annotations
 import math
+import json
+import numpy as np
 from typing import Any, List, Optional, Sequence
 from collections import Counter
 from sage.all import GF, ZZ, Matrix, vector, matrix, Integer
+try:
+    import h5py
+    _HAS_H5PY = True
+except ImportError:
+    _HAS_H5PY = False
 from .relation_matrix import *
 from search_common import get_y_unshifted_genus2, COEFFS_GENUS2
 
@@ -341,7 +348,9 @@ def _classify_kernel_vec(vec, atoms, n_cols, inf_str, div_strs, gen_strs, tgt_st
 def check_kernel(walkers, group_order: int, divisor_xs=()):
     _section("KERNEL DECOMPOSITION")
 
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
+    M, atoms, aidx, _, _ = _build_combined_matrix(
+        walkers, protected=divisor_xs if divisor_xs else None
+    )
     n_cols = len(atoms)
     Fp = GF(group_order)
     M_fp = M.change_ring(Fp)
@@ -444,7 +453,7 @@ def check_zero_compatibility(
     _section("ZERO COMPATIBILITY OF BASE/TARGET ATOMS")
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers)
+    M, atoms, aidx, _, _ = _build_combined_matrix(walkers, protected=divisor_xs)
     Fp = GF(group_order)
     M_fp = M.change_ring(Fp)
 
@@ -531,6 +540,137 @@ def check_zero_compatibility(
         preview = f"  (step indices: {tgt_xi_steps[:10]}{'...' if len(tgt_xi_steps) > 10 else ''})" if tgt_xi_steps else ""
         _log(f"    {label}: {len(tgt_xi_steps)} accepted steps with xi in target atoms{preview}")
 
+def dump_matrix_hdf5(
+    walkers,
+    divisor_xs,
+    group_order: int,
+    path: str = "relation_matrix.h5",
+):
+    """Dump the pruned relation matrix and metadata to an HDF5 file.
+
+    Layout
+    ------
+    /matrix          : int32 sparse CSR data (see below)
+    /matrix_dense    : int32 dense matrix (rows × cols), stored if small enough
+    /atoms           : variable-length UTF-8 strings, one per column
+    /atom_index      : JSON string mapping atom_str -> col_index
+    /divisor_xs      : int64 array of the four divisor x-coordinates
+    /group_order     : scalar int64
+    /col_inf         : scalar int64 (column index of ∞, or -1)
+    /col_gen0        : scalar int64
+    /col_gen1        : scalar int64
+    /col_tgt0        : scalar int64
+    /col_tgt1        : scalar int64
+
+    Sparse CSR datasets (always written):
+    /csr/data        : int32 nonzero values
+    /csr/indices     : int32 column indices
+    /csr/indptr      : int32 row pointers (len = nrows+1)
+    /csr/shape       : int64 [nrows, ncols]
+
+    The dense matrix is also written unless it exceeds 500 MB
+    (rows * cols * 4 bytes).  At that point only CSR is stored.
+
+    Usage after loading
+    -------------------
+        import h5py, numpy as np, json
+        with h5py.File("relation_matrix.h5") as f:
+            atoms    = [a.decode() for a in f["atoms"]]
+            aidx     = json.loads(f["atom_index"][()].decode())
+            data     = f["csr/data"][:]
+            indices  = f["csr/indices"][:]
+            indptr   = f["csr/indptr"][:]
+            shape    = tuple(f["csr/shape"][:])
+            # reconstruct scipy sparse:
+            from scipy.sparse import csr_matrix
+            M = csr_matrix((data, indices, indptr), shape=shape)
+            # or dense numpy:
+            M_dense  = f["matrix_dense"][:]   # if present
+    """
+    if not _HAS_H5PY:
+        raise RuntimeError(
+            "dump_matrix_hdf5: h5py is not installed.  "
+            "Install with: pip install h5py"
+        )
+
+    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
+
+    M_ZZ, atoms, aidx, M_raw, _ = _build_combined_matrix(
+        walkers, protected=divisor_xs,
+    )
+
+    nrows = M_ZZ.nrows()
+    ncols = M_ZZ.ncols()
+
+    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols}  path={path}")
+
+    # Build numpy dense array first (needed for both dense and CSR paths).
+    # Use int32 — coefficients are small (−5 … +3).
+    M_np = np.array(M_ZZ, dtype=np.int32)
+
+    # CSR via scipy if available, otherwise manual.
+    try:
+        from scipy.sparse import csr_matrix as _csr
+        sp = _csr(M_np)
+        csr_data    = sp.data.astype(np.int32)
+        csr_indices = sp.indices.astype(np.int32)
+        csr_indptr  = sp.indptr.astype(np.int32)
+    except ImportError:
+        # Manual CSR construction.
+        data_list, idx_list, ptr_list = [], [], [0]
+        for r in range(nrows):
+            for c in range(ncols):
+                v = int(M_np[r, c])
+                if v != 0:
+                    data_list.append(v)
+                    idx_list.append(c)
+            ptr_list.append(len(data_list))
+        csr_data    = np.array(data_list, dtype=np.int32)
+        csr_indices = np.array(idx_list,  dtype=np.int32)
+        csr_indptr  = np.array(ptr_list,  dtype=np.int32)
+
+    atom_strs   = [str(a).encode("utf-8") for a in atoms]
+    atom_idx_js = json.dumps(aidx).encode("utf-8")
+
+    def _col(x):
+        c = aidx.get(str(int(x)))
+        return np.int64(-1 if c is None else c)
+
+    with h5py.File(path, "w") as f:
+        # CSR group — always written.
+        g = f.create_group("csr")
+        g.create_dataset("data",    data=csr_data)
+        g.create_dataset("indices", data=csr_indices)
+        g.create_dataset("indptr",  data=csr_indptr)
+        g.create_dataset("shape",   data=np.array([nrows, ncols], dtype=np.int64))
+
+        # Dense matrix — skip if too large.
+        dense_bytes = nrows * ncols * 4
+        if dense_bytes <= 500 * 1024 * 1024:
+            f.create_dataset("matrix_dense", data=M_np, compression="gzip", compression_opts=4)
+            _log(f"[dump_matrix_hdf5] dense matrix written ({dense_bytes // (1024*1024)} MB)")
+        else:
+            _log(f"[dump_matrix_hdf5] dense matrix skipped (would be {dense_bytes // (1024*1024)} MB > 500 MB)")
+
+        # Atom labels.
+        dt = h5py.special_dtype(vlen=bytes)
+        ds = f.create_dataset("atoms", (len(atom_strs),), dtype=dt)
+        ds[:] = atom_strs
+        f.create_dataset("atom_index",  data=atom_idx_js)
+
+        # Metadata.
+        f.create_dataset("divisor_xs",  data=np.array([x0_a, x0_b, x0_c, x0_d], dtype=np.int64))
+        f.create_dataset("group_order", data=np.int64(group_order))
+        f.create_dataset("col_inf",     data=_col(_INFINITY if _INFINITY in aidx else -1))
+        f.create_dataset("col_gen0",    data=_col(x0_a))
+        f.create_dataset("col_gen1",    data=_col(x0_b))
+        f.create_dataset("col_tgt0",    data=_col(x0_c))
+        f.create_dataset("col_tgt1",    data=_col(x0_d))
+
+    _log(f"[dump_matrix_hdf5] written -> {path}")
+    return path
+
+
 def run_all_checks(
     walkers,
     divisor_xs,
@@ -539,8 +679,17 @@ def run_all_checks(
     p: int,
     coeffs=None,
     n_fiber_spot_checks: int = 5,
+    dump_path: str = None,
 ):
-    """Run all diagnostics and print a summary verdict."""
+    """Run all diagnostics and print a summary verdict.
+
+    Parameters
+    ----------
+    dump_path
+        If given, dump the pruned relation matrix to this HDF5 file before
+        running checks.  Useful for offline gauge-row experimentation without
+        rerunning the walk.  Requires h5py.
+    """
     _log(f"\n{'#' * 70}")
     _log("# DLP INTEGRATION DIAGNOSTICS")
     _log(f"#  walkers       : {len(walkers)}")
@@ -551,6 +700,15 @@ def run_all_checks(
     _log(f"{'#' * 70}\n")
 
     results = {}
+
+    if dump_path is not None:
+        try:
+            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path)
+            results["matrix_dump"] = f"ok -> {dump_path}"
+        except Exception as exc:
+            _log(f"  [dump_matrix_hdf5 FAILED: {exc}]")
+            results["matrix_dump"] = f"failed: {exc}"
+            raise
 
     try:
         ker, atoms, aidx = check_kernel(walkers, group_order, divisor_xs)
@@ -618,6 +776,259 @@ def run_all_checks(
     _log(f"{'#' * 70}\n")
 
     return results
+
+def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
+    """
+    Build the combined pruned ZZ relation matrix from all walkers.
+
+    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
+
+    Parameters
+    ----------
+    walkers
+        Iterable of walker objects.
+    include_step_leaves
+        Forwarded into each walker's relation_matrix().
+    protected
+        Optional collection of atom labels that must survive pruning,
+        even if they become dest-only.
+    """
+    mats, atom_lists = [], []
+    for w in walkers:
+        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
+        if mat.nrows() > 0:
+            mats.append(mat)
+            atom_lists.append(list(atoms))
+
+    assert mats, "All walkers have empty relation matrices — nothing to work with."
+
+    # Union column spaces, preserving the first-seen order.
+    all_atoms = list(atom_lists[0])
+    atom_set = set(map(str, all_atoms))
+    for atms in atom_lists[1:]:
+        for a in atms:
+            sa = str(a)
+            if sa not in atom_set:
+                all_atoms.append(a)
+                atom_set.add(sa)
+
+    n_cols = len(all_atoms)
+    aidx = {str(a): i for i, a in enumerate(all_atoms)}
+
+    rows = []
+    for mat, atms in zip(mats, atom_lists):
+        cols_src = [aidx[str(a)] for a in atms]
+        for r in range(mat.nrows()):
+            row = [0] * n_cols
+            for c_src, c_dst in enumerate(cols_src):
+                row[c_dst] += int(mat[r, c_src])
+            rows.append(row)
+
+    M_raw = Matrix(ZZ, rows)
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(
+        M_raw,
+        all_atoms,
+        protected=protected,
+    )
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
+    _log(
+        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  ({len(removed)} dest-only atoms removed)"
+    )
+
+    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
+
+def check_known_key(
+    walkers,
+    divisor_xs,
+    group_order: int,
+    known_key: int,
+):
+    """
+    Check whether the supplied known key is consistent with the pruned relation
+    matrix using the balanced anchor a[gen0] - a[gen1] = k.
+
+    The balanced anchor respects the conservation law (coeff-sum = 1-1 = 0).
+    Single-atom pinning (a[gen0]=1 etc.) violates the conservation and will
+    always produce an inconsistent system regardless of the key.
+
+    We test four hypotheses corresponding to sign conventions on the generator
+    and target atoms, using k = ±1 for the anchor and key = ±known_key for
+    the target log sum.
+
+    Returns a dict with keys:
+        ok         : True / False / None
+        nullity    : kernel dimension of the homogeneous system
+        violations : list of contradicted rows (for hard-contradiction cases)
+        best_label : hypothesis label with fewest violations
+    """
+    _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
+
+    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
+
+    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
+        walkers, protected=divisor_xs,
+    )
+    n_rows = M_ZZ.nrows()
+    n_cols = M_ZZ.ncols()
+
+    F = GF(Integer(group_order))
+    M  = M_ZZ.change_ring(F)
+
+    nullity = n_cols - M.rank()
+
+    def col_of(x):
+        return aidx.get(str(int(x)))
+
+    inf_col      = aidx.get(_INFINITY)
+    gen_col      = col_of(x0_a)
+    gen_p_col    = col_of(x0_b)
+    tgt_col      = col_of(x0_c)
+    tgt_p_col    = col_of(x0_d)
+
+    missing = []
+    if inf_col  is None: missing.append("∞")
+    if gen_col  is None: missing.append(f"gen_x0={x0_a}")
+    if gen_p_col is None: missing.append(f"gen_x1={x0_b}")
+    if tgt_col  is None: missing.append(f"tgt_x0={x0_c}")
+
+    if missing:
+        _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
+        return {"ok": False, "reason": "missing_columns", "missing": missing}
+
+    # Balanced hypotheses: anchor is a[gen0] - a[gen1] = anchor_k (coeff-sum=0).
+    # Target log is a[tgt0] + a[tgt1] = tgt_k (we test ±known_key).
+    # We fix {∞=0, gen0-gen1=anchor_k} and substitute into every fully-pinned row.
+    # Rows with free variables are skipped (inconclusive when underdetermined).
+    hypotheses = [
+        ("anchor=+1, key=+k",  F(1),  F(known_key)),
+        ("anchor=+1, key=-k",  F(1),  F(-known_key)),
+        ("anchor=-1, key=+k",  F(-1), F(known_key)),
+        ("anchor=-1, key=-k",  F(-1), F(-known_key)),
+    ]
+
+    scored = []
+
+    for label, anchor_k, tgt_k in hypotheses:
+        # Build a partial assignment for the fully-determined atoms.
+        # a[gen0] - a[gen1] = anchor_k  means we can parameterise as
+        # a[gen1] = t, a[gen0] = t + anchor_k for free t.
+        # Only rows whose support is contained in {inf, gen0, gen1, tgt0, tgt1}
+        # can be directly evaluated; everything else has additional free columns.
+        pinned = {}
+        if inf_col  is not None: pinned[inf_col]   = F(0)
+        # We don't assign absolute values to gen0/gen1 — only their difference
+        # is fixed.  So rows that contain *only* gen0 or *only* gen1 (but not
+        # both) still have a free variable and are skipped.
+        # Rows that contain both gen0 and gen1 can be evaluated via the difference.
+        if tgt_col  is not None: pinned[tgt_col]   = tgt_k          # a[tgt0]
+        if tgt_p_col is not None: pinned[tgt_p_col] = F(0)           # a[tgt1]=0, sum=tgt_k
+
+        fixed_cols = set(pinned.keys()) | ({gen_col, gen_p_col} if gen_col is not None and gen_p_col is not None else set())
+
+        violations = []
+        for i in range(n_rows):
+            nz = [j for j in range(n_cols) if M[i, j] != 0]
+            if not nz:
+                continue
+            if not all(j in fixed_cols for j in nz):
+                continue  # free variables — inconclusive
+
+            # Evaluate row using pinned values; for gen columns use difference.
+            has_gen0 = gen_col   in nz
+            has_gen1 = gen_p_col in nz
+            if (has_gen0 or has_gen1) and not (has_gen0 and has_gen1):
+                continue  # only one gen column — free variable via t
+
+            resid = F(0)
+            for j in nz:
+                if j == gen_col:
+                    # a[gen0] = t + anchor_k; coefficient is M[i,gen_col]
+                    # t terms cancel when both gen0 and gen1 appear (checked above)
+                    resid += M[i, j] * anchor_k
+                elif j == gen_p_col:
+                    # a[gen1] = t; coefficient is M[i,gen_p_col]
+                    # t term cancels with gen0's t term
+                    pass
+                else:
+                    resid += M[i, j] * pinned[j]
+
+            if resid != F(0):
+                violations.append(
+                    (i, int(resid), [(atoms[j], int(M[i, j])) for j in nz])
+                )
+
+        scored.append({
+            "label": label,
+            "violations": violations,
+            "n_violations": len(violations),
+        })
+
+    scored.sort(key=lambda d: d["n_violations"])
+    best = scored[0]
+
+    _log(f"  Nullity of homogeneous system: {nullity}")
+    _log(f"  (nullity=1 means fully determined up to gauge; "
+         f"nullity>1 means underdetermined — only direct contradictions are conclusive)\n")
+    _log(f"  Anchor convention: a[gen0] - a[gen1] = k  (balanced, coeff-sum=0)")
+    _log(f"  Target convention: a[tgt0] + a[tgt1] = known_key (or negated)\n")
+
+    _log("  Hypothesis scan (direct contradictions only):")
+    for item in scored:
+        status = "OK" if item["n_violations"] == 0 else f"{item['n_violations']} violation(s)"
+        _log(f"    {item['label']:<22s} -> {status}")
+
+    if nullity == 1:
+        if best["n_violations"] == 0:
+            # Full rank test: substitute anchor and solve for free columns.
+            anchor_row = vector(F, n_cols)
+            anchor_row[gen_col]   = F(1)
+            anchor_row[gen_p_col] = F(-1)
+            inf_row = vector(F, n_cols)
+            inf_row[inf_col] = F(1)
+
+            rows_aug = [M.row(i) for i in range(n_rows)]
+            rows_aug.append(inf_row)
+            rows_aug.append(anchor_row)
+            rhs_aug  = [F(0)] * (n_rows + 1) + [F(1)]
+
+            A_aug = matrix(F, rows_aug)
+            b_aug = vector(F, rhs_aug)
+            rank_A   = A_aug.rank()
+            rank_aug = A_aug.augment(b_aug.column()).rank()
+
+            if rank_A == rank_aug:
+                _log(f"\n  ✓  key={known_key} is CONSISTENT (nullity=1, full system consistent).")
+                return {"ok": True, "label": best["label"], "nullity": nullity, "violations": []}
+            else:
+                _log(f"\n  ✗  key={known_key} is INCONSISTENT (nullity=1, rank test fails). "
+                     f"rank(A)={rank_A}  rank([A|b])={rank_aug}")
+                return {"ok": False, "label": best["label"], "nullity": nullity,
+                        "violations": [], "rank_A": rank_A, "rank_aug": rank_aug}
+        else:
+            _log(f"\n  ✗  key={known_key} INCONSISTENT — {best['n_violations']} contradicted row(s):")
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
+    else:
+        if best["n_violations"] == 0:
+            _log(f"\n  ?  key={known_key} is UNVERIFIABLE — system is underdetermined "
+                 f"(nullity={nullity}, need nullity=1).\n"
+                 f"     No direct contradiction found under any sign convention.\n"
+                 f"     Need {nullity - 1} more independent relation rows before "
+                 f"this check is conclusive.")
+            return {"ok": None, "reason": "underdetermined", "nullity": nullity, "violations": []}
+        else:
+            _log(f"\n  ✗  key={known_key} has HARD CONTRADICTION (nullity={nullity}) — "
+                 f"{best['n_violations']} row(s) with support in fixed columns fail:")
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
 
 def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
     """

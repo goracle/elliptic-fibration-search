@@ -107,7 +107,7 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
 
             dv_fp = Fp(dv)
             if dv_fp == Fp(0):
-                raise AssertionError(
+                raise ZeroDivisionError(
                     f"compute_xk_from_fiber: fiber pole at m={m_val} "
                     f"(denominator of fi coefficient vanished).\n"
                     f"  xi={xi_val}  xj={xj_val}\n"
@@ -1934,10 +1934,8 @@ class Genus2MetropolisWalker:
                 xk_val, inter = compute_xk_from_fiber(
                     xi_fp, m_fp, t_fp, fi, G_poly, deg
                 )
-            except AssertionError as e:
-                if "fiber pole" in str(e):
-                    return
-                raise
+            except ZeroDivisionError:
+                return
 
             if xk_val is None:
                 return

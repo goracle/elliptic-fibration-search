@@ -1143,6 +1143,7 @@ def _dlp_nullity_prune(
 
     return A_fixed, b_fixed, fixable
 
+
 def _dlp_solve(A, b, verbose: bool):
     """Solve A * x = b and return the full solution vector."""
     try:
@@ -1527,33 +1528,30 @@ def _dlp_build_affine_system(
     elif verbose:
         _log("[dlp_list] gauge fix   : ∞ column not found, skipping a[∞] = 0")
 
-    # Anchor rows: pin a[gen0]=0 and a[gen1]=1 to break translation symmetry.
-    # Two separate single-atom rows are required — a sum row a[gen0]+a[gen1]=1
-    # does not break the all-ones kernel direction because translation by c
-    # shifts both sides equally.
+    # Anchor row: a[gen0] - a[gen1] = 1.
+    # Every relation row has coefficient sum 3+1+1-5=0 (conservation law).
+    # Any appended row must also have coefficient sum 0, otherwise it directly
+    # contradicts the invariant and the system is inconsistent.
+    # a[gen0]=0 and a[gen1]=1 each have sum 1 — invalid.
+    # a[gen0] - a[gen1] = 1 has sum 1+(-1) = 0 — valid, and breaks translation.
     if gen_partner_col is None:
         raise RuntimeError(
             "_dlp_build_affine_system: gen_partner_col is None — "
-            "cannot pin two generator atoms to break translation symmetry. "
+            "cannot build balanced anchor to break translation symmetry. "
             "Ensure both BASE_DIVISOR roots are present in the leaf set."
         )
 
-    row0 = vector(Fp, n_cols)
-    row0[gen_col] = Fp(1)
-    rows.append(row0)
-    rhs.append(Fp(0))
-
-    row1 = vector(Fp, n_cols)
-    row1[gen_partner_col] = Fp(1)
-    rows.append(row1)
+    anchor_row = vector(Fp, n_cols)
+    anchor_row[gen_col] = Fp(1)
+    anchor_row[gen_partner_col] = Fp(-1)
+    rows.append(anchor_row)
     rhs.append(Fp(1))
 
     A = matrix(Fp, rows)
     b = vector(Fp, rhs)
 
     if verbose:
-        _log(f"[dlp_list] anchor row 0 : a[{generator_x}] = 0")
-        _log(f"[dlp_list] anchor row 1 : a[{generator_x_partner}] = 1")
+        _log(f"[dlp_list] anchor row   : a[{generator_x}] - a[{generator_x_partner}] = 1")
         _log(f"[dlp_list] attempting solve_right on {A.nrows()}x{A.ncols()} system over GF({char}) ...")
 
     return M_fp, A, b
