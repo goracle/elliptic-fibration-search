@@ -1144,6 +1144,150 @@ def _dlp_nullity_prune(
     return A_fixed, b_fixed, fixable
 
 
+def _dlp_search_free_parameter(
+    A, b, all_atoms_ordered, atom_index, n, target_col, target_partner_col, verbose
+):
+    """Fallback when solve_right fails with nullity=1 in the augmented system.
+
+    The system A*x = b has a 1-D solution space:
+        x = x_particular + t * v_kernel,   t in GF(n)
+
+    where v_kernel is the unique (up to scale) kernel vector of A.
+
+    We find x_particular by pinning one free column to 0 (making the system
+    fully determined), then BSGS over t to find the unique t such that the
+    implied DLP value satisfies k*G == T in the Jacobian.
+
+    BSGS costs O(sqrt(n)) Jacobian multiplications — for n~25000 that is ~160
+    steps, essentially free.
+
+    Returns (dlp_val, t, method_str) or (None, None, reason_str).
+    """
+    Fp = GF(n)
+
+    # --- find the kernel vector of A ---
+    ker = A.right_kernel()
+    if ker.dimension() != 1:
+        if verbose:
+            _log(f"[free_param] kernel dimension={ker.dimension()}, expected 1 — aborting")
+        return None, None, f"kernel_dim={ker.dimension()}"
+
+    v_ker = ker.basis()[0]   # the free direction, over GF(n)
+
+    # Find a column with nonzero kernel coefficient to pin.
+    # Prefer a non-target, non-divisor column so we don't over-constrain the answer.
+    pin_col = None
+    for j in range(len(v_ker)):
+        if v_ker[j] != Fp(0) and j != target_col and j != target_partner_col:
+            pin_col = j
+            break
+    if pin_col is None:
+        if verbose:
+            _log("[free_param] could not find a safe column to pin — aborting")
+        return None, None, "no_pin_col"
+
+    # Build A_pinned by appending a row that pins a[pin_col] = 0.
+    pin_row = vector(Fp, A.ncols())
+    pin_row[pin_col] = Fp(1)
+    A_pinned = A.stack(matrix(Fp, [pin_row]))
+    b_pinned = vector(Fp, b.list() + [Fp(0)])
+
+    try:
+        x_part = A_pinned.solve_right(b_pinned)
+    except ValueError as exc:
+        if verbose:
+            _log(f"[free_param] particular solution failed: {exc}")
+        return None, None, "particular_solution_failed"
+
+    # DLP value as a function of t:
+    #   dlp(t) = (x_part[tgt0] + t*v_ker[tgt0]) + (x_part[tgt1] + t*v_ker[tgt1])
+    #          = base_val + t * step_val   (mod n)
+    base_val = Fp(0)
+    step_val = Fp(0)
+    for col in [target_col, target_partner_col]:
+        if col is not None:
+            base_val += x_part[col]
+            step_val += v_ker[col]
+
+    base_val = int(base_val)
+    step_val = int(step_val)
+
+    if verbose:
+        _log(f"[free_param] dlp(t) = {base_val} + t*{step_val}  (mod {n})")
+        _log(f"[free_param] starting BSGS over t in GF({n}), sqrt_n ~ {int(n**0.5)+1} steps")
+
+    if BASE_DIVISOR is None or TARGET_DIVISOR is None:
+        if verbose:
+            _log("[free_param] BASE_DIVISOR/TARGET_DIVISOR unavailable — falling back to linear scan")
+        # Linear scan — only feasible for small n
+        if n > 100000:
+            return None, None, "no_divisors_n_too_large"
+        for t in range(n):
+            dlp_val = (base_val + t * step_val) % n
+            # can't verify without divisors; just return first candidate
+        return None, None, "no_divisors"
+
+    # BSGS: find t such that dlp(t)*G == T
+    # dlp(t) = base_val + t*step_val  =>  t*step_val*G = T - base_val*G
+    # Let H = T - base_val*G,  Q = step_val*G
+    # Find t such that t*Q = H   via BSGS in <G>
+
+    import math as _math
+    m = int(_math.isqrt(n)) + 1
+
+    G = BASE_DIVISOR
+    T = TARGET_DIVISOR
+
+    # Baby steps: table[j*Q] = j  for j = 0..m-1
+    Q = Integer(step_val) * G
+    H = T - Integer(base_val) * G
+
+    if verbose:
+        _log(f"[free_param] BSGS: m={m} baby steps, then {m} giant steps")
+
+    baby = {}
+    cur = H.parent()(0)   # identity in Jacobian
+    for j in range(m):
+        key = str(cur)
+        if key not in baby:
+            baby[key] = j
+        cur = cur + Q   # baby step: cur = j*Q ... wait, we want j*Q = H - i*(m*Q)
+    # Recompute correctly:
+    # We want t*Q = H.
+    # Baby steps: store (j, j*Q) for j=0..m-1
+    # Giant steps: check H - i*m*Q for i=0..m-1
+    baby = {}
+    cur = cur.parent()(0)
+    for j in range(m):
+        baby[str(cur)] = j
+        cur = cur + Q
+
+    mQ = Integer(m) * Q
+    giant_cur = H
+    for i in range(m + 1):
+        key = str(giant_cur)
+        if key in baby:
+            j = baby[key]
+            t = (i * m + j) % n
+            dlp_val = (base_val + t * step_val) % n
+            if verbose:
+                _log(f"[free_param] BSGS found t={t}  dlp={dlp_val}")
+            # Verify
+            check = Integer(dlp_val) * G
+            if check == T:
+                if verbose:
+                    _log(f"[free_param] ✓ verified: {dlp_val}*G == T")
+                return dlp_val, t, "free_param_bsgs"
+            else:
+                if verbose:
+                    _log(f"[free_param] ✗ t={t} dlp={dlp_val} did not verify — continuing")
+        giant_cur = giant_cur - mQ
+
+    if verbose:
+        _log("[free_param] BSGS exhausted — no solution found")
+    return None, None, "bsgs_exhausted"
+
+
 def _dlp_solve(A, b, verbose: bool):
     """Solve A * x = b and return the full solution vector."""
     try:
@@ -1321,11 +1465,28 @@ def dlp_from_merged_walks(
         )
 
     # 7. Solve, then decode target-root logs from the solution vector
+    sol = None
     try:
         sol = _dlp_solve(A, b, verbose)
     except ValueError:
-        sol = None
         result["method"] = "solve_right_failed"
+        # 7b. Fallback: if augmented system has nullity=1, the solution space is a
+        #     1-D coset.  Search the free parameter via BSGS.
+        if verbose:
+            _log("[dlp_list] solve_right failed — attempting free-parameter BSGS fallback")
+        dlp_val, t_free, fb_method = _dlp_search_free_parameter(
+            A, b, all_atoms_ordered, atom_index, n,
+            target_col, target_partner_col, verbose,
+        )
+        if dlp_val is not None:
+            result["dlp"] = dlp_val
+            result["method"] = fb_method
+            result["free_parameter_t"] = t_free
+            result["verified"] = _dlp_verify(dlp_val, verbose)
+        else:
+            if verbose:
+                _log(f"[dlp_list] free-parameter fallback also failed: {fb_method}")
+            result["method"] = f"solve_right_failed+{fb_method}"
 
     if sol is not None:
         target_log, target_partner_log, dlp_val = _dlp_extract_target_atom_logs(
