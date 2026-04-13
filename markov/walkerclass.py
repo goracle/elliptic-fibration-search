@@ -241,41 +241,27 @@ def build_project_tower_context_for_point(
         sys.exit()
 
     sconf, prime_pool = configure_search_parameters(cd, {xi}, base_pts, field_data['base_field'])
-    E_rhs_m_symbolic = primary_tower[-1]['f_i'] if not resolve_project_symbol('FINITE_FIELD', default=None) else None
+    E_rhs_m_symbolic = primary_tower[-1]['f_i'] if primary_tower else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
 
-    # Append the symbolic xk(m) as an additional RHS target.
-    # xk(m) = S(m) - (d-1)*xi - (-m) = S(m) - (d-1)*xi + m
-    # where S(m) is the x^(d-1) Vieta sum from the intersection poly.
-    # fi and shifted_G_poly are in scope from the tower construction above.
-    #
-    # NOTE: only valid in the rational/over-Q path.  In FF mode the mumford
-    # search expects concrete Fp elements in rhs_list; a symbolic Frac(Fp[m])
-    # entry causes a "no common canonical parent" coercion error at search time.
-    _is_ff_mode = bool(resolve_project_symbol('FINITE_FIELD', default=None))
-    _fi_sym = primary_tower[-1].get('f_i') if primary_tower else None
-    _curve_degree_sym = int(resolve_project_symbol('CURVE_DEGREE', default=5))
-    assert _fi_sym, _fi_sym
-
-    if _fi_sym is not None and not _is_ff_mode:
-        S_of_m_sym, _inter_sym = compute_S_of_m(_fi_sym, shifted_G_poly, _curve_degree_sym)
-        assert S_of_m_sym, S_of_m_sym
-        if S_of_m_sym is not None and RLINEAR:
-            # xk(m) = S(m) - (d-1)*xi - xj(m)
-            # Under the linear model xj(m) = xi - m, so xj(m) = -m, giving:
-            #   xk(m) = S(m) - (d-1)*xi + m
-            # This substitution is only valid when RLINEAR=True.  When RLINEAR=False
-            # the RHS is quadratic in m and xj(m) is not xi - m, so this expression
-            # for xk would be wrong and must not be added to the search RHS list.
-            # S_of_m_sym lives in Frac(Fp[m]); xi is a constant in Fp.
-            # Lift xi into the same base ring.
-            _base = S_of_m_sym.parent()   # Frac(Fp[m])
-            _xi_lifted = _base(xi)
-            _m_sym = _base.ring().gen()   # the generator m of Fp[m]
-            _m_in_frac = _base(_m_sym)
-            xk_rhs_sym = S_of_m_sym - (_curve_degree_sym - 1) * _xi_lifted + _m_in_frac
-            print("adding xk(m)", xk_rhs_sym, "to search rhs list")
-            search_rhs_list = list(search_rhs_list) + [xk_rhs_sym]
+    # Add xk(m) as second RHS via Vieta: xk = S(m) - (d-1)*xi - xj(m).
+    # S(m) is the negated x^(d-1) coefficient of the monic fiber intersection poly,
+    # which equals xi + xj + xk for a degree-5 curve (d-1 = 4 roots sum to S).
+    # We use the actual xj(m) RHS from the search rather than the RLINEAR=True
+    # shortcut xi-m, so this is valid regardless of RLINEAR.
+    _fi_for_xk = primary_tower[-1].get('f_i') if primary_tower else None
+    _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
+    if _fi_for_xk is not None and shifted_G_poly is not None and len(search_rhs_list) == 1:
+        S_of_m, _ = compute_S_of_m(_fi_for_xk, shifted_G_poly, _curve_degree)
+        if S_of_m is not None:
+            try:
+                _base = S_of_m.parent()           # Frac(GF(p)[m])
+                _xj_rhs = _base(search_rhs_list[0])
+                _xi_lifted = _base(xi)
+                xk_rhs = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
+                search_rhs_list = list(search_rhs_list) + [xk_rhs]
+            except Exception as e:
+                print(f"[build_project_tower_context] warning: could not build xk RHS: {e}")
 
     assert len(search_rhs_list) >= 1, search_rhs_list
 
@@ -1404,8 +1390,10 @@ class Genus2MetropolisWalker:
             self.xi_visit_count[xi_before] += 1
             try:
                 next_y = self._recover_y(next_x, y_sign=chosen.get("yj_sign", 1))
-            except Exception:
-                raise
+            except ValueError:
+                # xj is not on the curve (f(xj) not a square): reject move.
+                accepted = False
+                next_y = None
 
             if next_y is not None and next_y != self.base_ring(0):
                 self.current_x, self.current_y = next_x, next_y
@@ -1413,7 +1401,7 @@ class Genus2MetropolisWalker:
             elif next_y == self.base_ring(0):
                 # Weierstrass point (y=0): degenerate fiber, reject move.
                 accepted = False
-            else:
+            elif accepted:
                 self.current_x = next_x
 
         step_payload = dict(search_out) if isinstance(search_out, dict) else {}
