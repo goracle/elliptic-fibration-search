@@ -305,55 +305,85 @@ def _candidate_record_from_x(x, source="mumford_residue", **extra):
     return rec
 
 def _candidates_from_residues(residues, p):
-    """Extract candidate records from mumford_residues {p: {vtup: {x_val: sols}}}.
+    """Extract candidate records from mumford_residues {p: {vtup: {(x_val, rhs_idx): sols}}}.
 
-    Each solution is now (mumford_tuple, yj_sign, v0, v1) as written by
-    _solve_worker_wrapper.  We emit one candidate record per (x_val, yj_sign)
-    pair so that the relation matrix gets the correct signed coefficient.
+    Each solution is now (mumford_tuple, yj_sign, v0, v1, m_root, rhs_idx) as
+    written by _solve_worker_wrapper.  The result dict is now keyed by
+    (x_val, rhs_idx) so that xj-RHS and xk-RHS results for the same x_val are
+    not conflated.
 
-    Returns a list of dicts with keys: xj, yj_sign, v0, v1, source.
-    Falls back gracefully if solutions are in the old (4-tuple only) format.
+    rhs_idx=0  ->  x_val is xj (the forward RHS, present in both RLINEAR modes)
+    rhs_idx=1  ->  x_val is xk (the xk RHS, present only in RLINEAR=False mode)
+
+    We emit one candidate record per (x_val, rhs_idx, yj_sign) triple.
+    m_root is stored on the record so enrich_candidates can call
+    compute_xk_from_fiber without reconstructing m from xi-xj (which is only
+    valid under RLINEAR=True).
+
+    Returns a list of dicts with keys: xj, yj_sign, v0, v1, m, rhs_idx, source.
     """
     records = []
-    seen = set()  # (x_val, yj_sign) dedup
+    seen = set()  # (x_val, rhs_idx, yj_sign) dedup
 
     pmap = residues.get(p, {})
     for vtup, xmap in pmap.items():
         if not isinstance(xmap, dict):
             continue
-        for x_val, sols in xmap.items():
+        for key_pair, sols in xmap.items():
             if not sols:
                 continue
+
+            # New key format is (x_val, rhs_idx); accept bare x_val for
+            # backward compat with any cached results still in the old format.
+            if isinstance(key_pair, tuple) and len(key_pair) == 2:
+                x_val, rhs_idx = key_pair
+            else:
+                x_val = key_pair
+                rhs_idx = 0
+
             # Take the first solution's sign (multiple solutions at the same
             # x_val should agree on yj_sign since v(xj) is deterministic).
             first = sols[0]
-            if isinstance(first, (tuple, list)) and len(first) == 4:
-                # Expected format: (mumford_tuple, yj_sign, v0, v1)
-                _mtup, yj_sign, v0, v1 = first
-                if yj_sign not in (1, -1):
-                    raise AssertionError(
-                        f"_candidates_from_residues: yj_sign={yj_sign!r} is not +-1 "
-                        f"for x_val={x_val!r}. _solve_worker_wrapper must emit "
-                        f"(mumford_tuple, yj_sign, v0, v1) with yj_sign in {{+1, -1}}."
-                    )
+            if isinstance(first, (tuple, list)) and len(first) == 6:
+                # Current format: (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx)
+                # x_val_sign is the sign for x_val: yj_sign when rhs_idx=0, yk_sign when rhs_idx=1.
+                _mtup, x_val_sign, v0, v1, m_root, _rhs_idx = first
+                # rhs_idx in the tuple should match the key; trust the key.
+            elif isinstance(first, (tuple, list)) and len(first) == 4:
+                # Legacy format (RLINEAR=True only, m not needed there):
+                # (mumford_tuple, yj_sign, v0, v1)
+                _mtup, x_val_sign, v0, v1 = first
+                m_root = None
             else:
                 raise AssertionError(
                     f"_candidates_from_residues: unexpected solution format "
-                    f"type={type(first)!r} for x_val={x_val!r}. "
-                    f"Expected 4-tuple (mumford_tuple, yj_sign, v0, v1). "
+                    f"type={type(first)!r} len={len(first)} for x_val={x_val!r}. "
+                    f"Expected 6-tuple (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx) "
+                    f"or legacy 4-tuple (mumford_tuple, yj_sign, v0, v1). "
                     f"Update _solve_worker_wrapper in mumford_parallel.py to emit this format."
                 )
 
-            key = (int(x_val), yj_sign)
-            if key in seen:
-                continue
-            seen.add(key)
+            if x_val_sign not in (1, -1):
+                raise AssertionError(
+                    f"_candidates_from_residues: x_val_sign={x_val_sign!r} is not +-1 "
+                    f"for x_val={x_val!r}, rhs_idx={rhs_idx}."
+                )
 
+            dedup_key = (int(x_val), int(rhs_idx), x_val_sign)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            # For rhs_idx=0: x_val is xj, x_val_sign is yj_sign.
+            # For rhs_idx=1: x_val is xk, x_val_sign is yk_sign.
+            # enrich_candidates will swap roles for rhs_idx=1 and recover the missing sign.
             records.append({
-                "xj": int(x_val),
-                "yj_sign": yj_sign,
+                "xj": int(x_val),       # role depends on rhs_idx; enrich_candidates fixes up if rhs_idx=1
+                "yj_sign": x_val_sign,  # really yk_sign when rhs_idx=1; enrich_candidates corrects this
                 "v0": v0,
                 "v1": v1,
+                "m": int(m_root) if m_root is not None else None,
+                "rhs_idx": int(rhs_idx),
                 "source": "mumford_residue",
             })
 
@@ -926,16 +956,35 @@ def enrich_candidates(
         rec['xi'] = x_here
         rec['yi'] = y_here
 
+        # rhs_idx=0 -> x_val in 'xj' slot is xj, yj_sign is correct as-is.
+        # rhs_idx=1 -> x_val in 'xj' slot is actually xk; we need to swap roles.
+        #              The sign stored as 'yj_sign' is actually yk_sign (it was
+        #              computed for x_val=xk in the worker).  Correct both.
+        rhs_idx = int(rec.get('rhs_idx', 0))
+        if rhs_idx == 1:
+            xk_from_rhs = rec.pop('xj', None)
+            rec['xk'] = xk_from_rhs
+            rec['xj'] = None
+            # yj_sign currently holds the sign for xk; move it to yk_sign.
+            rec['yk_sign'] = rec.pop('yj_sign', 1)
+            # yj_sign for the yet-to-be-recovered xj will be set below via v(xj).
+
         xj = rec.get('xj')
 
         if xj is not None and xj == x_here:
             continue
+        if rhs_idx == 1 and rec.get('xk') == x_here:
+            continue
 
-        # recover m
-        if rec.get('m') is None and xj is not None:
+        # recover m:
+        #   RLINEAR=True:  m = xi - xj is always valid.
+        #   RLINEAR=False: m must come from the root-finder (stored on the record
+        #                  by _candidates_from_residues); synthesising xi-xj here
+        #                  would be wrong.
+        if rec.get('m') is None and xj is not None and RLINEAR:
             rec['m'] = x_here - xj
 
-        # compute xk
+        # compute xk from fiber when xk is not yet set (rhs_idx=0 path).
         if rec.get('xk') is None:
             m_val = rec.get('m')
             if m_val is not None and xj is not None:
@@ -965,6 +1014,76 @@ def enrich_candidates(
                     rec['xi_mult'] = actual_xi_mult
                 else:
                     rec.setdefault('xi_mult', curve_degree - 2)
+
+        elif rhs_idx == 1:
+            # xk is already set from the rhs_idx=1 swap above.
+            # Recover xj via compute_xk_from_fiber: given xi, m, and one known
+            # root (xk), it returns the remaining root (xj) by Vieta.
+            m_val = rec.get('m')
+            xk_val = rec.get('xk')
+            if m_val is not None and xk_val is not None and fi is not None and G_poly is not None:
+                try:
+                    xj_val, inter = compute_xk_from_fiber(
+                        x_here, m_val, xk_val, fi, G_poly, curve_degree
+                    )
+                except ZeroDivisionError:
+                    continue
+                if xj_val is None:
+                    continue
+                rec['xj'] = xj_val
+                xj = xj_val
+                rec['intersection_poly'] = inter
+                if inter is not None:
+                    roots_wm = inter.roots()
+                    actual_xi_mult = 0
+                    Fp = GF(int(p)) if p is not None else None
+                    xi_fp = Fp(x_here) if Fp is not None else x_here
+                    for r, m_root in roots_wm:
+                        if r == xi_fp:
+                            actual_xi_mult = int(m_root)
+                            break
+                    if actual_xi_mult == 0:
+                        raise AssertionError(
+                            f"enrich_candidates rhs_idx=1: xi={x_here} is not a root of "
+                            f"intersection_poly (roots={roots_wm}); xk={xk_val}, m={m_val}"
+                        )
+                    rec['xi_mult'] = actual_xi_mult
+                else:
+                    rec.setdefault('xi_mult', curve_degree - 2)
+            else:
+                # No m or no fiber context — can't recover xj, skip this candidate.
+                continue
+
+            # Compute yj_sign for the recovered xj via v(xj) = v0 + v1*xj.
+            v0_r = rec.get('v0')
+            v1_r = rec.get('v1')
+            if v0_r is not None and v1_r is not None and xj is not None and p is not None:
+                try:
+                    xj_int = int(xj)
+                    yj_v = (int(v0_r) + int(v1_r) * xj_int) % p
+                    rhs_f = 0
+                    if G_poly is not None:
+                        Fp_local2 = GF(int(p))
+                        rhs_f = int(Fp_local2(G_poly(xj_int)))
+                    if rhs_f == 0:
+                        rec['yj_sign'] = 1
+                    elif (p % 4) == 3:
+                        canonical = pow(rhs_f, (p + 1) // 4, p)
+                        canonical = min(canonical, p - canonical)
+                        yj_can = min(yj_v, p - yj_v) if yj_v != 0 else 0
+                        rec['yj_sign'] = 1 if yj_can == canonical else -1
+                    else:
+                        sq = pow(rhs_f, (p + 1) // 4, p)
+                        if (sq * sq) % p == rhs_f:
+                            canonical = min(sq, p - sq)
+                        else:
+                            canonical = min(yj_v, p - yj_v) if yj_v != 0 else 0
+                        yj_can = min(yj_v, p - yj_v) if yj_v != 0 else 0
+                        rec['yj_sign'] = 1 if yj_can == canonical else -1
+                except Exception:
+                    rec.setdefault('yj_sign', 1)
+            else:
+                rec.setdefault('yj_sign', 1)
 
         # Compute yk_sign from the v-polynomial if available.
         # In Cantor/Mumford addition the third intersection point satisfies
@@ -996,8 +1115,14 @@ def enrich_candidates(
 
         # inject xk-head — xk_head records inherit the roles but swap signs:
         # in the reversed record xk becomes xj so its sign is the original yk_sign.
+        #
+        # xk_head synthesis inverts xj = xi - m  =>  m = xi - xk, which is only
+        # valid when the RHS of the search equation is linear in m (RLINEAR=True).
+        # When RLINEAR=False the RHS is quadratic and non-invertible, so we must
+        # skip this injection entirely.
         if (
-            xk is not None
+            RLINEAR
+            and xk is not None
             and xk != x_here
             and xk_is_fp_point(xk, G_poly)
         ):

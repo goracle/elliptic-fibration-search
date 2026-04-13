@@ -752,6 +752,12 @@ def _solve_worker_wrapper(args):
         num_coeffs, den_coeffs = rhs_reconstruction[rhs_idx]
 
         t0 = time.time()
+        # Key on (x_val, rhs_idx) rather than x_val alone.  Without rhs_idx in
+        # the key, a second RHS entry (rhs_idx=1, the xk equation) that happens
+        # to produce the same x_val as rhs_idx=0 would silently overwrite the
+        # first entry.  More importantly, when both RHS values differ we need to
+        # keep them separate so _candidates_from_residues can tell whether x_val
+        # is an xj-root or an xk-root and set roles correctly.
         x_res_to_sols = {}
 
         for m_root in roots:
@@ -795,38 +801,43 @@ def _solve_worker_wrapper(args):
                         f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
                     )
 
-                # Compute yj_sign: compare v(xj) = v0 + v1*xj against the
-                # canonical positive square root of f(xj) mod p.
+                # Compute x_val_sign: compare v(x_val) against the canonical
+                # positive square root of f(x_val) mod p.
+                # x_val is xj when rhs_idx=0, xk when rhs_idx=1.
+                # enrich_candidates assigns this to yj_sign or yk_sign accordingly.
                 # Canonical root = min(y, p-y) for odd p (matches Sage's sqrt()).
-                # yj_sign = +1 if v(xj) is the canonical root, -1 if it's the other.
-                yj_v = (v0 + v1 * x_val) % p
+                xv_v = (v0 + v1 * x_val) % p
                 rhs_val = 0
                 for i, c in enumerate(f_coeffs_ints):
                     rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
                 if rhs_val == 0:
-                    canonical_yj = 0
+                    canonical_xv = 0
                 elif (p % 4) == 3:
-                    canonical_yj = pow(rhs_val, (p + 1) // 4, p)
-                    canonical_yj = min(canonical_yj, p - canonical_yj)
+                    canonical_xv = pow(rhs_val, (p + 1) // 4, p)
+                    canonical_xv = min(canonical_xv, p - canonical_xv)
                 else:
                     # p ≡ 1 mod 4: find sqrt by checking both candidates from
                     # the two square root values; use min convention.
                     sq = pow(rhs_val, (p + 1) // 4, p)
                     if (sq * sq) % p == rhs_val:
-                        canonical_yj = min(sq, p - sq)
+                        canonical_xv = min(sq, p - sq)
                     else:
-                        # Tonelli-Shanks needed; fall back to treating v(xj) as canonical.
-                        canonical_yj = min(yj_v, p - yj_v) if yj_v != 0 else 0
+                        # Tonelli-Shanks needed; fall back to treating v(x_val) as canonical.
+                        canonical_xv = min(xv_v, p - xv_v) if xv_v != 0 else 0
 
-                yj_canonical = min(yj_v, p - yj_v) if yj_v != 0 else 0
-                yj_sign = 1 if yj_canonical == canonical_yj else -1
+                xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
+                x_val_sign = 1 if xv_canonical == canonical_xv else -1
 
-                # Store (mumford_tuple, yj_sign, v0, v1) so downstream can
-                # recover yk_sign via v(xk) = v0 + v1*xk.
-                verified_sols.append((sol, yj_sign, int(v0), int(v1)))
+                # Store (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx) so
+                # downstream can:
+                #   - assign x_val_sign to yj_sign (rhs_idx=0) or yk_sign (rhs_idx=1)
+                #   - recover the other sign via v(other_coord) = v0 + v1*other_coord
+                #   - use m_root directly in compute_xk_from_fiber (RLINEAR=False)
+                #   - distinguish xj-RHS (rhs_idx=0) from xk-RHS (rhs_idx=1)
+                verified_sols.append((sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx)))
 
             if verified_sols:
-                x_res_to_sols[x_val] = verified_sols
+                x_res_to_sols[(x_val, rhs_idx)] = verified_sols
 
         mumford_time = time.time() - t0
         item_time = time.time() - item_start
@@ -840,7 +851,11 @@ def _solve_worker_wrapper(args):
             sys.stderr.flush()
 
         if x_res_to_sols:
-            p_results[v_tuple] = x_res_to_sols
+            # Merge into any existing entry for this v_tuple rather than
+            # overwriting — a prior rhs_idx pass may have already stored results.
+            if v_tuple not in p_results:
+                p_results[v_tuple] = {}
+            p_results[v_tuple].update(x_res_to_sols)
 
     chunk_time = time.time() - chunk_start
     if chunk_time > 1.0:

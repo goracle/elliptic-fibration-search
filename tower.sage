@@ -1085,7 +1085,13 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
 
     # ---- REPLACE lines 1086-1121 with this block ----
 
-    r_expr = Fm(base_field(x1)) - m_symbol
+    if RLINEAR:
+        r_expr = Fm(base_field(x1)) - m_symbol
+    else:
+        # Quadratic rail: r(m) = x1 - m + m^2
+        # c=1 keeps things field-native; tweak if a specific c is preferred.
+        _c_ff = Fm(base_field(1))
+        r_expr = Fm(base_field(x1)) - m_symbol + _c_ff * m_symbol**2
 
     fx_at_r = _build_one_eval_poly_at(fx_field, r_expr, Fm)
     q2_at_r = _build_one_eval_poly_at(Q2, r_expr, Fm)
@@ -1213,10 +1219,15 @@ def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
     else:
         m = SR(parameter_m) if not isinstance(parameter_m, type(SR(parameter_m))) else parameter_m
 
-    if FINITE_FIELD is None:
-        r_expr = SR(xs_chosen[0]) - m
+    if RLINEAR:
+        if FINITE_FIELD is None:
+            r_expr = SR(xs_chosen[0]) - m
+        else:
+            r_expr = SR(int(xs_chosen[0])) - m
     else:
-        r_expr = SR(int(xs_chosen[0])) - m
+        # Quadratic rail: r(m) = x1 - m + RLINEAR_C * m^2
+        x1_val = SR(xs_chosen[0]) if FINITE_FIELD is None else SR(int(xs_chosen[0]))
+        r_expr = x1_val - m + SR(RLINEAR_C) * m**2
 
     eqs = [diff_poly.subs({xSR: r_expr}), kth_derivative(diff_poly, 1, xSR).subs({xSR: r_expr})]
     unknowns = rest_coeff_syms[:]

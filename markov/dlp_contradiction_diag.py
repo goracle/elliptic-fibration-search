@@ -398,6 +398,288 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
         _log(f"  trial {trial+1}: nullity={null_sub}  delta={delta:+d}{flag}")
 
 
+def incremental_consistency_filter(
+    M_ZZ, atoms, group_order,
+    col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1,
+):
+    """
+    Check 4: Incremental consistency filter.
+
+    Seed the augmented system with gauge + anchor (a[inf]=0, a[gen0]=1),
+    then present walk rows one by one in their original order.  For each row,
+    reduce it against the current row echelon form:
+
+      - If the augmented row [walk_row | 0] reduces to zero: dependent,
+        consistent — add it (it tightens the space) or skip (doesn't matter
+        for rank).  We add it to the echelon to tighten future reductions.
+      - If the row-part reduces to nonzero and the affine part is also zero:
+        new independent consistent row — extend the echelon.
+      - If the row-part reduces to zero but the affine part is nonzero:
+        CONTRADICTION — this row is inconsistent with the current system.
+        Log it and skip it (do not add to echelon).
+
+    Reports:
+      - Step index of first contradiction
+      - Total good / bad row counts
+      - Atom frequency histogram: bad rows vs good rows (top 15)
+      - Coefficient patterns in bad rows
+
+    Implementation: pure Python over GF(p), O(n_cols) per row after pivot
+    setup.  Fast enough for 7k rows × 4k cols.
+    """
+    _section("CHECK 4: INCREMENTAL CONSISTENCY FILTER")
+
+    n   = group_order
+    Fp  = GF(Integer(n))
+    p   = int(n)
+
+    # --- build pruned matrix (column prune only, rows unchanged) ---
+    protected = [a for a in [
+        atoms[col_gen0] if col_gen0 is not None else None,
+        atoms[col_gen1] if col_gen1 is not None else None,
+        atoms[col_tgt0] if col_tgt0 is not None else None,
+        atoms[col_tgt1] if col_tgt1 is not None else None,
+    ] if a is not None]
+    M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col]))
+
+    p_col_inf  = remap(col_inf)
+    p_col_gen0 = remap(col_gen0)
+    p_col_gen1 = remap(col_gen1)
+    p_col_tgt0 = remap(col_tgt0)
+    p_col_tgt1 = remap(col_tgt1)
+
+    n_rows = M_pruned.nrows()
+    n_cols = M_pruned.ncols()
+
+    _log(f"  Matrix (pruned): {n_rows} rows × {n_cols} cols  over GF({p})")
+
+    # --- incremental row echelon over GF(p) in plain Python lists ---
+    # Each entry in `pivots` maps pivot_col -> (pivot_row_data, rhs_val)
+    # where pivot_row_data is a list of ints length n_cols, normalised so
+    # pivot_row_data[pivot_col] == 1.
+    # rhs is a single int (the affine component).
+    pivots = {}   # col_index -> (row_as_list[int], rhs_int)
+
+    def _row_from_matrix(i):
+        return [int(M_pruned[i, j]) % p for j in range(n_cols)]
+
+    def _reduce(row, rhs):
+        """Reduce (row, rhs) against current pivot set.  Returns (row', rhs') mod p."""
+        for pc, (prow, prhs) in pivots.items():
+            coeff = row[pc] % p
+            if coeff == 0:
+                continue
+            # row -= coeff * prow
+            row = [(row[j] - coeff * prow[j]) % p for j in range(n_cols)]
+            rhs = (rhs - coeff * prhs) % p
+        return row, rhs
+
+    def _add_pivot(row, rhs):
+        """Find first nonzero in row, normalise, insert into pivots."""
+        for j in range(n_cols):
+            if row[j] % p != 0:
+                inv = pow(row[j], p - 2, p)
+                norm_row = [(row[k] * inv) % p for k in range(n_cols)]
+                norm_rhs = (rhs * inv) % p
+                pivots[j] = (norm_row, norm_rhs)
+                return
+        # row is all-zero — nothing to pivot on
+
+    # --- seed with gauge and anchor ---
+    if p_col_inf is not None:
+        gauge = [0] * n_cols
+        gauge[p_col_inf] = 1
+        _add_pivot(gauge, 0)
+        _log(f"  Seeded: gauge a[∞]=0  (col {p_col_inf})")
+
+    if p_col_gen0 is not None:
+        anchor = [0] * n_cols
+        anchor[p_col_gen0] = 1
+        _add_pivot(anchor, 1)      # rhs=1 encodes a[gen0]=1
+        _log(f"  Seeded: anchor a[gen0]=1  (col {p_col_gen0})")
+    else:
+        _log("  ⚠  gen0 column absent after prune — anchor not seeded.")
+
+    _log(f"  Processing {n_rows} walk rows in step order ...\n")
+
+    good_rows  = []   # row indices accepted into echelon
+    bad_rows   = []   # row indices that contradicted current system
+    dep_rows   = []   # row indices that were dependent (zero after reduction)
+
+    first_bad  = None
+
+    for i in range(n_rows):
+        row = _row_from_matrix(i)
+        rhs = 0   # walk relations are homogeneous: A*x = 0
+        row_r, rhs_r = _reduce(row, rhs)
+
+        row_zero = all(v == 0 for v in row_r)
+
+        if row_zero:
+            if rhs_r % p == 0:
+                dep_rows.append(i)
+                # Still extend echelon — doesn't help rank but costs nothing to skip
+            else:
+                # row reduces to 0 on LHS but nonzero on RHS: 0 = nonzero → contradiction
+                bad_rows.append(i)
+                if first_bad is None:
+                    first_bad = i
+        else:
+            # Independent consistent row: extend echelon
+            _add_pivot(row_r, rhs_r)
+            good_rows.append(i)
+
+    _log(f"  Results:")
+    _log(f"    Good (independent, consistent) : {len(good_rows)}")
+    _log(f"    Bad  (contradiction)           : {len(bad_rows)}")
+    _log(f"    Dependent (zero reduction)     : {len(dep_rows)}")
+    _log(f"    First contradiction at row     : {first_bad}")
+
+    if not bad_rows:
+        _log("\n  ✓  No contradictions found in incremental filter.")
+        _log("     System is consistent with anchor when rows added in step order.")
+        return
+
+    # --- atom frequency: bad vs good ---
+    special_names = {}
+    for nm, pc in [("inf", p_col_inf), ("gen0", p_col_gen0), ("gen1", p_col_gen1),
+                   ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]:
+        if pc is not None:
+            special_names[pc] = nm
+
+    def _atom_freq(row_list, label, top=15):
+        freq = {}
+        for i in row_list:
+            for j in range(n_cols):
+                if int(M_pruned[i, j]) % p != 0:
+                    key = str(pruned_atoms[j])
+                    freq[key] = freq.get(key, 0) + 1
+        top_items = sorted(freq.items(), key=lambda kv: -kv[1])[:top]
+        _log(f"\n  Atom frequency ({label}, top {top}):")
+        for atom, cnt in top_items:
+            col = pruned_aidx.get(atom)
+            sp = f"  [{special_names[col]}]" if col in special_names else ""
+            _log(f"    {atom:>8}  {cnt:5d} rows{sp}")
+        return freq
+
+    bad_freq  = _atom_freq(bad_rows,  f"{len(bad_rows)} bad rows")
+    good_freq = _atom_freq(good_rows, f"{len(good_rows)} good rows")
+
+    # --- coefficient patterns in bad rows ---
+    _log(f"\n  Coefficient patterns in bad rows (first 20):")
+    _log(f"  {'row':>6}  atoms_in_row")
+    for i in bad_rows[:20]:
+        row_atoms = [(str(pruned_atoms[j]), int(M_pruned[i, j]))
+                     for j in range(n_cols) if int(M_pruned[i, j]) % p != 0]
+        _log(f"  {i:6d}  {row_atoms}")
+    if len(bad_rows) > 20:
+        _log(f"  ... and {len(bad_rows) - 20} more bad rows")
+
+    # --- enrichment: atoms over-represented in bad vs good ---
+    _log(f"\n  Atoms enriched in bad rows vs good rows (bad_rate / good_rate, top 10):")
+    n_bad  = max(len(bad_rows),  1)
+    n_good = max(len(good_rows), 1)
+    enrichment = []
+    all_atoms = set(bad_freq) | set(good_freq)
+    for atom in all_atoms:
+        br = bad_freq.get(atom,  0) / n_bad
+        gr = good_freq.get(atom, 0) / n_good
+        if gr > 0:
+            enrichment.append((atom, br / gr, br, gr))
+        elif br > 0:
+            enrichment.append((atom, float("inf"), br, gr))
+    enrichment.sort(key=lambda x: -x[1])
+    for atom, ratio, br, gr in enrichment[:10]:
+        col = pruned_aidx.get(atom)
+        sp  = f"  [{special_names[col]}]" if col in special_names else ""
+        ratio_str = f"{ratio:.2f}" if ratio != float("inf") else "inf (absent in good)"
+        _log(f"    {atom:>8}  enrichment={ratio_str}  bad_rate={br:.4f}  good_rate={gr:.4f}{sp}")
+
+
+def farkas_delete_rerun(
+    M_ZZ, atoms, aidx, group_order,
+    farkas_walk_rows,
+    col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1,
+    known_key=None,
+):
+    """
+    Delete the walk rows that appeared in the Farkas certificate and re-run
+    all three checks on the reduced matrix.
+
+    This experiment answers: is the contradiction localized to that certificate
+    subset, or is it globally encoded throughout the walk data?
+
+    Expected outcomes:
+      - System becomes consistent, nullity >= 2, gen/tgt no longer k=1
+        → contradiction was concentrated; those relations are the bad core.
+      - System stays inconsistent or gen/tgt remain k=1
+        → contradiction is globally encoded; removing one certificate
+          witness only exposes the next one.
+    """
+    _log(f"\n{'#'*70}")
+    _log("# FARKAS-DELETE RE-RUN")
+    _log(f"#  Deleting {len(farkas_walk_rows)} certificate walk row(s) from M_ZZ")
+    _log(f"{'#'*70}")
+
+    n_orig = M_ZZ.nrows()
+    farkas_set = set(farkas_walk_rows)
+    keep = [i for i in range(n_orig) if i not in farkas_set]
+    M_reduced = M_ZZ.matrix_from_rows(keep)
+    _log(f"  Original rows: {n_orig}  →  Reduced rows: {M_reduced.nrows()}"
+         f"  (deleted {len(farkas_walk_rows)} rows)")
+
+    # --- Check 1 on reduced matrix ---
+    if known_key is not None:
+        check_homogeneous(
+            M_reduced, atoms, aidx, group_order,
+            known_key, col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf,
+        )
+    else:
+        _section("CHECK 1 (reduced): HOMOGENEOUS SYSTEM  (no --known-key)")
+        Fp = GF(Integer(group_order))
+        A = M_reduced.change_ring(Fp)
+        null = A.right_kernel().dimension()
+        _log(f"  rows={M_reduced.nrows()}  cols={M_reduced.ncols()}"
+             f"  rank={A.rank()}  nullity={null}")
+
+    # --- Check 2 on reduced matrix ---
+    cert_entries2, farkas_walk_rows2 = extract_contradiction_certificate(
+        M_reduced, atoms, group_order,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+    )
+    if not cert_entries2:
+        _log("\n  [farkas-delete] Reduced system is CONSISTENT after deletion.")
+        _log("  Contradiction was localized to the certificate rows.")
+    else:
+        _log(f"\n  [farkas-delete] Reduced system still INCONSISTENT."
+             f"  New certificate uses {len(farkas_walk_rows2)} walk row(s).")
+        overlap = farkas_set & set(farkas_walk_rows2)
+        _log(f"  Overlap with deleted rows: {len(overlap)}  "
+             f"(should be 0 — deleted rows are gone)")
+
+    # --- Check 3 on reduced matrix ---
+    check_structural_collapse(
+        M_reduced, atoms, group_order,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+        col_tgt0=col_tgt0,
+        col_tgt1=col_tgt1,
+    )
+
+    _log(f"\n{'#'*70}")
+    _log("# FARKAS-DELETE RE-RUN COMPLETE")
+    _log(f"{'#'*70}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Analyse a failed DLP solve from an HDF5 relation-matrix dump."
@@ -415,6 +697,9 @@ def main(argv=None):
                     help="Column index of tgt0 atom (overrides HDF5 metadata)")
     ap.add_argument("--col-tgt1",    type=int, default=None,
                     help="Column index of tgt1 atom (overrides HDF5 metadata)")
+    ap.add_argument("--farkas-delete", action="store_true",
+                    help="After extracting the certificate, delete those walk rows "
+                         "and re-run all checks on the reduced matrix.")
     args = ap.parse_args(argv)
 
     if not Path(args.hdf5_path).exists():
@@ -468,13 +753,12 @@ def main(argv=None):
         _log(f"  rows={M_ZZ.nrows()}  cols={M_ZZ.ncols()}  rank={rank_hom}  nullity={null_hom}")
 
     # --- Check 2 ---
-    extract_contradiction_certificate(
+    cert_entries, farkas_walk_rows = extract_contradiction_certificate(
         M_ZZ, atoms, group_order,
         col_inf=col_inf,
         col_gen0=col_gen0,
         col_gen1=col_gen1,
     )
-
 
     # --- Check 3 ---
     check_structural_collapse(
@@ -485,6 +769,30 @@ def main(argv=None):
         col_tgt0=col_tgt0,
         col_tgt1=col_tgt1,
     )
+
+    # --- Check 4: incremental consistency filter (always runs) ---
+    incremental_consistency_filter(
+        M_ZZ, atoms, group_order,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+        col_tgt0=col_tgt0,
+        col_tgt1=col_tgt1,
+    )
+
+    if args.farkas_delete and farkas_walk_rows:
+        farkas_delete_rerun(
+            M_ZZ, atoms, aidx, group_order,
+            farkas_walk_rows,
+            col_inf=col_inf,
+            col_gen0=col_gen0,
+            col_gen1=col_gen1,
+            col_tgt0=col_tgt0,
+            col_tgt1=col_tgt1,
+            known_key=known_key,
+        )
+    elif args.farkas_delete:
+        _log("\n[farkas-delete] No walk rows in certificate — nothing to delete.")
 
     _log(f"\n{'#'*70}")
     _log("# DIAGNOSTICS COMPLETE")
@@ -949,7 +1257,8 @@ def extract_contradiction_certificate(
         for atom, freq in top_atoms:
             _log(f"    {atom:>8}  appears in {freq} certificate row(s)")
 
-    return nonzero_entries
+    walk_row_indices = sorted({i for i, _ in walk_entries})
+    return nonzero_entries, walk_row_indices
 
 def _build_balanced_anchor_row(Fp, n_cols, col_gen0, col_gen1, col_inf):
     """

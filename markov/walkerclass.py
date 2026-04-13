@@ -260,7 +260,13 @@ def build_project_tower_context_for_point(
     if _fi_sym is not None and not _is_ff_mode:
         S_of_m_sym, _inter_sym = compute_S_of_m(_fi_sym, shifted_G_poly, _curve_degree_sym)
         assert S_of_m_sym, S_of_m_sym
-        if S_of_m_sym is not None:
+        if S_of_m_sym is not None and RLINEAR:
+            # xk(m) = S(m) - (d-1)*xi - xj(m)
+            # Under the linear model xj(m) = xi - m, so xj(m) = -m, giving:
+            #   xk(m) = S(m) - (d-1)*xi + m
+            # This substitution is only valid when RLINEAR=True.  When RLINEAR=False
+            # the RHS is quadratic in m and xj(m) is not xi - m, so this expression
+            # for xk would be wrong and must not be added to the search RHS list.
             # S_of_m_sym lives in Frac(Fp[m]); xi is a constant in Fp.
             # Lift xi into the same base ring.
             _base = S_of_m_sym.parent()   # Frac(Fp[m])
@@ -861,8 +867,6 @@ class Genus2MetropolisWalker:
         for key in ("intersection_poly", "fiber_poly", "intersection", "poly_x"):
             if key in step and step[key] is not None:
                 return step[key]
-            else:
-                assert None, (step, key)
         return None
 
     def _choose_between(self, xj, xk, context: Dict[str, Any]):
@@ -1100,7 +1104,17 @@ class Genus2MetropolisWalker:
         Raises AssertionError immediately on the first violation found.
 
         Returns the number of (xi, xj) pairs that passed the check.
+
+        NOTE: the involution uses m = xi - xj, which is only valid when the
+        search RHS is linear in m (RLINEAR=True).  When RLINEAR=False this
+        method returns 0 immediately without checking anything.
         """
+        if not RLINEAR:
+            print(
+                "[close_under_involution] skipped: RLINEAR=False, "
+                "m = xi - xj inversion is not valid for a quadratic RHS."
+            )
+            return 0
         deg = self.config.curve_degree
         xi_mult = deg - 2
 
@@ -1333,7 +1347,8 @@ class Genus2MetropolisWalker:
         xj = chosen.get("xj")
         xk = chosen.get("xk")
 
-        if xj is None and m_val is not None:
+        if xj is None and m_val is not None and RLINEAR:
+            # xj = xi - m is only valid under the linear RHS model.
             xj = self._candidate_xj_from_m(self.current_x, m_val)
 
         if xj is None and "x" in chosen:
@@ -1363,13 +1378,19 @@ class Genus2MetropolisWalker:
                 _chosen_for_recover['intersection_poly'] = search_out['intersection_poly']
 
         if xk is None and xj is not None:
-            xk, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
-            if chosen_xi_mult < 0:
-                chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
+            if self.base_ring(self.current_x) == self.base_ring(0):
+                pass  # xi=0: xk unknowable by design, skip recovery
+            else:
+                xk, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
+                if chosen_xi_mult < 0:
+                    chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
         elif chosen_xi_mult < 0 and xk is not None and xj is not None:
             # xk already known from candidate dict; compute xi_mult from the poly if available.
-            _, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
-            chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
+            # Skip entirely if there's no intersection poly — xi_mult will stay -1 (sentinel),
+            # which relation_matrix handles via its curve_degree-2 default.
+            if _chosen_for_recover.get('intersection_poly') is not None:
+                _, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
+                chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
 
         if xj is None:
             raise RuntimeError(
@@ -1450,6 +1471,16 @@ class Genus2MetropolisWalker:
 
         m_roots = self._solve_m_roots(step)
         assert m_roots, m_roots
+
+        if not RLINEAR:
+            # Under a quadratic RHS, xj = xi - m does not hold; xj must come from
+            # the candidate records directly.  The direct step_factory path doesn't
+            # support RLINEAR=False — fall through to the search_fn branch instead.
+            raise RuntimeError(
+                "direct step() path (step_factory) does not support RLINEAR=False: "
+                "xj cannot be recovered from m via xi - m when the RHS is quadratic. "
+                "Supply a search_fn that returns explicit xj values in candidate records."
+            )
 
         xj_candidates = [self._candidate_xj_from_m(self.current_x, m_val) for m_val in m_roots]
         assert xj_candidates, xj_candidates
@@ -1913,6 +1944,12 @@ class Genus2MetropolisWalker:
         if not self.preferred_xs and not self.preferred_xs_budget:
             return 0
 
+        # Synthetic injection inverts xj = xi - m  =>  m = xi - t, which is only
+        # valid when the search RHS is linear in m.  When RLINEAR=False the RHS is
+        # quadratic and the inversion is undefined, so skip entirely.
+        if not RLINEAR:
+            return 0
+
         fi, G_poly = self._get_fiber_context_for_rec(accepted_rec)
         if fi is None or G_poly is None:
             # No fiber context available — fall back to S(m) shortcut with default xi_mult.
@@ -2116,12 +2153,14 @@ class Genus2MetropolisWalker:
 
     def _recover_xk(self, step: Dict[str, Any], xi, xj):
         """Return (xk, actual_xi_mult) where actual_xi_mult is the true multiplicity
-        of xi in the fiber intersection poly (not assumed to be curve_degree-2)."""
+        of xi in the fiber intersection poly (not assumed to be curve_degree-2).
+
+        Returns (None, -1) when no intersection poly is available in the step dict
+        (e.g. xk_head candidates whose sibling poly could not be found in the pool).
+        """
         poly = self._intersection_poly_from_step(step)
-        assert poly, poly
         if poly is None:
-            assert None, None
-            return None, None
+            return None, -1
 
         # Determine actual xi multiplicity from the poly roots.
         roots_wm = poly_roots_with_multiplicity(poly)  # [(root, mult), ...]
@@ -2273,19 +2312,33 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
                             break
                 if S_of_m is not None:
                     print(f"  S(m) symbolic            = {S_of_m}")
-                    print(
-                        "  recurrence (symbolic)    = "
-                        f"xk(m) = S(m) - {xi_mult}*{rec.xi} - xj(m)"
-                        f"      [xj(m) = {rec.xi} - m]"
-                    )
+                    if RLINEAR:
+                        print(
+                            "  recurrence (symbolic)    = "
+                            f"xk(m) = S(m) - {xi_mult}*{rec.xi} - xj(m)"
+                            f"      [xj(m) = {rec.xi} - m]"
+                        )
+                    else:
+                        print(
+                            "  recurrence (symbolic)    = "
+                            f"xk(m) = S(m) - {xi_mult}*{rec.xi} - xj(m)"
+                            f"      [xj(m) != xi - m: RLINEAR=False, RHS is quadratic]"
+                        )
                 else:
                     print(f"  S(m) symbolic            = <unavailable — fi not in step payload>")
-                    print(
-                        "  recurrence preview       = "
-                        f"xj = xi - m,  "
-                        f"xk = ({total_root_sum}) - ({xi_mult}*xi + xj)"
-                        f"  [S={total_root_sum} is numeric, m already substituted]"
-                    )
+                    if RLINEAR:
+                        print(
+                            "  recurrence preview       = "
+                            f"xj = xi - m,  "
+                            f"xk = ({total_root_sum}) - ({xi_mult}*xi + xj)"
+                            f"  [S={total_root_sum} is numeric, m already substituted]"
+                        )
+                    else:
+                        print(
+                            "  recurrence preview       = "
+                            f"xk = ({total_root_sum}) - ({xi_mult}*xi + xj)"
+                            f"  [S={total_root_sum} is numeric, m already substituted; RLINEAR=False]"
+                        )
 
             except Exception as exc:
                 print(f"  Vieta diagnostic failed: {exc}")

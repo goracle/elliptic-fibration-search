@@ -177,8 +177,7 @@ def _build_walker(
         search_fn=search_fn,
         log_path=log_path,
         log_full_candidates=True,
-        # preferred_xs intentionally omitted: no leaf injection of divisor seeds.
-        # The system must evolve organically without steering toward known atoms.
+        preferred_xs=PREFERRED_X_COORDS
     )
 
 # ---------------------------------------------------------------------------
@@ -237,6 +236,10 @@ def _collision_path_dlp(
         _log(f"[collision_dlp] generator roots: {gen_x}, {gen_partner_x}")
         _log(f"[collision_dlp] target    roots: {target_x_override}, {target_partner_x}")
 
+    protected = set()
+    for x in (gen_x, gen_partner_x, target_x_override, target_partner_x):
+        if x is not None:
+            protected.add(int(x))
     return dlp_from_merged_walks(
         walker_a, walker_b,
         target_x=target_x_override,
@@ -245,6 +248,7 @@ def _collision_path_dlp(
         generator_x_partner=gen_partner_x,
         target_x_partner=target_partner_x,
         verbose=verbose,
+        protected=protected,
     )
 
 # ---------------------------------------------------------------------------
@@ -266,7 +270,7 @@ def main(argv=None):
     ap.add_argument("--checkpoint-every", type=int, default=500)
     ap.add_argument("--max-n",     type=int, default=80)
     ap.add_argument("--num-subsets", type=int, default=None)
-    ap.add_argument("--num-workers", type=int, default=16)
+    ap.add_argument("--num-workers", type=int, default=20)
     # DLP options
     ap.add_argument("--dlp",        action="store_true",
                     help="Attempt DLP solve from merged relation matrices after the run")
@@ -421,11 +425,13 @@ def main(argv=None):
             base_points=_bp(x0), verbose=False, log_path=log_path,
             search_fn=search_fn,
         )
-        # Nullity-derived injection disabled: walk evolves organically.
-        # (preferred_xs_budget intentionally left empty)
-        # for x in _nullity_xs:
-        #     if str(x) not in {str(x) for x in w.preferred_xs}:
-        #         w.preferred_xs_budget[x] = 2
+        # Inject nullity-derived atoms with a finite budget so they are visited
+        # at most twice as xj targets and then discarded.  Divisor seeds stay in
+        # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
+        existing_preferred_strs = {str(x) for x in w.preferred_xs}
+        for x in _nullity_xs:
+            if str(x) not in existing_preferred_strs:
+                w.preferred_xs_budget[x] = 2
 
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
@@ -508,6 +514,7 @@ def main(argv=None):
                 generator_x_partner=x0_b,
                 target_x_partner=target_x_partner,
                 verbose=True,
+                protected=set(int(x) for x in divisor_xs),
             )
             metrics["dlp"] = dlp_result
             _log(f"[dlp] result: {dlp_result}")
@@ -993,7 +1000,7 @@ def _dlp_union_columns(mats, atom_lists, verbose: bool):
 
     return M_combined, all_atoms_ordered, atom_index, ranks
 
-def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
+def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool, protected=None):
     """Step 3: Drop dest-only (pendant) columns and their single incident rows.
 
     A dest-only atom appears only as xj/xk (coefficient 1), never as xi
@@ -1003,10 +1010,12 @@ def _dlp_prune(M_combined, all_atoms_ordered: list, verbose: bool):
     (b) removes the rows that only served those leaves, and (c) strictly
     reduces nullity without affecting the DLP solution for any non-pruned atom.
 
+    protected: set of atoms that must survive pruning (e.g. divisor roots).
+
     Returns (M_pruned, pruned_atoms, pruned_atom_index).
     """
 
-    M_pruned, pruned_atoms, removed = prune_dest_only(M_combined, all_atoms_ordered)
+    M_pruned, pruned_atoms, removed = prune_dest_only(M_combined, all_atoms_ordered, protected=protected)
     if removed and verbose:
         _log(
             f"[dlp_list] pruned {len(removed)} dest-only atoms "
@@ -1343,6 +1352,7 @@ def dlp_from_merged_walks(
     generator_x_partner=None,
     target_x_partner=None,
     verbose: bool = True,
+    protected=None,
 ):
     """DLP solve from the union of all walkers' relation matrices.
 
@@ -1390,7 +1400,7 @@ def dlp_from_merged_walks(
     # 3. Prune dest-only pendant columns/rows before resolving column indices.
     #    target_col/gen_col must be resolved against the post-prune atom_index.
     M_combined, all_atoms_ordered, atom_index = _dlp_prune(
-        M_combined, all_atoms_ordered, verbose
+        M_combined, all_atoms_ordered, verbose, protected=protected
     )
     n_cols = len(all_atoms_ordered)
     result["n_cols"] = n_cols
