@@ -500,20 +500,19 @@ def _solve_worker_wrapper(args):
     Worker with fail-fast error handling and detailed diagnostics.
 
     task tuple:
-      (p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, rail_xi_hint)
+      (p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction)
 
-    const_val_int is still passed through for solver setup, but rail checking
-    uses rail_xi_hint if available, or infers xi from the linear xj RHS.
+    rhs_reconstruction holds the Weierstrass phi_x(m) rational functions
+    reduced mod p, as (num_coeffs, den_coeffs) pairs.  Roots of
+    Pm[0] - Pm[2]*rhs_poly give candidate m values; evaluating rhs at
+    those m gives the Weierstrass x_val fed into the Mumford solver.
     """
-    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, rail_xi_hint = args
+    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction = args
 
     assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
     assert f_coeffs_ints, "Empty f_coeffs"
     assert chunk_items, "Empty chunk_items"
     assert rhs_reconstruction, "Empty rhs_reconstruction"
-
-    if rail_xi_hint is None:
-        rail_xi_hint = _infer_rail_xi_from_rhs_reconstruction(rhs_reconstruction, p)
 
     roots_cache = {}
     p_results = {}
@@ -582,6 +581,7 @@ def _solve_worker_wrapper(args):
                         f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
                     )
 
+                # Determine which square root of f(x_val) the section lands on.
                 xv_v = (v0 + v1 * x_val) % p
                 rhs_val = 0
                 for i, c in enumerate(f_coeffs_ints):
@@ -601,28 +601,6 @@ def _solve_worker_wrapper(args):
 
                 xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
                 x_val_sign = 1 if xv_canonical == canonical_xv else -1
-
-                rail_xi = rail_xi_hint
-                rail_xi_source = "hint" if rail_xi_hint is not None else "inferred/unknown"
-                if rail_xi is None:
-                    rail_xi = int(const_val_int) % p
-                    rail_xi_source = "const_fallback"
-
-                rail_x = (int(rail_xi) - int(m_root)) % p
-                if x_val != rail_x:
-                    diag = _rail_hypothesis_diagnostics(
-                        p=p,
-                        xi_val=rail_xi,
-                        m_root=m_root,
-                        x_val=x_val,
-                        rhs_idx=rhs_idx,
-                        v_tuple=v_tuple,
-                        coeff_degree=len(coeff_key) - 1,
-                        sol=sol,
-                        roots=roots,
-                        rail_xi_source=rail_xi_source,
-                    )
-                    _raise_rail_hypothesis_violation(diag)
 
                 verified_sols.append((sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx)))
 
@@ -688,9 +666,6 @@ def mumford_precompute_residues_parallel(
     f_coeffs = eqs_dict["f_coeffs"]
     f_coeffs_ints = [int(c) for c in f_coeffs]
     const_val_int = int(QQ(eqs_dict["const"]))
-    rail_xi_hint = eqs_dict.get("rail_xi", None)
-    if rail_xi_hint is not None:
-        rail_xi_hint = int(rail_xi_hint)
 
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
@@ -798,7 +773,6 @@ def mumford_precompute_residues_parallel(
                             current_chunk,
                             const_val_int,
                             rhs_reconstruction,
-                            rail_xi_hint,
                         )
                         tasks_with_metadata.append((current_chunk_degree, task))
                         current_chunk = []
@@ -816,7 +790,6 @@ def mumford_precompute_residues_parallel(
                 current_chunk,
                 const_val_int,
                 rhs_reconstruction,
-                rail_xi_hint,
             )
             tasks_with_metadata.append((current_chunk_degree, task))
 

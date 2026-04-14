@@ -255,14 +255,17 @@ def build_project_tower_context_for_point(
         if S_of_m is not None:
             try:
                 _base = S_of_m.parent()           # Frac(GF(p)[m])
-                _xj_rhs = _base(search_rhs_list[0])
+                _xj_rhs = _base(r_m)
                 _xi_lifted = _base(xi)
-                xk_rhs = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
-                search_rhs_list = list(search_rhs_list) + [xk_rhs]
+                xk = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
+                lastrhs = E_rhs_m(x=xk)
+                last_phi_x = get_phi_x(one, two, three, xk, lastrhs)
+                search_rhs_list = list(search_rhs_list) + [last_phi_x]
             except Exception as e:
                 print(f"[build_project_tower_context] warning: could not build xk RHS: {e}")
+                raise
 
-    assert len(search_rhs_list) >= 1, search_rhs_list
+    assert len(search_rhs_list) > 1, search_rhs_list
 
     testfunc, shift = setup_rationality_test_function(shift, T, T_inv)
 
@@ -303,6 +306,7 @@ def build_project_tower_context_for_point(
         'xi': xi,
         'yi': yi,
     }
+
 
 def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) -> List[Any]:
     """Fallback collector for x-like payloads in legacy return values.

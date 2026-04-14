@@ -378,7 +378,7 @@ def _candidates_from_residues(residues, p):
             # For rhs_idx=1: x_val is xk, x_val_sign is yk_sign.
             # enrich_candidates will swap roles for rhs_idx=1 and recover the missing sign.
             records.append({
-                "xj": int(x_val),       # role depends on rhs_idx; enrich_candidates fixes up if rhs_idx=1
+                "xj": None,             # Weierstrass x_val discarded; enrich_candidates reconstructs from m
                 "yj_sign": x_val_sign,  # really yk_sign when rhs_idx=1; enrich_candidates corrects this
                 "v0": v0,
                 "v1": v1,
@@ -975,7 +975,20 @@ def enrich_candidates(
             rec['yk_sign'] = rec.pop('yj_sign', 1)
             # yj_sign for the yet-to-be-recovered xj will be set below via v(xj).
 
+        # Recover xj in quartic frame from m before degenerate check.
+        # "xj" arrives as None for Mumford-sourced records (Weierstrass x_val discarded).
         xj = rec.get('xj')
+        if xj is None and rec.get('m') is not None and RLINEAR and rhs_idx == 0:
+            rec['xj'] = x_here - rec['m']
+            xj = rec['xj']
+        elif rec.get('m') is None and xj is not None and RLINEAR:
+            rec['m'] = x_here - xj  # fallback for non-Mumford records
+
+        if xj is not None and xj == x_here:
+            continue
+        if rhs_idx == 1 and rec.get('xk') == x_here:
+            continue
+
 
         if xj is not None and xj == x_here:
             continue
