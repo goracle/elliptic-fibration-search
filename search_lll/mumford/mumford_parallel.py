@@ -495,6 +495,163 @@ def _print_ff_reject(diag, reason, extra=None):
     sys.stderr.write("  " + " ".join(parts) + "\n")
     sys.stderr.flush()
 
+def _solve_worker_wrapper(args):
+    """
+    Worker with fail-fast error handling and detailed diagnostics.
+
+    task tuple:
+      (p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, rail_xi_hint)
+
+    const_val_int is still passed through for solver setup, but rail checking
+    uses rail_xi_hint if available, or infers xi from the linear xj RHS.
+    """
+    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, rail_xi_hint = args
+
+    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
+    assert f_coeffs_ints, "Empty f_coeffs"
+    assert chunk_items, "Empty chunk_items"
+    assert rhs_reconstruction, "Empty rhs_reconstruction"
+
+    if rail_xi_hint is None:
+        rail_xi_hint = _infer_rail_xi_from_rhs_reconstruction(rhs_reconstruction, p)
+
+    roots_cache = {}
+    p_results = {}
+    chunk_start = time.time()
+
+    for item_idx, (v_tuple, diff_coeffs_list, rhs_idx) in enumerate(chunk_items):
+        assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
+        assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
+        assert 0 <= rhs_idx < len(rhs_reconstruction), \
+            f"Item {item_idx}: rhs_idx={rhs_idx} out of range (len={len(rhs_reconstruction)})"
+
+        item_start = time.time()
+        coeff_key = tuple(c % p for c in diff_coeffs_list)
+
+        if all(c == 0 for c in coeff_key):
+            continue
+
+        t0 = time.time()
+        if coeff_key not in roots_cache:
+            roots = find_poly_roots_fp_python(coeff_key, p)
+            roots_cache[coeff_key] = roots
+        else:
+            roots = roots_cache[coeff_key]
+        root_time = time.time() - t0
+
+        if not roots:
+            continue
+
+        num_coeffs, den_coeffs = rhs_reconstruction[rhs_idx]
+        x_res_to_sols = {}
+
+        for m_root in roots:
+            assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
+
+            num_val = 0
+            for c in reversed(num_coeffs):
+                num_val = (num_val * m_root + c) % p
+            den_val = 0
+            for c in reversed(den_coeffs):
+                den_val = (den_val * m_root + c) % p
+
+            if den_val == 0:
+                continue
+
+            x_val = (num_val * pow(den_val, -1, p)) % p
+
+            max_sols = 10000 if FINITE_FIELD else 500
+            try:
+                sols = solve_mumford_mod_p_optimized(
+                    f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Mumford solver failed: p={p}, x_val={x_val}, "
+                    f"m_root={m_root}, v_tuple={v_tuple}, rhs_idx={rhs_idx}, error={e}"
+                )
+
+            verified_sols = []
+            for sol in sols:
+                assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
+                s, p_val, v0, v1 = sol
+
+                if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
+                    raise RuntimeError(
+                        f"Mumford pair failed verification: "
+                        f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
+                    )
+
+                xv_v = (v0 + v1 * x_val) % p
+                rhs_val = 0
+                for i, c in enumerate(f_coeffs_ints):
+                    rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
+
+                if rhs_val == 0:
+                    canonical_xv = 0
+                elif (p % 4) == 3:
+                    canonical_xv = pow(rhs_val, (p + 1) // 4, p)
+                    canonical_xv = min(canonical_xv, p - canonical_xv)
+                else:
+                    sq = pow(rhs_val, (p + 1) // 4, p)
+                    if (sq * sq) % p == rhs_val:
+                        canonical_xv = min(sq, p - sq)
+                    else:
+                        canonical_xv = min(xv_v, p - xv_v) if xv_v != 0 else 0
+
+                xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
+                x_val_sign = 1 if xv_canonical == canonical_xv else -1
+
+                rail_xi = rail_xi_hint
+                rail_xi_source = "hint" if rail_xi_hint is not None else "inferred/unknown"
+                if rail_xi is None:
+                    rail_xi = int(const_val_int) % p
+                    rail_xi_source = "const_fallback"
+
+                rail_x = (int(rail_xi) - int(m_root)) % p
+                if x_val != rail_x:
+                    diag = _rail_hypothesis_diagnostics(
+                        p=p,
+                        xi_val=rail_xi,
+                        m_root=m_root,
+                        x_val=x_val,
+                        rhs_idx=rhs_idx,
+                        v_tuple=v_tuple,
+                        coeff_degree=len(coeff_key) - 1,
+                        sol=sol,
+                        roots=roots,
+                        rail_xi_source=rail_xi_source,
+                    )
+                    _raise_rail_hypothesis_violation(diag)
+
+                verified_sols.append((sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx)))
+
+            if verified_sols:
+                x_res_to_sols[(x_val, rhs_idx)] = verified_sols
+
+        mumford_time = time.time() - t0
+        item_time = time.time() - item_start
+
+        if item_time > 0.5:
+            sys.stderr.write(
+                f"[Worker p={p}] Vector {v_tuple} rhs={rhs_idx}: deg={len(coeff_key)-1}, "
+                f"roots={len(roots)}, root_time={root_time:.3f}s, "
+                f"mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n"
+            )
+            sys.stderr.flush()
+
+        if x_res_to_sols:
+            if v_tuple not in p_results:
+                p_results[v_tuple] = {}
+            p_results[v_tuple].update(x_res_to_sols)
+
+    chunk_time = time.time() - chunk_start
+    if chunk_time > 1.0:
+        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
+        sys.stderr.flush()
+
+    return p, p_results
+
 def mumford_precompute_residues_parallel(
     eqs_dict,
     prime_list,
@@ -507,45 +664,12 @@ def mumford_precompute_residues_parallel(
     debug=False,
     chunk_size=4,
     pool=None,
-    reject_non_fp_x=None,
 ):
-    """
-    Generate residue-computation tasks and solve them in parallel.
-
-    Improvements over the old version:
-      - batches multiple vectors per worker task via chunk_size
-      - supports reusing an existing multiprocessing pool
-      - fails fast on bad inputs and propagates exceptions
-      - keeps Sage-heavy work in the main process
-      - uses spawn by default when creating its own pool
-      - optionally rejects non-F_p x-values at the source in FF mode
-
-    Args:
-        eqs_dict: must contain 'f_coeffs' and 'const'
-        prime_list: primes to process
-        Ep_dict: prime -> elliptic curve / point container
-        mult_lll: prime -> section multiples data
-        vecs_lll: prime -> LLL vectors data
-        rhs_modp_list: kept for API compatibility
-        vecs_list: list of vectors to try
-        num_workers: number of worker processes to create if pool is None
-        debug: verbose printing
-        chunk_size: number of (v_tuple, coeffs_ints) items per worker task
-        pool: optional existing multiprocessing pool to reuse
-        reject_non_fp_x: if None, defaults to FINITE_FIELD; when True in FF mode,
-                         x-values with non-square f(x) are rejected before solve.
-
-    Returns:
-        results_dict: {p: {v_tuple: {x_res: [sols...]}}}
-    """
     assert isinstance(eqs_dict, dict) and "f_coeffs" in eqs_dict and "const" in eqs_dict, \
         "Invalid eqs_dict: must contain 'f_coeffs' and 'const'"
     assert prime_list, "Empty prime_list"
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
-
-    if reject_non_fp_x is None:
-        reject_non_fp_x = bool(FINITE_FIELD)
 
     if chunk_size is None or int(chunk_size) < 1:
         raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -555,7 +679,6 @@ def mumford_precompute_residues_parallel(
         raise ValueError(f"num_workers must be >= 1, got {num_workers}")
     num_workers = int(num_workers)
 
-    # Safety clamp for memory-heavy Sage workloads.
     if num_workers > 20:
         print(f"[mumford] NOTICE: Reducing workers from {num_workers} to 20 to prevent memory exhaustion.")
         num_workers = 20
@@ -565,6 +688,9 @@ def mumford_precompute_residues_parallel(
     f_coeffs = eqs_dict["f_coeffs"]
     f_coeffs_ints = [int(c) for c in f_coeffs]
     const_val_int = int(QQ(eqs_dict["const"]))
+    rail_xi_hint = eqs_dict.get("rail_xi", None)
+    if rail_xi_hint is not None:
+        rail_xi_hint = int(rail_xi_hint)
 
     if debug:
         print(f"[mumford] Generating tasks for {len(prime_list)} primes...")
@@ -573,7 +699,6 @@ def mumford_precompute_residues_parallel(
     t0 = time.time()
     tasks_with_metadata = []
 
-    # Build all tasks in the main process.
     for p in prime_list:
         assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
 
@@ -626,7 +751,6 @@ def mumford_precompute_residues_parallel(
                 continue
 
             v_coeffs = p_vecs[v_idx]
-
             Pm = Ep(0)
             valid_vec = True
 
@@ -668,7 +792,14 @@ def mumford_precompute_residues_parallel(
                     current_chunk.append((v_tuple, coeffs_ints, rhs_idx))
                     current_chunk_degree += max(poly_degree, 0)
                     if len(current_chunk) >= chunk_size:
-                        task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction, reject_non_fp_x)
+                        task = (
+                            int(p),
+                            f_coeffs_ints,
+                            current_chunk,
+                            const_val_int,
+                            rhs_reconstruction,
+                            rail_xi_hint,
+                        )
                         tasks_with_metadata.append((current_chunk_degree, task))
                         current_chunk = []
                         current_chunk_degree = 0
@@ -679,7 +810,14 @@ def mumford_precompute_residues_parallel(
                     )
 
         if current_chunk:
-            task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction, reject_non_fp_x)
+            task = (
+                int(p),
+                f_coeffs_ints,
+                current_chunk,
+                const_val_int,
+                rhs_reconstruction,
+                rail_xi_hint,
+            )
             tasks_with_metadata.append((current_chunk_degree, task))
 
     tasks_with_metadata.sort(key=lambda x: -x[0])
@@ -702,7 +840,6 @@ def mumford_precompute_residues_parallel(
         sys.stdout.flush()
 
     mumford_timer_add("task_generation", time.time() - t0)
-
     assert tasks, "No tasks generated - this indicates a configuration error"
 
     owns_pool = pool is None
@@ -715,14 +852,11 @@ def mumford_precompute_residues_parallel(
     results_dict = {}
 
     try:
-        for out in tqdm(
+        for p, result_map in tqdm(
             pool.imap_unordered(_solve_worker_wrapper, tasks),
             total=len(tasks),
             desc="Solving Mumford Mod P",
         ):
-            if not out:
-                continue
-            p, result_map = out
             if p not in results_dict:
                 results_dict[p] = {}
             results_dict[p].update(result_map)
@@ -753,163 +887,115 @@ def mumford_precompute_residues_parallel(
         sys.stdout.flush()
 
     assert results_dict, "Worker pool returned empty results - this indicates a failure"
-
     return results_dict
 
-def _solve_worker_wrapper(args):
+def _infer_rail_xi_from_rhs_reconstruction(rhs_reconstruction, p):
     """
-    Worker with fail-fast error handling and detailed diagnostics.
-
-    chunk_items elements are (v_tuple, diff_coeffs_list, rhs_idx).
-    rhs_reconstruction is a list of (num_coeffs_ints, den_coeffs_ints) in
-    low-to-high coefficient order, one entry per RHS. The worker evaluates
-    rhs(m_root) = num(m_root) / den(m_root) mod p to recover x_val.
-
-    In finite-field mode, any reconstructed x_val that does not satisfy
-    f(x_val) being a square in F_p is rejected immediately, before the
-    Mumford solver is called.
+    Try to infer the rail base xi from the linear xj(m)=xi-m RHS.
+    Expected low-to-high numerator form: [xi mod p, p-1] with denominator [1].
+    Returns None if no clear linear rail RHS is present.
     """
-    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, reject_non_fp_x = args
+    if not rhs_reconstruction:
+        return None
 
-    assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
-    assert f_coeffs_ints, "Empty f_coeffs"
-    assert chunk_items, "Empty chunk_items"
-    assert rhs_reconstruction, "Empty rhs_reconstruction"
-
-    roots_cache = {}
-    p_results = {}
-    chunk_start = time.time()
-
-    for item_idx, (v_tuple, diff_coeffs_list, rhs_idx) in enumerate(chunk_items):
-        assert v_tuple is not None, f"Item {item_idx}: v_tuple is None"
-        assert diff_coeffs_list, f"Item {item_idx}: empty diff_coeffs"
-        assert 0 <= rhs_idx < len(rhs_reconstruction), \
-            f"Item {item_idx}: rhs_idx={rhs_idx} out of range (len={len(rhs_reconstruction)})"
-
-        item_start = time.time()
-
-        coeff_key = tuple(c % p for c in diff_coeffs_list)
-        if all(c == 0 for c in coeff_key):
+    p = int(p)
+    for num_coeffs, den_coeffs in rhs_reconstruction:
+        try:
+            num_coeffs = [int(c) % p for c in num_coeffs]
+            den_coeffs = [int(c) % p for c in den_coeffs]
+        except Exception:
             continue
 
-        t0 = time.time()
-        if coeff_key not in roots_cache:
-            roots = find_poly_roots_fp_python(coeff_key, p)
-            roots_cache[coeff_key] = roots
-        else:
-            roots = roots_cache[coeff_key]
-        root_time = time.time() - t0
-
-        if not roots:
+        if den_coeffs != [1]:
             continue
+        if len(num_coeffs) != 2:
+            continue
+        if num_coeffs[1] != (p - 1) % p:
+            continue
+        return num_coeffs[0] % p
 
-        num_coeffs, den_coeffs = rhs_reconstruction[rhs_idx]
-        x_res_to_sols = {}
+    return None
 
-        for m_root in roots:
-            assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
+def _rail_hypothesis_diagnostics(
+    *,
+    p: int,
+    xi_val: int,
+    m_root: int,
+    x_val: int,
+    rhs_idx: int,
+    v_tuple,
+    coeff_degree: int,
+    sol=None,
+    roots=None,
+    rail_xi_source: str = "unknown",
+):
+    p = int(p)
+    xi_val = int(xi_val) % p
+    m_root = int(m_root) % p
+    x_val = int(x_val) % p
+    rail_x = (xi_val - m_root) % p
 
-            num_val = 0
-            for c in reversed(num_coeffs):
-                num_val = (num_val * m_root + c) % p
+    section_y = None
+    section_xy = None
+    if sol is not None:
+        try:
+            _, _, v0, v1 = sol
+            section_y = (int(v0) + int(v1) * x_val) % p
+            section_xy = (x_val, section_y)
+        except Exception:
+            section_y = None
+            section_xy = None
 
-            den_val = 0
-            for c in reversed(den_coeffs):
-                den_val = (den_val * m_root + c) % p
+    return {
+        "p": p,
+        "xi": xi_val,
+        "m": m_root,
+        "x_val": x_val,
+        "rail_x": rail_x,
+        "rail_xi_source": rail_xi_source,
+        "rhs_idx": int(rhs_idx),
+        "v_tuple": tuple(v_tuple) if v_tuple is not None else None,
+        "coeff_degree": int(coeff_degree),
+        "section_x": x_val,
+        "section_y": section_y,
+        "section_xy": section_xy,
+        "roots_in_chunk": len(roots) if roots is not None else None,
+        "rail_ok": bool(x_val == rail_x),
+    }
 
-            if den_val == 0:
-                # Pole of the RHS rational function at this m — no candidate here.
-                continue
+def _raise_rail_hypothesis_violation(diag):
+    msg = [
+        "[rail_hypothesis_violation]",
+        f"p={diag.get('p')}",
+        f"xi={diag.get('xi')}",
+        f"m={diag.get('m')}",
+        f"rail_x=xi-m={diag.get('rail_x')}",
+        f"x_val={diag.get('x_val')}",
+        f"rhs_idx={diag.get('rhs_idx')}",
+        f"rail_xi_source={diag.get('rail_xi_source')}",
+        f"v_tuple={diag.get('v_tuple')}",
+        f"coeff_degree={diag.get('coeff_degree')}",
+        f"section_xy={diag.get('section_xy')}",
+        f"roots_in_chunk={diag.get('roots_in_chunk')}",
+    ]
+    raise ValueError("\n".join(msg))
 
-            x_val = (num_val * pow(den_val, -1, p)) % p
 
-            if reject_non_fp_x and FINITE_FIELD:
-                diag = _ff_x_diagnostic(
-                    f_coeffs_ints,
-                    x_val,
-                    p,
-                    rhs_idx=rhs_idx,
-                    m_root=m_root,
-                    v_tuple=v_tuple,
-                )
-                if not diag["is_fp_point"]:
-                    _print_ff_reject(
-                        diag,
-                        "non_fp_x",
-                        extra={
-                            "v_degree": len(coeff_key) - 1,
-                            "roots_in_chunk": len(roots),
-                        },
-                    )
-                    continue
 
-            max_sols = 10000 if FINITE_FIELD else 500
+def _rhs_rational_function_from_coeffs(num_coeffs, den_coeffs, p):
+    """
+    Rebuild a Sage rational function in m from low-to-high coefficient lists.
+    """
+    Fp = GF(int(p))
+    Rm = Fp["m"]
+    m = Rm.gen()
 
-            try:
-                sols = solve_mumford_mod_p_optimized(
-                    f_coeffs_ints, p, x_val, const_val_int, max_solutions=max_sols
-                )
-            except Exception as e:
-                raise RuntimeError(
-                    f"Mumford solver failed: p={p}, x_val={x_val}, "
-                    f"v_tuple={v_tuple}, rhs_idx={rhs_idx}, error={e}"
-                )
+    num = Rm(0)
+    for i, c in enumerate(num_coeffs):
+        num += Fp(int(c)) * (m ** i)
 
-            verified_sols = []
-            for sol in sols:
-                assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
-                s, p_val, v0, v1 = sol
+    den = Rm(0)
+    for i, c in enumerate(den_coeffs):
+        den += Fp(int(c)) * (m ** i)
 
-                if not verify_mumford_pair(f_coeffs_ints, s, p_val, v0, v1, modulus=p):
-                    raise RuntimeError(
-                        f"Mumford pair failed verification: "
-                        f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
-                    )
-
-                xv_v = (v0 + v1 * x_val) % p
-                rhs_val = 0
-                for i, c in enumerate(f_coeffs_ints):
-                    rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
-
-                if rhs_val == 0:
-                    canonical_xv = 0
-                elif (p % 4) == 3:
-                    canonical_xv = pow(rhs_val, (p + 1) // 4, p)
-                    canonical_xv = min(canonical_xv, p - canonical_xv)
-                else:
-                    sq = pow(rhs_val, (p + 1) // 4, p)
-                    if (sq * sq) % p == rhs_val:
-                        canonical_xv = min(sq, p - sq)
-                    else:
-                        canonical_xv = min(xv_v, p - xv_v) if xv_v != 0 else 0
-
-                xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
-                x_val_sign = 1 if xv_canonical == canonical_xv else -1
-
-                verified_sols.append((sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx)))
-
-            if verified_sols:
-                x_res_to_sols[(x_val, rhs_idx)] = verified_sols
-
-        mumford_time = time.time() - t0
-        item_time = time.time() - item_start
-
-        if item_time > 0.5:
-            sys.stderr.write(
-                f"[Worker p={p}] Vector {v_tuple} rhs={rhs_idx}: deg={len(coeff_key)-1}, "
-                f"roots={len(roots)}, root_time={root_time:.3f}s, "
-                f"mumford_time={mumford_time:.3f}s, total={item_time:.3f}s\n"
-            )
-            sys.stderr.flush()
-
-        if x_res_to_sols:
-            if v_tuple not in p_results:
-                p_results[v_tuple] = {}
-            p_results[v_tuple].update(x_res_to_sols)
-
-    chunk_time = time.time() - chunk_start
-    if chunk_time > 1.0:
-        sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
-        sys.stderr.flush()
-
-    return p, p_results
+    return num, den, num / den
