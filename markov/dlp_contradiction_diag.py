@@ -189,11 +189,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
-    def remap(col):
-        if col is None:
-            return None
-        return pruned_aidx.get(str(atoms[col]))
-
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -396,7 +391,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
         elif delta > 0:
             flag = "  (slight increase -- some redundancy)"
         _log(f"  trial {trial+1}: nullity={null_sub}  delta={delta:+d}{flag}")
-
 
 def incremental_consistency_filter(
     M_ZZ, atoms, group_order,
@@ -601,7 +595,6 @@ def incremental_consistency_filter(
         ratio_str = f"{ratio:.2f}" if ratio != float("inf") else "inf (absent in good)"
         _log(f"    {atom:>8}  enrichment={ratio_str}  bad_rate={br:.4f}  good_rate={gr:.4f}{sp}")
 
-
 def farkas_delete_rerun(
     M_ZZ, atoms, aidx, group_order,
     farkas_walk_rows,
@@ -678,7 +671,6 @@ def farkas_delete_rerun(
     _log(f"\n{'#'*70}")
     _log("# FARKAS-DELETE RE-RUN COMPLETE")
     _log(f"{'#'*70}")
-
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
@@ -852,7 +844,6 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None):
         _log(f"  kernel[{vi}]: {kind}  support_size={len(support)}"
              + (f"  all_coeffs={c0_val}" if is_flat else f"  distinct_coeffs={sorted(set(coeffs_vals))}"))
     return pin_rows, pin_rhs, pin_labels
-
 
 def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
                       known_key: int, col_gen0, col_gen1, col_tgt0, col_tgt1,
@@ -1128,7 +1119,7 @@ def extract_contradiction_certificate(
 
     if not extra_rows_fp:
         _log("  ⚠  No augmentation rows — cannot find certificate.")
-        return []
+        return [], []
 
     A_extra = matrix(Fp, extra_rows_fp)
     A_full  = A_pinned.stack(A_extra)
@@ -1150,7 +1141,7 @@ def extract_contradiction_certificate(
     if rank_A == rank_aug:
         _log("  ✓  System is consistent — no Farkas certificate exists.")
         _log("     (solve_right should succeed after this pipeline; check caller)")
-        return []
+        return [], []
 
     _log(f"  ✗  INCONSISTENT — extracting left-kernel certificate ...")
 
@@ -1161,7 +1152,7 @@ def extract_contradiction_certificate(
 
     if left_null == 0:
         _log("  ✗  Left kernel is trivial — unexpected; check field characteristic.")
-        return []
+        return [], []
 
     certificate_y = None
     for basis_vec in left_ker.basis():
@@ -1192,7 +1183,7 @@ def extract_contradiction_certificate(
 
     if certificate_y is None:
         _log("  ✗  Could not find certificate — inspect basis vectors manually.")
-        return []
+        return [], []
 
     dot_b = sum(certificate_y[i] * b_full[i] for i in range(n_full))
     _log(f"\n  ✓  Certificate found.  y^T * b = {int(dot_b)}  (nonzero — contradiction confirmed)")

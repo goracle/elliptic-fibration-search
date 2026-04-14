@@ -438,6 +438,63 @@ def find_poly_roots_fp_python(coeffs, p):
     except Exception as e:
         raise RuntimeError(f"Sage root finding failed for p={p}, coeffs={coeffs}: {e}")
 
+def _eval_poly_mod_p(coeffs_ints, x_val, p):
+    """Evaluate a low-to-high coefficient polynomial modulo p."""
+    acc = 0
+    for c in reversed(coeffs_ints):
+        acc = (acc * int(x_val) + int(c)) % int(p)
+    return acc
+
+def _ff_x_diagnostic(f_coeffs_ints, x_val, p, *, rhs_idx=None, m_root=None, v_tuple=None):
+    """
+    Diagnostic record for a candidate x in F_p-mode.
+
+    A valid atom here means f(x) is a square in F_p, i.e. x lifts to a point
+    (x, y) on the curve over F_p.
+    """
+    p = int(p)
+    x_val = int(x_val) % p
+    rhs_val = _eval_poly_mod_p(f_coeffs_ints, x_val, p)
+
+    if rhs_val == 0:
+        legendre = 0
+        is_square = True
+    else:
+        legendre = pow(rhs_val, (p - 1) // 2, p)
+        is_square = (legendre == 1)
+
+    return {
+        "p": p,
+        "rhs_idx": rhs_idx,
+        "m_root": int(m_root) if m_root is not None else None,
+        "v_tuple": tuple(v_tuple) if v_tuple is not None else None,
+        "x_val": x_val,
+        "rhs_val": rhs_val,
+        "legendre": legendre,
+        "is_fp_point": bool(is_square),
+    }
+
+def _print_ff_reject(diag, reason, extra=None):
+    rhs_name = "xj" if diag.get("rhs_idx", 0) == 0 else "xk"
+    parts = [
+        f"[reject:ff_source] reason={reason}",
+        f"p={diag.get('p')}",
+        f"rhs={rhs_name}",
+        f"rhs_idx={diag.get('rhs_idx')}",
+        f"m={diag.get('m_root')}",
+        f"x={diag.get('x_val')}",
+        f"f(x)={diag.get('rhs_val')}",
+        f"legendre={diag.get('legendre')}",
+        f"is_fp_point={diag.get('is_fp_point')}",
+    ]
+    if diag.get("v_tuple") is not None:
+        parts.append(f"v_tuple={diag.get('v_tuple')}")
+    if extra:
+        for k, v in extra.items():
+            parts.append(f"{k}={v}")
+    sys.stderr.write("  " + " ".join(parts) + "\n")
+    sys.stderr.flush()
+
 def mumford_precompute_residues_parallel(
     eqs_dict,
     prime_list,
@@ -450,6 +507,7 @@ def mumford_precompute_residues_parallel(
     debug=False,
     chunk_size=4,
     pool=None,
+    reject_non_fp_x=None,
 ):
     """
     Generate residue-computation tasks and solve them in parallel.
@@ -460,6 +518,7 @@ def mumford_precompute_residues_parallel(
       - fails fast on bad inputs and propagates exceptions
       - keeps Sage-heavy work in the main process
       - uses spawn by default when creating its own pool
+      - optionally rejects non-F_p x-values at the source in FF mode
 
     Args:
         eqs_dict: must contain 'f_coeffs' and 'const'
@@ -473,6 +532,8 @@ def mumford_precompute_residues_parallel(
         debug: verbose printing
         chunk_size: number of (v_tuple, coeffs_ints) items per worker task
         pool: optional existing multiprocessing pool to reuse
+        reject_non_fp_x: if None, defaults to FINITE_FIELD; when True in FF mode,
+                         x-values with non-square f(x) are rejected before solve.
 
     Returns:
         results_dict: {p: {v_tuple: {x_res: [sols...]}}}
@@ -482,6 +543,9 @@ def mumford_precompute_residues_parallel(
     assert prime_list, "Empty prime_list"
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
+
+    if reject_non_fp_x is None:
+        reject_non_fp_x = bool(FINITE_FIELD)
 
     if chunk_size is None or int(chunk_size) < 1:
         raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
@@ -510,7 +574,6 @@ def mumford_precompute_residues_parallel(
     tasks_with_metadata = []
 
     # Build all tasks in the main process.
-    # Each task is a batch of size up to chunk_size.
     for p in prime_list:
         assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
 
@@ -524,10 +587,6 @@ def mumford_precompute_residues_parallel(
         R_m = Fp["m"]
         m_var = R_m.gen()
 
-        # Build rhs_polys list for this prime from rhs_modp_list.
-        # Simultaneously build rhs_reconstruction = [(num_coeffs_ints, den_coeffs_ints), ...]
-        # using low-to-high coefficient order, all values as non-negative ints mod p.
-        # Workers use rhs_reconstruction to evaluate rhs(m_root) without Sage.
         rhs_polys_for_p = []
         rhs_reconstruction = []
 
@@ -550,8 +609,6 @@ def mumford_precompute_residues_parallel(
                         f"Failed to build rhs_reconstruction: p={p}, rhs_val={rhs_val}, error={e}"
                     )
 
-        # Fallback to the hardcoded xj equation if nothing came through.
-        # xj(m) = xi - m  =>  numerator = [xi % p, p-1] (low-to-high), denominator = [1]
         if not rhs_polys_for_p:
             rhs_polys_for_p = [-m_var + Fp(const_val_int)]
             rhs_reconstruction = [([const_val_int % p, p - 1], [1])]
@@ -559,7 +616,6 @@ def mumford_precompute_residues_parallel(
         assert len(rhs_polys_for_p) == len(rhs_reconstruction), \
             f"p={p}: rhs list length mismatch: {len(rhs_polys_for_p)} vs {len(rhs_reconstruction)}"
 
-        #rhs_poly = -m_var + Fp(const_val_int)
         p_mults = mult_lll.get(p, {})
 
         current_chunk = []
@@ -571,7 +627,6 @@ def mumford_precompute_residues_parallel(
 
             v_coeffs = p_vecs[v_idx]
 
-            # Build the section multiple Pm = sum_i k_i * mults_for_sec[i][k_i]
             Pm = Ep(0)
             valid_vec = True
 
@@ -613,7 +668,7 @@ def mumford_precompute_residues_parallel(
                     current_chunk.append((v_tuple, coeffs_ints, rhs_idx))
                     current_chunk_degree += max(poly_degree, 0)
                     if len(current_chunk) >= chunk_size:
-                        task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction)
+                        task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction, reject_non_fp_x)
                         tasks_with_metadata.append((current_chunk_degree, task))
                         current_chunk = []
                         current_chunk_degree = 0
@@ -623,12 +678,10 @@ def mumford_precompute_residues_parallel(
                         f"v_tuple={v_tuple}, rhs_idx={rhs_idx}, rhs={rhs_poly}, error={e}"
                     )
 
-        # Flush any leftover items for this prime.
         if current_chunk:
-            task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction)
+            task = (int(p), f_coeffs_ints, current_chunk, const_val_int, rhs_reconstruction, reject_non_fp_x)
             tasks_with_metadata.append((current_chunk_degree, task))
 
-    # Sort by estimated work, descending.
     tasks_with_metadata.sort(key=lambda x: -x[0])
     tasks = [task for _, task in tasks_with_metadata]
 
@@ -662,11 +715,14 @@ def mumford_precompute_residues_parallel(
     results_dict = {}
 
     try:
-        for p, result_map in tqdm(
+        for out in tqdm(
             pool.imap_unordered(_solve_worker_wrapper, tasks),
             total=len(tasks),
             desc="Solving Mumford Mod P",
         ):
+            if not out:
+                continue
+            p, result_map = out
             if p not in results_dict:
                 results_dict[p] = {}
             results_dict[p].update(result_map)
@@ -706,15 +762,14 @@ def _solve_worker_wrapper(args):
 
     chunk_items elements are (v_tuple, diff_coeffs_list, rhs_idx).
     rhs_reconstruction is a list of (num_coeffs_ints, den_coeffs_ints) in
-    low-to-high coefficient order, one entry per RHS.  The worker evaluates
-    rhs(m_root) = num(m_root) / den(m_root)  mod p to recover x_val, so each
-    RHS gets the right x-coordinate regardless of whether it is the linear
-    xj equation or the rational xk(m) equation.
+    low-to-high coefficient order, one entry per RHS. The worker evaluates
+    rhs(m_root) = num(m_root) / den(m_root) mod p to recover x_val.
 
-    const_val_int (xi) is kept as a separate arg because solve_mumford_mod_p_optimized
-    needs it to set up the fiber equations — it is NOT the xj reconstruction formula.
+    In finite-field mode, any reconstructed x_val that does not satisfy
+    f(x_val) being a square in F_p is rejected immediately, before the
+    Mumford solver is called.
     """
-    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction = args
+    p, f_coeffs_ints, chunk_items, const_val_int, rhs_reconstruction, reject_non_fp_x = args
 
     assert isinstance(p, int) and p > 2, f"Invalid prime: {p}"
     assert f_coeffs_ints, "Empty f_coeffs"
@@ -734,7 +789,6 @@ def _solve_worker_wrapper(args):
         item_start = time.time()
 
         coeff_key = tuple(c % p for c in diff_coeffs_list)
-
         if all(c == 0 for c in coeff_key):
             continue
 
@@ -750,24 +804,15 @@ def _solve_worker_wrapper(args):
             continue
 
         num_coeffs, den_coeffs = rhs_reconstruction[rhs_idx]
-
-        t0 = time.time()
-        # Key on (x_val, rhs_idx) rather than x_val alone.  Without rhs_idx in
-        # the key, a second RHS entry (rhs_idx=1, the xk equation) that happens
-        # to produce the same x_val as rhs_idx=0 would silently overwrite the
-        # first entry.  More importantly, when both RHS values differ we need to
-        # keep them separate so _candidates_from_residues can tell whether x_val
-        # is an xj-root or an xk-root and set roles correctly.
         x_res_to_sols = {}
 
         for m_root in roots:
             assert isinstance(m_root, int), f"Root is not an integer: {m_root}"
 
-            # Evaluate rhs(m_root) mod p using Horner's method.
-            # coeffs are low-to-high: rhs = sum(c_i * m^i).
             num_val = 0
             for c in reversed(num_coeffs):
                 num_val = (num_val * m_root + c) % p
+
             den_val = 0
             for c in reversed(den_coeffs):
                 den_val = (den_val * m_root + c) % p
@@ -777,6 +822,26 @@ def _solve_worker_wrapper(args):
                 continue
 
             x_val = (num_val * pow(den_val, -1, p)) % p
+
+            if reject_non_fp_x and FINITE_FIELD:
+                diag = _ff_x_diagnostic(
+                    f_coeffs_ints,
+                    x_val,
+                    p,
+                    rhs_idx=rhs_idx,
+                    m_root=m_root,
+                    v_tuple=v_tuple,
+                )
+                if not diag["is_fp_point"]:
+                    _print_ff_reject(
+                        diag,
+                        "non_fp_x",
+                        extra={
+                            "v_degree": len(coeff_key) - 1,
+                            "roots_in_chunk": len(roots),
+                        },
+                    )
+                    continue
 
             max_sols = 10000 if FINITE_FIELD else 500
 
@@ -801,39 +866,26 @@ def _solve_worker_wrapper(args):
                         f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
                     )
 
-                # Compute x_val_sign: compare v(x_val) against the canonical
-                # positive square root of f(x_val) mod p.
-                # x_val is xj when rhs_idx=0, xk when rhs_idx=1.
-                # enrich_candidates assigns this to yj_sign or yk_sign accordingly.
-                # Canonical root = min(y, p-y) for odd p (matches Sage's sqrt()).
                 xv_v = (v0 + v1 * x_val) % p
                 rhs_val = 0
                 for i, c in enumerate(f_coeffs_ints):
                     rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
+
                 if rhs_val == 0:
                     canonical_xv = 0
                 elif (p % 4) == 3:
                     canonical_xv = pow(rhs_val, (p + 1) // 4, p)
                     canonical_xv = min(canonical_xv, p - canonical_xv)
                 else:
-                    # p ≡ 1 mod 4: find sqrt by checking both candidates from
-                    # the two square root values; use min convention.
                     sq = pow(rhs_val, (p + 1) // 4, p)
                     if (sq * sq) % p == rhs_val:
                         canonical_xv = min(sq, p - sq)
                     else:
-                        # Tonelli-Shanks needed; fall back to treating v(x_val) as canonical.
                         canonical_xv = min(xv_v, p - xv_v) if xv_v != 0 else 0
 
                 xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
                 x_val_sign = 1 if xv_canonical == canonical_xv else -1
 
-                # Store (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx) so
-                # downstream can:
-                #   - assign x_val_sign to yj_sign (rhs_idx=0) or yk_sign (rhs_idx=1)
-                #   - recover the other sign via v(other_coord) = v0 + v1*other_coord
-                #   - use m_root directly in compute_xk_from_fiber (RLINEAR=False)
-                #   - distinguish xj-RHS (rhs_idx=0) from xk-RHS (rhs_idx=1)
                 verified_sols.append((sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx)))
 
             if verified_sols:
@@ -851,8 +903,6 @@ def _solve_worker_wrapper(args):
             sys.stderr.flush()
 
         if x_res_to_sols:
-            # Merge into any existing entry for this v_tuple rather than
-            # overwriting — a prior rhs_idx pass may have already stored results.
             if v_tuple not in p_results:
                 p_results[v_tuple] = {}
             p_results[v_tuple].update(x_res_to_sols)

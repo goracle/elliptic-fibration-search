@@ -381,7 +381,6 @@ USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = us
 USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
 NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
-
 # === RAIL LINEARITY CONFIGURATION ===
 # RLINEAR = True:  classic linear rail    r(m) = xi - m
 #                  guarantees curve embedding; used for rational point finding
@@ -389,8 +388,8 @@ NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR
 #                  breaks the relations-lattice spanning issue for DLP:
 #                  the rail no longer lies in the linear subspace, so the
 #                  fibration samples genuinely new directions in the Jacobian.
-RLINEAR = True  # default
 RLINEAR = False # experimental
+RLINEAR = True  # default
 
 # Coefficient of the m^2 term when RLINEAR=False.
 # We want C = 1/4 in both the QQ and FF paths:
@@ -401,9 +400,6 @@ if FINITE_FIELD:
     RLINEAR_C = GF(FINITE_FIELD)(1) / GF(FINITE_FIELD)(4)
 else:
     RLINEAR_C = QQ(1) / QQ(4)
-
-
-
 
 # project into mod ell subgroup to remove torsion/cofactor complications
 # project into mod ell subgroup to remove torsion/cofactor complications

@@ -95,6 +95,7 @@ def load_jsonl_history(
     records: List[RelationRecord] = []
     n_skipped = 0
     n_lines   = 0
+    n_missing_xi_mult = 0  # rows loaded but with xi_mult=-1 (will be dropped by matrix builder)
 
     with path.open(encoding="utf-8") as fh:
         for lineno, raw in enumerate(fh, 1):
@@ -144,9 +145,16 @@ def load_jsonl_history(
             if not isinstance(step_dict, dict):
                 step_dict = {}
 
-            xi_mult = int(step_dict.get("xi_mult", -1))
+            # xi_mult priority: top-level d (written by fixed _record_to_log_dict)
+            # > step sub-dict (older logs / preferred_injection) > sentinel -1.
+            # Sentinel -1 means no fiber-derived multiplicity was logged; such rows
+            # will be dropped by build_relation_matrix2.  We count them here so the
+            # summary line makes the situation immediately visible.
+            xi_mult = int(d.get("xi_mult", -1))
             if xi_mult < 0:
-                xi_mult = int(d.get("xi_mult", -1))
+                xi_mult = int(step_dict.get("xi_mult", -1))
+            if xi_mult < 0:
+                n_missing_xi_mult += 1
 
             records.append(RelationRecord(
                 step_index = int(d.get("step_index", lineno)),
@@ -173,7 +181,11 @@ def load_jsonl_history(
 
     print(
         f"[load_jsonl] {path.name}: {len(records)} rows loaded"
-        f"  (skipped {n_skipped}, total lines {n_lines})",
+        f"  (skipped {n_skipped}, total lines {n_lines}"
+        + (f", {n_missing_xi_mult} rows have xi_mult=-1 and will be dropped by matrix builder"
+           f" — re-run walks with fixed walkerclass to populate xi_mult in logs"
+           if n_missing_xi_mult else "")
+        + ")",
         flush=True,
     )
     return records

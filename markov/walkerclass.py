@@ -29,21 +29,20 @@ from .cantor_cache import *
 from .mixing_diagnostics import *
 from .adjacency_matrix import *
 
+class _FiberPoleError(Exception):
+    """Raised when S(m) has a pole at a specific m value.
+
+    A zero denominator in S(m) means the secant-line fiber is degenerate
+    (the rational function parametrisation breaks down) at that particular m.
+    This is not a 2-cycle violation; the (xi, xj) pair is simply unevaluable
+    and should be skipped rather than treated as an error.
+    """
+
 def poly_roots_with_multiplicity(poly) -> List[Tuple[Any, int]]:
     """Return roots as (root, multiplicity) pairs over the polynomial's base field."""
     roots = poly.roots(multiplicities=True)
     assert roots, roots
     return [(r, int(m)) for r, m in roots]
-
-def xk_is_fp_point(xk_val, G_poly):
-    if G_poly is None or xk_val is None:
-        return False
-
-    try:
-        rhs = G_poly(xk_val)
-        return bool(rhs.is_square())
-    except Exception:
-        raise
 
 def compute_S_of_m(fi, G_poly, curve_degree):
     """Return the x^(d-1) coefficient of (G(x) - f_i(x, m)) as a symbolic
@@ -914,6 +913,9 @@ class Genus2MetropolisWalker:
             'm': self._jsonable(rec.m),
             'xj': self._jsonable(rec.xj),
             'xk': self._jsonable(rec.xk),
+            'xi_mult': int(getattr(rec, 'xi_mult', -1)),
+            'yj_sign': int(getattr(rec, 'yj_sign', 1)),
+            'yk_sign': int(getattr(rec, 'yk_sign', 1)),
             'accepted': bool(rec.accepted),
             'restart': bool(rec.restart),
             'relation': rec.relation,
@@ -1126,7 +1128,11 @@ class Genus2MetropolisWalker:
                 num = S_sym.numerator()
                 den = S_sym.denominator()
                 dv = Fp(den(m_fp))
-                assert dv != 0, f"close_under_involution: S(m) denominator zero at m={m_val}"
+                if dv == 0:
+                    raise _FiberPoleError(
+                        f"close_under_involution: S(m) denominator zero at m={m_val} "
+                        f"(xi={xi}) — fiber degenerate at this m, pair skipped"
+                    )
                 raise
 
         def _T(xi, xj_val, xi_mult_override=None):
@@ -1160,6 +1166,7 @@ class Genus2MetropolisWalker:
                 )
 
         n_checked = 0
+        n_skipped = 0
         seen_pairs: set = set()
 
         for rec in self.history:
@@ -1181,13 +1188,17 @@ class Genus2MetropolisWalker:
                 if key in seen_pairs:
                     continue
                 seen_pairs.add(key)
-                _check_pair(rec.xi, xj_cand)
-                n_checked += 1
+                try:
+                    _check_pair(rec.xi, xj_cand)
+                    n_checked += 1
+                except _FiberPoleError:
+                    n_skipped += 1
+                    continue
 
         print(
             f"[close_under_involution] T(T(xj))==xj verified on {n_checked} "
-            f"(xi, xj) pairs across {len(self.history)} history records. "
-            f"History unchanged."
+            f"(xi, xj) pairs ({n_skipped} skipped — degenerate fiber/pole) "
+            f"across {len(self.history)} history records. History unchanged."
         )
         return n_checked
 
@@ -1255,342 +1266,6 @@ class Genus2MetropolisWalker:
             if u <= acc:
                 return cand
         return pool[-1]
-
-    def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
-        current_point = (self.current_x, self.current_y)
-        raw = self._call_search_fn(n=n, seed=seed, current_point=current_point)
-        search_out = self._normalize_candidate_output(raw)
-
-        candidates = list(search_out.get("candidate_records") or search_out.get("candidates") or [])
-        candidate_xs = search_out.get("candidate_xs", set())
-
-        if self.config.verbose:
-            print(
-                f"[walk] n={n} candidates={len(candidates)} "
-                f"candidate_xs={len(candidate_xs) if hasattr(candidate_xs, '__len__') else 'unk'}"
-            )
-
-        # Leaf bookkeeping for the search branch.
-        # We treat the candidate x-values as the leaves discovered by this step.
-        valid_leaves = {cx for cx in candidate_xs if cx is not None}
-        # Organic leaves only: exclude structurally pre-known xs from birthday accounting.
-        organic_leaves = valid_leaves - self._injected_xs
-        # Snapshot BEFORE update to measure true collisions.
-        organic_already_seen = organic_leaves & self.global_leaves_seen
-        colliding_xs = sorted(organic_already_seen)[:10]
-        old_leaves_count = len(self.global_leaves_seen)
-
-        if valid_leaves:
-            self.global_leaves_seen.update(valid_leaves)
-            self.total_leaf_insertions += len(valid_leaves)
-
-        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
-        leaf_collisions_this_step = len(organic_already_seen)
-
-        self.leaf_collision_count += leaf_collisions_this_step
-        if leaf_collisions_this_step > 0:
-            _step_idx = len(self.history)  # not yet appended
-            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
-            self.collision_log.append(_entry)
-            if self.first_birthday_step is None:
-                self.first_birthday_step = _step_idx
-                self.first_birthday_n = n
-
-        search_out["step_leaves_found"] = len(valid_leaves)
-        search_out["step_leaves_new"] = new_leaves_this_step
-        search_out["step_leaf_collisions"] = leaf_collisions_this_step
-        search_out["global_leaves_total"] = len(self.global_leaves_seen)
-        search_out["global_leaf_collisions"] = self.leaf_collision_count
-
-        if not candidates:
-            _reason = search_out.get('dead_end_reason', 'unknown')
-            raise RuntimeError(
-                f"Dead end at xi={self.current_x}  reason={_reason}  "
-                f"n_with_roots={search_out.get('n_with_roots')}  "
-                f"n_total={search_out.get('n_total')}"
-            )
-
-        chosen = self._choose_candidate_record(
-            candidates,
-            {
-                "n": n,
-                "step": search_out,
-                "current_x": self.current_x,
-                "current_y": self.current_y,
-            },
-        )
-
-        if chosen is None:
-            raise RuntimeError(
-                f"_choose_candidate_record returned None despite {len(candidates)} candidates "
-                f"at xi={self.current_x} n={n}"
-            )
-
-        if not isinstance(chosen, dict):
-            chosen = {"xj": chosen}
-
-        m_val = chosen.get("m")
-        xj = chosen.get("xj")
-        xk = chosen.get("xk")
-
-        if xj is None and m_val is not None and RLINEAR:
-            # xj = xi - m is only valid under the linear RHS model.
-            xj = self._candidate_xj_from_m(self.current_x, m_val)
-
-        if xj is None and "x" in chosen:
-            xj = chosen.get("x")
-
-        # xi_mult from chosen candidate dict (set by upstream mumford search or xk_head path).
-        # Falls back to _recover_xk's computed value, then to -1 (sentinel → relation_matrix uses default).
-        chosen_xi_mult = int(chosen.get('xi_mult', -1)) if isinstance(chosen, dict) else -1
-
-        # Build _chosen_for_recover: a step dict that carries intersection_poly.
-        # xk_head candidates don't carry it directly — borrow from the m-root sibling
-        # that shares the same (xj, xk) pair (with roles swapped back).
-        _chosen_for_recover = dict(chosen) if isinstance(chosen, dict) else {}
-        if _chosen_for_recover.get('intersection_poly') is None:
-            if _chosen_for_recover.get('source') == 'xk_head':
-                orig_xj = _chosen_for_recover.get('xk')   # xk_head swaps roles
-                orig_xk = _chosen_for_recover.get('xj')
-                for cand in candidates:
-                    if (isinstance(cand, dict)
-                            and cand.get('source') != 'xk_head'
-                            and cand.get('xj') == orig_xj
-                            and cand.get('xk') == orig_xk
-                            and cand.get('intersection_poly') is not None):
-                        _chosen_for_recover['intersection_poly'] = cand['intersection_poly']
-                        break
-            elif isinstance(search_out, dict) and search_out.get('intersection_poly') is not None:
-                _chosen_for_recover['intersection_poly'] = search_out['intersection_poly']
-
-        if xk is None and xj is not None:
-            if self.base_ring(self.current_x) == self.base_ring(0):
-                pass  # xi=0: xk unknowable by design, skip recovery
-            else:
-                xk, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
-                if chosen_xi_mult < 0:
-                    chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
-        elif chosen_xi_mult < 0 and xk is not None and xj is not None:
-            # xk already known from candidate dict; compute xi_mult from the poly if available.
-            # Skip entirely if there's no intersection poly — xi_mult will stay -1 (sentinel),
-            # which relation_matrix handles via its curve_degree-2 default.
-            if _chosen_for_recover.get('intersection_poly') is not None:
-                _, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
-                chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
-
-        if xj is None:
-            raise RuntimeError(
-                f"chosen candidate produced no xj at xi={self.current_x} n={n}: chosen={chosen}"
-            )
-        accepted = xj is not None
-        xi_before = self.current_x
-
-        if accepted:
-            next_x = xj
-            self.xi_visit_count[xi_before] += 1
-            try:
-                next_y = self._recover_y(next_x, y_sign=chosen.get("yj_sign", 1))
-            except ValueError:
-                # xj is not on the curve (f(xj) not a square): reject move.
-                accepted = False
-                next_y = None
-
-            if next_y is not None and next_y != self.base_ring(0):
-                self.current_x, self.current_y = next_x, next_y
-                self.visited_x.add(next_x)
-            elif next_y == self.base_ring(0):
-                # Weierstrass point (y=0): degenerate fiber, reject move.
-                accepted = False
-            elif accepted:
-                self.current_x = next_x
-
-        step_payload = dict(search_out) if isinstance(search_out, dict) else {}
-
-        if chosen.get('intersection_poly') is not None:
-            step_payload['intersection_poly'] = chosen['intersection_poly']
-        elif chosen.get('source') == 'xk_head':
-            # xk_head is a synthetic reversal of a mumford_residue — find the
-            # original partner (xj/xk swapped) and borrow its intersection_poly.
-            orig_xj = chosen.get('xk')
-            orig_xk = chosen.get('xj')
-            for cand in candidates:
-                if (isinstance(cand, dict)
-                        and cand.get('source') != 'xk_head'
-                        and cand.get('xj') == orig_xj
-                        and cand.get('xk') == orig_xk
-                        and cand.get('intersection_poly') is not None):
-                    step_payload['intersection_poly'] = cand['intersection_poly']
-                    break
-
-        unique_xj_new, unique_xj_total = self._annotate_step_counts(
-            step_payload,
-            xj if accepted else None,
-            accepted=accepted,
-        )
-        if accepted and not unique_xj_new:
-            self.collision_count += 1
-
-        rec = self._make_relation(
-            len(self.history), n, xi_before, m_val, xj, xk,
-            step_payload, accepted=accepted, restart=False,
-            yj_sign=int(chosen.get('yj_sign', 1)),
-            yk_sign=int(chosen.get('yk_sign', 1)),
-            xi_mult=chosen_xi_mult,
-        )
-        rec.candidate_pool = candidates
-        rec.selected_candidate = dict(chosen)
-        self._store_record(rec)
-        if rec.accepted:
-            self.inject_preferred_relations(rec)
-        return rec
-
-    def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
-        n = int(n or (len(self.history) + 1))
-        if n < 1:
-            n = 1
-        if n > self.config.max_n:
-            n = self.config.max_n
-
-        if self.search_fn is not None:
-            return self._step_from_candidate_search(n=n, seed=seed)
-
-        current_point = (self.current_x, self.current_y)
-        step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
-
-        m_roots = self._solve_m_roots(step)
-        assert m_roots, m_roots
-
-        if not RLINEAR:
-            # Under a quadratic RHS, xj = xi - m does not hold; xj must come from
-            # the candidate records directly.  The direct step_factory path doesn't
-            # support RLINEAR=False — fall through to the search_fn branch instead.
-            raise RuntimeError(
-                "direct step() path (step_factory) does not support RLINEAR=False: "
-                "xj cannot be recovered from m via xi - m when the RHS is quadratic. "
-                "Supply a search_fn that returns explicit xj values in candidate records."
-            )
-
-        xj_candidates = [self._candidate_xj_from_m(self.current_x, m_val) for m_val in m_roots]
-        assert xj_candidates, xj_candidates
-
-        valid_leaves = {cx for cx in xj_candidates if cx is not None}
-
-        for _xj in xj_candidates:
-            _xk, _ = self._recover_xk(step, self.current_x, _xj)
-            if _xk is not None:
-                valid_leaves.add(_xk)
-
-        # Organic leaves only: exclude structurally pre-known xs from birthday accounting.
-        organic_leaves = valid_leaves - self._injected_xs
-        organic_already_seen = organic_leaves & self.global_leaves_seen
-        colliding_xs = sorted(organic_already_seen)[:10]
-        old_leaves_count = len(self.global_leaves_seen)
-
-        if valid_leaves:
-            self.global_leaves_seen.update(valid_leaves)
-            self.total_leaf_insertions += len(valid_leaves)
-
-        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
-        leaf_collisions_this_step = len(organic_already_seen)
-
-        self.leaf_collision_count += leaf_collisions_this_step
-        if leaf_collisions_this_step > 0:
-            _step_idx = len(self.history)  # not yet appended
-            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
-            self.collision_log.append(_entry)
-            if self.first_birthday_step is None:
-                self.first_birthday_step = _step_idx
-                self.first_birthday_n = n
-        step_novelty_ratio = (new_leaves_this_step / len(valid_leaves)) if valid_leaves else 0.0
-
-        step_payload = dict(step) if isinstance(step, dict) else {}
-        if isinstance(step_payload, dict):
-            step_payload["step_leaves_found"] = len(valid_leaves)
-            step_payload["step_leaves_new"] = new_leaves_this_step
-            step_payload["step_leaf_collisions"] = leaf_collisions_this_step
-            step_payload["global_leaves_total"] = len(self.global_leaves_seen)
-            step_payload["global_leaf_collisions"] = self.leaf_collision_count
-
-        if self.config.verbose:
-            sqrt_p = (self.p ** 0.5) if self.p is not None else float("nan")
-            collision_frac = len(self.global_leaves_seen) / sqrt_p if self.p is not None else float("nan")
-            print(
-                f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
-                f"xi={self.current_x} | "
-                f"m-roots: {len(xj_candidates)} -> {new_leaves_this_step} new leaves "
-                f"(novelty {step_novelty_ratio:.1%}) | "
-                f"Graph volume: {len(self.global_leaves_seen)} "
-                f"({collision_frac:.3f}×√p)"
-            )
-
-        xj = xj_candidates[0] if xj_candidates else None
-        if xj is None:
-            raise ValueError(f"No xj candidate produced at n={n}")
-        m_val = m_roots[0] if m_roots else None
-
-        xk, sf_xi_mult = self._recover_xk(step, self.current_x, xj)
-        if sf_xi_mult is None:
-            sf_xi_mult = -1
-        if xk is None:
-            raise ValueError(f"No xk recovered at n={n} for xi={self.current_x}, xj={xj}")
-
-        chosen = self._choose_between(
-            xj,
-            xk,
-            {
-                "n": n,
-                "step": step,
-                "current_x": self.current_x,
-                "current_y": self.current_y,
-            },
-        )
-        accepted = chosen is not None
-
-        unique_xj_new = False
-        unique_xj_total = len(self.unique_xj_seen)
-
-        xi_before = self.current_x
-        if accepted:
-            next_x = chosen
-            self.xi_visit_count[xi_before] += 1
-            unique_xj_new, unique_xj_total = self._register_unique_xj(next_x)
-            if not unique_xj_new:
-                self.collision_count += 1
-
-            try:
-                next_y = self._recover_y(next_x)
-            except Exception:
-                raise
-
-            if next_y is not None:
-                self.current_x, self.current_y = next_x, next_y
-                self.visited_x.add(next_x)
-            else:
-                self.current_x = next_x
-        else:
-            if self.config.restart_on_dead_end:
-                restart = self._next_restart_point()
-                if restart is not None:
-                    self.current_x, self.current_y = restart
-                    self.dead_end_count += 1
-                    self._annotate_step_counts(step_payload, None, accepted=False)
-                    rec = self._make_relation(
-                        len(self.history), n, xi_before, m_val, xj, xk,
-                        step_payload, accepted=False, restart=True
-                    )
-                    self._store_record(rec)
-                    return rec
-
-        self._annotate_step_counts(step_payload, chosen if accepted else None, accepted=accepted)
-
-        rec = self._make_relation(
-            len(self.history), n, xi_before, m_val, xj, xk,
-            step_payload, accepted=accepted, xi_mult=sf_xi_mult,
-        )
-        self._store_record(rec)
-        if rec.accepted:
-            self.inject_preferred_relations(rec)
-        return rec
 
     def run(self, num_steps: int, n_values: Optional[Sequence[int]] = None) -> List[RelationRecord]:
         results: List[RelationRecord] = []
@@ -1935,7 +1610,14 @@ class Genus2MetropolisWalker:
         # Synthetic injection inverts xj = xi - m  =>  m = xi - t, which is only
         # valid when the search RHS is linear in m.  When RLINEAR=False the RHS is
         # quadratic and the inversion is undefined, so skip entirely.
-        if not RLINEAR:
+        #
+        # Read RLINEAR from the search_common module object at call time rather than
+        # from this module's namespace.  The double-assignment in search_common
+        # (RLINEAR=True then RLINEAR=False) means a `from search_common import *`
+        # done at import time may have captured the intermediate True value if import
+        # ordering was unlucky.  Hitting the live module attribute is immune to that.
+        import search_common as _sc
+        if not getattr(_sc, 'RLINEAR', True):
             return 0
 
         fi, G_poly = self._get_fiber_context_for_rec(accepted_rec)
@@ -2150,6 +1832,21 @@ class Genus2MetropolisWalker:
         if poly is None:
             return None, -1
 
+        # The tower search may have been built on a shifted curve (x -> x + shift,
+        # e.g. shift=1 when xi=0) so that the base point avoids x=0.  The returned
+        # intersection_poly has roots in the shifted frame.  Substitute x -> x - shift
+        # (i.e. x_shifted -> x_orig) before doing any root-matching against the
+        # unshifted xi/xj/xk coordinates.
+        shift = step.get('shift') if isinstance(step, dict) else None
+        if shift is not None:
+            try:
+                shift_int = int(shift)
+            except (TypeError, ValueError):
+                shift_int = 0
+            if shift_int != 0:
+                x_var = poly.parent().gen()
+                poly = poly(x_var + shift_int)
+
         # Determine actual xi multiplicity from the poly roots.
         roots_wm = poly_roots_with_multiplicity(poly)  # [(root, mult), ...]
         actual_xi_mult = 0
@@ -2186,6 +1883,891 @@ class Genus2MetropolisWalker:
         if xj is not None:
             known.append(xj)
         return missing_root_by_vieta(poly, known), actual_xi_mult
+
+    def _point_check_details(self, x_val, label: str = "x") -> Dict[str, Any]:
+        """Return a compact diagnostic record for whether x lifts to a point on C(F_p)."""
+        info: Dict[str, Any] = {
+            "label": label,
+            "x": self._jsonable(x_val),
+            "is_fp_point": False,
+        }
+
+        if x_val is None:
+            info["reason"] = "missing_x"
+            return info
+
+        if self.curve_poly is None:
+            info["reason"] = "missing_curve_poly"
+            return info
+
+        try:
+            rhs = self.curve_poly(x_val)
+            info["rhs"] = self._jsonable(rhs)
+
+            if hasattr(rhs, "is_square"):
+                is_sq = bool(rhs.is_square())
+                info["is_square"] = is_sq
+                info["is_fp_point"] = is_sq
+                if is_sq:
+                    try:
+                        y_any = self.base_ring(rhs.sqrt())
+                        info["sqrt"] = self._jsonable(y_any)
+                    except Exception as exc:
+                        info["sqrt_error"] = repr(exc)
+            else:
+                info["reason"] = "rhs_has_no_is_square"
+        except Exception as exc:
+            info["error"] = repr(exc)
+
+        return info
+
+    def _reject_step_payload(
+        self,
+        step_payload: Optional[Dict[str, Any]],
+        *,
+        stage: str,
+        reason: str,
+        xi,
+        n: int,
+        current_point=None,
+        m_val=None,
+        xj=None,
+        xk=None,
+        chosen=None,
+        move_committed: Optional[bool] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Attach a structured rejection record and print a compact explanation."""
+        payload = dict(step_payload) if isinstance(step_payload, dict) else {}
+        payload["accepted"] = False
+        payload["reject_stage"] = stage
+        payload["reject_reason"] = reason
+        payload["reject_n"] = int(n)
+        payload["reject_xi"] = self._jsonable(xi)
+        payload["reject_m"] = self._jsonable(m_val)
+        payload["reject_xj"] = self._jsonable(xj)
+        payload["reject_xk"] = self._jsonable(xk)
+
+        if current_point is not None:
+            try:
+                cx, cy = current_point
+                payload["reject_current_x"] = self._jsonable(cx)
+                payload["reject_current_y"] = self._jsonable(cy)
+            except Exception:
+                payload["reject_current_point"] = self._jsonable(current_point)
+
+        if chosen is not None:
+            payload["reject_selected_candidate"] = self._jsonable(chosen)
+            if isinstance(chosen, dict):
+                payload["reject_selected_source"] = chosen.get("source", None)
+
+        if move_committed is not None:
+            payload["reject_move_committed"] = bool(move_committed)
+
+        if extra:
+            for k, v in extra.items():
+                payload[f"reject_{k}"] = self._jsonable(v)
+
+        if self.config.verbose:
+            print(f"[reject] stage={stage} reason={reason} xi={xi} n={n}")
+            if m_val is not None or xj is not None or xk is not None:
+                print(f"         m={m_val} xj={xj} xk={xk}")
+            if current_point is not None:
+                try:
+                    cx, cy = current_point
+                    print(f"         current=({cx}, {cy})")
+                except Exception:
+                    print(f"         current={current_point}")
+            if extra:
+                for k, v in extra.items():
+                    print(f"         {k} = {self._jsonable(v)}")
+
+        return payload
+
+    def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
+        xi_before = self.current_x
+        current_point = (self.current_x, self.current_y)
+
+        raw = self._call_search_fn(n=n, seed=seed, current_point=current_point)
+        search_out = self._normalize_candidate_output(raw)
+
+        candidates = list(search_out.get("candidate_records") or search_out.get("candidates") or [])
+        candidate_xs = search_out.get("candidate_xs", set())
+
+        if self.config.verbose:
+            print(
+                f"[walk] n={n} candidates={len(candidates)} "
+                f"candidate_xs={len(candidate_xs) if hasattr(candidate_xs, '__len__') else 'unk'}"
+            )
+
+        # Leaf bookkeeping is kept even if the relation later gets rejected.
+        valid_leaves = {cx for cx in candidate_xs if cx is not None}
+        organic_leaves = valid_leaves - self._injected_xs
+        organic_already_seen = organic_leaves & self.global_leaves_seen
+        colliding_xs = sorted(organic_already_seen)[:10]
+        old_leaves_count = len(self.global_leaves_seen)
+
+        if valid_leaves:
+            self.global_leaves_seen.update(valid_leaves)
+            self.total_leaf_insertions += len(valid_leaves)
+
+        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        leaf_collisions_this_step = len(organic_already_seen)
+
+        self.leaf_collision_count += leaf_collisions_this_step
+        if leaf_collisions_this_step > 0:
+            _step_idx = len(self.history)
+            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
+            self.collision_log.append(_entry)
+            if self.first_birthday_step is None:
+                self.first_birthday_step = _step_idx
+                self.first_birthday_n = n
+
+        search_out["step_leaves_found"] = len(valid_leaves)
+        search_out["step_leaves_new"] = new_leaves_this_step
+        search_out["step_leaf_collisions"] = leaf_collisions_this_step
+        search_out["global_leaves_total"] = len(self.global_leaves_seen)
+        search_out["global_leaf_collisions"] = self.leaf_collision_count
+
+        if not candidates:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="no_candidates",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                extra={
+                    "n_with_roots": search_out.get("n_with_roots"),
+                    "n_total": search_out.get("n_total"),
+                    "dead_end_reason": search_out.get("dead_end_reason", "unknown"),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, None, None, None,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Prefer candidates whose xk is already a valid F_p point.
+        fp_valid_candidates = []
+        fp_valid_details = []
+        for idx, cand in enumerate(candidates):
+            if isinstance(cand, dict):
+                xk = cand.get("xk")
+                diag = self._point_check_details(xk, label="xk")
+                fp_valid_details.append((idx, diag))
+                if diag.get("is_fp_point", False):
+                    fp_valid_candidates.append(cand)
+
+        selection_pool = fp_valid_candidates if fp_valid_candidates else candidates
+
+        chosen = self._choose_candidate_record(
+            selection_pool,
+            {
+                "n": n,
+                "step": search_out,
+                "current_x": self.current_x,
+                "current_y": self.current_y,
+            },
+        )
+
+        if chosen is None:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="selection_failed",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                extra={
+                    "candidate_count": len(candidates),
+                    "fp_valid_candidate_count": len(fp_valid_candidates),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, None, None, None,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        if not isinstance(chosen, dict):
+            chosen = {"xj": chosen}
+
+        m_val = chosen.get("m")
+        xj = chosen.get("xj")
+        xk = chosen.get("xk")
+
+        if xj is None and m_val is not None and RLINEAR:
+            xj = self._candidate_xj_from_m(self.current_x, m_val)
+
+        if xj is None and "x" in chosen:
+            xj = chosen.get("x")
+
+        chosen_xi_mult = int(chosen.get("xi_mult", -1)) if isinstance(chosen, dict) else -1
+
+        _chosen_for_recover = dict(chosen)
+        if _chosen_for_recover.get("intersection_poly") is None:
+            if _chosen_for_recover.get("source") == "xk_head":
+                orig_xj = _chosen_for_recover.get("xk")
+                orig_xk = _chosen_for_recover.get("xj")
+                for cand in candidates:
+                    if (
+                        isinstance(cand, dict)
+                        and cand.get("source") != "xk_head"
+                        and cand.get("xj") == orig_xj
+                        and cand.get("xk") == orig_xk
+                        and cand.get("intersection_poly") is not None
+                    ):
+                        _chosen_for_recover["intersection_poly"] = cand["intersection_poly"]
+                        break
+            elif isinstance(search_out, dict) and search_out.get("intersection_poly") is not None:
+                _chosen_for_recover["intersection_poly"] = search_out["intersection_poly"]
+
+        if xj is None:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="missing_xj",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                chosen=chosen,
+                extra={"candidate_count": len(candidates)},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, None, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Validate xj first: if it is not on C(F_p), the move itself is invalid.
+        xj_diag = self._point_check_details(xj, label="xj")
+        try:
+            next_y_for_xj = self._recover_y(xj, y_sign=int(chosen.get("yj_sign", 1)))
+        except Exception as exc:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="no_y",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "error": repr(exc),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        if next_y_for_xj == self.base_ring(0):
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="weierstrass_y0",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={"xj_diagnostic": xj_diag},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Recover xk if needed.
+        if xk is None:
+            if self.base_ring(self.current_x) == self.base_ring(0):
+                step_payload = self._reject_step_payload(
+                    search_out,
+                    stage="candidate_search",
+                    reason="xk_unrecoverable_at_xi_zero",
+                    xi=xi_before,
+                    n=n,
+                    current_point=current_point,
+                    m_val=m_val,
+                    xj=xj,
+                    chosen=chosen,
+                    extra={"xj_diagnostic": xj_diag},
+                )
+                rec = self._make_relation(
+                    len(self.history), n, xi_before, m_val, xj, None,
+                    step_payload, accepted=False, restart=False,
+                )
+                self._store_record(rec)
+                return rec
+            xk, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
+            if chosen_xi_mult < 0:
+                chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
+
+        if xk is None:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="missing_xk_recovery",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                chosen=chosen,
+                extra={"xj_diagnostic": xj_diag},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, None,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        xk_diag = self._point_check_details(xk, label="xk")
+        if not xk_is_fp_point(xk, self.curve_poly):
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="non_fp_xk",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                    "fp_valid_candidate_count": len(fp_valid_candidates),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        if _chosen_for_recover.get("intersection_poly") is None:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="missing_intersection_poly",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                    "candidate_source": chosen.get("source", None),
+                    "candidate_count": len(candidates),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        chosen_target = self._choose_between(
+            xj,
+            xk,
+            {
+                "n": n,
+                "step": search_out,
+                "current_x": self.current_x,
+                "current_y": self.current_y,
+            },
+        )
+        if chosen_target is None:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="no_move_choice",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        chosen_sign = int(chosen.get("yj_sign", 1)) if chosen_target == xj else int(chosen.get("yk_sign", 1))
+        chosen_diag = xj_diag if chosen_target == xj else xk_diag
+
+        try:
+            next_y = self._recover_y(chosen_target, y_sign=chosen_sign)
+        except Exception as exc:
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="move_target_no_y",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "chosen_target": self._jsonable(chosen_target),
+                    "chosen_target_diagnostic": chosen_diag,
+                    "error": repr(exc),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                yj_sign=int(chosen.get("yj_sign", 1)),
+                yk_sign=int(chosen.get("yk_sign", 1)),
+                xi_mult=chosen_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        if next_y == self.base_ring(0):
+            step_payload = self._reject_step_payload(
+                search_out,
+                stage="candidate_search",
+                reason="chosen_target_weierstrass_y0",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen=chosen,
+                extra={
+                    "chosen_target": self._jsonable(chosen_target),
+                    "chosen_target_diagnostic": chosen_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                yj_sign=int(chosen.get("yj_sign", 1)),
+                yk_sign=int(chosen.get("yk_sign", 1)),
+                xi_mult=chosen_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Commit the move only after all relation gates pass.
+        self.current_x, self.current_y = chosen_target, next_y
+        self.visited_x.add(chosen_target)
+        self.xi_visit_count[xi_before] += 1
+        unique_xj_new, unique_xj_total = self._annotate_step_counts(
+            search_out,
+            chosen_target,
+            accepted=True,
+        )
+        if not unique_xj_new:
+            self.collision_count += 1
+
+        step_payload = dict(search_out) if isinstance(search_out, dict) else {}
+        step_payload["xj_diagnostic"] = xj_diag
+        step_payload["xk_diagnostic"] = xk_diag
+        step_payload["chosen_target"] = self._jsonable(chosen_target)
+        step_payload["chosen_target_diagnostic"] = chosen_diag
+        step_payload["move_committed"] = True
+
+        rec = self._make_relation(
+            len(self.history), n, xi_before, m_val, xj, xk,
+            step_payload, accepted=True, restart=False,
+            yj_sign=int(chosen.get("yj_sign", 1)),
+            yk_sign=int(chosen.get("yk_sign", 1)),
+            xi_mult=chosen_xi_mult,
+        )
+        rec.candidate_pool = candidates
+        rec.selected_candidate = dict(chosen)
+        self._store_record(rec)
+        self.inject_preferred_relations(rec)
+        return rec
+
+    def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
+        n = int(n or (len(self.history) + 1))
+        if n < 1:
+            n = 1
+        if n > self.config.max_n:
+            n = self.config.max_n
+
+        if self.search_fn is not None:
+            return self._step_from_candidate_search(n=n, seed=seed)
+
+        xi_before = self.current_x
+        current_point = (self.current_x, self.current_y)
+
+        step = self.step_factory(self.current_x, n, seed=seed, current_point=current_point)
+        m_roots = self._solve_m_roots(step)
+        if not m_roots:
+            step_payload = self._reject_step_payload(
+                step if isinstance(step, dict) else {},
+                stage="direct_step",
+                reason="no_m_roots",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                extra={"step": self._jsonable(step)},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, None, None, None,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        if not RLINEAR:
+            raise RuntimeError(
+                "direct step() path (step_factory) does not support RLINEAR=False: "
+                "xj cannot be recovered from m via xi - m when the RHS is quadratic. "
+                "Supply a search_fn that returns explicit xj values in candidate records."
+            )
+
+        xj_candidates = [self._candidate_xj_from_m(self.current_x, m_val) for m_val in m_roots]
+        if not xj_candidates:
+            step_payload = self._reject_step_payload(
+                step if isinstance(step, dict) else {},
+                stage="direct_step",
+                reason="no_xj_candidates",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                extra={"m_roots": self._jsonable(m_roots)},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, None, None, None,
+                step_payload, accepted=False, restart=False,
+            )
+            self._store_record(rec)
+            return rec
+
+        valid_leaves = {cx for cx in xj_candidates if cx is not None}
+        for _xj in xj_candidates:
+            _xk, _ = self._recover_xk(step, self.current_x, _xj)
+            if _xk is not None:
+                valid_leaves.add(_xk)
+
+        organic_leaves = valid_leaves - self._injected_xs
+        organic_already_seen = organic_leaves & self.global_leaves_seen
+        colliding_xs = sorted(organic_already_seen)[:10]
+        old_leaves_count = len(self.global_leaves_seen)
+
+        if valid_leaves:
+            self.global_leaves_seen.update(valid_leaves)
+            self.total_leaf_insertions += len(valid_leaves)
+
+        new_leaves_this_step = len(self.global_leaves_seen) - old_leaves_count
+        leaf_collisions_this_step = len(organic_already_seen)
+
+        self.leaf_collision_count += leaf_collisions_this_step
+        if leaf_collisions_this_step > 0:
+            _step_idx = len(self.history)
+            _entry = (_step_idx, n, len(self.global_leaves_seen), leaf_collisions_this_step, colliding_xs)
+            self.collision_log.append(_entry)
+            if self.first_birthday_step is None:
+                self.first_birthday_step = _step_idx
+                self.first_birthday_n = n
+
+        step_payload = dict(step) if isinstance(step, dict) else {}
+        step_payload["step_leaves_found"] = len(valid_leaves)
+        step_payload["step_leaves_new"] = new_leaves_this_step
+        step_payload["step_leaf_collisions"] = leaf_collisions_this_step
+        step_payload["global_leaves_total"] = len(self.global_leaves_seen)
+        step_payload["global_leaf_collisions"] = self.leaf_collision_count
+
+        if self.config.verbose:
+            sqrt_p = (self.p ** 0.5) if self.p is not None else float("nan")
+            collision_frac = len(self.global_leaves_seen) / sqrt_p if self.p is not None else float("nan")
+            print(
+                f"\n[CANDIDATES] step={len(self.history)+1} n={n} | "
+                f"xi={self.current_x} | "
+                f"m-roots: {len(xj_candidates)} -> {new_leaves_this_step} new leaves "
+                f"(novelty {new_leaves_this_step / len(valid_leaves):.1%} if valid_leaves else 0.0%) | "
+                f"Graph volume: {len(self.global_leaves_seen)} "
+                f"({collision_frac:.3f}×√p)"
+            )
+
+        xj = xj_candidates[0]
+        m_val = m_roots[0]
+
+        xk, sf_xi_mult = self._recover_xk(step, self.current_x, xj)
+        if sf_xi_mult is None:
+            sf_xi_mult = -1
+
+        if xk is None:
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="missing_xk_recovery",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                chosen={"source": "direct_step"},
+                extra={"step": self._jsonable(step)},
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, None,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        xj_diag = self._point_check_details(xj, label="xj")
+        xk_diag = self._point_check_details(xk, label="xk")
+
+        # xj must be a genuine curve point because it can become the next state.
+        try:
+            next_y_xj = self._recover_y(xj, y_sign=1)
+        except Exception as exc:
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="no_y",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "role": "xj"},
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                    "error": repr(exc),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        if next_y_xj == self.base_ring(0):
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="weierstrass_y0",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "role": "xj"},
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        if not xk_is_fp_point(xk, self.curve_poly):
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="non_fp_xk",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "role": "xk"},
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Move choice only happens after all relation gates pass.
+        chosen = self._choose_between(
+            xj,
+            xk,
+            {
+                "n": n,
+                "step": step,
+                "current_x": self.current_x,
+                "current_y": self.current_y,
+            },
+        )
+        if chosen is None:
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="no_move_choice",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step"},
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        chosen_sign = 1 if chosen == xj else int(step_payload.get("yk_sign", 1))
+        try:
+            next_y = self._recover_y(chosen, y_sign=chosen_sign)
+        except Exception as exc:
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="move_target_no_y",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "chosen": self._jsonable(chosen)},
+                extra={
+                    "chosen_target": self._jsonable(chosen),
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                    "error": repr(exc),
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        if next_y == self.base_ring(0):
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="chosen_target_weierstrass_y0",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "chosen": self._jsonable(chosen)},
+                extra={
+                    "chosen_target": self._jsonable(chosen),
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        if step_payload.get("intersection_poly") is None:
+            step_payload = self._reject_step_payload(
+                step_payload,
+                stage="direct_step",
+                reason="missing_intersection_poly",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "chosen": self._jsonable(chosen)},
+                extra={
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+            )
+            rec = self._make_relation(
+                len(self.history), n, xi_before, m_val, xj, xk,
+                step_payload, accepted=False, restart=False,
+                xi_mult=sf_xi_mult,
+            )
+            self._store_record(rec)
+            return rec
+
+        # Commit now that everything passed.
+        self.current_x, self.current_y = chosen, next_y
+        self.visited_x.add(chosen)
+        self.xi_visit_count[xi_before] += 1
+        unique_xj_new, unique_xj_total = self._annotate_step_counts(step_payload, chosen, accepted=True)
+        if not unique_xj_new:
+            self.collision_count += 1
+
+        step_payload["xj_diagnostic"] = xj_diag
+        step_payload["xk_diagnostic"] = xk_diag
+        step_payload["chosen_target"] = self._jsonable(chosen)
+        step_payload["move_committed"] = True
+
+        rec = self._make_relation(
+            len(self.history), n, xi_before, m_val, xj, xk,
+            step_payload, accepted=True, restart=False,
+            xi_mult=sf_xi_mult,
+        )
+        self._store_record(rec)
+        if rec.accepted:
+            self.inject_preferred_relations(rec)
+        return rec
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """
@@ -2345,3 +2927,13 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     walker_class._emit_step_diagnostics = _emit_step_diagnostics
     walker_class.step = step_with_diagnostics
     return walker_class
+
+def xk_is_fp_point(xk_val, G_poly):
+    if G_poly is None or xk_val is None:
+        return False
+
+    try:
+        rhs = G_poly(xk_val)
+        return bool(hasattr(rhs, "is_square") and rhs.is_square())
+    except Exception:
+        return False

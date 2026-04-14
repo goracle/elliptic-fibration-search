@@ -109,11 +109,10 @@ def build_relation_matrix2(
     generating a divisor relation for EVERY candidate found during the step.
     """
     assert require_xk
-    # NOTE: xi_mult is intentionally NOT set as a global constant here.
-    # Each row uses the actual multiplicity stored on the record or candidate dict
-    # (rec.xi_mult / cand['xi_mult']), falling back to curve_degree - 2 only when
-    # the sentinel value -1 is present (old records or preferred-injection synthetics).
-    _default_xi_mult = curve_degree - 2
+    # xi_mult must be fiber-derived (actual root multiplicity from intersection_poly).
+    # The sentinel value -1 means no fiber was obtained; such rows are dropped rather
+    # than assumed to have multiplicity curve_degree - 2, which may be wrong.
+    _default_xi_mult = curve_degree - 2  # kept for preferred_injection synthetics only
     inf_coeff = -curve_degree
 
     atom_index: dict[Any, int] = {}
@@ -297,13 +296,26 @@ def build_relation_matrix2(
             seen_pairs.add(pair_key)
 
             # Resolve the actual xi multiplicity for this row.
-            # Priority: per-candidate > per-record > curve_degree - 2 default.
+            # Priority: per-candidate > per-record > drop.
+            # The deg-2 default is only permitted for preferred_injection synthetics
+            # (which use compute_xk_from_fiber and have a verified actual_xi_mult,
+            # but store it on the record not the candidate dict).
+            # Any row where both candidate and record have sentinel -1 has no fiber
+            # verification — drop it rather than assume deg-2.
+            step_src_check = _get(rec, "step")
+            is_preferred_injection = (
+                isinstance(step_src_check, dict)
+                and step_src_check.get("source") == "preferred_injection"
+            )
             if cand_xi_mult > 0:
                 row_xi_mult = cand_xi_mult
             elif _rec_xi_mult > 0:
                 row_xi_mult = _rec_xi_mult
-            else:
+            elif is_preferred_injection:
                 row_xi_mult = _default_xi_mult
+            else:
+                # No fiber-derived multiplicity: relation is unverified, skip.
+                continue
 
             row = [0] * n_cols
             row[atom_index[xi]] += row_xi_mult

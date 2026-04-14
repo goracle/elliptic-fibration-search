@@ -787,6 +787,9 @@ def make_project_markov_search_fn(
             G_poly=_G_poly,
             curve_degree=_curve_degree,
             p=p,
+            shift=ctx.get('shift', 0),
+            T=ctx.get('T'),
+            T_inv=ctx.get('T_inv'),
         )
 
         # Attach S_of_m and inter_sym to every record while the tower context is
@@ -933,6 +936,9 @@ def enrich_candidates(
     G_poly,
     curve_degree,
     p=None,
+    shift=0,
+    T=None,
+    T_inv=None,
 ):
     enriched = []
 
@@ -984,31 +990,47 @@ def enrich_candidates(
         if rec.get('m') is None and xj is not None and RLINEAR:
             rec['m'] = x_here - xj
 
+        # fi and G_poly live in the fully-transformed coordinate frame:
+        # first an arithmetic shift (x -> x + shift), then a Möbius map T.
+        # Define frame helpers here so both the rhs_idx=0 and rhs_idx=1 paths
+        # can use them — previously the closures were only defined inside the
+        # elif branch, causing UnboundLocalError on the rhs_idx=0 path.
+        Fp = GF(int(p)) if p is not None else None
+        shift_fp = Fp(shift) if Fp is not None else shift
+        def _to_fiber_frame(v):
+            v_s = v + shift_fp
+            return T(v_s) if T is not None else v_s
+        def _from_fiber_frame(v):
+            v_t = T_inv(v) if T_inv is not None else v
+            return v_t - shift_fp
+
         # compute xk from fiber when xk is not yet set (rhs_idx=0 path).
         if rec.get('xk') is None:
             m_val = rec.get('m')
             if m_val is not None and xj is not None:
+                x_here_f = _to_fiber_frame(x_here)
+                xj_f     = _to_fiber_frame(xj)
                 try:
-                    xk_val, inter = compute_xk_from_fiber(
-                        x_here, m_val, xj, fi, G_poly, curve_degree
+                    xk_val_f, inter = compute_xk_from_fiber(
+                        x_here_f, m_val, xj_f, fi, G_poly, curve_degree
                     )
                 except ZeroDivisionError:
                     continue
+                xk_val = _from_fiber_frame(xk_val_f) if xk_val_f is not None else None
                 rec['xk'] = xk_val
                 rec['intersection_poly'] = inter
                 # Store actual xi multiplicity so relation_matrix uses the right coefficient.
                 if inter is not None:
                     roots_wm = inter.roots()
                     actual_xi_mult = 0
-                    Fp = GF(int(p)) if p is not None else None
-                    xi_fp = Fp(x_here) if Fp is not None else x_here
+                    xi_fp = Fp(x_here_f) if Fp is not None else x_here_f
                     for r, m_root in roots_wm:
                         if r == xi_fp:
                             actual_xi_mult = int(m_root)
                             break
                     if actual_xi_mult == 0:
                         raise AssertionError(
-                            f"compute_xk_from_fiber: xi={x_here} is not a root of "
+                            f"compute_xk_from_fiber: xi={x_here} (fiber frame={x_here_f}) is not a root of "
                             f"intersection_poly (roots={roots_wm}); xj={xj}, m={m_val}"
                         )
                     rec['xi_mult'] = actual_xi_mult
@@ -1022,29 +1044,31 @@ def enrich_candidates(
             m_val = rec.get('m')
             xk_val = rec.get('xk')
             if m_val is not None and xk_val is not None and fi is not None and G_poly is not None:
+                x_here_f = _to_fiber_frame(x_here)
+                xk_f     = _to_fiber_frame(xk_val)
                 try:
-                    xj_val, inter = compute_xk_from_fiber(
-                        x_here, m_val, xk_val, fi, G_poly, curve_degree
+                    xj_val_f, inter = compute_xk_from_fiber(
+                        x_here_f, m_val, xk_f, fi, G_poly, curve_degree
                     )
                 except ZeroDivisionError:
                     continue
-                if xj_val is None:
+                if xj_val_f is None:
                     continue
+                xj_val = _from_fiber_frame(xj_val_f)
                 rec['xj'] = xj_val
                 xj = xj_val
                 rec['intersection_poly'] = inter
                 if inter is not None:
                     roots_wm = inter.roots()
                     actual_xi_mult = 0
-                    Fp = GF(int(p)) if p is not None else None
-                    xi_fp = Fp(x_here) if Fp is not None else x_here
+                    xi_fp = Fp(x_here_f) if Fp is not None else x_here_f
                     for r, m_root in roots_wm:
                         if r == xi_fp:
                             actual_xi_mult = int(m_root)
                             break
                     if actual_xi_mult == 0:
                         raise AssertionError(
-                            f"enrich_candidates rhs_idx=1: xi={x_here} is not a root of "
+                            f"enrich_candidates rhs_idx=1: xi={x_here} (fiber frame={x_here_f}) is not a root of "
                             f"intersection_poly (roots={roots_wm}); xk={xk_val}, m={m_val}"
                         )
                     rec['xi_mult'] = actual_xi_mult
@@ -1113,6 +1137,11 @@ def enrich_candidates(
 
         enriched.append(rec)
 
+        # Stamp shift on every enriched record so walkerclass._recover_xk can
+        # unshift the intersection_poly (which lives in fiber frame) back to
+        # original coordinates before root-matching xi/xj/xk.
+        rec['shift'] = shift
+
         # inject xk-head — xk_head records inherit the roles but swap signs:
         # in the reversed record xk becomes xj so its sign is the original yk_sign.
         #
@@ -1136,6 +1165,12 @@ def enrich_candidates(
                 'input_n': n0,
                 'xi': x_here,
                 'yi': y_here,
+                # xk_head doesn't carry its own intersection_poly — walkerclass
+                # borrows the sibling's poly.  Supply xi_mult from the parent
+                # record so _recover_xk is skipped when xi_mult is already known,
+                # and shift so the unshift substitution works if it is called.
+                'xi_mult': rec.get('xi_mult', curve_degree - 2),
+                'shift': shift,
             })
 
     return enriched
@@ -1178,4 +1213,3 @@ def load_project_sources(base_dir: Optional[Path] = None, verbose: bool = True) 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
