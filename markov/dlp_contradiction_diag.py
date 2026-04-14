@@ -189,6 +189,14 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
+
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col]))
+
+
+
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -878,6 +886,10 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
          f"{M_ZZ.ncols()} → {M_pruned.ncols()} cols)")
 
     # Remap col indices into the pruned column space.
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col]))
 
     p_col_gen0 = _remap(col_gen0, atoms, pruned_aidx)
     p_col_gen1 = _remap(col_gen1, atoms, pruned_aidx)
