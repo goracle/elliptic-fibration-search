@@ -307,7 +307,6 @@ def build_project_tower_context_for_point(
         'yi': yi,
     }
 
-
 def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) -> List[Any]:
     """Fallback collector for x-like payloads in legacy return values.
 

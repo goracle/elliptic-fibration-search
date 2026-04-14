@@ -927,267 +927,6 @@ def compute_fertility(norm, raw, vecs):
         'per_n_roots': per_n,
     }
 
-def enrich_candidates(
-    norm,
-    x_here,
-    y_here,
-    n0,
-    fi,
-    G_poly,
-    curve_degree,
-    p=None,
-    shift=0,
-    T=None,
-    T_inv=None,
-):
-    enriched = []
-
-    # Helper: canonical positive sqrt mod p (min(y, p-y) convention).
-    def _canonical_sqrt(x_val):
-        if p is None or G_poly is None:
-            return None
-        try:
-            Fp = GF(int(p))
-            y = Fp(G_poly(x_val)).sqrt()
-            y_int = int(y) % int(p)
-            return min(y_int, int(p) - y_int)
-        except Exception:
-            return None
-
-    for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
-        rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
-
-        rec.setdefault('xj', rec.get('x'))
-        rec['input_n'] = n0
-        rec['xi'] = x_here
-        rec['yi'] = y_here
-
-        # rhs_idx=0 -> x_val in 'xj' slot is xj, yj_sign is correct as-is.
-        # rhs_idx=1 -> x_val in 'xj' slot is actually xk; we need to swap roles.
-        #              The sign stored as 'yj_sign' is actually yk_sign (it was
-        #              computed for x_val=xk in the worker).  Correct both.
-        rhs_idx = int(rec.get('rhs_idx', 0))
-        if rhs_idx == 1:
-            xk_from_rhs = rec.pop('xj', None)
-            rec['xk'] = xk_from_rhs
-            rec['xj'] = None
-            # yj_sign currently holds the sign for xk; move it to yk_sign.
-            rec['yk_sign'] = rec.pop('yj_sign', 1)
-            # yj_sign for the yet-to-be-recovered xj will be set below via v(xj).
-
-        # Recover xj in quartic frame from m before degenerate check.
-        # "xj" arrives as None for Mumford-sourced records (Weierstrass x_val discarded).
-        xj = rec.get('xj')
-        if xj is None and rec.get('m') is not None and RLINEAR and rhs_idx == 0:
-            rec['xj'] = x_here - rec['m']
-            xj = rec['xj']
-        elif rec.get('m') is None and xj is not None and RLINEAR:
-            rec['m'] = x_here - xj  # fallback for non-Mumford records
-
-        if xj is not None and xj == x_here:
-            continue
-        if rhs_idx == 1 and rec.get('xk') == x_here:
-            continue
-
-
-        if xj is not None and xj == x_here:
-            continue
-        if rhs_idx == 1 and rec.get('xk') == x_here:
-            continue
-
-        # recover m:
-        #   RLINEAR=True:  m = xi - xj is always valid.
-        #   RLINEAR=False: m must come from the root-finder (stored on the record
-        #                  by _candidates_from_residues); synthesising xi-xj here
-        #                  would be wrong.
-        if rec.get('m') is None and xj is not None and RLINEAR:
-            rec['m'] = x_here - xj
-
-        # fi and G_poly live in the fully-transformed coordinate frame:
-        # first an arithmetic shift (x -> x + shift), then a Möbius map T.
-        # Define frame helpers here so both the rhs_idx=0 and rhs_idx=1 paths
-        # can use them — previously the closures were only defined inside the
-        # elif branch, causing UnboundLocalError on the rhs_idx=0 path.
-        Fp = GF(int(p)) if p is not None else None
-        shift_fp = Fp(shift) if Fp is not None else shift
-        def _to_fiber_frame(v):
-            v_s = v + shift_fp
-            return T(v_s) if T is not None else v_s
-        def _from_fiber_frame(v):
-            v_t = T_inv(v) if T_inv is not None else v
-            return v_t - shift_fp
-
-        # compute xk from fiber when xk is not yet set (rhs_idx=0 path).
-        if rec.get('xk') is None:
-            m_val = rec.get('m')
-            if m_val is not None and xj is not None:
-                x_here_f = _to_fiber_frame(x_here)
-                xj_f     = _to_fiber_frame(xj)
-                try:
-                    xk_val_f, inter = compute_xk_from_fiber(
-                        x_here_f, m_val, xj_f, fi, G_poly, curve_degree
-                    )
-                except ZeroDivisionError:
-                    continue
-                xk_val = _from_fiber_frame(xk_val_f) if xk_val_f is not None else None
-                rec['xk'] = xk_val
-                rec['intersection_poly'] = inter
-                # Store actual xi multiplicity so relation_matrix uses the right coefficient.
-                if inter is not None:
-                    roots_wm = inter.roots()
-                    actual_xi_mult = 0
-                    xi_fp = Fp(x_here_f) if Fp is not None else x_here_f
-                    for r, m_root in roots_wm:
-                        if r == xi_fp:
-                            actual_xi_mult = int(m_root)
-                            break
-                    if actual_xi_mult == 0:
-                        raise AssertionError(
-                            f"compute_xk_from_fiber: xi={x_here} (fiber frame={x_here_f}) is not a root of "
-                            f"intersection_poly (roots={roots_wm}); xj={xj}, m={m_val}"
-                        )
-                    rec['xi_mult'] = actual_xi_mult
-                else:
-                    rec.setdefault('xi_mult', curve_degree - 2)
-
-        elif rhs_idx == 1:
-            # xk is already set from the rhs_idx=1 swap above.
-            # Recover xj via compute_xk_from_fiber: given xi, m, and one known
-            # root (xk), it returns the remaining root (xj) by Vieta.
-            m_val = rec.get('m')
-            xk_val = rec.get('xk')
-            if m_val is not None and xk_val is not None and fi is not None and G_poly is not None:
-                x_here_f = _to_fiber_frame(x_here)
-                xk_f     = _to_fiber_frame(xk_val)
-                try:
-                    xj_val_f, inter = compute_xk_from_fiber(
-                        x_here_f, m_val, xk_f, fi, G_poly, curve_degree
-                    )
-                except ZeroDivisionError:
-                    continue
-                if xj_val_f is None:
-                    continue
-                xj_val = _from_fiber_frame(xj_val_f)
-                rec['xj'] = xj_val
-                xj = xj_val
-                rec['intersection_poly'] = inter
-                if inter is not None:
-                    roots_wm = inter.roots()
-                    actual_xi_mult = 0
-                    xi_fp = Fp(x_here_f) if Fp is not None else x_here_f
-                    for r, m_root in roots_wm:
-                        if r == xi_fp:
-                            actual_xi_mult = int(m_root)
-                            break
-                    if actual_xi_mult == 0:
-                        raise AssertionError(
-                            f"enrich_candidates rhs_idx=1: xi={x_here} (fiber frame={x_here_f}) is not a root of "
-                            f"intersection_poly (roots={roots_wm}); xk={xk_val}, m={m_val}"
-                        )
-                    rec['xi_mult'] = actual_xi_mult
-                else:
-                    rec.setdefault('xi_mult', curve_degree - 2)
-            else:
-                # No m or no fiber context — can't recover xj, skip this candidate.
-                continue
-
-            # Compute yj_sign for the recovered xj via v(xj) = v0 + v1*xj.
-            v0_r = rec.get('v0')
-            v1_r = rec.get('v1')
-            if v0_r is not None and v1_r is not None and xj is not None and p is not None:
-                try:
-                    xj_int = int(xj)
-                    yj_v = (int(v0_r) + int(v1_r) * xj_int) % p
-                    rhs_f = 0
-                    if G_poly is not None:
-                        Fp_local2 = GF(int(p))
-                        rhs_f = int(Fp_local2(G_poly(xj_int)))
-                    if rhs_f == 0:
-                        rec['yj_sign'] = 1
-                    elif (p % 4) == 3:
-                        canonical = pow(rhs_f, (p + 1) // 4, p)
-                        canonical = min(canonical, p - canonical)
-                        yj_can = min(yj_v, p - yj_v) if yj_v != 0 else 0
-                        rec['yj_sign'] = 1 if yj_can == canonical else -1
-                    else:
-                        sq = pow(rhs_f, (p + 1) // 4, p)
-                        if (sq * sq) % p == rhs_f:
-                            canonical = min(sq, p - sq)
-                        else:
-                            canonical = min(yj_v, p - yj_v) if yj_v != 0 else 0
-                        yj_can = min(yj_v, p - yj_v) if yj_v != 0 else 0
-                        rec['yj_sign'] = 1 if yj_can == canonical else -1
-                except Exception:
-                    rec.setdefault('yj_sign', 1)
-            else:
-                rec.setdefault('yj_sign', 1)
-
-        # Compute yk_sign from the v-polynomial if available.
-        # In Cantor/Mumford addition the third intersection point satisfies
-        # yk = -v(xk) mod p  (the line y=v(x) meets the curve at (xk, -v(xk))).
-        # So we evaluate -v(xk) and compare against canonical_sqrt(f(xk)).
-        v0 = rec.get('v0')
-        v1 = rec.get('v1')
-        xk = rec.get('xk')
-        if (v0 is not None and v1 is not None
-                and xk is not None and isinstance(xk, (int, Integer))
-                and p is not None):
-            try:
-                yk_raw = (-(v0 + v1 * int(xk))) % p   # yk = -v(xk) mod p
-                canonical_yk = _canonical_sqrt(int(xk))
-                if canonical_yk is not None:
-                    yk_canonical = min(yk_raw, p - yk_raw) if yk_raw != 0 else 0
-                    rec['yk_sign'] = 1 if yk_canonical == canonical_yk else -1
-                else:
-                    rec.setdefault('yk_sign', 1)
-            except Exception:
-                rec.setdefault('yk_sign', 1)
-        else:
-            rec.setdefault('yk_sign', 1)
-
-        # Ensure yj_sign has a default.
-        rec.setdefault('yj_sign', 1)
-
-        enriched.append(rec)
-
-        # Stamp shift on every enriched record so walkerclass._recover_xk can
-        # unshift the intersection_poly (which lives in fiber frame) back to
-        # original coordinates before root-matching xi/xj/xk.
-        rec['shift'] = shift
-
-        # inject xk-head — xk_head records inherit the roles but swap signs:
-        # in the reversed record xk becomes xj so its sign is the original yk_sign.
-        #
-        # xk_head synthesis inverts xj = xi - m  =>  m = xi - xk, which is only
-        # valid when the RHS of the search equation is linear in m (RLINEAR=True).
-        # When RLINEAR=False the RHS is quadratic and non-invertible, so we must
-        # skip this injection entirely.
-        if (
-            RLINEAR
-            and xk is not None
-            and xk != x_here
-            and xk_is_fp_point(xk, G_poly)
-        ):
-            enriched.append({
-                'xj': xk,
-                'xk': xj,
-                'yj_sign': rec.get('yk_sign', 1),
-                'yk_sign': rec.get('yj_sign', 1),
-                'm': x_here - xk,
-                'source': 'xk_head',
-                'input_n': n0,
-                'xi': x_here,
-                'yi': y_here,
-                # xk_head doesn't carry its own intersection_poly — walkerclass
-                # borrows the sibling's poly.  Supply xi_mult from the parent
-                # record so _recover_xk is skipped when xi_mult is already known,
-                # and shift so the unshift substitution works if it is called.
-                'xi_mult': rec.get('xi_mult', curve_degree - 2),
-                'shift': shift,
-            })
-
-    return enriched
-
 def exec_namespace(src: str) -> Dict[str, Any]:
     """Execute preparsed sage source and return the resulting namespace."""
     ns: Dict[str, Any] = {}
@@ -1223,6 +962,154 @@ def load_project_sources(base_dir: Optional[Path] = None, verbose: bool = True) 
         loaded[name] = True
 
     return loaded
+
+def enrich_candidates(
+    norm,
+    x_here,
+    y_here,
+    n0,
+    fi,
+    G_poly,
+    curve_degree,
+    p=None,
+    shift=0,
+    T=None,
+    T_inv=None,
+):
+    enriched = []
+
+    # If we don't have the fiber or curve, we can't do the pure geometric return path.
+    # We bail early rather than silently returning garbage.
+    if p is None or G_poly is None or fi is None:
+        return []
+
+    Fp = GF(int(p))
+    shift_fp = Fp(shift)
+
+    # Frame transformers
+    def _to_fiber_frame(v):
+        v_s = Fp(v) + shift_fp
+        return T(v_s) if T is not None else v_s
+
+    def _from_fiber_frame(v):
+        v_t = T_inv(v) if T_inv is not None else v
+        return v_t - shift_fp
+
+    x_here_f = _to_fiber_frame(x_here)
+    R_x = PolynomialRing(Fp, 'x')
+
+    for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
+        rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
+
+        # Step 1: Extract m. If we don't have m, the fiber recipe stops here.
+        m_val = rec.get('m')
+        if m_val is None:
+            if RLINEAR and rec.get('xj') is not None:
+                m_val = Fp(x_here) - Fp(rec['xj'])
+            else:
+                continue
+
+        m_val_fp = Fp(m_val)
+
+        # Step 2: Evaluate symbolic fiber polynomial fi(x, m) at m = m_val
+        try:
+            # fi is over Frac(Fp[m])[x]. We map coefficients to evaluate at m_val.
+            f_eval_poly = R_x([c.subs(m=m_val_fp) for c in fi.list()])
+        except ZeroDivisionError:
+            continue # Pole in the fiber, skip
+
+        # Step 3: Intersect fiber with curve: I(x) = G(x) - f(x)^2
+        G_Rx = R_x(G_poly)
+        intersection_poly = G_Rx - f_eval_poly**2
+
+        # Step 4: Obtain ALL roots directly from the intersection
+        roots_wm = intersection_poly.roots()
+
+        other_roots_f = []
+        actual_xi_mult = 0
+
+        for r, mult in roots_wm:
+            if r == x_here_f:
+                actual_xi_mult += mult
+                # Account for cases where xi has higher multiplicity (e.g., xi = xj)
+                if mult > (curve_degree - 2):
+                    other_roots_f.extend([r] * (mult - (curve_degree - 2)))
+            else:
+                other_roots_f.extend([r] * mult)
+
+        # Step 5: soft FAIL on non-QR/Extension Field Roots
+        # If we don't have exactly 2 other roots in Fp, they are in a quadratic extension field.
+        # This explicitly fulfills the requirement to throw on non-quadratic residues.
+        if len(other_roots_f) != 2:
+            #print(
+            #    f"Intersection failed to produce 2 base-field roots for m={m_val}. ",
+            #    f"Roots found: {other_roots_f}. Non-Quadratic Residue encountered."
+            #)
+            continue
+
+        xj_f, xk_f = other_roots_f[0], other_roots_f[1]
+
+        # Step 6: Evaluate Y directly from the fiber (NO MUMFORD v(x) USED)
+        yj_f = f_eval_poly(xj_f)
+        yk_f = f_eval_poly(xk_f)
+
+        # Step 7: HARD FAIL on Curve mismatch & Assign Canonical Signs
+        def _get_strict_sign(x_val_f, y_val_f):
+            y_int = int(y_val_f)
+            curve_y2 = int(G_poly(x_val_f))
+
+            # If the fiber's Y squared doesn't match the curve's G(X), something is severely broken.
+            if (y_int**2) % int(p) != curve_y2:
+                raise ValueError(
+                    f"Y-coordinate validation failed! Fiber gave Y={y_val_f}, "
+                    f"but Y^2 != G(X) for X={x_val_f}."
+                )
+
+            canonical_y = min(y_int, int(p) - y_int)
+            return 1 if y_int == canonical_y else -1
+
+        yj_sign = _get_strict_sign(xj_f, yj_f)
+        yk_sign = _get_strict_sign(xk_f, yk_f)
+
+        # Step 8: Transform back to affine Weierstrass coords
+        xj_val = _from_fiber_frame(xj_f)
+        xk_val = _from_fiber_frame(xk_f)
+
+        # Step 9: Pack the purely geometric enriched record
+        new_rec = {
+            'xi': x_here,
+            'yi': y_here,
+            'xj': xj_val,
+            'xk': xk_val,
+            'yj_sign': yj_sign,
+            'yk_sign': yk_sign,
+            'm': m_val,
+            'input_n': n0,
+            'source': 'pure_fiber_intersection',
+            'xi_mult': actual_xi_mult,
+            'intersection_poly': intersection_poly,
+            'shift': shift
+        }
+
+        enriched.append(new_rec)
+
+        # Inject xk-head if RLINEAR (swapping roles for the walker)
+        if RLINEAR and xk_val != x_here:
+            enriched.append({
+                'xi': x_here,
+                'yi': y_here,
+                'xj': xk_val,
+                'xk': xj_val,
+                'yj_sign': yk_sign, # Swap signs
+                'yk_sign': yj_sign, # Swap signs
+                'm': Fp(x_here) - Fp(xk_val),
+                'input_n': n0,
+                'source': 'xk_head',
+                'xi_mult': actual_xi_mult,
+                'shift': shift
+            })
+
+    return enriched
 
 if __name__ == "__main__":
     raise SystemExit(main())

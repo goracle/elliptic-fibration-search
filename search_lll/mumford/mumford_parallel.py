@@ -953,8 +953,6 @@ def _raise_rail_hypothesis_violation(diag):
     ]
     raise ValueError("\n".join(msg))
 
-
-
 def _rhs_rational_function_from_coeffs(num_coeffs, den_coeffs, p):
     """
     Rebuild a Sage rational function in m from low-to-high coefficient lists.
