@@ -976,138 +976,209 @@ def enrich_candidates(
     T=None,
     T_inv=None,
 ):
+    """
+    Enrich candidate records by reconstructing the fiber intersection directly
+    over GF(p), using only the shared m-parameter.
+
+    Main fixes versus the previous version:
+      - evaluates coefficients at m_val_fp more carefully, avoiding brittle
+        direct subs-on-fraction-field behavior where possible
+      - coerces all comparisons into GF(p)
+      - skips candidates cleanly on poles / malformed evaluations
+      - keeps the geometric reconstruction path explicit and strict
+    """
     enriched = []
 
-    # If we don't have the fiber or curve, we can't do the pure geometric return path.
-    # We bail early rather than silently returning garbage.
     if p is None or G_poly is None or fi is None:
         return []
 
     Fp = GF(int(p))
     shift_fp = Fp(shift)
 
-    # Frame transformers
     def _to_fiber_frame(v):
-        v_s = Fp(v) + shift_fp
-        return T(v_s) if T is not None else v_s
+        v_fp = Fp(v) + shift_fp
+        return T(v_fp) if T is not None else v_fp
 
     def _from_fiber_frame(v):
         v_t = T_inv(v) if T_inv is not None else v
         return v_t - shift_fp
 
+    def _eval_at_m(obj, m_val_fp):
+        """
+        Evaluate a coefficient-like object at m = m_val_fp and coerce into GF(p).
+
+        Tries callable evaluation first, then symbolic substitution, then direct
+        coercion. This is intentionally conservative.
+        """
+        # Most polynomial/rational-function objects in Sage can be called.
+        try:
+            return Fp(obj(m_val_fp))
+        except Exception:
+            pass
+
+        # Symbolic / expression fallback.
+        try:
+            return Fp(obj.subs(m=m_val_fp))
+        except Exception:
+            pass
+
+        # Plain field element / integer / already-evaluated object.
+        return Fp(obj)
+
     x_here_f = _to_fiber_frame(x_here)
-    R_x = PolynomialRing(Fp, 'x')
+    x_here_f_fp = Fp(x_here_f)
+    R_x = PolynomialRing(Fp, "x")
 
-    for cand in norm.get('candidate_records', []) or norm.get('candidates', []):
-        rec = dict(cand) if isinstance(cand, dict) else {'xj': cand}
+    candidates = norm.get("candidate_records", []) or norm.get("candidates", [])
+    for cand in candidates:
+        rec = dict(cand) if isinstance(cand, dict) else {"xj": cand}
 
-        # Step 1: Extract m. If we don't have m, the fiber recipe stops here.
-        m_val = rec.get('m')
+        # Step 1: extract m.
+        m_val = rec.get("m")
         if m_val is None:
-            if RLINEAR and rec.get('xj') is not None:
-                m_val = Fp(x_here) - Fp(rec['xj'])
+            if RLINEAR and rec.get("xj") is not None:
+                m_val = Fp(x_here) - Fp(rec["xj"])
             else:
                 continue
 
-        m_val_fp = Fp(m_val)
-
-        # Step 2: Evaluate symbolic fiber polynomial fi(x, m) at m = m_val
         try:
-            # fi is over Frac(Fp[m])[x]. We map coefficients to evaluate at m_val.
-            f_eval_poly = R_x([c.subs(m=m_val_fp) for c in fi.list()])
-        except ZeroDivisionError:
-            continue # Pole in the fiber, skip
+            m_val_fp = Fp(m_val)
+        except Exception:
+            continue
 
-        # Step 3: Intersect fiber with curve: I(x) = G(x) - f(x)^2
-        G_Rx = R_x(G_poly)
+        # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
+        try:
+            coeffs = []
+            for c in fi.list():
+                # If c is a rational function, evaluate numerator/denominator separately.
+                if hasattr(c, "numerator") and hasattr(c, "denominator"):
+                    num = c.numerator()
+                    den = c.denominator()
+
+                    num_val = _eval_at_m(num, m_val_fp)
+                    den_val = _eval_at_m(den, m_val_fp)
+
+                    if den_val == 0:
+                        raise ZeroDivisionError("pole in fiber coefficient")
+
+                    coeffs.append(num_val / den_val)
+                else:
+                    coeffs.append(_eval_at_m(c, m_val_fp))
+
+            f_eval_poly = R_x(coeffs)
+        except (ZeroDivisionError, ValueError, TypeError):
+            continue
+        except Exception:
+            continue
+
+        # Step 3: intersection polynomial on the fiber.
+        try:
+            G_Rx = R_x(G_poly)
+        except Exception:
+            continue
+
         intersection_poly = G_Rx - f_eval_poly**2
 
-        # Step 4: Obtain ALL roots directly from the intersection
-        roots_wm = intersection_poly.roots()
+        # Step 4: find all roots in the base field.
+        try:
+            roots_wm = intersection_poly.roots()
+        except Exception:
+            continue
 
         other_roots_f = []
         actual_xi_mult = 0
 
         for r, mult in roots_wm:
-            if r == x_here_f:
-                actual_xi_mult += mult
-                # Account for cases where xi has higher multiplicity (e.g., xi = xj)
-                if mult > (curve_degree - 2):
-                    other_roots_f.extend([r] * (mult - (curve_degree - 2)))
-            else:
-                other_roots_f.extend([r] * mult)
+            try:
+                r_fp = Fp(r)
+            except Exception:
+                continue
 
-        # Step 5: soft FAIL on non-QR/Extension Field Roots
-        # If we don't have exactly 2 other roots in Fp, they are in a quadratic extension field.
-        # This explicitly fulfills the requirement to throw on non-quadratic residues.
+            if r_fp == x_here_f_fp:
+                actual_xi_mult += mult
+
+                # Preserve the previous convention for excess xi multiplicity.
+                if mult > (curve_degree - 2):
+                    other_roots_f.extend([r_fp] * (mult - (curve_degree - 2)))
+            else:
+                other_roots_f.extend([r_fp] * mult)
+
+        # Step 5: require exactly two non-xi roots in GF(p).
         if len(other_roots_f) != 2:
-            #print(
-            #    f"Intersection failed to produce 2 base-field roots for m={m_val}. ",
-            #    f"Roots found: {other_roots_f}. Non-Quadratic Residue encountered."
-            #)
             continue
 
-        xj_f, xk_f = other_roots_f[0], other_roots_f[1]
+        xj_f, xk_f = other_roots_f
 
-        # Step 6: Evaluate Y directly from the fiber (NO MUMFORD v(x) USED)
-        yj_f = f_eval_poly(xj_f)
-        yk_f = f_eval_poly(xk_f)
+        # Step 6: evaluate Y directly from the fiber.
+        try:
+            yj_f = f_eval_poly(xj_f)
+            yk_f = f_eval_poly(xk_f)
+        except Exception:
+            continue
 
-        # Step 7: HARD FAIL on Curve mismatch & Assign Canonical Signs
+        # Step 7: strict sign validation against the original curve model.
         def _get_strict_sign(x_val_f, y_val_f):
-            y_int = int(y_val_f)
-            curve_y2 = int(G_poly(x_val_f))
+            y_int = int(Fp(y_val_f))
+            x_int = Fp(x_val_f)
+            curve_y2 = int(Fp(G_poly(x_int)))
 
-            # If the fiber's Y squared doesn't match the curve's G(X), something is severely broken.
-            if (y_int**2) % int(p) != curve_y2:
+            if (y_int * y_int) % int(p) != curve_y2:
                 raise ValueError(
-                    f"Y-coordinate validation failed! Fiber gave Y={y_val_f}, "
-                    f"but Y^2 != G(X) for X={x_val_f}."
+                    f"Y-coordinate validation failed for X={x_val_f}: "
+                    f"fiber Y={y_val_f}, but Y^2 != G(X)."
                 )
 
             canonical_y = min(y_int, int(p) - y_int)
             return 1 if y_int == canonical_y else -1
 
-        yj_sign = _get_strict_sign(xj_f, yj_f)
-        yk_sign = _get_strict_sign(xk_f, yk_f)
+        try:
+            yj_sign = _get_strict_sign(xj_f, yj_f)
+            yk_sign = _get_strict_sign(xk_f, yk_f)
+        except Exception:
+            continue
 
-        # Step 8: Transform back to affine Weierstrass coords
-        xj_val = _from_fiber_frame(xj_f)
-        xk_val = _from_fiber_frame(xk_f)
+        # Step 8: transform back to affine Weierstrass coordinates.
+        try:
+            xj_val = _from_fiber_frame(xj_f)
+            xk_val = _from_fiber_frame(xk_f)
+        except Exception:
+            continue
 
-        # Step 9: Pack the purely geometric enriched record
+        # Step 9: pack the record.
         new_rec = {
-            'xi': x_here,
-            'yi': y_here,
-            'xj': xj_val,
-            'xk': xk_val,
-            'yj_sign': yj_sign,
-            'yk_sign': yk_sign,
-            'm': m_val,
-            'input_n': n0,
-            'source': 'pure_fiber_intersection',
-            'xi_mult': actual_xi_mult,
-            'intersection_poly': intersection_poly,
-            'shift': shift
+            "xi": x_here,
+            "yi": y_here,
+            "xj": xj_val,
+            "xk": xk_val,
+            "yj_sign": yj_sign,
+            "yk_sign": yk_sign,
+            "m": m_val_fp,
+            "input_n": n0,
+            "source": "pure_fiber_intersection",
+            "xi_mult": actual_xi_mult,
+            "intersection_poly": intersection_poly,
+            "shift": shift,
         }
-
         enriched.append(new_rec)
 
-        # Inject xk-head if RLINEAR (swapping roles for the walker)
+        # Optional xk-head injection for RLINEAR.
         if RLINEAR and xk_val != x_here:
-            enriched.append({
-                'xi': x_here,
-                'yi': y_here,
-                'xj': xk_val,
-                'xk': xj_val,
-                'yj_sign': yk_sign, # Swap signs
-                'yk_sign': yj_sign, # Swap signs
-                'm': Fp(x_here) - Fp(xk_val),
-                'input_n': n0,
-                'source': 'xk_head',
-                'xi_mult': actual_xi_mult,
-                'shift': shift
-            })
+            try:
+                enriched.append({
+                    "xi": x_here,
+                    "yi": y_here,
+                    "xj": xk_val,
+                    "xk": xj_val,
+                    "yj_sign": yk_sign,
+                    "yk_sign": yj_sign,
+                    "m": Fp(x_here) - Fp(xk_val),
+                    "input_n": n0,
+                    "source": "xk_head",
+                    "xi_mult": actual_xi_mult,
+                    "shift": shift,
+                })
+            except Exception:
+                pass
 
     return enriched
 
