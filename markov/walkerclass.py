@@ -1799,6 +1799,40 @@ class Genus2MetropolisWalker:
         # Leaf bookkeeping is kept even if the relation later gets rejected.
         valid_leaves = {cx for cx in candidate_xs if cx is not None}
         organic_leaves = valid_leaves - self._injected_xs
+
+        # (a) Assert every candidate contributed an xj leaf.
+        _cand_xj_missing = [
+            i for i, c in enumerate(candidates)
+            if (c.get("xj") if isinstance(c, dict) else c) is None
+        ]
+        assert len(_cand_xj_missing) == 0 or len(_cand_xj_missing) < len(candidates), (
+            f"[ASSERT-a search] ALL {len(candidates)} candidates are missing xj "
+            f"at step={len(self.history)+1} xi={xi_before}."
+        )
+        if _cand_xj_missing:
+            print(
+                f"[WARN-a search] {len(_cand_xj_missing)}/{len(candidates)} candidates have no xj "
+                f"at step={len(self.history)+1} xi={xi_before}: indices {_cand_xj_missing[:10]}"
+            )
+        assert valid_leaves or not candidates, (
+            f"[ASSERT-a search] {len(candidates)} candidates but leaf set is empty "
+            f"at step={len(self.history)+1} xi={xi_before}."
+        )
+        _cand_xk_missing = [
+            i for i, c in enumerate(candidates)
+            if isinstance(c, dict) and c.get("xj") is not None and c.get("xk") is None
+        ]
+        if _cand_xk_missing:
+            print(
+                f"[WARN-a search] {len(_cand_xk_missing)}/{len(candidates)} candidates missing xk "
+                f"at step={len(self.history)+1} xi={xi_before}: indices {_cand_xk_missing[:10]}"
+            )
+        print(
+            f"[LEAVES search] step={len(self.history)+1} xi={xi_before} "
+            f"candidates={len(candidates)} candidate_xs={len(candidate_xs)} "
+            f"xk_present={len(candidates) - len(_cand_xk_missing)}/{len(candidates)} "
+            f"total-leaves={len(valid_leaves)}"
+        )
         organic_already_seen = organic_leaves & self.global_leaves_seen
         colliding_xs = sorted(organic_already_seen)[:10]
         old_leaves_count = len(self.global_leaves_seen)
@@ -2220,6 +2254,28 @@ class Genus2MetropolisWalker:
         rec.candidate_pool = candidates
         rec.selected_candidate = dict(chosen)
         self._store_record(rec)
+
+        # (b) Assert storage: record appended at expected index, pool intact.
+        assert self.history[-1] is rec, (
+            f"[ASSERT-b search] _store_record did not append rec at step={rec.step_index} xi={xi_before}"
+        )
+        assert rec.accepted, (
+            f"[ASSERT-b search] accepted record has accepted=False at step={rec.step_index}"
+        )
+        assert rec.xj is not None, (
+            f"[ASSERT-b search] accepted record has xj=None at step={rec.step_index} xi={xi_before}"
+        )
+        assert rec.xk is not None, (
+            f"[ASSERT-b search] accepted record has xk=None at step={rec.step_index} xi={xi_before}"
+        )
+        assert rec.candidate_pool, (
+            f"[ASSERT-b search] accepted record has empty candidate_pool at step={rec.step_index} xi={xi_before}"
+        )
+        print(
+            f"[STORED search] step_index={rec.step_index} xi={rec.xi} xj={rec.xj} xk={rec.xk} "
+            f"pool_size={len(rec.candidate_pool)} history_len={len(self.history)} accepted=True"
+        )
+
         #self.inject_preferred_relations(rec)
         return rec
 
@@ -2281,10 +2337,38 @@ class Genus2MetropolisWalker:
             return rec
 
         valid_leaves = {cx for cx in xj_candidates if cx is not None}
+        _xk_per_xj: List[Any] = []
         for _xj in xj_candidates:
             _xk, _ = self._recover_xk(step, self.current_x, _xj)
+            _xk_per_xj.append(_xk)
             if _xk is not None:
                 valid_leaves.add(_xk)
+
+        # (a) Assert every m-root produced an xj leaf.
+        _missing_xj = [m for m, xj_c in zip(m_roots, xj_candidates) if xj_c is None]
+        assert not _missing_xj, (
+            f"[ASSERT-a direct] {len(_missing_xj)}/{len(m_roots)} m-roots produced no xj leaf "
+            f"at step={len(self.history)+1} xi={xi_before}. "
+            f"missing m-roots: {_missing_xj}"
+        )
+        assert valid_leaves, (
+            f"[ASSERT-a direct] leaf set is empty after processing {len(m_roots)} m-roots "
+            f"at step={len(self.history)+1} xi={xi_before}."
+        )
+        _missing_xk = [(m, xj_c) for m, xj_c, xk_c in zip(m_roots, xj_candidates, _xk_per_xj) if xk_c is None]
+        if _missing_xk:
+            print(
+                f"[WARN-a direct] {len(_missing_xk)}/{len(m_roots)} xj leaves have no recoverable xk "
+                f"at step={len(self.history)+1} xi={xi_before}: "
+                f"(m, xj) pairs without xk = {_missing_xk[:5]}"
+                + (" ..." if len(_missing_xk) > 5 else "")
+            )
+        print(
+            f"[LEAVES direct] step={len(self.history)+1} xi={xi_before} "
+            f"m-roots={len(m_roots)} xj-leaves={len(xj_candidates)} "
+            f"xk-recovered={sum(1 for xk_c in _xk_per_xj if xk_c is not None)} "
+            f"total-leaves={len(valid_leaves)}"
+        )
 
         organic_leaves = valid_leaves - self._injected_xs
         organic_already_seen = organic_leaves & self.global_leaves_seen
@@ -2572,6 +2656,25 @@ class Genus2MetropolisWalker:
             xi_mult=sf_xi_mult,
         )
         self._store_record(rec)
+
+        # (b) Assert storage: record must be last entry in history.
+        assert self.history[-1] is rec, (
+            f"[ASSERT-b direct] _store_record did not append rec at step={rec.step_index} xi={xi_before}"
+        )
+        assert rec.accepted, (
+            f"[ASSERT-b direct] accepted record has accepted=False at step={rec.step_index}"
+        )
+        assert rec.xj is not None, (
+            f"[ASSERT-b direct] accepted record has xj=None at step={rec.step_index} xi={xi_before}"
+        )
+        assert rec.xk is not None, (
+            f"[ASSERT-b direct] accepted record has xk=None at step={rec.step_index} xi={xi_before}"
+        )
+        print(
+            f"[STORED direct] step_index={rec.step_index} xi={rec.xi} xj={rec.xj} xk={rec.xk} "
+            f"history_len={len(self.history)} accepted=True"
+        )
+
         return rec
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
