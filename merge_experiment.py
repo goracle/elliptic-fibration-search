@@ -177,7 +177,6 @@ def _build_walker(
         search_fn=search_fn,
         log_path=log_path,
         log_full_candidates=True,
-        preferred_xs=PREFERRED_X_COORDS
     )
 
 # ---------------------------------------------------------------------------
@@ -347,9 +346,6 @@ def main(argv=None):
         walker_a.mat_chain = None
         walker_a.mat_graph = None
 
-        # Force all four divisor atoms as xi before the main run.
-        _force_divisor_xi_steps(walker_a, divisor_xs, steps_per_atom=5, label="A")
-
         _quiet_run(walker_a, args.steps_a, checkpoint_every=args.checkpoint_every,
                    label="A", collective_leaves=None,
                    nullity_every=0, peer_walkers=[])
@@ -442,11 +438,6 @@ def main(argv=None):
         w.config.spectral_enabled = False
         w.mat_chain = None
         w.mat_graph = None
-
-        # Force each divisor atom to appear as xi at least 5 times so the
-        # affine DLP system anchor row a[G_x0]+a[G_x1]=1 is satisfiable.
-        # Without this every walker only steps through its own seed as xi.
-        _force_divisor_xi_steps(w, divisor_xs, steps_per_atom=5, label=label)
 
         _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
                    label=label, collective_leaves=collective_leaves,
@@ -617,9 +608,12 @@ def _quiet_run(
         coll_size_before = len(collective_leaves) if collective_leaves is not None else None  # noqa: F841
 
         # Use run(1) so the full ====== diagnostic block is printed, identical
-        # to the on-chain (walk A) output.  The walker label header below it
-        # makes clear which chain produced it.
+        # to the on-chain (walk A) output.  The walk-label banner before and
+        # after makes clear which chain produced each block when outputs from
+        # multiple chains are interleaved.
+        _log(f"\n{tag} >>>>>> step {i+1}/{steps} <<<<<<")
         walker.run(1)
+        _log(f"{tag} <<<<<< step {i+1}/{steps} done  xi_now={int(walker.current_x)} >>>>>>")
         display_step = i + 1
 
         # Novelty vs collective: count only the leaves this step actually added
