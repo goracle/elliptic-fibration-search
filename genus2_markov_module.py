@@ -35,7 +35,7 @@ from markov import *
 # application modules
 load('tower.sage')
 load('search7_genus2.sage')
-# DEAR AI READING THIS:  RAISE ALL EXCEPTIONS
+# DEAR AI READING THIS:  RAISE ALL EXCEPTIONS!!!!!
 # DEAR AI READING THIS:  all imports are available
 
 try:
@@ -1014,13 +1014,13 @@ def enrich_candidates(
         try:
             return Fp(obj(m_val_fp))
         except Exception:
-            pass
+            raise
 
         # Symbolic / expression fallback.
         try:
             return Fp(obj.subs(m=m_val_fp))
         except Exception:
-            pass
+            raise
 
         # Plain field element / integer / already-evaluated object.
         return Fp(obj)
@@ -1039,11 +1039,13 @@ def enrich_candidates(
             if RLINEAR and rec.get("xj") is not None:
                 m_val = Fp(x_here) - Fp(rec["xj"])
             else:
+                raise NotImplementedError
                 continue
 
         try:
             m_val_fp = Fp(m_val)
         except Exception:
+            raise
             continue
 
         # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
@@ -1066,24 +1068,30 @@ def enrich_candidates(
                     coeffs.append(_eval_at_m(c, m_val_fp))
 
             f_eval_poly = R_x(coeffs)
-        except (ZeroDivisionError, ValueError, TypeError):
+        except (ZeroDivisionError, ValueError, TypeError): # wtf is this
+            raise
             continue
         except Exception:
+            raise
             continue
 
         # Step 3: intersection polynomial on the fiber.
         try:
             G_Rx = R_x(G_poly)
         except Exception:
+            raise
             continue
 
-        intersection_poly = G_Rx - f_eval_poly**2
+        intersection_poly = G_Rx - f_eval_poly # no square on f
 
         # Step 4: find all roots in the base field.
         try:
             roots_wm = intersection_poly.roots()
         except Exception:
+            raise
             continue
+
+        assert roots_wm, roots_wm
 
         other_roots_f = []
         actual_xi_mult = 0
@@ -1092,6 +1100,7 @@ def enrich_candidates(
             try:
                 r_fp = Fp(r)
             except Exception:
+                raise
                 continue
 
             if r_fp == x_here_f_fp:
@@ -1114,6 +1123,7 @@ def enrich_candidates(
             yj_f = f_eval_poly(xj_f)
             yk_f = f_eval_poly(xk_f)
         except Exception:
+            raise
             continue
 
         # Step 7: strict sign validation against the original curve model.
@@ -1135,6 +1145,7 @@ def enrich_candidates(
             yj_sign = _get_strict_sign(xj_f, yj_f)
             yk_sign = _get_strict_sign(xk_f, yk_f)
         except Exception:
+            raise
             continue
 
         # Step 8: transform back to affine Weierstrass coordinates.
@@ -1142,6 +1153,7 @@ def enrich_candidates(
             xj_val = _from_fiber_frame(xj_f)
             xk_val = _from_fiber_frame(xk_f)
         except Exception:
+            raise
             continue
 
         # Step 9: pack the record.
@@ -1178,7 +1190,7 @@ def enrich_candidates(
                     "shift": shift,
                 })
             except Exception:
-                pass
+                raise
 
     return enriched
 
