@@ -1712,13 +1712,14 @@ class Genus2MetropolisWalker:
             return None
 
         # For the genus-2 walk we expect exactly two non-xi roots.
-        if len(leftovers) != 2:
+        if len(leftovers) == 1 and xi_mult >= 2:
+            xj = leftovers[0]
+            xk = xi
+            xi_mult -= 1
+        elif len(leftovers) == 2:
+            xj, xk = leftovers[0], leftovers[1]
+        else:
             return None
-
-        xj, xk = leftovers[0], leftovers[1]
-        if xj == xk:
-            return None
-
         return xj, xk, xi_mult, poly
 
     def _recover_xk(self, step: Dict[str, Any], xi, xj):
@@ -1862,11 +1863,6 @@ class Genus2MetropolisWalker:
                 return None # or raise ValueError if in the inner function
 
 
-            xj, xk = others[0], others[1]
-            if xj == xk:
-                raise ValueError
-                return None
-
             return xj, xk, xi_mult, poly
 
         def reject(reason, *, m_val=None, xj=None, xk=None, chosen=None, extra=None):
@@ -1897,21 +1893,23 @@ class Genus2MetropolisWalker:
         X = {x for x in search_out.get("candidate_xs", set()) if x is not None}
 
         # --- leaf bookkeeping ---
-        old = len(self.global_leaves_seen)
-        new = len(self.global_leaves_seen) - old
-        # ADD THIS: Reject if there's no novelty
-        if new == 0 and len(X) > 0:
-            return reject("zero_novelty", extra={"leaves_found": len(X)})
         organic = X - self._injected_xs
+        new_leaves_count = len(organic - self.global_leaves_seen)
+        
+        # Reject if there's no novelty
+        if new_leaves_count == 0 and len(X) > 0:
+            return reject("zero_novelty", extra={"leaves_found": len(X)})
+            
         collisions = organic & self.global_leaves_seen
 
         if X:
             self.global_leaves_seen |= X
             self.total_leaf_insertions += len(X)
+            
+        old = len(self.global_leaves_seen) - len(X) # Or whatever you need 'old' for later
 
-        new = len(self.global_leaves_seen) - old
         self.leaf_collision_count += len(collisions)
-
+        new = len(self.global_leaves_seen) - old
         search_out.update({
             "step_leaves_found": len(X),
             "step_leaves_new": new,
@@ -1941,17 +1939,17 @@ class Genus2MetropolisWalker:
             return rec
 
         # --- choose candidate ---
+        def is_fp(c):
+            if not isinstance(c, dict):
+                return False
+            return self._point_check_details(c.get("xk"), "xk").get("is_fp_point", False)
+
 
         pool = [c for c in C if is_fp(c)] or C
         pool = self._prefer_unvisited_candidates(pool) # Use the built-in tiering
         pool = list(pool)  # Make a copy so we can pop from it
 
         valid_candidate_found = False
-        def is_fp(c):
-            if not isinstance(c, dict):
-                return False
-            return self._point_check_details(c.get("xk"), "xk").get("is_fp_point", False)
-
 
         while pool:
             chosen = self._choose_candidate_record(
