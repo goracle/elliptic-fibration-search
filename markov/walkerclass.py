@@ -553,10 +553,6 @@ class WalkConfig:
     coin_bias_for_xj: float = 0.5
     metropolis_temperature: float = 1.0
     restart_on_dead_end: bool = True
-    # During the thermalization window, 0.0%-novelty steps are treated as dead ends.
-    # Once n >= nthermal, zero-novelty can occur organically and is only rejected,
-    # not force-restarted.
-    nthermal: int = 100
     allow_branching: bool = False
     branch_width: int = 2
     seed: int = 0
@@ -942,56 +938,56 @@ class Genus2MetropolisWalker:
                 return x, y
         return None
 
-    def _thermal_novelty_threshold(self) -> int:
-        """Return the step number below which zero-novelty is treated as a dead end."""
-        try:
-            return max(0, int(getattr(self.config, "nthermal", 100)))
-        except Exception:
-            return 100
+    def _restart_from_valid_curve_point(self, *, exclude: Optional[set] = None):
+        """Return a restart point (x, y) that is actually on the curve.
 
-    def _should_treat_zero_novelty_as_dead_end(self, n: int, step_leaves_found: int, step_leaves_new: int) -> bool:
-        """Decide whether a zero-novelty outcome should trigger the dead-end path."""
-        return int(n) < self._thermal_novelty_threshold() and int(step_leaves_found) > 0 and int(step_leaves_new) <= 0
+        The earlier fallback picked arbitrary x-values from the leaf set and then
+        tried to recover y. That can fail in finite-field mode when the sampled x
+        is not a curve point. We now only accept candidates that pass the
+        point-on-curve test before recovering y.
+        """
+        exclude = set(exclude or ())
 
-    def _restart_after_dead_end(self, *, xi, n: int, reason: str, current_point=None) -> Optional[Tuple[Any, Any]]:
-        """Advance to a fresh restart point after a dead end, if configured."""
-        if not self.config.restart_on_dead_end:
-            return None
-
+        # First try any unused base point, because those already carry a y-value.
         nxt = self._next_restart_point()
         if nxt is not None:
-            self.current_x, self.current_y = nxt
-            self.visited_x.add(nxt[0])
             return nxt
 
-        pool = list(self.global_leaves_seen - self.visited_x - {xi})
-        if pool:
-            x = self.rng.choice(pool)
-            self.current_x, self.current_y = x, self._recover_y(x)
-            self.visited_x.add(x)
-            return (x, self.current_y)
+        # Otherwise scan the global leaf pool for an actual F_p-point.
+        pool = list(self.global_leaves_seen - self._injected_xs - exclude)
+        self.rng.shuffle(pool)
+        for x in pool:
+            try:
+                info = self._point_check_details(x, label="restart")
+            except Exception:
+                continue
+            if not info.get("is_fp_point", False):
+                continue
+            try:
+                y = self._recover_y(x)
+            except Exception:
+                continue
+            if y == self.base_ring(0):
+                continue
+            return x, y
+
+        # As a last resort, allow revisiting a known base point if one exists.
+        for x, y in self.base_points:
+            if x in exclude:
+                continue
+            try:
+                info = self._point_check_details(x, label="restart-fallback")
+            except Exception:
+                continue
+            if info.get("is_fp_point", False):
+                try:
+                    yy = self._recover_y(x, y)
+                except Exception:
+                    continue
+                if yy != self.base_ring(0):
+                    return x, yy
 
         return None
-
-    def _handle_dead_end(self, rec: RelationRecord, *, xi, n: int, reason: str, current_point=None) -> RelationRecord:
-        """Record a dead end and, if enabled, move the walker to a fresh restart point."""
-        self.dead_end_count += 1
-        self.dead_end_reasons[reason] += 1
-
-        if self.config.restart_on_dead_end:
-            nxt = self._restart_after_dead_end(
-                xi=xi,
-                n=n,
-                reason=reason,
-                current_point=current_point,
-            )
-            if nxt is not None:
-                rec.restart = True
-                if isinstance(rec.step, dict):
-                    rec.step["restart_to"] = self._jsonable(nxt[0])
-                    rec.step["restart_point"] = self._jsonable(nxt)
-
-        return rec
 
     def run_branching(self, num_steps: int, width: Optional[int] = None) -> List[List[RelationRecord]]:
         """Small breadth-style helper for the parallel-branch idea."""
@@ -1950,39 +1946,43 @@ class Genus2MetropolisWalker:
 
         # --- leaf bookkeeping ---
         organic = X - self._injected_xs
-        collisions = organic & self.global_leaves_seen
         new_leaves_count = len(organic - self.global_leaves_seen)
-
-        # Zero-novelty is only allowed once the walk is out of the thermal window.
+        
+        # Reject if there's no novelty
         if new_leaves_count == 0 and len(X) > 0:
-            search_out.update({
-                "step_leaves_found": len(X),
-                "step_leaves_new": 0,
-                "step_leaf_collisions": len(collisions),
-                "global_leaves_total": len(self.global_leaves_seen),
-                "global_leaf_collisions": self.leaf_collision_count + len(collisions),
-            })
-            thermal = int(n) < self._thermal_novelty_threshold()
-            rec = reject(
-                "zero_novelty_thermal" if thermal else "zero_novelty",
-                extra={
-                    "leaves_found": len(X),
-                    "thermal_threshold": self._thermal_novelty_threshold(),
-                    "thermalized": not thermal,
-                },
-            )
-            if thermal:
-                self._handle_dead_end(rec, xi=xi, n=n, reason="zero_novelty_thermal", current_point=pt)
-            return rec
+            if n < self.config.nthermal:
+                self.dead_end_count += 1
+                self.dead_end_reasons["zero_novelty_thermal"] += 1
+                rec = reject(
+                    "zero_novelty_thermal",
+                    extra={
+                        "leaves_found": len(X),
+                        "thermal_threshold": self.config.nthermal,
+                        "thermalized": False,
+                    },
+                )
+                self._restart_after_dead_end(
+                    xi=xi,
+                    n=n,
+                    reason="zero_novelty_thermal",
+                    current_point=pt,
+                )
+                return rec
+            return reject("zero_novelty", extra={"leaves_found": len(X)})            
+
+        collisions = organic & self.global_leaves_seen
 
         if X:
             self.global_leaves_seen |= X
             self.total_leaf_insertions += len(X)
+            
+        old = len(self.global_leaves_seen) - len(X) # Or whatever you need 'old' for later
 
         self.leaf_collision_count += len(collisions)
+        new = len(self.global_leaves_seen) - old
         search_out.update({
             "step_leaves_found": len(X),
-            "step_leaves_new": int(new_leaves_count),
+            "step_leaves_new": new,
             "step_leaf_collisions": len(collisions),
             "global_leaves_total": len(self.global_leaves_seen),
             "global_leaf_collisions": self.leaf_collision_count,
@@ -1990,8 +1990,22 @@ class Genus2MetropolisWalker:
 
         # --- dead end ---
         if not C:
-            rec = reject("no_candidates", extra={"dead_end_reason": search_out.get("dead_end_reason", "unknown")})
-            self._handle_dead_end(rec, xi=xi, n=n, reason="no_candidates", current_point=pt)
+            self.dead_end_count += 1
+            r = search_out.get("dead_end_reason", "unknown")
+            self.dead_end_reasons[r] += 1
+            rec = reject("no_candidates", extra={"dead_end_reason": r})
+
+            if self.config.restart_on_dead_end:
+                nxt = self._restart_from_valid_curve_point(exclude={xi})
+                if nxt:
+                    self.current_x, self.current_y = nxt
+                    self.visited_x.add(nxt[0])
+                else:
+                    if self.config.verbose:
+                        print(
+                            "[dead_end restart] no valid curve point found in base points or leaf pool; "
+                            "leaving current state unchanged."
+                        )
             return rec
 
         # --- choose candidate ---
@@ -2306,29 +2320,6 @@ class Genus2MetropolisWalker:
         valid_leaves, new_leaves_this_step, leaf_collisions_this_step = self._update_leaf_bookkeeping(
             valid_leaves, n=n, xi_before=xi_before
         )
-
-        if self._should_treat_zero_novelty_as_dead_end(n, len(valid_leaves), new_leaves_this_step):
-            dead_payload = self._make_direct_step_payload(
-                step if isinstance(step, dict) else {},
-                step_leaves_found=len(valid_leaves),
-                step_leaves_new=new_leaves_this_step,
-                step_leaf_collisions=leaf_collisions_this_step,
-            )
-            rec = self._reject_direct_step(
-                step_payload=dead_payload,
-                stage="direct_step",
-                reason="zero_novelty_thermal",
-                xi=xi_before,
-                n=n,
-                current_point=current_point,
-                extra={
-                    "leaves_found": len(valid_leaves),
-                    "thermal_threshold": self._thermal_novelty_threshold(),
-                    "thermalized": False,
-                },
-            )
-            self._handle_dead_end(rec, xi=xi_before, n=n, reason="zero_novelty_thermal", current_point=current_point)
-            return rec
 
         step_payload = self._make_direct_step_payload(
             step,
