@@ -108,52 +108,6 @@ def _divisor_seed_xs() -> List[int]:
 # Force divisor atoms to appear as xi (chain state) in each walker
 # ---------------------------------------------------------------------------
 
-def _force_divisor_xi_steps(
-    walker: Genus2MetropolisWalker,
-    divisor_xs,
-    steps_per_atom: int = 5,
-    label: str = "?",
-) -> None:
-    """
-    Force the walker to take accepted steps with xi equal to each divisor atom.
-
-    IMPORTANT:
-      - We always reset BOTH (x, y) to a canonical branch.
-      - We do NOT skip just because x matches — branch may be wrong.
-      - State is restored even if stepping fails.
-    """
-    Fp = walker.base_ring
-
-    for x in divisor_xs:
-        x_fp = Fp(x)
-
-        # Count how many accepted xi hits we already have
-        xi_count = sum(
-            1 for r in walker.history
-            if r.accepted and r.xi == x_fp
-        )
-        if xi_count >= steps_per_atom:
-            continue
-
-        # Save full state
-        saved_x = walker.current_x
-        saved_y = walker.current_y
-
-        try:
-            # Force a canonical branch at this x
-            walker.current_x = x_fp
-            walker.current_y = walker._recover_y(x_fp)
-
-            _log(f"[force_xi:{label}] stepping {steps_per_atom}× from xi={int(x_fp)}")
-
-            for _ in range(steps_per_atom):
-                walker.run(1)
-
-        finally:
-            # Always restore original state
-            walker.current_x = saved_x
-            walker.current_y = saved_y
-
 def _build_walker(
     seed: int,
     p: int,
@@ -372,65 +326,17 @@ def main(argv=None):
     # see the combined rank of A+B, A+B+C, etc. rather than just their own rows.
     peer_walkers_done: List = [walker_a] if walker_a is not None else []
 
-    # The four divisor x-coords are always protected (already injected via
-    # preferred_xs at walk construction time).  Kernel atoms exclude these so
-    # we don't double-inject what's already guaranteed.
-    _divisor_protected: set = set(int(x) for x in divisor_xs)
-
-    # nullity_preferred_xs accumulates across phases: after A we get hints for B,
-    # after A+B we get hints for C, etc.  Each subsequent walk inherits ALL
-    # previously identified kernel atoms plus the new ones, so the injection set
-    # only grows.
-    _nullity_xs: list = []
-
     def _run_secondary(label, x0, seed, log_path):
-        nonlocal _nullity_xs
-
         role = _ROLE.get(label, "?")
 
-        if False: # DO NOT DO INJECTIONS THIS IS NOT CORRECT
-            # -- Compute nullity-based preferred injection hints from all finished walks.
-            _log(f"\n[nullity_xs] Computing kernel-support atoms from {len(peer_walkers_done)} "
-                f"finished walk(s) before phase {label} ...")
-            new_nullity_xs = _nullity_preferred_xs(
-                done_walkers=peer_walkers_done,
-                p=p,
-                protected=_divisor_protected,
-                label=label,
-            )
-            # Merge with previously accumulated hints (union, preserving order).
-            existing_set = set(_nullity_xs)
-            for x in new_nullity_xs:
-                if x not in existing_set:
-                    _nullity_xs.append(x)
-                    existing_set.add(x)
-
-            # Combined preferred_xs: divisor seeds (already in walker's preferred_xs
-            # by construction) plus nullity-derived atoms.
-            combined_preferred = list(divisor_xs) + _nullity_xs
-            _log(
-                f"[nullity_xs:{label}] injecting {len(_nullity_xs)} nullity atom(s) "
-                f"on top of {len(divisor_xs)} divisor seeds "
-                f"({len(combined_preferred)} total preferred_xs)"
-            )
-
-            _log(f"\n{'='*70}")
-            _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
-            _log(f"{'='*70}\n")
-            w = _build_walker(
-                seed=seed, p=p, coeffs=coeffs, x0=x0, y0=None,
-                base_points=_bp(x0), verbose=False, log_path=log_path,
-                search_fn=search_fn,
-            )
-            # Inject nullity-derived atoms with a finite budget so they are visited
-            # at most twice as xj targets and then discarded.  Divisor seeds stay in
-            # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
-            existing_preferred_strs = {str(x) for x in w.preferred_xs}
-            for x in _nullity_xs:
-                if str(x) not in existing_preferred_strs:
-                    w.preferred_xs_budget[x] = 2
-
-            # BAD.  ^
+        _log(f"\n{'='*70}")
+        _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
+        _log(f"{'='*70}\n")
+        w = _build_walker(
+            seed=seed, p=p, coeffs=coeffs, x0=x0, y0=None,
+            base_points=_bp(x0), verbose=False, log_path=log_path,
+            search_fn=search_fn,
+        )
 
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
@@ -612,7 +518,7 @@ def _quiet_run(
         # after makes clear which chain produced each block when outputs from
         # multiple chains are interleaved.
         _log(f"\n{tag} >>>>>> step {i+1}/{steps} <<<<<<")
-        walker.run(1)
+        walker.run(1, label=label)
         _log(f"{tag} <<<<<< step {i+1}/{steps} done  xi_now={int(walker.current_x)} >>>>>>")
         display_step = i + 1
 
@@ -790,146 +696,6 @@ def _log(msg: str) -> None:
 
 _INFINITY_SENTINEL = "∞"
 _RANK_PRIME_NULLITY = 2**31 - 1   # Mersenne prime for nullity kernel computation
-
-def _nullity_preferred_xs(
-    done_walkers: list,
-    p: int,
-    protected: set,
-    label: str = "?",
-) -> list:
-    """Compute the nullity kernel of the combined relation matrix across
-    done_walkers and return a deduplicated list of atom x-values that
-    (a) appear in the support of at least one kernel vector,
-    (b) are NOT the infinity sentinel,
-    (c) are valid F_p curve points (i.e. were already seen as walk leaves —
-        if they're in the atom list they were leaves by construction), and
-    (d) are not already in `protected` (the fixed preferred_xs that every
-        walker already injects unconditionally).
-
-    These atoms represent columns that the current relation set has not
-    yet pinned to a unique value; injecting them as preferred_xs on the
-    next walk forces the fibration to generate relations that pass through
-    them as xj, adding rank directly in the directions the system needs.
-
-    Cost: one right_kernel() call on the pruned combined matrix over
-    GF(2^31-1).  Cheap compared to a full walk.
-
-    Returns [] on any failure (the caller treats this as "no extra hints").
-    """
-    try:
-        # 1. Build per-walker matrices (reuse the same helper as the DLP path).
-        mats = []
-        atom_lists_raw = []
-        for w in done_walkers:
-            try:
-                mat, atoms, _ = w.relation_matrix(include_step_leaves=False)
-            except Exception as exc:
-                _log(f"[nullity_xs] relation_matrix() failed for a walker: {exc}")
-                return []
-            if mat.nrows() > 0:
-                mats.append(mat)
-                atom_lists_raw.append(list(atoms))
-
-        if not mats:
-            _log(f"[nullity_xs:{label}] no non-empty matrices — skipping")
-            return []
-
-        # 2. Union column spaces (same logic as _dlp_union_columns, inline for
-        #    independence — we don't want to drag in the verbose DLP path).
-        all_atoms: list = list(atom_lists_raw[0])
-        atom_set = set(map(str, all_atoms))
-        for atms in atom_lists_raw[1:]:
-            for a in atms:
-                if str(a) not in atom_set:
-                    all_atoms.append(a)
-                    atom_set.add(str(a))
-
-        n_cols = len(all_atoms)
-        aidx = {str(a): i for i, a in enumerate(all_atoms)}
-
-        rows_int: list = []
-        for mat, atms in zip(mats, atom_lists_raw):
-            cols_src = [aidx[str(a)] for a in atms]
-            for r in range(mat.nrows()):
-                row = [0] * n_cols
-                for c_src, c_dst in enumerate(cols_src):
-                    row[c_dst] = int(mat[r, c_src])
-                rows_int.append(row)
-
-        M_zz = matrix(ZZ, rows_int)
-
-        # 3. Prune dest-only atoms so the kernel is as small as possible.
-        #    Pass protected so those columns survive regardless.
-        M_pruned, pruned_atoms, _ = prune_dest_only(
-            M_zz, all_atoms, protected=protected
-        )
-        if M_pruned.nrows() == 0 or M_pruned.ncols() == 0:
-            _log(f"[nullity_xs:{label}] matrix empty after pruning — skipping")
-            return []
-
-        # 4. Compute right kernel over GF(large prime).
-        Fp_r = GF(_RANK_PRIME_NULLITY)
-        M_fp = M_pruned.change_ring(Fp_r)
-        ker = M_fp.right_kernel()
-        nullity = ker.dimension()
-
-        if nullity <= 1:
-            # nullity == 1 is the ∞-gauge degree of freedom — nothing actionable.
-            _log(
-                f"[nullity_xs:{label}] nullity={nullity} "
-                f"(≤1 means system is rank-sufficient; no extra injection needed)"
-            )
-            return []
-
-        _log(
-            f"[nullity_xs:{label}] rows={M_fp.nrows()} cols={M_fp.ncols()} "
-            f"rank={M_fp.ncols() - nullity} nullity={nullity} — "
-            f"collecting kernel-support atoms"
-        )
-
-        # 5. Collect the support of every kernel basis vector.
-        #    Each basis vector is a column-indexed weight over the pruned atoms.
-        #    An atom at column j is "free" if *any* basis vector has a nonzero
-        #    at position j — meaning the system leaves that column undetermined.
-        inf_str = str(_INFINITY_SENTINEL)
-        protected_strs = {str(x) for x in protected}
-
-        free_atom_xs: list = []
-        seen_str: set = set()
-
-        for vec in ker.basis():
-            for j, coeff in enumerate(vec):
-                if coeff == 0:
-                    continue
-                atom = pruned_atoms[j]
-                atom_str = str(atom)
-                if atom_str == inf_str:
-                    continue
-                if atom_str in protected_strs:
-                    continue
-                if atom_str in seen_str:
-                    continue
-                # Atoms are already F_p x-coordinates that appeared as walk
-                # leaves — no extra curve-point check needed.
-                try:
-                    free_atom_xs.append(int(atom))
-                    seen_str.add(atom_str)
-                except (TypeError, ValueError):
-                    pass  # non-integer atom (shouldn't happen), skip
-
-        _log(
-            f"[nullity_xs:{label}] {len(free_atom_xs)} kernel-support atoms "
-            f"will be injected as preferred_xs into the next walk"
-        )
-        if free_atom_xs:
-            _log(f"[nullity_xs:{label}]   atoms: {free_atom_xs[:20]}"
-                 + (" ..." if len(free_atom_xs) > 20 else ""))
-
-        return free_atom_xs
-
-    except Exception as exc:
-        _log(f"[nullity_xs:{label}] ERROR: {exc} — returning empty list")
-        raise
 
 def _dlp_collect_matrices(walkers, verbose: bool):
     """Step 1: Build per-walker relation matrices, skipping empty ones.

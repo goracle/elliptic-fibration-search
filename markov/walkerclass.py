@@ -433,7 +433,6 @@ def build_default_walker(
     log_path: Optional[str] = None,
     log_full_candidates: bool = False,
     log_candidate_limit: int = 25*infinity,
-    preferred_xs: Optional[list] = None,
 ) -> Genus2MetropolisWalker:
     if load_sources:
         load_project_sources(verbose=verbose)
@@ -455,7 +454,6 @@ def build_default_walker(
         search_fn=search_fn,
         score_fn=score_fn,
         config=cfg,
-        preferred_xs=preferred_xs,
     )
 
 PROJECT_REGISTRY: Dict[str, Any] = {}
@@ -609,7 +607,6 @@ class Genus2MetropolisWalker:
         config: Optional[WalkConfig] = None,
         rng: Optional[random.Random] = None,
         base_ring: Optional[Any] = None,
-        preferred_xs: Optional[List[Any]] = None,
     ):
         self.config = config or WalkConfig()
         self.rng = rng or random.Random(self.config.seed)
@@ -623,11 +620,6 @@ class Genus2MetropolisWalker:
         self.base_points = list(base_points or [])
         self.log_path = Path(self.config.log_path).expanduser() if self.config.log_path else None
         self.relation_matrix = self._relation_matrix
-        self.preferred_xs = list(preferred_xs or [])
-        # Nullity-derived injection atoms with a finite budget.
-        # Each entry x -> remaining is decremented on use and deleted at zero.
-        # Divisor seeds go in preferred_xs (permanent); nullity hints go here.
-        self.preferred_xs_budget: Dict[Any, int] = {}
 
         if initial_x is None:
             raise ValueError("initial_x is required")
@@ -642,10 +634,9 @@ class Genus2MetropolisWalker:
         # Cumulative count of leaf insertions (not deduplicated) — the true
         # "effort" metric for merge-time analysis, independent of step count.
         self.total_leaf_insertions: int = 1  # seed x counts as one insertion
-        # Xs that are structurally pre-known (seed, preferred_xs, budget keys).
-        # Birthday collision accounting excludes these: collisions on injected
-        # xs are guaranteed by construction and not diagnostic of walk mixing.
-        self._injected_xs: set = {self.current_x} | {self.base_ring(x) for x in (preferred_xs or [])}
+        # Xs that are structurally pre-known (seed x).
+        # Birthday collision accounting excludes these.
+        self._injected_xs: set = {self.current_x}
         # How many times each x has been stepped *through* as xi (i.e. used as chain state).
         # We avoid re-using high-visit-count nodes as the next xi when fresher candidates exist.
         self.xi_visit_count: Counter = Counter({self.current_x: 1})
@@ -1270,7 +1261,7 @@ class Genus2MetropolisWalker:
                 return cand
         return pool[-1]
 
-    def run(self, num_steps: int, n_values: Optional[Sequence[int]] = None) -> List[RelationRecord]:
+    def run(self, num_steps: int, n_values: Optional[Sequence[int]] = None, label: str = "") -> List[RelationRecord]:
         results: List[RelationRecord] = []
         if num_steps <= 0:
             return results
@@ -1286,10 +1277,7 @@ class Genus2MetropolisWalker:
 
             results.append(rec)
 
-            step_no = sum(
-                1 for r in self.history
-                if not (isinstance(r.step, dict) and r.step.get('source') == 'preferred_injection')
-            )
+            step_no = sum(1 for r in self.history if r.accepted)
             accepted_count = sum(1 for r in self.history if r.accepted)
             restarts = sum(1 for r in self.history if r.restart)
 
@@ -1359,9 +1347,10 @@ class Genus2MetropolisWalker:
             else:
                 rel_annotation = ""
 
+            walk_tag = f"[walk-{label}] " if label else ""
             print(
                 f"\n{'='*70}",
-                f"\n[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
+                f"\n{walk_tag}[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
                 f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
                 f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                 f"\n  Relation (example):  {rel_str}{rel_annotation}",
@@ -1377,7 +1366,7 @@ class Genus2MetropolisWalker:
                 sep="",
                 flush=True,
             )
-            print(mixing_one_liner(self, step_no))
+            print(f"{walk_tag}" + mixing_one_liner(self, step_no))
 
         # Spectral reports only at end-of-run (mid-run printing is too slow).
         if getattr(self, 'mat_chain', None) is not None:
@@ -1589,202 +1578,6 @@ class Genus2MetropolisWalker:
                 if fi is not None and G_poly is not None:
                     return fi, G_poly
         return None, None
-
-    def inject_preferred_relations(self, accepted_rec) -> int:
-        """After an accepted walk step, inject one synthetic relation per preferred
-        x-coord by inverting xj = xi - m  =>  m = xi - t.
-
-        For each t in self.preferred_xs:
-          m   = xi - t
-          xk, actual_xi_mult = compute_xk_from_fiber(xi, m, t, fi, G_poly, deg)
-
-        Uses the actual fiber intersection poly so xi's multiplicity is computed
-        correctly at each specific m, rather than assumed to be deg-2.
-
-        A RelationRecord with source='preferred_injection' is appended via
-        _store_record so leaf bookkeeping, merge detection, and JSONL logging
-        all happen normally.
-
-        Returns the number of relations successfully injected this call.
-        """
-        if not self.preferred_xs and not self.preferred_xs_budget:
-            return 0
-
-        # Synthetic injection inverts xj = xi - m  =>  m = xi - t, which is only
-        # valid when the search RHS is linear in m.  When RLINEAR=False the RHS is
-        # quadratic and the inversion is undefined, so skip entirely.
-        #
-        # Read RLINEAR from the search_common module object at call time rather than
-        # from this module's namespace.  The double-assignment in search_common
-        # (RLINEAR=True then RLINEAR=False) means a `from search_common import *`
-        # done at import time may have captured the intermediate True value if import
-        # ordering was unlucky.  Hitting the live module attribute is immune to that.
-        import search_common as _sc
-        if not getattr(_sc, 'RLINEAR', True):
-            return 0
-
-        fi, G_poly = self._get_fiber_context_for_rec(accepted_rec)
-        if fi is None or G_poly is None:
-            # No fiber context available — fall back to S(m) shortcut with default xi_mult.
-            # This preserves backward compat for steps that predate fi/G_poly storage.
-            assert None, "do not fallback to incorrect code lol"
-            #return self._inject_preferred_relations_legacy(accepted_rec)
-
-        xi    = accepted_rec.xi
-        Fp    = self.base_ring
-        deg   = self.config.curve_degree
-
-        xi_fp = Fp(xi)
-        n_injected = 0
-
-        def _do_inject(t_fp):
-            nonlocal n_injected
-            if t_fp == xi_fp:
-                return
-            m_fp = xi_fp - t_fp
-
-            try:
-                xk_val, inter = compute_xk_from_fiber(
-                    xi_fp, m_fp, t_fp, fi, G_poly, deg
-                )
-            except ZeroDivisionError:
-                return
-
-            if xk_val is None:
-                return
-            xk_fp = Fp(xk_val)
-
-            # Read actual xi multiplicity from the intersection poly roots.
-            actual_xi_mult = deg - 2  # fallback
-            if inter is not None:
-                for r, mult in inter.roots():
-                    if Fp(r) == Fp(xi_fp):
-                        actual_xi_mult = int(mult)
-                        break
-
-            step_payload = {
-                'source': 'preferred_injection',
-                'preferred_target': int(t_fp),
-                'S_of_m': self._get_S_of_m_for_rec(accepted_rec),
-                'fi': fi,
-                'G_poly': G_poly,
-                'intersection_poly': None,  # not stored to avoid memory cost
-            }
-
-            rec = self._make_relation(
-                step_index=len(self.history),
-                n=accepted_rec.n,
-                xi=xi_fp,
-                m_val=m_fp,
-                xj=t_fp,
-                xk=xk_fp,
-                step=step_payload,
-                accepted=True,
-                restart=False,
-                xi_mult=actual_xi_mult,
-            )
-            self._injected_xs.add(t_fp)
-            self._injected_xs.add(xk_fp)
-            for leaf in (t_fp, xk_fp):
-                if leaf not in self.global_leaves_seen:
-                    self.global_leaves_seen.add(leaf)
-                    self.total_leaf_insertions += 1
-            self._store_record(rec)
-            n_injected += 1
-
-        for t in self.preferred_xs:
-            _do_inject(Fp(t))
-
-        exhausted = []
-        for t, remaining in list(self.preferred_xs_budget.items()):
-            _do_inject(Fp(t))
-            self.preferred_xs_budget[t] = remaining - 1
-            if self.preferred_xs_budget[t] <= 0:
-                exhausted.append(t)
-
-        for t in exhausted:
-            del self.preferred_xs_budget[t]
-
-        return n_injected
-
-    def _inject_preferred_relations_legacy(self, accepted_rec) -> int:
-        """Fallback for steps that lack fi/G_poly: uses S(m) Vieta shortcut with
-        xi_mult assumed to be curve_degree - 2.  Only reached when the step predates
-        fi/G_poly storage on the step payload."""
-        assert None, "dead code"
-        S_sym = self._get_S_of_m_for_rec(accepted_rec)
-        if S_sym is None:
-            assert None, "canary"
-            return 0
-
-        xi    = accepted_rec.xi
-        Fp    = self.base_ring
-        deg   = self.config.curve_degree
-        xi_mult = deg - 2
-
-        xi_fp = Fp(xi)
-        n_injected = 0
-
-        def _eval_S(m_fp):
-            try:
-                num = S_sym.numerator()
-                den = S_sym.denominator()
-                den_val = Fp(den(m_fp))
-                if den_val == Fp(0):
-                    return None
-                return Fp(num(m_fp)) / den_val
-            except Exception:
-                raise
-
-        def _do_inject(t_fp, budget_key=None):
-            nonlocal n_injected
-            if t_fp == xi_fp:
-                return
-            m_fp = xi_fp - t_fp
-            S_val = _eval_S(m_fp)
-            if S_val is None:
-                return
-            xk_fp = S_val - xi_mult * xi_fp - t_fp
-            step_payload = {
-                'source': 'preferred_injection',
-                'preferred_target': int(t_fp),
-                'S_of_m': S_sym,
-                'intersection_poly': None,
-            }
-            rec = self._make_relation(
-                step_index=len(self.history),
-                n=accepted_rec.n,
-                xi=xi_fp,
-                m_val=m_fp,
-                xj=t_fp,
-                xk=xk_fp,
-                step=step_payload,
-                accepted=True,
-                restart=False,
-                xi_mult=xi_mult,
-            )
-            self._injected_xs.add(t_fp)
-            self._injected_xs.add(xk_fp)
-            for leaf in (t_fp, xk_fp):
-                if leaf not in self.global_leaves_seen:
-                    self.global_leaves_seen.add(leaf)
-                    self.total_leaf_insertions += 1
-            self._store_record(rec)
-            n_injected += 1
-
-        for t in self.preferred_xs:
-            _do_inject(Fp(t))
-
-        exhausted = []
-        for t, remaining in list(self.preferred_xs_budget.items()):
-            _do_inject(Fp(t))
-            self.preferred_xs_budget[t] = remaining - 1
-            if self.preferred_xs_budget[t] <= 0:
-                exhausted.append(t)
-        for t in exhausted:
-            del self.preferred_xs_budget[t]
-
-        return n_injected
 
     def _recover_y(self, x_val, explicit_y=None, y_sign: Optional[int] = None):
         """
@@ -2416,7 +2209,7 @@ class Genus2MetropolisWalker:
         rec.candidate_pool = candidates
         rec.selected_candidate = dict(chosen)
         self._store_record(rec)
-        self.inject_preferred_relations(rec)
+        #self.inject_preferred_relations(rec)
         return rec
 
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
@@ -2768,8 +2561,6 @@ class Genus2MetropolisWalker:
             xi_mult=sf_xi_mult,
         )
         self._store_record(rec)
-        if rec.accepted:
-            self.inject_preferred_relations(rec)
         return rec
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
