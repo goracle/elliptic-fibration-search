@@ -2014,6 +2014,17 @@ class Genus2MetropolisWalker:
             if chosen_xi_mult < 0:
                 chosen_xi_mult = recovered_xi_mult if recovered_xi_mult is not None else -1
 
+        # xk was pre-filled by the search (e.g. pure_fiber_intersection), so
+        # _recover_xk was skipped entirely and chosen_xi_mult is still the -1
+        # sentinel.  Extract xi_mult from the intersection poly now — without
+        # it, build_relation_matrix2 drops every row as unverified.
+        if chosen_xi_mult < 0 and xk is not None:
+            poly = self._intersection_poly_from_step(_chosen_for_recover)
+            if poly is not None:
+                _, recovered_xi_mult = self._recover_xk(_chosen_for_recover, self.current_x, xj)
+                if recovered_xi_mult is not None and recovered_xi_mult > 0:
+                    chosen_xi_mult = recovered_xi_mult
+
         if xk is None:
             step_payload = self._reject_step_payload(
                 search_out,
