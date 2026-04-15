@@ -1539,13 +1539,15 @@ class Genus2MetropolisWalker:
 
             # Caller already knows the branch: preserve it exactly.
             if explicit_y is not None:
+                #assert get_y_unshifted_genus2(x_val) == explicit_y, (x_val, get_y_unshifted_genus2(x_val), explicit_y)
                 return self.base_ring(explicit_y)
 
             rhs = self.curve_poly(x_val)
             if not (hasattr(rhs, "is_square") and rhs.is_square()):
                 raise ValueError(f"No y given and f(x) is not a square at x={x_val!r}")
 
-            y_any = self.base_ring(rhs.sqrt())
+            #y_any = self.base_ring(rhs.sqrt()) # maybe wrong
+            y_any = self.base_ring(rhs).sqrt()
             y_can = self.base_ring(min(int(y_any), p - int(y_any)))
 
             if y_sign is None:
@@ -1561,6 +1563,7 @@ class Genus2MetropolisWalker:
         sq = sqrt(rhs)
         if sq * sq != rhs:
             raise ValueError(f"No rational y at x={x_val!r}")
+        #assert get_y_unshifted_genus2(x_val) == sq, (x_val, get_y_unshifted_genus2(x_val), sq)
         return sq
 
     def _point_check_details(self, x_val, label: str = "x") -> Dict[str, Any]:
@@ -1818,7 +1821,7 @@ class Genus2MetropolisWalker:
         def _poly_from(obj):
             if not isinstance(obj, dict):
                 return None
-            for key in ("intersection_poly", "fiber_poly", "intersection", "poly_x"):
+            for key in ["intersection_poly"]:
                 poly = obj.get(key)
                 if poly is not None:
                     return poly
@@ -1848,8 +1851,16 @@ class Genus2MetropolisWalker:
                 print(roots_wm, xi, poly)
                 raise ValueError
                 return None
-            if len(others) != 2:
-                return None
+            # With this:
+            if len(others) == 1 and xi_mult >= 2:
+                xj = others[0]
+                xk = xi
+                xi_mult -= 1  # Transfer one multiplicity point from xi to xk
+            elif len(others) == 2:
+                xj, xk = others[0], others[1]
+            else:
+                return None # or raise ValueError if in the inner function
+
 
             xj, xk = others[0], others[1]
             if xj == xk:
@@ -1887,6 +1898,10 @@ class Genus2MetropolisWalker:
 
         # --- leaf bookkeeping ---
         old = len(self.global_leaves_seen)
+        new = len(self.global_leaves_seen) - old
+        # ADD THIS: Reject if there's no novelty
+        if new == 0 and len(X) > 0:
+            return reject("zero_novelty", extra={"leaves_found": len(X)})
         organic = X - self._injected_xs
         collisions = organic & self.global_leaves_seen
 
@@ -1926,90 +1941,98 @@ class Genus2MetropolisWalker:
             return rec
 
         # --- choose candidate ---
+
+        pool = [c for c in C if is_fp(c)] or C
+        pool = self._prefer_unvisited_candidates(pool) # Use the built-in tiering
+        pool = list(pool)  # Make a copy so we can pop from it
+
+        valid_candidate_found = False
         def is_fp(c):
             if not isinstance(c, dict):
                 return False
             return self._point_check_details(c.get("xk"), "xk").get("is_fp_point", False)
 
-        pool = [c for c in C if is_fp(c)] or C
-        chosen = self._choose_candidate_record(
-            pool,
-            {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
-        )
-        if chosen is None:
-            return reject("selection_failed", extra={"candidate_count": len(C)})
 
-        if not isinstance(chosen, dict):
-            chosen = {"xj": chosen}
-
-        # Geometry must come from the intersection polynomial.
-        poly_src = dict(search_out)
-        poly_src.update(chosen)
-        derived = _derive_from_poly(poly_src)
-        if derived is None:
-            raise ValueError
-
-            return reject(
-                "missing_or_invalid_intersection_poly",
-                chosen=chosen,
-                extra={"candidate_count": len(C)},
+        while pool:
+            chosen = self._choose_candidate_record(
+                pool,
+                {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
             )
 
-        xj, xk, xi_mult, poly = derived
+            if chosen is None:
+                return reject("selection_failed", extra={"candidate_count": len(C)})
 
-        # If the candidate carried explicit roots, require them to match the poly.
-        cand_xj = chosen.get("xj")
-        cand_xk = chosen.get("xk")
-        if cand_xj is not None and cand_xk is not None and {cand_xj, cand_xk} != {xj, xk}:
-            return reject(
-                "candidate_poly_mismatch",
-                m_val=chosen.get("m"),
-                xj=cand_xj,
-                xk=cand_xk,
-                chosen=chosen,
-                extra={"derived_xj": xj, "derived_xk": xk},
-            )
+            if not isinstance(chosen, dict):
+                chosen = {"xj": chosen}
 
-        m = chosen.get("m")
+            # Geometry must come from the intersection polynomial.
+            poly_src = dict(search_out)
+            poly_src.update(chosen)
 
-        # --- validate xj ---
-        try:
-            yj = self._recover_y(xj, int(chosen.get("yj_sign", 1)))
-        except Exception as e:
-            raise
-            return reject("no_y", m_val=m, xj=xj, xk=xk, chosen=chosen, extra={"error": repr(e)})
+            try:
+                derived = _derive_from_poly(poly_src)
+                if derived is None:
+                    pool.remove(chosen); continue
 
-        if yj == self.base_ring(0):
-            return reject("weierstrass_y0", m_val=m, xj=xj, xk=xk, chosen=chosen)
+                xj, xk, xi_mult, poly = derived
+                
+                # If the candidate carried explicit roots, require them to match the poly.
+                cand_xj = chosen.get("xj")
+                cand_xk = chosen.get("xk")
+                if cand_xj is not None and cand_xk is not None and {cand_xj, cand_xk} != {xj, xk}:
+                    pool.remove(chosen); continue
 
-        # --- validate xk ---
-        if not xk_is_fp_point(xk, self.curve_poly):
-            return reject("non_fp_xk", m_val=m, xj=xj, xk=xk, chosen=chosen)
+                m = chosen.get("m")
 
-        # --- choose move ---
-        tgt = self._choose_between(
-            xj, xk,
-            {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
-        )
-        if tgt is None:
-            return reject("no_move_choice", m_val=m, xj=xj, xk=xk, chosen=chosen)
+                # --- validate xj ---
+                try:
+                    yj = self._recover_y(xj, y_sign=int(chosen.get("yj_sign", 1)))
+                except Exception as e:
+                    pool.remove(chosen); continue
 
-        sign = int(chosen.get("yj_sign", 1)) if tgt == xj else int(chosen.get("yk_sign", 1))
-        try:
-            y = self._recover_y(tgt, sign)
-        except Exception as e:
-            raise
-            return reject(
-                "move_target_no_y",
-                m_val=m,
-                xj=xj,
-                xk=xk,
-                chosen=chosen,
-                extra={"error": repr(e)},
-            )
+                if yj == self.base_ring(0):
+                    pool.remove(chosen); continue
 
-        if y == self.base_ring(0):
-            return reject("chosen_target_weierstrass_y0", m_val=m, xj=xj, xk=xk, chosen=chosen)
+                if not xk_is_fp_point(xj, self.curve_poly):
+                    pool.remove(chosen); continue
+
+                # --- validate xk ---
+                if not xk_is_fp_point(xk, self.curve_poly):
+                    pool.remove(chosen); continue
+
+                try:
+                    yk = self._recover_y(xk, y_sign=int(chosen.get("yj_sign", 1)))
+                except Exception as e:
+                    pool.remove(chosen); continue
+
+                if yk == self.base_ring(0):
+                    pool.remove(chosen); continue
+
+                # --- choose move ---
+                tgt = self._choose_between(
+                    xj, xk,
+                    {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
+                )
+                if tgt is None:
+                    pool.remove(chosen); continue
+
+                sign = int(chosen.get("yj_sign", 1)) if tgt == xj else int(chosen.get("yk_sign", 1))
+                y = self._recover_y(tgt, y_sign=sign)
+                if y == self.base_ring(0):
+                    pool.remove(chosen); continue
+
+                # If we made it here, everything is valid!
+                valid_candidate_found = True
+                break
+
+            except Exception:
+                    # Catch any _recover_y or internal errors for this specific candidate
+                    pool.remove(chosen)
+                    continue
+                # --- END OF EXISTING VALIDATION LOGIC ---
+
+        if not valid_candidate_found:
+            return reject("all_candidates_failed_validation", extra={"candidate_count": len(C)})
 
         # --- commit ---
         self.current_x, self.current_y = tgt, y

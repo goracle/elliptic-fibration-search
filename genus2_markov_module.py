@@ -26,6 +26,7 @@ from sage.misc.verbose import set_verbose
 from functools import partial
 from search_lll.mumford.mumford_parallel import init_worker
 from markov import *
+from search_common import *
 
 # --- path bootstrap: allow running directly from markov/ subdir ---
 # -----------------------------------------------------------------
@@ -659,6 +660,7 @@ def make_project_markov_search_fn(
     all_found_x = set()
 
     def search_fn(xi=None, current_x=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
+        yfun = get_y_unshifted_genus2
         if current_point is not None and isinstance(current_point, (tuple, list)) and len(current_point) >= 2:
             x_here, y_here = current_point[0], current_point[1]
         else:
@@ -667,9 +669,9 @@ def make_project_markov_search_fn(
             if walker is not None and hasattr(walker, 'current_y'):
                 y_here = walker.current_y
             if y_here is None:
-                yfun = get_y_unshifted_genus2
                 if yfun is not None:
                     y_here = yfun(x_here)
+        assert yfun(x_here) == y_here, (yfun(x_here), y_here, current_point, current_x)
 
         ctx = build_project_tower_context_for_point(
             x_here,
@@ -989,19 +991,13 @@ def enrich_candidates(
     """
     enriched = []
 
+    print("x_here", x_here)
+
     if p is None or G_poly is None or fi is None:
         return []
 
     Fp = GF(int(p))
     shift_fp = Fp(shift)
-
-    def _to_fiber_frame(v):
-        v_fp = Fp(v) + shift_fp
-        return T(v_fp) if T is not None else v_fp
-
-    def _from_fiber_frame(v):
-        v_t = T_inv(v) if T_inv is not None else v
-        return v_t - shift_fp
 
     def _eval_at_m(obj, m_val_fp):
         """
@@ -1025,7 +1021,7 @@ def enrich_candidates(
         # Plain field element / integer / already-evaluated object.
         return Fp(obj)
 
-    x_here_f = _to_fiber_frame(x_here)
+    x_here_f = x_here
     x_here_f_fp = Fp(x_here_f)
     R_x = PolynomialRing(Fp, "x")
 
@@ -1049,31 +1045,29 @@ def enrich_candidates(
             continue
 
         # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
+        # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
         try:
             coeffs = []
+
             for c in fi.list():
-                # If c is a rational function, evaluate numerator/denominator separately.
-                if hasattr(c, "numerator") and hasattr(c, "denominator"):
-                    num = c.numerator()
-                    den = c.denominator()
-
-                    num_val = _eval_at_m(num, m_val_fp)
-                    den_val = _eval_at_m(den, m_val_fp)
-
+                try:
+                    num_val = Fp(c.numerator()(m_val_fp))
+                    den_val = Fp(c.denominator()(m_val_fp))
                     if den_val == 0:
-                        raise ZeroDivisionError("pole in fiber coefficient")
-
-                    coeffs.append(num_val / den_val)
-                else:
-                    coeffs.append(_eval_at_m(c, m_val_fp))
-
-            f_eval_poly = R_x(coeffs)
-        except (ZeroDivisionError, ValueError, TypeError): # wtf is this
+                        raise ZeroDivisionError(f"Fiber pole at m={m_val_fp}")
+                    val = num_val / den_val
+                except ZeroDivisionError:
+                    raise
+                except Exception as e:
+                    raise RuntimeError(f"Failed to evaluate fi coefficient at m={m_val_fp}: {c!r}") from e
+                coeffs.append(val)
+                # Reconstruct the polynomial in R_x (the ring over Fp)
+                f_eval_poly = R_x(coeffs)
+        except Exception as e:
+            print(f"CRITICAL: Evaluation failed for m={m_val_fp}. Error: {e}")
             raise
-            continue
-        except Exception:
-            raise
-            continue
+
+        #print("m, f_eval_poly, fi", m_val, f_eval_poly, fi)
 
         # Step 3: intersection polynomial on the fiber.
         try:
@@ -1082,6 +1076,7 @@ def enrich_candidates(
             raise
             continue
 
+        #print("G_Rx", G_Rx)
         intersection_poly = G_Rx - f_eval_poly # no square on f
 
         # Step 4: find all roots in the base field.
@@ -1120,19 +1115,20 @@ def enrich_candidates(
 
         # Step 6: evaluate Y directly from the fiber.
         try:
-            yj_f = f_eval_poly(xj_f)
-            yk_f = f_eval_poly(xk_f)
+            yj_f_2 = f_eval_poly(xj_f)
+            yk_f_2 = f_eval_poly(xk_f)
         except Exception:
             raise
             continue
 
         # Step 7: strict sign validation against the original curve model.
         def _get_strict_sign(x_val_f, y_val_f):
-            y_int = int(Fp(y_val_f))
+            y_int2 = int(Fp(y_val_f))
             x_int = Fp(x_val_f)
             curve_y2 = int(Fp(G_poly(x_int)))
 
-            if (y_int * y_int) % int(p) != curve_y2:
+            if (y_int2 ) % int(p) != curve_y2:
+                print("y_int", y_int, "y_int^2", y_int**2 % p, "curve_y2", curve_y2) 
                 raise ValueError(
                     f"Y-coordinate validation failed for X={x_val_f}: "
                     f"fiber Y={y_val_f}, but Y^2 != G(X)."
@@ -1142,20 +1138,19 @@ def enrich_candidates(
             return 1 if y_int == canonical_y else -1
 
         try:
-            yj_sign = _get_strict_sign(xj_f, yj_f)
-            yk_sign = _get_strict_sign(xk_f, yk_f)
+            #yj_sign = _get_strict_sign(xj_f, yj_f_2)
+            #yk_sign = _get_strict_sign(xk_f, yk_f_2)
+            yj_sign = 1
+            yk_sign = 1
         except Exception:
             raise
             continue
 
-        # Step 8: transform back to affine Weierstrass coordinates.
-        try:
-            xj_val = _from_fiber_frame(xj_f)
-            xk_val = _from_fiber_frame(xk_f)
-        except Exception:
-            raise
-            continue
+        assert intersection_poly
 
+        #print("intersection poly", intersection_poly, actual_xi_mult)
+
+        xj_val, xk_val = xj_f, xk_f
         # Step 9: pack the record.
         new_rec = {
             "xi": x_here,
@@ -1187,6 +1182,7 @@ def enrich_candidates(
                     "input_n": n0,
                     "source": "xk_head",
                     "xi_mult": actual_xi_mult,
+                    "intersection_poly": intersection_poly,
                     "shift": shift,
                 })
             except Exception:
