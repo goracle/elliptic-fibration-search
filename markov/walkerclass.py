@@ -1860,6 +1860,10 @@ class Genus2MetropolisWalker:
         search_out["global_leaf_collisions"] = self.leaf_collision_count
 
         if not candidates:
+            dead_end_reason = search_out.get("dead_end_reason", "unknown")
+            self.dead_end_count += 1
+            self.dead_end_reasons[dead_end_reason] += 1
+
             step_payload = self._reject_step_payload(
                 search_out,
                 stage="candidate_search",
@@ -1870,7 +1874,7 @@ class Genus2MetropolisWalker:
                 extra={
                     "n_with_roots": search_out.get("n_with_roots"),
                     "n_total": search_out.get("n_total"),
-                    "dead_end_reason": search_out.get("dead_end_reason", "unknown"),
+                    "dead_end_reason": dead_end_reason,
                 },
             )
             rec = self._make_relation(
@@ -1878,6 +1882,40 @@ class Genus2MetropolisWalker:
                 step_payload, accepted=False, restart=False,
             )
             self._store_record(rec)
+
+            # Advance off the stuck point so we don't retry the same dead xi.
+            if self.config.restart_on_dead_end:
+                restart_pt = self._next_restart_point()
+                if restart_pt is not None:
+                    new_x, new_y = restart_pt
+                    print(
+                        f"[dead_end] reason={dead_end_reason} xi={xi_before} "
+                        f"-> restarting at x={new_x} (dead_ends={self.dead_end_count})"
+                    )
+                    self.current_x = new_x
+                    self.current_y = new_y
+                    self.visited_x.add(new_x)
+                else:
+                    # No restart point available: pick a random unvisited leaf.
+                    unvisited = list(self.global_leaves_seen - self.visited_x - {xi_before})
+                    if unvisited:
+                        new_x = self.rng.choice(unvisited)
+                        new_y = self._recover_y(new_x)
+                        print(
+                            f"[dead_end] reason={dead_end_reason} xi={xi_before} "
+                            f"-> no restart point, jumping to random unvisited leaf x={new_x} "
+                            f"(dead_ends={self.dead_end_count})"
+                        )
+                        self.current_x = new_x
+                        self.current_y = new_y
+                        self.visited_x.add(new_x)
+                    else:
+                        print(
+                            f"[dead_end] reason={dead_end_reason} xi={xi_before} "
+                            f"-> no restart point and no unvisited leaves available; staying put "
+                            f"(dead_ends={self.dead_end_count})"
+                        )
+
             return rec
 
         # Prefer candidates whose xk is already a valid F_p point.
