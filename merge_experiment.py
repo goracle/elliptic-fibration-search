@@ -392,46 +392,49 @@ def main(argv=None):
 
         role = _ROLE.get(label, "?")
 
-        # -- Compute nullity-based preferred injection hints from all finished walks.
-        _log(f"\n[nullity_xs] Computing kernel-support atoms from {len(peer_walkers_done)} "
-             f"finished walk(s) before phase {label} ...")
-        new_nullity_xs = _nullity_preferred_xs(
-            done_walkers=peer_walkers_done,
-            p=p,
-            protected=_divisor_protected,
-            label=label,
-        )
-        # Merge with previously accumulated hints (union, preserving order).
-        existing_set = set(_nullity_xs)
-        for x in new_nullity_xs:
-            if x not in existing_set:
-                _nullity_xs.append(x)
-                existing_set.add(x)
+        if False: # DO NOT DO INJECTIONS THIS IS NOT CORRECT
+            # -- Compute nullity-based preferred injection hints from all finished walks.
+            _log(f"\n[nullity_xs] Computing kernel-support atoms from {len(peer_walkers_done)} "
+                f"finished walk(s) before phase {label} ...")
+            new_nullity_xs = _nullity_preferred_xs(
+                done_walkers=peer_walkers_done,
+                p=p,
+                protected=_divisor_protected,
+                label=label,
+            )
+            # Merge with previously accumulated hints (union, preserving order).
+            existing_set = set(_nullity_xs)
+            for x in new_nullity_xs:
+                if x not in existing_set:
+                    _nullity_xs.append(x)
+                    existing_set.add(x)
 
-        # Combined preferred_xs: divisor seeds (already in walker's preferred_xs
-        # by construction) plus nullity-derived atoms.
-        combined_preferred = list(divisor_xs) + _nullity_xs
-        _log(
-            f"[nullity_xs:{label}] injecting {len(_nullity_xs)} nullity atom(s) "
-            f"on top of {len(divisor_xs)} divisor seeds "
-            f"({len(combined_preferred)} total preferred_xs)"
-        )
+            # Combined preferred_xs: divisor seeds (already in walker's preferred_xs
+            # by construction) plus nullity-derived atoms.
+            combined_preferred = list(divisor_xs) + _nullity_xs
+            _log(
+                f"[nullity_xs:{label}] injecting {len(_nullity_xs)} nullity atom(s) "
+                f"on top of {len(divisor_xs)} divisor seeds "
+                f"({len(combined_preferred)} total preferred_xs)"
+            )
 
-        _log(f"\n{'='*70}")
-        _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
-        _log(f"{'='*70}\n")
-        w = _build_walker(
-            seed=seed, p=p, coeffs=coeffs, x0=x0, y0=None,
-            base_points=_bp(x0), verbose=False, log_path=log_path,
-            search_fn=search_fn,
-        )
-        # Inject nullity-derived atoms with a finite budget so they are visited
-        # at most twice as xj targets and then discarded.  Divisor seeds stay in
-        # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
-        existing_preferred_strs = {str(x) for x in w.preferred_xs}
-        for x in _nullity_xs:
-            if str(x) not in existing_preferred_strs:
-                w.preferred_xs_budget[x] = 2
+            _log(f"\n{'='*70}")
+            _log(f"PHASE {label}  x0={x0}  ({role})  steps={args.steps_bcd}  p={p}  sqrt_p={sqrt_p:.1f}")
+            _log(f"{'='*70}\n")
+            w = _build_walker(
+                seed=seed, p=p, coeffs=coeffs, x0=x0, y0=None,
+                base_points=_bp(x0), verbose=False, log_path=log_path,
+                search_fn=search_fn,
+            )
+            # Inject nullity-derived atoms with a finite budget so they are visited
+            # at most twice as xj targets and then discarded.  Divisor seeds stay in
+            # preferred_xs (permanent); nullity hints go in preferred_xs_budget only.
+            existing_preferred_strs = {str(x) for x in w.preferred_xs}
+            for x in _nullity_xs:
+                if str(x) not in existing_preferred_strs:
+                    w.preferred_xs_budget[x] = 2
+
+            # BAD.  ^
 
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")
