@@ -26,7 +26,6 @@ from sage.misc.verbose import set_verbose
 from functools import partial
 from search_lll.mumford.mumford_parallel import init_worker
 from markov import *
-from search_common import *
 
 # --- path bootstrap: allow running directly from markov/ subdir ---
 # -----------------------------------------------------------------
@@ -1128,7 +1127,7 @@ def enrich_candidates(
             curve_y2 = int(Fp(G_poly(x_int)))
 
             if (y_int2 ) % int(p) != curve_y2:
-                print("y_int", y_int, "y_int^2", y_int**2 % p, "curve_y2", curve_y2) 
+                print("y_int", y_int, "y_int^2", y_int**2 % p, "curve_y2", curve_y2)
                 raise ValueError(
                     f"Y-coordinate validation failed for X={x_val_f}: "
                     f"fiber Y={y_val_f}, but Y^2 != G(X)."

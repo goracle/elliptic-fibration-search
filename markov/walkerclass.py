@@ -571,6 +571,7 @@ class WalkConfig:
     diagnostic_print: bool = True
     diagnostic_show_poly: bool = True
     diagnostic_show_roots: bool = True
+    nthermal: int = 200
 
     # Spectral gap reporting via adjacency matrix.
     # spectral_enabled=False turns the whole thing off silently.
@@ -1914,7 +1915,6 @@ class Genus2MetropolisWalker:
             else:
                 return None # or raise ValueError if in the inner function
 
-
             return xj, xk, xi_mult, poly
 
         def reject(reason, *, m_val=None, xj=None, xk=None, chosen=None, extra=None):
@@ -1947,7 +1947,7 @@ class Genus2MetropolisWalker:
         # --- leaf bookkeeping ---
         organic = X - self._injected_xs
         new_leaves_count = len(organic - self.global_leaves_seen)
-        
+
         # Reject if there's no novelty
         if new_leaves_count == 0 and len(X) > 0:
             if n < self.config.nthermal:
@@ -1968,14 +1968,14 @@ class Genus2MetropolisWalker:
                     current_point=pt,
                 )
                 return rec
-            return reject("zero_novelty", extra={"leaves_found": len(X)})            
+            return reject("zero_novelty")
 
         collisions = organic & self.global_leaves_seen
 
         if X:
             self.global_leaves_seen |= X
             self.total_leaf_insertions += len(X)
-            
+
         old = len(self.global_leaves_seen) - len(X) # Or whatever you need 'old' for later
 
         self.leaf_collision_count += len(collisions)
@@ -2014,7 +2014,6 @@ class Genus2MetropolisWalker:
                 return False
             return self._point_check_details(c.get("xk"), "xk").get("is_fp_point", False)
 
-
         pool = [c for c in C if is_fp(c)] or C
         pool = self._prefer_unvisited_candidates(pool) # Use the built-in tiering
         pool = list(pool)  # Make a copy so we can pop from it
@@ -2043,7 +2042,7 @@ class Genus2MetropolisWalker:
                     pool.remove(chosen); continue
 
                 xj, xk, xi_mult, poly = derived
-                
+
                 # If the candidate carried explicit roots, require them to match the poly.
                 cand_xj = chosen.get("xj")
                 cand_xk = chosen.get("xk")
@@ -2626,34 +2625,47 @@ class Genus2MetropolisWalker:
 
         return None
 
+    def _restart_after_dead_end(self, *, xi, n, reason, current_point=None):
+        # Build candidate pool: base_points first, then accumulated leaves.
+        candidates = [(x, y) for x, y in self.base_points if x is not None and y is not None]
 
+        # If base_points is only the current stuck point (or empty), augment from
+        # global_leaves_seen — the actual visited graph.  This is the escape hatch
+        # for the single-base-point case: without it the cursor just loops back to
+        # the same xi every time.
+        if len(candidates) <= 1:
+            for lx in self.global_leaves_seen:
+                if lx == self.current_x:
+                    continue
+                try:
+                    ly = self._recover_y(lx, None)
+                    if ly is not None:
+                        candidates.append((lx, ly))
+                        if len(candidates) >= 32:   # enough variety, stop early
+                            break
+                except Exception:
+                    continue
 
+        # Avoid immediately reusing the current point if alternatives exist.
+        alt = [(x, y) for x, y in candidates if x != self.current_x]
+        if alt:
+            candidates = alt
 
+        if not candidates:
+            if self.config.verbose:
+                print(f"[restart] no valid restart point available after dead end: reason={reason}")
+            return None
 
+        x, y = candidates[self._restart_cursor % len(candidates)]
+        self._restart_cursor += 1
+        self.current_x, self.current_y = x, y
+        self.visited_x.add(x)
+        self.xi_visit_count[x] += 1
 
+        if self.config.verbose:
+            print(f"[restart] dead-end escape -> ({x}, {y})  reason={reason}  n={n}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return (x, y)
 
 def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
     """
