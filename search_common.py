@@ -311,7 +311,7 @@ PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 sh
 # CRYPTOGRAPHY RELATED PARAMS
 FINITE_FIELD = None
 FINITE_FIELD = next_prime(2**14)
-MAXN = 20 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
+MAXN = 10 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
 SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
 BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
 BLOCK_WIEDEMANN = False   # set True to always use block Wiedemann in the final solve
@@ -1901,7 +1901,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
 
     if ff_mode:
         base_field = GF(FINITE_FIELD)
-        print(f"[buildcd] Mode: FINITE_FIELD GF({FINITE_FIELD})")
+        #print(f"[buildcd] Mode: FINITE_FIELD GF({FINITE_FIELD})")
 
         # Build function field over finite field
         Pm_base = PolynomialRing(base_field, 'm')
@@ -1909,7 +1909,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         m = Fm.gen()
     else:
         base_field = QQ
-        print("[buildcd] Mode: RATIONAL (QQ)")
+        #print("[buildcd] Mode: RATIONAL (QQ)")
 
         # Build function field over QQ
         Pm_base = PolynomialRing(QQ, 'm')
@@ -1922,7 +1922,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # EXTRACT RAW WEIERSTRASS MODEL
     # ========================================================================
 
-    print("[buildcd] Extracting Weierstrass coefficients...")
+    #print("[buildcd] Extracting Weierstrass coefficients...")
     sys.stdout.flush()
 
     try:
@@ -1939,8 +1939,8 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     except Exception as e:
         raise RuntimeError(f"buildcd: failed to coerce a4/a6 into Fm: {e}")
 
-    print(f"[buildcd] Raw a4 degree: {a4_raw.numerator().degree() if hasattr(a4_raw.numerator(), 'degree') else 'unknown'}")
-    print(f"[buildcd] Raw a6 degree: {a6_raw.numerator().degree() if hasattr(a6_raw.numerator(), 'degree') else 'unknown'}")
+    #print(f"[buildcd] Raw a4 degree: {a4_raw.numerator().degree() if hasattr(a4_raw.numerator(), 'degree') else 'unknown'}")
+    #print(f"[buildcd] Raw a6 degree: {a6_raw.numerator().degree() if hasattr(a6_raw.numerator(), 'degree') else 'unknown'}")
     sys.stdout.flush()
 
     # ========================================================================
@@ -2106,9 +2106,11 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         # ====================================================================
 
         if ff_mode:
-            print("\n[buildcd] Finite field mode: using raw model (no minimization)")
+            #print("\n[buildcd] Finite field mode: using raw model (no minimization)")
+            pass
         else:
-            print("\n[buildcd] Non-minimal mode: using raw model")
+            #print("\n[buildcd] Non-minimal mode: using raw model")
+            pass
         sys.stdout.flush()
 
         a4_final = a4_raw
@@ -2139,10 +2141,10 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
         SR_a6 = a6_final
         SR_phi_x = phi_x_final
         SR_m = m
-        print("[buildcd] Skipping SR coercion (finite field mode)")
+        #print("[buildcd] Skipping SR coercion (finite field mode)")
     else:
         # Coerce to SR for symbolic manipulation
-        print("[buildcd] Coercing to SR for symbolic operations...")
+        #print("[buildcd] Coercing to SR for symbolic operations...")
         sys.stdout.flush()
 
         try:
@@ -2161,7 +2163,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # COMPUTE BAD PRIMES
     # ========================================================================
 
-    print("\n[buildcd] Computing bad primes...")
+    #print("\n[buildcd] Computing bad primes...")
     sys.stdout.flush()
 
     if ff_mode:
@@ -2190,10 +2192,10 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # ========================================================================
 
     if ff_mode:
-        print("\n[buildcd] Skipping singular fiber analysis (finite field mode)")
+        #print("\n[buildcd] Skipping singular fiber analysis (finite field mode)")
         singfibs = {'fibers': [], 'euler_characteristic': 0, 'sigma_sum': 0}
     else:
-        print("\n[buildcd] Computing singular fibers...")
+        #print("\n[buildcd] Computing singular fibers...")
         sys.stdout.flush()
 
         try:
@@ -2224,7 +2226,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # PACKAGE CURVE DATA
     # ========================================================================
 
-    print("\n[buildcd] Packaging CurveDataExt...")
+    #print("\n[buildcd] Packaging CurveDataExt...")
     sys.stdout.flush()
 
     cd = CurveDataExt(
@@ -2254,7 +2256,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # ========================================================================
 
     if not ff_mode:
-        print("\n[buildcd] Attempting 2-adic scaling...")
+        #print("\n[buildcd] Attempting 2-adic scaling...")
         sys.stdout.flush()
 
         try:
@@ -2270,7 +2272,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     # ========================================================================
 
     if verify and DEBUG and not ff_mode:
-        print("\n[buildcd] Running geometric validation...")
+        #print("\n[buildcd] Running geometric validation...")
         sys.stdout.flush()
 
         try:
@@ -2685,7 +2687,7 @@ def compute_base_sections_m(cd, base_pts, tower=None):
 
     ff_mode = (FINITE_FIELD is not None)
 
-    print(f"\n[compute_base_sections] Mapping {len(base_pts)} points (mode={'FF' if ff_mode else 'QQ'})")
+    #print(f"\n[compute_base_sections] Mapping {len(base_pts)} points (mode={'FF' if ff_mode else 'QQ'})")
     sys.stdout.flush()
 
     one_use, two_use, three_use = cd.morphs
@@ -2695,7 +2697,7 @@ def compute_base_sections_m(cd, base_pts, tower=None):
     # ========================================================================
 
     if ff_mode:
-        print("[compute_base_sections FF] Setting up GF(p)(m) arithmetic")
+        #print("[compute_base_sections FF] Setting up GF(p)(m) arithmetic")
         sys.stdout.flush()
 
         Fp = GF(FINITE_FIELD)
@@ -2757,7 +2759,7 @@ def compute_base_sections_m(cd, base_pts, tower=None):
         except Exception as e:
             raise RuntimeError(f"compute_base_sections (FF): curve base change failed: {e}")
 
-        print("[compute_base_sections FF] Morphisms mapped to Fp(m)")
+        #print("[compute_base_sections FF] Morphisms mapped to Fp(m)")
         sys.stdout.flush()
 
     # ========================================================================
@@ -2801,7 +2803,7 @@ def compute_base_sections_m(cd, base_pts, tower=None):
         ret.append(P)
         seen.add((xi, yi))
 
-    print(f"[compute_base_sections] Mapped to {len(ret)} sections")
+    #print(f"[compute_base_sections] Mapped to {len(ret)} sections")
     sys.stdout.flush()
 
     return ret

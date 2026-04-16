@@ -241,7 +241,7 @@ def torsion_audit(
         _log("     Preview: " + ", ".join(counts['nosqrt'][:20]))
 
     # --- Bad-atom enrichment ---
-    if bad_atoms:
+    if bad_atoms and False:
         _log("\n  ── Bad-atom torsion profile ──")
         _log(f"  (atoms flagged as enriched in contradiction rows by Check 4)")
         if not bad_results:
@@ -282,9 +282,7 @@ def torsion_audit(
         _log("     in a factor base over Fp.")
         _log("     Fix: check your point-lifting / Cantor-coefficient extraction code.")
     elif n_bad_torsion == 0 and n_nosqrt == 0:
-        _log("  ✓  All audited atoms are in the ell-subgroup.  Torsion is NOT the cause.")
-        _log("     The contradiction must come from a different source.")
-        _log("     Next steps: inspect the 9 bad rows directly (recompute from walk state).")
+        _log("  ✓  All audited atoms are in the ell-subgroup.")
 
     return counts
 

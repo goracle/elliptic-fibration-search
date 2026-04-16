@@ -2,7 +2,7 @@ import math, random, subprocess, tempfile, os, shlex, multiprocessing, time, tra
 from sage.all import *
 from functools import lru_cache, reduce
 from operator import mul
-from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD
 from math import gcd
 from collections import Counter
 
@@ -1011,16 +1011,17 @@ def print_conf(sconf):
     height_bound = sconf['HEIGHT_BOUND']
 
     # --- NEW PRINT ---
-    print("\n[auto_cfg] Applied adaptive parameters:") # Corrected print
-    print(f"  HEIGHT_BOUND: {height_bound}") # Corrected print
-    print(f"  TMAX: {tmax}") # Corrected print
-    print(f"  NUM_PRIME_SUBSETS: {num_prime_subsets}") # Corrected print
-    print(f"  PRIME_POOL size: {len(prime_pool)}\n") # Corrected print
+    if not FINITE_FIELD:
+        print("\n[auto_cfg] Applied adaptive parameters:") # Corrected print
+        print(f"  HEIGHT_BOUND: {height_bound}") # Corrected print
+        print(f"  TMAX: {tmax}") # Corrected print
+        print(f"  NUM_PRIME_SUBSETS: {num_prime_subsets}") # Corrected print
+        print(f"  PRIME_POOL size: {len(prime_pool)}\n") # Corrected print
     # --- END NEW PRINT ---
 
-    print(f"[auto_cfg summary] height_bound={height_bound}, MAX_MODULUS={max_modulus}, "
-            f"NUM_PRIME_SUBSETS={num_prime_subsets}, PRIME_POOL size={len(prime_pool)}, "
-            f"TMAX={tmax}")
+        print(f"[auto_cfg summary] height_bound={height_bound}, MAX_MODULUS={max_modulus}, "
+                f"NUM_PRIME_SUBSETS={num_prime_subsets}, PRIME_POOL size={len(prime_pool)}, "
+                f"TMAX={tmax}")
 
 """
 Add this function to bounds.py
@@ -1827,7 +1828,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     """
     src_pool = PRIME_POOL if prime_pool is None else prime_pool
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[auto_cfg] Init: Pool Size={len(src_pool)} | Heavy Analysis={run_heavy_analysis}")
 
     galois_degree = None
@@ -1839,7 +1840,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
                                                         run_heavy=run_heavy_analysis,
                                                         debug=debug and run_heavy_analysis)
     except Exception as e:
-        if debug:
+        if debug and not FINITE_FIELD:
             print(f"[auto_cfg] Pool recommendation error: {e}")
         pool_filtered = list(src_pool)
 
@@ -1877,7 +1878,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         else:
             height_bound = 300
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[auto_cfg] Height Bound: {height_bound} (derived from h_can={h_can})")
 
     # 3. Residue Counts
@@ -1894,12 +1895,12 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
             if p not in residue_counts:
                 residue_counts[p] = max(1, p // 4)
     except Exception as e:
-        if debug:
+        if debug and not FINITE_FIELD:
             print(f"[auto_cfg] Residue count error: {e}")
         residue_counts = {p: max(1, p // 4) for p in pool_filtered}
 
     # 4. Galois Stats (Cached)
-    if run_heavy_analysis and not USE_CONSENSUS_FILTER:
+    if run_heavy_analysis and not USE_CONSENSUS_FILTER and not FINITE_FIELD:
         try:
             # This call is now cheap due to caching
             poly = build_split_poly_from_cd(cd, debug=False)
@@ -1928,7 +1929,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         pool_adapted = adapt_result['pool']
         scale_factor = adapt_result.get('final_expected_survivors', 1.0)
 
-        if debug:
+        if debug and not FINITE_FIELD:
              print(f"[auto_cfg] Adaptive Pool: {len(pool_filtered)} -> {len(pool_adapted)} primes")
     else:
         pool_adapted = pool_filtered
@@ -1998,7 +1999,7 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
         'ADAPTIVE_SUBSET_SCALE': subset_plan['adjustment_factor'],
     }
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[auto_cfg] Final Config: TMAX={tmax}, Subsets={len(prime_subsets)}, Modulus={max_modulus}")
 
     return sconf

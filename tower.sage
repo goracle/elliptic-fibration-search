@@ -1545,12 +1545,12 @@ def choose_degQ(n):
     """Choose degQ so 2*degQ is n-2 if possible, else n-1. Fail if impossible."""
     if (n - 2) % 2 == 0:
         result = (n - 2) // 2
-        print(f"[choose_degQ] n={n} -> degQ={(n-2)//2} (path: 2*degQ=n-2)")
+        #print(f"[choose_degQ] n={n} -> degQ={(n-2)//2} (path: 2*degQ=n-2)")
         sys.stdout.flush()
         return result
     if (n - 1) % 2 == 0:
         result = (n - 1) // 2
-        print(f"[choose_degQ] n={n} -> degQ={(n-1)//2} (path: 2*degQ=n-1)")
+        #print(f"[choose_degQ] n={n} -> degQ={(n-1)//2} (path: 2*degQ=n-1)")
         sys.stdout.flush()
         return result
 
@@ -1573,7 +1573,7 @@ def poly_prod_numeric(xs, x_sym):
     assert actual_deg == expected_deg, \
         f"poly_prod_numeric: degree mismatch. Expected {expected_deg}, got {actual_deg}"
 
-    print(f"[poly_prod_numeric] Built product of degree {actual_deg} from {len(xs)} points")
+    #print(f"[poly_prod_numeric] Built product of degree {actual_deg} from {len(xs)} points")
     sys.stdout.flush()
 
     return result
@@ -1638,7 +1638,7 @@ def hasse_deriv_sr(expr, k, x_sym):
         result = out.expand()
 
         # Diagnostic
-        print(f"[hasse_deriv_sr] SR mode: k={k}, input_deg={deg}, output_deg={result.degree(x_sym) if result != 0 else 0}")
+        #print(f"[hasse_deriv_sr] SR mode: k={k}, input_deg={deg}, output_deg={result.degree(x_sym) if result != 0 else 0}")
         sys.stdout.flush()
 
         return result
@@ -1662,7 +1662,7 @@ def hasse_deriv_sr(expr, k, x_sym):
             out += F(_int_binom(i, k)) * a * t**(i - k)
 
     # Diagnostic
-    print(f"[hasse_deriv_sr] GF({p}) mode: k={k}, input_deg={poly.degree()}, output_deg={out.degree()}")
+    #print(f"[hasse_deriv_sr] GF({p}) mode: k={k}, input_deg={poly.degree()}, output_deg={out.degree()}")
     sys.stdout.flush()
 
     return out
@@ -1696,7 +1696,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
                 q_at_xi = Q0.subs({x_sym: xi_f})
 
             constraint = (q_at_xi == yi_f)
-            print(f"[compute_implicit_constraint] FF mode: order=0 constraint at xi={xi_f}")
+            #print(f"[compute_implicit_constraint] FF mode: order=0 constraint at xi={xi_f}")
             sys.stdout.flush()
             return constraint
 
@@ -1708,7 +1708,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
             qk_at_xi = Qk.subs({x_sym: xi_f})
 
         constraint = (qk_at_xi == 0)
-        print(f"[compute_implicit_constraint] FF mode: order={order} Hasse constraint at xi={xi_f}")
+        #print(f"[compute_implicit_constraint] FF mode: order={order} Hasse constraint at xi={xi_f}")
         sys.stdout.flush()
         return constraint
 
@@ -1717,7 +1717,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
     yi_sr = yi_val
 
     if yi_sr == 0:
-        print(f"[compute_implicit_constraint] QQ mode: skipping order {order} at x={xi_sr} due to y=0")
+        #print(f"[compute_implicit_constraint] QQ mode: skipping order {order} at x={xi_sr} due to y=0")
         sys.stdout.flush()
         return None
 
@@ -1728,7 +1728,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
     expected = y_derivs_at_point[order]
 
     constraint = (Q_nth_expr == expected)
-    print(f"[compute_implicit_constraint] QQ mode: order={order} at x={xi_sr}, y={yi_sr}")
+    #print(f"[compute_implicit_constraint] QQ mode: order={order} at x={xi_sr}, y={yi_sr}")
     sys.stdout.flush()
     return constraint
 
@@ -1752,7 +1752,7 @@ def compute_y_derivatives_at_point(xi_sr, yi_sr, f_derivs, max_order, x_sym):
 
         y_derivs.append(y_n)
 
-    print(f"[compute_y_derivatives] Computed {len(y_derivs)} derivatives at (x={xi_sr}, y={yi_sr})")
+    #print(f"[compute_y_derivatives] Computed {len(y_derivs)} derivatives at (x={xi_sr}, y={yi_sr})")
     sys.stdout.flush()
 
     return y_derivs
@@ -1767,15 +1767,15 @@ def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_const
     assert degQ >= 0, f"solve_for_Q: negative degQ {degQ}"
     assert base_pts, "solve_for_Q: empty base_pts"
 
-    print(f"[solve_for_Q] Interpolating Q of degree {degQ} from {len(base_pts)} base points")
+    #print(f"[solve_for_Q] Interpolating Q of degree {degQ} from {len(base_pts)} base points")
     sys.stdout.flush()
 
     if FINITE_FIELD is not None:
         target_field = GF(FINITE_FIELD)
-        print(f"[solve_for_Q] Using target field GF({FINITE_FIELD})")
+        #print(f"[solve_for_Q] Using target field GF({FINITE_FIELD})")
     else:
         target_field = QQ
-        print("[solve_for_Q] Using target field QQ")
+        #print("[solve_for_Q] Using target field QQ")
     sys.stdout.flush()
 
     coeffs_sym = [var(f'q{i}') for i in range(degQ + 1)]
@@ -1789,7 +1789,7 @@ def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_const
     if derivative_constraints:
         chosen_eqs += derivative_constraints
 
-    print(f"[solve_for_Q] Solving system of {len(chosen_eqs)} equations in {len(coeffs_sym)} unknowns")
+    #print(f"[solve_for_Q] Solving system of {len(chosen_eqs)} equations in {len(coeffs_sym)} unknowns")
     sys.stdout.flush()
 
     sols = solve(chosen_eqs, coeffs_sym, solution_dict=True)
@@ -1826,10 +1826,10 @@ def solve_for_Q(x_sym, y_sym, base_pts, degQ, constraints=None, derivative_const
         actual_deg = Qx.degree()
         assert actual_deg <= degQ, \
             f"solve_for_Q: result degree {actual_deg} exceeds requested {degQ}"
-        print(f"[solve_for_Q] Result polynomial has degree {actual_deg}")
+        #print(f"[solve_for_Q] Result polynomial has degree {actual_deg}")
     except Exception:
         print("[solve_for_Q] Could not verify degree (symbolic result)")
-    sys.stdout.flush()
+        sys.stdout.flush()
 
     return Qx, sol
 
@@ -2158,7 +2158,7 @@ def measure_poly_complexity(expr_ff):
         _WEIGHT_BADPRIME * bad_denominator_penalty
     )
 
-    print(f"[measure_poly_complexity] Score={total:.2f} (height={height_score:.2f}, deg={degree_penalty:.2f}, collision={collision_penalty:.2f}, bad_denom={bad_denominator_penalty:.2f})")
+    #print(f"[measure_poly_complexity] Score={total:.2f} (height={height_score:.2f}, deg={degree_penalty:.2f}, collision={collision_penalty:.2f}, bad_denom={bad_denominator_penalty:.2f})")
     sys.stdout.flush()
 
     return float(total)

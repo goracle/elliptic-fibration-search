@@ -60,6 +60,24 @@ def _section(title: str) -> None:
     _log(f"  {title}")
     _log(_SEP)
 
+def _brief_atom_list(atom_rows, max_items: int = 6) -> str:
+    if not atom_rows:
+        return "[]"
+    items = atom_rows[:max_items]
+    s = ", ".join(f"{atom}={coeff}" for atom, coeff in items)
+    if len(atom_rows) > max_items:
+        s += ", ..."
+    return f"[{s}]"
+
+def _matrix_preview(M_ZZ, atoms, max_rows: int = 6, max_atoms: int = 6) -> None:
+    _log(f"[matrix] shape={M_ZZ.nrows()}×{M_ZZ.ncols()}  atoms={len(atoms)}")
+    row_limit = min(max_rows, M_ZZ.nrows())
+    for i in range(row_limit):
+        row_atoms = [(str(atoms[j]), int(M_ZZ[i, j])) for j in range(M_ZZ.ncols()) if int(M_ZZ[i, j]) != 0]
+        _log(f"[matrix] row {i:5d}: {_brief_atom_list(row_atoms, max_items=max_atoms)}")
+    if M_ZZ.nrows() > row_limit:
+        _log(f"[matrix] ... {M_ZZ.nrows() - row_limit} more row(s)")
+
 # ---------------------------------------------------------------------------
 # HDF5 loader
 # ---------------------------------------------------------------------------
@@ -163,18 +181,7 @@ def replace_row_append(M, row_idx, new_row):
 def check_structural_collapse(M_ZZ, atoms, group_order,
                                col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1):
     """
-    Check 3: Three structural diagnostics from Gemini.
-
-    A) Column-order test: for each special column j, find the smallest k s.t.
-       k*e_j lies in the row space of A over GF(p).  k=1 means the column is
-       already determined by the walk; k=p means it is completely free.
-
-    B) Rank-without-inf: recompute nullity after dropping the inf column
-       entirely.  If nullity jumps back to >=2, the collapse is driven by
-       over-use of inf as a balancing term.
-
-    C) Fusion audit: list every pair of atoms that the walk equates
-       (support-2, +1/-1 kernel vectors) before any pinning.
+    Compact structural diagnostics.
     """
     _section("CHECK 3: STRUCTURAL COLLAPSE TRIAGE")
 
@@ -193,8 +200,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
             return None
         return pruned_aidx.get(str(atoms[col]))
 
-
-
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -204,118 +209,70 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
     A = M_pruned.change_ring(Fp)
+    full_null = A.right_kernel().dimension()
 
-    # ------------------------------------------------------------------
-    # A) Column-order test for special atoms
-    # ------------------------------------------------------------------
-    _log("\n  --- A) Column-order test (special atoms) ---")
-    _log("  For each special column j, smallest k s.t. k*e_j in RowSpace(A).")
-    _log("  k=1 => column fully determined by walk; k=p => completely free.")
+    _log(f"  pruned matrix: {n_rows} rows × {n_cols} cols")
+    _log(f"  nullity       : {full_null}")
 
+    _log("\n  --- A) Special-column order test ---")
     row_space = A.row_space()
     special = [("inf",  p_col_inf),
                ("gen0", p_col_gen0), ("gen1", p_col_gen1),
                ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]
-
     for name, col in special:
         if col is None:
-            _log(f"  {name:6s}: column absent after prune")
+            _log(f"  {name:6s}: absent after prune")
             continue
         e_j = vector(Fp, n_cols)
         e_j[col] = Fp(1)
         found_k = None
-        for k in range(1, min(50, n)):
+        for k in range(1, min(25, n)):
             if Fp(k) * e_j in row_space:
                 found_k = k
                 break
-        if found_k is not None:
-            _log(f"  {name:6s} (col {col:5d}): k={found_k}  "
-                 + ("*** column is over-determined by walk rows" if found_k == 1
-                    else f"order-{found_k} dependency"))
-        else:
-            _log(f"  {name:6s} (col {col:5d}): k>50 -- effectively free (good)")
+        _log(f"  {name:6s} (col {col:5d}): " + (f"k={found_k}" if found_k is not None else "k>24"))
 
-    # ------------------------------------------------------------------
-    # B) Rank without inf
-    # ------------------------------------------------------------------
     _log("\n  --- B) Rank-without-inf test ---")
     if p_col_inf is not None:
         cols_no_inf = [j for j in range(n_cols) if j != p_col_inf]
-        A_no_inf = A.matrix_from_columns(cols_no_inf)
-        ker_no_inf = A_no_inf.right_kernel()
-        null_no_inf = ker_no_inf.dimension()
-        _log(f"  Full matrix nullity  : {A.right_kernel().dimension()}")
-        _log(f"  Without-inf nullity  : {null_no_inf}")
-        full_null = A.right_kernel().dimension()
+        null_no_inf = A.matrix_from_columns(cols_no_inf).right_kernel().dimension()
+        _log(f"  without-inf nullity: {null_no_inf}")
         if null_no_inf > full_null:
-            _log(f"  Nullity INCREASES by {null_no_inf - full_null} without inf.")
-            _log("  *** inf column is absorbing degrees of freedom -- normalization leakage.")
+            _log("  inf column is absorbing degrees of freedom.")
         elif null_no_inf == full_null:
-            _log("  Nullity unchanged -- inf column is not the source of collapse.")
+            _log("  inf column is not the source of collapse.")
         else:
-            _log(f"  Nullity DECREASES by {full_null - null_no_inf} without inf.")
-            _log("  inf column was contributing free directions -- unexpected.")
+            _log("  inf column contributed free directions.")
     else:
-        _log("  No inf column present -- test skipped.")
+        _log("  no inf column present; skipped.")
 
-    # ------------------------------------------------------------------
-    # C) Fusion audit (all +1/-1 kernel pairs before pinning)
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # C) Direct fusion audit
-    #    Fusion = proportional columns over GF(p).
-    #    This is the cleanest test: if col_i = λ col_j, then the walk
-    #    relations cannot distinguish those atoms.
-    # ------------------------------------------------------------------
-    _log("\n  --- C) Direct fusion audit (proportional columns) ---")
-
-    special_by_col = {
-        c: name for name, c in [
-            ("inf", p_col_inf),
-            ("gen0", p_col_gen0),
-            ("gen1", p_col_gen1),
-            ("tgt0", p_col_tgt0),
-            ("tgt1", p_col_tgt1),
-        ] if c is not None
-    }
-
-    # Map: normalized column signature -> list of columns with that signature.
-    # Two columns are in the same bucket iff they are proportional over GF(p).
+    _log("\n  --- C) Direct fusion audit ---")
+    special_by_col = {c: name for name, c in [("inf", p_col_inf), ("gen0", p_col_gen0), ("gen1", p_col_gen1), ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)] if c is not None}
     col_groups: dict = {}
     zero_cols = []
-
     for j in range(n_cols):
         sig = []
         lead_inv = None
-
         for i in range(n_rows):
             v = A[i, j]
             if v != Fp(0):
                 if lead_inv is None:
                     lead_inv = v ** (-1)
                 sig.append((i, int(v * lead_inv)))
-
         if lead_inv is None:
             zero_cols.append(j)
             continue
-
-        sig_t = tuple(sig)
-        col_groups.setdefault(sig_t, []).append(j)
+        col_groups.setdefault(tuple(sig), []).append(j)
 
     fusion_groups = [cols for cols in col_groups.values() if len(cols) > 1]
-
     if zero_cols:
-        _log(f"  {len(zero_cols)} zero column(s) found -- completely absent from walk rows.")
-        if len(zero_cols) <= 20:
-            _log("    " + ", ".join(f"{pruned_atoms[j]}(col={j})" for j in zero_cols))
-        else:
-            preview = ", ".join(f"{pruned_atoms[j]}(col={j})" for j in zero_cols[:20])
-            _log(f"    {preview}")
-            _log("    ...")
+        preview = ", ".join(f"{pruned_atoms[j]}(col={j})" for j in zero_cols[:10])
+        _log(f"  zero columns: {len(zero_cols)}")
+        _log(f"    {preview}" + (" ..." if len(zero_cols) > 10 else ""))
 
     if fusion_groups:
-        _log(f"  {len(fusion_groups)} fusion class(es) found (proportional columns):")
-        for cols in fusion_groups[:20]:
+        _log(f"  fusion classes: {len(fusion_groups)}")
+        for cols in fusion_groups[:8]:
             labels = []
             special_hits = []
             for j in cols:
@@ -325,16 +282,13 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
                     labels.append(f"{atom}({special_by_col[j]})")
                 else:
                     labels.append(atom)
-            flag = ""
-            if special_hits:
-                flag = f"  *** SPECIAL ATOMS: {sorted(set(special_hits))}"
+            flag = f"  special={sorted(set(special_hits))}" if special_hits else ""
             _log(f"    {labels}{flag}")
-        if len(fusion_groups) > 20:
-            _log(f"    ... and {len(fusion_groups) - 20} more fusion class(es)")
+        if len(fusion_groups) > 8:
+            _log(f"    ... {len(fusion_groups) - 8} more fusion class(es)")
     else:
-        _log("  No proportional column classes found -- no direct fusion detected.")
+        _log("  no proportional column classes found.")
 
-    # Keep the old kernel-basis fusion scan as a sanity check.
     _log("\n  --- C2) Kernel-basis fusion sanity check ---")
     ker_full = A.right_kernel()
     kernel_fusions = []
@@ -344,59 +298,38 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
             (j0, c0), (j1, c1) = support
             if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
                 kernel_fusions.append((pruned_atoms[j0], pruned_atoms[j1]))
-
     if kernel_fusions:
-        _log(f"  {len(kernel_fusions)} support-2 kernel fusion(s):")
-        for a0, a1 in kernel_fusions:
+        _log(f"  support-2 kernel fusions: {len(kernel_fusions)}")
+        for a0, a1 in kernel_fusions[:8]:
             _log(f"    a[{a0}] = a[{a1}]")
+        if len(kernel_fusions) > 8:
+            _log(f"    ... {len(kernel_fusions) - 8} more")
     else:
-        _log("  No support-2 kernel fusions.")
-    # ------------------------------------------------------------------
-    # D) Which rows overdetermine gen0 / gen1
-    #    The row space contains e_gen0 (k=1 above).  Find the actual rows
-    #    that have nonzero gen0/gen1 entries — these are the rows "pinning"
-    #    the generator columns, which should never happen in a clean setup.
-    # ------------------------------------------------------------------
-    _log("\n  --- D) Rows that directly constrain gen0 / gen1 ---")
-    _log("  (any row with nonzero entry in a special column is suspicious)")
-    for col_name, p_col in [("gen0", p_col_gen0), ("gen1", p_col_gen1),
-                             ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]:
+        _log("  no support-2 kernel fusions.")
+
+    _log("\n  --- D) Rows hitting special columns ---")
+    for col_name, p_col in [("gen0", p_col_gen0), ("gen1", p_col_gen1), ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]:
         if p_col is None:
             continue
-        hitting_rows = [(i, int(A[i, p_col])) for i in range(n_rows)
-                        if A[i, p_col] != Fp(0)]
-        _log(f"  {col_name}: {len(hitting_rows)} row(s) with nonzero entry")
-        for row_i, coeff in hitting_rows[:10]:
-            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j]))
-                         for j in range(n_cols) if M_pruned[row_i, j] != 0]
-            _log(f"    row {row_i:5d}  coeff={coeff:6d}  atoms={row_atoms}")
-        if len(hitting_rows) > 10:
-            _log(f"    ... and {len(hitting_rows) - 10} more rows")
+        hitting_rows = [(i, int(A[i, p_col])) for i in range(n_rows) if A[i, p_col] != Fp(0)]
+        _log(f"  {col_name}: {len(hitting_rows)} row(s)")
+        for row_i, coeff in hitting_rows[:5]:
+            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j])) for j in range(n_cols) if M_pruned[row_i, j] != 0]
+            _log(f"    row {row_i:5d} coeff={coeff:6d} atoms={_brief_atom_list(row_atoms, max_items=5)}")
+        if len(hitting_rows) > 5:
+            _log(f"    ... {len(hitting_rows) - 5} more rows")
 
-    # ------------------------------------------------------------------
-    # E) Row-subsampling stability
-    #    Remove 10% of rows at random (5 trials) and check if nullity
-    #    changes.  If it does, the system is in a brittle over-determined
-    #    regime; if it stays the same, the constraints are redundant.
-    # ------------------------------------------------------------------
-    _log("\n  --- E) Row-subsampling stability (5 trials, 10% row removal) ---")
+    _log("\n  --- E) Row-subsampling stability ---")
     import random as _random
     _random.seed(42)
-    base_null = A.right_kernel().dimension()
     n_drop = max(1, n_rows // 10)
-    _log(f"  Base nullity: {base_null}  (dropping {n_drop} of {n_rows} rows per trial)")
+    _log(f"  base nullity={full_null}; dropping {n_drop}/{n_rows} rows per trial")
     for trial in range(5):
         drop = set(_random.sample(range(n_rows), n_drop))
         keep = [i for i in range(n_rows) if i not in drop]
-        A_sub = A.matrix_from_rows(keep)
-        null_sub = A_sub.right_kernel().dimension()
-        delta = null_sub - base_null
-        flag = ""
-        if delta > 2:
-            flag = "  *** large jump -- brittle over-determined regime"
-        elif delta > 0:
-            flag = "  (slight increase -- some redundancy)"
-        _log(f"  trial {trial+1}: nullity={null_sub}  delta={delta:+d}{flag}")
+        null_sub = A.matrix_from_rows(keep).right_kernel().dimension()
+        delta = null_sub - full_null
+        _log(f"  trial {trial+1}: nullity={null_sub} delta={delta:+d}")
 
 def incremental_consistency_filter(
     M_ZZ, atoms, group_order,
@@ -405,10 +338,7 @@ def incremental_consistency_filter(
     """
     Check 4: Incremental consistency filter.
 
-    This version is intentionally conservative.  It keeps the gauge row and the
-    balanced anchor row, but it does not add any artificial isolated-atom pins.
-    The point is to test whether the walk rows are themselves compatible with a
-    reasonable normalization, not to force a solution by over-fixing the kernel.
+    This version stays conservative and keeps the output brief.
     """
     _section("CHECK 4: INCREMENTAL CONSISTENCY FILTER")
 
@@ -416,7 +346,6 @@ def incremental_consistency_filter(
     Fp  = GF(Integer(n))
     p   = int(n)
 
-    # --- build pruned matrix (column prune only, rows unchanged) ---
     protected = [a for a in [
         atoms[col_gen0] if col_gen0 is not None else None,
         atoms[col_gen1] if col_gen1 is not None else None,
@@ -440,15 +369,14 @@ def incremental_consistency_filter(
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
 
-    _log(f"  Matrix (pruned): {n_rows} rows × {n_cols} cols  over GF({p})")
+    _log(f"  Matrix: {n_rows} rows × {n_cols} cols over GF({p})")
 
-    pivots = {}   # col_index -> (row_as_list[int], rhs_int)
+    pivots = {}
 
     def _row_from_matrix(i):
         return [int(M_pruned[i, j]) % p for j in range(n_cols)]
 
     def _reduce(row, rhs):
-        """Reduce (row, rhs) against current pivot set."""
         for pc, (prow, prhs) in pivots.items():
             coeff = row[pc] % p
             if coeff == 0:
@@ -458,32 +386,26 @@ def incremental_consistency_filter(
         return row, rhs
 
     def _add_pivot(row, rhs):
-        """Find first nonzero in row, normalize, and insert into pivots."""
         for j in range(n_cols):
             if row[j] % p != 0:
                 inv = pow(row[j], p - 2, p)
-                norm_row = [(row[k] * inv) % p for k in range(n_cols)]
-                norm_rhs = (rhs * inv) % p
-                pivots[j] = (norm_row, norm_rhs)
+                pivots[j] = ([(row[k] * inv) % p for k in range(n_cols)], (rhs * inv) % p)
                 return
 
-    # --- seed with gauge and balanced anchor (both homogeneous) ---
     if p_col_inf is not None:
         gauge = [0] * n_cols
         gauge[p_col_inf] = 1
         _add_pivot(gauge, 0)
-        _log(f"  Seeded: gauge a[∞]=0  (col {p_col_inf})")
+        _log(f"  Seeded gauge a[∞]=0 (col {p_col_inf})")
 
     anchor_row, anchor_rhs, anchor_label = _build_balanced_anchor_row(
         Fp, n_cols, p_col_gen0, p_col_gen1, p_col_inf
     )
     if anchor_row is not None:
         _add_pivot([int(x) % p for x in anchor_row], int(anchor_rhs))
-        _log(f"  Seeded: {anchor_label}")
+        _log(f"  Seeded {anchor_label}")
     else:
-        _log("  ⚠  Balanced anchor unavailable — no anchor row seeded.")
-
-    _log(f"  Processing {n_rows} walk rows in step order ...\n")
+        _log("  Balanced anchor unavailable.")
 
     good_rows  = []
     bad_rows   = []
@@ -491,13 +413,8 @@ def incremental_consistency_filter(
     first_bad  = None
 
     for i in range(n_rows):
-        row = _row_from_matrix(i)
-        rhs = 0
-        row_r, rhs_r = _reduce(row, rhs)
-
-        row_zero = all(v == 0 for v in row_r)
-
-        if row_zero:
+        row_r, rhs_r = _reduce(_row_from_matrix(i), 0)
+        if all(v == 0 for v in row_r):
             if rhs_r % p == 0:
                 dep_rows.append(i)
             else:
@@ -508,15 +425,10 @@ def incremental_consistency_filter(
             _add_pivot(row_r, rhs_r)
             good_rows.append(i)
 
-    _log(f"  Results:")
-    _log(f"    Good (independent, consistent) : {len(good_rows)}")
-    _log(f"    Bad  (contradiction)           : {len(bad_rows)}")
-    _log(f"    Dependent (zero reduction)     : {len(dep_rows)}")
-    _log(f"    First contradiction at row     : {first_bad}")
+    _log(f"  good={len(good_rows)}  bad={len(bad_rows)}  dependent={len(dep_rows)}  first_bad={first_bad}")
 
     if not bad_rows:
-        _log("\n  ✓  No contradictions found in incremental filter.")
-        _log("     System is consistent with the chosen normalization when rows are added in step order.")
+        _log("  ✓  No contradictions found in step order.")
         return
 
     special_names = {}
@@ -525,34 +437,32 @@ def incremental_consistency_filter(
         if pc is not None:
             special_names[pc] = nm
 
-    def _atom_freq(row_list, label, top=15):
+    def _atom_freq(row_list, top=10):
         freq = {}
         for i in row_list:
             for j in range(n_cols):
                 if int(M_pruned[i, j]) % p != 0:
                     key = str(pruned_atoms[j])
                     freq[key] = freq.get(key, 0) + 1
-        top_items = sorted(freq.items(), key=lambda kv: -kv[1])[:top]
-        _log(f"\n  Atom frequency ({label}, top {top}):")
-        for atom, cnt in top_items:
-            col = pruned_aidx.get(atom)
-            sp = f"  [{special_names[col]}]" if col in special_names else ""
-            _log(f"    {atom:>8}  {cnt:5d} rows{sp}")
-        return freq
+        return sorted(freq.items(), key=lambda kv: -kv[1])[:top], freq
 
-    bad_freq  = _atom_freq(bad_rows,  f"{len(bad_rows)} bad rows")
-    good_freq = _atom_freq(good_rows, f"{len(good_rows)} good rows")
+    top_bad, bad_freq = _atom_freq(bad_rows, top=10)
+    top_good, good_freq = _atom_freq(good_rows, top=10)
 
-    _log(f"\n  Coefficient patterns in bad rows (first 20):")
-    _log(f"  {'row':>6}  atoms_in_row")
-    for i in bad_rows[:20]:
-        row_atoms = [(str(pruned_atoms[j]), int(M_pruned[i, j]))
-                     for j in range(n_cols) if int(M_pruned[i, j]) % p != 0]
-        _log(f"  {i:6d}  {row_atoms}")
-    if len(bad_rows) > 20:
-        _log(f"  ... and {len(bad_rows) - 20} more bad rows")
+    _log("  top bad-row atoms:")
+    for atom, cnt in top_bad[:8]:
+        col = pruned_aidx.get(atom)
+        sp = f" [{special_names[col]}]" if col in special_names else ""
+        _log(f"    {atom:>8}  {cnt:5d} rows{sp}")
 
-    _log(f"\n  Atoms enriched in bad rows vs good rows (bad_rate / good_rate, top 10):")
+    _log("  first bad rows:")
+    for i in bad_rows[:8]:
+        row_atoms = [(str(pruned_atoms[j]), int(M_pruned[i, j])) for j in range(n_cols) if int(M_pruned[i, j]) % p != 0]
+        _log(f"    row {i:5d}: {_brief_atom_list(row_atoms, max_items=6)}")
+    if len(bad_rows) > 8:
+        _log(f"    ... {len(bad_rows) - 8} more bad rows")
+
+    _log("  top enrichment (bad/good):")
     n_bad  = max(len(bad_rows),  1)
     n_good = max(len(good_rows), 1)
     enrichment = []
@@ -565,11 +475,11 @@ def incremental_consistency_filter(
         elif br > 0:
             enrichment.append((atom, float("inf"), br, gr))
     enrichment.sort(key=lambda x: -x[1])
-    for atom, ratio, br, gr in enrichment[:10]:
+    for atom, ratio, br, gr in enrichment[:8]:
         col = pruned_aidx.get(atom)
-        sp  = f"  [{special_names[col]}]" if col in special_names else ""
-        ratio_str = f"{ratio:.2f}" if ratio != float("inf") else "inf (absent in good)"
-        _log(f"    {atom:>8}  enrichment={ratio_str}  bad_rate={br:.4f}  good_rate={gr:.4f}{sp}")
+        sp  = f" [{special_names[col]}]" if col in special_names else ""
+        ratio_str = f"{ratio:.2f}" if ratio != float("inf") else "inf"
+        _log(f"    {atom:>8}  enrich={ratio_str}  bad={br:.4f} good={gr:.4f}{sp}")
 
 
 
@@ -699,6 +609,7 @@ def main(argv=None):
         sys.exit("ERROR: group_order not found in HDF5 and not supplied via --group-order")
 
     _log(f"[load] matrix shape : {M_ZZ.nrows()} × {M_ZZ.ncols()}")
+    _matrix_preview(M_ZZ, atoms, max_rows=4, max_atoms=6)
     _log(f"[load] group_order  : {group_order}")
     _log(f"[load] divisor_xs   : {divisor_xs}")
     _log(f"[load] col_inf={col_inf}  col_gen0={col_gen0}  col_gen1={col_gen1}"
@@ -768,7 +679,7 @@ def main(argv=None):
     _log("# DIAGNOSTICS COMPLETE")
     _log(f"{'#'*70}\n")
 
-def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isolated: bool = False):
+def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isolated: bool = False, max_preview: int = 12):
     """
     Inspect a right-kernel basis and report structurally important directions.
 
@@ -780,67 +691,68 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isol
     If pin_isolated=True, isolated atoms are converted into explicit pin rows
     a[j] = 0.  That mode is available for experiments, but it is deliberately
     opt-in because it can manufacture contradictions by over-fixing the nullspace.
-
-    Returns
-    -------
-    (pin_rows, pin_rhs, pin_labels)
-        Lists suitable for stacking onto the matrix if pin_isolated=True.
-        In the default diagnostic mode, these lists are empty.
     """
     n = int(Fp.characteristic())
     pin_rows   = []
     pin_rhs    = []
     pin_labels = []
 
+    counts = {"gauge": 0, "isolated": 0, "fusion": 0, "parity": 0, "other": 0}
+    previews = []
+
     for vi, vec in enumerate(ker.basis()):
         support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
         if not support:
             continue
 
-        # Gauge direction should remain free and should never be pinned.
+        msg = None
         if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
-            _log(f"  kernel[{vi}]: GAUGE (inf) -- keeping free")
-            continue
-
-        # Isolated atom: report it.  Optionally pin it, but only when requested.
-        if len(support) == 1:
+            counts["gauge"] += 1
+            msg = f"kernel[{vi}]: GAUGE (inf) -- keeping free"
+        elif len(support) == 1:
+            counts["isolated"] += 1
             j, coeff = support[0]
             atom = pruned_atoms[j]
-            _log(
-                f"  kernel[{vi}]: ISOLATED atom={atom} coeff={coeff} -- "
-                + ("pinning a[{atom}]=0" if pin_isolated else "leaving free")
-            )
+            msg = f"kernel[{vi}]: ISOLATED atom={atom} coeff={coeff}"
             if pin_isolated:
                 pin_row = vector(Fp, n_cols)
                 pin_row[j] = Fp(1)
                 pin_rows.append(pin_row)
                 pin_rhs.append(Fp(0))
                 pin_labels.append(f"pin a[{atom}]=0")
-            continue
-
-        # Fusion pair: two atoms forced to identical logs.
-        if len(support) == 2:
+                msg += " -- pinning"
+            else:
+                msg += " -- leaving free"
+        elif len(support) == 2:
             (j0, c0), (j1, c1) = support
             if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
+                counts["fusion"] += 1
                 a0, a1 = pruned_atoms[j0], pruned_atoms[j1]
-                _log(
-                    f"  kernel[{vi}]: FUSION -- walk data forces "
-                    f"a[{a0}] = a[{a1}]  (log-space collapse)"
-                )
-                continue
+                msg = f"kernel[{vi}]: FUSION a[{a0}] = a[{a1}]"
+            else:
+                counts["other"] += 1
+                msg = f"kernel[{vi}]: OTHER support_size=2 distinct_coeffs={sorted(set(c for _, c in support))}"
+        else:
+            coeffs_vals = [c for _, c in support]
+            is_flat = len(set(coeffs_vals)) == 1
+            if is_flat:
+                counts["parity"] += 1
+                msg = f"kernel[{vi}]: PARITY/CONSERVATION support_size={len(support)} all_coeffs={coeffs_vals[0]}"
+            else:
+                counts["other"] += 1
+                msg = f"kernel[{vi}]: OTHER support_size={len(support)} distinct_coeffs={sorted(set(coeffs_vals))}"
 
-        # Other multi-atom directions.
-        coeffs_vals = [c for _, c in support]
-        is_flat = len(set(coeffs_vals)) == 1
-        kind = "PARITY/CONSERVATION" if is_flat else "OTHER"
-        c0_val = coeffs_vals[0] if is_flat else None
-        _log(
-            f"  kernel[{vi}]: {kind}  support_size={len(support)}"
-            + (f"  all_coeffs={c0_val}" if is_flat else f"  distinct_coeffs={sorted(set(coeffs_vals))}")
-        )
+        if len(previews) < max_preview:
+            previews.append(msg)
+
+    _log(f"  kernel summary: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+    for msg in previews:
+        _log(f"  {msg}")
+    omitted = sum(counts.values()) - len(previews)
+    if omitted > 0:
+        _log(f"  ... {omitted} more kernel direction(s) omitted")
 
     return pin_rows, pin_rhs, pin_labels
-
 
 
 def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
@@ -902,7 +814,7 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
     _log(f"\n  Pre-normalization nullity: {null_pre} on the {n_rows}×{n_cols} system")
 
     _extract_pin_rows(
-        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False
+        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False, max_preview=8
     )
     _log("  Isolated atoms are reported as free directions, not pinned.")
 
@@ -930,21 +842,21 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
         ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1),
         ("inf",  p_col_inf),
     ] if col is not None}
-    for bi, bv in enumerate(ker_hom.basis()):
+    for bi, bv in enumerate(ker_hom.basis()[:8]):
         support = [(j, int(bv[j])) for j in range(n_cols) if bv[j] != Fp(0)]
         coeffs  = [c for _, c in support]
         is_flat = len(set(coeffs)) == 1
         special_vals = {name: int(bv[col]) for name, col in special_cols.items()}
         all_special_same = len(set(special_vals.values())) == 1
-        _log(f"  basis[{bi}]:  support_size={len(support)}  flat={'yes' if is_flat else 'no'}")
-        _log(f"    special atom values: {special_vals}")
+        _log(f"  basis[{bi}]: support_size={len(support)} flat={'yes' if is_flat else 'no'} specials={special_vals}")
         if is_flat:
-            _log("    *** ALL-ONES (flat) kernel vector -- every atom maps to the same log.")
-            _log("        Total log-space collapse confirmed: no DLP dimension in walk data.")
+            _log("    flat vector: all atoms share the same log")
         elif all_special_same:
-            _log("    *** Special atoms all equal -- DLP direction absent for gen/tgt.")
+            _log("    special atoms all equal")
         else:
-            _log("    OK -- special atoms differ, DLP direction present.")
+            _log("    special atoms differ; DLP direction still present")
+    if ker_hom.dimension() > 8:
+        _log(f"  ... {ker_hom.dimension() - 8} more basis vector(s)")
 
     # --- log-G membership test ---
     missing = [name for name, col in [("gen0", p_col_gen0), ("gen1", p_col_gen1),
@@ -1037,7 +949,6 @@ def extract_contradiction_certificate(
     n  = group_order
     Fp = GF(Integer(n))
 
-    # --- Step 1: prune_dest_only ---
     protected = [a for a in [atoms[col_gen0] if col_gen0 is not None else None,
                               atoms[col_gen1] if col_gen1 is not None else None]
                  if a is not None]
@@ -1047,6 +958,7 @@ def extract_contradiction_certificate(
     _log(f"  prune_dest_only: {len(removed)} atoms removed  "
          f"({M_ZZ.nrows()}→{M_pruned.nrows()} rows, "
          f"{M_ZZ.ncols()}→{M_pruned.ncols()} cols)")
+    _matrix_preview(M_pruned, pruned_atoms, max_rows=4, max_atoms=6)
 
     p_col_inf  = _remap(col_inf,  atoms, pruned_aidx)
     p_col_gen0 = _remap(col_gen0, atoms, pruned_aidx)
@@ -1057,21 +969,15 @@ def extract_contradiction_certificate(
 
     A_hom_fp = M_pruned.change_ring(Fp)
 
-    # --- Step 2: inspect kernel, but do not pin isolated atoms by default ---
     ker_pre  = A_hom_fp.right_kernel()
     null_pre = ker_pre.dimension()
-    _log(f"\n  Pre-normalization nullity: {null_pre} on the {n_walk}×{n_cols} homogeneous system")
+    _log(f"  pre-normalization nullity: {null_pre} on the {n_walk}×{n_cols} homogeneous system")
 
-    _extract_pin_rows(
-        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False
-    )
-    _log("  Isolated atoms are reported as free directions, not pinned.")
+    _extract_pin_rows(ker_pre, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False, max_preview=10)
 
-    # Keep only the walk rows and the gauge row initially.
     A_pinned = A_hom_fp
     b_pinned = vector(Fp, [Fp(0)] * n_walk)
 
-    # --- Step 3: gauge-fix and balanced anchor ---
     extra_rows_fp = []
     extra_rhs     = []
     extra_labels  = []
@@ -1081,10 +987,9 @@ def extract_contradiction_certificate(
         gauge_row[p_col_inf] = Fp(1)
         extra_rows_fp.append(gauge_row)
         extra_rhs.append(Fp(0))
-        _log(f"  Gauge row: a[∞]=0  (col={p_col_inf})")
         extra_labels.append(f"gauge a[∞]=0  (col={p_col_inf})")
     else:
-        _log("  No ∞ column after prune — gauge row omitted.")
+        _log("  no ∞ column after prune; gauge row omitted")
 
     anchor_row, anchor_rhs, anchor_label = _build_balanced_anchor_row(
         Fp, n_cols, p_col_gen0, p_col_gen1, p_col_inf
@@ -1093,12 +998,11 @@ def extract_contradiction_certificate(
         extra_rows_fp.append(anchor_row)
         extra_rhs.append(anchor_rhs)
         extra_labels.append(anchor_label)
-        _log(f"  Anchor row: {anchor_label}")
     else:
-        _log("  ⚠  Balanced anchor unavailable — anchor row omitted.")
+        _log("  balanced anchor unavailable; anchor row omitted")
 
     if not extra_rows_fp:
-        _log("  ⚠  No augmentation rows — cannot find certificate.")
+        _log("  no augmentation rows; cannot find certificate")
         return [], []
 
     A_extra = matrix(Fp, extra_rows_fp)
@@ -1106,43 +1010,37 @@ def extract_contradiction_certificate(
     b_full  = vector(Fp, list(b_pinned) + extra_rhs)
     n_full  = A_full.nrows()
 
-    row_labels = (
-        [f"walk[{i}]" for i in range(n_walk)]
-        + extra_labels
-    )
+    row_labels = [f"walk[{i}]" for i in range(n_walk)] + extra_labels
 
-    _log(f"\n  Augmented system: {n_full} rows × {n_cols} cols over GF({n})")
-
+    _log(f"  augmented system: {n_full} rows × {n_cols} cols over GF({n})")
     rank_A   = A_full.rank()
     rank_aug = A_full.augment(b_full.column()).rank()
     _log(f"  rank(A)={rank_A}  rank([A|b])={rank_aug}")
 
     if rank_A == rank_aug:
-        _log("  ✓  System is consistent — no Farkas certificate exists.")
-        _log("     (solve_right should succeed after this pipeline; check caller)")
+        _log("  ✓  system is consistent — no Farkas certificate exists")
         return [], []
 
-    _log("  ✗  INCONSISTENT — extracting left-kernel certificate ...")
+    _log("  ✗  inconsistent — extracting left-kernel certificate ...")
 
     AT        = A_full.transpose()
     left_ker  = AT.right_kernel()
     left_null = left_ker.dimension()
-    _log(f"  Left kernel dimension: {left_null}")
+    _log(f"  left kernel dimension: {left_null}")
 
     if left_null == 0:
-        _log("  ✗  Left kernel is trivial — unexpected; check field characteristic.")
+        _log("  ✗  left kernel is trivial; unexpected")
         return [], []
 
     certificate_y = None
     for basis_vec in left_ker.basis():
-        dot = sum(basis_vec[i] * b_full[i] for i in range(n_full))
-        if dot != Fp(0):
+        if sum(basis_vec[i] * b_full[i] for i in range(n_full)) != Fp(0):
             certificate_y = basis_vec
             break
 
     if certificate_y is None:
         basis_list = list(left_ker.basis())
-        _log("  No single basis vector satisfies b·y!=0; trying linear combinations ...")
+        _log("  no basis vector satisfies y·b!=0; trying small linear combinations ...")
         found = False
         for i in range(len(basis_list)):
             for j in range(i + 1, len(basis_list)):
@@ -1161,37 +1059,34 @@ def extract_contradiction_certificate(
                 break
 
     if certificate_y is None:
-        _log("  ✗  Could not find certificate — inspect basis vectors manually.")
+        _log("  ✗  could not find certificate")
         return [], []
 
     dot_b = sum(certificate_y[i] * b_full[i] for i in range(n_full))
-    _log(f"\n  ✓  Certificate found.  y^T * b = {int(dot_b)}  (nonzero — contradiction confirmed)")
+    _log(f"  ✓  certificate found; y^T*b={int(dot_b)}")
 
-    nonzero_entries = [(i, int(certificate_y[i])) for i in range(n_full)
-                       if certificate_y[i] != Fp(0)]
-
-    _log(f"\n  Certificate y has {len(nonzero_entries)} nonzero entries:")
+    nonzero_entries = [(i, int(certificate_y[i])) for i in range(n_full) if certificate_y[i] != Fp(0)]
 
     walk_entries  = [(i, c) for i, c in nonzero_entries if i < n_walk]
     extra_entries = [(i, c) for i, c in nonzero_entries if i >= n_walk]
 
-    _log(f"\n  Walk-relation rows in certificate ({len(walk_entries)} rows):")
+    _log(f"  certificate support: {len(nonzero_entries)} total  |  walk={len(walk_entries)}  extra={len(extra_entries)}")
+
     if walk_entries:
-        _log(f"  {'row':>6}  {'weight':>8}  atoms_in_row")
-        for row_i, coeff in walk_entries[:50]:
-            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j]))
-                         for j in range(n_cols) if M_pruned[row_i, j] != 0]
-            _log(f"  {row_i:6d}  {coeff:8d}  {row_atoms}")
-        if len(walk_entries) > 50:
-            _log(f"  ... and {len(walk_entries) - 50} more walk rows")
+        _log("  walk rows in certificate:")
+        for row_i, coeff in walk_entries[:12]:
+            row_atoms = [(pruned_atoms[j], int(M_pruned[row_i, j])) for j in range(n_cols) if M_pruned[row_i, j] != 0]
+            _log(f"    row {row_i:5d}  weight={coeff:8d}  {_brief_atom_list(row_atoms, max_items=6)}")
+        if len(walk_entries) > 12:
+            _log(f"    ... {len(walk_entries) - 12} more walk rows")
     else:
-        _log("  (none)")
+        _log("  (no walk rows in certificate)")
 
     if extra_entries:
-        _log(f"\n  Augmented rows in certificate ({len(extra_entries)} rows):")
+        _log("  augmented rows in certificate:")
         for row_i, coeff in extra_entries:
             label = row_labels[row_i] if row_i < len(row_labels) else f"row {row_i}"
-            _log(f"  row {row_i:5d}  weight={coeff:8d}  [{label}]")
+            _log(f"    row {row_i:5d}  weight={coeff:8d}  [{label}]")
 
     _section("CERTIFICATE DIAGNOSIS")
 
@@ -1205,24 +1100,22 @@ def extract_contradiction_certificate(
         if "gauge" in lbl:
             gauge_row_idx = row_i
 
-    _log(f"  Anchor row weight in y  : {extra_map.get(anchor_row_idx)}")
-    _log(f"  Gauge row weight in y   : {extra_map.get(gauge_row_idx)}")
+    _log(f"  anchor row weight in y  : {extra_map.get(anchor_row_idx)}")
+    _log(f"  gauge row weight in y   : {extra_map.get(gauge_row_idx)}")
 
     if anchor_row_idx is not None and extra_map.get(anchor_row_idx):
-        _log("\n  The anchor row participates in the contradiction.")
-        _log("  This indicates a normalization issue, not a walk-row contradiction.")
+        _log("  the anchor row participates in the contradiction; normalization is suspect")
 
     if not walk_entries:
-        _log("\n  No walk rows in certificate — contradiction is entirely in the")
-        _log("  normalization rows (gauge/anchor), not in walk data.")
+        _log("  contradiction is entirely in normalization rows, not in walk data")
     else:
         atom_freq: dict = {}
         for row_i, _ in walk_entries:
             for j in range(n_cols):
                 if M_pruned[row_i, j] != 0:
                     atom_freq[str(pruned_atoms[j])] = atom_freq.get(str(pruned_atoms[j]), 0) + 1
-        top_atoms = sorted(atom_freq.items(), key=lambda kv: -kv[1])[:10]
-        _log(f"\n  Most frequent atoms in certificate rows (top 10):")
+        top_atoms = sorted(atom_freq.items(), key=lambda kv: -kv[1])[:8]
+        _log("  most frequent atoms in certificate rows:")
         for atom, freq in top_atoms:
             _log(f"    {atom:>8}  appears in {freq} certificate row(s)")
 
@@ -1233,10 +1126,10 @@ def extract_contradiction_certificate(
 
 def _build_balanced_anchor_row(Fp, n_cols, col_gen0, col_gen1, col_inf):
     """
-    Build an anchor row that is compatible with the row-sum conservation law.
+    Build an anchor row that matches the coefficient-sum normalization.
 
     Preferred form:
-        a[gen0] + a[gen1] - 2*a[∞] = 0
+        a[gen0] + a[gen1] - 5*a[∞] = 0
 
     If ∞ is unavailable, fall back to:
         a[gen0] - a[gen1] = 0
@@ -1249,9 +1142,9 @@ def _build_balanced_anchor_row(Fp, n_cols, col_gen0, col_gen1, col_inf):
     row[col_gen1] = Fp(1)
 
     if col_inf is not None:
-        row[col_inf] = Fp(-2)
+        row[col_inf] = Fp(-5)
         rhs = Fp(0)
-        label = "anchor a[gen0]+a[gen1]-2*a[∞]=0"
+        label = "anchor a[gen0]+a[gen1]-5*a[∞]=0"
     else:
         row[col_gen1] = Fp(-1)
         rhs = Fp(0)
