@@ -571,7 +571,7 @@ class WalkConfig:
     diagnostic_print: bool = True
     diagnostic_show_poly: bool = True
     diagnostic_show_roots: bool = True
-    nthermal: int = 2
+    nthermal: int = 300
 
     # Spectral gap reporting via adjacency matrix.
     # spectral_enabled=False turns the whole thing off silently.
@@ -659,6 +659,10 @@ class Genus2MetropolisWalker:
         self._merged_leaves: set = set()              # dedup across all merge hits
         self.collision_count = 0      # path collisions: chosen xj already on chain path
         self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
+        # Rolling averages for novelty and fertility (window = last 20 accepted steps).
+        self._ROLL_WINDOW = 20
+        self._roll_novelty: list = []   # novelty_ratio values, capped at _ROLL_WINDOW
+        self._roll_fertility: list = [] # frac_fertile values, capped at _ROLL_WINDOW
         self.first_birthday_step: Optional[int] = None  # step_index of first graph/birthday collision
         self.first_birthday_n: Optional[int] = None     # outer n of first graph/birthday collision
         self.collision_log: list = []  # [(step_index, outer_n, graph_vol, count, colliding_xs[:10]), ...]
@@ -1290,6 +1294,16 @@ class Genus2MetropolisWalker:
             collision_frac = total_leaves / sqrt_p if self.p is not None else float("nan")
             novelty_ratio = (new_leaves / step_leaves) if step_leaves > 0 else 0.0
 
+            # Update rolling window for novelty (only when we have leaf data).
+            if step_leaves > 0:
+                self._roll_novelty.append(novelty_ratio)
+                if len(self._roll_novelty) > self._ROLL_WINDOW:
+                    self._roll_novelty.pop(0)
+            roll_novelty_avg = (
+                sum(self._roll_novelty) / len(self._roll_novelty)
+                if self._roll_novelty else None
+            )
+
             xj_str = str(rec.xj) if rec.xj is not None else "—"
             xk_str = str(rec.xk) if rec.xk is not None else "—"
             m_str = str(rec.m) if rec.m is not None else "—"
@@ -1331,6 +1345,16 @@ class Genus2MetropolisWalker:
             else:
                 frac_fertile_str = "n/a"
 
+            # Update rolling window for fertility.
+            if n_with_roots is not None and n_total and n_total > 0:
+                self._roll_fertility.append(n_with_roots / n_total)
+                if len(self._roll_fertility) > self._ROLL_WINDOW:
+                    self._roll_fertility.pop(0)
+            roll_fertility_avg = (
+                sum(self._roll_fertility) / len(self._roll_fertility)
+                if self._roll_fertility else None
+            )
+
             xk_leaf_note = (
                 f" (+{xk_new_count} xk-new, {xk_overlap} xk↔xj overlap)"
                 if xk_new_count or xk_overlap else ""
@@ -1353,14 +1377,17 @@ class Genus2MetropolisWalker:
                 f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
                 f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                 f"\n  Relation (example):  {rel_str}{rel_annotation}",
-                f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}  | leaf_collisions_this_step={leaf_collisions_this_step}",
+                f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}"
+                + (f"  | pre-filter collisions (dupes dropped before surviving leaves): {leaf_collisions_this_step}" if leaf_collisions_this_step else ""),
                 f"\n  Collisions: path={self.collision_count} total  | graph/birthday={self.leaf_collision_count} total  (first expected near √p={sqrt_p:.0f} graph volume)"
                 + (f"  [first birthday: step={self.first_birthday_step} n={self.first_birthday_n} vol={self.collision_log[0][2]} xs={self.collision_log[0][4]}]" if self.collision_log else ""),
                 f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
-                f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%}",
+                f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%} (of surviving leaves)"
+                + (f"  (avg {roll_novelty_avg:.1%} /{len(self._roll_novelty)})" if roll_novelty_avg is not None else ""),
                 f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
                 f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
-                f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots",
+                f"\n  Fertility: {frac_fertile_str} of n-values had F_p roots"
+                + (f"  (avg {roll_fertility_avg:.1%} /{len(self._roll_fertility)})" if roll_fertility_avg is not None else ""),
                 f"\n{'='*70}\n",
                 sep="",
                 flush=True,
@@ -1970,20 +1997,13 @@ class Genus2MetropolisWalker:
                 return rec
             return reject("zero_novelty")
 
-        collisions = organic & self.global_leaves_seen
+        _, new_leaves_this_step, leaf_collisions_this_step = \
+            self._update_leaf_bookkeeping(X, n=n, xi_before=xi)
 
-        if X:
-            self.global_leaves_seen |= X
-            self.total_leaf_insertions += len(X)
-
-        old = len(self.global_leaves_seen) - len(X) # Or whatever you need 'old' for later
-
-        self.leaf_collision_count += len(collisions)
-        new = len(self.global_leaves_seen) - old
         search_out.update({
             "step_leaves_found": len(X),
-            "step_leaves_new": new,
-            "step_leaf_collisions": len(collisions),
+            "step_leaves_new": new_leaves_this_step,
+            "step_leaf_collisions": leaf_collisions_this_step,
             "global_leaves_total": len(self.global_leaves_seen),
             "global_leaf_collisions": self.leaf_collision_count,
         })
