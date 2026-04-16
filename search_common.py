@@ -2169,7 +2169,7 @@ def buildcd(E_curve, phi_x, quartic_rhs, E_rhs, morph_triplet,
     if ff_mode:
         # Only characteristic is bad in finite field mode
         bad_primes = [FINITE_FIELD]
-        print(f"  Finite field mode: p={FINITE_FIELD} is the only bad prime")
+        #print(f"  Finite field mode: p={FINITE_FIELD} is the only bad prime")
     else:
         # Test each prime in pool
         class TempCD:
