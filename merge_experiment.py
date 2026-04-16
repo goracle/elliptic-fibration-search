@@ -431,6 +431,7 @@ def main(argv=None):
         p           = p,
         coeffs      = coeffs,
         dump_path   = "relation_matrix.h5",   # ← add this
+        augment     = True,                   # append-not-overwrite
     )
 
     # -- Write results -----------------------------------------------------
