@@ -651,8 +651,9 @@ def build_curve_data(E_rhs_m, roots, base_pts):
 @PROFILE
 def configure_search_parameters(cd, all_known_x, base_pts, base_field):
     """Auto-configure search parameters based on curve data."""
-    print("\n=== Auto-configuring search parameters for this fibration ===")
-    print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
+    if not FINITE_FIELD:
+        print("\n=== Auto-configuring search parameters for this fibration ===")
+        print(f"[auto_cfg] Building height estimation from {len(all_known_x)} known x-coords.")
 
     known_pts_for_height = []
     for x_coord in all_known_x:
@@ -678,7 +679,8 @@ def configure_search_parameters(cd, all_known_x, base_pts, base_field):
     if not FINITE_FIELD:
         prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True, grh_fudge=10, debug=True)
     prime_pool = sorted(set(prime_pool))
-    print(f"[prime_pool] Final pool has {len(prime_pool)} primes up to {max(prime_pool)}")
+    if not FINITE_FIELD:
+        print(f"[prime_pool] Final pool has {len(prime_pool)} primes up to {max(prime_pool)}")
 
     return sconf, prime_pool
 

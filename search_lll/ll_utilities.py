@@ -1850,8 +1850,8 @@ def generate_ff_search_vectors(num_sections, max_coeff=MAXN, num_vecs=5000):
     # Canonicalize
     canonical = canonicalize_by_sign(vecs_list)
 
-    print(f"[FF vectors] Generated {len(canonical)} canonical vectors")
-    print(f"  Sample: {canonical[:10]}")
+    #print(f"[FF vectors] Generated {len(canonical)} canonical vectors")
+    #print(f"  Sample: {canonical[:10]}")
 
     return canonical
 
