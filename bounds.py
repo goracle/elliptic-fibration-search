@@ -47,7 +47,7 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
             patterns_seen.add(pattern)
             primes_used += 1
 
-            if debug:
+            if debug and not FINITE_FIELD:
                 print(f"[bounds] mod {p} factorization: {facs} -> pattern {pattern}")
 
         except Exception as e:
@@ -69,7 +69,7 @@ def estimate_galois_signature_modp(poly, primes_to_test=None, debug=DEBUG):
     else:
         deg_est = poly.degree()
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[bounds] Unique patterns from {primes_used} primes: {unique_patterns}")
         print(f"[bounds] Estimated splitting field degree: {deg_est}")
 
@@ -127,7 +127,7 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
 
     num_primes_to_add = max(0, int(ceil(2 * log_scale * galois_factor)))
 
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[adaptive_pool] height_bound={height_bound}, base_height={base_height}")
         print(f"[adaptive_pool] height_ratio={height_ratio:.2f}, log_scale={log_scale:.2f}")
         if galois_degree is not None:
@@ -150,7 +150,7 @@ def adaptive_prime_pool_for_height_bound(base_pool, height_bound, residue_counts
         rc = residue_counts.get(pp, max(1, pp // 4))
         avg_density *= float(rc) / float(pp)
 
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[adaptive_pool] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_pool] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_pool] final pool: up to {max(extended_pool)}")
@@ -181,7 +181,7 @@ def adaptive_prime_pool_by_actual_survivors(base_pool, residue_counts,
             rc = residue_counts.get(p, max(1, p // 4))
             combo_count *= rc
 
-        if verbose:
+        if verbose and not FINITE_FIELD:
             print(f"[empirical_density] pool_size={len(extended_pool)}, "
                   f"sample_subset={subset}, estimated_survivors={combo_count}")
 
@@ -244,10 +244,10 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
         avg_product = sum(products) / len(products) if products else float('inf')
         expected_survivors = avg_product
 
-        if verbose:
+        if verbose and not FINITE_FIELD:
             print(f"[adaptive_density] pool_size={len(extended_pool)}, avg_residue_product={avg_product:.0f}")
 
-        if expected_survivors <= target_survivors_per_subset:
+        if expected_survivors <= target_survivors_per_subset and not FINITE_FIELD:
             if verbose:
                 print(f"[adaptive_density] target reached ({expected_survivors:.0f} <= {target_survivors_per_subset}). stopping.")
             break
@@ -260,7 +260,7 @@ def adaptive_prime_pool_by_survivor_density(base_pool, residue_counts, target_su
     num_added = len(extended_pool) - base_size
     scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
 
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[adaptive_density] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_density] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_density] final pool: up to {max(extended_pool)}")
@@ -307,7 +307,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     log_height = float(log(max(height_bound, 1.0), 2))
     num_primes_to_add = max(0, int(ceil(10 * log_height)))
 
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[adaptive_height] height_bound={height_bound}, log2(height_bound)={log_height:.2f}")
         print(f"[adaptive_height] requesting +{num_primes_to_add} primes (1.5 * log scaling)")
 
@@ -320,7 +320,7 @@ def adaptive_prime_pool_by_height(base_pool, height_bound, base_height=100, verb
     num_added = len(extended_pool) - base_size
     scale_factor = len(extended_pool) / float(base_size) if base_size > 0 else 1.0
 
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[adaptive_height] added {num_added} primes -> final pool size {len(extended_pool)}")
         print(f"[adaptive_height] scale_factor = {scale_factor:.2f}x")
         print(f"[adaptive_height] final pool: up to {max(extended_pool)}")
@@ -366,7 +366,7 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
         w = residue_counts.get(p, max(1, p // 4))
         weights.append(float(w))
 
-    if debug:
+    if debug and not FINITE_FIELD:
         sample_primes = prime_pool[:min(5, len(prime_pool))]
         sample_weights = [weights[prime_pool.index(p)] for p in sample_primes]
         print(f"[generate_diverse_biased] Sample weights for first 5 primes: {list(zip(sample_primes, sample_weights))}")
@@ -385,7 +385,7 @@ def generate_diverse_prime_subsets_biased_by_residues(prime_pool, residue_counts
             seen.add(s)
             unique_subsets.append(list(s))
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[generate_diverse_biased] Generated {len(unique_subsets)} unique subsets from {len(subsets)} attempts")
         print(f"[generate_diverse_biased] Sample subsets: {unique_subsets[:3]}")
 
@@ -416,7 +416,7 @@ def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_prime
 
     # 1) Try to compute lightweight Galois metadata
     try:
-        if debug:
+        if debug and not FINITE_FIELD:
             print("[galois] Attempting poly.galois_group() (may be slow)...")
         t0 = time.time()
         G = poly.galois_group()  # often a PermutationGroup; may be expensive
@@ -429,10 +429,10 @@ def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_prime
                 result['galois_group_order'] = int(G.order())
             except Exception:
                 result['galois_group_order'] = None
-        if debug:
+        if debug and not FINITE_FIELD:
             print(f"[galois] poly.galois_group() took {time.time()-t0:.2f}s, info={result['galois_group_info']}")
     except Exception as e:
-        if debug:
+        if debug and not FINITE_FIELD:
             print(f"[galois] poly.galois_group() failed: {e}")
         result['galois_group_info'] = None
         result['galois_group_order'] = None
@@ -477,7 +477,7 @@ def compute_galois_and_empirical_root_stats(poly, primes_to_test=None, max_prime
     result['num_primes_tested'] = primes_used
     result['unique_patterns'] = sorted(patterns)
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[galois/empirical] Tested {primes_used} primes -> avg_roots={avg_roots:.4g}, patterns_sample={result['unique_patterns'][:6]}")
 
     return result
@@ -514,10 +514,10 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
     # Determine the polynomial to study: prefer discriminant numerator (singular fibers)
     try:
         split_poly = build_split_poly_from_cd(cd, debug=debug)
-        if debug:
+        if debug and not FINITE_FIELD:
             print(f"[residue_counts] Using split_poly degree={split_poly.degree()}")
     except Exception as e:
-        if debug:
+        if debug and not FINITE_FIELD:
             print("[residue_counts] Could not build split_poly from cd; falling back to RHS numerator approach:", e)
         split_poly = None
 
@@ -529,7 +529,7 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
             galois_info = compute_galois_and_empirical_root_stats(split_poly, max_primes=min(40, len(prime_pool)), debug=debug)
             fallback_avg_roots = max(0.0, galois_info.get('avg_roots', 0.0))
         except Exception as e:
-            if debug:
+            if debug and not FINITE_FIELD:
                 print("[residue_counts] galois/empirical stats failed:", e)
             fallback_avg_roots = 1.0
 
@@ -558,7 +558,7 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
                     den_mod = rhs_den.change_ring(GF(p))
                     if den_mod.is_zero():
                         # denominator vanishes identically mod p - fall back
-                        if debug:
+                        if debug and not FINITE_FIELD:
                             print(f"[residue_counts] denom zero mod {p}; using fallback")
                         residue_counts[p] = max(1, safe_count(round(fallback_avg_roots)))
                         continue
@@ -569,7 +569,7 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
                     residue_counts[p] = len(roots)
                     continue
                 except Exception as e_inner:
-                    if debug:
+                    if debug and not FINITE_FIELD:
                         # keep terse but useful
                         print(f"[residue_counts] exact count failed mod {p}: {e_inner}; using fallback")
                     residue_counts[p] = max(1, safe_count(round(fallback_avg_roots)))
@@ -588,11 +588,11 @@ def compute_residue_counts_for_primes(cd, rhs_list, prime_pool, max_primes=None,
 
         except Exception as e:
             # ultimate fallback to avoid crashing entire pipeline
-            if debug:
+            if debug and not FINITE_FIELD:
                 print(f"[residue_counts] unexpected error for p={p}: {e}")
             residue_counts[p] = 1
 
-    if debug:
+    if debug and not FINITE_FIELD:
         sample = list(prime_pool)[:min(10, len(prime_pool))]
         print("[residue_counts] sample:", [(p, residue_counts.get(p)) for p in sample])
         if galois_info:
@@ -655,7 +655,7 @@ def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
         return float(sum(prods) / len(prods)) if prods else float('inf')
 
     current_avg = estimate_avg_survivors(extended_pool)
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[empirical_pool] start pool size={len(extended_pool)}, avg_survivors≈{current_avg:.3g}, "
               f"target={target_survivors}, subset_size={subset_size}, samples={sample_size}")
 
@@ -671,12 +671,12 @@ def adaptive_prime_pool_empirical_survivor_count(base_pool, residue_counts,
 
         # re-estimate
         current_avg = estimate_avg_survivors(extended_pool)
-        if verbose:
+        if verbose and not FINITE_FIELD:
             print(f"[empirical_pool] iter={iterations}: added p={next_p}, pool_size={len(extended_pool)}, "
                   f"avg_survivors≈{current_avg:.3g}")
 
     num_added = len(extended_pool) - len(base_pool)
-    if verbose:
+    if verbose and not FINITE_FIELD:
         print(f"[empirical_pool] finished: added {num_added} primes -> final pool size {len(extended_pool)}, "
               f"final_avg_survivors≈{current_avg:.3g}")
 
@@ -830,7 +830,7 @@ def adaptive_prime_selection_learn(prime_pool_candidate, cd=None,
     # produce sorted primes highest score first and also return scores map
     sorted_primes = sorted(prime_pool, key=lambda q: normalized_scores.get(q, 0.0), reverse=True)
 
-    if debug:
+    if debug and not FINITE_FIELD:
         # print the top few primes and their scores
         top = sorted_primes[:10]
         print("[adaptive_select] Trials:", trials_done,
@@ -962,7 +962,7 @@ def recommend_subset_strategy_adaptive(prime_pool, residue_counts, height_bound,
     # Calculate final adjustment factor relative to the original base hint provided
     adjustment = final_num_subsets / float(base_num_subsets) if base_num_subsets > 0 else 1.0
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"[adaptive_subsets] height_bound={height_bound:.1f}, base_height={base_height}, height_ratio={height_ratio:.2f}")
         print(f"[adaptive_subsets] zero_ratio={zero_ratio:.2f}, avg_density={avg_density:.4f} -> size_bias='{size_bias}'")
         print(f"[adaptive_subsets] Density-adjusted base num_subsets: {num_subsets_density_adjusted}")
@@ -1099,7 +1099,7 @@ def predict_qc_distribution(Delta_pr, prime_sample, debug=True):
         # Add small Laplace smoothing to stabilize
         predicted_ratio = (qc_minus + 0.5) / (qc_plus + 0.5)
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print(f"\n[QC Prediction from Discriminant]")
         print(f"  Sample: {len(prime_sample)} primes, {primes_with_roots} with roots")
         print(f"  QC distribution: -1:{qc_minus}, 0:{qc_zero}, 1:{qc_plus}")
@@ -1282,7 +1282,7 @@ def recommend_subset_size_and_count(prime_pool, residue_counts, h_can,
 
     rec_subsets = min(rec_subsets, max_subsets)
 
-    if debug:
+    if debug and not FINITE_FIELD:
         print("[bounds] recommend_subset_size_and_count: B =", B, "chosen_primes_len =", len(chosen),
               "product_M (approx) =", M, "density =", dens, "rec_subsets =", rec_subsets)
 

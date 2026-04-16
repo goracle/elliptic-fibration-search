@@ -2174,7 +2174,7 @@ def verify_tower_consistency(tower):
 
     ff_mode = (FINITE_FIELD is not None)
 
-    print(f"[verify_tower_consistency] Checking {len(tower)} layers (mode={'FF' if ff_mode else 'QQ'})")
+    #print(f"[verify_tower_consistency] Checking {len(tower)} layers (mode={'FF' if ff_mode else 'QQ'})")
     sys.stdout.flush()
 
     for i, step in enumerate(tower):
@@ -2212,7 +2212,7 @@ def verify_tower_consistency(tower):
                 assert 'm' in rv, \
                     f"Layer {i}: r_expr vars {rv} missing 'm'"
 
-    print(f"[verify_tower_consistency] ✓ All {len(tower)} layers consistent")
+    #print(f"[verify_tower_consistency] ✓ All {len(tower)} layers consistent")
     sys.stdout.flush()
 
     return True
