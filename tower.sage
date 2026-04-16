@@ -2459,8 +2459,8 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
         m_parameter = None  # Will be set from first step
 
         if verbose:
-            print(f"[iterate_tower FF] Starting with degree {current_fx.degree()} polynomial")
-            print(f"[iterate_tower FF] Target: {max_steps} steps")
+            #print(f"[iterate_tower FF] Starting with degree {current_fx.degree()} polynomial")
+            #print(f"[iterate_tower FF] Target: {max_steps} steps")
             sys.stdout.flush()
 
         for step in range(max_steps):
