@@ -1378,11 +1378,11 @@ class Genus2MetropolisWalker:
                 f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
                 f"\n  Relation (example):  {rel_str}{rel_annotation}",
                 f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}"
-                + (f"  | pre-filter collisions (dupes dropped before surviving leaves): {leaf_collisions_this_step}" if leaf_collisions_this_step else ""),
-                f"\n  Collisions: path={self.collision_count} total  | graph/birthday={self.leaf_collision_count} total  (first expected near √p={sqrt_p:.0f} graph volume)"
+                + (f"  | repeated x-coords this step (relations still novel): {leaf_collisions_this_step}" if leaf_collisions_this_step else ""),
+                f"\n  Collisions: path={self.collision_count} total  | repeated x-coords={self.leaf_collision_count} total  (birthday clock ticks when x-coord repeats; first expected near graph vol=√p={sqrt_p:.0f})"
                 + (f"  [first birthday: step={self.first_birthday_step} n={self.first_birthday_n} vol={self.collision_log[0][2]} xs={self.collision_log[0][4]}]" if self.collision_log else ""),
                 f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
-                f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%} (of surviving leaves)"
+                f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%} (new x-coords / all leaves this step)"
                 + (f"  (avg {roll_novelty_avg:.1%} /{len(self._roll_novelty)})" if roll_novelty_avg is not None else ""),
                 f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
                 f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
