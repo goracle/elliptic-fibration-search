@@ -1851,7 +1851,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
     ncoeff = degQ + 1
     coeff_names = [f"q{i}" for i in range(ncoeff)]
 
-    print(f"[interpolate_Q_general] Starting interpolation: degQ={degQ}, num_pts={len(pts_xy)}, mode={'FF' if FINITE_FIELD else 'QQ'}")
+    #print(f"[interpolate_Q_general] Starting interpolation: degQ={degQ}, num_pts={len(pts_xy)}, mode={'FF' if FINITE_FIELD else 'QQ'}")
     sys.stdout.flush()
 
     # === QQ / SR mode ===
@@ -1894,7 +1894,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
         chosen_derivs = derivative_pool[:num_remaining_needed]
         all_constraints = mandatory_constraints + chosen_derivs
 
-        print(f"[interpolate_Q_general] QQ mode: {len(mandatory_constraints)} value + {len(chosen_derivs)} derivative constraints")
+        #print(f"[interpolate_Q_general] QQ mode: {len(mandatory_constraints)} value + {len(chosen_derivs)} derivative constraints")
         sys.stdout.flush()
 
         sol_list = solve(all_constraints, coeffs_sym, solution_dict=True)
@@ -1915,7 +1915,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
             assert eval_result == yi_qq, \
                 f"interpolate_Q_general: verification failed at x={xi}: Q(x)={eval_result} != y={yi_qq}"
 
-        print(f"[interpolate_Q_general] QQ mode: verified Q at {len(pts_xy)} points")
+        #print(f"[interpolate_Q_general] QQ mode: verified Q at {len(pts_xy)} points")
         sys.stdout.flush()
 
         return Qx
@@ -1967,7 +1967,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
         rows.append(deriv_rows[i])
         rhs.append(F(0))
 
-    print(f"[interpolate_Q_general] FF mode: {num_mand} value + {num_needed} Hasse constraints")
+    #print(f"[interpolate_Q_general] FF mode: {num_mand} value + {num_needed} Hasse constraints")
     sys.stdout.flush()
 
     A = Matrix(GF(p), rows)
@@ -1993,7 +1993,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
         assert eval_result == yi_f, \
             f"interpolate_Q_general: FF verification failed at x={xi_f}: Q(x)={eval_result} != y={yi_f}"
 
-    print(f"[interpolate_Q_general] FF mode: verified Q at {len(pts_f)} points")
+    #print(f"[interpolate_Q_general] FF mode: verified Q at {len(pts_f)} points")
     sys.stdout.flush()
 
     return Qx
@@ -2060,7 +2060,7 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
     if len(set(xs)) != len(xs):
         raise RuntimeError(f"interpolate_Q_with_anchors: duplicate x-coordinates: {xs}")
 
-    print(f"[interpolate_Q_with_anchors] Lagrange interpolation with {len(all_pts)} points")
+    #print(f"[interpolate_Q_with_anchors] Lagrange interpolation with {len(all_pts)} points")
     sys.stdout.flush()
 
     R = PolynomialRing(QQ, str(x_sym))
@@ -2079,7 +2079,7 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
         assert eval_result == yi, \
             f"interpolate_Q_with_anchors: verification failed at x={xi}: Q(x)={eval_result} != y={yi}"
 
-    print(f"[interpolate_Q_with_anchors] Verified Lagrange Q at {len(all_pts)} points")
+    #print(f"[interpolate_Q_with_anchors] Verified Lagrange Q at {len(all_pts)} points")
     sys.stdout.flush()
 
     return Qx

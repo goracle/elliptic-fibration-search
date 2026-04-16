@@ -40,6 +40,8 @@ _SAGE = True
 
 _SEP = "=" * 70
 _INFINITY = "∞"
+_MAX_KERNEL_BASIS_PREVIEW = 8
+_MAX_KERNEL_SUPPORT_PREVIEW = 12
 
 def check_involution_symmetry(walkers):
     """Run close_under_involution() on each walker and report.
@@ -245,6 +247,13 @@ def _branch_sign_from_residue(val, p: int) -> int:
         return 0
     return 1 if y <= (p - y) else -1
 
+
+def _anchor_normalization(group_order: int) -> int:
+    """Return the affine normalization suggested by the kernel diagnostics."""
+    if group_order % 5 == 0:
+        return 1
+    return pow(5, -1, group_order)
+
 def check_divisor_injection(walkers, divisor_xs: Sequence):
     """
     Check whether the four divisor atoms appear as xi and xj in the collected walks.
@@ -354,13 +363,17 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
     tgt_strs = set(div_list[2:]) if len(div_list) >= 4 else set()
 
     kind_counts = Counter()
+    basis_vecs = list(ker.basis())
+    preview_limit = min(_MAX_KERNEL_BASIS_PREVIEW, len(basis_vecs))
 
-    for i, vec in enumerate(ker.basis()):
+    for i, vec in enumerate(basis_vecs):
         info = _classify_kernel_vec(vec, atoms, n_cols, _INFINITY, div_strs, gen_strs, tgt_strs)
         kind = info['kind']
         kind_counts[kind] += 1
-        support = info['support']
+        if i >= preview_limit:
+            continue
 
+        support = info['support']
         tags = []
         if any(str(a) == _INFINITY for a, _ in support):
             tags.append("∞-gauge")
@@ -384,8 +397,7 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
         elif kind == 'parity':
             c0 = info['flat_coeff']
             _log(f"    All {len(support)} nonzero coefficients = {c0}  (conservation law)")
-            _log(f"    → Enforces: {c0} · Σ a[x] ≡ 0 (mod {group_order}) "
-                 f"over this direction's support.")
+            _log(f"    → Enforces: {c0} · Σ a[x] ≡ 0 (mod {group_order}) over this direction's support.")
             _log(f"    → Touches generator atoms: {info['touches_gen']}")
             _log(f"    → Touches target atoms:    {info['touches_tgt']}")
             if info['touches_gen'] and info['touches_tgt']:
@@ -394,26 +406,27 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
                 _log(f"      The conservation forces anchor RHS → 0, not 1.")
                 _log(f"      Fix: change anchor RHS from 1 to the inverse of the")
                 _log(f"      conserved coefficient (e.g. try RHS = inverse(5) mod {group_order}"
-                     f" = {pow(5, -1, group_order) if group_order > 5 else '?'}).")
-            # Print atom list (truncated — can be huge)
-            for atom, coeff in support[:30]:
+                     f" = {pow(5, -1, group_order) if group_order > 5 else '?'})")
+            preview = support[:_MAX_KERNEL_SUPPORT_PREVIEW]
+            for atom, coeff in preview:
                 marker = " ← divisor" if str(atom) in div_strs else ""
                 _log(f"    atom={atom}  coeff={coeff}{marker}")
-            if len(support) > 30:
-                _log(f"    atom=[...]")
-            for atom, coeff in support[-4:] if len(support) > 30 else []:
-                marker = " ← divisor" if str(atom) in div_strs else ""
-                _log(f"    atom={atom}  coeff={coeff}{marker}")
+            if len(support) > _MAX_KERNEL_SUPPORT_PREVIEW:
+                _log(f"    atom=[...]  ({len(support) - _MAX_KERNEL_SUPPORT_PREVIEW} more omitted)")
 
         else:  # 'other'
             coeff_vals = sorted(set(c for _, c in support))
             _log(f"    support_size={len(support)}  distinct_coeffs={coeff_vals}")
-            for atom, coeff in support:
+            for atom, coeff in support[:_MAX_KERNEL_SUPPORT_PREVIEW]:
                 marker = " ← divisor" if str(atom) in div_strs else ""
                 _log(f"    atom={atom}  coeff={coeff}{marker}")
+            if len(support) > _MAX_KERNEL_SUPPORT_PREVIEW:
+                _log(f"    atom=[...]  ({len(support) - _MAX_KERNEL_SUPPORT_PREVIEW} more omitted)")
 
-    _log(f"\n  Direction summary: "
-         + "  ".join(f"{k}={v}" for k, v in sorted(kind_counts.items())))
+    if len(basis_vecs) > preview_limit:
+        _log(f"\n  ... {len(basis_vecs) - preview_limit} additional kernel basis vector(s) omitted")
+
+    _log(f"\n  Direction summary: " + "  ".join(f"{k}={v}" for k, v in sorted(kind_counts.items())))
 
     if null == 1:
         _log("\n  ✓  Nullity=1.")
@@ -681,6 +694,13 @@ def run_all_checks(
         running checks.  Useful for offline gauge-row experimentation without
         rerunning the walk.  Requires h5py.
     """
+    if dump_path is not None:
+        try:
+            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path)
+        except Exception as exc:
+            _log(f"  [dump_matrix_hdf5 FAILED: {exc}]")
+            raise
+
     _log(f"\n{'#' * 70}")
     _log("# DLP INTEGRATION DIAGNOSTICS")
     _log(f"#  walkers       : {len(walkers)}")
@@ -688,18 +708,11 @@ def run_all_checks(
     _log(f"#  group_order   : {group_order}")
     _log(f"#  known_key     : {known_key}")
     _log(f"#  p             : {p}  (sqrt_p={math.sqrt(p):.2f})")
+    if dump_path is not None:
+        _log(f"#  matrix dump   : {dump_path}")
     _log(f"{'#' * 70}\n")
 
     results = {}
-
-    if dump_path is not None:
-        try:
-            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path)
-            results["matrix_dump"] = f"ok -> {dump_path}"
-        except Exception as exc:
-            _log(f"  [dump_matrix_hdf5 FAILED: {exc}]")
-            results["matrix_dump"] = f"failed: {exc}"
-            raise
 
     try:
         ker, atoms, aidx = check_kernel(walkers, group_order, divisor_xs)
@@ -888,6 +901,9 @@ def check_known_key(
         _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
         return {"ok": False, "reason": "missing_columns", "missing": missing}
 
+    anchor_rhs = _anchor_normalization(group_order)
+    _log(f"  Normalization RHS set to inv(5) mod {group_order} = {anchor_rhs}")
+
     hypotheses = [
         ("gen=+1, tgt=+k",  1,  1),
         ("gen=+1, tgt=-k",  1, -1),
@@ -900,8 +916,8 @@ def check_known_key(
     for label, gsgn, tsgn in hypotheses:
         fixed = {
             inf_col: F(0),
-            gen_col: F(gsgn),
-            tgt_col: F(tsgn * known_key),
+            gen_col: F(gsgn * anchor_rhs),
+            tgt_col: F(tsgn * known_key * anchor_rhs),
         }
         fixed_cols = set(fixed.keys())
 
@@ -942,7 +958,7 @@ def check_known_key(
         # System is fully determined up to gauge. Consistency test is conclusive.
         if best["n_violations"] == 0:
             # Do the full rank test to confirm.
-            fixed = {inf_col: F(0), gen_col: F(1), tgt_col: F(known_key)}
+            fixed = {inf_col: F(0), gen_col: F(anchor_rhs), tgt_col: F(known_key * anchor_rhs)}
             fixed_cols = set(fixed.keys())
             free_cols = [j for j in range(n_cols) if j not in fixed_cols]
             rhs = vector(F, n_rows)
