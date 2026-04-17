@@ -571,7 +571,7 @@ class WalkConfig:
     diagnostic_print: bool = True
     diagnostic_show_poly: bool = True
     diagnostic_show_roots: bool = True
-    nthermal: int = 300
+    nthermal: int = 30
 
     # Spectral gap reporting via adjacency matrix.
     # spectral_enabled=False turns the whole thing off silently.
@@ -1995,27 +1995,27 @@ class Genus2MetropolisWalker:
         organic = X - self._injected_xs
         new_leaves_count = len(organic - self.global_leaves_seen)
 
-        # Reject if there's no novelty
-        if new_leaves_count == 0 and len(X) > 0:
-            if n < self.config.nthermal:
-                self.dead_end_count += 1
-                self.dead_end_reasons["zero_novelty_thermal"] += 1
-                rec = reject(
-                    "zero_novelty_thermal",
-                    extra={
-                        "leaves_found": len(X),
-                        "thermal_threshold": self.config.nthermal,
-                        "thermalized": False,
-                    },
-                )
-                self._restart_after_dead_end(
-                    xi=xi,
-                    n=n,
-                    reason="zero_novelty_thermal",
-                    current_point=pt,
-                )
-                return rec
-            return reject("zero_novelty")
+        # During thermalization, zero novelty means we haven't mixed yet — escape.
+        # Post-thermalization, zero novelty is normal (graph is saturated near this xi);
+        # fall through to candidate selection and commit as a regular step.
+        if new_leaves_count == 0 and len(X) > 0 and n < self.config.nthermal:
+            self.dead_end_count += 1
+            self.dead_end_reasons["zero_novelty_thermal"] += 1
+            rec = reject(
+                "zero_novelty_thermal",
+                extra={
+                    "leaves_found": len(X),
+                    "thermal_threshold": self.config.nthermal,
+                    "thermalized": False,
+                },
+            )
+            self._restart_after_dead_end(
+                xi=xi,
+                n=n,
+                reason="zero_novelty_thermal",
+                current_point=pt,
+            )
+            return rec
 
         _, new_leaves_this_step, leaf_collisions_this_step = \
             self._update_leaf_bookkeeping(X, n=n, xi_before=xi)
@@ -2055,7 +2055,7 @@ class Genus2MetropolisWalker:
             return self._point_check_details(c.get("xk"), "xk").get("is_fp_point", False)
 
         pool = [c for c in C if is_fp(c)] or C
-        pool = self._prefer_unvisited_candidates(pool) # Use the built-in tiering
+        #pool = self._prefer_unvisited_candidates(pool) # Use the built-in tiering
         pool = list(pool)  # Make a copy so we can pop from it
 
         valid_candidate_found = False
