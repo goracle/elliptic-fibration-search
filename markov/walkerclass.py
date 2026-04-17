@@ -667,6 +667,11 @@ class Genus2MetropolisWalker:
         self.first_birthday_n: Optional[int] = None     # outer n of first graph/birthday collision
         self.collision_log: list = []  # [(step_index, outer_n, graph_vol, count, colliding_xs[:10]), ...]
         self._restart_cursor = 0
+        # Xi values that have been fully exhausted (ran as current_x and produced
+        # zero novelty or a dead end).  Since each xi's fiber is deterministic,
+        # re-running the same xi yields nothing new; we never select it as the
+        # next chain state again.
+        self.exhausted_xi: set = set()
 
         # Adjacency / transition matrices for spectral gap estimation.
         # mat_chain = accepted steps only          (path diagnostic, d~1)
@@ -1918,6 +1923,9 @@ class Genus2MetropolisWalker:
     def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
         xi = self.current_x
         pt = (self.current_x, self.current_y)
+        # Mark xi exhausted immediately — its fiber is deterministic, so any
+        # subsequent run as current_x would produce no new information.
+        self.exhausted_xi.add(xi)
 
         def _poly_from(obj):
             if not isinstance(obj, dict):
@@ -2001,6 +2009,7 @@ class Genus2MetropolisWalker:
         if new_leaves_count == 0 and len(X) > 0 and n < self.config.nthermal:
             self.dead_end_count += 1
             self.dead_end_reasons["zero_novelty_thermal"] += 1
+            self.exhausted_xi.add(xi)
             rec = reject(
                 "zero_novelty_thermal",
                 extra={
@@ -2666,15 +2675,32 @@ class Genus2MetropolisWalker:
         return None
 
     def _restart_after_dead_end(self, *, xi, n, reason, current_point=None):
+        # Mark the incoming xi as exhausted — its fiber is deterministic so
+        # re-running it as chain state will produce nothing new.
+        self.exhausted_xi.add(xi)
+
         # Build candidate pool: base_points first, then accumulated leaves.
-        candidates = [(x, y) for x, y in self.base_points if x is not None and y is not None]
+        # Exclude any xi that is already exhausted so we never loop back to it.
+        candidates = [
+            (x, y) for x, y in self.base_points
+            if x is not None and y is not None and x not in self.exhausted_xi
+        ]
 
         # If base_points is only the current stuck point (or empty), augment from
         # global_leaves_seen — the actual visited graph.  This is the escape hatch
         # for the single-base-point case: without it the cursor just loops back to
         # the same xi every time.
         if len(candidates) <= 1:
-            for lx in self.global_leaves_seen:
+            # Prefer leaves that have never been used as xi (freshest first).
+            never_xi = self.global_leaves_seen - self.exhausted_xi - self.xi_visit_count.keys()
+            pool_order = sorted(never_xi, key=lambda lx: self.xi_visit_count.get(lx, 0))
+            # Fall back to any non-exhausted leaf if the fresh pool is empty.
+            if not pool_order:
+                pool_order = sorted(
+                    self.global_leaves_seen - self.exhausted_xi,
+                    key=lambda lx: self.xi_visit_count.get(lx, 0),
+                )
+            for lx in pool_order:
                 if lx == self.current_x:
                     continue
                 try:
@@ -2693,7 +2719,10 @@ class Genus2MetropolisWalker:
 
         if not candidates:
             if self.config.verbose:
-                print(f"[restart] no valid restart point available after dead end: reason={reason}")
+                print(
+                    f"[restart] no non-exhausted restart point available after dead end: "
+                    f"reason={reason}  exhausted_xi={len(self.exhausted_xi)}"
+                )
             return None
 
         x, y = candidates[self._restart_cursor % len(candidates)]
@@ -2703,7 +2732,10 @@ class Genus2MetropolisWalker:
         self.xi_visit_count[x] += 1
 
         if self.config.verbose:
-            print(f"[restart] dead-end escape -> ({x}, {y})  reason={reason}  n={n}")
+            print(
+                f"[restart] dead-end escape -> ({x}, {y})  reason={reason}  n={n}  "
+                f"exhausted_xi={len(self.exhausted_xi)}"
+            )
 
         return (x, y)
 
