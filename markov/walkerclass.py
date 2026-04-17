@@ -648,6 +648,7 @@ class Genus2MetropolisWalker:
         self.cantor_cache: Optional[CantorPairCache] = None
         self.dead_end_count = 0
         self.dead_end_reasons: Counter = Counter()  # reason -> count
+        self.walk_terminated: bool = False  # stop the run if no fresh xi remains
 
         # Cross-chain merge tracking.
         # Set via load_foreign_leaves(); once a leaf from this walk hits
@@ -815,6 +816,11 @@ class Genus2MetropolisWalker:
         preferred = [c for c in candidates if _count(c) == min_count]
         return preferred
 
+
+    def _xi_is_fresh(self, x) -> bool:
+        """Return True only if x has never been used as xi in this walk."""
+        return x is not None and x not in self.visited_x and x not in self.exhausted_xi
+
     def _register_unique_xj(self, xj):
         if xj is None:
             return False, len(self.unique_xj_seen)
@@ -944,7 +950,7 @@ class Genus2MetropolisWalker:
         while self._restart_cursor < len(self.base_points):
             x, y = self.base_points[self._restart_cursor]
             self._restart_cursor += 1
-            if x not in self.visited_x:
+            if self._xi_is_fresh(x):
                 return x, y
         return None
 
@@ -2117,7 +2123,7 @@ class Genus2MetropolisWalker:
                     pool.remove(chosen); continue
 
                 try:
-                    yk = self._recover_y(xk, y_sign=int(chosen.get("yj_sign", 1)))
+                    yk = self._recover_y(xk, y_sign=int(chosen.get("yk_sign", 1)))
                 except Exception as e:
                     pool.remove(chosen); continue
 
@@ -2130,6 +2136,10 @@ class Genus2MetropolisWalker:
                     {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
                 )
                 if tgt is None:
+                    pool.remove(chosen); continue
+
+                # Never repeat an xi within the same walk.
+                if not self._xi_is_fresh(tgt):
                     pool.remove(chosen); continue
 
                 sign = int(chosen.get("yj_sign", 1)) if tgt == xj else int(chosen.get("yk_sign", 1))
@@ -2148,7 +2158,19 @@ class Genus2MetropolisWalker:
                 # --- END OF EXISTING VALIDATION LOGIC ---
 
         if not valid_candidate_found:
-            return reject("all_candidates_failed_validation", extra={"candidate_count": len(C)})
+            self.dead_end_count += 1
+            self.dead_end_reasons["all_candidates_failed_validation"] += 1
+            rec = reject("all_candidates_failed_validation", extra={"candidate_count": len(C)})
+            if self.config.restart_on_dead_end and not self.walk_terminated:
+                nxt = self._restart_after_dead_end(
+                    xi=xi,
+                    n=n,
+                    reason="all_candidates_failed_validation",
+                    current_point=pt,
+                )
+                if nxt is None:
+                    self.walk_terminated = True
+            return rec
 
         # --- commit ---
         self.current_x, self.current_y = tgt, y
@@ -2547,6 +2569,26 @@ class Genus2MetropolisWalker:
                 xi_mult=sf_xi_mult,
             )
 
+        if not self._xi_is_fresh(chosen):
+            return self._reject_direct_step(
+                step_payload=step_payload,
+                stage="direct_step",
+                reason="repeated_xi_forbidden",
+                xi=xi_before,
+                n=n,
+                current_point=current_point,
+                m_val=m_val,
+                xj=xj,
+                xk=xk,
+                chosen={"source": "direct_step", "chosen": self._jsonable(chosen)},
+                extra={
+                    "chosen_target": self._jsonable(chosen),
+                    "xj_diagnostic": xj_diag,
+                    "xk_diagnostic": xk_diag,
+                },
+                xi_mult=sf_xi_mult,
+            )
+
         if step_payload.get("intersection_poly") is None:
             return self._reject_direct_step(
                 step_payload=step_payload,
@@ -2610,10 +2652,30 @@ class Genus2MetropolisWalker:
         return rec
 
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
+        if self.walk_terminated:
+            return None
         n = self._clamp_step_n(n)
         if self.search_fn is not None:
-            return self._step_from_candidate_search(n=n, seed=seed)
-        return self._step_direct(n=n, seed=seed)
+            rec = self._step_from_candidate_search(n=n, seed=seed)
+        else:
+            rec = self._step_direct(n=n, seed=seed)
+
+        if rec is not None and not rec.accepted and not self.walk_terminated:
+            # Never allow the walk to stall on the same xi after a rejection.
+            # If the underlying step did not already move to a fresh restart
+            # point, force one here.
+            if self.current_x == rec.xi:
+                step_dict = rec.step if isinstance(rec.step, dict) else {}
+                reason = step_dict.get("reason", "rejected")
+                nxt = self._restart_after_dead_end(
+                    xi=rec.xi,
+                    n=rec.n,
+                    reason=reason,
+                    current_point=(rec.xi, self.current_y),
+                )
+                if nxt is None:
+                    self.walk_terminated = True
+        return rec
 
     def _intersection_poly_from_step(self, step: Dict[str, Any], *, xj=None, xk=None):
         """Best-effort access to a degree-5 intersection polynomial.
@@ -2683,7 +2745,7 @@ class Genus2MetropolisWalker:
         # Exclude any xi that is already exhausted so we never loop back to it.
         candidates = [
             (x, y) for x, y in self.base_points
-            if x is not None and y is not None and x not in self.exhausted_xi
+            if x is not None and y is not None and self._xi_is_fresh(x)
         ]
 
         # If base_points is only the current stuck point (or empty), augment from
@@ -2692,16 +2754,16 @@ class Genus2MetropolisWalker:
         # the same xi every time.
         if len(candidates) <= 1:
             # Prefer leaves that have never been used as xi (freshest first).
-            never_xi = self.global_leaves_seen - self.exhausted_xi - self.xi_visit_count.keys()
+            never_xi = self.global_leaves_seen - self.exhausted_xi - self.visited_x
             pool_order = sorted(never_xi, key=lambda lx: self.xi_visit_count.get(lx, 0))
             # Fall back to any non-exhausted leaf if the fresh pool is empty.
             if not pool_order:
                 pool_order = sorted(
-                    self.global_leaves_seen - self.exhausted_xi,
+                    self.global_leaves_seen - self.exhausted_xi - self.visited_x,
                     key=lambda lx: self.xi_visit_count.get(lx, 0),
                 )
             for lx in pool_order:
-                if lx == self.current_x:
+                if not self._xi_is_fresh(lx):
                     continue
                 try:
                     ly = self._recover_y(lx, None)
@@ -2712,16 +2774,15 @@ class Genus2MetropolisWalker:
                 except Exception:
                     continue
 
-        # Avoid immediately reusing the current point if alternatives exist.
-        alt = [(x, y) for x, y in candidates if x != self.current_x]
-        if alt:
-            candidates = alt
+        # Only fresh xi values are allowed for restarts.
+        candidates = [(x, y) for x, y in candidates if self._xi_is_fresh(x)]
 
         if not candidates:
+            self.walk_terminated = True
             if self.config.verbose:
                 print(
-                    f"[restart] no non-exhausted restart point available after dead end: "
-                    f"reason={reason}  exhausted_xi={len(self.exhausted_xi)}"
+                    f"[restart] no fresh restart point available after dead end: "
+                    f"reason={reason}  exhausted_xi={len(self.exhausted_xi)}  visited_x={len(self.visited_x)}"
                 )
             return None
 
