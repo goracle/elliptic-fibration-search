@@ -868,7 +868,7 @@ def _dlp_nullity_prune(
             pin_row[j] = Fp(1)
             extra_rows.append(pin_row)
             extra_rhs.append(Fp(0))
-            if verbose:
+            if verbose and False:
                 _log(f"[pre-solve nullity]   kernel[{vi}]: isolated atom={atom} — pinning a[{atom}]=0")
             continue
 
