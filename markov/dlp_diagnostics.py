@@ -601,14 +601,15 @@ def dump_matrix_hdf5(
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
 
-    M_ZZ, atoms, aidx, M_raw, _ = _build_combined_matrix(
+    _, _, _, M_ZZ, atoms = _build_combined_matrix(
         walkers, protected=divisor_xs,
     )
+    aidx = {str(a): i for i, a in enumerate(atoms)}
 
     nrows = M_ZZ.nrows()
     ncols = M_ZZ.ncols()
 
-    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols}  path={path}")
+    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (unpruned)  path={path}")
 
     # Build numpy dense array first (needed for both dense and CSR paths).
     # Use int32 — coefficients are small (−5 … +3).

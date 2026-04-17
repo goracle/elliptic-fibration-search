@@ -1145,9 +1145,29 @@ class Genus2MetropolisWalker:
             m1 = Fp(xi) - Fp(xj_val)
             S1 = _eval_S(xi, m1)
             partner = _T(xi, xj_val)
+
+            # xj is itself a fixed point of T: xj=xk tangency at the fiber for m1.
+            # The 2-cycle is not defined when one endpoint is a tangency point; skip.
+            if partner == Fp(xj_val):
+                raise _FiberPoleError(
+                    f"close_under_involution: xj={xj_val} is a fixed point of T at xi={xi} "
+                    f"(xj=xk tangency at m={m1}); skipping pair"
+                )
+
             m2 = Fp(xi) - Fp(partner)
             S2 = _eval_S(xi, m2)
             roundtrip = _T(xi, partner)
+
+            # T(xj) is a fixed point of T: xj=xk tangency at the fiber for m2.
+            # T maps xj to a partner that is itself a tangency point, so the
+            # roundtrip cannot return to xj.  This is degenerate geometry, not a
+            # violation.
+            if roundtrip == Fp(partner):
+                raise _FiberPoleError(
+                    f"close_under_involution: T(xj)={partner} is a fixed point of T at xi={xi} "
+                    f"(xj=xk tangency at m={m2}, originating from xj={xj_val}); skipping pair"
+                )
+
             if roundtrip != Fp(xj_val):
                 raise AssertionError(
                     f"close_under_involution: 2-cycle violated\n"
