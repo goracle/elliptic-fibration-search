@@ -610,7 +610,7 @@ def _solve_worker_wrapper(args):
         mumford_time = time.time() - t0
         item_time = time.time() - item_start
 
-        if item_time > 0.5:
+        if item_time > 0.5 and False:
             sys.stderr.write(
                 f"[Worker p={p}] Vector {v_tuple} rhs={rhs_idx}: deg={len(coeff_key)-1}, "
                 f"roots={len(roots)}, root_time={root_time:.3f}s, "
@@ -624,7 +624,7 @@ def _solve_worker_wrapper(args):
             p_results[v_tuple].update(x_res_to_sols)
 
     chunk_time = time.time() - chunk_start
-    if chunk_time > 1.0:
+    if chunk_time > 1.0 and False:
         sys.stderr.write(f"[Worker p={p}] Chunk of {len(chunk_items)} items took {chunk_time:.3f}s\n")
         sys.stderr.flush()
 

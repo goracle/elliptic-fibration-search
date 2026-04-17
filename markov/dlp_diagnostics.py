@@ -550,6 +550,7 @@ def dump_matrix_hdf5(
     divisor_xs,
     group_order: int,
     path: str = "relation_matrix.h5",
+    augment: bool = False,
 ):
     """Dump the pruned relation matrix and metadata to an HDF5 file.
 
@@ -633,7 +634,58 @@ def dump_matrix_hdf5(
         csr_indices = np.array(idx_list,  dtype=np.int32)
         csr_indptr  = np.array(ptr_list,  dtype=np.int32)
 
-    atom_strs   = [str(a).encode("utf-8") for a in atoms]
+    import os
+
+    if augment and os.path.exists(path):
+        # Load existing CSR + atom list, merge with new data.
+        with h5py.File(path, "r") as f_old:
+            old_atoms   = [a.decode("utf-8") for a in f_old["atoms"][:]]
+            old_data    = f_old["csr/data"][:]
+            old_indices = f_old["csr/indices"][:]
+            old_indptr  = f_old["csr/indptr"][:]
+            old_shape   = tuple(f_old["csr/shape"][:])
+
+        old_aidx = {a: i for i, a in enumerate(old_atoms)}
+        col_remap = {}          # index in new atoms -> index in merged atoms
+        merged_atoms = list(old_atoms)
+        for i, a in enumerate(atoms):
+            a_str = str(a)
+            if a_str not in old_aidx:
+                old_aidx[a_str] = len(merged_atoms)
+                merged_atoms.append(a_str)
+            col_remap[i] = old_aidx[a_str]
+
+        merged_ncols = len(merged_atoms)
+        old_nrows    = int(old_shape[0])
+
+        # Re-express new rows in merged column space.
+        new_data, new_indices, new_indptr = [], [], [0]
+        for r in range(nrows):
+            rs, re = int(csr_indptr[r]), int(csr_indptr[r + 1])
+            for k in range(rs, re):
+                new_data.append(int(csr_data[k]))
+                new_indices.append(col_remap[int(csr_indices[k])])
+            new_indptr.append(len(new_data))
+
+        merged_nrows   = old_nrows + nrows
+        csr_data       = np.concatenate([old_data,    np.array(new_data,    dtype=np.int32)])
+        csr_indices    = np.concatenate([old_indices, np.array(new_indices, dtype=np.int32)])
+        shift          = int(len(old_data))
+        csr_indptr     = np.concatenate([
+            old_indptr,
+            np.array(new_indptr[1:], dtype=np.int32) + shift,
+        ])
+        nrows  = merged_nrows
+        ncols  = merged_ncols
+        atoms  = merged_atoms          # plain strings from here on
+        aidx   = {a: i for i, a in enumerate(merged_atoms)}
+        M_np   = None   # too expensive to reconstruct dense; skip it
+        _log(f"[dump_matrix_hdf5] augment: {old_nrows} existing + {merged_nrows - old_nrows} new = {merged_nrows} rows, {ncols} cols")
+
+    atom_strs   = [
+        (a.encode("utf-8") if isinstance(a, str) else str(a).encode("utf-8"))
+        for a in atoms
+    ]
     atom_idx_js = json.dumps(aidx).encode("utf-8")
 
     def _col(x):
@@ -648,9 +700,9 @@ def dump_matrix_hdf5(
         g.create_dataset("indptr",  data=csr_indptr)
         g.create_dataset("shape",   data=np.array([nrows, ncols], dtype=np.int64))
 
-        # Dense matrix — skip if too large.
+        # Dense matrix — skip if too large or if we're in augment mode (M_np=None).
         dense_bytes = nrows * ncols * 4
-        if dense_bytes <= 500 * 1024 * 1024:
+        if M_np is not None and dense_bytes <= 500 * 1024 * 1024:
             f.create_dataset("matrix_dense", data=M_np, compression="gzip", compression_opts=4)
             _log(f"[dump_matrix_hdf5] dense matrix written ({dense_bytes // (1024*1024)} MB)")
         else:
@@ -684,6 +736,7 @@ def run_all_checks(
     coeffs=None,
     n_fiber_spot_checks: int = 5,
     dump_path: str = None,
+    augment: bool = False,
 ):
     """Run all diagnostics and print a summary verdict.
 
@@ -693,10 +746,14 @@ def run_all_checks(
         If given, dump the pruned relation matrix to this HDF5 file before
         running checks.  Useful for offline gauge-row experimentation without
         rerunning the walk.  Requires h5py.
+    augment
+        If True and dump_path already exists, append new rows to the existing
+        HDF5 rather than overwriting it.  Atom columns are reconciled across
+        dumps.
     """
     if dump_path is not None:
         try:
-            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path)
+            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path, augment=augment)
         except Exception as exc:
             _log(f"  [dump_matrix_hdf5 FAILED: {exc}]")
             raise
@@ -709,7 +766,7 @@ def run_all_checks(
     _log(f"#  known_key     : {known_key}")
     _log(f"#  p             : {p}  (sqrt_p={math.sqrt(p):.2f})")
     if dump_path is not None:
-        _log(f"#  matrix dump   : {dump_path}")
+        _log(f"#  matrix dump   : {dump_path}  (augment={augment})")
     _log(f"{'#' * 70}\n")
 
     results = {}

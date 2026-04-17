@@ -300,7 +300,7 @@ TERMINATE_WHEN_6 = 3
 
 # BEGIN STATIC CONFIG (default config; mostly deprecated)
 
-NUM_DOUBLINGS = 20 # for mumford height pairing independence test
+NUM_DOUBLINGS = 10 # for mumford height pairing independence test
 HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
 # prime config
 # magic prime settings, chosen empirically.

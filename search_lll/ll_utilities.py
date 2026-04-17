@@ -591,7 +591,8 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
     if not required_ks:
         return {}
 
-    top = min(max(abs(k) for k in required_ks), MAX_K_ABS)
+    max_abs_cap = MAXN if FINITE_FIELD else MAX_K_ABS
+    top = min(max(abs(k) for k in required_ks), max_abs_cap)
 
     computed = {0: Pi.curve()(0), 1: Pi}
 
@@ -710,7 +711,10 @@ def generate_biased_prime_subsets_by_coverage(prime_pool, precomputed_residues, 
 
     # Generate some subsets that include combinations of top primes
     forced_subsets = []
-    num_forced = min(20, max(2, num_subsets // 10))  # Increased from 10 to 20
+    if not FINITE_FIELD:
+        num_forced = min(20, max(2, num_subsets // 10))  # Increased from 10 to 20
+    else:
+        num_forced = MAXN
     if len(top_primes) >= 2:
         for i in range(num_forced):
             # Vary the size: alternate between small (min_size) and larger
