@@ -231,6 +231,10 @@ def main(argv=None):
                     help="x-coordinate of the DLP target point (integer mod p)")
     ap.add_argument("--group-order", type=int, default=None,
                     help="Known group order n for the DLP solve (optional)")
+    ap.add_argument("--seed-xs", type=int, nargs="+", metavar="X",
+                    help="Override starting x-coords for walks A/B/C/D (1–4 ints). "
+                         "Provided values overwrite the corresponding PREFERRED_X_COORDS "
+                         "entries in order; unspecified walks keep their divisor-root seeds.")
     args = ap.parse_args(argv)
 
     # -- Resolve project globals -------------------------------------------
@@ -274,6 +278,16 @@ def main(argv=None):
     # x2, x3 are the Mumford u-poly roots of TARGET_DIVISOR (the challenge T)
     divisor_xs = _divisor_seed_xs()
     x0_a, x0_b, x0_c, x0_d = divisor_xs
+
+    # Apply --seed-xs overrides (up to 4 values, in A/B/C/D order).
+    if args.seed_xs:
+        if len(args.seed_xs) > 4:
+            ap.error("--seed-xs accepts at most 4 values (one per walk A/B/C/D)")
+        walk_vars = [x0_a, x0_b, x0_c, x0_d]
+        for i, val in enumerate(args.seed_xs):
+            walk_vars[i] = val
+        x0_a, x0_b, x0_c, x0_d = walk_vars
+        _log(f"\n[seeds] --seed-xs override applied: {args.seed_xs}")
 
     _log(f"\n[seeds] divisor roots (PREFERRED_X_COORDS): {divisor_xs}")
     _log(f"[seeds]   BASE_DIVISOR   roots: x0_A={x0_a}, x0_B={x0_b}")
