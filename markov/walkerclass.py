@@ -816,7 +816,6 @@ class Genus2MetropolisWalker:
         preferred = [c for c in candidates if _count(c) == min_count]
         return preferred
 
-
     def _xi_is_fresh(self, x) -> bool:
         """Return True only if x has never been used as xi in this walk."""
         return x is not None and x not in self.visited_x and x not in self.exhausted_xi

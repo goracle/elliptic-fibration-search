@@ -78,7 +78,6 @@ def _matrix_preview(M_ZZ, atoms, max_rows: int = 6, max_atoms: int = 6) -> None:
     if M_ZZ.nrows() > row_limit:
         _log(f"[matrix] ... {M_ZZ.nrows() - row_limit} more row(s)")
 
-
 def _dedupe_rows_mod(M_ZZ, atoms, modulus: int, *, keep_zero_rows: bool = False):
     """Collapse exact duplicate rows and scalar multiples over GF(modulus).
 
@@ -258,10 +257,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     M_pruned, row_sources = _dedupe_rows_mod(M_pruned, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
-    def remap(col):
-        if col is None:
-            return None
-        return pruned_aidx.get(str(atoms[col]))
 
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
@@ -420,11 +415,6 @@ def incremental_consistency_filter(
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
-    def remap(col):
-        if col is None:
-            return None
-        return pruned_aidx.get(str(atoms[col]))
-
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -545,8 +535,6 @@ def incremental_consistency_filter(
         sp  = f" [{special_names[col]}]" if col in special_names else ""
         ratio_str = f"{ratio:.2f}" if ratio != float("inf") else "inf"
         _log(f"    {atom:>8}  enrich={ratio_str}  bad={br:.4f} good={gr:.4f}{sp}")
-
-
 
 def farkas_delete_rerun(
     M_ZZ, atoms, aidx, group_order,
@@ -819,7 +807,6 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isol
 
     return pin_rows, pin_rhs, pin_labels
 
-
 def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
                       known_key: int, col_gen0, col_gen1, col_tgt0, col_tgt1,
                       col_inf):
@@ -1000,8 +987,6 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
             _log("     Walk structure is consistent with the known key.")
 
     return null_hom
-
-
 
 def _remap(old_col, old_atoms, pruned_aidx):
     if old_col is None:
@@ -1196,8 +1181,6 @@ def extract_contradiction_certificate(
 
     walk_row_indices = sorted({i for i, _ in walk_entries})
     return nonzero_entries, walk_row_indices
-
-
 
 def _build_balanced_anchor_row(Fp, n_cols, col_gen0, col_gen1, col_inf):
     """

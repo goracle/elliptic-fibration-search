@@ -1,127 +1,138 @@
 #!/usr/bin/env python3
-"""
-graph_connectivity.py  —  bipartite connectivity analysis for DLP relation matrix
-
-Reads the HDF5 format written by dlp_diagnostics.dump_matrix_hdf5():
-    /csr/{data,indices,indptr,shape}
-    /atoms           vlen-bytes, one per column
-    /atom_index      JSON string  atom_str -> col_index
-    /divisor_xs      int64[4]
-    /group_order     scalar int64
-    /col_inf, /col_gen0, /col_gen1, /col_tgt0, /col_tgt1  scalar int64
-
-Does NOT require SageMath.  Needs: h5py, numpy.
-
-Usage
------
-    python3 graph_connectivity.py relation_matrix.h5
-
-    python3 graph_connectivity.py relation_matrix.h5 \\
-        --divisor-xs 11504 5506 1821 12655 --group-order 25373
-
-    python3 graph_connectivity.py relation_matrix.h5 \\
-        --show-isolated --component-detail --rank-check
-
-What it answers
----------------
-1. Are all four divisor atoms in the same connected component?
-2. Are the ~120 isolated atoms (free kernel directions) genuinely
-   disconnected from the divisor component, or reachable through some path?
-3. If isolated atoms are disconnected, what rank does the divisor-component
-   submatrix have?  Is nullity already 1 there?
-4. How many more rows are needed?
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
 import sys
 from collections import defaultdict
+from typing import Any
 
 import h5py
 import numpy as np
 
+"""
+graph_connectivity.py — bipartite connectivity analysis for a DLP relation matrix
+
+This version fixes the solve wiring so fixed variables (anchors) actually
+enter the linear system, and inconsistencies are detected in the augmented
+system rather than in the homogeneous submatrix.
+"""
+
+_XI_COEFF = 3
+
 
 # ---------------------------------------------------------------------------
-# HDF5 load  (matches dump_matrix_hdf5 layout exactly)
+# HDF5 load
 # ---------------------------------------------------------------------------
 
-def load_hdf5(path: str) -> dict:
+def load_hdf5(path: str) -> dict[str, Any]:
     with h5py.File(path, "r") as f:
-        data    = f["csr/data"][:]
+        data = f["csr/data"][:]
         indices = f["csr/indices"][:]
-        indptr  = f["csr/indptr"][:]
-        shape   = tuple(int(x) for x in f["csr/shape"][:])
+        indptr = f["csr/indptr"][:]
+        shape = tuple(int(x) for x in f["csr/shape"][:])
 
         atoms_raw = f["atoms"][:]
         atoms = [
             a.decode("utf-8") if isinstance(a, (bytes, np.bytes_)) else str(a)
             for a in atoms_raw
         ]
+
         aidx_raw = f["atom_index"][()]
         if isinstance(aidx_raw, (bytes, np.bytes_)):
             aidx_raw = aidx_raw.decode("utf-8")
         aidx: dict[str, int] = json.loads(aidx_raw)
 
-        def _scalar(key):
+        def _scalar(key: str):
             if key not in f:
                 return None
             v = int(f[key][()])
             return v if v >= 0 else None
 
         group_order = _scalar("group_order")
-        divisor_xs  = [int(x) for x in f["divisor_xs"][:]] if "divisor_xs" in f else None
-        col_inf  = _scalar("col_inf")
+        divisor_xs = [int(x) for x in f["divisor_xs"][:]] if "divisor_xs" in f else None
+        col_inf = _scalar("col_inf")
         col_gen0 = _scalar("col_gen0")
         col_gen1 = _scalar("col_gen1")
         col_tgt0 = _scalar("col_tgt0")
         col_tgt1 = _scalar("col_tgt1")
 
+        def _xs_dataset(*names):
+            for name in names:
+                if name in f:
+                    return [int(x) for x in f[name][:]]
+            return None
+
+        ell_torsion_xs = _xs_dataset("ell_torsion_xs", "torsion_xs", "bad_atoms")
+
     nrows, ncols = shape
     return dict(
-        data=data, indices=indices, indptr=indptr,
-        nrows=nrows, ncols=ncols,
-        atoms=atoms, aidx=aidx,
-        group_order=group_order, divisor_xs=divisor_xs,
-        col_inf=col_inf, col_gen0=col_gen0, col_gen1=col_gen1,
-        col_tgt0=col_tgt0, col_tgt1=col_tgt1,
+        data=data,
+        indices=indices,
+        indptr=indptr,
+        nrows=nrows,
+        ncols=ncols,
+        atoms=atoms,
+        aidx=aidx,
+        group_order=group_order,
+        divisor_xs=divisor_xs,
+        ell_torsion_xs=ell_torsion_xs,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+        col_tgt0=col_tgt0,
+        col_tgt1=col_tgt1,
     )
 
 
 # ---------------------------------------------------------------------------
-# prune_dest_only  (pure-numpy port matching relation_matrix.prune_dest_only)
-#
-# In the genus-2 Markov walker each row is:  3*xi + 1*xj + 1*xk - 5*inf = 0
-# so xi always has |coeff|=3.  Atoms that never appear with |coeff|=3 are
-# "dest-only" and get pruned (their column, and any row that becomes empty).
-# Protected columns (divisor atoms, inf) always survive.
+# Prune dest-only atoms
 # ---------------------------------------------------------------------------
 
-_XI_COEFF = 3
+def prune_dest_only(
+    data,
+    indices,
+    indptr,
+    nrows: int,
+    ncols: int,
+    atoms,
+    protected_cols: set[int],
+    excluded_cols: set[int] | None = None,
+):
+    """Prune columns that never appear as source-like atoms (|coeff| == 3).
 
-def prune_dest_only(data, indices, indptr, nrows, ncols, atoms,
-                    protected_cols: set[int]):
+    Any row touching an excluded column is discarded entirely, because the
+    corresponding relation is not safe to use in log space.
+
+    Returns
+    -------
+    pdata, pidx, pptr, pnrows, pncols, patoms, paidx, kept_cols, kept_rows
     """
-    Returns pruned (data, indices, indptr, nrows, ncols, atoms, aidx,
-                    kept_cols_list, kept_rows_list).
-    """
-    source_cols: set[int] = set(protected_cols)
+    if excluded_cols is None:
+        excluded_cols = set()
+
+    source_cols: set[int] = set(protected_cols) - set(excluded_cols)
     for v, c in zip(data, indices):
+        ci = int(c)
+        if ci in excluded_cols:
+            continue
         if abs(int(v)) == _XI_COEFF:
-            source_cols.add(int(c))
+            source_cols.add(ci)
 
     kept_cols = sorted(source_cols)
-    col_remap  = {old: new for new, old in enumerate(kept_cols)}
+    col_remap = {old: new for new, old in enumerate(kept_cols)}
 
     new_data, new_idx, new_ptr = [], [], [0]
     kept_rows = []
     for r in range(nrows):
         rs, re = int(indptr[r]), int(indptr[r + 1])
+        row_cols = [int(indices[k]) for k in range(rs, re)]
+        if any(c in excluded_cols for c in row_cols):
+            continue
         row_ents = [
-            (col_remap[int(indices[k])], int(data[k]))
-            for k in range(rs, re)
-            if int(indices[k]) in col_remap
+            (col_remap[c], int(data[k]))
+            for k, c in ((k, int(indices[k])) for k in range(rs, re))
+            if c in col_remap
         ]
         if row_ents:
             kept_rows.append(r)
@@ -131,14 +142,17 @@ def prune_dest_only(data, indices, indptr, nrows, ncols, atoms,
             new_ptr.append(len(new_data))
 
     new_atoms = [atoms[c] for c in kept_cols]
-    new_aidx  = {str(a): i for i, a in enumerate(new_atoms)}
+    new_aidx = {str(a): i for i, a in enumerate(new_atoms)}
     return (
         np.array(new_data, dtype=np.int32),
-        np.array(new_idx,  dtype=np.int32),
-        np.array(new_ptr,  dtype=np.int32),
-        len(kept_rows), len(kept_cols),
-        new_atoms, new_aidx,
-        kept_cols, kept_rows,
+        np.array(new_idx, dtype=np.int32),
+        np.array(new_ptr, dtype=np.int32),
+        len(kept_rows),
+        len(kept_cols),
+        new_atoms,
+        new_aidx,
+        kept_cols,
+        kept_rows,
     )
 
 
@@ -149,7 +163,7 @@ def prune_dest_only(data, indices, indptr, nrows, ncols, atoms,
 class UnionFind:
     def __init__(self, n: int):
         self.parent = list(range(n))
-        self.size   = [1] * n
+        self.size = [1] * n
 
     def find(self, x: int) -> int:
         while self.parent[x] != x:
@@ -183,18 +197,26 @@ def build_atom_graph(data, indices, indptr, nrows, ncols) -> UnionFind:
     return uf
 
 
+def resolve_xs_to_cols(aidx: dict[str, int], xs: list[int] | None) -> set[int]:
+    cols: set[int] = set()
+    if not xs:
+        return cols
+    for x in xs:
+        c = aidx.get(str(int(x)))
+        if c is not None:
+            cols.add(int(c))
+    return cols
+
+
 # ---------------------------------------------------------------------------
-# Rank over GF(p) — sparse dict-based Gaussian elimination
+# Rank over GF(p)
 # ---------------------------------------------------------------------------
 
-def rank_mod_p(data, indices, indptr, nrows, ncols, p: int,
-               keep_cols: set[int] | None = None) -> int:
+def rank_mod_p(data, indices, indptr, nrows, ncols, p: int, keep_cols: set[int] | None = None) -> int:
     if keep_cols is not None:
         col_remap = {c: i for i, c in enumerate(sorted(keep_cols))}
-        eff_ncols = len(keep_cols)
     else:
         col_remap = None
-        eff_ncols = ncols
 
     rows: list[dict[int, int]] = []
     for r in range(nrows):
@@ -214,9 +236,10 @@ def rank_mod_p(data, indices, indptr, nrows, ncols, p: int,
         if d:
             rows.append(d)
 
-    pivots: dict[int, dict[int, int]] = {}  # pivot_col -> normalised row
+    pivots: dict[int, dict[int, int]] = {}
     rank = 0
     for rd in rows:
+        rd = dict(rd)
         for pc, prow in pivots.items():
             coeff = rd.get(pc, 0)
             if not coeff:
@@ -237,94 +260,194 @@ def rank_mod_p(data, indices, indptr, nrows, ncols, p: int,
 
 
 # ---------------------------------------------------------------------------
+# Solve augmented system A x = b mod p, where fixed_vars are substituted
+# ---------------------------------------------------------------------------
+
+def solve_mod_p(
+    data,
+    indices,
+    indptr,
+    nrows,
+    ncols,
+    p: int,
+    keep_cols: set[int],
+    fixed_vars: dict[int, int] | None = None,
+):
+    """Solve the linear system on a chosen column subset.
+
+    The matrix is interpreted row-wise as a homogeneous relation
+        sum_j a_ij x_j = 0 (mod p)
+    but any variables listed in fixed_vars are substituted to the right-hand side.
+
+    Returns a dictionary mapping original column indices to one particular
+    solution on the kept columns.
+    """
+    if fixed_vars is None:
+        fixed_vars = {}
+
+    col_list = sorted(keep_cols)
+    col_remap = {c: i for i, c in enumerate(col_list)}
+    n = len(col_list)
+
+    rows: list[tuple[dict[int, int], int]] = []
+    for r in range(nrows):
+        rs, re = int(indptr[r]), int(indptr[r + 1])
+        d: dict[int, int] = {}
+        rhs = 0
+
+        for k in range(rs, re):
+            c_old = int(indices[k])
+            v = int(data[k]) % p
+            if v == 0:
+                continue
+            if c_old in fixed_vars:
+                rhs = (rhs - v * (int(fixed_vars[c_old]) % p)) % p
+                continue
+            if c_old not in col_remap:
+                continue
+            c = col_remap[c_old]
+            d[c] = (d.get(c, 0) + v) % p
+
+        d = {k: v for k, v in d.items() if v}
+        if d or rhs:
+            rows.append((d, rhs))
+
+    # Gaussian elimination on augmented rows.
+    pivots: dict[int, tuple[dict[int, int], int]] = {}
+    for rd, rhs in rows:
+        rd = dict(rd)
+        rhs = int(rhs) % p
+
+        for pc in sorted(pivots.keys()):
+            if pc not in rd:
+                continue
+            prow, prhs = pivots[pc]
+            factor = rd[pc]
+            for k, v in prow.items():
+                rd[k] = (rd.get(k, 0) - factor * v) % p
+            rhs = (rhs - factor * prhs) % p
+            rd = {k: v for k, v in rd.items() if v}
+            if not rd:
+                break
+
+        if not rd:
+            if rhs % p != 0:
+                raise ValueError("Inconsistent system (row reduces to 0 = nonzero)")
+            continue
+
+        pc = min(rd)
+        inv = pow(int(rd[pc]), p - 2, p)
+        rd = {k: (v * inv) % p for k, v in rd.items()}
+        rhs = (rhs * inv) % p
+        pivots[pc] = (rd, rhs)
+
+    # Back substitution: choose free vars = 0 for one particular solution.
+    x = [0] * n
+    for pc in sorted(pivots.keys(), reverse=True):
+        row, rhs = pivots[pc]
+        s = 0
+        for k, v in row.items():
+            if k == pc:
+                continue
+            s = (s + v * x[k]) % p
+        x[pc] = (rhs - s) % p
+
+    return {old: x[new] for old, new in col_remap.items()}
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main():
-    ap = argparse.ArgumentParser(
-        description="Graph connectivity analysis for DLP relation matrix (HDF5).")
+    ap = argparse.ArgumentParser(description="Graph connectivity analysis for DLP relation matrix (HDF5).")
     ap.add_argument("matrix_file")
-    ap.add_argument("--divisor-xs",  type=int, nargs="+", default=None)
+    ap.add_argument("--divisor-xs", type=int, nargs="+", default=None)
     ap.add_argument("--group-order", type=int, default=None)
-    ap.add_argument("--show-isolated",    action="store_true",
-                    help="Print isolated atom values")
-    ap.add_argument("--component-detail", action="store_true",
-                    help="Print all atoms in divisor component")
-    ap.add_argument("--rank-check",  action="store_true",
-                    help="Compute rank of divisor-component submatrix (slow)")
-    ap.add_argument("--no-prune",    action="store_true",
-                    help="Skip dest-only pruning")
+    ap.add_argument("--show-isolated", action="store_true", help="Print isolated atom values")
+    ap.add_argument("--component-detail", action="store_true", help="Print all atoms in divisor component")
+    ap.add_argument("--rank-check", action="store_true", help="Compute rank of divisor-component submatrix (slow)")
+    ap.add_argument("--no-prune", action="store_true", help="Skip dest-only pruning")
+    ap.add_argument("--exclude-xs", type=int, nargs="*", default=None,
+                    help="Explicit x-coordinates to remove as torsion/bad atoms")
+    ap.add_argument("--exclude-ell-torsion", action="store_true",
+                    help="Also exclude torsion atoms listed in the HDF5 file, if present")
     args = ap.parse_args()
 
     SEP = "=" * 70
-    def section(t): print(f"\n{SEP}\n{t}\n{SEP}")
 
-    # --- load ---
+    def section(t):
+        print(f"\n{SEP}\n{t}\n{SEP}")
+
     print("[load] reading HDF5 ...")
     h = load_hdf5(args.matrix_file)
     group_order = args.group_order or h["group_order"]
-    divisor_xs  = args.divisor_xs  or h["divisor_xs"] or []
+    divisor_xs = args.divisor_xs or h["divisor_xs"] or []
 
     print(f"[load] raw shape  : {h['nrows']} rows × {h['ncols']} cols")
     print(f"[load] nonzeros   : {len(h['data'])}")
     print(f"[load] group_order: {group_order}")
     print(f"[load] divisor_xs : {divisor_xs}")
 
-    # --- protected columns ---
-    # map atom string -> col index for the raw matrix
     protected_cols: set[int] = set()
     for key in ("col_inf", "col_gen0", "col_gen1", "col_tgt0", "col_tgt1"):
         c = h[key]
         if c is not None:
             protected_cols.add(c)
-    # also add by x-coord lookup
     for x in divisor_xs:
         c = h["aidx"].get(str(int(x)))
         if c is not None:
             protected_cols.add(c)
 
-    # --- prune ---
+    excluded_xs: list[int] = []
+    if args.exclude_ell_torsion and h.get("ell_torsion_xs"):
+        excluded_xs.extend(int(x) for x in h["ell_torsion_xs"])
+    if args.exclude_xs:
+        excluded_xs.extend(int(x) for x in args.exclude_xs)
+    excluded_cols = resolve_xs_to_cols(h["aidx"], excluded_xs)
+    excluded_cols -= protected_cols
+    if excluded_cols:
+        excluded_atoms = [h["atoms"][c] for c in sorted(excluded_cols)]
+        preview = excluded_atoms[:12]
+        print(f"[filter] excluding {len(excluded_cols)} torsion/bad atom(s): {preview}" +
+              (" ..." if len(excluded_atoms) > 12 else ""))
+
     if args.no_prune:
+        if excluded_cols:
+            print("[warn] --no-prune ignores row/column elimination for excluded atoms; proceeding may reintroduce torsion contamination.")
         pdata, pidx, pptr = h["data"], h["indices"], h["indptr"]
-        pnrows, pncols    = h["nrows"], h["ncols"]
-        patoms            = h["atoms"]
+        pnrows, pncols = h["nrows"], h["ncols"]
+        patoms = h["atoms"]
         print("[prune] skipped")
     else:
-        (pdata, pidx, pptr,
-         pnrows, pncols,
-         patoms, _paidx,
-         kept_cols, kept_rows) = prune_dest_only(
-             h["data"], h["indices"], h["indptr"],
-             h["nrows"], h["ncols"], h["atoms"],
-             protected_cols=protected_cols,
-         )
-        print(f"[prune] removed {h['ncols'] - pncols} dest-only atoms, "
-              f"{h['nrows'] - pnrows} now-empty rows")
+        pdata, pidx, pptr, pnrows, pncols, patoms, _paidx, kept_cols, kept_rows = prune_dest_only(
+            h["data"], h["indices"], h["indptr"], h["nrows"], h["ncols"], h["atoms"], protected_cols=protected_cols, excluded_cols=excluded_cols
+        )
+        print(f"[prune] removed {h['ncols'] - pncols} dest-only atoms, {h['nrows'] - pnrows} now-empty rows")
         print(f"[prune] pruned  : {pnrows} rows × {pncols} cols")
 
-    # --- connectivity ---
     section("CONNECTIVITY ANALYSIS")
     print(f"\n[graph] building co-occurrence graph on {pncols} atoms ...")
     uf = build_atom_graph(pdata, pidx, pptr, pnrows, pncols)
     comps = uf.components(pncols)
     by_size = sorted(((len(v), r) for r, v in comps.items()), reverse=True)
-    print(f"[graph] {len(comps)} components, sizes (top 10): {[s for s,_ in by_size[:10]]}")
+    print(f"[graph] {len(comps)} components, sizes (top 10): {[s for s, _ in by_size[:10]]}")
 
-    # --- divisor component ---
-    # re-map divisor x-coords into pruned column space
     pruned_x_to_col: dict[int, int] = {}
     for i, a in enumerate(patoms):
         try:
             pruned_x_to_col[int(a)] = i
         except (ValueError, TypeError):
-            pass   # ∞ and other non-integer atoms
+            pass
 
     div_cols: list[tuple[int, int]] = []
     for x in divisor_xs:
         c = pruned_x_to_col.get(int(x))
         if c is None:
-            print(f"  [warn] divisor x={x} was pruned as dest-only — "
-                  f"it never appeared as xi!")
+            if int(x) in excluded_xs:
+                print(f"  [warn] divisor x={x} was excluded as torsion/bad and will not be used.")
+            else:
+                print(f"  [warn] divisor x={x} was pruned as dest-only — it never appeared as xi!")
         else:
             div_cols.append((int(x), c))
 
@@ -333,8 +456,7 @@ def main():
     for x, c in div_cols:
         root = uf.find(c)
         div_roots.add(root)
-        print(f"    x={x:6d}  pruned_col={c:5d}  component_root={root:5d}  "
-              f"size={len(comps[root])}")
+        print(f"    x={x:6d}  pruned_col={c:5d}  component_root={root:5d}  size={len(comps[root])}")
 
     if len(div_roots) == 1:
         print(f"\n  ✓  All divisor atoms are in ONE component.")
@@ -349,12 +471,8 @@ def main():
     main_comp: set[int] = set(comps[main_root])
     print(f"  Main component size: {len(main_comp)} atoms")
 
-    # --- isolated atoms ---
     section("ISOLATED ATOM ANALYSIS")
-    isolated = [
-        comps[r][0] for s, r in by_size
-        if s == 1 and comps[r][0] not in main_comp
-    ]
+    isolated = [comps[r][0] for s, r in by_size if s == 1 and comps[r][0] not in main_comp]
     print(f"\n  Singletons outside divisor component: {len(isolated)}")
     print(f"  These are exactly the free kernel directions (nullity contributions).")
 
@@ -381,13 +499,12 @@ def main():
     else:
         print(f"\n  ✓  No other non-trivial components.")
 
-    # --- row analysis ---
     section("ROW ANALYSIS")
     rows_in = rows_cross = rows_out = 0
     for r in range(pnrows):
         rs, re = int(pptr[r]), int(pptr[r + 1])
         cols = {int(pidx[k]) for k in range(rs, re)}
-        in_m  = cols & main_comp
+        in_m = cols & main_comp
         out_m = cols - main_comp
         if in_m and not out_m:
             rows_in += 1
@@ -396,9 +513,9 @@ def main():
         else:
             rows_out += 1
 
-    n_atoms  = len(main_comp)
-    needed   = n_atoms - 1   # rank needed for nullity=1 in component
-    deficit  = max(0, needed - rows_in)
+    n_atoms = len(main_comp)
+    needed = n_atoms - 1
+    deficit = max(0, needed - rows_in)
 
     print(f"\n  Total pruned rows           : {pnrows}")
     print(f"  Rows inside divisor comp    : {rows_in}")
@@ -406,18 +523,13 @@ def main():
     print(f"  Rows entirely outside       : {rows_out}")
     print(f"\n  Atoms in divisor component  : {n_atoms}")
     print(f"  Rank needed (atoms - 1)     : {needed}")
-    print(f"  Row surplus/deficit         : {rows_in - needed:+d}  "
-          f"({'ok' if deficit == 0 else f'need {deficit} more'})")
+    print(f"  Row surplus/deficit         : {rows_in - needed:+d}  ({'ok' if deficit == 0 else f'need {deficit} more'})")
 
-    # --- rank check ---
     if args.rank_check:
         if not group_order:
             print("\n  [rank-check] --group-order required. Skipping.")
         else:
             section("RANK CHECK  (divisor-component submatrix)")
-
-            # Locate the pruned column index of ∞ by scanning patoms for "∞".
-            # This works regardless of --no-prune since patoms is always set.
             inf_pruned_col = None
             for _i, _a in enumerate(patoms):
                 if str(_a) in ("∞", "inf", "\u221e"):
@@ -425,11 +537,8 @@ def main():
                         inf_pruned_col = _i
                     break
 
-            # Full rank check including ∞.
-            print(f"\n  Eliminating over GF({group_order}) on "
-                  f"{n_atoms}-col component submatrix ...")
-            rank = rank_mod_p(pdata, pidx, pptr, pnrows, pncols,
-                               p=group_order, keep_cols=main_comp)
+            print(f"\n  Eliminating over GF({group_order}) on {n_atoms}-col component submatrix ...")
+            rank = rank_mod_p(pdata, pidx, pptr, pnrows, pncols, p=group_order, keep_cols=main_comp)
             nullity = n_atoms - rank
             print(f"\n  rank={rank}  atoms={n_atoms}  nullity={nullity}")
 
@@ -438,52 +547,69 @@ def main():
                 print("     DLP is solvable on this component.")
                 print("     Pin isolated atoms to 0 and call solve_right.")
             elif nullity == 0:
-                # Distinguish between gauge-organically-pinned and
-                # genuinely overconstrained by re-running without ∞.
                 if inf_pruned_col is not None:
                     comp_no_inf = main_comp - {inf_pruned_col}
-                    rank_no_inf = rank_mod_p(pdata, pidx, pptr, pnrows, pncols,
-                                             p=group_order, keep_cols=comp_no_inf)
+                    rank_no_inf = rank_mod_p(pdata, pidx, pptr, pnrows, pncols, p=group_order, keep_cols=comp_no_inf)
                     null_no_inf = len(comp_no_inf) - rank_no_inf
-                    print(f"  Without-∞: rank={rank_no_inf}  atoms={len(comp_no_inf)}"
-                          f"  nullity={null_no_inf}")
+                    print(f"  Without-∞: rank={rank_no_inf}  atoms={len(comp_no_inf)}  nullity={null_no_inf}")
                     if null_no_inf == 0:
-                        # Rank fills the non-inf space completely — the walk data
-                        # algebraically forces a[∞] = some specific value, i.e.
-                        # the gauge is organically pinned (not overconstrained).
-                        # This is fine: add the gauge row a[∞]=0 and the DLP
-                        # direction should give nullity=1 in the affine system.
                         print("  ✓  Gauge (∞) is organically pinned by the walk data.")
                         print("     The non-∞ subspace is fully determined.")
                         print("     DLP is solvable: add anchor and call solve_right.")
+
+                        print("\n  [solve] attempting to recover logs...")
+                        sol, used_fixed = try_solve_with_anchors(
+                            pdata, pidx, pptr,
+                            pnrows, pncols,
+                            p=group_order,
+                            main_comp=main_comp,
+                            h=h,
+                        )
+                        print(f"  [solve] succeeded with anchors: {used_fixed}")
+
+                        print("\n  --- recovered logs (sample) ---")
+                        for key in ("col_inf", "col_gen0", "col_gen1", "col_tgt0", "col_tgt1"):
+                            c = h[key]
+                            if c is None:
+                                continue
+                            print(f"    {key}: log = {sol.get(c)}")
+
+                        cg0 = h["col_gen0"]
+                        ct0 = h["col_tgt0"]
+                        if cg0 in sol and ct0 in sol:
+                            g = sol[cg0]
+                            t = sol[ct0]
+                            if g != 0:
+                                k = (t * pow(g, -1, group_order)) % group_order
+                                print(f"\n  >>> recovered discrete log k ≡ {k} mod {group_order}")
+                            else:
+                                print("\n  [warn] generator log is 0, cannot invert")
                     else:
-                        print(f"  ✗  Genuinely underdetermined even without ∞ "
-                              f"(nullity={null_no_inf}).")
+                        print(f"  ✗  Genuinely underdetermined even without ∞ (nullity={null_no_inf}).")
                         print(f"     Need {null_no_inf} more independent rows.")
                 else:
                     print("  ?  nullity=0 and ∞ not in component — unexpected.")
             else:
-                print(f"  ✗  nullity={nullity} — need {nullity - 1} more "
-                      f"independent in-component rows.")
+                print(f"  ✗  nullity={nullity} — need {nullity - 1} more independent in-component rows.")
 
-    # --- component detail ---
     if args.component_detail:
         section("DIVISOR COMPONENT ATOMS")
         for c in sorted(main_comp):
             print(f"  col={c:5d}  atom={patoms[c]}")
 
-    # --- verdict ---
     section("VERDICT")
     ok = len(div_roots) == 1 and len(overlap) == 0
-    print(f"""
+    print(
+        f"""
   Divisor component size : {n_atoms}
   Rows in component      : {rows_in}
   Isolated free atoms    : {len(isolated)}  ← safe to pin to 0
   Other non-trivial comps: {len(other_nontrivial)}
-  All divisors colocated : {'YES' if len(div_roots)==1 else 'NO'}
+  All divisors colocated : {'YES' if len(div_roots) == 1 else 'NO'}
   Isolated ∩ divisor comp: {len(overlap)}  (want 0)
   Row deficit            : {deficit}
-""")
+"""
+    )
     if ok and deficit == 0:
         print("  ✓  STRUCTURAL VERDICT: solvable pending rank check.")
         print("     Run with --rank-check to confirm nullity=1 in the component.")
@@ -494,6 +620,45 @@ def main():
     else:
         print("  ✗  Structural problem — see warnings above.")
     print()
+
+
+def try_solve_with_anchors(pdata, pidx, pptr, pnrows, pncols, p, main_comp, h):
+    """Try a few plausible anchor choices.
+
+    Returns (sol, used_fixed_vars).
+    """
+    candidates: list[dict[int, int]] = []
+
+    if h["col_inf"] is not None:
+        candidates.append({h["col_inf"]: 0})
+
+    for key, val in (("col_gen0", 1), ("col_gen1", 1), ("col_tgt0", 1), ("col_tgt1", 1)):
+        c = h.get(key)
+        if c is not None:
+            fv = {}
+            if h["col_inf"] is not None:
+                fv[h["col_inf"]] = 0
+            fv[c] = val
+            candidates.append(fv)
+
+    candidates.append({})
+
+    last_err = None
+    for fixed_vars in candidates:
+        try:
+            sol = solve_mod_p(
+                pdata, pidx, pptr,
+                pnrows, pncols,
+                p=p,
+                keep_cols=main_comp,
+                fixed_vars=fixed_vars,
+            )
+            return sol, fixed_vars
+        except ValueError as e:
+            last_err = e
+            print(f"  [solve] anchor set {fixed_vars} failed: {e}")
+
+    raise last_err
 
 
 if __name__ == "__main__":
