@@ -1063,15 +1063,18 @@ def extract_contradiction_certificate(
     else:
         _log("  no ∞ column after prune; gauge row omitted")
 
-    anchor_row, anchor_rhs, anchor_label = _build_balanced_anchor_row(
-        Fp, n_cols, p_col_gen0, p_col_gen1, p_col_inf
-    )
-    if anchor_row is not None:
-        extra_rows_fp.append(anchor_row)
-        extra_rhs.append(anchor_rhs)
-        extra_labels.append(anchor_label)
+    # Keep the balanced anchor as a solver-side normalization only.
+    # Do NOT stack it into the augmented contradiction system.
+    if p_col_gen0 is not None and p_col_gen1 is not None:
+        try:
+            anchor_rhs = pow(5, -1, group_order)
+            _log(
+                f"  solver normalization only: a[gen0], a[gen1] are scaled by inv(5) mod {group_order} = {int(anchor_rhs)}"
+            )
+        except ValueError:
+            _log("  solver normalization only: balanced anchor unavailable (5 not invertible mod group_order)")
     else:
-        _log("  balanced anchor unavailable; anchor row omitted")
+        _log("  solver normalization only: balanced anchor unavailable")
 
     if not extra_rows_fp:
         _log("  no augmentation rows; cannot find certificate")
@@ -1198,12 +1201,15 @@ def extract_contradiction_certificate(
 
 def _build_balanced_anchor_row(Fp, n_cols, col_gen0, col_gen1, col_inf):
     """
-    Build an anchor row that matches the coefficient-sum normalization.
+    Build the balanced-anchor coefficients for solver-side normalization only.
 
-    Preferred form:
+    IMPORTANT: this helper returns a row-shaped vector for *inspection* but the
+    caller should not append it as a relation row. It is meant to document the
+    normalization choice:
+
         a[gen0] + a[gen1] - 5*a[∞] = 0
 
-    If ∞ is unavailable, fall back to:
+    When ∞ is unavailable, the fallback normalization is:
         a[gen0] - a[gen1] = 0
     """
     row = vector(Fp, n_cols)
