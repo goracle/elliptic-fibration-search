@@ -254,6 +254,58 @@ def _anchor_normalization(group_order: int) -> int:
         return 1
     return pow(5, -1, group_order)
 
+
+def _row_support_cache(M_ZZ):
+    """Return cached nonzero supports/coeffs for each row if possible.
+
+    Each entry is a pair (cols, vals) where both are tuples of ints.
+    Falls back to a slower per-row scan only when the matrix API does not
+    expose sparse row access.
+    """
+    n_rows = M_ZZ.nrows()
+    n_cols = M_ZZ.ncols()
+
+    # Preferred path: Sage sparse-row API.
+    for attr in ("nonzero_positions_in_row", "nonzero_positions_row"):
+        fn = getattr(M_ZZ, attr, None)
+        if callable(fn):
+            try:
+                cache = []
+                for i in range(n_rows):
+                    cols = tuple(int(c) for c in fn(i))
+                    vals = tuple(int(M_ZZ[i, c]) for c in cols)
+                    cache.append((cols, vals))
+                return cache
+            except Exception:
+                pass
+
+    # Next best: row vectors often expose a sparse dict.
+    try:
+        cache = []
+        for i in range(n_rows):
+            row = M_ZZ.row(i)
+            d = getattr(row, "dict", None)
+            if callable(d):
+                items = [(int(j), int(v)) for j, v in d().items() if v != 0]
+                items.sort(key=lambda t: t[0])
+                cols = tuple(j for j, _ in items)
+                vals = tuple(v for _, v in items)
+            else:
+                # Last resort: scan the row once.
+                cols_l = []
+                vals_l = []
+                for j in range(n_cols):
+                    v = int(M_ZZ[i, j])
+                    if v != 0:
+                        cols_l.append(j)
+                        vals_l.append(v)
+                cols = tuple(cols_l)
+                vals = tuple(vals_l)
+            cache.append((cols, vals))
+        return cache
+    except Exception:
+        return None
+
 def check_divisor_injection(walkers, divisor_xs: Sequence):
     """
     Check whether the four divisor atoms appear as xi and xj in the collected walks.
@@ -838,6 +890,273 @@ def run_all_checks(
     _log(f"{'#' * 70}\n")
 
     return results
+
+def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
+    """
+    Build the combined pruned ZZ relation matrix from all walkers.
+
+    Returns (M_pruned, pruned_atoms, atom_index, M_raw, all_atoms_raw).
+
+    Parameters
+    ----------
+    walkers
+        Iterable of walker objects.
+    include_step_leaves
+        Forwarded into each walker's relation_matrix().
+    protected
+        Optional collection of atom labels that must survive pruning,
+        even if they become dest-only.
+    """
+    mats, atom_lists = [], []
+    for w in walkers:
+        mat, atoms, _ = w.relation_matrix(include_step_leaves=include_step_leaves)
+        if mat.nrows() > 0:
+            mats.append(mat)
+            atom_lists.append(list(atoms))
+
+    assert mats, "All walkers have empty relation matrices — nothing to work with."
+
+    # Union column spaces, preserving the first-seen order.
+    all_atoms = list(atom_lists[0])
+    atom_set = set(map(str, all_atoms))
+    for atms in atom_lists[1:]:
+        for a in atms:
+            sa = str(a)
+            if sa not in atom_set:
+                all_atoms.append(a)
+                atom_set.add(sa)
+
+    n_cols = len(all_atoms)
+    aidx = {str(a): i for i, a in enumerate(all_atoms)}
+
+    rows = []
+    for mat, atms in zip(mats, atom_lists):
+        cols_src = [aidx[str(a)] for a in atms]
+        for r in range(mat.nrows()):
+            row = [0] * n_cols
+            for c_src, c_dst in enumerate(cols_src):
+                row[c_dst] += int(mat[r, c_src])
+            rows.append(row)
+
+    M_raw = Matrix(ZZ, rows)
+
+    M_pruned, pruned_atoms, removed = prune_dest_only(
+        M_raw,
+        all_atoms,
+        protected=protected,
+    )
+    pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+
+    _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
+    _log(
+        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  ({len(removed)} dest-only atoms removed)"
+    )
+
+    return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
+
+def check_known_key(
+    walkers,
+    divisor_xs,
+    group_order: int,
+    known_key: int,
+):
+    """
+    Check whether the supplied known key is consistent with the relation matrix.
+
+    Pins the known columns (∞, gen_x0, tgt_x0) and tests whether any row
+    whose support is entirely within the pinned columns is contradicted.
+    Rows with free variables are inconclusive when the system is underdetermined
+    and are not counted as violations.
+
+    Returns a dict with keys:
+        ok            : True / False / None (None = underdetermined, no contradiction found)
+        nullity       : kernel dimension of the homogeneous system
+        violations    : list of directly contradicted rows (empty = no hard contradiction)
+        best_label    : sign convention with fewest violations
+    """
+    _section(f"KNOWN KEY COMPATIBILITY  (key={known_key})")
+
+    x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
+
+    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
+        walkers,
+        protected=divisor_xs,
+    )
+    n_rows = M_ZZ.nrows()
+    n_cols = M_ZZ.ncols()
+
+    F = GF(Integer(group_order))
+    M = M_ZZ.change_ring(F)
+
+    # Compute nullity of the homogeneous system once.
+    nullity = n_cols - M.rank()
+
+    def col_of(x):
+        return aidx.get(str(int(x)))
+
+    inf_col  = aidx.get(_INFINITY)
+    gen_col  = col_of(x0_a)
+    tgt_col  = col_of(x0_c)
+
+    missing = []
+    if inf_col is None:
+        missing.append("∞")
+    if gen_col is None:
+        missing.append(f"gen_x0={x0_a}")
+    if tgt_col is None:
+        missing.append(f"tgt_x0={x0_c}")
+
+    if missing:
+        _log(f"  ✗  Cannot test known key — required columns missing after prune: {missing}")
+        return {"ok": False, "reason": "missing_columns", "missing": missing}
+
+    anchor_rhs = _anchor_normalization(group_order)
+    _log(f"  Normalization RHS set to inv(5) mod {group_order} = {anchor_rhs}")
+
+    hypotheses = [
+        ("gen=+1, tgt=+k",  1,  1),
+        ("gen=+1, tgt=-k",  1, -1),
+        ("gen=-1, tgt=+k", -1,  1),
+        ("gen=-1, tgt=-k", -1, -1),
+    ]
+
+    # Cache row supports once; each row is sparse and tiny, so this is far
+    # cheaper than rescanning all columns for every hypothesis.
+    row_cache = _row_support_cache(M_ZZ)
+    if row_cache is None or len(row_cache) != n_rows:
+        _log("  [row cache unavailable; falling back to slower row scans]")
+        row_cache = []
+        for i in range(n_rows):
+            nz = [j for j in range(n_cols) if M[i, j] != 0]
+            vals = [int(M[i, j]) for j in nz]
+            row_cache.append((tuple(nz), tuple(vals)))
+
+    scored = []
+
+    for label, gsgn, tsgn in hypotheses:
+        fixed = {
+            inf_col: F(0),
+            gen_col: F(gsgn * anchor_rhs),
+            tgt_col: F(tsgn * known_key * anchor_rhs),
+        }
+        fixed_cols = set(fixed.keys())
+
+        # Only rows whose entire nonzero support falls within fixed_cols
+        # can be directly tested — they have no free variables.
+        violations = []
+        for i, (nz, vals) in enumerate(row_cache):
+            if not nz:
+                continue
+            if any(j not in fixed_cols for j in nz):
+                continue  # has free variables — inconclusive
+            resid = F(0)
+            for j, val in zip(nz, vals):
+                resid += F(val) * fixed[j]
+            if resid != 0:
+                violations.append(
+                    (i, int(resid), [(atoms[j], int(val)) for j, val in zip(nz, vals)])
+                )
+
+        scored.append({
+            "label": label,
+            "violations": violations,
+            "n_violations": len(violations),
+        })
+
+    scored.sort(key=lambda d: d["n_violations"])
+    best = scored[0]
+
+    _log(f"  Nullity of homogeneous system: {nullity}")
+    _log(
+        f"  (nullity=1 means fully determined up to gauge; "
+        f"nullity>1 means underdetermined — only direct contradictions are conclusive\\n"
+        ")"
+    )
+
+    _log("  Hypothesis scan (direct contradictions only):")
+    for item in scored:
+        status = "OK" if item["n_violations"] == 0 else f"{item['n_violations']} violation(s)"
+        _log(f"    {item['label']:<18s} -> {status}")
+
+    if nullity == 1:
+        # System is fully determined up to gauge. Consistency test is conclusive.
+        if best["n_violations"] == 0:
+            # Do the full rank test to confirm.
+            fixed = {inf_col: F(0), gen_col: F(anchor_rhs), tgt_col: F(known_key * anchor_rhs)}
+            fixed_cols = set(fixed.keys())
+            free_cols = [j for j in range(n_cols) if j not in fixed_cols]
+            rhs = vector(F, n_rows)
+            for j, val in fixed.items():
+                if val != 0:
+                    rhs -= M.column(j) * val
+            A = M.matrix_from_columns(free_cols) if free_cols else matrix(F, n_rows, 0)
+            rank_A = A.rank()
+            rank_aug = A.augment(rhs.column()).rank()
+            if rank_A == rank_aug:
+                _log(f"\\n  ✓  key={known_key} is CONSISTENT (nullity=1, no contradictions, "
+                     f"full system consistent).")
+                return {"ok": True, "label": best["label"], "nullity": nullity,
+                        "violations": []}
+            else:
+                _log(f"\\n  ✗  key={known_key} is INCONSISTENT (nullity=1, rank test fails). "
+                     f"rank(A)={rank_A}  rank([A|b])={rank_aug}")
+                return {"ok": False, "label": best["label"], "nullity": nullity,
+                        "violations": [], "rank_A": rank_A, "rank_aug": rank_aug}
+        else:
+            _log(f"\\n  ✗  key={known_key} is INCONSISTENT — "
+                 f"{best['n_violations']} directly contradicted row(s):")
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
+
+    elif nullity == 0:
+        # Over-constrained: the gauge direction itself has been killed.
+        # The anchor row has no solution space to land in.
+        if best["n_violations"] == 0:
+            _log(
+                f"\\n  ✗  key={known_key} is LIKELY INCONSISTENT — nullity=0 means no kernel\\n"
+                f"     at all (not even the gauge direction survives).\\n"
+                f"     The anchor row has no solution space to land in.\\n"
+                f"     This usually means the relation matrix is over-determined, or\\n"
+                f"     the anchor/gauge columns were aliased by the pruning step."
+            )
+            return {"ok": False, "reason": "nullity_zero", "nullity": nullity,
+                    "violations": []}
+        else:
+            _log(
+                f"\\n  ✗  key={known_key} is INCONSISTENT — nullity=0 (over-constrained) AND\\n"
+                f"     {best['n_violations']} directly contradicted row(s):"
+            )
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
+
+    else:
+        # nullity > 1 — underdetermined. Only hard contradictions are conclusive.
+        if best["n_violations"] == 0:
+            _log(
+                f"\\n  ?  key={known_key} is UNVERIFIABLE — system is underdetermined "
+                f"(nullity={nullity}, need nullity=1).\\n"
+                f"     No direct contradiction found under any sign convention.\\n"
+                f"     Need {nullity - 1} more independent relation rows before "
+                f"this check is conclusive."
+            )
+            return {"ok": None, "reason": "underdetermined", "nullity": nullity,
+                    "violations": []}
+        else:
+            _log(
+                f"\\n  ✗  key={known_key} has a HARD CONTRADICTION even in the "
+                f"underdetermined case — {best['n_violations']} row(s) whose support "
+                f"is entirely within fixed columns fail:\\n"
+                f"     (This is a genuine error regardless of nullity.)"
+            )
+            for row_i, resid, nz_cols in best["violations"][:10]:
+                _log(f"       row {row_i:5d}  residual={resid}  atoms={nz_cols}")
+            return {"ok": False, "label": best["label"], "nullity": nullity,
+                    "violations": best["violations"][:10]}
 
 def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
     """
