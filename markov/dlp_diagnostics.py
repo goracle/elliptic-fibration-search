@@ -306,6 +306,36 @@ def _row_support_cache(M_ZZ):
     except Exception:
         return None
 
+def _row_signature_from_support(cols, vals, mod: Optional[int] = None):
+    """Return a canonical hashable signature for a sparse row.
+
+    If mod is provided, rows that differ by a nonzero scalar multiple in GF(mod)
+    collapse to the same signature after normalization by the first nonzero
+    coefficient.
+    """
+    entries = []
+    if mod is None:
+        for c, v in zip(cols, vals):
+            iv = int(v)
+            if iv != 0:
+                entries.append((int(c), iv))
+    else:
+        mod = int(mod)
+        for c, v in zip(cols, vals):
+            iv = int(v) % mod
+            if iv != 0:
+                entries.append((int(c), iv))
+        if not entries:
+            return ("zero",)
+        lead = entries[0][1]
+        try:
+            inv = pow(lead, -1, mod)
+        except ValueError:
+            return tuple(entries)
+        entries = [(c, (v * inv) % mod) for c, v in entries]
+    return tuple(entries)
+
+
 def check_divisor_injection(walkers, divisor_xs: Sequence):
     """
     Check whether the four divisor atoms appear as xi and xj in the collected walks.
@@ -510,7 +540,7 @@ def check_zero_compatibility(
     _section("ZERO COMPATIBILITY OF BASE/TARGET ATOMS")
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
-    M, atoms, aidx, _, _ = _build_combined_matrix(walkers, protected=divisor_xs)
+    M, atoms, aidx, _, _ = _build_combined_matrix(walkers, protected=divisor_xs, dedup_mod=group_order)
     Fp = GF(group_order)
     M_fp = M.change_ring(Fp)
 
@@ -653,15 +683,17 @@ def dump_matrix_hdf5(
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
 
-    _, _, _, M_ZZ, atoms = _build_combined_matrix(
-        walkers, protected=divisor_xs,
+    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
+        walkers,
+        protected=divisor_xs,
+        dedup_mod=group_order,
     )
     aidx = {str(a): i for i, a in enumerate(atoms)}
 
     nrows = M_ZZ.nrows()
     ncols = M_ZZ.ncols()
 
-    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (unpruned)  path={path}")
+    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (pruned+deduped)  path={path}")
 
     # Build numpy dense array first (needed for both dense and CSR paths).
     # Use int32 — coefficients are small (−5 … +3).
@@ -891,7 +923,12 @@ def run_all_checks(
 
     return results
 
-def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
+def _build_combined_matrix(
+    walkers,
+    include_step_leaves: bool = False,
+    protected=None,
+    dedup_mod: Optional[int] = None,
+):
     """
     Build the combined pruned ZZ relation matrix from all walkers.
 
@@ -906,6 +943,9 @@ def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected
     protected
         Optional collection of atom labels that must survive pruning,
         even if they become dest-only.
+    dedup_mod
+        If provided, deduplicate rows up to nonzero scalar multiples over
+        GF(dedup_mod). Otherwise only exact duplicate rows are removed.
     """
     mats, atom_lists = [], []
     for w in walkers:
@@ -947,11 +987,49 @@ def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected
     )
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
+    dup_count = 0
+    kept_rows = []
+    row_cache = _row_support_cache(M_pruned)
+    if row_cache is None:
+        row_cache = []
+        for i in range(M_pruned.nrows()):
+            nz = tuple(j for j in range(M_pruned.ncols()) if M_pruned[i, j] != 0)
+            vals = tuple(int(M_pruned[i, j]) for j in nz)
+            row_cache.append((nz, vals))
+
+    seen = set()
+    for i, (nz, vals) in enumerate(row_cache):
+        sig = _row_signature_from_support(nz, vals, mod=dedup_mod)
+        if sig in seen:
+            dup_count += 1
+            continue
+        seen.add(sig)
+        kept_rows.append(i)
+
+    if dup_count:
+        M_pruned = M_pruned.matrix_from_rows(kept_rows)
+
     _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
     _log(
-        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  After prune:                  {M_pruned.nrows() + dup_count} rows × {len(pruned_atoms)} cols"
         f"  ({len(removed)} dest-only atoms removed)"
     )
+    if dup_count:
+        if dedup_mod is None:
+            _log(
+                f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+                f"  ({dup_count} exact duplicate row(s) removed)"
+            )
+        else:
+            _log(
+                f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+                f"  ({dup_count} duplicate/scalar-multiple row(s) removed mod {dedup_mod})"
+            )
+    else:
+        _log(
+            f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+            f"  (0 duplicates removed)"
+        )
 
     return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
 
@@ -982,6 +1060,7 @@ def check_known_key(
     M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
         walkers,
         protected=divisor_xs,
+        dedup_mod=group_order,
     )
     n_rows = M_ZZ.nrows()
     n_cols = M_ZZ.ncols()
@@ -1158,7 +1237,12 @@ def check_known_key(
             return {"ok": False, "label": best["label"], "nullity": nullity,
                     "violations": best["violations"][:10]}
 
-def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected=None):
+def _build_combined_matrix(
+    walkers,
+    include_step_leaves: bool = False,
+    protected=None,
+    dedup_mod: Optional[int] = None,
+):
     """
     Build the combined pruned ZZ relation matrix from all walkers.
 
@@ -1173,6 +1257,9 @@ def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected
     protected
         Optional collection of atom labels that must survive pruning,
         even if they become dest-only.
+    dedup_mod
+        If provided, deduplicate rows up to nonzero scalar multiples over
+        GF(dedup_mod). Otherwise only exact duplicate rows are removed.
     """
     mats, atom_lists = [], []
     for w in walkers:
@@ -1214,11 +1301,49 @@ def _build_combined_matrix(walkers, include_step_leaves: bool = False, protected
     )
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
+    dup_count = 0
+    kept_rows = []
+    row_cache = _row_support_cache(M_pruned)
+    if row_cache is None:
+        row_cache = []
+        for i in range(M_pruned.nrows()):
+            nz = tuple(j for j in range(M_pruned.ncols()) if M_pruned[i, j] != 0)
+            vals = tuple(int(M_pruned[i, j]) for j in nz)
+            row_cache.append((nz, vals))
+
+    seen = set()
+    for i, (nz, vals) in enumerate(row_cache):
+        sig = _row_signature_from_support(nz, vals, mod=dedup_mod)
+        if sig in seen:
+            dup_count += 1
+            continue
+        seen.add(sig)
+        kept_rows.append(i)
+
+    if dup_count:
+        M_pruned = M_pruned.matrix_from_rows(kept_rows)
+
     _log(f"  Combined matrix (pre-prune):  {M_raw.nrows()} rows × {n_cols} cols")
     _log(
-        f"  After prune:                  {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+        f"  After prune:                  {M_pruned.nrows() + dup_count} rows × {len(pruned_atoms)} cols"
         f"  ({len(removed)} dest-only atoms removed)"
     )
+    if dup_count:
+        if dedup_mod is None:
+            _log(
+                f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+                f"  ({dup_count} exact duplicate row(s) removed)"
+            )
+        else:
+            _log(
+                f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+                f"  ({dup_count} duplicate/scalar-multiple row(s) removed mod {dedup_mod})"
+            )
+    else:
+        _log(
+            f"  Deduped rows:                 {M_pruned.nrows()} rows × {len(pruned_atoms)} cols"
+            f"  (0 duplicates removed)"
+        )
 
     return M_pruned, pruned_atoms, pruned_aidx, M_raw, all_atoms
 
@@ -1249,6 +1374,7 @@ def check_known_key(
     M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
         walkers,
         protected=divisor_xs,
+        dedup_mod=group_order,
     )
     n_rows = M_ZZ.nrows()
     n_cols = M_ZZ.ncols()

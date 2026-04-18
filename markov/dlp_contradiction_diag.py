@@ -78,6 +78,67 @@ def _matrix_preview(M_ZZ, atoms, max_rows: int = 6, max_atoms: int = 6) -> None:
     if M_ZZ.nrows() > row_limit:
         _log(f"[matrix] ... {M_ZZ.nrows() - row_limit} more row(s)")
 
+
+def _dedupe_rows_mod(M_ZZ, atoms, modulus: int, *, keep_zero_rows: bool = False):
+    """Collapse exact duplicate rows and scalar multiples over GF(modulus).
+
+    Each row is canonicalized by:
+      1) reducing coefficients modulo modulus,
+      2) removing zero entries,
+      3) dividing by the first nonzero coefficient so the leading coefficient is 1,
+      4) sorting the sparse support to form a hashable signature.
+
+    Returns (M_dedup, row_sources) where row_sources maps each kept row index
+    to the original row indices merged into it.
+    """
+    if modulus is None:
+        raise ValueError("modulus is required for row deduplication")
+    n_rows = M_ZZ.nrows()
+    n_cols = M_ZZ.ncols()
+    seen = {}
+    dedup_rows = []
+    row_sources = []
+
+    for i in range(n_rows):
+        entries = []
+        for j in range(n_cols):
+            v = int(M_ZZ[i, j]) % modulus
+            if v:
+                entries.append((j, v))
+        if not entries:
+            if keep_zero_rows:
+                sig = ((), ())
+                if sig not in seen:
+                    seen[sig] = len(dedup_rows)
+                    dedup_rows.append([0] * n_cols)
+                    row_sources.append([i])
+                else:
+                    row_sources[seen[sig]].append(i)
+            continue
+
+        lead = entries[0][1]
+        try:
+            inv_lead = pow(lead, -1, modulus)
+        except ValueError:
+            # Fall back to Sage-style inversion if needed.
+            inv_lead = int((Integer(lead) ** (-1)) % modulus)
+        sig = tuple((j, (v * inv_lead) % modulus) for j, v in entries)
+        if sig not in seen:
+            seen[sig] = len(dedup_rows)
+            row = [0] * n_cols
+            for j, v in sig:
+                row[j] = int(v)
+            dedup_rows.append(row)
+            row_sources.append([i])
+        else:
+            row_sources[seen[sig]].append(i)
+
+    if dedup_rows:
+        M_dedup = Matrix(ZZ, dedup_rows)
+    else:
+        M_dedup = Matrix(ZZ, 0, n_cols)
+    return M_dedup, row_sources
+
 # ---------------------------------------------------------------------------
 # HDF5 loader
 # ---------------------------------------------------------------------------
@@ -194,7 +255,9 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
                               atoms[col_tgt1] if col_tgt1 is not None else None]
                  if a is not None]
     M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
+    M_pruned, row_sources = _dedupe_rows_mod(M_pruned, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+    _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
     def remap(col):
         if col is None:
             return None
@@ -353,7 +416,9 @@ def incremental_consistency_filter(
         atoms[col_tgt1] if col_tgt1 is not None else None,
     ] if a is not None]
     M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
+    M_pruned, row_sources = _dedupe_rows_mod(M_pruned, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
+    _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
     def remap(col):
         if col is None:
@@ -781,12 +846,16 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
                               atoms[col_tgt1] if col_tgt1 is not None else None]
                  if a is not None]
     M_pruned, pruned_atoms, removed = prune_dest_only(M_ZZ, atoms, protected=protected)
+    M_before_dedup = M_pruned
+    M_pruned, row_sources = _dedupe_rows_mod(M_before_dedup, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
     n_removed = len(removed)
+    n_dedup = M_before_dedup.nrows() - M_pruned.nrows()
     _log(f"  prune_dest_only removed {n_removed} dest-only atoms "
-         f"({M_ZZ.nrows()} → {M_pruned.nrows()} rows, "
-         f"{M_ZZ.ncols()} → {M_pruned.ncols()} cols)")
+         f"({M_ZZ.nrows()} → {M_before_dedup.nrows()} rows, "
+         f"{M_ZZ.ncols()} → {M_before_dedup.ncols()} cols)")
+    _log(f"  row dedup      removed {n_dedup} duplicate/scalar-multiple row(s)")
 
     def remap(col):
         if col is None:
@@ -953,11 +1022,14 @@ def extract_contradiction_certificate(
                               atoms[col_gen1] if col_gen1 is not None else None]
                  if a is not None]
     M_pruned, pruned_atoms, removed = prune_dest_only(M_ZZ, atoms, protected=protected)
+    M_before_dedup = M_pruned
+    M_pruned, row_sources = _dedupe_rows_mod(M_before_dedup, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
     _log(f"  prune_dest_only: {len(removed)} atoms removed  "
-         f"({M_ZZ.nrows()}→{M_pruned.nrows()} rows, "
-         f"{M_ZZ.ncols()}→{M_pruned.ncols()} cols)")
+         f"({M_ZZ.nrows()}→{M_before_dedup.nrows()} rows, "
+         f"{M_ZZ.ncols()}→{M_before_dedup.ncols()} cols)")
+    _log(f"  row dedup      : {M_before_dedup.nrows() - M_pruned.nrows()} duplicate/scalar-multiple row(s) removed")
     _matrix_preview(M_pruned, pruned_atoms, max_rows=4, max_atoms=6)
 
     p_col_inf  = _remap(col_inf,  atoms, pruned_aidx)
