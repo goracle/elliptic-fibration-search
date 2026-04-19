@@ -124,10 +124,15 @@ def prune_dest_only(
 
     new_data, new_idx, new_ptr = [], [], [0]
     kept_rows = []
+    n_malformed = 0
     for r in range(nrows):
         rs, re = int(indptr[r]), int(indptr[r + 1])
         row_cols = [int(indices[k]) for k in range(rs, re)]
         if any(c in excluded_cols for c in row_cols):
+            continue
+        # Drop malformed relations: coefficients must sum to zero (principal divisor).
+        if sum(int(data[k]) for k in range(rs, re)) != 0:
+            n_malformed += 1
             continue
         row_ents = [
             (col_remap[c], int(data[k]))
@@ -140,6 +145,9 @@ def prune_dest_only(
                 new_data.append(v)
                 new_idx.append(c)
             new_ptr.append(len(new_data))
+
+    if n_malformed:
+        print(f"[prune] dropped {n_malformed} malformed rows (coeff sum ≠ 0)")
 
     new_atoms = [atoms[c] for c in kept_cols]
     new_aidx = {str(a): i for i, a in enumerate(new_atoms)}
@@ -560,7 +568,6 @@ def main():
                         print("     DLP is solvable: add anchor and call solve_right.")
 
                         # Translate original HDF5 column indices → pruned indices.
-                        # kept_cols[pruned_i] = original_i, so we invert it.
                         orig_to_pruned: dict[int, int] = {}
                         if not args.no_prune:
                             orig_to_pruned = {orig: pruned for pruned, orig in enumerate(kept_cols)}
@@ -569,32 +576,23 @@ def main():
                             orig = h.get(key)
                             if orig is None:
                                 return None
-                            if args.no_prune:
-                                return orig
-                            return orig_to_pruned.get(orig)
+                            return orig if args.no_prune else orig_to_pruned.get(orig)
 
-                        pc_inf  = inf_pruned_col   # already found above by scanning patoms
+                        pc_inf  = inf_pruned_col  # already found by patoms scan above
                         pc_gen0 = pruned_col("col_gen0")
                         pc_gen1 = pruned_col("col_gen1")
                         pc_tgt0 = pruned_col("col_tgt0")
                         pc_tgt1 = pruned_col("col_tgt1")
 
-                        print(f"\n  [diag] pruned cols — inf={pc_inf}  gen0={pc_gen0}  gen1={pc_gen1}"
-                              f"  tgt0={pc_tgt0}  tgt1={pc_tgt1}")
-                        if pc_gen0 is not None:
-                            gen_rows = sum(
-                                1 for r in range(pnrows)
-                                if any(int(pidx[k]) == pc_gen0
-                                       for k in range(int(pptr[r]), int(pptr[r + 1])))
-                            )
-                            print(f"  [diag] pc_gen0 appears in {gen_rows} / {pnrows} rows")
+                        print(f"\n  [diag] pruned cols — inf={pc_inf}  gen0={pc_gen0}"
+                              f"  gen1={pc_gen1}  tgt0={pc_tgt0}  tgt1={pc_tgt1}")
 
-                        # Gauge fix: pin ∞ = 1.  Its coefficient is -5 in every row,
-                        # so each row gets rhs += 5, breaking the homogeneity and
-                        # driving the unique solution out of back-substitution.
                         if pc_inf is None:
                             print("\n  [warn] ∞ not found in pruned matrix — cannot solve.")
                         else:
+                            # Pin ∞=1. Its coefficient is -5 in every row, so each row
+                            # gets rhs += 5, breaking homogeneity and yielding the unique
+                            # solution via back-substitution.
                             fixed_vars = {pc_inf: 1}
                             print("\n  [solve] attempting to recover logs...")
                             try:
@@ -606,7 +604,6 @@ def main():
                                     fixed_vars=fixed_vars,
                                 )
                                 print(f"  [solve] succeeded  gauge={fixed_vars}")
-
                                 print("\n  --- recovered logs (sample) ---")
                                 for key, pc in (("col_inf",  pc_inf),
                                                 ("col_gen0", pc_gen0),
