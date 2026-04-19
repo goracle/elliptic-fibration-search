@@ -258,6 +258,11 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col]))
+
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -633,6 +638,10 @@ def main(argv=None):
     ap.add_argument("--farkas-delete", action="store_true",
                     help="After extracting the certificate, delete those walk rows "
                          "and re-run all checks on the reduced matrix.")
+    ap.add_argument("--exclude-xs", type=int, nargs="+", default=None,
+                    help="x-coordinates to exclude as torsion/bad atoms. "
+                         "Any row touching these columns is dropped and the "
+                         "columns are removed entirely (mirrors graph_connectivity.py behaviour).")
     args = ap.parse_args(argv)
 
     if not Path(args.hdf5_path).exists():
@@ -668,9 +677,71 @@ def main(argv=None):
     _log(f"[load] col_inf={col_inf}  col_gen0={col_gen0}  col_gen1={col_gen1}"
          f"  col_tgt0={col_tgt0}  col_tgt1={col_tgt1}")
 
+    # --- Exclude torsion/bad atoms ---
+    if args.exclude_xs:
+        protected_cols = {c for c in [col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1] if c is not None}
+        excluded_cols = set()
+        for x in args.exclude_xs:
+            c = aidx.get(str(int(x)))
+            if c is None:
+                _log(f"[filter] --exclude-xs {x}: not found in atom index, skipping")
+            elif c in protected_cols:
+                _log(f"[filter] --exclude-xs {x}: is a protected col ({c}), skipping")
+            else:
+                excluded_cols.add(c)
+        if excluded_cols:
+            excluded_atoms = [atoms[c] for c in sorted(excluded_cols)]
+            _log(f"[filter] excluding {len(excluded_cols)} atom(s): {excluded_atoms}")
+            # Drop any row touching an excluded column.
+            n_before = M_ZZ.nrows()
+            keep_rows = []
+            for r in range(M_ZZ.nrows()):
+                if not any(M_ZZ[r, c] != 0 for c in excluded_cols):
+                    keep_rows.append(r)
+            M_ZZ = M_ZZ.matrix_from_rows(keep_rows)
+            n_dropped_rows = n_before - M_ZZ.nrows()
+            # Drop excluded columns and remap all column references.
+            n_cols_before = len(atoms)
+            keep_cols = [c for c in range(n_cols_before) if c not in excluded_cols]
+            col_remap = {old: new for new, old in enumerate(keep_cols)}
+            M_ZZ = M_ZZ.matrix_from_columns(keep_cols)
+            atoms = [atoms[c] for c in keep_cols]
+            aidx  = {str(a): i for i, a in enumerate(atoms)}
+            def _remap_col(c):
+                return col_remap.get(c) if c is not None else None
+            col_inf  = _remap_col(col_inf)
+            col_gen0 = _remap_col(col_gen0)
+            col_gen1 = _remap_col(col_gen1)
+            col_tgt0 = _remap_col(col_tgt0)
+            col_tgt1 = _remap_col(col_tgt1)
+            _log(f"[filter] dropped {n_dropped_rows} row(s) touching excluded atoms, "
+                 f"{len(excluded_cols)} col(s) removed")
+            _log(f"[filter] matrix after exclusion: {M_ZZ.nrows()} × {M_ZZ.ncols()}")
+            _log(f"[filter] remapped cols — inf={col_inf}  gen0={col_gen0}  gen1={col_gen1}"
+                 f"  tgt0={col_tgt0}  tgt1={col_tgt1}")
+
     known_key = args.known_key
     if known_key is None:
         _log("[load] --known-key not supplied; log-G membership test will be skipped.")
+
+    # --- Drop malformed rows (coeff sum ≠ 0) ---
+    # A valid relation row encodes a principal divisor, so its integer
+    # coefficients must sum to zero.  Rows that fail this were written with
+    # incomplete column support (a dest-only atom was pruned before the dump).
+    # They are arithmetically unsound and must be removed before any linear
+    # algebra is performed.
+    _malformed = [
+        r for r in range(M_ZZ.nrows())
+        if sum(int(M_ZZ[r, c]) for c in range(M_ZZ.ncols())) != 0
+    ]
+    if _malformed:
+        _log(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum ≠ 0): "
+             f"{_malformed[:16]}" + (" ..." if len(_malformed) > 16 else ""))
+        _keep = [r for r in range(M_ZZ.nrows()) if r not in set(_malformed)]
+        M_ZZ = M_ZZ.matrix_from_rows(_keep)
+        _log(f"[filter] matrix after malformed-row drop: {M_ZZ.nrows()} × {M_ZZ.ncols()}")
+    else:
+        _log("[filter] all rows well-formed (coeff sums all zero).")
 
     # --- Check 1 ---
     if known_key is not None:

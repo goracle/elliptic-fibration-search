@@ -680,17 +680,22 @@ def dump_matrix_hdf5(
 
     x0_a, x0_b, x0_c, x0_d = [int(x) for x in divisor_xs]
 
-    M_ZZ, atoms, aidx, _, _ = _build_combined_matrix(
+    # Use the raw (unpruned, undeduped) combined matrix so that every relation
+    # row is stored with its full column support intact.  graph_connectivity and
+    # the contradiction-diag tools apply their own prune/dedup on load; storing
+    # pre-prune data ensures coeff sums are meaningful and no dest-only column
+    # is silently dropped mid-row before writing.
+    _, _, _, M_ZZ, atoms = _build_combined_matrix(
         walkers,
         protected=divisor_xs,
-        dedup_mod=group_order,
+        dedup_mod=None,   # no dedup before dump
     )
     aidx = {str(a): i for i, a in enumerate(atoms)}
 
     nrows = M_ZZ.nrows()
     ncols = M_ZZ.ncols()
 
-    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (pruned+deduped)  path={path}")
+    _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (raw, pre-prune)  path={path}")
 
     # Build numpy dense array first (needed for both dense and CSR paths).
     # Use int32 — coefficients are small (−5 … +3).

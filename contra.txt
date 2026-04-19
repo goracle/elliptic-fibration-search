@@ -1,0 +1,166 @@
+
+######################################################################
+# DLP CONTRADICTION DIAGNOSTICS
+#  file: relation_matrix.h5
+######################################################################
+
+[load] reading HDF5 matrix ...
+[load] matrix shape : 14583 × 7707
+[matrix] shape=14583×7707  atoms=7707
+[matrix] row     0: [3=3, 9055=1, 5271=1, ∞=-5]
+[matrix] row     1: [11115=3, 9269=1, 9110=1, ∞=-5]
+[matrix] row     2: [12532=3, 10394=1, 6152=1, ∞=-5]
+[matrix] row     3: [10394=3, 9650=1, 3717=1, ∞=-5]
+[matrix] ... 14579 more row(s)
+[load] group_order  : 25373
+[load] divisor_xs   : [11504, 5506, 1821, 12655]
+[load] col_inf=472  col_gen0=0  col_gen1=473  col_tgt0=197  col_tgt1=128
+
+======================================================================
+  CHECK 1: HOMOGENEOUS SYSTEM  (walk relations, no anchor)
+======================================================================
+  prune_dest_only removed 692 dest-only atoms (14583 → 13891 rows, 7707 → 7015 cols)
+  row dedup      removed 3755 duplicate/scalar-multiple row(s)
+
+  Pre-normalization nullity: 134 on the 10136×7015 system
+  kernel summary: gauge=0, isolated=134, fusion=0, parity=0, other=0
+  kernel[0]: ISOLATED atom=11193 coeff=1 -- leaving free
+  kernel[1]: ISOLATED atom=7448 coeff=1 -- leaving free
+  kernel[2]: ISOLATED atom=4210 coeff=1 -- leaving free
+  kernel[3]: ISOLATED atom=16180 coeff=1 -- leaving free
+  kernel[4]: ISOLATED atom=10090 coeff=1 -- leaving free
+  kernel[5]: ISOLATED atom=14565 coeff=1 -- leaving free
+  kernel[6]: ISOLATED atom=1865 coeff=1 -- leaving free
+  kernel[7]: ISOLATED atom=8836 coeff=1 -- leaving free
+  ... 126 more kernel direction(s) omitted
+  Isolated atoms are reported as free directions, not pinned.
+  rows=10136  cols=7015  rank=6881  nullity=134
+  (ideal: nullity >= 2 — gauge direction + DLP direction)
+
+  ✓  Nullity=134 — at least gauge + DLP directions present.
+
+  Surviving kernel basis (134 vector(s)):
+  basis[0]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[1]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[2]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[3]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[4]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[5]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[6]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  basis[7]: support_size=1 flat=yes specials={'gen0': 0, 'gen1': 0, 'tgt0': 0, 'tgt1': 0, 'inf': 0}
+    flat vector: all atoms share the same log
+  ... 126 more basis vector(s)
+
+  Building log-G candidate vector (known_key=802) ...
+  a[gen0]=1, a[gen1]=0, a[tgt0]=a[tgt1]=401 (=802/2 mod 25373)
+
+  ℹ  23 row(s) have nonzero residual because they contain
+     unassigned factor-base atoms (v_logG leaves them at 0).
+     This is expected -- the test vector is not a full oracle.
+
+  ✓  No true failures -- all residuals are from unassigned fb atoms.
+     Walk structure is consistent with the known key.
+
+======================================================================
+  CHECK 2: CONTRADICTION CERTIFICATE  (left-kernel Farkas row)
+======================================================================
+  prune_dest_only: 692 atoms removed  (14583→13891 rows, 7707→7015 cols)
+  row dedup      : 3755 duplicate/scalar-multiple row(s) removed
+[matrix] shape=10136×7015  atoms=7015
+[matrix] row     0: [3=1, 9055=8458, 5271=8458, ∞=8456]
+[matrix] row     1: [11115=1, 9269=8458, 9110=8458, ∞=8456]
+[matrix] row     2: [12532=1, 10394=8458, 6152=8458, ∞=8456]
+[matrix] row     3: [10394=1, 9650=8458, 3717=8458, ∞=8456]
+[matrix] ... 10132 more row(s)
+  pre-normalization nullity: 134 on the 10136×7015 homogeneous system
+  kernel summary: gauge=0, isolated=134, fusion=0, parity=0, other=0
+  kernel[0]: ISOLATED atom=11193 coeff=1 -- leaving free
+  kernel[1]: ISOLATED atom=7448 coeff=1 -- leaving free
+  kernel[2]: ISOLATED atom=4210 coeff=1 -- leaving free
+  kernel[3]: ISOLATED atom=16180 coeff=1 -- leaving free
+  kernel[4]: ISOLATED atom=10090 coeff=1 -- leaving free
+  kernel[5]: ISOLATED atom=14565 coeff=1 -- leaving free
+  kernel[6]: ISOLATED atom=1865 coeff=1 -- leaving free
+  kernel[7]: ISOLATED atom=8836 coeff=1 -- leaving free
+  kernel[8]: ISOLATED atom=11428 coeff=1 -- leaving free
+  kernel[9]: ISOLATED atom=3679 coeff=1 -- leaving free
+  ... 124 more kernel direction(s) omitted
+  solver normalization only: a[gen0], a[gen1] are scaled by inv(5) mod 25373 = 15224
+  augmented system: 10137 rows × 7015 cols over GF(25373)
+  rank(A)=6881  rank([A|b])=6881
+  ✓  system is consistent — no Farkas certificate exists
+
+======================================================================
+  CHECK 3: STRUCTURAL COLLAPSE TRIAGE
+======================================================================
+  row dedup    : 3755 duplicates removed
+  pruned matrix: 10136 rows × 7015 cols
+  nullity       : 134
+
+  --- A) Special-column order test ---
+  inf    (col   448): k=1
+  gen0   (col     0): k=1
+  gen1   (col   449): k=1
+  tgt0   (col   189): k=1
+  tgt1   (col   122): k=1
+
+  --- B) Rank-without-inf test ---
+  without-inf nullity: 134
+  inf column is not the source of collapse.
+
+  --- C) Direct fusion audit ---
+  zero columns: 134
+    11193(col=13), 7448(col=30), 4210(col=31), 16180(col=32), 10090(col=91), 14565(col=108), 1865(col=109), 8836(col=134), 11428(col=143), 3679(col=182) ...
+  no proportional column classes found.
+
+  --- C2) Kernel-basis fusion sanity check ---
+  no support-2 kernel fusions.
+
+  --- D) Rows hitting special columns ---
+  gen0: 5 row(s)
+    row    67 coeff=     1 atoms=[11504=1, ∞=8456, 10113=8458, 6558=8458]
+    row   435 coeff=     1 atoms=[11504=1, ∞=8456, 15775=8458, 14697=8458]
+    row  2106 coeff=     1 atoms=[11504=1, ∞=25368, 1906=3, 14685=1]
+    row  3419 coeff=     1 atoms=[11504=1, ∞=25368, 13578=3, 1013=1]
+    row  3447 coeff=     1 atoms=[11504=1, ∞=25368, 3322=3, 13145=1]
+  gen1: 8 row(s)
+    row   160 coeff=  5074 atoms=[∞=1, 5506=5074, 7936=10149, 4606=10149]
+    row   890 coeff=  5074 atoms=[∞=1, 5506=5074, 11382=10149, 6716=10149]
+    row  1325 coeff= 10149 atoms=[∞=1, 5506=10149, 3787=10149, 4362=5074]
+    row  2984 coeff= 10149 atoms=[∞=1, 5506=10149, 2450=5074, 12674=10149]
+    row  4087 coeff=  5074 atoms=[∞=1, 5506=5074, 8559=10149, 11284=10149]
+    ... 3 more rows
+  tgt0: 10 row(s)
+    row   251 coeff=     1 atoms=[1821=1, ∞=8456, 12943=8458, 3541=8458]
+    row   613 coeff=     1 atoms=[1821=1, ∞=8456, 10075=8458, 3655=8458]
+    row  1345 coeff=     1 atoms=[1821=1, ∞=8456, 10510=8458, 11143=8458]
+    row  1796 coeff=     1 atoms=[1821=1, ∞=8456, 11245=8458, 1246=8458]
+    row  1953 coeff=     1 atoms=[1821=1, 2723=3, ∞=25368, 8733=1]
+    ... 5 more rows
+  tgt1: 8 row(s)
+    row    64 coeff=     1 atoms=[12655=1, ∞=8456, 9655=8458, 11735=8458]
+    row   343 coeff=     1 atoms=[12655=1, ∞=8456, 16391=8458, 13184=8458]
+    row  1067 coeff=     1 atoms=[12655=1, ∞=8456, 14879=8458, 11863=8458]
+    row  1427 coeff=     1 atoms=[12655=1, ∞=8456, 12070=8458, 11802=8458]
+    row  1682 coeff=     1 atoms=[12655=1, ∞=25368, 5674=3, 6841=1]
+    ... 3 more rows
+
+  --- E) Row-subsampling stability ---
+  base nullity=134; dropping 1013/10136 rows per trial
+  trial 1: nullity=159 delta=+25
+  trial 2: nullity=170 delta=+36
+  trial 3: nullity=171 delta=+37
+  trial 4: nullity=164 delta=+30
+  trial 5: nullity=166 delta=+32
+
+======================================================================
+  CHECK 4: INCREMENTAL CONSISTENCY FILTER
+======================================================================
+  row dedup    : 3755 duplicates removed

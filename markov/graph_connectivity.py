@@ -366,6 +366,244 @@ def solve_mod_p(
 
 
 # ---------------------------------------------------------------------------
+# Nullity-basis residual analysis
+# ---------------------------------------------------------------------------
+
+def nullity_residuals(
+    pdata, pidx, pptr, pnrows, pncols,
+    main_comp: set[int],
+    special_cols: dict[str, int | None],
+    p: int,
+    top_k: int = 8,
+):
+    """Compute the full right-kernel of the pruned matrix, restrict each basis
+    vector to main_comp columns, compute residuals M_main @ v mod p, and rank
+    them by how much their weight concentrates on divisor/special atoms.
+
+    Parameters
+    ----------
+    pdata, pidx, pptr : CSR arrays for the pruned matrix
+    pnrows, pncols    : shape of the pruned matrix
+    main_comp         : set of pruned column indices in the main component
+    special_cols      : mapping label -> pruned col index (may have None values)
+    p                 : field characteristic
+    top_k             : how many top vectors to print
+    """
+    # ---- 1. Build GF(p) matrix as list-of-dicts (sparse rows), then dedup ----
+    print(f"\n  Raw pruned matrix: {pnrows}×{pncols} over GF({p})")
+
+    # Build sparse row dicts, reducing mod p
+    rows_raw: list[dict[int, int]] = []
+    for r in range(pnrows):
+        rs, re = int(pptr[r]), int(pptr[r + 1])
+        d: dict[int, int] = {}
+        for k in range(rs, re):
+            c = int(pidx[k])
+            v = int(pdata[k]) % p
+            if v:
+                d[c] = (d.get(c, 0) + v) % p
+        d = {k: v for k, v in d.items() if v}
+        if d:
+            rows_raw.append(d)
+
+    # Row dedup: canonicalize each row by dividing by its leading coefficient,
+    # then hash the sparse pattern. Keep one representative per equivalence class.
+    seen_sigs: dict[tuple, bool] = {}
+    rows: list[dict[int, int]] = []
+    for d in rows_raw:
+        lead = min(d.keys())
+        inv_lead = pow(int(d[lead]), p - 2, p)
+        sig = tuple(sorted((c, (v * inv_lead) % p) for c, v in d.items()))
+        if sig not in seen_sigs:
+            seen_sigs[sig] = True
+            rows.append(d)
+
+    # Determine actual column count from rows present
+    all_cols: set[int] = set()
+    for d in rows:
+        all_cols.update(d.keys())
+    actual_ncols = max(all_cols) + 1 if all_cols else 0
+
+    print(f"  After row dedup : {len(rows)} rows, {len(all_cols)} distinct columns "
+          f"(pncols={pncols}, max_col={actual_ncols - 1})")
+
+    # Use actual_ncols as working dimension — pncols may differ from what
+    # other tools compute due to different prune criteria.
+    ncols = actual_ncols
+
+    # ---- 2. Sparse GF(p) kernel basis via column reduction ----
+    print(f"  Computing right kernel ({len(rows)} rows × {ncols} cols) ... ", end="", flush=True)
+
+    # Column reduction of A over GF(p), tracking a right-multiplier.
+    # col_vecs2[c] = sparse dict row->value for column c.
+    # right2[c]    = sparse dict orig_col->coeff tracking column operations.
+    # After reduction: if col_vecs2[c] is empty, right2[c] is a kernel vector.
+    col_vecs2: list[dict[int, int]] = [{} for _ in range(ncols)]
+    for r, rd in enumerate(rows):
+        for c, v in rd.items():
+            col_vecs2[c][r] = v
+
+    right2: list[dict[int, int]] = [{c: 1} for c in range(ncols)]
+    pivot_col2: dict[int, int] = {}
+    pivot_vec2: dict[int, dict[int, int]] = {}
+    pivot_right2: dict[int, dict[int, int]] = {}
+
+    for c in range(ncols):
+        col = dict(col_vecs2[c])
+        rs_c = dict(right2[c])
+
+        for row in sorted(pivot_col2.keys()):
+            coeff = col.get(row, 0)
+            if not coeff:
+                continue
+            piv = pivot_vec2[row]
+            piv_rs = pivot_right2[row]
+            inv_lead = pow(int(piv[row]), p - 2, p)
+            factor = (coeff * inv_lead) % p
+            for r2, v2 in piv.items():
+                col[r2] = (col.get(r2, 0) - factor * v2) % p
+            col = {k: v % p for k, v in col.items() if v % p}
+            for k, v in piv_rs.items():
+                rs_c[k] = (rs_c.get(k, 0) - factor * v) % p
+            rs_c = {k: v % p for k, v in rs_c.items() if v % p}
+
+        if not col:
+            kernel_vecs.append(rs_c)
+        else:
+            prow = min(col.keys())
+            pivot_col2[prow] = c
+            pivot_vec2[prow] = col
+            pivot_right2[prow] = rs_c
+
+    print(f"done.  kernel dimension = {len(kernel_vecs)}")
+
+    if not kernel_vecs:
+        print("  [warn] kernel is trivial — nothing to score.")
+        return
+
+    # ---- 3. Restrict each kernel vector to main_comp ----
+    # A kernel vector v has entries indexed by original column indices.
+    # We zero out entries outside main_comp.
+    main_list = sorted(main_comp)
+    main_set  = set(main_comp)
+    # Local re-index for M_main columns
+    main_remap = {c: i for i, c in enumerate(main_list)}
+    n_main = len(main_list)
+
+    # ---- 4. Build M_main: pruned matrix restricted to main_comp columns ----
+    # Rows that have ANY entry in main_comp are kept (all their main-comp entries).
+    M_main_rows: list[dict[int, int]] = []
+    for r, rd in enumerate(rows):
+        d = {main_remap[c]: v for c, v in rd.items() if c in main_set}
+        if d:
+            M_main_rows.append(d)
+
+    n_M = len(M_main_rows)
+    print(f"  M_main: {n_M} rows × {n_main} cols")
+
+    # ---- 5. Compute residuals r = M_main @ v_restricted (mod p) ----
+    # v_restricted: length n_main, indexed by main_remap
+
+    # Identify special column positions in main_remap
+    sp_local: dict[str, int | None] = {}
+    for label, orig_col in special_cols.items():
+        if orig_col is not None and orig_col in main_remap:
+            sp_local[label] = main_remap[orig_col]
+        else:
+            sp_local[label] = None
+
+    sp_set = {v for v in sp_local.values() if v is not None}
+
+    scored: list[tuple[float, int, list[int], dict[str, int]]] = []
+    # scored entries: (score, basis_idx, residual_as_list, sp_values)
+
+    for bi, kv in enumerate(kernel_vecs):
+        # kv is sparse dict original_col -> value; restrict to main_comp
+        v_main = [0] * n_main
+        for orig_c, val in kv.items():
+            if orig_c in main_remap:
+                v_main[main_remap[orig_c]] = int(val) % p
+
+        # Compute r = M_main @ v_main mod p
+        r_vec = [0] * n_M
+        for ri, rd in enumerate(M_main_rows):
+            s = 0
+            for ci, mv in rd.items():
+                s += mv * v_main[ci]
+            r_vec[ri] = s % p
+
+        # Score: fraction of L1 weight on special columns
+        total_l1 = sum(min(v, p - v) for v in r_vec if v)
+        if total_l1 == 0:
+            continue  # zero residual — skip (exact kernel of M_main too)
+
+        sp_vals = {}
+        sp_l1 = 0
+        for label, lc in sp_local.items():
+            if lc is not None:
+                # find rows that correspond to special-atom rows
+                # Actually r_vec is indexed by M_main rows, not columns.
+                # We want: which entries of r_vec are "at" special atoms?
+                # The residual r is a row-indexed vector; special atoms are columns.
+                # The natural score is: |v_main[special_col]| / |v_main| total
+                pass
+
+        # Revised score: concentrate on v_main entries at special cols
+        v_sp_l1 = sum(min(v_main[lc], p - v_main[lc]) for lc in sp_set if v_main[lc])
+        v_total_l1 = sum(min(v, p - v) for v in v_main if v)
+        if v_total_l1 == 0:
+            continue
+
+        score = v_sp_l1 / v_total_l1
+
+        sp_vals = {label: v_main[lc] if lc is not None else None
+                   for label, lc in sp_local.items()}
+
+        # Also record residual L1
+        scored.append((score, bi, r_vec, sp_vals, v_sp_l1, v_total_l1))
+
+    if not scored:
+        print("  [warn] all restricted kernel vectors lie in kernel of M_main too — no nonzero residuals.")
+        return
+
+    scored.sort(key=lambda t: -t[0])
+    print(f"\n  {len(scored)} kernel vectors with nonzero M_main residual.")
+    print(f"  Scoring: v_main weight on special cols / total v_main weight.\n")
+
+    label_w = max(len(k) for k in sp_local) if sp_local else 4
+
+    print(f"  {'rank':>4}  {'score':>8}  {'sp_l1':>7}  {'tot_l1':>7}  {'r_l1':>7}  "
+          + "  ".join(f"{k:>{label_w}}" for k in sp_local))
+    print("  " + "-" * (4 + 8 + 7 + 7 + 7 + 6 + (label_w + 2) * len(sp_local)))
+
+    for rank_i, (score, bi, r_vec, sp_vals, v_sp_l1, v_total_l1) in enumerate(scored[:top_k]):
+        r_l1 = sum(min(v, p - v) for v in r_vec if v)
+        sp_str = "  ".join(
+            f"{(str(sp_vals[k]) if sp_vals[k] is not None else 'N/A'):>{label_w}}"
+            for k in sp_local
+        )
+        print(f"  {rank_i:>4}  {score:>8.4f}  {v_sp_l1:>7}  {v_total_l1:>7}  {r_l1:>7}  {sp_str}")
+
+    # Detailed dump for top-3
+    print(f"\n  --- Detailed top-{min(3, len(scored))} ---")
+    for rank_i, (score, bi, r_vec, sp_vals, v_sp_l1, v_total_l1) in enumerate(scored[:3]):
+        print(f"\n  [rank {rank_i}]  basis_vec={bi}  score={score:.4f}")
+        # nonzero entries of v_main at special cols
+        print(f"    Special-col values in v_main:")
+        for label, lc in sp_local.items():
+            val = sp_vals.get(label)
+            sym = min(val, p - val) if val else 0
+            print(f"      {label:>{label_w}}: col={lc}  raw={val}  sym={sym}")
+        # top nonzero rows of residual
+        nonzero_r = [(i, v) for i, v in enumerate(r_vec) if v]
+        nonzero_r.sort(key=lambda t: -min(t[1], p - t[1]))
+        print(f"    Residual r_vec: {len(nonzero_r)} nonzero rows (top 6 by magnitude):")
+        for ri, rv in nonzero_r[:6]:
+            sym = min(rv, p - rv)
+            print(f"      row={ri:5d}  raw={rv:6d}  sym={sym:6d}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -382,6 +620,10 @@ def main():
                     help="Explicit x-coordinates to remove as torsion/bad atoms")
     ap.add_argument("--exclude-ell-torsion", action="store_true",
                     help="Also exclude torsion atoms listed in the HDF5 file, if present")
+    ap.add_argument("--nullity-residuals", action="store_true",
+                    help="Compute full nullity basis, restrict to main component, score residuals by divisor-atom overlap")
+    ap.add_argument("--top-k", type=int, default=8,
+                    help="How many top-scoring residual vectors to print (default: 8)")
     args = ap.parse_args()
 
     SEP = "=" * 70
@@ -660,6 +902,43 @@ def main():
     else:
         print("  ✗  Structural problem — see warnings above.")
     print()
+
+    if args.nullity_residuals:
+        if not group_order:
+            print("\n[nullity-residuals] --group-order required. Skipping.")
+        else:
+            section("NULLITY-BASIS RESIDUAL ANALYSIS")
+
+            # Build pruned-col indices for special columns.
+            # kept_cols maps pruned_col -> original_col; invert it.
+            if args.no_prune:
+                orig_to_pruned = {c: c for c in range(h["ncols"])}
+            else:
+                orig_to_pruned = {orig: pruned for pruned, orig in enumerate(kept_cols)}
+
+            def _pc(key):
+                orig = h.get(key)
+                if orig is None:
+                    return None
+                return orig_to_pruned.get(orig)
+
+            special_cols = {
+                "inf":  _pc("col_inf"),
+                "gen0": _pc("col_gen0"),
+                "gen1": _pc("col_gen1"),
+                "tgt0": _pc("col_tgt0"),
+                "tgt1": _pc("col_tgt1"),
+            }
+            # Remove entries with None pruned col
+            special_cols = {k: v for k, v in special_cols.items() if v is not None}
+
+            nullity_residuals(
+                pdata, pidx, pptr, pnrows, pncols,
+                main_comp=main_comp,
+                special_cols=special_cols,
+                p=group_order,
+                top_k=args.top_k,
+            )
 
 
 if __name__ == "__main__":
