@@ -285,7 +285,7 @@ def solve_mod_p(
     if fixed_vars is None:
         fixed_vars = {}
 
-    col_list = sorted(keep_cols)
+    col_list = sorted(keep_cols - set(fixed_vars.keys()))
     col_remap = {c: i for i, c in enumerate(col_list)}
     n = len(col_list)
 
@@ -352,7 +352,9 @@ def solve_mod_p(
             s = (s + v * x[k]) % p
         x[pc] = (rhs - s) % p
 
-    return {old: x[new] for old, new in col_remap.items()}
+    return {old: x[new] for old, new in col_remap.items()} | {
+        c: int(v) % p for c, v in fixed_vars.items() if c in keep_cols
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -557,33 +559,74 @@ def main():
                         print("     The non-∞ subspace is fully determined.")
                         print("     DLP is solvable: add anchor and call solve_right.")
 
-                        print("\n  [solve] attempting to recover logs...")
-                        sol, used_fixed = try_solve_with_anchors(
-                            pdata, pidx, pptr,
-                            pnrows, pncols,
-                            p=group_order,
-                            main_comp=main_comp,
-                            h=h,
-                        )
-                        print(f"  [solve] succeeded with anchors: {used_fixed}")
+                        # Translate original HDF5 column indices → pruned indices.
+                        # kept_cols[pruned_i] = original_i, so we invert it.
+                        orig_to_pruned: dict[int, int] = {}
+                        if not args.no_prune:
+                            orig_to_pruned = {orig: pruned for pruned, orig in enumerate(kept_cols)}
 
-                        print("\n  --- recovered logs (sample) ---")
-                        for key in ("col_inf", "col_gen0", "col_gen1", "col_tgt0", "col_tgt1"):
-                            c = h[key]
-                            if c is None:
-                                continue
-                            print(f"    {key}: log = {sol.get(c)}")
+                        def pruned_col(key: str) -> int | None:
+                            orig = h.get(key)
+                            if orig is None:
+                                return None
+                            if args.no_prune:
+                                return orig
+                            return orig_to_pruned.get(orig)
 
-                        cg0 = h["col_gen0"]
-                        ct0 = h["col_tgt0"]
-                        if cg0 in sol and ct0 in sol:
-                            g = sol[cg0]
-                            t = sol[ct0]
-                            if g != 0:
-                                k = (t * pow(g, -1, group_order)) % group_order
-                                print(f"\n  >>> recovered discrete log k ≡ {k} mod {group_order}")
-                            else:
-                                print("\n  [warn] generator log is 0, cannot invert")
+                        pc_inf  = inf_pruned_col   # already found above by scanning patoms
+                        pc_gen0 = pruned_col("col_gen0")
+                        pc_gen1 = pruned_col("col_gen1")
+                        pc_tgt0 = pruned_col("col_tgt0")
+                        pc_tgt1 = pruned_col("col_tgt1")
+
+                        print(f"\n  [diag] pruned cols — inf={pc_inf}  gen0={pc_gen0}  gen1={pc_gen1}"
+                              f"  tgt0={pc_tgt0}  tgt1={pc_tgt1}")
+                        if pc_gen0 is not None:
+                            gen_rows = sum(
+                                1 for r in range(pnrows)
+                                if any(int(pidx[k]) == pc_gen0
+                                       for k in range(int(pptr[r]), int(pptr[r + 1])))
+                            )
+                            print(f"  [diag] pc_gen0 appears in {gen_rows} / {pnrows} rows")
+
+                        # Gauge fix: pin ∞ = 1.  Its coefficient is -5 in every row,
+                        # so each row gets rhs += 5, breaking the homogeneity and
+                        # driving the unique solution out of back-substitution.
+                        if pc_inf is None:
+                            print("\n  [warn] ∞ not found in pruned matrix — cannot solve.")
+                        else:
+                            fixed_vars = {pc_inf: 1}
+                            print("\n  [solve] attempting to recover logs...")
+                            try:
+                                sol = solve_mod_p(
+                                    pdata, pidx, pptr,
+                                    pnrows, pncols,
+                                    p=group_order,
+                                    keep_cols=main_comp,
+                                    fixed_vars=fixed_vars,
+                                )
+                                print(f"  [solve] succeeded  gauge={fixed_vars}")
+
+                                print("\n  --- recovered logs (sample) ---")
+                                for key, pc in (("col_inf",  pc_inf),
+                                                ("col_gen0", pc_gen0),
+                                                ("col_gen1", pc_gen1),
+                                                ("col_tgt0", pc_tgt0),
+                                                ("col_tgt1", pc_tgt1)):
+                                    if pc is None:
+                                        continue
+                                    print(f"    {key} (pruned_col={pc}): log = {sol.get(pc)}")
+
+                                if pc_gen0 is not None and pc_tgt0 is not None:
+                                    g = sol.get(pc_gen0, 0)
+                                    t = sol.get(pc_tgt0, 0)
+                                    if g != 0:
+                                        k = (t * pow(int(g), group_order - 2, group_order)) % group_order
+                                        print(f"\n  >>> recovered discrete log k ≡ {k} mod {group_order}")
+                                    else:
+                                        print("\n  [warn] generator log is 0 after solve")
+                            except ValueError as e:
+                                print(f"\n  [solve] failed: {e}")
                     else:
                         print(f"  ✗  Genuinely underdetermined even without ∞ (nullity={null_no_inf}).")
                         print(f"     Need {null_no_inf} more independent rows.")
@@ -620,45 +663,6 @@ def main():
     else:
         print("  ✗  Structural problem — see warnings above.")
     print()
-
-
-def try_solve_with_anchors(pdata, pidx, pptr, pnrows, pncols, p, main_comp, h):
-    """Try a few plausible anchor choices.
-
-    Returns (sol, used_fixed_vars).
-    """
-    candidates: list[dict[int, int]] = []
-
-    if h["col_inf"] is not None:
-        candidates.append({h["col_inf"]: 0})
-
-    for key, val in (("col_gen0", 1), ("col_gen1", 1), ("col_tgt0", 1), ("col_tgt1", 1)):
-        c = h.get(key)
-        if c is not None:
-            fv = {}
-            if h["col_inf"] is not None:
-                fv[h["col_inf"]] = 0
-            fv[c] = val
-            candidates.append(fv)
-
-    candidates.append({})
-
-    last_err = None
-    for fixed_vars in candidates:
-        try:
-            sol = solve_mod_p(
-                pdata, pidx, pptr,
-                pnrows, pncols,
-                p=p,
-                keep_cols=main_comp,
-                fixed_vars=fixed_vars,
-            )
-            return sol, fixed_vars
-        except ValueError as e:
-            last_err = e
-            print(f"  [solve] anchor set {fixed_vars} failed: {e}")
-
-    raise last_err
 
 
 if __name__ == "__main__":
