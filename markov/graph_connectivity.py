@@ -6,6 +6,7 @@ import json
 import sys
 from collections import defaultdict
 from typing import Any
+from relation_matrix import *
 
 import h5py
 import numpy as np
@@ -88,80 +89,6 @@ def load_hdf5(path: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Prune dest-only atoms
 # ---------------------------------------------------------------------------
-
-def prune_dest_only(
-    data,
-    indices,
-    indptr,
-    nrows: int,
-    ncols: int,
-    atoms,
-    protected_cols: set[int],
-    excluded_cols: set[int] | None = None,
-):
-    """Prune columns that never appear as source-like atoms (|coeff| == 3).
-
-    Any row touching an excluded column is discarded entirely, because the
-    corresponding relation is not safe to use in log space.
-
-    Returns
-    -------
-    pdata, pidx, pptr, pnrows, pncols, patoms, paidx, kept_cols, kept_rows
-    """
-    if excluded_cols is None:
-        excluded_cols = set()
-
-    source_cols: set[int] = set(protected_cols) - set(excluded_cols)
-    for v, c in zip(data, indices):
-        ci = int(c)
-        if ci in excluded_cols:
-            continue
-        if abs(int(v)) == _XI_COEFF:
-            source_cols.add(ci)
-
-    kept_cols = sorted(source_cols)
-    col_remap = {old: new for new, old in enumerate(kept_cols)}
-
-    new_data, new_idx, new_ptr = [], [], [0]
-    kept_rows = []
-    n_malformed = 0
-    for r in range(nrows):
-        rs, re = int(indptr[r]), int(indptr[r + 1])
-        row_cols = [int(indices[k]) for k in range(rs, re)]
-        if any(c in excluded_cols for c in row_cols):
-            continue
-        # Drop malformed relations: coefficients must sum to zero (principal divisor).
-        if sum(int(data[k]) for k in range(rs, re)) != 0:
-            n_malformed += 1
-            continue
-        row_ents = [
-            (col_remap[c], int(data[k]))
-            for k, c in ((k, int(indices[k])) for k in range(rs, re))
-            if c in col_remap
-        ]
-        if row_ents:
-            kept_rows.append(r)
-            for c, v in row_ents:
-                new_data.append(v)
-                new_idx.append(c)
-            new_ptr.append(len(new_data))
-
-    if n_malformed:
-        print(f"[prune] dropped {n_malformed} malformed rows (coeff sum ≠ 0)")
-
-    new_atoms = [atoms[c] for c in kept_cols]
-    new_aidx = {str(a): i for i, a in enumerate(new_atoms)}
-    return (
-        np.array(new_data, dtype=np.int32),
-        np.array(new_idx, dtype=np.int32),
-        np.array(new_ptr, dtype=np.int32),
-        len(kept_rows),
-        len(kept_cols),
-        new_atoms,
-        new_aidx,
-        kept_cols,
-        kept_rows,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -376,212 +303,207 @@ def nullity_residuals(
     p: int,
     top_k: int = 8,
 ):
-    """Compute the full right-kernel of the pruned matrix, then score how the
-    component-restricted kernel vectors interact with the divisor component.
+    """Compute the full right-kernel of the pruned matrix via Sage, then report
+    the structure of each basis vector.
 
-    The workflow is:
+    The workflow matches dlp_contradiction_diag.py:
 
-      1. Build the right kernel of the full pruned matrix on *all* columns.
-      2. Restrict each kernel vector to the chosen component, producing v.
-      3. Restrict the matrix to the same component, producing M.
-      4. Compute residuals r = M @ v.
-      5. Score r by how much of its weight lands on rows that touch the DLP
-         special columns, then print the highest-scoring vectors.
-
-    This keeps the nullity computation honest: no component slicing happens
-    before the kernel is computed.
+      1. Reconstruct a Sage integer matrix from the CSR data.
+      2. Deduplicate rows mod p (collapse scalar multiples).
+      3. Call A.change_ring(GF(p)).right_kernel() — no handrolled elimination.
+      4. Classify each basis vector (gauge, isolated, fusion, parity, other)
+         and report special-column values.
     """
-    # ---- 1. Build GF(p) rows and deduplicate them ----
-    print(f"\n  Raw pruned matrix: {pnrows}×{pncols} over GF({p})")
+    from sage.all import GF, ZZ, Integer, matrix as sage_matrix, vector as sage_vector, Matrix
 
-    rows_raw: list[dict[int, int]] = []
+    Fp = GF(Integer(p))
+
+    # ---- 1. Reconstruct Sage integer matrix from CSR ----
+    print(f"\n  Raw pruned matrix: {pnrows}×{pncols} over GF({p})")
+    entries = {}
     for r in range(pnrows):
         rs, re = int(pptr[r]), int(pptr[r + 1])
-        d: dict[int, int] = {}
         for k in range(rs, re):
-            c = int(pidx[k])
-            v = int(pdata[k]) % p
-            if v:
-                d[c] = (d.get(c, 0) + v) % p
-        d = {k: v for k, v in d.items() if v}
-        if d:
-            rows_raw.append(d)
+            entries[(r, int(pidx[k]))] = int(pdata[k])
+    M_ZZ = Matrix(ZZ, pnrows, pncols, entries)
 
-    seen_sigs: set[tuple] = set()
-    rows: list[dict[int, int]] = []
-    for d in rows_raw:
-        lead = min(d.keys())
-        inv_lead = pow(int(d[lead]), p - 2, p)
-        sig = tuple(sorted((c, (v * inv_lead) % p) for c, v in d.items()))
-        if sig not in seen_sigs:
-            seen_sigs.add(sig)
-            rows.append(d)
+    # ---- 2. Deduplicate rows mod p (collapse scalar multiples) ----
+    # Mirrors _dedupe_rows_mod from dlp_contradiction_diag.py.
+    seen: dict = {}
+    dedup_rows = []
+    for i in range(pnrows):
+        row_entries = sorted(
+            (j, int(M_ZZ[i, j]) % p)
+            for j in range(pncols)
+            if int(M_ZZ[i, j]) % p != 0
+        )
+        if not row_entries:
+            continue
+        lead = row_entries[0][1]
+        inv_lead = pow(lead, -1, p)
+        sig = tuple((j, (v * inv_lead) % p) for j, v in row_entries)
+        if sig not in seen:
+            seen[sig] = len(dedup_rows)
+            row = {j: int(v) for j, v in sig}
+            dedup_rows.append(row)
 
-    all_cols: set[int] = set()
-    for d in rows:
-        all_cols.update(d.keys())
+    if dedup_rows:
+        sparse_entries = {}
+        for i, row_d in enumerate(dedup_rows):
+            for j, v in row_d.items():
+                sparse_entries[(i, j)] = v
+        M_dedup = Matrix(ZZ, len(dedup_rows), pncols, sparse_entries)
+    else:
+        M_dedup = Matrix(ZZ, 0, pncols)
 
-    max_col = max(all_cols) if all_cols else -1
-    print(f"  After row dedup : {len(rows)} rows, {len(all_cols)} distinct columns "
-          f"(pncols={pncols}, max_col_present={max_col})")
+    n_dedup = pnrows - M_dedup.nrows()
+    print(f"  After row dedup : {M_dedup.nrows()} rows ({n_dedup} duplicate/scalar-multiple rows removed)")
 
-    # IMPORTANT: keep the full pruned width.  pncols is the working dimension,
-    # even if some columns are zero after deduplication.  Those zero columns are
-    # genuine free directions and must count toward nullity.
-    ncols = pncols
+    # ---- 3. Compute right kernel via Sage ----
+    print(f"  Computing right kernel ({M_dedup.nrows()} rows × {pncols} cols) ... ", end="", flush=True)
+    A = M_dedup.change_ring(Fp)
+    ker = A.right_kernel()
+    nullity = ker.dimension()
+    print(f"done.  kernel dimension = {nullity}")
 
-    # ---- 2. Sparse GF(p) kernel basis via column reduction ----
-    print(f"  Computing right kernel ({len(rows)} rows × {ncols} cols) ... ", end="", flush=True)
-
-    col_vecs2: list[dict[int, int]] = [{} for _ in range(ncols)]
-    for r, rd in enumerate(rows):
-        for c, v in rd.items():
-            if 0 <= c < ncols:
-                col_vecs2[c][r] = v
-
-    right2: list[dict[int, int]] = [{c: 1} for c in range(ncols)]
-    pivot_col2: dict[int, int] = {}
-    pivot_vec2: dict[int, dict[int, int]] = {}
-    pivot_right2: dict[int, dict[int, int]] = {}
-    kernel_vecs: list[dict[int, int]] = []
-
-    for c in range(ncols):
-        col = dict(col_vecs2[c])
-        rs_c = dict(right2[c])
-
-        for row in sorted(pivot_col2.keys()):
-            coeff = col.get(row, 0)
-            if not coeff:
-                continue
-            piv = pivot_vec2[row]
-            piv_rs = pivot_right2[row]
-            inv_lead = pow(int(piv[row]), p - 2, p)
-            factor = (coeff * inv_lead) % p
-
-            for r2, v2 in piv.items():
-                col[r2] = (col.get(r2, 0) - factor * v2) % p
-            col = {k: v % p for k, v in col.items() if v % p}
-
-            for k, v in piv_rs.items():
-                rs_c[k] = (rs_c.get(k, 0) - factor * v) % p
-            rs_c = {k: v % p for k, v in rs_c.items() if v % p}
-
-        if not col:
-            kernel_vecs.append(rs_c)
-        else:
-            prow = min(col.keys())
-            pivot_col2[prow] = c
-            pivot_vec2[prow] = col
-            pivot_right2[prow] = rs_c
-
-    print(f"done.  kernel dimension = {len(kernel_vecs)}")
-
-    if not kernel_vecs:
-        print("  [warn] kernel is trivial — nothing to score.")
+    if nullity == 0:
+        print("  [warn] kernel is trivial.")
         return
 
-    # ---- 3. Restrict each kernel vector to main_comp ----
-    main_list = sorted(main_comp)
-    main_set = set(main_comp)
-    main_remap = {c: i for i, c in enumerate(main_list)}
-    n_main = len(main_list)
+    # ---- 4. Classify each basis vector (matches _extract_pin_rows pattern) ----
+    # Identify the inf column in the pruned space (special_cols uses original
+    # pruned indices, which are the same column indices we're working with here).
+    p_col_inf = special_cols.get("inf")
 
-    # ---- 4. Build M_main: pruned matrix restricted to main_comp columns ----
-    M_main_rows: list[dict[int, int]] = []
-    row_has_special: list[bool] = []
+    counts = {"gauge": 0, "isolated": 0, "fusion": 0, "parity": 0, "other": 0}
+    previews = []
+    max_preview = top_k
 
-    special_local: dict[str, int | None] = {}
-    for label, orig_col in special_cols.items():
-        if orig_col is not None and orig_col in main_remap:
-            special_local[label] = main_remap[orig_col]
+    for vi, vec in enumerate(ker.basis()):
+        support = [(j, int(vec[j])) for j in range(pncols) if vec[j] != Fp(0)]
+        if not support:
+            continue
+
+        if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
+            counts["gauge"] += 1
+            msg = f"kernel[{vi}]: GAUGE (inf col={p_col_inf})"
+        elif len(support) == 1:
+            counts["isolated"] += 1
+            j, coeff = support[0]
+            msg = f"kernel[{vi}]: ISOLATED  col={j}  coeff={coeff}"
+        elif len(support) == 2:
+            (j0, c0), (j1, c1) = support
+            if (c0 == 1 and c1 == p - 1) or (c0 == p - 1 and c1 == 1):
+                counts["fusion"] += 1
+                msg = f"kernel[{vi}]: FUSION  col={j0} = col={j1}"
+            else:
+                counts["other"] += 1
+                msg = f"kernel[{vi}]: OTHER  support_size=2  coeffs={sorted(c for _, c in support)}"
         else:
-            special_local[label] = None
-    special_local_set = {c for c in special_local.values() if c is not None}
+            coeffs_vals = [c for _, c in support]
+            if len(set(coeffs_vals)) == 1:
+                counts["parity"] += 1
+                msg = f"kernel[{vi}]: PARITY/CONSERVATION  support_size={len(support)}  coeff={coeffs_vals[0]}"
+            else:
+                counts["other"] += 1
+                msg = f"kernel[{vi}]: OTHER  support_size={len(support)}  distinct_coeffs={sorted(set(coeffs_vals))}"
 
-    for rd in rows:
-        d = {main_remap[c]: v for c, v in rd.items() if c in main_set}
-        if d:
-            M_main_rows.append(d)
-            row_has_special.append(any(c in special_local_set for c in d.keys()))
+        # Annotate with special-column values.
+        sp_vals = {label: int(vec[col]) for label, col in special_cols.items()
+                   if col is not None and vec[col] != Fp(0)}
+        if sp_vals:
+            msg += f"  specials={sp_vals}"
+
+        if len(previews) < max_preview:
+            previews.append(msg)
+
+    print(f"\n  kernel summary: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+    for msg in previews:
+        print(f"  {msg}")
+    omitted = nullity - len(previews)
+    if omitted > 0:
+        print(f"  ... {omitted} more kernel direction(s) omitted")
+
+    # ---- 5. Restrict matrix and kernel vectors to main_comp ----
+    main_list = sorted(main_comp)
+    main_idx  = {c: i for i, c in enumerate(main_list)}
+    n_main    = len(main_list)
+
+    # Rows of M_dedup restricted to main_comp columns; track which touch gen/tgt.
+    gen_tgt_cols  = {c for lbl, c in special_cols.items()
+                     if lbl in ("gen0", "gen1", "tgt0", "tgt1") and c in main_idx}
+    gen_tgt_local = {main_idx[c] for c in gen_tgt_cols}
+
+    M_main_rows        = []
+    row_touches_gen_tgt = []
+    for row_d in dedup_rows:
+        restricted = {main_idx[j]: v for j, v in row_d.items() if j in main_idx}
+        if restricted:
+            M_main_rows.append(restricted)
+            row_touches_gen_tgt.append(bool(restricted.keys() & gen_tgt_local))
 
     n_M = len(M_main_rows)
-    print(f"  M_main: {n_M} rows × {n_main} cols")
+    print(f"\n  M_main: {n_M} rows x {n_main} cols  "
+          f"({sum(row_touches_gen_tgt)} rows touch gen/tgt cols)")
 
-    scored: list[tuple[float, int, list[int], dict[str, int], int, int, int, int]] = []
-    # tuple layout:
-    #   (score, basis_idx, residual_vec, special_values, r_special_l1, r_total_l1, v_special_l1, v_total_l1)
+    sp_local = {lbl: main_idx[c] for lbl, c in special_cols.items() if c in main_idx}
 
     def sym(v: int) -> int:
         return min(v, p - v) if v else 0
 
-    for bi, kv in enumerate(kernel_vecs):
-        # kv is sparse dict original_col -> value; restrict to main_comp
-        v_main = [0] * n_main
-        for orig_c, val in kv.items():
-            if orig_c in main_remap:
-                v_main[main_remap[orig_c]] = int(val) % p
+    # ---- 6. Compute residuals r = M_main @ v_main and score ----
+    scored = []  # (score, vi, v_main, r_vec, sp_vals, r_gen_tgt, r_total)
 
-        # Compute r = M_main @ v_main mod p
-        r_vec = [0] * n_M
-        for ri, rd in enumerate(M_main_rows):
-            s = 0
-            for ci, mv in rd.items():
-                s += mv * v_main[ci]
-            r_vec[ri] = s % p
+    for vi, vec in enumerate(ker.basis()):
+        v_main = [int(vec[c]) % p for c in main_list]
 
-        r_total_l1 = sum(sym(v) for v in r_vec if v)
-        if r_total_l1 == 0:
-            continue  # exact kernel of M_main too
+        r_vec = [
+            sum(mv * v_main[lc] for lc, mv in row_d.items()) % p
+            for row_d in M_main_rows
+        ]
 
-        r_special_l1 = sum(sym(r_vec[i]) for i, hit in enumerate(row_has_special) if hit and r_vec[i])
-        v_special_l1 = sum(sym(v_main[lc]) for lc in special_local_set if v_main[lc])
-        v_total_l1 = sum(sym(v) for v in v_main if v)
+        r_sym = [sym(v) for v in r_vec]
+        r_total = sum(r_sym)
+        if r_total == 0:
+            continue  # v_main in kernel of M_main, skip
 
-        score = (r_special_l1 / r_total_l1) if r_total_l1 else 0.0
+        r_gen_tgt = sum(r_sym[i] for i, hit in enumerate(row_touches_gen_tgt) if hit)
+        score     = r_gen_tgt / r_total
 
-        special_values = {label: (v_main[lc] if lc is not None else None)
-                          for label, lc in special_local.items()}
-
-        scored.append((score, bi, r_vec, special_values, r_special_l1, r_total_l1, v_special_l1, v_total_l1))
+        sp_vals = {lbl: int(vec[c]) % p for lbl, c in special_cols.items() if c in main_idx}
+        scored.append((score, vi, v_main, r_vec, sp_vals, r_gen_tgt, r_total))
 
     if not scored:
-        print("  [warn] all restricted kernel vectors lie in kernel of M_main too — no nonzero residuals.")
+        print("  All restricted kernel vectors are in the kernel of M_main -- no residuals.")
         return
 
-    scored.sort(key=lambda t: (-t[0], -t[4], -t[5], -t[6], -t[7]))
-    print(f"\n  {len(scored)} kernel vectors with nonzero M_main residual.")
-    print("  Scoring: residual weight on rows touching special columns / total residual weight.\n")
+    scored.sort(key=lambda t: (-t[0], -t[5], -t[6]))
+    print(f"  {len(scored)} kernel vector(s) with nonzero M_main residual.\n")
 
-    label_w = max((len(k) for k in special_local), default=4)
+    # ---- 7. Print top-k ----
+    sp_labels = [lbl for lbl in ("inf", "gen0", "gen1", "tgt0", "tgt1") if lbl in sp_local]
+    header_sp = "  ".join(f"{lbl:>6}" for lbl in sp_labels)
+    print(f"  {'rank':>4}  {'score':>7}  {'r_gt':>7}  {'r_tot':>7}  {header_sp}")
+    print("  " + "-" * (30 + 8 * len(sp_labels)))
 
-    print(f"  {'rank':>4}  {'score':>8}  {'r_sp':>7}  {'r_tot':>7}  {'v_sp':>7}  {'v_tot':>7}  "
-          + "  ".join(f"{k:>{label_w}}" for k in special_local))
-    print("  " + "-" * (4 + 8 + 7 + 7 + 7 + 7 + 6 + (label_w + 2) * len(special_local)))
-
-    for rank_i, (score, bi, r_vec, sp_vals, r_special_l1, r_total_l1, v_special_l1, v_total_l1) in enumerate(scored[:top_k]):
-        sp_str = "  ".join(
-            f"{(str(sp_vals[k]) if sp_vals[k] is not None else 'N/A'):>{label_w}}"
-            for k in special_local
-        )
-        print(
-            f"  {rank_i:>4}  {score:>8.4f}  {r_special_l1:>7}  {r_total_l1:>7}  "
-            f"{v_special_l1:>7}  {v_total_l1:>7}  {sp_str}"
-        )
+    for rank_i, (score, vi, v_main, r_vec, sp_vals, r_gen_tgt, r_total) in enumerate(scored[:top_k]):
+        sp_str = "  ".join(f"{sym(sp_vals.get(lbl, 0)):>6}" for lbl in sp_labels)
+        print(f"  {rank_i:>4}  {score:>7.4f}  {r_gen_tgt:>7}  {r_total:>7}  {sp_str}  basis[{vi}]")
 
     print(f"\n  --- Detailed top-{min(3, len(scored))} ---")
-    for rank_i, (score, bi, r_vec, sp_vals, r_special_l1, r_total_l1, v_special_l1, v_total_l1) in enumerate(scored[:3]):
-        print(f"\n  [rank {rank_i}]  basis_vec={bi}  score={score:.4f}")
-        print("    Special-col values in v_main:")
-        for label, lc in special_local.items():
-            val = sp_vals.get(label)
-            sym_val = sym(val) if val else 0
-            print(f"      {label:>{label_w}}: col={lc}  raw={val}  sym={sym_val}")
-
-        nonzero_r = [(i, v) for i, v in enumerate(r_vec) if v]
-        nonzero_r.sort(key=lambda t: -sym(t[1]))
-        print(f"    Residual r_vec: {len(nonzero_r)} nonzero rows (top 6 by magnitude):")
-        for ri, rv in nonzero_r[:6]:
-            print(f"      row={ri:5d}  raw={rv:6d}  sym={sym(rv):6d}")
+    for rank_i, (score, vi, v_main, r_vec, sp_vals, r_gen_tgt, r_total) in enumerate(scored[:3]):
+        print(f"\n  [rank {rank_i}]  basis[{vi}]  score={score:.4f}"
+              f"  r_gen_tgt={r_gen_tgt}  r_total={r_total}")
+        print(f"  Special-col values (sym):")
+        for lbl in sp_labels:
+            raw = sp_vals.get(lbl, 0)
+            print(f"    {lbl:>6}: raw={raw:>6}  sym={sym(raw):>6}")
+        nonzero_r = sorted(((i, v) for i, v in enumerate(r_vec) if v),
+                           key=lambda t: -sym(t[1]))
+        print(f"  Residual: {len(nonzero_r)} nonzero rows (top 8 by sym magnitude):")
+        for ri, rv in nonzero_r[:8]:
+            tag = " <- gen/tgt" if row_touches_gen_tgt[ri] else ""
+            print(f"    row={ri:5d}  raw={rv:>6}  sym={sym(rv):>6}{tag}")
 
 
 # ---------------------------------------------------------------------------
@@ -685,16 +607,77 @@ def main():
                   f"{h['ncols'] - raw_ncols} col(s) removed")
 
         # Step 2: prune dest-only atoms (excluded_cols already removed above).
-        # Note: prune_dest_only scans ALL rows to build source_cols, then drops
-        # malformed rows (coeff sum != 0) in its output pass. We must not pre-filter
-        # malformed rows here because those rows may contain the only coeff-3
-        # appearance of some atoms, which must remain in source_cols.
-        pdata, pidx, pptr, pnrows, pncols, patoms, _paidx, kept_cols, kept_rows = prune_dest_only(
-            raw_data, raw_idx, raw_ptr, raw_nrows, raw_ncols, cur_atoms,
-            protected_cols=protected_cols, excluded_cols=set(),
+        # Uses prune_dest_only from relation_matrix.py which takes a SageMath Matrix.
+        # Convert CSR → dense SageMath Matrix, call, then convert back to CSR.
+        from sage.matrix.constructor import Matrix
+        from sage.rings.integer_ring import ZZ
+        entries = {}
+        for r in range(raw_nrows):
+            rs, re = int(raw_ptr[r]), int(raw_ptr[r + 1])
+            for k in range(rs, re):
+                entries[(r, int(raw_idx[k]))] = int(raw_data[k])
+        raw_mat = Matrix(ZZ, raw_nrows, raw_ncols, entries)
+
+        # protected_cols holds integer column indices; pass as a list of atom values.
+        protected_atoms = [cur_atoms[c] for c in protected_cols] if protected_cols else None
+        pruned_mat, pruned_atoms, _removed = prune_dest_only(
+            raw_mat, cur_atoms, protected=protected_atoms
         )
+
+        pnrows, pncols = pruned_mat.nrows(), pruned_mat.ncols()
+        patoms = pruned_atoms
+
+        # Derive kept_cols: indices into cur_atoms that survived (matched by identity/value).
+        atom_to_orig = {str(a): i for i, a in enumerate(cur_atoms)}
+        kept_cols = [atom_to_orig[str(a)] for a in pruned_atoms]
+
+        # Convert pruned SageMath Matrix → CSR numpy arrays.
+        p_entries: dict[int, list] = {}
+        _pdata_list: list[int] = []
+        _pidx_list: list[int] = []
+        _pptr_list: list[int] = [0]
+        for r in range(pnrows):
+            for c in range(pncols):
+                v = int(pruned_mat[r, c])
+                if v:
+                    _pdata_list.append(v)
+                    _pidx_list.append(c)
+            _pptr_list.append(len(_pdata_list))
+        pdata = np.array(_pdata_list, dtype=np.int32)
+        pidx  = np.array(_pidx_list,  dtype=np.int32)
+        pptr  = np.array(_pptr_list,  dtype=np.int32)
+
         print(f"[prune] removed {raw_ncols - pncols} dest-only atoms, {raw_nrows - pnrows} now-empty rows")
         print(f"[prune] pruned  : {pnrows} rows x {pncols} cols")
+
+    # Drop malformed rows: a valid principal-divisor relation must have integer
+    # coefficients summing to zero.  Rows that fail this are arithmetically
+    # unsound (typically because a dest-only atom was pruned away after the
+    # relation was written, leaving its column absent from the matrix).
+    _malformed = []
+    for r in range(pnrows):
+        rs, re = int(pptr[r]), int(pptr[r + 1])
+        if sum(int(pdata[k]) for k in range(rs, re)) != 0:
+            _malformed.append(r)
+    if _malformed:
+        print(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum != 0): "
+              f"{_malformed[:16]}" + (" ..." if len(_malformed) > 16 else ""))
+        _keep_rows = [r for r in range(pnrows) if r not in set(_malformed)]
+        _new_data, _new_idx, _new_ptr = [], [], [0]
+        for r in _keep_rows:
+            rs, re = int(pptr[r]), int(pptr[r + 1])
+            for k in range(rs, re):
+                _new_data.append(int(pdata[k]))
+                _new_idx.append(int(pidx[k]))
+            _new_ptr.append(len(_new_data))
+        pdata  = np.array(_new_data, dtype=np.int32)
+        pidx   = np.array(_new_idx,  dtype=np.int32)
+        pptr   = np.array(_new_ptr,  dtype=np.int32)
+        pnrows = len(_keep_rows)
+        print(f"[filter] matrix after malformed-row drop: {pnrows} rows x {pncols} cols")
+    else:
+        print("[filter] all rows well-formed (coeff sums all zero).")
+
     section("CONNECTIVITY ANALYSIS")
     print(f"\n[graph] building co-occurrence graph on {pncols} atoms ...")
     uf = build_atom_graph(pdata, pidx, pptr, pnrows, pncols)
@@ -813,8 +796,65 @@ def main():
 
             if nullity == 1:
                 print("  ✓  nullity=1 — FULLY DETERMINED up to gauge.")
-                print("     DLP is solvable on this component.")
-                print("     Pin isolated atoms to 0 and call solve_right.")
+                print("     Pinning a[∞]=1 and solving...")
+
+                if inf_pruned_col is None:
+                    print("  [warn] ∞ column not found in pruned matrix — cannot fix gauge, aborting solve.")
+                else:
+                    orig_to_pruned_n1: dict[int, int] = {}
+                    if not args.no_prune:
+                        orig_to_pruned_n1 = {orig: pruned for pruned, orig in enumerate(kept_cols)}
+                    _excl_remap_n1 = col_remap_excl if excluded_cols else {}
+
+                    def _pc_n1(key):
+                        orig = h.get(key)
+                        if orig is None:
+                            return None
+                        if _excl_remap_n1:
+                            orig = _excl_remap_n1.get(orig)
+                            if orig is None:
+                                return None
+                        return orig_to_pruned_n1.get(orig)
+
+                    pc_inf_n1  = inf_pruned_col
+                    pc_gen0_n1 = _pc_n1("col_gen0")
+                    pc_gen1_n1 = _pc_n1("col_gen1")
+                    pc_tgt0_n1 = _pc_n1("col_tgt0")
+                    pc_tgt1_n1 = _pc_n1("col_tgt1")
+
+                    print(f"  [solve] pruned cols — inf={pc_inf_n1}  gen0={pc_gen0_n1}"
+                          f"  gen1={pc_gen1_n1}  tgt0={pc_tgt0_n1}  tgt1={pc_tgt1_n1}")
+
+                    fixed_vars_n1 = {pc_inf_n1: 1}
+                    try:
+                        sol_n1 = solve_mod_p(
+                            pdata, pidx, pptr,
+                            pnrows, pncols,
+                            p=group_order,
+                            keep_cols=main_comp,
+                            fixed_vars=fixed_vars_n1,
+                        )
+                        print(f"  [solve] succeeded  gauge=a[∞]=1")
+                        print("\n  --- recovered logs ---")
+                        for key, pc in (("col_inf",  pc_inf_n1),
+                                        ("col_gen0", pc_gen0_n1),
+                                        ("col_gen1", pc_gen1_n1),
+                                        ("col_tgt0", pc_tgt0_n1),
+                                        ("col_tgt1", pc_tgt1_n1)):
+                            if pc is None:
+                                continue
+                            print(f"    {key} (pruned_col={pc}): log = {sol_n1.get(pc)}")
+
+                        if pc_gen0_n1 is not None and pc_tgt0_n1 is not None:
+                            g = sol_n1.get(pc_gen0_n1, 0)
+                            t = sol_n1.get(pc_tgt0_n1, 0)
+                            if g != 0:
+                                k = (t * pow(int(g), group_order - 2, group_order)) % group_order
+                                print(f"\n  >>> recovered discrete log k ≡ {k} mod {group_order}")
+                            else:
+                                print("\n  [warn] generator log is 0 after solve — gauge may be wrong")
+                    except ValueError as e:
+                        print(f"\n  [solve] failed: {e}")
             elif nullity == 0:
                 if inf_pruned_col is not None:
                     comp_no_inf = main_comp - {inf_pruned_col}
