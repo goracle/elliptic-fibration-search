@@ -796,11 +796,9 @@ def main():
 
             if nullity == 1:
                 print("  ✓  nullity=1 — FULLY DETERMINED up to gauge.")
-                print("     Pinning a[∞]=1 and solving...")
+                print("     Pinning a[gen0]=1 and solving...")
 
-                if inf_pruned_col is None:
-                    print("  [warn] ∞ column not found in pruned matrix — cannot fix gauge, aborting solve.")
-                else:
+                if True:
                     orig_to_pruned_n1: dict[int, int] = {}
                     if not args.no_prune:
                         orig_to_pruned_n1 = {orig: pruned for pruned, orig in enumerate(kept_cols)}
@@ -825,7 +823,9 @@ def main():
                     print(f"  [solve] pruned cols — inf={pc_inf_n1}  gen0={pc_gen0_n1}"
                           f"  gen1={pc_gen1_n1}  tgt0={pc_tgt0_n1}  tgt1={pc_tgt1_n1}")
 
-                    fixed_vars_n1 = {pc_inf_n1: 1}
+                    if pc_gen0_n1 is None:
+                        raise ValueError("gen0 column not found — cannot fix gauge to generator")
+                    fixed_vars_n1 = {pc_gen0_n1: 1}
                     try:
                         sol_n1 = solve_mod_p(
                             pdata, pidx, pptr,
@@ -834,7 +834,7 @@ def main():
                             keep_cols=main_comp,
                             fixed_vars=fixed_vars_n1,
                         )
-                        print(f"  [solve] succeeded  gauge=a[∞]=1")
+                        print(f"  [solve] succeeded  gauge=a[gen0]=1")
                         print("\n  --- recovered logs ---")
                         for key, pc in (("col_inf",  pc_inf_n1),
                                         ("col_gen0", pc_gen0_n1),
@@ -899,7 +899,9 @@ def main():
                             # Pin ∞=1. Its coefficient is -5 in every row, so each row
                             # gets rhs += 5, breaking homogeneity and yielding the unique
                             # solution via back-substitution.
-                            fixed_vars = {pc_inf: 1}
+                            if pc_gen0 is None:
+                                raise ValueError("gen0 column not found — cannot fix gauge to generator")
+                            fixed_vars = {pc_gen0: 1}
                             print("\n  [solve] attempting to recover logs...")
                             try:
                                 sol = solve_mod_p(
