@@ -273,11 +273,14 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     n_cols = M_pruned.ncols()
     A = M_pruned.change_ring(Fp).sparse_matrix()
     # Compute kernel once; reuse for both the nullity report and the C2 fusion check.
-    ker_full  = A.right_kernel()
-    full_null = ker_full.dimension()
+    #ker_full  = A.right_kernel()
+    rank = A.rank()
+    nullity = A.ncols()-rank
+    #full_null = ker_full.dimension()
+    full_null = nullity
 
     _log(f"  pruned matrix: {n_rows} rows × {n_cols} cols")
-    _log(f"  nullity       : {full_null}")
+    _log(f"  nullity       : {nullity}")
 
     _log("\n  --- A) Special-column order test ---")
     row_space = A.row_space()
@@ -355,6 +358,8 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
         _log("  no proportional column classes found.")
 
     _log("\n  --- C2) Kernel-basis fusion sanity check ---")
+    import sys
+    sys.exit()
     kernel_fusions = []
     for vec in ker_full.basis():
         support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
