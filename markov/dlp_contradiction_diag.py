@@ -724,23 +724,49 @@ def main(argv=None):
     if known_key is None:
         _log("[load] --known-key not supplied; log-G membership test will be skipped.")
 
-    # --- Drop malformed rows (coeff sum ≠ 0) ---
-    # A valid relation row encodes a principal divisor, so its integer
-    # coefficients must sum to zero.  Rows that fail this were written with
-    # incomplete column support (a dest-only atom was pruned before the dump).
-    # They are arithmetically unsound and must be removed before any linear
-    # algebra is performed.
-    _malformed = [
-        r for r in range(M_ZZ.nrows())
-        if sum(int(M_ZZ[r, c]) for c in range(M_ZZ.ncols())) != 0
-    ]
+    # --- Repair tangent rows (coeff sum == -1) ---
+    # A valid relation has integer coefficient sum zero.  Rows with sum=-1
+    # are tangent relations where xk==xi: the walker found a tangency so the
+    # xi root has multiplicity (d-2)+1 = d-1, but the HDF5 was written before
+    # relation_matrix.py folded the coincident xk into xi's coefficient.
+    # Pattern: one finite atom has coeff 3 (xi), one has coeff 1 (xj),
+    # ∞ has coeff -5; fixing xi to 4 restores sum=0.
+    # Rows with any other nonzero sum are genuinely corrupt — drop those.
+    # Build a mutable row list so we can patch individual entries.
+    _ncols     = M_ZZ.ncols()
+    _rows_list = [[int(M_ZZ[r, c]) for c in range(_ncols)] for r in range(M_ZZ.nrows())]
+    _repaired  = []
+    _malformed = []
+    for r, row in enumerate(_rows_list):
+        s = sum(row)
+        if s == 0:
+            continue
+        if s == -1:
+            # Find the unique finite atom with coefficient 3; bump it to 4.
+            fixed = False
+            for c, v in enumerate(row):
+                if v == 3 and (col_inf is None or c != col_inf):
+                    row[c] = 4
+                    _repaired.append(r)
+                    fixed = True
+                    break
+            if not fixed:
+                # sum=-1 but no coeff-3 finite atom: unexpected, drop it.
+                _malformed.append(r)
+        else:
+            _malformed.append(r)
+    # Rebuild M_ZZ from the (possibly patched) row list, excluding malformed rows.
+    _malformed_set = set(_malformed)
+    M_ZZ = Matrix(ZZ, [row for r, row in enumerate(_rows_list) if r not in _malformed_set])
+
+    if _repaired:
+        _log(f"[filter] repaired {len(_repaired)} tangent row(s) (xk==xi, xi coeff 3→4): "
+             f"{_repaired[:16]}" + (" ..." if len(_repaired) > 16 else ""))
     if _malformed:
-        _log(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum ≠ 0): "
+        _log(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum ≠ 0, not repairable): "
              f"{_malformed[:16]}" + (" ..." if len(_malformed) > 16 else ""))
-        _keep = [r for r in range(M_ZZ.nrows()) if r not in set(_malformed)]
-        M_ZZ = M_ZZ.matrix_from_rows(_keep)
         _log(f"[filter] matrix after malformed-row drop: {M_ZZ.nrows()} × {M_ZZ.ncols()}")
-    else:
+    if not _repaired and not _malformed:
         _log("[filter] all rows well-formed (coeff sums all zero).")
 
     # --- Check 1 ---
@@ -815,6 +841,10 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isol
     If pin_isolated=True, isolated atoms are converted into explicit pin rows
     a[j] = 0.  That mode is available for experiments, but it is deliberately
     opt-in because it can manufacture contradictions by over-fixing the nullspace.
+
+    Non-isolated, non-gauge directions (FUSION, PARITY, OTHER) are always
+    printed in full regardless of max_preview -- these are the directions that
+    may contain the DLP solution and must never be silently omitted.
     """
     n = int(Fp.characteristic())
     pin_rows   = []
@@ -822,18 +852,25 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isol
     pin_labels = []
 
     counts = {"gauge": 0, "isolated": 0, "fusion": 0, "parity": 0, "other": 0}
-    previews = []
+    isolated_previews    = []   # capped at max_preview
+    nonisolated_entries  = []   # always printed in full
 
     for vi, vec in enumerate(ker.basis()):
         support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
         if not support:
             continue
 
-        msg = None
+        kind = None
+        msg  = None
+        detail_lines = []   # extra lines printed only for non-isolated directions
+
         if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
+            kind = "gauge"
             counts["gauge"] += 1
             msg = f"kernel[{vi}]: GAUGE (inf) -- keeping free"
+
         elif len(support) == 1:
+            kind = "isolated"
             counts["isolated"] += 1
             j, coeff = support[0]
             atom = pruned_atoms[j]
@@ -847,34 +884,66 @@ def _extract_pin_rows(ker, pruned_atoms, n_cols, Fp, p_col_inf=None, *, pin_isol
                 msg += " -- pinning"
             else:
                 msg += " -- leaving free"
+
         elif len(support) == 2:
             (j0, c0), (j1, c1) = support
             if (c0 == 1 and c1 == n - 1) or (c0 == n - 1 and c1 == 1):
+                kind = "fusion"
                 counts["fusion"] += 1
                 a0, a1 = pruned_atoms[j0], pruned_atoms[j1]
                 msg = f"kernel[{vi}]: FUSION a[{a0}] = a[{a1}]"
+                detail_lines.append(f"    col {j0}: atom={a0}  coeff={c0}")
+                detail_lines.append(f"    col {j1}: atom={a1}  coeff={c1}")
             else:
+                kind = "other"
                 counts["other"] += 1
                 msg = f"kernel[{vi}]: OTHER support_size=2 distinct_coeffs={sorted(set(c for _, c in support))}"
+                for j, c in support:
+                    detail_lines.append(f"    col {j}: atom={pruned_atoms[j]}  coeff={c}")
+
         else:
             coeffs_vals = [c for _, c in support]
             is_flat = len(set(coeffs_vals)) == 1
             if is_flat:
+                kind = "parity"
                 counts["parity"] += 1
                 msg = f"kernel[{vi}]: PARITY/CONSERVATION support_size={len(support)} all_coeffs={coeffs_vals[0]}"
+                for j, c in support[:12]:
+                    detail_lines.append(f"    col {j}: atom={pruned_atoms[j]}  coeff={c}")
+                if len(support) > 12:
+                    detail_lines.append(f"    ... {len(support) - 12} more atoms")
             else:
+                kind = "other"
                 counts["other"] += 1
                 msg = f"kernel[{vi}]: OTHER support_size={len(support)} distinct_coeffs={sorted(set(coeffs_vals))}"
+                for j, c in support[:20]:
+                    detail_lines.append(f"    col {j}: atom={pruned_atoms[j]}  coeff={c}")
+                if len(support) > 20:
+                    detail_lines.append(f"    ... {len(support) - 20} more atoms")
 
-        if len(previews) < max_preview:
-            previews.append(msg)
+        if kind in ("gauge", "isolated"):
+            if len(isolated_previews) < max_preview:
+                isolated_previews.append(msg)
+        else:
+            nonisolated_entries.append((msg, detail_lines))
 
     _log(f"  kernel summary: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
-    for msg in previews:
+
+    for msg in isolated_previews:
         _log(f"  {msg}")
-    omitted = sum(counts.values()) - len(previews)
-    if omitted > 0:
-        _log(f"  ... {omitted} more kernel direction(s) omitted")
+    n_isolated_total = counts["gauge"] + counts["isolated"]
+    omitted_isolated = n_isolated_total - len(isolated_previews)
+    if omitted_isolated > 0:
+        _log(f"  ... {omitted_isolated} more isolated/gauge direction(s) omitted")
+
+    if nonisolated_entries:
+        _log(f"\n  Non-isolated kernel directions ({len(nonisolated_entries)}) -- printed in full:")
+        for msg, detail_lines in nonisolated_entries:
+            _log(f"  {msg}")
+            for dl in detail_lines:
+                _log(dl)
+    else:
+        _log("  (no non-isolated kernel directions)")
 
     return pin_rows, pin_rhs, pin_labels
 

@@ -278,9 +278,18 @@ def build_relation_matrix2(
             if require_xk and cxk is None:
                 continue
 
-            # Normalize xk
+            # Normalize xk: if xk coincides with xi or xj, fold the +1 into
+            # that atom's coefficient now rather than silently dropping it.
+            # xk==xi  →  xi coeff becomes row_xi_mult+1 (e.g. 3+1=4), sum still 0 ✓
+            # xk==xj  →  xj coeff becomes 2,                           sum still 0 ✓
+            # (xk=="∞" means a zero-division upstream produced a spurious value;
+            #  skip the whole relation — do not fold into ∞.)
+            _xk_folded = False
+            if cxk == "∞":
+                continue  # upstream zero-division artefact; discard relation
             if cxk is not None and (cxk == xi or cxk == cxj):
-                cxk = None
+                # Will be accumulated below via atom_index; mark as already handled.
+                _xk_folded = True
 
             if cxj not in atom_index:
                 raise AssertionError(
@@ -322,11 +331,9 @@ def build_relation_matrix2(
 
             row[atom_index[cxj]] += 1
 
-            if cxk == "∞":
-                continue # this is safer
-                #if inf_col is not None:
-                #    row[inf_col] += 1 # this is not correct
-            elif cxk is not None and cxk in atom_index:
+            # _xk_folded means cxk==xi or cxk==xj; atom_index still has it,
+            # so += 1 below correctly folds the coefficient into the existing atom.
+            if cxk is not None and cxk in atom_index:
                 row[atom_index[cxk]] += 1
 
             if inf_col is not None:
