@@ -271,8 +271,10 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
 
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
-    A = M_pruned.change_ring(Fp)
-    full_null = A.right_kernel().dimension()
+    A = M_pruned.change_ring(Fp).sparse_matrix()
+    # Compute kernel once; reuse for both the nullity report and the C2 fusion check.
+    ker_full  = A.right_kernel()
+    full_null = ker_full.dimension()
 
     _log(f"  pruned matrix: {n_rows} rows × {n_cols} cols")
     _log(f"  nullity       : {full_null}")
@@ -353,7 +355,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
         _log("  no proportional column classes found.")
 
     _log("\n  --- C2) Kernel-basis fusion sanity check ---")
-    ker_full = A.right_kernel()
     kernel_fusions = []
     for vec in ker_full.basis():
         support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
@@ -1002,21 +1003,20 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
 
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
-    A_hom = M_pruned.change_ring(Fp)
+    A_hom = M_pruned.change_ring(Fp).sparse_matrix()
 
     # --- kernel diagnostics only: do not pin isolated atoms ---
-    ker_pre  = A_hom.right_kernel()
-    null_pre = ker_pre.dimension()
-    _log(f"\n  Pre-normalization nullity: {null_pre} on the {n_rows}×{n_cols} system")
-
-    _extract_pin_rows(
-        ker_pre, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False, max_preview=8
-    )
-    _log("  Isolated atoms are reported as free directions, not pinned.")
-
-    rank_hom = A_hom.rank()
+    # Compute kernel once; derive rank via rank-nullity to avoid a second pass.
     ker_hom  = A_hom.right_kernel()
     null_hom = ker_hom.dimension()
+    rank_hom = n_cols - null_hom
+
+    _log(f"\n  Pre-normalization nullity: {null_hom} on the {n_rows}×{n_cols} system")
+
+    _extract_pin_rows(
+        ker_hom, pruned_atoms, n_cols, Fp, p_col_inf, pin_isolated=False, max_preview=8
+    )
+    _log("  Isolated atoms are reported as free directions, not pinned.")
 
     _log(f"  rows={M_pruned.nrows()}  cols={n_cols}  rank={rank_hom}  nullity={null_hom}")
     _log(f"  (ideal: nullity >= 2 — gauge direction + DLP direction)")
@@ -1164,7 +1164,7 @@ def extract_contradiction_certificate(
     n_walk = M_pruned.nrows()
     n_cols = M_pruned.ncols()
 
-    A_hom_fp = M_pruned.change_ring(Fp)
+    A_hom_fp = M_pruned.change_ring(Fp).sparse_matrix()
 
     ker_pre  = A_hom_fp.right_kernel()
     null_pre = ker_pre.dimension()
@@ -1213,14 +1213,14 @@ def extract_contradiction_certificate(
     row_labels = [f"walk[{i}]" for i in range(n_walk)] + extra_labels
 
     _log(f"  augmented system: {n_full} rows × {n_cols} cols over GF({n})")
-    rank_A   = A_full.rank()
-    rank_aug = A_full.augment(b_full.column()).rank()
-    _log(f"  rank(A)={rank_A}  rank([A|b])={rank_aug}")
-
-    if rank_A == rank_aug:
+    rank_A = A_full.rank()
+    _log(f"  rank(A)={rank_A}")
+    try:
+        _ = A_full.solve_right(b_full)
         _log("  ✓  system is consistent — no Farkas certificate exists")
         return [], []
-
+    except ValueError:
+        pass
     _log("  ✗  inconsistent — extracting left-kernel certificate ...")
 
     AT        = A_full.transpose()
