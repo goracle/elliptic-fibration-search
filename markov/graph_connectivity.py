@@ -507,6 +507,186 @@ def nullity_residuals(
 
 
 # ---------------------------------------------------------------------------
+# Parity-vector residual analysis
+# ---------------------------------------------------------------------------
+
+def parity_residual_analysis(
+    pdata, pidx, pptr, pnrows, pncols,
+    patoms,
+    col_gen0: int | None,
+    col_gen1: int | None,
+    col_tgt0: int | None,
+    col_tgt1: int | None,
+    p: int,
+    known_key: int | None = None,
+):
+    """Compute and print M @ v symbolically and numerically.
+
+    v is the parity/DLP-test vector:
+        v[col_gen0] = +k,  v[col_gen1] = +k
+        v[col_tgt0] = -1,  v[col_tgt1] = -1
+        v[j]        =  0   for all other j
+
+    where k is the unknown discrete log.
+
+    For each row i of M the residual entry is:
+        r[i] = M[i, gen0]*k + M[i, gen1]*k - M[i, tgt0] - M[i, tgt1]
+             = (M[i,gen0] + M[i,gen1]) * k  -  (M[i,tgt0] + M[i,tgt1])
+
+    We print:
+      1. Symbolic form: show (A_coeff)*k - B_coeff for each nonzero entry.
+      2. If known_key is given: substitute k, reduce mod p, show which rows are
+         nonzero (i.e. which atoms appear in the residual we still need to kill).
+    """
+    SEP = "=" * 70
+    print(f"\n{SEP}")
+    print("  PARITY-VECTOR RESIDUAL ANALYSIS")
+    print(f"  v = (gen0+gen1)*k - (tgt0+tgt1)   over GF({p})")
+    print(SEP)
+
+    special = {"gen0": col_gen0, "gen1": col_gen1, "tgt0": col_tgt0, "tgt1": col_tgt1}
+    missing = [nm for nm, c in special.items() if c is None]
+    if missing:
+        print(f"  [warn] missing columns for: {missing}  — those terms treated as 0")
+
+    # Build the symbolic row-wise residual.
+    # For each row r: A[r] = sum of coefficients hitting gen0/gen1 columns
+    #                 B[r] = sum of coefficients hitting tgt0/tgt1 columns (positive sense)
+    # residual[r] = A[r]*k - B[r]
+
+    A_coeffs: list[int] = []  # coefficient of k
+    B_coeffs: list[int] = []  # constant term (positive)
+
+    for r in range(pnrows):
+        rs, re = int(pptr[r]), int(pptr[r + 1])
+        a = 0
+        b = 0
+        for ki in range(rs, re):
+            c = int(pidx[ki])
+            v = int(pdata[ki])
+            if c == col_gen0 or c == col_gen1:
+                a += v
+            if c == col_tgt0 or c == col_tgt1:
+                b += v
+        A_coeffs.append(a % p)
+        B_coeffs.append(b % p)
+
+    # Rows where at least one of A or B is nonzero.
+    symbolic_nonzero = [(r, A_coeffs[r], B_coeffs[r])
+                        for r in range(pnrows)
+                        if A_coeffs[r] or B_coeffs[r]]
+
+    print(f"\n  Rows touching gen/tgt columns: {len(symbolic_nonzero)} / {pnrows}")
+    print(f"\n  --- Symbolic residual (showing rows where r[i] != 0 symbolically) ---")
+    print(f"  {'row':>6}  {'A (coeff of k)':>16}  {'B (constant)':>14}  expression")
+    print("  " + "-" * 60)
+    for r, a, b in symbolic_nonzero[:40]:
+        # Express as A*k - B  (both reduced mod p already)
+        b_neg = (-b) % p
+        if a == 0:
+            expr = f"-{b} ≡ {b_neg} mod p"
+        elif b == 0:
+            expr = f"{a}*k"
+        else:
+            expr = f"{a}*k - {b}"
+        print(f"  {r:>6}  {a:>16}  {b:>14}  {expr}")
+    if len(symbolic_nonzero) > 40:
+        print(f"  ... {len(symbolic_nonzero) - 40} more rows omitted")
+
+    # Group by (A, B) signature to show how many rows share the same structure.
+    from collections import Counter
+    sig_counts = Counter((a, b) for _, a, b in symbolic_nonzero)
+    print(f"\n  --- Symbolic signature histogram (top 12) ---")
+    print(f"  {'A':>8}  {'B':>8}  {'count':>8}  expression")
+    print("  " + "-" * 44)
+    for (a, b), cnt in sig_counts.most_common(12):
+        if a == 0:
+            expr = f"const {(-b) % p} mod p"
+        elif b == 0:
+            expr = f"{a}*k"
+        else:
+            expr = f"{a}*k - {b}"
+        print(f"  {a:>8}  {b:>8}  {cnt:>8}  {expr}")
+
+    if known_key is None:
+        print("\n  [no --known-key supplied; skipping numeric substitution]")
+        return
+
+    # Substitute k = known_key and reduce mod p.
+    k = int(known_key) % p
+    print(f"\n  --- Numeric residual with known key k={known_key} (mod {p}) ---")
+    numeric_nonzero = []
+    for r in range(pnrows):
+        a, b = A_coeffs[r], B_coeffs[r]
+        val = (a * k - b) % p
+        if val:
+            numeric_nonzero.append((r, val, a, b))
+
+    print(f"  Nonzero residual entries: {len(numeric_nonzero)} / {pnrows}")
+
+    if not numeric_nonzero:
+        print("  ✓  Residual is identically zero — v is in the row-null space (consistent with known key).")
+        return
+
+    print(f"\n  These are the rows (relations) not yet killed by existing data:")
+    print(f"  {'row':>6}  {'r[i] mod p':>12}  {'sym val':>8}  {'A':>8}  {'B':>8}  atoms in row")
+    print("  " + "-" * 80)
+
+    def sym(v: int) -> int:
+        return min(v, p - v)
+
+    # Sort by symmetric magnitude descending.
+    numeric_nonzero.sort(key=lambda t: -sym(t[1]))
+
+    # Build a quick row->atoms lookup from CSR.
+    for r, val, a, b in numeric_nonzero[:30]:
+        rs, re = int(pptr[r]), int(pptr[r + 1])
+        row_atoms = [(patoms[int(pidx[ki])], int(pdata[ki])) for ki in range(rs, re)]
+        # Only non-gen/tgt atoms are "background" — label gen/tgt specially.
+        atom_strs = []
+        for atm, coef in row_atoms:
+            c = int(pidx[pptr[r]])  # placeholder; recompute properly below
+            atom_strs.append(f"{atm}:{coef}")
+        # recompute properly
+        atom_strs = []
+        for ki in range(rs, re):
+            c = int(pidx[ki])
+            coef = int(pdata[ki])
+            nm = patoms[c]
+            tag = ""
+            if c == col_gen0:   tag = "(gen0)"
+            elif c == col_gen1: tag = "(gen1)"
+            elif c == col_tgt0: tag = "(tgt0)"
+            elif c == col_tgt1: tag = "(tgt1)"
+            atom_strs.append(f"{nm}{tag}:{coef}")
+        preview = "  ".join(atom_strs[:8])
+        if len(atom_strs) > 8:
+            preview += f"  ...+{len(atom_strs)-8}"
+        print(f"  {r:>6}  {val:>12}  {sym(val):>8}  {a:>8}  {b:>8}  {preview}")
+
+    if len(numeric_nonzero) > 30:
+        print(f"  ... {len(numeric_nonzero) - 30} more nonzero rows")
+
+    # Atom frequency in nonzero-residual rows — tells you which atoms are blocking.
+    print(f"\n  --- Atoms appearing in nonzero-residual rows (top 20 by frequency) ---")
+    from collections import defaultdict as _dd
+    atom_freq: dict = _dd(int)
+    atom_max_sym: dict = _dd(int)
+    for r, val, a, b in numeric_nonzero:
+        rs, re = int(pptr[r]), int(pptr[r + 1])
+        for ki in range(rs, re):
+            c = int(pidx[ki])
+            nm = patoms[c]
+            atom_freq[nm] += 1
+            atom_max_sym[nm] = max(atom_max_sym[nm], sym(val))
+    top_atoms = sorted(atom_freq.items(), key=lambda kv: (-kv[1], -atom_max_sym[kv[0]]))[:20]
+    print(f"  {'atom':>12}  {'freq':>6}  {'max_sym_r':>10}")
+    print("  " + "-" * 36)
+    for nm, freq in top_atoms:
+        print(f"  {nm:>12}  {freq:>6}  {atom_max_sym[nm]:>10}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -527,6 +707,10 @@ def main():
                     help="Compute full nullity basis, restrict to main component, score residuals by divisor-atom overlap")
     ap.add_argument("--top-k", type=int, default=8,
                     help="How many top-scoring residual vectors to print (default: 8)")
+    ap.add_argument("--parity-residual", action="store_true",
+                    help="Compute M @ v where v=(gen0+gen1)*k-(tgt0+tgt1); show symbolically and (with --known-key) numerically")
+    ap.add_argument("--known-key", type=int, default=None,
+                    help="Known discrete log k to substitute into the parity residual")
     args = ap.parse_args()
 
     SEP = "=" * 70
@@ -1010,6 +1194,39 @@ def main():
                 special_cols=special_cols,
                 p=group_order,
                 top_k=args.top_k,
+            )
+
+    if args.parity_residual:
+        if not group_order:
+            print("\n[parity-residual] --group-order required. Skipping.")
+        else:
+            # Build pruned-col indices for gen/tgt columns.
+            if args.no_prune:
+                orig_to_pruned = {c: c for c in range(h["ncols"])}
+                _excl_remap_pr = {}
+            else:
+                orig_to_pruned = {orig: pruned for pruned, orig in enumerate(kept_cols)}
+                _excl_remap_pr = col_remap_excl if excluded_cols else {}
+
+            def _pc_pr(key):
+                orig = h.get(key)
+                if orig is None:
+                    return None
+                if _excl_remap_pr:
+                    orig = _excl_remap_pr.get(orig)
+                    if orig is None:
+                        return None
+                return orig_to_pruned.get(orig)
+
+            parity_residual_analysis(
+                pdata, pidx, pptr, pnrows, pncols,
+                patoms=patoms,
+                col_gen0=_pc_pr("col_gen0"),
+                col_gen1=_pc_pr("col_gen1"),
+                col_tgt0=_pc_pr("col_tgt0"),
+                col_tgt1=_pc_pr("col_tgt1"),
+                p=group_order,
+                known_key=args.known_key,
             )
 
 
