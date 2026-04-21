@@ -823,9 +823,9 @@ def main():
                     print(f"  [solve] pruned cols — inf={pc_inf_n1}  gen0={pc_gen0_n1}"
                           f"  gen1={pc_gen1_n1}  tgt0={pc_tgt0_n1}  tgt1={pc_tgt1_n1}")
 
-                    if pc_gen0_n1 is None:
-                        raise ValueError("gen0 column not found — cannot fix gauge to generator")
-                    fixed_vars_n1 = {pc_gen0_n1: 1}
+                    if pc_inf_n1 is None:
+                        raise ValueError("inf column not found — cannot pin gauge")
+                    fixed_vars_n1 = {pc_inf_n1: 0, pc_gen0_n1: 1}
                     try:
                         sol_n1 = solve_mod_p(
                             pdata, pidx, pptr,
@@ -834,7 +834,7 @@ def main():
                             keep_cols=main_comp,
                             fixed_vars=fixed_vars_n1,
                         )
-                        print(f"  [solve] succeeded  gauge=a[gen0]=1")
+                        print(f"  [solve] succeeded  gauge=a[inf]=0")
                         print("\n  --- recovered logs ---")
                         for key, pc in (("col_inf",  pc_inf_n1),
                                         ("col_gen0", pc_gen0_n1),
@@ -894,14 +894,9 @@ def main():
                               f"  gen1={pc_gen1}  tgt0={pc_tgt0}  tgt1={pc_tgt1}")
 
                         if pc_inf is None:
-                            print("\n  [warn] ∞ not found in pruned matrix — cannot solve.")
+                            print("\n  [warn] inf not found in pruned matrix — cannot solve.")
                         else:
-                            # Pin ∞=1. Its coefficient is -5 in every row, so each row
-                            # gets rhs += 5, breaking homogeneity and yielding the unique
-                            # solution via back-substitution.
-                            if pc_gen0 is None:
-                                raise ValueError("gen0 column not found — cannot fix gauge to generator")
-                            fixed_vars = {pc_gen0: 1}
+                            fixed_vars = {pc_inf: 0, pc_gen0: 1}
                             print("\n  [solve] attempting to recover logs...")
                             try:
                                 sol = solve_mod_p(
@@ -911,7 +906,7 @@ def main():
                                     keep_cols=main_comp,
                                     fixed_vars=fixed_vars,
                                 )
-                                print(f"  [solve] succeeded  gauge={fixed_vars}")
+                                print(f"  [solve] succeeded  gauge=a[inf]=0")
                                 print("\n  --- recovered logs (sample) ---")
                                 for key, pc in (("col_inf",  pc_inf),
                                                 ("col_gen0", pc_gen0),

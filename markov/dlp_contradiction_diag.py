@@ -248,13 +248,9 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     n  = group_order
     Fp = GF(Integer(n))
 
-    protected = [a for a in [atoms[col_gen0] if col_gen0 is not None else None,
-                              atoms[col_gen1] if col_gen1 is not None else None,
-                              atoms[col_tgt0] if col_tgt0 is not None else None,
-                              atoms[col_tgt1] if col_tgt1 is not None else None]
-                 if a is not None]
-    M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
-    M_pruned, row_sources = _dedupe_rows_mod(M_pruned, pruned_atoms, group_order)
+    # prune_dest_only disabled: keep all atoms/rows
+    pruned_atoms = atoms
+    M_pruned, row_sources = _dedupe_rows_mod(M_ZZ, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
@@ -415,14 +411,9 @@ def incremental_consistency_filter(
     Fp  = GF(Integer(n))
     p   = int(n)
 
-    protected = [a for a in [
-        atoms[col_gen0] if col_gen0 is not None else None,
-        atoms[col_gen1] if col_gen1 is not None else None,
-        atoms[col_tgt0] if col_tgt0 is not None else None,
-        atoms[col_tgt1] if col_tgt1 is not None else None,
-    ] if a is not None]
-    M_pruned, pruned_atoms, _ = prune_dest_only(M_ZZ, atoms, protected=protected)
-    M_pruned, row_sources = _dedupe_rows_mod(M_pruned, pruned_atoms, group_order)
+    # prune_dest_only disabled: keep all atoms/rows
+    pruned_atoms = atoms
+    M_pruned, row_sources = _dedupe_rows_mod(M_ZZ, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
@@ -957,37 +948,27 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
                       known_key: int, col_gen0, col_gen1, col_tgt0, col_tgt1,
                       col_inf):
     """
-    Prune M_ZZ via prune_dest_only, then solve A_hom * x = 0 over GF(group_order).
+    Solve A_hom * x = 0 over GF(group_order) (no prune_dest_only, no pendant prune).
 
-    Tests whether the known log-G vector lies in the kernel of the pruned
-    homogeneous system, i.e. whether the walk data is consistent with the
-    known answer before any normalization rows are added.
-
-    This check is deliberately conservative: isolated atoms are reported, not
-    forcibly pinned.  That avoids manufacturing contradictions by collapsing
-    nullspace directions that the walk data never touched.
+    Tests whether the known log-G vector lies in the kernel of the homogeneous
+    system, i.e. whether the walk data is consistent with the known answer before
+    any normalization rows are added.  Only redundant (duplicate/scalar-multiple)
+    rows are removed via _dedupe_rows_mod.
     """
     _section("CHECK 1: HOMOGENEOUS SYSTEM  (walk relations, no anchor)")
 
     n  = group_order
     Fp = GF(Integer(n))
 
-    # --- prune_dest_only (same as merge_experiment does before the solve) ---
-    protected = [a for a in [atoms[col_gen0] if col_gen0 is not None else None,
-                              atoms[col_gen1] if col_gen1 is not None else None,
-                              atoms[col_tgt0] if col_tgt0 is not None else None,
-                              atoms[col_tgt1] if col_tgt1 is not None else None]
-                 if a is not None]
-    M_pruned, pruned_atoms, removed = prune_dest_only(M_ZZ, atoms, protected=protected)
-    M_before_dedup = M_pruned
+    # --- prune_dest_only disabled: keep all atoms/rows ---
+    pruned_atoms = atoms
+    M_before_dedup = M_ZZ
     M_pruned, row_sources = _dedupe_rows_mod(M_before_dedup, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
-    n_removed = len(removed)
     n_dedup = M_before_dedup.nrows() - M_pruned.nrows()
-    _log(f"  prune_dest_only removed {n_removed} dest-only atoms "
-         f"({M_ZZ.nrows()} → {M_before_dedup.nrows()} rows, "
-         f"{M_ZZ.ncols()} → {M_before_dedup.ncols()} cols)")
+    _log(f"  prune_dest_only: disabled (all atoms retained, "
+         f"{M_ZZ.nrows()} rows × {M_ZZ.ncols()} cols)")
     _log(f"  row dedup      removed {n_dedup} duplicate/scalar-multiple row(s)")
 
     def remap(col):
@@ -1098,24 +1079,50 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
 
     assigned_cols = {c for c in [p_col_gen0, p_col_gen1, p_col_tgt0, p_col_tgt1, p_col_inf]
                      if c is not None}
-    true_failures = []
-    fb_residuals  = []
+    true_failures      = []   # support <= assigned_cols, residual nonzero
+    fb_partial_bad     = []   # touches unassigned cols, BUT partial sum on assigned cols already nonzero
+    fb_residuals_clean = []   # touches unassigned cols, partial sum on assigned cols == 0
     for row_i, resid in nonzero_rows:
         row_support = {j for j in range(n_cols) if M_pruned[row_i, j] != 0}
         if row_support <= assigned_cols:
             true_failures.append((row_i, resid))
         else:
-            fb_residuals.append((row_i, resid))
+            partial = sum(
+                int(M_pruned[row_i, j]) * int(v_logG[j])
+                for j in row_support & assigned_cols
+            ) % n
+            if partial != 0:
+                fb_partial_bad.append((row_i, resid, partial))
+            else:
+                fb_residuals_clean.append((row_i, resid))
 
     if not nonzero_rows:
-        _log("\n  ✓  log-G vector IS in the kernel of A_hom (pruned).")
+        _log("\n  ✓  log-G vector IS in the kernel of A_hom.")
         _log("     Walk relations are consistent with the known solution.")
         _log("     The failure is introduced by normalization rows, not the walk data.")
     else:
-        if fb_residuals:
-            _log(f"\n  ℹ  {len(fb_residuals)} row(s) have nonzero residual because they contain")
-            _log("     unassigned factor-base atoms (v_logG leaves them at 0).")
-            _log("     This is expected -- the test vector is not a full oracle.")
+        if fb_residuals_clean:
+            _log(f"\n  ℹ  {len(fb_residuals_clean)} row(s) have nonzero residual only from unassigned fb atoms")
+            _log("     (partial sum on special cols is zero -- genuinely underdetermined, not contradictory).")
+
+        if fb_partial_bad:
+            _log(f"\n  ✗  {len(fb_partial_bad)} row(s) touch unassigned fb atoms BUT partial sum")
+            _log("     on {{gen0,gen1,tgt0,tgt1,inf}} is already nonzero -- contradiction independent of fb logs:")
+            for row_i, resid, partial in fb_partial_bad[:30]:
+                assigned_part   = [(pruned_atoms[j], int(M_pruned[row_i, j]))
+                                   for j in range(n_cols)
+                                   if M_pruned[row_i, j] != 0 and j in assigned_cols]
+                unassigned_part = [(pruned_atoms[j], int(M_pruned[row_i, j]))
+                                   for j in range(n_cols)
+                                   if M_pruned[row_i, j] != 0 and j not in assigned_cols]
+                _log(f"    row {row_i:5d}  full_resid={resid:5d}  partial_resid={partial:5d}")
+                _log(f"      assigned  : {_brief_atom_list(assigned_part, max_items=8)}")
+                _log(f"      unassigned: {_brief_atom_list(unassigned_part, max_items=8)}")
+            if len(fb_partial_bad) > 30:
+                _log(f"    ... and {len(fb_partial_bad) - 30} more rows")
+            _log("\n     -> These rows contradict the known key regardless of fb atom values.")
+            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or bad relation.")
+
         if true_failures:
             _log(f"\n  ✗  {len(true_failures)} row(s) fail on assigned atoms only -- genuine contradiction:")
             for row_i, resid in true_failures[:30]:
@@ -1125,10 +1132,11 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
             if len(true_failures) > 30:
                 _log(f"    ... and {len(true_failures) - 30} more rows")
             _log("\n     -> The walk data itself contradicts the known key.")
-            _log("       Likely cause: wrong xi multiplicity, wrong inf sign, or a bad")
-            _log("       involution-closure row in the relation matrix.")
-        elif fb_residuals:
-            _log("\n  ✓  No true failures -- all residuals are from unassigned fb atoms.")
+            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or a bad")
+            _log("        involution-closure row in the relation matrix.")
+
+        if not true_failures and not fb_partial_bad:
+            _log("\n  ✓  No true failures -- all residuals are from genuinely underdetermined rows.")
             _log("     Walk structure is consistent with the known key.")
 
     return null_hom
@@ -1148,17 +1156,14 @@ def extract_contradiction_certificate(
     n  = group_order
     Fp = GF(Integer(n))
 
-    protected = [a for a in [atoms[col_gen0] if col_gen0 is not None else None,
-                              atoms[col_gen1] if col_gen1 is not None else None]
-                 if a is not None]
-    M_pruned, pruned_atoms, removed = prune_dest_only(M_ZZ, atoms, protected=protected)
-    M_before_dedup = M_pruned
+    # prune_dest_only disabled: keep all atoms/rows
+    pruned_atoms = atoms
+    M_before_dedup = M_ZZ
     M_pruned, row_sources = _dedupe_rows_mod(M_before_dedup, pruned_atoms, group_order)
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
-    _log(f"  prune_dest_only: {len(removed)} atoms removed  "
-         f"({M_ZZ.nrows()}→{M_before_dedup.nrows()} rows, "
-         f"{M_ZZ.ncols()}→{M_before_dedup.ncols()} cols)")
+    _log(f"  prune_dest_only: disabled (all atoms retained, "
+         f"{M_ZZ.nrows()} rows × {M_ZZ.ncols()} cols)")
     _log(f"  row dedup      : {M_before_dedup.nrows() - M_pruned.nrows()} duplicate/scalar-multiple row(s) removed")
     _matrix_preview(M_pruned, pruned_atoms, max_rows=4, max_atoms=6)
 
