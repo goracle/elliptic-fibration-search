@@ -608,6 +608,68 @@ def parity_residual_analysis(
             expr = f"{a}*k - {b}"
         print(f"  {a:>8}  {b:>8}  {cnt:>8}  {expr}")
 
+    # ------------------------------------------------------------------
+    # K-SENSITIVITY DIAGNOSTIC (k-free)
+    #
+    # For every row with A_i ≠ 0, the relation A_i*k - B_i ≡ 0 mod p
+    # implies a unique candidate value  k_cand = B_i * inverse(A_i) mod p.
+    # If many rows agree on the same candidate, the system is highly
+    # k-sensitive and that candidate is likely the true discrete log.
+    # ------------------------------------------------------------------
+    from collections import Counter as _CandCounter
+
+    k_sensitive_rows = [(r, a, b) for r, a, b in symbolic_nonzero if a != 0]
+    k_candidates: list[int] = []
+    for r, a, b in k_sensitive_rows:
+        cand = (b * pow(int(a), p - 2, p)) % p
+        k_candidates.append(cand)
+
+    cand_counts = _CandCounter(k_candidates)
+    n_sensitive  = len(k_sensitive_rows)
+    n_distinct   = len(cand_counts)
+    top_cand, top_freq = cand_counts.most_common(1)[0] if cand_counts else (None, 0)
+
+    SEP2 = "=" * 70
+    print(f"\n{SEP2}")
+    print("  K-SENSITIVITY ANALYSIS  (no known key required)")
+    print(f"  k_cand = B * inverse(A) mod p  for rows with A ≠ 0")
+    print(SEP2)
+    print(f"\n  k-sensitive rows (A≠0) : {n_sensitive} / {len(symbolic_nonzero)}")
+    print(f"  distinct candidate k   : {n_distinct}")
+    if top_cand is not None:
+        pct = 100.0 * top_freq / n_sensitive if n_sensitive else 0
+        print(f"  dominant candidate     : k = {top_cand}  (appears {top_freq}×, {pct:.1f}% of k-sensitive rows)")
+
+    if n_distinct <= 1 and n_sensitive > 0:
+        print("  ✓  All k-sensitive rows agree on a single candidate — system is fully k-pinned.")
+    elif n_distinct > 0 and top_freq >= max(2, n_sensitive // 2):
+        print("  ~  Strong consensus: dominant candidate accounts for ≥50% of k-sensitive rows.")
+    elif n_sensitive == 0:
+        print("  [info] No rows have A≠0 — system has zero k-sensitivity (all residual is constant).")
+
+    if n_distinct > 0:
+        print(f"\n  --- Candidate k histogram (top 20 by frequency) ---")
+        print(f"  {'k_cand':>12}  {'count':>8}  {'% of A≠0':>10}  {'sym(k_cand)':>12}")
+        print("  " + "-" * 50)
+        for cand, freq in cand_counts.most_common(20):
+            pct = 100.0 * freq / n_sensitive if n_sensitive else 0
+            sym_cand = min(cand, p - cand)
+            marker = "  ← dominant" if cand == top_cand else ""
+            print(f"  {cand:>12}  {freq:>8}  {pct:>9.1f}%  {sym_cand:>12}{marker}")
+
+        if n_distinct > 20:
+            print(f"  ... {n_distinct - 20} more distinct candidates (each appearing once or twice)")
+
+    if known_key is not None:
+        if top_cand == int(known_key) % p:
+            print(f"\n  ✓  Dominant candidate matches --known-key={known_key}.")
+        elif int(known_key) % p in cand_counts:
+            freq_true = cand_counts[int(known_key) % p]
+            print(f"\n  ⚠  True key k={known_key} appears in candidates but is NOT dominant "
+                  f"(appears {freq_true}× vs dominant {top_freq}×).")
+        else:
+            print(f"\n  ✗  True key k={known_key} does NOT appear among the {n_distinct} candidates.")
+
     if known_key is None:
         print("\n  [no --known-key supplied; skipping numeric substitution]")
         return
@@ -627,6 +689,244 @@ def parity_residual_analysis(
     if not numeric_nonzero:
         print("  ✓  Residual is identically zero — v is in the row-null space (consistent with known key).")
         return
+
+    # ------------------------------------------------------------------
+    # A/B COUPLING DIAGNOSTIC
+    #
+    # The question is NOT "are residuals divisible by some d?" (gcd test).
+    # The question is "do A and B ever appear in the SAME row?" — i.e. does
+    # the system have rows that couple the k-dependent part to the constant
+    # part?  If every row is either pure-A (B=0) or pure-B (A=0), then the
+    # two halves of the residual are structurally decoupled and the system
+    # cannot triangulate k against the constants, no matter how many rows
+    # you have.
+    #
+    # Three sub-tests:
+    #   1. Mod-3 histogram of (A%3, B%3) pairs — smoking gun for 3-coupling
+    #   2. Mixed-row count: rows with both A≠0 and B≠0
+    #   3. Rank of the (A,B) pair matrix over GF(p): rank=1 means all rows
+    #      lie on a single line through the origin — pure decoupling
+    # ------------------------------------------------------------------
+    from collections import Counter as _Counter
+
+    print(f"\n  --- A/B coupling diagnostic ---")
+
+    # 1. Mod-3 histogram
+    mod3_pairs = _Counter((a % 3, b % 3) for _, a, b in symbolic_nonzero)
+    print(f"\n  (A mod 3, B mod 3) histogram over symbolic nonzero rows:")
+    print(f"  {'(A%3,B%3)':>12}  {'count':>8}  meaning")
+    print("  " + "-" * 50)
+    meaning = {
+        (0, 0): "pure multiple-of-3 in both — fully decoupled",
+        (1, 0): "A≢0(3), B=0     — k-only, no constant",
+        (2, 0): "A≢0(3), B=0     — k-only, no constant",
+        (0, 1): "A=0, B≢0(3)     — constant-only, no k",
+        (0, 2): "A=0, B≢0(3)     — constant-only, no k",
+        (1, 1): "MIXED ✓          — couples k to constant",
+        (1, 2): "MIXED ✓          — couples k to constant",
+        (2, 1): "MIXED ✓          — couples k to constant",
+        (2, 2): "MIXED ✓          — couples k to constant",
+    }
+    for pair, cnt in sorted(mod3_pairs.items(), key=lambda x: -x[1]):
+        print(f"  {str(pair):>12}  {cnt:>8}  {meaning.get(pair, '')}")
+
+    mixed_mod3 = sum(cnt for pair, cnt in mod3_pairs.items()
+                     if pair[0] % 3 != 0 and pair[1] % 3 != 0)
+    print(f"\n  Rows with both A≢0(3) and B≢0(3): {mixed_mod3}")
+
+    # 2. Strictly mixed rows (both A and B nonzero, regardless of mod 3)
+    mixed_rows = [(r, a, b) for r, a, b in symbolic_nonzero if a != 0 and b != 0]
+    print(f"  Rows with both A≠0 and B≠0 (strict): {len(mixed_rows)}")
+    if mixed_rows:
+        print(f"  All mixed rows:")
+        for r, a, b in mixed_rows:
+            rs_m, re_m = int(pptr[r]), int(pptr[r + 1])
+            terms = []
+            for ki_m in range(rs_m, re_m):
+                c_m = int(pidx[ki_m])
+                v_m = int(pdata[ki_m])
+                terms.append(f"{patoms[c_m]}:{v_m}")
+            print(f"    row={r}  A={a}  B={b}  ({a}*k - {b})")
+            print(f"      atoms: {' | '.join(terms)}")
+
+    # 3. Rank of (A,B) pairs over GF(p)
+    # Build a Nx2 matrix from all (A,B) pairs and compute rank.
+    # rank=1: all on one line (e.g. all (3,0) and (0,3) both lie on no
+    #         single line → actually rank=2, but if they're never mixed
+    #         the system is still decoupled). So also check the span.
+    ab_pairs_unique = list(set((a, b) for _, a, b in symbolic_nonzero if a or b))
+    # Rank over GF(p) via hand-rolled 2-col elimination (no sage dep here).
+    def _rank2_gfp(pairs, p):
+        pivots = {}
+        for a, b in pairs:
+            row = [a % p, b % p]
+            for pc, prow in pivots.items():
+                f = row[pc]
+                if f == 0:
+                    continue
+                row = [(row[j] - f * prow[j]) % p for j in range(2)]
+            nz = [j for j in range(2) if row[j]]
+            if not nz:
+                continue
+            pc2 = nz[0]
+            inv = pow(int(row[pc2]), p - 2, p)
+            pivots[pc2] = [(v * inv) % p for v in row]
+            if len(pivots) == 2:
+                return 2
+        return len(pivots)
+
+    ab_rank = _rank2_gfp(ab_pairs_unique, p)
+    print(f"\n  Rank of (A,B) pair matrix over GF({p}): {ab_rank}")
+    if ab_rank == 0:
+        print("  [warn] all rows have A=B=0 — nothing to analyse")
+    elif ab_rank == 1:
+        print("  ✗  rank=1: all (A,B) pairs are scalar multiples of a single vector.")
+        print("     The k-part and constant-part are COMPLETELY collinear — fully decoupled.")
+        print("     The system cannot determine k relative to constants.")
+    else:
+        # rank == 2
+        if len(mixed_rows) == 0:
+            print("  ⚠  rank=2 (A and B span GF(p)²), but NO row has both A≠0 and B≠0.")
+            print("     The span comes from separate pure-A and pure-B rows.")
+            print("     Algebraically the system CAN determine k, but only if a solver")
+            print("     chains through multiple rows — e.g. pure-A pins k*atom,")
+            print("     pure-B pins atom, combining gives k.  Check if the atoms overlap.")
+            # Check atom overlap between A-rows and B-rows.
+            from collections import defaultdict as _dd2
+            a_atoms: set = set()
+            b_atoms: set = set()
+            for r, a, b in symbolic_nonzero:
+                rs2, re2 = int(pptr[r]), int(pptr[r + 1])
+                for ki2 in range(rs2, re2):
+                    c2 = int(pidx[ki2])
+                    nm2 = patoms[c2]
+                    if nm2 == "∞":
+                        continue
+                    if a != 0:
+                        a_atoms.add(nm2)
+                    if b != 0:
+                        b_atoms.add(nm2)
+            shared = a_atoms & b_atoms
+            print(f"     Atoms in A-rows: {len(a_atoms)}  |  Atoms in B-rows: {len(b_atoms)}  |  Shared: {len(shared)}")
+            if shared:
+                print(f"     ✓ Shared atoms exist — indirect coupling possible via multi-row chains.")
+                print(f"     Sample shared atoms: {sorted(shared)[:8]}")
+            else:
+                print(f"     ✗ NO shared atoms. A-rows and B-rows are on completely disjoint")
+                print(f"       atom sets. The system is structurally decoupled.")
+
+                # ----------------------------------------------------------
+                # CHAIN-LENGTH-2 RELAY ANALYSIS
+                #
+                # Even with no direct shared atoms, k-coupling can happen
+                # through a relay row: an ordinary (non-gen/tgt) row that
+                # shares one atom with an A-row and another atom with a B-row.
+                #
+                # Chain:  A-row --[atom_a]--> relay_row --[atom_b]--> B-row
+                #
+                # We report:
+                #   - how many such chains exist
+                #   - which relay atoms bridge A-side to B-side
+                #   - the shortest such chain (fewest relay hops)
+                # ----------------------------------------------------------
+                print(f"\n     --- Chain-length-2 relay analysis ---")
+
+                # Build atom -> set of ALL row indices (full matrix).
+                from collections import defaultdict as _dd3
+                atom_to_rows: dict = _dd3(set)
+                for row_r in range(pnrows):
+                    rs3, re3 = int(pptr[row_r]), int(pptr[row_r + 1])
+                    for ki3 in range(rs3, re3):
+                        nm3 = patoms[int(pidx[ki3])]
+                        if nm3 != "∞":
+                            atom_to_rows[nm3].add(row_r)
+
+                # Row sets for A-side and B-side gen/tgt rows.
+                a_row_set = {r for r, a, b in symbolic_nonzero if a != 0}
+                b_row_set = {r for r, a, b in symbolic_nonzero if b != 0}
+
+                # For each atom in a_atoms, find relay rows (rows that contain
+                # that atom but are NOT A-rows themselves).  Then for each relay
+                # row, check which of its atoms are in b_atoms.
+                relay_chains: list[tuple] = []   # (a_atom, relay_row, b_atom)
+                relay_atom_pairs: set = set()    # (a_atom, b_atom) bridge pairs
+
+                for a_atom in a_atoms:
+                    relay_rows = atom_to_rows[a_atom] - a_row_set
+                    for relay_r in relay_rows:
+                        rs4, re4 = int(pptr[relay_r]), int(pptr[relay_r + 1])
+                        relay_atoms = {patoms[int(pidx[ki4])]
+                                       for ki4 in range(rs4, re4)
+                                       if patoms[int(pidx[ki4])] != "∞"}
+                        bridged = relay_atoms & b_atoms
+                        for b_atom in bridged:
+                            relay_chains.append((a_atom, relay_r, b_atom))
+                            relay_atom_pairs.add((a_atom, b_atom))
+
+                n_chains = len(relay_chains)
+                n_pairs  = len(relay_atom_pairs)
+
+                if n_chains == 0:
+                    print(f"     ✗ No length-2 relay chains found.")
+                    print(f"       A-atoms and B-atoms are ≥3 hops apart in the co-occurrence graph.")
+                    print(f"       This is a deep structural decoupling — new relation types needed.")
+                else:
+                    # Summarise by (a_atom, b_atom) bridge pair frequency.
+                    from collections import Counter as _CC2
+                    pair_freq   = _CC2((a, b) for a, _, b in relay_chains)
+                    a_atom_freq = _CC2(a for a, _, _ in relay_chains)
+                    b_atom_freq = _CC2(b for _, _, b in relay_chains)
+
+                    print(f"     ✓ {n_chains} length-2 relay chain(s) found via {n_pairs} distinct (A-atom, B-atom) bridge pair(s).")
+                    print(f"       These are the relay paths through which the bulk matrix")
+                    print(f"       can indirectly couple k-rows to constant-rows.")
+
+                    print(f"\n     Top bridge pairs (a_atom → b_atom, by relay chain count):")
+                    print(f"     {'a_atom':>10}  {'b_atom':>10}  {'chains':>8}")
+                    print(f"     " + "-" * 34)
+                    for (a_at, b_at), cnt in pair_freq.most_common(12):
+                        print(f"     {str(a_at):>10}  {str(b_at):>10}  {cnt:>8}")
+                    if len(pair_freq) > 12:
+                        print(f"     ... {len(pair_freq) - 12} more bridge pairs")
+
+                    print(f"\n     Most-bridging A-side atoms (appear in most relay chains):")
+                    for atm, cnt in a_atom_freq.most_common(6):
+                        print(f"       {str(atm):>10}  chains={cnt}")
+
+                    print(f"\n     Most-bridging B-side atoms (appear in most relay chains):")
+                    for atm, cnt in b_atom_freq.most_common(6):
+                        print(f"       {str(atm):>10}  chains={cnt}")
+
+                    # Show one concrete example chain in full.
+                    ex_a, ex_relay, ex_b = relay_chains[0]
+                    rs5, re5 = int(pptr[ex_relay]), int(pptr[ex_relay + 1])
+                    ex_atoms = [(patoms[int(pidx[ki5])], int(pdata[ki5]))
+                                for ki5 in range(rs5, re5)]
+                    ex_str = "  ".join(f"{nm}:{cf}" for nm, cf in ex_atoms[:8])
+                    if len(ex_atoms) > 8:
+                        ex_str += f"  ...+{len(ex_atoms)-8}"
+                    print(f"\n     Example chain:")
+                    print(f"       A-atom={ex_a}  →  relay row {ex_relay}  →  B-atom={ex_b}")
+                    print(f"       relay row atoms: {ex_str}")
+        else:
+            print(f"  ✓  rank=2 AND {len(mixed_rows)} mixed rows (A≠0, B≠0) exist.")
+            print(f"     The parity system is properly coupled. Residual should collapse")
+            print(f"     once the underlying atom logs are determined.")
+
+    # Summary verdict
+    print(f"\n  --- Coupling verdict ---")
+    if mixed_mod3 == 0 and len(mixed_rows) == 0:
+        print("  ✗  DECOUPLED: no row mixes k-dependence with constants (mod 3 or strictly).")
+        print("     Every relation touching gen/tgt is either purely k-dependent OR purely constant.")
+        print("     This is why the residual is stuck — the walk relation template structurally")
+        print("     prevents A and B from appearing together. Need a new relation type")
+        print("     (e.g. from a different fiber intersection or an explicit tgt/gen cross-term).")
+    elif mixed_rows:
+        print(f"  ✓  {len(mixed_rows)} strictly mixed rows found. System is coupled.")
+    else:
+        print(f"  ⚠  No strictly mixed rows, but mod-3 mixing exists ({mixed_mod3} rows).")
+        print(f"     Marginal coupling — may or may not be sufficient.")
+    print()
 
     print(f"\n  These are the rows (relations) not yet killed by existing data:")
     print(f"  {'row':>6}  {'r[i] mod p':>12}  {'sym val':>8}  {'A':>8}  {'B':>8}  atoms in row")
@@ -834,32 +1134,77 @@ def main():
         print(f"[prune] removed {raw_ncols - pncols} dest-only atoms, {raw_nrows - pnrows} now-empty rows")
         print(f"[prune] pruned  : {pnrows} rows x {pncols} cols")
 
-    # Drop malformed rows: a valid principal-divisor relation must have integer
-    # coefficients summing to zero.  Rows that fail this are arithmetically
-    # unsound (typically because a dest-only atom was pruned away after the
-    # relation was written, leaving its column absent from the matrix).
-    _malformed = []
+    # Repair/drop malformed rows.
+    #
+    # A valid principal-divisor relation has integer coefficients summing to 0.
+    #
+    # sum == -1  ->  tangent relation (xk == xi): the dest atom xi had
+    #   coefficient 3 written, but should be 4 (the tangency accounts for one
+    #   extra copy of the root).  We find the unique finite atom with coeff 3
+    #   and bump it to 4 to restore sum=0.  "Finite" means not the inf column.
+    #
+    # any other nonzero sum  ->  genuinely corrupt, drop the row.
+    #
+    # Find the pruned inf column index so the repair step can skip it.
+    _inf_col_pruned: int | None = None
+    for _ci, _ca in enumerate(patoms):
+        if str(_ca) in ("\u221e", "inf", "infinity"):
+            _inf_col_pruned = _ci
+            break
+
+    # Materialise each row as a mutable dense list for patching.
+    _rows_list: list[list[int]] = []
     for r in range(pnrows):
         rs, re = int(pptr[r]), int(pptr[r + 1])
-        if sum(int(pdata[k]) for k in range(rs, re)) != 0:
+        row: list[int] = [0] * pncols
+        for k in range(rs, re):
+            row[int(pidx[k])] = int(pdata[k])
+        _rows_list.append(row)
+
+    _repaired:  list[int] = []
+    _malformed: list[int] = []
+    for r, row in enumerate(_rows_list):
+        s = sum(row)
+        if s == 0:
+            continue
+        if s == -1:
+            # Tangent row: find the unique finite coeff-3 atom and bump to 4.
+            fixed = False
+            for c, v in enumerate(row):
+                if v == 3 and c != _inf_col_pruned:
+                    row[c] = 4
+                    _repaired.append(r)
+                    fixed = True
+                    break
+            if not fixed:
+                # sum=-1 but no coeff-3 finite atom: unexpected, drop it.
+                _malformed.append(r)
+        else:
             _malformed.append(r)
+
+    # Rebuild CSR from the (possibly patched) row list, excluding malformed rows.
+    _malformed_set = set(_malformed)
+    _keep_rows = [r for r in range(pnrows) if r not in _malformed_set]
+    _new_data, _new_idx, _new_ptr = [], [], [0]
+    for r in _keep_rows:
+        for c, v in enumerate(_rows_list[r]):
+            if v:
+                _new_data.append(v)
+                _new_idx.append(c)
+        _new_ptr.append(len(_new_data))
+    pdata  = np.array(_new_data, dtype=np.int32)
+    pidx   = np.array(_new_idx,  dtype=np.int32)
+    pptr   = np.array(_new_ptr,  dtype=np.int32)
+    pnrows = len(_keep_rows)
+
+    if _repaired:
+        print(f"[filter] repaired {len(_repaired)} tangent row(s) (xk==xi, xi coeff 3->4): "
+              f"{_repaired[:16]}" + (" ..." if len(_repaired) > 16 else ""))
     if _malformed:
-        print(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum != 0): "
+        print(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum != 0, not repairable): "
               f"{_malformed[:16]}" + (" ..." if len(_malformed) > 16 else ""))
-        _keep_rows = [r for r in range(pnrows) if r not in set(_malformed)]
-        _new_data, _new_idx, _new_ptr = [], [], [0]
-        for r in _keep_rows:
-            rs, re = int(pptr[r]), int(pptr[r + 1])
-            for k in range(rs, re):
-                _new_data.append(int(pdata[k]))
-                _new_idx.append(int(pidx[k]))
-            _new_ptr.append(len(_new_data))
-        pdata  = np.array(_new_data, dtype=np.int32)
-        pidx   = np.array(_new_idx,  dtype=np.int32)
-        pptr   = np.array(_new_ptr,  dtype=np.int32)
-        pnrows = len(_keep_rows)
         print(f"[filter] matrix after malformed-row drop: {pnrows} rows x {pncols} cols")
-    else:
+    if not _repaired and not _malformed:
         print("[filter] all rows well-formed (coeff sums all zero).")
 
     section("CONNECTIVITY ANALYSIS")

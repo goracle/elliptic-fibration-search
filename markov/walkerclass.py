@@ -1229,6 +1229,134 @@ class Genus2MetropolisWalker:
         )
         return n_checked
 
+    def generate_mixed_relations(
+        self,
+        atoms_to_inject: List[Any],
+        *,
+        seed_atoms: Optional[set] = None,
+        label: str = "mixed",
+    ) -> int:
+        """Post-step injection: for each accepted history record whose xi is in
+        seed_atoms (all accepted records if seed_atoms is None), try injecting
+        every atom from atoms_to_inject as xj.
+
+        Because xj = xi - m (RLINEAR), we invert: m = xi - xj_target.
+        Then xk = S(m) - (deg-2)*xi - xj_target.
+        A relation is recorded iff curve_poly(xk) is a QR in F_p.
+
+        The resulting RelationRecords are stored via _store_record so their
+        leaves land in global_leaves_seen exactly like normal search leaves.
+
+        Returns the number of new relation records appended to self.history.
+        """
+        if not RLINEAR:
+            print("[generate_mixed_relations] skipped: RLINEAR=False")
+            return 0
+
+        Fp  = self.base_ring
+        deg = self.config.curve_degree
+        xi_mult = deg - 2
+
+        # Normalise seed_atoms filter to a set of base-ring elements (or None).
+        if seed_atoms is not None:
+            seed_fp = {Fp(a) for a in seed_atoms}
+        else:
+            seed_fp = None
+
+        atoms_fp = [Fp(a) for a in atoms_to_inject]
+
+        n_added   = 0
+        n_skipped = 0
+
+        for rec in list(self.history):
+            if not rec.accepted:
+                continue
+            xi = Fp(rec.xi)
+            if seed_fp is not None and xi not in seed_fp:
+                continue
+
+            S_sym = self._get_S_of_m_for_rec(rec)
+            if S_sym is None:
+                continue
+
+            for xj_val in atoms_fp:
+                if xj_val == xi:
+                    continue
+
+                m_val = xi - xj_val   # inversion: xj = xi - m  =>  m = xi - xj
+
+                # Evaluate S(m); skip if fiber pole (denominator = 0).
+                try:
+                    dv = Fp(S_sym.denominator()(m_val))
+                    if dv == Fp(0):
+                        n_skipped += 1
+                        continue
+                    S_val = Fp(S_sym.numerator()(m_val)) / dv
+                except Exception:
+                    n_skipped += 1
+                    continue
+
+                xk_val = Fp(S_val - xi_mult * xi - xj_val)
+
+                # xk must lift to a curve point.
+                rhs = self.curve_poly(xk_val)
+                if not (hasattr(rhs, "is_square") and rhs.is_square()):
+                    n_skipped += 1
+                    continue
+
+                # --- leaf bookkeeping (mirrors _step_from_candidate_search) ---
+                self._update_leaf_bookkeeping({xj_val, xk_val}, n=rec.n, xi_before=xi)
+
+                # --- build record ---
+                cand = {
+                    "source": "mixed_injection",
+                    "m":  int(m_val),
+                    "xj": xj_val,
+                    "xk": xk_val,
+                }
+                step_dict = {
+                    "source":            "mixed_injection",
+                    "label":             label,
+                    "origin_step_index": rec.step_index,
+                    "S_of_m":            S_sym,          # kept for close_under_involution
+                }
+                relation = (
+                    f"{xi_mult}*{int(xi)} + {int(xj_val)} + {int(xk_val)}"
+                    f" - {deg}*\u221e = 0"
+                )
+                injected = RelationRecord(
+                    step_index       = len(self.history),
+                    n                = rec.n,
+                    xi               = xi,
+                    m                = m_val,
+                    xj               = xj_val,
+                    xk               = xk_val,
+                    relation         = relation,
+                    step             = step_dict,
+                    accepted         = True,
+                    restart          = False,
+                    candidate_pool   = [cand],
+                    selected_candidate = cand,
+                    yj_sign          = 1,
+                    yk_sign          = 1,
+                    xi_mult          = xi_mult,
+                )
+                self._store_record(injected)
+                n_added += 1
+
+                if self.config.verbose:
+                    print(
+                        f"[mixed_injection] xi={int(xi)}  xj={int(xj_val)} ({label})"
+                        f"  m={int(m_val)}  xk={int(xk_val)}"
+                    )
+
+        print(
+            f"[generate_mixed_relations] added={n_added}  skipped={n_skipped}"
+            f"  (seed_atoms={'all' if seed_fp is None else len(seed_fp)},"
+            f" inject_pool={len(atoms_fp)})"
+        )
+        return n_added
+
     def _call_search_fn(self, n: int, seed: Optional[int] = None, current_point=None):
         if self.search_fn is None:
             return None

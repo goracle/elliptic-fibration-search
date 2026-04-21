@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
-from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, SECRET_KEY
+from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, SECRET_KEY, GENERATE_MIXED_RELATIONS, MAXN
 from sage.all import *
 from markov import *
 from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
@@ -208,6 +208,7 @@ def _collision_path_dlp(
 # Main
 # ---------------------------------------------------------------------------
 
+from sage.all import floor
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Cross-chain merge experiment seeded from BASE/TARGET divisor roots"
@@ -249,7 +250,7 @@ def main(argv=None):
 
         ctx = multiprocessing.get_context("spawn")
         pool = ctx.Pool(processes=args.num_workers, initializer=init_worker)
-        chunk_size = 1
+        chunk_size = floor(MAXN*2/args.num_workers)
 
         search_fn = make_project_markov_search_fn(
             coeffs_genus2=coeffs,
@@ -293,6 +294,12 @@ def main(argv=None):
     _log(f"[seeds]   BASE_DIVISOR   roots: x0_A={x0_a}, x0_B={x0_b}")
     _log(f"[seeds]   TARGET_DIVISOR roots: x0_C={x0_c}, x0_D={x0_d}")
 
+    # In GENERATE_MIXED_RELATIONS mode the interesting xi is only the seed
+    # atom (step 0); after one step the chain leaves G/T territory, so injection
+    # yields nothing useful.  G atoms = BASE_DIVISOR roots, T atoms = TARGET.
+    G_atoms = {x0_a, x0_b}
+    T_atoms = {x0_c, x0_d}
+
     def _bp(x0):
         if _HAS_PROJECT:
             return project_base_points_from_globals(current_x=x0, p=p)
@@ -314,9 +321,19 @@ def main(argv=None):
         walker_a.mat_chain = None
         walker_a.mat_graph = None
 
-        _quiet_run(walker_a, args.steps_a, checkpoint_every=args.checkpoint_every,
-                   label="A", collective_leaves=None,
-                   nullity_every=0, peer_walkers=[])
+        if GENERATE_MIXED_RELATIONS:
+            _log("[A] GENERATE_MIXED_RELATIONS: running 1 step then injecting T atoms")
+            _quiet_run(walker_a, 1, checkpoint_every=args.checkpoint_every,
+                       label="A", collective_leaves=None,
+                       nullity_every=0, peer_walkers=[])
+            n_inj = walker_a.generate_mixed_relations(
+                list(T_atoms), seed_atoms=G_atoms, label="T"
+            )
+            _log(f"[A] mixed injection complete: {n_inj} relations added")
+        else:
+            _quiet_run(walker_a, args.steps_a, checkpoint_every=args.checkpoint_every,
+                       label="A", collective_leaves=None,
+                       nullity_every=0, peer_walkers=[])
         walker_a.save_leaf_snapshot(args.snapshot)
 
         vol_a = len(walker_a.global_leaves_seen)
@@ -359,9 +376,31 @@ def main(argv=None):
         w.mat_chain = None
         w.mat_graph = None
 
-        _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
-                   label=label, collective_leaves=collective_leaves,
-                   nullity_every=0, peer_walkers=list(peer_walkers_done))
+        if GENERATE_MIXED_RELATIONS:
+            # Determine which divisor set this walker's seed belongs to, then
+            # inject all atoms from the opposite set.
+            seed_fp = w.base_ring(x0)
+            if seed_fp in {w.base_ring(a) for a in G_atoms}:
+                inject_atoms = list(T_atoms)
+                inject_label = "T"
+                walker_seed_atoms = G_atoms
+            else:
+                inject_atoms = list(G_atoms)
+                inject_label = "G"
+                walker_seed_atoms = T_atoms
+
+            _log(f"[{label}] GENERATE_MIXED_RELATIONS: 1 step then injecting {inject_label} atoms")
+            _quiet_run(w, 1, checkpoint_every=args.checkpoint_every,
+                       label=label, collective_leaves=collective_leaves,
+                       nullity_every=0, peer_walkers=list(peer_walkers_done))
+            n_inj = w.generate_mixed_relations(
+                inject_atoms, seed_atoms=walker_seed_atoms, label=inject_label
+            )
+            _log(f"[{label}] mixed injection complete: {n_inj} relations added")
+        else:
+            _quiet_run(w, args.steps_bcd, checkpoint_every=args.checkpoint_every,
+                       label=label, collective_leaves=collective_leaves,
+                       nullity_every=0, peer_walkers=list(peer_walkers_done))
         peer_walkers_done.append(w)
         return w
 
