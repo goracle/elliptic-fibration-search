@@ -39,6 +39,10 @@ Then ensure Oscar is installed in the Julia environment Julia will find
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -52,28 +56,150 @@ from search_lll.mumford.mumford_verification import verify_mumford_pair
 from search_common import DEBUG, FINITE_FIELD
 
 # ---------------------------------------------------------------------------
-# Julia session (lazy init)
+# Julia subprocess call (avoids juliacall in-process GAP/libgap conflict
+# with SageMath's own libgap)
 # ---------------------------------------------------------------------------
 
-_jl = None
-_jl_ready = False
+# Path to mumford_oscar_server.jl — sits next to this file by default.
+_SERVER_JL = pathlib.Path(__file__).resolve().parent / "mumford_oscar_server.jl"
 
-def _ensure_julia(oscar_jl_path: str = "/home/claire/elliptic-fibration-search/markov/mumford_oscar.jl") -> Any:
-    """Start Julia and load mumford_oscar.jl exactly once."""
-    global _jl, _jl_ready
-    if _jl_ready:
-        return _jl
-    try:
-        from juliacall import Main as jl  # type: ignore[import]
-    except ImportError:
-        raise ImportError(
-            "juliacall not installed. Run: pip install juliacall\n"
-            "Then make sure Oscar.jl is available in your Julia environment."
+# ---------------------------------------------------------------------------
+# Persistent Julia server process — started once, reused for every call.
+# Pays the Oscar/FLINT JIT cost exactly once per Python process lifetime.
+# ---------------------------------------------------------------------------
+
+import threading
+
+_SERVER_PROC: subprocess.Popen | None = None
+_SERVER_LOCK = threading.Lock()
+
+
+def _drain_stderr(proc: subprocess.Popen) -> None:
+    """Forward Julia stderr to Python stderr so errors are never silently swallowed."""
+    for line in proc.stderr:
+        print(f"[julia] {line}", end="", flush=True)
+
+
+def _get_server() -> subprocess.Popen:
+    """Return the live Julia server process, starting it if necessary."""
+    global _SERVER_PROC
+    if _SERVER_PROC is not None and _SERVER_PROC.poll() is None:
+        return _SERVER_PROC
+
+    server_path = os.environ.get("OSCAR_SERVER_JL", str(_SERVER_JL))
+    julia_bin   = os.environ.get("JULIA_BIN", "julia")
+    nthreads    = os.environ.get("JULIA_NUM_THREADS", "auto")
+
+    cmd = [julia_bin, f"--threads={nthreads}", "--startup-file=no", server_path]
+    _SERVER_PROC = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,  # line-buffered — required so readline() doesn't block forever
+    )
+
+    # Block until Julia finishes loading Oscar and prints "[julia] server ready".
+    # We read stderr directly here (no drain thread yet) so we can't miss it.
+    print("[oscar_bridge] waiting for Julia server to load Oscar...", flush=True)
+    for line in _SERVER_PROC.stderr:
+        sys.stderr.write(f"[julia] {line}")
+        sys.stderr.flush()
+        if "[julia] server ready" in line:
+            break
+        if _SERVER_PROC.poll() is not None:
+            raise RuntimeError(
+                f"[oscar_bridge] Julia server exited during startup "
+                f"(code {_SERVER_PROC.returncode})"
+            )
+    print("[oscar_bridge] Julia server ready.", flush=True)
+
+    # Hand off ongoing stderr to a drain thread.
+    threading.Thread(target=_drain_stderr, args=(_SERVER_PROC,), daemon=True).start()
+    return _SERVER_PROC
+
+
+class _SageEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            return int(obj)
+        except (TypeError, ValueError):
+            pass
+        return super().default(obj)
+
+
+def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
+    """
+    Serialize tasks to JSON, send to the persistent Julia server, and return
+    the raw JSON result string (one newline-delimited line).
+
+    The server loops forever reading one JSON line from stdin and writing one
+    JSON line to stdout — Oscar JIT happens once at startup, not per call.
+
+    Returns: str  (raw JSON, parsed by the caller)
+    """
+    # v_tuples are Python tuples — must become JSON arrays.
+    tasks_serial = {
+        str(p): [
+            [list(v_tuple), diff_coeffs, rhs_idx]
+            for v_tuple, diff_coeffs, rhs_idx in items
+        ]
+        for p, items in tasks_by_prime.items()
+    }
+    rhs_serial = {
+        str(p): [[list(num), list(den)] for num, den in entries]
+        for p, entries in rhs_by_prime.items()
+    }
+
+    payload = json.dumps({
+        "prime_list": list(prime_list),
+        "tasks":      tasks_serial,
+        "rhs":        rhs_serial,
+    }, cls=_SageEncoder)
+
+    with _SERVER_LOCK:
+        proc = _get_server()
+
+        if debug:
+            print(f"[oscar_bridge] sending task to persistent Julia server (pid={proc.pid})", flush=True)
+
+        try:
+            print(f"[oscar_bridge] writing {len(payload)} bytes to Julia stdin", flush=True)
+            proc.stdin.write(payload + "\n")
+            proc.stdin.flush()
+            print(f"[oscar_bridge] waiting for Julia stdout readline...", flush=True)
+            # Loop past any blank lines — Oscar/JSON3 may emit a stray newline
+            # to stdout during module loading that gets flushed before the first
+            # real response line.
+            result_line = ""
+            while True:
+                result_line = proc.stdout.readline()
+                if not result_line or result_line.strip():
+                    break
+                print(f"[oscar_bridge] skipping blank line from Julia stdout", flush=True)
+            print(f"[oscar_bridge] readline returned {len(result_line)} bytes: {repr(result_line[:200])}", flush=True)
+        except BrokenPipeError:
+            global _SERVER_PROC
+            _SERVER_PROC = None
+            raise RuntimeError("[oscar_bridge] Julia server pipe broken — process may have crashed")
+
+    if not result_line:
+        rc = proc.poll()
+        raise RuntimeError(
+            f"[oscar_bridge] Julia server returned empty response "
+            f"(process {'still running' if rc is None else f'exited with code {rc}'}) "
+            f"— check [julia] lines above for the error"
         )
-    jl.include(oscar_jl_path)
-    _jl = jl
-    _jl_ready = True
-    return _jl
+
+    result_line = result_line.strip()
+    print(f"[oscar_bridge] result_line stripped: {repr(result_line[:200])}", flush=True)
+    if result_line == "[julia] ERROR":
+        raise RuntimeError(
+            "[oscar_bridge] Julia server reported an error — check [julia] ERROR lines above"
+        )
+
+    return result_line
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +427,6 @@ def mumford_precompute_residues_oscar(
     debug=DEBUG,
     chunk_size=4,
     pool=None,          # ignored
-    oscar_jl_path="/home/claire/elliptic-fibration-search/markov/mumford_oscar.jl",
 ):
     """
     Drop-in replacement for mumford_precompute_residues_parallel.
@@ -318,8 +443,6 @@ def mumford_precompute_residues_oscar(
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
 
-    jl = _ensure_julia(oscar_jl_path)
-
     f_coeffs = eqs_dict["f_coeffs"]
     f_coeffs_ints = [int(c) for c in f_coeffs]
     const_val_int = int(QQ(eqs_dict["const"]))
@@ -335,28 +458,31 @@ def mumford_precompute_residues_oscar(
     if debug:
         print(f"[oscar_bridge] task generation: {time.time()-t0:.2f}s", flush=True)
 
-    # Phase 2: convert to Julia types and call Oscar
+    # Phase 2: persistent Julia server call
     t1 = time.time()
 
-    # Convert tasks_by_prime: {p: [(v_tuple, diff_coeffs, rhs_idx), ...]}
-    # → Julia Dict{Int, Vector{ChunkItem}} via build_chunk_items
-    jl_tasks = {}
-    for p, items in tasks_by_prime.items():
-        jl_tasks[p] = jl.build_chunk_items(items)
+    julia_raw_str = _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=debug)
 
-    # Convert rhs_by_prime: {p: [(num_coeffs, den_coeffs), ...]}
-    # juliacall passes Python tuples/lists as Julia Vectors/Tuples automatically
-    jl_rhs = rhs_by_prime   # juliacall handles the conversion
-
-    julia_raw = jl.mumford_residues_oscar(
-        list(prime_list),
-        jl_tasks,
-        jl_rhs,
-    )
+    # The server returns string keys: {str(p): {str(v_tuple): {str([x,r]): [[m,x,r],...]}}}
+    # Convert back to the typed keys _assemble_results expects:
+    #   {p(int): {v_tuple(tuple): {(x_val,rhs_idx)(tuple): [(m,x,r),...]}}}
+    import ast
+    julia_raw = {}
+    for p_str, vmap in json.loads(julia_raw_str).items():
+        p = int(p_str)
+        p_result = {}
+        for v_str, xmap in vmap.items():
+            v_tuple = tuple(ast.literal_eval(v_str))
+            xr_dict = {}
+            for xr_str, triples in xmap.items():
+                xr = ast.literal_eval(xr_str)
+                xr_dict[(int(xr[0]), int(xr[1]))] = [tuple(t) for t in triples]
+            p_result[v_tuple] = xr_dict
+        julia_raw[p] = p_result
 
     if debug:
         total = sum(
-            len(vmap) for pmap in julia_raw.values() for vmap in pmap.values()
+            len(xmap) for pmap in julia_raw.values() for xmap in pmap.values()
         )
         print(
             f"[oscar_bridge] Julia root-finding: {time.time()-t1:.2f}s  "
