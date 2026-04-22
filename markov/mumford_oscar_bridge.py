@@ -45,14 +45,12 @@ import pathlib
 import subprocess
 import sys
 import time
+import ast
 from collections import defaultdict
 from typing import Any
 
 from sage.all import GF, QQ
 
-# These stay in Python — we do NOT port them.
-from search_lll.mumford.mumford_solver import solve_mumford_mod_p_optimized
-from search_lll.mumford.mumford_verification import verify_mumford_pair
 from search_common import DEBUG, FINITE_FIELD
 
 # ---------------------------------------------------------------------------
@@ -129,7 +127,8 @@ class _SageEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
+def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime,
+                       section_poly_dict=None, debug=False):
     """
     Serialize tasks to JSON, send to the persistent Julia server, and return
     the raw JSON result string (one newline-delimited line).
@@ -152,10 +151,21 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
         for p, entries in rhs_by_prime.items()
     }
 
+    # Include per-prime section poly payloads when provided.
+    # section_poly_dict: {p: [{"p":…,"D":…,"X":…,"Y":…,"Z":…,"a4":…,"a6":…}, …]}
+    # Julia reads this under "section_polys" and runs run_section_ladder per section.
+    section_serial = {}
+    if section_poly_dict:
+        for p, payloads in section_poly_dict.items():
+            non_null = [pl for pl in payloads if pl is not None]
+            if non_null:
+                section_serial[str(p)] = non_null
+
     payload = json.dumps({
-        "prime_list": list(prime_list),
-        "tasks":      tasks_serial,
-        "rhs":        rhs_serial,
+        "prime_list":    list(prime_list),
+        "tasks":         tasks_serial,
+        "rhs":           rhs_serial,
+        "section_polys": section_serial,   # may be {}
     }, cls=_SageEncoder)
 
     with _SERVER_LOCK:
@@ -165,20 +175,16 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
             print(f"[oscar_bridge] sending task to persistent Julia server (pid={proc.pid})", flush=True)
 
         try:
-            print(f"[oscar_bridge] writing {len(payload)} bytes to Julia stdin", flush=True)
             proc.stdin.write(payload + "\n")
             proc.stdin.flush()
-            print(f"[oscar_bridge] waiting for Julia stdout readline...", flush=True)
-            # Loop past any blank lines — Oscar/JSON3 may emit a stray newline
-            # to stdout during module loading that gets flushed before the first
-            # real response line.
+            # Skip blank lines emitted to stdout during Oscar/JSON3 module
+            # loading — they sit buffered until the first flush() and arrive
+            # ahead of the first real JSON response line.
             result_line = ""
             while True:
                 result_line = proc.stdout.readline()
                 if not result_line or result_line.strip():
                     break
-                print(f"[oscar_bridge] skipping blank line from Julia stdout", flush=True)
-            print(f"[oscar_bridge] readline returned {len(result_line)} bytes: {repr(result_line[:200])}", flush=True)
         except BrokenPipeError:
             global _SERVER_PROC
             _SERVER_PROC = None
@@ -193,7 +199,6 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
         )
 
     result_line = result_line.strip()
-    print(f"[oscar_bridge] result_line stripped: {repr(result_line[:200])}", flush=True)
     if result_line == "[julia] ERROR":
         raise RuntimeError(
             "[oscar_bridge] Julia server reported an error — check [julia] ERROR lines above"
@@ -209,6 +214,7 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=False):
 def _build_tasks_and_rhs(
     eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
     rhs_modp_list, vecs_list, const_val_int, chunk_size, debug,
+    julia_ladder_caches=None,
 ):
     """
     Reproduce the task-generation loop from mumford_precompute_residues_parallel
@@ -225,6 +231,13 @@ def _build_tasks_and_rhs(
         assert p in Ep_dict, f"Prime {p} missing from Ep_dict"
 
         Ep = Ep_dict[p]
+        # Build a LargePrimeMockCurve once per prime so the per-vector
+        # accumulator Pm is type-compatible with LargePrimeMockPoint mults.
+        from search_lll.ll_utilities import LargePrimeMockCurve, LargePrimeMockPoint
+        _a4_p = Ep.a4() if hasattr(Ep, 'a4') else Ep._a4
+        _a6_p = Ep.a6() if hasattr(Ep, 'a6') else Ep._a6
+        _base_p = Ep.base_ring() if hasattr(Ep, 'base_ring') else Ep.base_field()
+        _mock_curve_p = LargePrimeMockCurve(_base_p, _a4_p, _a6_p)
         p_vecs = vecs_lll.get(p)
         assert p_vecs is not None, f"Prime {p} missing from vecs_lll"
         assert len(p_vecs) >= len(vecs_list), (
@@ -271,7 +284,7 @@ def _build_tasks_and_rhs(
                 continue
 
             v_coeffs = p_vecs[v_idx]
-            Pm = Ep(0)
+            Pm = _mock_curve_p(0)
             valid_vec = True
 
             for i, c in enumerate(v_coeffs):
@@ -319,95 +332,31 @@ def _build_tasks_and_rhs(
 
 
 # ---------------------------------------------------------------------------
-# Post-processing: call solve_mumford_mod_p_optimized on Julia's output
+# Post-processing: convert Julia's string-keyed output to typed Python keys.
+# Julia returns: {str(p): {str(v_tuple): {str([rhs_idx]): [m_root, ...]}}}
+# We return:     {p(int): {v_tuple(tuple): {rhs_idx(int): [m_root(int), ...]}}}
+#
+# That's it.  No Mumford solve, no verify, no sign computation — enrich_candidates
+# in walkerclass.py does all of that from the fiber geometry using only m_root.
 # ---------------------------------------------------------------------------
 
-def _assemble_results(
-    julia_raw,
-    f_coeffs_ints,
-    const_val_int,
-    prime_list,
-    debug,
-):
-    """
-    Given julia_raw = {p: {v_tuple: {(x_val, rhs_idx): [(m_root, x_val, rhs_idx), ...]}}}
-    call solve_mumford_mod_p_optimized + verify_mumford_pair + sign computation
-    and return the final results_dict in the format mumford_precompute_residues_parallel
-    would have returned:
-      {p: {v_tuple: {(x_val, rhs_idx): [verified_sol_6tuple, ...]}}}
-    """
+def _assemble_results(julia_raw, prime_list):
     results_dict = {}
-    max_sols = 10000 if FINITE_FIELD else 500
-
     for p in prime_list:
         p_raw = julia_raw.get(p)
         if not p_raw:
             continue
-
         p_results = {}
-
-        for v_tuple, xmap in p_raw.items():
-            for (x_val, rhs_idx), triples in xmap.items():
-                verified_sols = []
-
-                for (m_root, x_val_inner, _rhs_idx) in triples:
-                    # x_val_inner == x_val (redundant, but keep for clarity)
-                    try:
-                        sols = solve_mumford_mod_p_optimized(
-                            f_coeffs_ints, p, x_val, const_val_int,
-                            max_solutions=max_sols,
-                        )
-                    except Exception as e:
-                        raise RuntimeError(
-                            f"Mumford solver failed: p={p}, x_val={x_val}, "
-                            f"m_root={m_root}, v_tuple={v_tuple}, rhs_idx={rhs_idx}, error={e}"
-                        )
-
-                    for sol in sols:
-                        assert len(sol) == 4, f"Invalid solution length: {len(sol)}"
-                        s, p_val, v0, v1 = sol
-
-                        if not verify_mumford_pair(
-                            f_coeffs_ints, s, p_val, v0, v1, modulus=p
-                        ):
-                            raise RuntimeError(
-                                f"Mumford pair failed verification: "
-                                f"p={p}, sol={sol}, v_tuple={v_tuple}, rhs_idx={rhs_idx}"
-                            )
-
-                        # Sign computation (identical to _solve_worker_wrapper)
-                        xv_v = (v0 + v1 * x_val) % p
-                        rhs_val = 0
-                        for i, c in enumerate(f_coeffs_ints):
-                            rhs_val = (rhs_val + c * pow(x_val, i, p)) % p
-
-                        if rhs_val == 0:
-                            canonical_xv = 0
-                        elif (p % 4) == 3:
-                            canonical_xv = pow(rhs_val, (p + 1) // 4, p)
-                            canonical_xv = min(canonical_xv, p - canonical_xv)
-                        else:
-                            sq = pow(rhs_val, (p + 1) // 4, p)
-                            if (sq * sq) % p == rhs_val:
-                                canonical_xv = min(sq, p - sq)
-                            else:
-                                canonical_xv = min(xv_v, p - xv_v) if xv_v != 0 else 0
-
-                        xv_canonical = min(xv_v, p - xv_v) if xv_v != 0 else 0
-                        x_val_sign = 1 if xv_canonical == canonical_xv else -1
-
-                        verified_sols.append(
-                            (sol, x_val_sign, int(v0), int(v1), int(m_root), int(rhs_idx))
-                        )
-
-                if verified_sols:
-                    if v_tuple not in p_results:
-                        p_results[v_tuple] = {}
-                    p_results[v_tuple][(x_val, rhs_idx)] = verified_sols
-
+        for v_str, xmap in p_raw.items():
+            v_tuple = tuple(ast.literal_eval(v_str))
+            rhs_dict = {}
+            for rhs_key_str, m_roots in xmap.items():
+                rhs_idx = int(ast.literal_eval(rhs_key_str)[0])
+                rhs_dict[rhs_idx] = [int(m) for m in m_roots]
+            if rhs_dict:
+                p_results[v_tuple] = rhs_dict
         if p_results:
             results_dict[p] = p_results
-
     return results_dict
 
 
@@ -427,6 +376,7 @@ def mumford_precompute_residues_oscar(
     debug=DEBUG,
     chunk_size=4,
     pool=None,          # ignored
+    section_poly_dict=None,   # {p: [payload_per_section]} from prepare_modular_data_lll
 ):
     """
     Drop-in replacement for mumford_precompute_residues_parallel.
@@ -443,13 +393,11 @@ def mumford_precompute_residues_oscar(
     assert Ep_dict, "Empty Ep_dict"
     assert vecs_list, "Empty vecs_list"
 
-    f_coeffs = eqs_dict["f_coeffs"]
-    f_coeffs_ints = [int(c) for c in f_coeffs]
     const_val_int = int(QQ(eqs_dict["const"]))
 
     t0 = time.time()
 
-    # Phase 1: build tasks (Python, same logic as before)
+    # Phase 1: build tasks (Python)
     tasks_by_prime, rhs_by_prime = _build_tasks_and_rhs(
         eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
         rhs_modp_list, vecs_list, const_val_int, chunk_size, debug,
@@ -458,46 +406,52 @@ def mumford_precompute_residues_oscar(
     if debug:
         print(f"[oscar_bridge] task generation: {time.time()-t0:.2f}s", flush=True)
 
-    # Phase 2: persistent Julia server call
+    # Phase 2: Julia root-finding
     t1 = time.time()
+    julia_raw_str = _call_julia_server(
+        prime_list, tasks_by_prime, rhs_by_prime,
+        section_poly_dict=section_poly_dict,
+        debug=debug,
+    )
 
-    julia_raw_str = _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime, debug=debug)
-
-    # The server returns string keys: {str(p): {str(v_tuple): {str([x,r]): [[m,x,r],...]}}}
-    # Convert back to the typed keys _assemble_results expects:
-    #   {p(int): {v_tuple(tuple): {(x_val,rhs_idx)(tuple): [(m,x,r),...]}}}
-    import ast
+    # Parse Julia response.
+    # New format (when section_polys sent):
+    #   {str(p): {"roots": {str(v_tuple): {str([rhs_idx]): [m]}},
+    #             "ladder_caches": [{str(k): {"X":[…],"Y":[…],"Z":[…]}}, …]}}
+    # Old format (no section_polys): flat {str(p): {str(v_tuple): {…}}}
+    _parsed = json.loads(julia_raw_str)
     julia_raw = {}
-    for p_str, vmap in json.loads(julia_raw_str).items():
-        p = int(p_str)
-        p_result = {}
-        for v_str, xmap in vmap.items():
-            v_tuple = tuple(ast.literal_eval(v_str))
-            xr_dict = {}
-            for xr_str, triples in xmap.items():
-                xr = ast.literal_eval(xr_str)
-                xr_dict[(int(xr[0]), int(xr[1]))] = [tuple(t) for t in triples]
-            p_result[v_tuple] = xr_dict
-        julia_raw[p] = p_result
+    julia_ladder_caches = {}   # p(int) -> [cache_per_section]
+    for p_str, pval in _parsed.items():
+        p_int = int(p_str)
+        if isinstance(pval, dict) and "roots" in pval:
+            julia_raw[p_int] = pval["roots"]
+            lc = pval.get("ladder_caches")
+            if lc:
+                julia_ladder_caches[p_int] = lc
+        else:
+            # Old format fallback
+            julia_raw[p_int] = pval
 
     if debug:
         total = sum(
-            len(xmap) for pmap in julia_raw.values() for xmap in pmap.values()
+            len(m_list)
+            for pmap in julia_raw.values()
+            for vmap in pmap.values()
+            for m_list in vmap.values()
         )
+        lc_count = sum(len(lcs) for lcs in julia_ladder_caches.values())
         print(
             f"[oscar_bridge] Julia root-finding: {time.time()-t1:.2f}s  "
-            f"({total} (x_val, rhs_idx) hits across all primes)",
+            f"({total} m-roots across all primes, "
+            f"{lc_count} ladder cache sections)",
             flush=True,
         )
 
-    # Phase 3: Mumford solve + verification (Python, unchanged)
-    t2 = time.time()
-    results_dict = _assemble_results(
-        julia_raw, f_coeffs_ints, const_val_int, prime_list, debug,
-    )
+    # Phase 3: key conversion only — no Mumford solve, no sign computation
+    results_dict = _assemble_results(julia_raw, prime_list)
 
     if debug:
-        print(f"[oscar_bridge] Mumford solve + verification: {time.time()-t2:.2f}s", flush=True)
         print(f"[oscar_bridge] total: {time.time()-t0:.2f}s", flush=True)
 
     assert results_dict, "Oscar bridge returned empty results — check Julia output"

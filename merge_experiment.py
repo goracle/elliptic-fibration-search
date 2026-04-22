@@ -224,7 +224,7 @@ def main(argv=None):
     ap.add_argument("--checkpoint-every", type=int, default=500)
     ap.add_argument("--max-n",     type=int, default=80)
     ap.add_argument("--num-subsets", type=int, default=None)
-    ap.add_argument("--num-workers", type=int, default=20)
+    ap.add_argument("--num-workers", type=int, default=1)
     # DLP options
     ap.add_argument("--dlp",        action="store_true",
                     help="Attempt DLP solve from merged relation matrices after the run")

@@ -1,4 +1,5 @@
 import math, random, statistics
+import numpy as np
 from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var, SR, EllipticCurve, identity_matrix, vector, matrix, kronecker, Integer as SageInteger
 from .search_config import *
 from search_common import *
@@ -113,6 +114,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
     Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll = {}, [{} for _ in rhs_list], {}, {}
     multiplies_lll, vecs_lll = {}, {}
+    section_poly_dict = {}   # p -> [payload_per_section] for Julia ladder
     rejected_primes = []  # Track (prime, reason) tuples
 
     PR_m = PolynomialRing(QQ, 'm')
@@ -335,8 +337,9 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 for j, coeff in enumerate(v_trans):
                     required_ks_per_section[j].add(int(coeff))
 
-            # Compute multipliers
+            # Compute multipliers + build section poly payload for Julia
             mults = [{} for _ in range(r)]
+            sec_poly_for_p = []   # one entry per section, for Julia ladder
             any_mult_error = False
             for i_sec in range(r):
                 # Use new_basis if available, otherwise original sections
@@ -364,6 +367,16 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
 
                 mults[i_sec] = mults_i
 
+                # Serialise Pi for Julia iff a4/a6 have non-constant denoms
+                # (otherwise the fast numpy path runs and Julia isn't needed).
+                if _has_nonconstant_denom(a4_modp) or _has_nonconstant_denom(a6_modp):
+                    payload = prepare_section_poly_payload(
+                        Pi, a4_modp, a6_modp, int(p)
+                    )
+                else:
+                    payload = None
+                sec_poly_for_p.append(payload)
+
             if any_mult_error:
                 continue
 
@@ -373,6 +386,8 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 rhs_modp_list[i][p] = rhs_p_val
             multiplies_lll[p] = mults
             vecs_lll[p] = vecs_transformed_for_p
+            if any(x is not None for x in sec_poly_for_p):
+                section_poly_dict[p] = sec_poly_for_p
 
         except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
             if DEBUG and (p not in (2, 5)):
@@ -398,7 +413,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     assert detected_collisions.issubset(ram_locus), \
                         f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
-    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
+    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll, section_poly_dict
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
@@ -582,8 +597,355 @@ def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
     # Keep low-degree coefficients (assumed stored as [c0, c1, ..., cN])
     return coeff_list[: max_deg + 1]
 
+
+# ---------------------------------------------------------------------------
+# Fast projective point arithmetic over GF(p)[m] using numpy integer arrays.
+#
+# Sage's GF(p)(m) fraction field normalises every +,*,- to lowest terms via
+# polynomial GCD — O(deg^2) per operation.  In projective coordinates we
+# never divide, so we represent coords as plain polynomial coefficient arrays
+# (numpy int64, low-degree first, length D+1) and do all arithmetic mod p
+# with explicit numpy ops.  No Sage involvement during the ladder.
+#
+# Coord extraction: given a Sage point Pi whose coordinates are rational
+# functions in GF(p)(m), we clear the common denominator projectively:
+#   (X/Dx, Y/Dy, Z/Dz)  →  (X*lcm/Dx, Y*lcm/Dy, Z*lcm/Dz)
+# so all three projective coords become polynomials with no denominator.
+# This is the same clearing step lll_reduce_basis_modp already does.
+# ---------------------------------------------------------------------------
+
+def _fp_poly_mul(a, b, p, D):
+    if len(a) == 0 or len(b) == 0:
+        return np.zeros(D + 1, dtype=np.int64)
+    raw = np.zeros(len(a) + len(b) - 1, dtype=np.int64)
+    for i, ca in enumerate(a):
+        if ca == 0:
+            continue
+        raw[i:i+len(b)] += ca * b
+    raw %= p
+    out = np.zeros(D + 1, dtype=np.int64)
+    n = min(len(raw), D + 1)
+    out[:n] = raw[:n]
+    return out
+
+def _fp_poly_add(a, b, p, D):
+    out = np.zeros(D + 1, dtype=np.int64)
+    out[:len(a)] += a
+    out[:len(b)] += b
+    return out % p
+
+def _fp_poly_sub(a, b, p, D):
+    out = np.zeros(D + 1, dtype=np.int64)
+    out[:len(a)] += a
+    out[:len(b)] -= b
+    return out % p
+
+def _fp_poly_neg(a, p, D):
+    out = np.zeros(D + 1, dtype=np.int64)
+    out[:len(a)] = (-a[:]) % p
+    return out
+
+def _fp_poly_scalar(s, p, D):
+    out = np.zeros(D + 1, dtype=np.int64)
+    out[0] = int(s) % p
+    return out
+
+def _sage_poly_to_np(poly, p, D):
+    """
+    Convert a Sage GF(p)[m] polynomial (NOT a fraction field element) to a
+    numpy int64 array of length D+1.  Call _clear_projective_coords first to
+    ensure coords are polynomials, not rational functions.
+    """
+    out = np.zeros(D + 1, dtype=np.int64)
+    try:
+        coeffs = poly.list()
+    except AttributeError:
+        coeffs = [poly]
+    for i, c in enumerate(coeffs):
+        if i > D:
+            break
+        out[i] = int(c) % p
+    return out
+
+def _clear_projective_coords(Pi, p):
+    """
+    Given a Sage point Pi with coordinates in GF(p)(m), return (Xp, Yp, Zp)
+    as Sage GF(p)[m] polynomials by clearing the common projective denominator.
+
+      (X/Dx, Y/Dy, Z/Dz)  →  (X * L/Dx,  Y * L/Dy,  Z * L/Dz)
+
+    where L = lcm(Dx, Dy, Dz).  The result is a valid projective representative
+    with polynomial coordinates — no division involved.
+    """
+    from sage.all import lcm as sage_lcm
+    coords = tuple(Pi)
+    if len(coords) == 2:
+        # Affine point — embed as projective (X:Y:1)
+        Xr, Yr = coords
+        try:
+            one = Xr.parent()(1)
+        except Exception:
+            one = 1
+        Zr = one
+    else:
+        Xr, Yr, Zr = coords
+
+    try:
+        Xn, Xd = Xr.numerator(), Xr.denominator()
+        Yn, Yd = Yr.numerator(), Yr.denominator()
+        Zn, Zd = Zr.numerator(), Zr.denominator()
+        L = sage_lcm([Xd, Yd, Zd])
+        Xp = Xn * (L // Xd)
+        Yp = Yn * (L // Yd)
+        Zp = Zn * (L // Zd)
+    except AttributeError:
+        # Coords are already polynomials (no .numerator/.denominator)
+        Xp, Yp, Zp = Xr, Yr, Zr
+
+    # Reduce coefficients mod p
+    R = Xp.parent()
+    Xp = R([int(c) % p for c in Xp.list()])
+    Yp = R([int(c) % p for c in Yp.list()])
+    Zp = R([int(c) % p for c in Zp.list()])
+    return Xp, Yp, Zp
+
+
+class _PolyPoint:
+    """
+    Projective point on y^2 = x^3 + a4(m)*x + a6(m) over GF(p)[m]/(deg<=D).
+    X, Y, Z are numpy int64 arrays of length D+1 (coefficients mod p).
+    """
+    __slots__ = ('X', 'Y', 'Z', '_a4', '_a6', '_p', '_D')
+
+    def __init__(self, X, Y, Z, a4, a6, p, D):
+        self.X = X; self.Y = Y; self.Z = Z
+        self._a4 = a4; self._a6 = a6
+        self._p = p; self._D = D
+
+    def is_zero(self):
+        return np.all(self.Z == 0)
+
+    def __neg__(self):
+        return _PolyPoint(self.X.copy(),
+                          _fp_poly_neg(self.Y, self._p, self._D),
+                          self.Z.copy(),
+                          self._a4, self._a6, self._p, self._D)
+
+    def __add__(self, other):
+        p, D = self._p, self._D
+        mul = lambda a, b: _fp_poly_mul(a, b, p, D)
+        add = lambda a, b: _fp_poly_add(a, b, p, D)
+        sub = lambda a, b: _fp_poly_sub(a, b, p, D)
+
+        if self.is_zero():  return other
+        if other.is_zero(): return self
+
+        X1, Y1, Z1 = self.X, self.Y, self.Z
+        X2, Y2, Z2 = other.X, other.Y, other.Z
+
+        U1 = mul(X1, Z2); U2 = mul(X2, Z1)
+        S1 = mul(Y1, Z2); S2 = mul(Y2, Z1)
+
+        if np.array_equal(U1, U2):
+            if not np.array_equal(S1, S2):  # P + (-P) = 0
+                z = np.zeros(D + 1, dtype=np.int64)
+                e = np.zeros(D + 1, dtype=np.int64); e[0] = 1
+                return _PolyPoint(z, e, z.copy(), self._a4, self._a6, p, D)
+            return self._double()
+
+        W   = mul(Z1, Z2)
+        Pv  = sub(U2, U1)
+        R   = sub(S2, S1)
+        P2  = mul(Pv, Pv)
+        P3  = mul(P2, Pv)
+        R2W = mul(mul(R, R), W)
+        t   = mul(_fp_poly_scalar(2, p, D), mul(U1, P2))
+        X3  = sub(sub(R2W, P3), t)
+        Y3  = sub(mul(R, sub(mul(U1, P2), X3)), mul(S1, P3))
+        Z3  = mul(W, P3)
+        return _PolyPoint(X3, Y3, Z3, self._a4, self._a6, p, D)
+
+    def _double(self):
+        p, D = self._p, self._D
+        mul = lambda a, b: _fp_poly_mul(a, b, p, D)
+        add = lambda a, b: _fp_poly_add(a, b, p, D)
+        sub = lambda a, b: _fp_poly_sub(a, b, p, D)
+        s   = lambda n:    _fp_poly_scalar(n, p, D)
+
+        X1, Y1, Z1 = self.X, self.Y, self.Z
+        W  = add(mul(s(3), mul(X1, X1)), mul(self._a4, mul(Z1, Z1)))
+        S  = mul(Y1, Z1)
+        B  = mul(mul(X1, Y1), S)
+        H  = sub(mul(W, W), mul(s(8), B))
+        X3 = mul(mul(s(2), H), S)
+        S2 = mul(S, S)
+        Y3 = sub(mul(W, sub(mul(s(4), B), H)),
+                 mul(s(8), mul(mul(Y1, Y1), S2)))
+        Z3 = mul(s(8), mul(S, S2))
+        return _PolyPoint(X3, Y3, Z3, self._a4, self._a6, p, D)
+
+def _has_nonconstant_denom(coeff):
+    """Return True if coeff ∈ GF(p)(m) has a non-constant denominator."""
+    try:
+        den = coeff.denominator()
+        den_coeffs = den.list() if hasattr(den, 'list') else [den]
+        return len(den_coeffs) > 1
+    except AttributeError:
+        return False
+
+
+
+def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
+    """
+    Convert Pi's projective coords and curve coefficients a4/a6 to plain
+    int-coefficient lists suitable for JSON / the Julia section_ladder.jl API.
+
+    Clears the common projective denominator of Pi — exactly as
+    _clear_projective_coords does — then serialises each polynomial as a
+    list of ints mod p, low-degree first, padded / truncated to length D+1.
+
+    Returns:
+        {"p": int, "D": int,
+         "X": [int…], "Y": [int…], "Z": [int…],
+         "a4": [int…], "a6": [int…]}
+    """
+    from sage.all import lcm as _sage_lcm
+
+    def _frac_to_poly_ints(elem):
+        """GF(p)(m) element → int list mod p, length D+1."""
+        try:
+            num = elem.numerator()
+            den = elem.denominator()
+            den_cs = den.list() if hasattr(den, 'list') else [den]
+            if len(den_cs) != 1:
+                raise ValueError(f"Non-constant denominator during serialisation: {den}")
+            den_inv = int(pow(int(den_cs[0]) % p, p - 2, p))
+            poly = num * den_inv
+        except AttributeError:
+            poly = elem
+        cs = poly.list() if hasattr(poly, 'list') else [poly]
+        result = [int(c) % p for c in cs]
+        # Pad / truncate to D+1
+        if len(result) < D + 1:
+            result += [0] * (D + 1 - len(result))
+        return result[:D + 1]
+
+    # --- Clear projective denominator of Pi ---------------------------------
+    coords = tuple(Pi)
+    if len(coords) == 2:
+        Xr, Yr = coords
+        try:
+            Zr = Xr.parent()(1)
+        except Exception:
+            Zr = 1
+    else:
+        Xr, Yr, Zr = coords
+
+    try:
+        Xn, Xd = Xr.numerator(), Xr.denominator()
+        Yn, Yd = Yr.numerator(), Yr.denominator()
+        Zn, Zd = Zr.numerator(), Zr.denominator()
+        L = _sage_lcm([Xd, Yd, Zd])
+        Xp = Xn * (L // Xd)
+        Yp = Yn * (L // Yd)
+        Zp = Zn * (L // Zd)
+        R = Xp.parent()
+        Xp = R([int(c) % p for c in Xp.list()])
+        Yp = R([int(c) % p for c in Yp.list()])
+        Zp = R([int(c) % p for c in Zp.list()])
+
+        def _ring_poly_to_ints(poly):
+            cs = poly.list() if hasattr(poly, 'list') else [poly]
+            result = [int(c) % p for c in cs]
+            if len(result) < D + 1:
+                result += [0] * (D + 1 - len(result))
+            return result[:D + 1]
+
+        X_ints = _ring_poly_to_ints(Xp)
+        Y_ints = _ring_poly_to_ints(Yp)
+        Z_ints = _ring_poly_to_ints(Zp)
+    except AttributeError:
+        # Coords already polynomials (no .numerator/.denominator)
+        X_ints = _frac_to_poly_ints(Xr)
+        Y_ints = _frac_to_poly_ints(Yr)
+        Z_ints = _frac_to_poly_ints(Zr)
+
+    return {
+        "p":  int(p),
+        "D":  int(D),
+        "X":  X_ints,
+        "Y":  Y_ints,
+        "Z":  Z_ints,
+        "a4": _frac_to_poly_ints(a4_raw),
+        "a6": _frac_to_poly_ints(a6_raw),
+    }
+
+
+def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
+    """
+    Public helper called by mumford_oscar_bridge to build the per-prime
+    section payload merged into the Julia task JSON.
+
+    Returns None on failure so the bridge can skip gracefully.
+    """
+    if Pi is None:
+        return None
+    if D is None:
+        D = TRUNCATE_MAX_DEG
+    try:
+        return _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D)
+    except Exception as e:
+        if DEBUG:
+            print(f"[prepare_section_poly_payload] p={p}: serialisation failed: {e}")
+        return None
+
+
+def _section_mults_from_julia(julia_mults_raw, required_ks,
+                               base_ring, a4_raw, a6_raw, mock_curve):
+    """
+    Reconstruct {k: LargePrimeMockPoint} from the Julia ladder result.
+
+    julia_mults_raw : dict  str(k_abs) -> {"X":[int…], "Y":[int…], "Z":[int…]}
+                      as returned in the Julia response JSON under "ladder_cache".
+    required_ks     : list of ints (signed — negatives give -P).
+    base_ring       : GF(p)(m) fraction field (used to lift int lists back to polys).
+    a4_raw, a6_raw  : curve coefficients (passed through to the MockCurve).
+    mock_curve      : LargePrimeMockCurve instance for this prime.
+
+    Returns {k: LargePrimeMockPoint} for each k in required_ks that Julia supplied.
+    Missing entries are silently omitted (caller should fall back to Sage for those).
+    """
+    try:
+        R_poly = base_ring.ring()
+    except AttributeError:
+        try:
+            R_poly = base_ring.base()
+        except AttributeError:
+            R_poly = base_ring
+
+    def ints_to_frac(coeff_list):
+        return base_ring(R_poly([int(c) for c in coeff_list]))
+
+    final_mults = {}
+    for k in required_ks:
+        k_abs = abs(k)
+        entry = julia_mults_raw.get(str(k_abs))
+        if entry is None:
+            continue
+        if all(v == 0 for v in entry["Z"]):
+            mp = mock_curve(0)
+        else:
+            mp = LargePrimeMockPoint(mock_curve, (
+                ints_to_frac(entry["X"]),
+                ints_to_frac(entry["Y"]),
+                ints_to_frac(entry["Z"]),
+            ))
+        final_mults[k] = -mp if k < 0 else mp
+    return final_mults
+
 def compute_all_mults_for_section(Pi, required_ks, stats,
-                                  max_k=None, debug=False):
+                                  max_k=None, debug=False,
+                                  julia_ladder_cache=None):
     if Pi is None:
         return None
 
@@ -594,29 +956,149 @@ def compute_all_mults_for_section(Pi, required_ks, stats,
     max_abs_cap = MAXN if FINITE_FIELD else MAX_K_ABS
     top = min(max(abs(k) for k in required_ks), max_abs_cap)
 
-    computed = {0: Pi.curve()(0), 1: Pi}
+    # ── Extract curve parameters ──────────────────────────────────────────
+    curve   = Pi.curve()
+    a4_raw  = curve.a4() if hasattr(curve, 'a4') else curve._a4
+    a6_raw  = curve.a6() if hasattr(curve, 'a6') else curve._a6
+    base_ring = curve.base_ring() if hasattr(curve, 'base_ring') else curve.base_field()
+    p = int(base_ring.characteristic())
+    D = TRUNCATE_MAX_DEG
 
-    prev = Pi
+    # ── Choose fast numpy path vs. Sage fallback ──────────────────────────
+    # The numpy ladder requires a4/a6 to be polynomials (constant denominators).
+    # When the fibration has a genuine rational-function a4 or a6 — which can
+    # happen in FF mode where p is the field characteristic and the fibration
+    # has a pole at some finite m-value — we fall back to Sage scalar-mult
+    # arithmetic directly in GF(p)(m).  This is slower but always correct.
+    use_numpy = not (_has_nonconstant_denom(a4_raw) or _has_nonconstant_denom(a6_raw))
+
+    if not use_numpy:
+        mock_curve = LargePrimeMockCurve(base_ring, a4_raw, a6_raw)
+
+        # ── Preferred: use pre-computed Julia FLINT ladder ────────────────
+        if julia_ladder_cache is not None:
+            if debug:
+                print(f"    [mults] Julia ladder cache hit at p={p} "
+                      f"({len(julia_ladder_cache)} entries, non-constant a4/a6 denom)")
+            result = _section_mults_from_julia(
+                julia_ladder_cache, required_ks, base_ring, a4_raw, a6_raw, mock_curve
+            )
+            if stats:
+                stats.incr('modular_mults_julia', len(result))
+            return result
+
+        # ── Sage fallback: scalar-mult ladder in GF(p)(m) ────────────────
+        # Slow: every + normalises via polynomial GCD.  Used when the Julia
+        # cache is absent (server not yet warm, or Julia unavailable).
+        if debug:
+            print(f"    [mults] non-constant a4/a6 denom at p={p}, "
+                  f"using Sage fallback ladder (Julia cache absent)")
+        identity_pt = mock_curve(0)
+        computed_sage = {0: identity_pt, 1: Pi}
+        prev = Pi
+        for k in range(2, top + 1):
+            try:
+                prev = prev + Pi
+                computed_sage[k] = prev
+            except Exception:
+                if debug:
+                    print(f"    [mults/sage] addition failed at k={k}")
+                raise
+
+        if stats:
+            stats.incr('modular_mults', top - 1)
+
+        final_mults = {}
+        for k in required_ks:
+            k_abs = abs(k)
+            if k_abs not in computed_sage:
+                continue
+            pt = computed_sage[k_abs]
+            final_mults[k] = -pt if k < 0 else pt
+        return final_mults
+
+    # ── Fast numpy path (constant-denom a4/a6) ───────────────────────────
+
+    # a4, a6 are elements of GF(p)(m) — extract their polynomial numerators.
+    # Denominators are guaranteed constant here (checked above).
+    def _curve_coeff_to_np(coeff):
+        try:
+            num = coeff.numerator()
+            den = coeff.denominator()
+            den_coeffs = den.list() if hasattr(den, 'list') else [den]
+            den_int = int(den_coeffs[0]) % p if len(den_coeffs) == 1 else None
+            assert den_int is not None and len(den_coeffs) == 1, \
+                f"curve coeff has non-constant denominator: {den}"
+            den_inv = pow(den_int, p - 2, p)
+            poly = num * den_inv  # scalar * poly — stays in GF(p)[m]
+        except AttributeError:
+            poly = coeff
+        return _sage_poly_to_np(poly, p, D)
+
+    a4_np = _curve_coeff_to_np(a4_raw)
+    a6_np = _curve_coeff_to_np(a6_raw)
+
+    # ── Extract Pi coordinates, clearing projective denominator ──────────
+    # Pi lives in GF(p)(m) — we clear the common denominator to get
+    # polynomial projective coords, which is what _PolyPoint expects.
+    Xp, Yp, Zp = _clear_projective_coords(Pi, p)
+    Xnp = _sage_poly_to_np(Xp, p, D)
+    Ynp = _sage_poly_to_np(Yp, p, D)
+    Znp = _sage_poly_to_np(Zp, p, D)
+
+    Pi_fast = _PolyPoint(Xnp, Ynp, Znp, a4_np, a6_np, p, D)
+
+    z   = np.zeros(D + 1, dtype=np.int64)
+    one = np.zeros(D + 1, dtype=np.int64); one[0] = 1
+    identity = _PolyPoint(z.copy(), one.copy(), z.copy(), a4_np, a6_np, p, D)
+
+    # ── Iterative addition ladder ─────────────────────────────────────────
+    computed_np = {0: identity, 1: Pi_fast}
+    prev = Pi_fast
     for k in range(2, top + 1):
         try:
-            prev = prev + Pi
-            computed[k] = prev
+            prev = prev + Pi_fast
+            computed_np[k] = prev
         except Exception:
             if debug:
                 print(f"    [mults] addition failed at k={k}")
             raise
-            break
 
     if stats:
         stats.incr('modular_mults', top - 1)
 
+    # ── Convert results back to LargePrimeMockPoint ───────────────────────
+    # The bridge accumulates Pm via LargePrimeMockPoint.__add__, which
+    # operates on GF(p)(m) elements.  We reconstruct those from the numpy
+    # arrays.  Only the required_ks values are converted — not all 80.
+    try:
+        R_poly = base_ring.ring()
+    except AttributeError:
+        try:
+            R_poly = base_ring.base()
+        except AttributeError:
+            R_poly = base_ring
+
+    def np_to_fpoly(arr):
+        return base_ring(R_poly([int(c) for c in arr]))
+
+    mock_curve = LargePrimeMockCurve(base_ring, a4_raw, a6_raw)
+
     final_mults = {}
     for k in required_ks:
         k_abs = abs(k)
-        val = computed.get(k_abs)
-        if val is None:
+        pt = computed_np.get(k_abs)
+        if pt is None:
             continue
-        final_mults[k] = -val if k < 0 else val
+        if pt.is_zero():
+            mp = mock_curve(0)
+        else:
+            mp = LargePrimeMockPoint(mock_curve, (
+                np_to_fpoly(pt.X),
+                np_to_fpoly(pt.Y),
+                np_to_fpoly(pt.Z),
+            ))
+        final_mults[k] = -mp if k < 0 else mp
 
     return final_mults
 

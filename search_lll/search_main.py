@@ -22,7 +22,8 @@ from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _os
 
 _OSCAR_AVAILABLE = True
 def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
-                   rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size):
+                   rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size,
+                   section_poly_dict=None):
     """
     Dispatch to Oscar bridge if available and USE_OSCAR_RESIDUES env var is set,
     otherwise fall back to the original Python implementation.
@@ -38,6 +39,7 @@ def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
             eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
             rhs_modp_list, vecs_list,
             debug=debug, chunk_size=chunk_size,
+            section_poly_dict=section_poly_dict,
             # num_workers and pool are ignored by the bridge (Julia handles threading)
         )
     else:
@@ -529,7 +531,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # === PHASE: PREP MOD DATA ===
     stats.start_phase('prep_mod_data')
     print("--- Preparing modular data for LLL search ---")
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll, section_poly_dict = prepare_modular_data_lll(
         cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
     )
     stats.end_phase('prep_mod_data')
@@ -1206,7 +1208,8 @@ def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
         eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
         rhs_modp_list, vecs_list,
         num_workers=num_workers,
-        debug=debug, pool=pool, chunk_size=chunk_size
+        debug=debug, pool=pool, chunk_size=chunk_size,
+        section_poly_dict=section_poly_dict,
     )
 
     stats.end_phase('mumford_residues')

@@ -3688,87 +3688,37 @@ def _candidate_record_from_x(x, source="mumford_residue", **extra):
     return rec
 
 def _candidates_from_residues(residues, p):
-    """Extract candidate records from mumford_residues {p: {vtup: {(x_val, rhs_idx): sols}}}.
+    """Extract candidate records from mumford_residues {p: {vtup: {rhs_idx: [m_root, ...]}}}.
 
-    Each solution is now (mumford_tuple, yj_sign, v0, v1, m_root, rhs_idx) as
-    written by _solve_worker_wrapper.  The result dict is now keyed by
-    (x_val, rhs_idx) so that xj-RHS and xk-RHS results for the same x_val are
-    not conflated.
+    Julia now returns only m_root values — no Mumford pairs, no sign computation.
+    enrich_candidates reconstructs xj/xk and signs from the fiber geometry.
 
-    rhs_idx=0  ->  x_val is xj (the forward RHS, present in both RLINEAR modes)
-    rhs_idx=1  ->  x_val is xk (the xk RHS, present only in RLINEAR=False mode)
-
-    We emit one candidate record per (x_val, rhs_idx, yj_sign) triple.
-    m_root is stored on the record so enrich_candidates can call
-    compute_xk_from_fiber without reconstructing m from xi-xj (which is only
-    valid under RLINEAR=True).
-
-    Returns a list of dicts with keys: xj, yj_sign, v0, v1, m, rhs_idx, source.
+    Returns a list of dicts with keys: xj, yj_sign, m, rhs_idx, source.
     """
     records = []
-    seen = set()  # (x_val, rhs_idx, yj_sign) dedup
+    seen = set()  # (m_root, rhs_idx) dedup
 
     pmap = residues.get(p, {})
-    for vtup, xmap in pmap.items():
-        if not isinstance(xmap, dict):
+    for vtup, rhs_map in pmap.items():
+        if not isinstance(rhs_map, dict):
             continue
-        for key_pair, sols in xmap.items():
-            if not sols:
+        for rhs_idx, m_roots in rhs_map.items():
+            if not m_roots:
                 continue
-
-            # New key format is (x_val, rhs_idx); accept bare x_val for
-            # backward compat with any cached results still in the old format.
-            if isinstance(key_pair, tuple) and len(key_pair) == 2:
-                x_val, rhs_idx = key_pair
-            else:
-                x_val = key_pair
-                rhs_idx = 0
-
-            # Take the first solution's sign (multiple solutions at the same
-            # x_val should agree on yj_sign since v(xj) is deterministic).
-            first = sols[0]
-            if isinstance(first, (tuple, list)) and len(first) == 6:
-                # Current format: (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx)
-                # x_val_sign is the sign for x_val: yj_sign when rhs_idx=0, yk_sign when rhs_idx=1.
-                _mtup, x_val_sign, v0, v1, m_root, _rhs_idx = first
-                # rhs_idx in the tuple should match the key; trust the key.
-            elif isinstance(first, (tuple, list)) and len(first) == 4:
-                # Legacy format (RLINEAR=True only, m not needed there):
-                # (mumford_tuple, yj_sign, v0, v1)
-                _mtup, x_val_sign, v0, v1 = first
-                m_root = None
-            else:
-                raise AssertionError(
-                    f"_candidates_from_residues: unexpected solution format "
-                    f"type={type(first)!r} len={len(first)} for x_val={x_val!r}. "
-                    f"Expected 6-tuple (mumford_tuple, x_val_sign, v0, v1, m_root, rhs_idx) "
-                    f"or legacy 4-tuple (mumford_tuple, yj_sign, v0, v1). "
-                    f"Update _solve_worker_wrapper in mumford_parallel.py to emit this format."
-                )
-
-            if x_val_sign not in (1, -1):
-                raise AssertionError(
-                    f"_candidates_from_residues: x_val_sign={x_val_sign!r} is not +-1 "
-                    f"for x_val={x_val!r}, rhs_idx={rhs_idx}."
-                )
-
-            dedup_key = (int(x_val), int(rhs_idx), x_val_sign)
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-
-            # For rhs_idx=0: x_val is xj, x_val_sign is yj_sign.
-            # For rhs_idx=1: x_val is xk, x_val_sign is yk_sign.
-            # enrich_candidates will swap roles for rhs_idx=1 and recover the missing sign.
-            records.append({
-                "xj": None,             # Weierstrass x_val discarded; enrich_candidates reconstructs from m
-                "yj_sign": x_val_sign,  # really yk_sign when rhs_idx=1; enrich_candidates corrects this
-                "v0": v0,
-                "v1": v1,
-                "m": int(m_root) if m_root is not None else None,
-                "rhs_idx": int(rhs_idx),
-                "source": "mumford_residue",
-            })
+            rhs_idx = int(rhs_idx)
+            for m_root in m_roots:
+                m_root = int(m_root)
+                dedup_key = (m_root, rhs_idx)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                records.append({
+                    "xj":      None,   # reconstructed by enrich_candidates from m
+                    "yj_sign": 1,      # enrich_candidates computes true sign from fiber
+                    "m":       m_root,
+                    "rhs_idx": rhs_idx,
+                    "source":  "mumford_residue",
+                })
 
     return records
 
