@@ -47,8 +47,8 @@ from typing import Any
 from sage.all import GF, QQ
 
 # These stay in Python — we do NOT port them.
-from .mumford_solver import solve_mumford_mod_p_optimized
-from .mumford_verification import verify_mumford_pair
+from search_lll.mumford.mumford_solver import solve_mumford_mod_p_optimized
+from search_lll.mumford.mumford_verification import verify_mumford_pair
 from search_common import DEBUG, FINITE_FIELD
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ from search_common import DEBUG, FINITE_FIELD
 _jl = None
 _jl_ready = False
 
-def _ensure_julia(oscar_jl_path: str = "mumford_oscar.jl") -> Any:
+def _ensure_julia(oscar_jl_path: str = "/home/claire/elliptic-fibration-search/markov/mumford_oscar.jl") -> Any:
     """Start Julia and load mumford_oscar.jl exactly once."""
     global _jl, _jl_ready
     if _jl_ready:
@@ -301,7 +301,7 @@ def mumford_precompute_residues_oscar(
     debug=DEBUG,
     chunk_size=4,
     pool=None,          # ignored
-    oscar_jl_path="mumford_oscar.jl",
+    oscar_jl_path="/home/claire/elliptic-fibration-search/markov/mumford_oscar.jl",
 ):
     """
     Drop-in replacement for mumford_precompute_residues_parallel.

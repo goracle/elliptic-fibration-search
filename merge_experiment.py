@@ -3,9 +3,9 @@ import argparse, json, math, random as _random, sys, time, multiprocessing
 from pathlib import Path
 from typing import Optional, List, Tuple
 from search_common import FINITE_FIELD, get_y_unshifted_genus2, COEFFS_GENUS2, PRIME_POOL, BASE_DIVISOR, TARGET_DIVISOR, GROUP_MODULUS, SECRET_KEY, GENERATE_MIXED_RELATIONS, MAXN
-from sage.all import *
 from markov import *
-from genus2_markov_module import make_project_markov_search_fn, load_project_sources, resolve_project_symbol
+from sage.all import *
+from genus2_markov_module import *
 from math import sqrt, ceil
 from search_lll.mumford.mumford_parallel import init_worker
 

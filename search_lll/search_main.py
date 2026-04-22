@@ -17,7 +17,39 @@ from search_common import *
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
 from .lp_incidence_dlp import *
-from genus2_markov_module import _call_residues
+import os as _os
+from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
+
+_OSCAR_AVAILABLE = True
+def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                   rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size):
+    """
+    Dispatch to Oscar bridge if available and USE_OSCAR_RESIDUES env var is set,
+    otherwise fall back to the original Python implementation.
+
+    To enable Oscar: set USE_OSCAR_RESIDUES=1 in your environment before
+    starting the Sage/Python process, and make sure JULIA_NUM_THREADS is also set.
+    """
+    use_oscar = _OSCAR_AVAILABLE
+    assert use_oscar
+
+    if use_oscar:
+        return _oscar_residues(
+            eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+            rhs_modp_list, vecs_list,
+            debug=debug, chunk_size=chunk_size,
+            # num_workers and pool are ignored by the bridge (Julia handles threading)
+        )
+    else:
+        from search_lll.mumford.mumford_parallel import mumford_precompute_residues_parallel
+        return mumford_precompute_residues_parallel(
+            eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+            rhs_modp_list, vecs_list,
+            num_workers=num_workers,
+            debug=debug, pool=pool, chunk_size=chunk_size,
+        )
+
+
 
 # After your Mumford search in FINITE_FIELD mode:
 

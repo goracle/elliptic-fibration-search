@@ -1,9 +1,10 @@
 from __future__ import annotations
+from .walkerclass import *
 from .cantor_cache import *
 from .mixing_diagnostics import *
 from .adjacency_matrix import *
-from .walkerclass import *
 from .dlp_diagnostics import *
+from .mumford_oscar_bridge import *
 
 """markov/__init__.py
 

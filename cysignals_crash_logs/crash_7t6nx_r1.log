@@ -1,0 +1,700 @@
+GNU gdb (GDB) 17.1
+Copyright (C) 2025 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-pc-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word".
+[New LWP 244284]
+[New LWP 244283]
+[New LWP 244007]
+[New LWP 244006]
+[New LWP 244005]
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.archlinux.org>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+To enable execution of this file add
+	add-auto-load-safe-path /home/claire/.julia/artifacts/3d5bf8a817e520b6422a0630700ccac87eb57e9e/lib/libboost_graph.so.1.87.0
+line to your configuration file "/home/claire/.config/gdb/gdbinit".
+To completely disable this security protection add
+	set auto-load safe-path /
+line to your configuration file "/home/claire/.config/gdb/gdbinit".
+For more information about this security protection see the
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+	info "(gdb)Auto-loading safe path"
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x00007f1eb369ef32 in ?? () from /usr/lib/libc.so.6
+
+Stack backtrace
+---------------
+No symbol table info available.
+#1  0x00007f1eb369339c in ?? () from /usr/lib/libc.so.6
+No symbol table info available.
+#2  0x00007f1eb36933e4 in ?? () from /usr/lib/libc.so.6
+No symbol table info available.
+#3  0x00007f1eb370367f in wait4 () from /usr/lib/libc.so.6
+No symbol table info available.
+#4  0x00007f1eb32f0ea9 in ?? () from /usr/lib/python3.14/site-packages/cysignals/signals.cpython-314-x86_64-linux-gnu.so
+No symbol table info available.
+#5  0x00007f1eb32f1239 in ?? () from /usr/lib/python3.14/site-packages/cysignals/signals.cpython-314-x86_64-linux-gnu.so
+No symbol table info available.
+#6  <signal handler called>
+No symbol table info available.
+#7  0x00007f1e58080c75 in ?? () from /usr/lib/libgap.so.10
+No symbol table info available.
+#8  0x00007f1e5807c8f9 in ?? () from /usr/lib/libgap.so.10
+No symbol table info available.
+#9  0x00007f1e5813fd90 in InitMarkFuncBags () from /usr/lib/libgap.so.10
+No symbol table info available.
+#10 0x00007f1d910025fe in InitKernel (module=<optimized out>) at src/JuliaInterface.c:291
+        gmp_module = <optimized out>
+        bits_per_limb = <optimized out>
+#11 0x00007f1d934af024 in ActivateModule (info=info@entry=0x7f1d91204d20 <module>) at src/modules.c:155
+        res = 0
+        flag = 0
+#12 0x00007f1d934af9ff in FuncLOAD_DYN (self=<optimized out>, filename=0x7f1e2a9e1bd0) at src/modules.c:316
+        __func__ = "FuncLOAD_DYN"
+        init = 0x7f1d91002bc0 <Init__Dynamic>
+        res = <optimized out>
+        info = 0x7f1d91204d20 <module>
+#13 0x00007f1d93475ac6 in CALL_1ARGS (a1=<optimized out>, f=<optimized out>) at src/calls.h:311
+No locals.
+#14 EvalOrExecCall (opts=0, call=128, nr=1, ignoreResult=0) at src/funcs.c:146
+        func = <optimized out>
+        a = <optimized out>
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#15 EvalFunccall1args (call=128) at src/funcs.c:302
+No locals.
+#16 0x00007f1d9346f36a in EVAL_EXPR (expr=<optimized out>) at src/exprs.h:98
+No locals.
+#17 EvalUnknownBool (expr=<optimized out>) at src/exprs.c:132
+        val = <optimized out>
+#18 0x00007f1d9346ee5c in EVAL_BOOL_EXPR (expr=<optimized out>) at src/exprs.h:128
+No locals.
+#19 EvalNot (expr=<optimized out>) at src/exprs.c:243
+        val = <optimized out>
+        op = <optimized out>
+        tmp = <optimized out>
+#20 0x00007f1d934fe2b1 in EVAL_BOOL_EXPR (expr=<optimized out>) at src/exprs.h:128
+No locals.
+#21 ExecIf (stat=<optimized out>) at src/stats.c:221
+        cond = <optimized out>
+        body = <optimized out>
+#22 0x00007f1d934fe76e in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#23 ExecSeqStatHelper (nr=2, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#24 ExecSeqStat2 (stat=<optimized out>) at src/stats.c:165
+No locals.
+#25 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#26 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#27 0x00007f1d93478be5 in DoExecFunc (arg=<synthetic pointer>, narg=1, func=0x7f1df4fb0430) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#28 DoExecFunc1args (func=0x7f1df4fb0430, a1=0x7f1e2a9e1bd0) at src/funcs.c:487
+        arg = <optimized out>
+#29 0x00007f1d9348549b in CALL_1ARGS (a1=0x7f1e2a9e1bd0, f=<optimized out>) at src/calls.h:311
+No locals.
+#30 IntrFuncCallEnd (intr=0x7fff95628160, funccall=<optimized out>, options=0, nr=1) at src/intrprtr.c:395
+        func = <optimized out>
+        a1 = <optimized out>
+        a2 = <optimized out>
+        a3 = <optimized out>
+        a4 = <optimized out>
+        a5 = <optimized out>
+        a6 = <optimized out>
+        args = <optimized out>
+        argi = <optimized out>
+        val = <optimized out>
+        opts = <optimized out>
+        i = <optimized out>
+#31 0x00007f1d934ecd6c in EvalRef (rs=rs@entry=0x7fff95627d10, needExpr=0, ref=...) at src/read.c:367
+No locals.
+#32 0x00007f1d934f3389 in ReadCallVarAss (rs=0x7fff95627d10, follow=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:874
+        needExpr = <optimized out>
+        ref = {type = 12 '\f', _padding = 125 '}', {nest0 = 38242, level = 38242}, {var = 1, narg = 1, rnam = 1}}
+#33 0x00007f1d934ee8b0 in ReadAtom (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1587
+No locals.
+#34 0x00007f1d934eeb12 in ReadFactor (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1658
+        sign1 = 0
+        sign2 = 32766
+#35 0x00007f1d934eedbb in ReadTerm (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1707
+        symbol = 0
+#36 0x00007f1d934eef2c in ReadAri (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1739
+        symbol = <optimized out>
+#37 0x00007f1d934ef0f9 in ReadRel (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1776
+        symbol = 18446744072635809792
+        isNot = 0
+#38 0x00007f1d934ef39a in ReadAnd (rs=rs@entry=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1813
+No locals.
+#39 0x00007f1d934ef54a in ReadExpr (rs=0x7fff95627d10, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1888
+No locals.
+#40 0x00007f1d934f5056 in ReadEvalCommand (context=<optimized out>, input=0x7fff95628640, evalResult=<optimized out>, dualSemicolon=0x0) at src/read.c:2559
+        status = STATUS_END
+        tilde = 0x0
+        errorLVars = 0x7f1e2aea0360
+        readJmpError = {{__jmpbuf = {139765018440096, 1226637933414448161, 139765018440096, 139766639929360, 139765018440096, 0, -1226440939633902559, -1207314259456295903}, __mask_was_saved = 0, 
+            __saved_mask = {__val = {0 <repeats 16 times>}}}}
+        reader = {s = {input = 0x7fff95628640, Value = "_path_JuliaInterface_so", '\000' <repeats 1000 times>, ValueObj = 0x0, Symbol = S_SEMICOLON, SymbolStartPos = {42, 42, 41}, SymbolStartLine = {
+              14, 14, 14}, NrError = 0}, intr = {cs = {{OffsBody = 0, OffsBodyStack = 0x0, CodeResult = 0x0, CodeLVars = 0x0, currBody = 0x0}}, ignoring = 0, coding = 0, returning = STATUS_END, 
+            startLine = 14, gapnameid = 692, StackObj = 0x7f1df4eca8a0}, StackNams = 0x7f1df4eca890, ReadTop = 0, ReadTilde = 0, CurrLHSGVar = 0, CurrentGlobalForLoopVariables = {
+            0 <repeats 100 times>}, CurrentGlobalForLoopDepth = 0, LoopNesting = 0}
+        rs = 0x7fff95627d10
+        oldLVars = 0x7f1df79bc280
+#41 0x00007f1d93503b1f in READ_INNER (input=0x7fff95628640) at src/streams.c:302
+        evalResult = 0x0
+        status = <optimized out>
+#42 FuncREAD (self=<optimized out>, inputObj=<optimized out>) at src/streams.c:830
+        input = {prev = 0x7fff95633d90, isstringstream = 0, stream = 0x0, file = 5, gapnameid = 692, 
+          line = "\000LoadDynamicModule(_path_JuliaInterface_so);\n\000ge.\n\000.\n\000developers.\n\000 Julia and\n", '\000' <repeats 50 times>, "\2343i\263\036\177\000\000\210\016\001\264\036\177", '\000' <repeats 18 times>, "\200\v\001\264\036\177\000\0000\207b\225\377\177\000\000\3443i\263\036\177\000\000\003", '\000' <repeats 15 times>..., sline = 0x7f1df67883e0, spos = 560, echo = 0, 
+          ptr = 0x7fff95628694 "\n", number = 14, lastErrorLine = 0}
+        __func__ = "FuncREAD"
+        gap__i = 1
+        gap__j = <optimized out>
+        gap__env = {tryCatchDepth = 1, recursionDepth = 6, jb = {{__jmpbuf = {140735699686512, -1226440943421359071, 120, 139764968016952, 140735699686512, -1073741824, -1226440943545091039, 
+                -1207314147213181919}, __mask_was_saved = 0, __saved_mask = {__val = {0 <repeats 16 times>}}}}}
+#43 0x00007f1d93475ac6 in CALL_1ARGS (a1=<optimized out>, f=<optimized out>) at src/calls.h:311
+No locals.
+#44 EvalOrExecCall (opts=0, call=584, nr=1, ignoreResult=0) at src/funcs.c:146
+        func = <optimized out>
+        a = <optimized out>
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#45 EvalFunccall1args (call=584) at src/funcs.c:302
+No locals.
+#46 0x00007f1d9346f36a in EVAL_EXPR (expr=<optimized out>) at src/exprs.h:98
+No locals.
+#47 EvalUnknownBool (expr=<optimized out>) at src/exprs.c:132
+        val = <optimized out>
+#48 0x00007f1d9346ee5c in EVAL_BOOL_EXPR (expr=<optimized out>) at src/exprs.h:128
+No locals.
+#49 EvalNot (expr=<optimized out>) at src/exprs.c:243
+        val = <optimized out>
+        op = <optimized out>
+        tmp = <optimized out>
+#50 0x00007f1d934fe2b1 in EVAL_BOOL_EXPR (expr=<optimized out>) at src/exprs.h:128
+No locals.
+#51 ExecIf (stat=<optimized out>) at src/stats.c:221
+        cond = <optimized out>
+        body = <optimized out>
+#52 0x00007f1d934fe4de in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#53 ExecSeqStatHelper (nr=4, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#54 ExecSeqStat4 (stat=<optimized out>) at src/stats.c:175
+No locals.
+#55 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#56 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#57 0x00007f1d93478be5 in DoExecFunc (arg=<synthetic pointer>, narg=1, func=0x7f1df53039e0) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#58 DoExecFunc1args (func=0x7f1df53039e0, a1=0x7f1df4eca810) at src/funcs.c:487
+        arg = <optimized out>
+#59 0x00007f1d934c01b5 in CALL_1ARGS (a1=0x7f1df4eca810, f=<optimized out>) at src/calls.h:311
+No locals.
+#60 CallNArgs<1> (a2=0x0, a3=0x0, a4=0x0, a5=0x0, a6=0x0, a1=0x7f1df4eca810, method=<optimized out>) at src/opers.cc:1823
+No locals.
+#61 DoOperationNArgs<1, 0, 0> (a2=0x0, a3=0x0, a4=0x0, a5=0x0, a6=0x0, a1=0x7f1df4eca810, oper=0x7f1df4f93790) at src/opers.cc:1983
+        types = {0x7f1df87ef7f0}
+        prec = 0
+        cacheBag = <optimized out>
+        ids = {0xc000000000000051}
+        method = <optimized out>
+        res = <optimized out>
+        earlyMethod = <optimized out>
+        methods = <optimized out>
+        types = <optimized out>
+        ids = <optimized out>
+        prec = <optimized out>
+        method = <optimized out>
+        res = <optimized out>
+        earlyMethod = <optimized out>
+        cacheBag = <optimized out>
+        methods = <optimized out>
+        i = <optimized out>
+        arglist = <optimized out>
+#62 DoOperation1Args (oper=0x7f1df4f93790, a1=0x7f1df4eca810) at src/opers.cc:1997
+No locals.
+#63 0x00007f1d93478516 in CALL_1ARGS (a1=<optimized out>, f=<optimized out>) at src/calls.h:311
+No locals.
+#64 EvalOrExecCall (opts=0, call=1584, nr=1, ignoreResult=1) at src/funcs.c:146
+        func = <optimized out>
+        a = <optimized out>
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#65 ExecProccall1args (call=1584) at src/funcs.c:217
+No locals.
+#66 0x00007f1d934fe4de in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#67 ExecSeqStatHelper (nr=4, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#68 ExecSeqStat4 (stat=<optimized out>) at src/stats.c:175
+No locals.
+#69 0x00007f1d934fe38e in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#70 ExecSeqStatHelper (nr=6, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#71 ExecSeqStat6 (stat=<optimized out>) at src/stats.c:185
+No locals.
+#72 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#73 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#74 0x00007f1d93478d7d in DoExecFunc (arg=<synthetic pointer>, narg=2, func=0x7f1e28213a60) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#75 DoExecFunc2args (func=0x7f1e28213a60, a1=0x7f1df4eca6c0, a2=0x7f1e2a6abd60) at src/funcs.c:493
+        arg = <optimized out>
+#76 0x00007f1d934778b8 in CALL_2ARGS (a2=<optimized out>, a1=<optimized out>, f=<optimized out>) at src/calls.h:316
+No locals.
+#77 EvalOrExecCall (opts=0, call=136, nr=2, ignoreResult=0) at src/funcs.c:149
+        func = <optimized out>
+        a = {0x7f1df4eca6c0, 0x7f1e2a6abd60, 0x0, 0x0, 0x0, 0x0}
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#78 EvalFunccall2args (call=136) at src/funcs.c:307
+No locals.
+#79 0x00007f1d934fe7bf in EVAL_EXPR (expr=<optimized out>) at src/exprs.h:98
+No locals.
+#80 ExecReturnObj (stat=<optimized out>) at src/stats.c:959
+No locals.
+#81 0x00007f1d934fe235 in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#82 ExecSeqStatHelper (nr=1, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = 1
+#83 ExecSeqStat (stat=<optimized out>) at src/stats.c:160
+        nr = 1
+#84 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#85 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#86 0x00007f1d93478be5 in DoExecFunc (arg=<synthetic pointer>, narg=1, func=0x7f1e299e5070) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#87 DoExecFunc1args (func=0x7f1e299e5070, a1=0x7f1df4eca6c0) at src/funcs.c:487
+        arg = <optimized out>
+#88 0x00007f1d934775c0 in CALL_2ARGS (a2=<optimized out>, a1=<optimized out>, f=<optimized out>) at src/calls.h:316
+No locals.
+#89 EvalOrExecCall (opts=0, call=7784, nr=2, ignoreResult=1) at src/funcs.c:149
+        func = <optimized out>
+        a = {0x7f1df4ecff00, 0x7f1df4eca6b0, 0x0, 0x0, 0x0, 0x0}
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#90 ExecProccall2args (call=7784) at src/funcs.c:223
+No locals.
+#91 0x00007f1d934fe235 in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#92 ExecSeqStatHelper (nr=12, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = 8
+#93 ExecSeqStat (stat=<optimized out>) at src/stats.c:160
+        nr = 12
+#94 0x00007f1d934ffa71 in EXEC_STAT (stat=8208) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#95 ExecForHelper (nr=1, stat=<optimized out>) at src/stats.c:400
+        status = <optimized out>
+        var = 16
+        list = <optimized out>
+        body1 = <optimized out>
+        body3 = 0
+        i = 2
+        varstat = <optimized out>
+        vart = 108
+        elm = <optimized out>
+        body2 = 0
+        var = <optimized out>
+        vart = <optimized out>
+        list = <optimized out>
+        elm = <optimized out>
+        body1 = <optimized out>
+        body2 = <optimized out>
+        body3 = <optimized out>
+        i = <optimized out>
+        varstat = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        nfun = <optimized out>
+        dfun = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+#96 ExecFor (stat=<optimized out>) at src/stats.c:457
+No locals.
+#97 0x00007f1d934fe33e in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#98 ExecSeqStatHelper (nr=7, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#99 ExecSeqStat7 (stat=<optimized out>) at src/stats.c:190
+No locals.
+#100 0x00007f1d934feda6 in EXEC_STAT (stat=8424) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#101 ExecForRangeHelper (nr=1, stat=<optimized out>) at src/stats.c:538
+        status = <optimized out>
+        last = <optimized out>
+        body1 = <optimized out>
+        body3 = 0
+        i = 1
+        lvar = <optimized out>
+        first = <optimized out>
+        elm = <optimized out>
+        body2 = 0
+        lvar = <optimized out>
+        first = <optimized out>
+        last = <optimized out>
+        elm = <optimized out>
+        body1 = <optimized out>
+        body2 = <optimized out>
+        body3 = <optimized out>
+        i = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+#102 ExecForRange (stat=<optimized out>) at src/stats.c:550
+No locals.
+#103 0x00007f1d934fe235 in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#104 ExecSeqStatHelper (nr=26, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = 20
+#105 ExecSeqStat (stat=<optimized out>) at src/stats.c:160
+        nr = 26
+#106 0x00007f1d934fe33e in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#107 ExecSeqStatHelper (nr=7, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#108 ExecSeqStat7 (stat=<optimized out>) at src/stats.c:190
+No locals.
+#109 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#110 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#111 0x00007f1d93478be5 in DoExecFunc (arg=<synthetic pointer>, narg=1, func=0x7f1e299e5370) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#112 DoExecFunc1args (func=0x7f1e299e5370, a1=0x7f1df4ecfee0) at src/funcs.c:487
+        arg = <optimized out>
+#113 0x00007f1d934772cd in CALL_3ARGS (a3=<optimized out>, a2=<optimized out>, a1=<optimized out>, f=<optimized out>) at src/calls.h:321
+No locals.
+#114 EvalOrExecCall (opts=0, call=1592, nr=3, ignoreResult=0) at src/funcs.c:152
+        func = <optimized out>
+        a = {0x7f1e2a89fc80, 0x7f1e2a89fc90, 0x7f1e2a6abd70, 0x0, 0x0, 0x0}
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#115 EvalFunccall3args (call=1592) at src/funcs.c:312
+No locals.
+#116 0x00007f1d93470275 in EVAL_EXPR (expr=1592) at src/exprs.h:98
+No locals.
+#117 EvalNe (expr=1640) at src/exprs.c:306
+        val = <optimized out>
+        opL = <optimized out>
+        opR = <optimized out>
+        tmp = <optimized out>
+#118 0x00007f1d934fe2b1 in EVAL_BOOL_EXPR (expr=<optimized out>) at src/exprs.h:128
+No locals.
+#119 ExecIf (stat=<optimized out>) at src/stats.c:221
+        cond = <optimized out>
+        body = <optimized out>
+#120 0x00007f1d934ffa71 in EXEC_STAT (stat=2056) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#121 ExecForHelper (nr=1, stat=<optimized out>) at src/stats.c:400
+        status = <optimized out>
+        var = 2
+        list = <optimized out>
+        body1 = <optimized out>
+        body3 = 0
+        i = 2
+        varstat = <optimized out>
+        vart = 108
+        elm = <optimized out>
+        body2 = 0
+        var = <optimized out>
+        vart = <optimized out>
+        list = <optimized out>
+        elm = <optimized out>
+        body1 = <optimized out>
+        body2 = <optimized out>
+        body3 = <optimized out>
+        i = <optimized out>
+        varstat = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        nfun = <optimized out>
+        dfun = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+        status = <optimized out>
+#122 ExecFor (stat=<optimized out>) at src/stats.c:457
+No locals.
+#123 0x00007f1d934fe3de in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#124 ExecSeqStatHelper (nr=5, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#125 ExecSeqStat5 (stat=<optimized out>) at src/stats.c:180
+No locals.
+#126 0x00007f1d934fe235 in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#127 ExecSeqStatHelper (nr=9, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = 2
+#128 ExecSeqStat (stat=<optimized out>) at src/stats.c:160
+        nr = 9
+#129 0x00007f1d934fe33e in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#130 ExecSeqStatHelper (nr=7, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#131 ExecSeqStat7 (stat=<optimized out>) at src/stats.c:190
+No locals.
+#132 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#133 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#134 0x00007f1d93478a64 in DoExecFunc (arg=0x0, narg=0, func=0x7f1e299e5970) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#135 DoExecFunc0args (func=0x7f1e299e5970) at src/funcs.c:481
+No locals.
+#136 0x00007f1d9347561d in CALL_0ARGS (f=<optimized out>) at src/calls.h:306
+No locals.
+#137 EvalOrExecCall (opts=0, call=464, nr=0, ignoreResult=1) at src/funcs.c:143
+        func = <optimized out>
+        a = <optimized out>
+        args = 0x0
+        result = <optimized out>
+        func = <optimized out>
+        a = <optimized out>
+        args = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+        realNr = <optimized out>
+        i = <optimized out>
+        argi = <optimized out>
+#138 ExecProccall0args (call=464) at src/funcs.c:211
+No locals.
+#139 0x00007f1d934fe4de in EXEC_STAT (stat=<optimized out>) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#140 ExecSeqStatHelper (nr=4, stat=<optimized out>) at src/stats.c:147
+        status = <optimized out>
+        i = <optimized out>
+#141 ExecSeqStat4 (stat=<optimized out>) at src/stats.c:175
+No locals.
+#142 0x00007f1d9350082d in EXEC_STAT (stat=40) at src/stats.c:55
+        tnum = <optimized out>
+        tnum = <optimized out>
+#143 EXEC_CURR_FUNC () at src/stats.c:61
+        result = 0x77
+#144 0x00007f1d93478be5 in DoExecFunc (arg=<synthetic pointer>, narg=1, func=0x7f1e2a89c8b0) at src/funcs.c:466
+        oldLvars = <optimized out>
+        result = <optimized out>
+        oldLvars = <optimized out>
+        result = <optimized out>
+        i = <optimized out>
+#145 DoExecFunc1args (func=0x7f1e2a89c8b0, a1=0x7f1e299e5970) at src/funcs.c:487
+        arg = <optimized out>
+#146 0x00007f1d9348549b in CALL_1ARGS (a1=0x7f1e299e5970, f=<optimized out>) at src/calls.h:311
+No locals.
+#147 IntrFuncCallEnd (intr=0x7fff956318c0, funccall=<optimized out>, options=0, nr=1) at src/intrprtr.c:395
+        func = <optimized out>
+        a1 = <optimized out>
+        a2 = <optimized out>
+        a3 = <optimized out>
+        a4 = <optimized out>
+        a5 = <optimized out>
+        a6 = <optimized out>
+        args = <optimized out>
+        argi = <optimized out>
+        val = <optimized out>
+        opts = <optimized out>
+        i = <optimized out>
+#148 0x00007f1d934ecd6c in EvalRef (rs=rs@entry=0x7fff95631470, needExpr=0, ref=...) at src/read.c:367
+No locals.
+#149 0x00007f1d934f3389 in ReadCallVarAss (rs=0x7fff95631470, follow=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:874
+        needExpr = <optimized out>
+        ref = {type = 12 '\f', _padding = 20 '\024', {nest0 = 38243, level = 38243}, {var = 1, narg = 1, rnam = 1}}
+#150 0x00007f1d934ee8b0 in ReadAtom (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1587
+No locals.
+#151 0x00007f1d934eeb12 in ReadFactor (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1658
+        sign1 = 0
+        sign2 = 139767545725792
+#152 0x00007f1d934eedbb in ReadTerm (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1707
+        symbol = 139767480041640
+#153 0x00007f1d934eef2c in ReadAri (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1739
+        symbol = <optimized out>
+#154 0x00007f1d934ef0f9 in ReadRel (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1776
+        symbol = 140735699686112
+        isNot = 0
+#155 0x00007f1d934ef39a in ReadAnd (rs=rs@entry=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1813
+No locals.
+#156 0x00007f1d934ef54a in ReadExpr (rs=0x7fff95631470, follow=follow@entry=18446744072635809792, mode=mode@entry=120 'x') at src/read.c:1888
+No locals.
+#157 0x00007f1d934f5056 in ReadEvalCommand (context=<optimized out>, input=0x7fff95633d90, evalResult=<optimized out>, dualSemicolon=0x0) at src/read.c:2559
+        status = STATUS_END
+        tilde = 0x0
+        errorLVars = 0x0
+        readJmpError = {{__jmpbuf = {139765018440096, -1226440943668823007, 0, 139764968016952, 139764969939088, 139767480041640, -1226440943698183135, -1207314262236595167}, __mask_was_saved = 0, 
+            __saved_mask = {__val = {0 <repeats 16 times>}}}}
+        reader = {s = {input = 0x7fff95633d90, Value = "AutoloadPackages\000tRestore", '\000' <repeats 998 times>, ValueObj = 0x0, Symbol = S_SEMICOLON, SymbolStartPos = {45, 45, 44}, 
+            SymbolStartLine = {691, 691, 691}, NrError = 0}, intr = {cs = {{OffsBody = 0, OffsBodyStack = 0x0, CodeResult = 0x0, CodeLVars = 0x0, currBody = 0x0}}, ignoring = 0, coding = 0, 
+            returning = STATUS_END, startLine = 691, gapnameid = 1, StackObj = 0x7f1df79bc9e0}, StackNams = 0x7f1df79bc9d0, ReadTop = 0, ReadTilde = 0, CurrLHSGVar = 0, CurrentGlobalForLoopVariables = {
+            0 <repeats 100 times>}, CurrentGlobalForLoopDepth = 0, LoopNesting = 0}
+        rs = 0x7fff95631470
+        oldLVars = 0x7f1e2aea0360
+#158 0x00007f1d9350576e in READ_GAP_ROOT (filename=<optimized out>) at src/streams.c:424
+        status = <optimized out>
+        path = "/home/claire/.julia/artifacts/21532479477ddf5e931137aa39cb1e00a8edb15c/share/gap/lib/init.g\000\036\177\000\0000\v8\366\035\177\000\000\020\v8\366\035\177\000\000p\r8\366\035\177\000\000\220\0248\366\035\177\000\000p\0168\366\035\177\000\000\220\r8\366\035\177\000\000\000#c\225\377\177\000\000\260\020}1\036\177\000\000\260\0258\366\035\177\000\000\260\020}1\036\177\000\000\310\036c\225\377\177\000\000\000\220\020ɆO\020\301\001\000\000\000\000\000\000\000\220"...
+        input = {prev = 0x0, isstringstream = -1, stream = 0x0, file = 4, gapnameid = 1, 
+          line = "\000CallAndInstallPostRestore( AutoloadPackages );\n\000.CommandLineOptions.b ) then\n\000\000 false and\n\000\224\200┘\\c\";\n\000\000\001\000\000\000\000\000\000\000", '\377' <repeats 136 times>..., sline = 0x7f1d914eabb0 <jl_system_image_data+609328>, spos = 139764968016952, echo = 0, ptr = 0x7fff95633de7 "\n", number = 691, lastErrorLine = 0}
+        gap__i = <optimized out>
+        gap__j = 1
+        gap__env = {tryCatchDepth = 0, recursionDepth = 0, jb = {{__jmpbuf = {0, 0, 0, 0, 0, 0, 0, 0}, __mask_was_saved = 0, __saved_mask = {__val = {0 <repeats 16 times>}}}}}
+#159 0x00007f1d9140f5d5 in julia_initialize_3788 () at /home/claire/.julia/packages/GAP/DpWCq/src/GAP.jl:161
+No locals.
+#160 0x00007f1e4474c962 in ?? ()
+No symbol table info available.
+#161 0x000055ecbabcf570 in ?? ()
+No symbol table info available.
+#162 0x6c0319af000001f0 in ?? ()
+No symbol table info available.
+#163 0xd14d88283e2d9a23 in ?? ()
+No symbol table info available.
+#164 0x89df8a1e2da0a73e in ?? ()
+No symbol table info available.
+#165 0x000055ecc2a2c300 in ?? ()
+No symbol table info available.
+#166 0xffffffffffffffff in ?? ()
+No symbol table info available.
+#167 0x000055ecc13c6b50 in ?? ()
+No symbol table info available.
+#168 0x000055ec00000001 in ?? ()
+No symbol table info available.
+#169 0x000055ecc2813aa0 in ?? ()
+No symbol table info available.
+#170 0x00007fff0000003f in ?? ()
+No symbol table info available.
+#171 0x00007f1e27066de0 in ?? ()
+No symbol table info available.
+#172 0xffffffffffffffff in ?? ()
+No symbol table info available.
+#173 0x000055ecc28136a0 in ?? ()
+No symbol table info available.
+#174 0x0000000000000000 in ?? ()
+No symbol table info available.
+[Inferior 1 (process 243966) detached]
+⚠️ warning: File "/home/claire/.julia/artifacts/3d5bf8a817e520b6422a0630700ccac87eb57e9e/lib/libboost_graph.so.1.87.0" auto-loading has been declined by your `auto-load safe-path' set to "$debugdir:$datadir/auto-load".
+Python Exception <class 'ModuleNotFoundError'>: No module named 'Cython'
+❌️ Error occurred in Python: No module named 'Cython'
