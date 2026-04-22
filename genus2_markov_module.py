@@ -25,6 +25,13 @@ from mobius import *
 from sage.misc.verbose import set_verbose
 from functools import partial
 from search_lll.mumford.mumford_parallel import init_worker
+
+try:
+    from mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
+    _OSCAR_AVAILABLE = True
+except ImportError:
+    _OSCAR_AVAILABLE = False
+
 from markov import *
 
 # --- path bootstrap: allow running directly from markov/ subdir ---
@@ -234,6 +241,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # print_relation_matrix_summary omitted: recomputes rank internally (third change_ring)
 
     return 0 # for the memez
+
+import os as _os
+
+def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+                   rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size):
+    """
+    Dispatch to Oscar bridge if available and USE_OSCAR_RESIDUES env var is set,
+    otherwise fall back to the original Python implementation.
+
+    To enable Oscar: set USE_OSCAR_RESIDUES=1 in your environment before
+    starting the Sage/Python process, and make sure JULIA_NUM_THREADS is also set.
+    """
+    use_oscar = _OSCAR_AVAILABLE and _os.environ.get("USE_OSCAR_RESIDUES", "0") == "1"
+
+    if use_oscar:
+        return _oscar_residues(
+            eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+            rhs_modp_list, vecs_list,
+            debug=debug, chunk_size=chunk_size,
+            # num_workers and pool are ignored by the bridge (Julia handles threading)
+        )
+    else:
+        from search_lll.mumford.mumford_parallel import mumford_precompute_residues_parallel
+        return mumford_precompute_residues_parallel(
+            eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
+            rhs_modp_list, vecs_list,
+            num_workers=num_workers,
+            debug=debug, pool=pool, chunk_size=chunk_size,
+        )
+
 
 def _run_markov_mumford_search_for_point(
     *,

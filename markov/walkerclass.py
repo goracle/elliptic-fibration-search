@@ -546,6 +546,10 @@ class RelationRecord:
     # Actual multiplicity of xi in the fiber intersection poly.
     # Defaults to -1 (sentinel: not set); build_relation_matrix2 falls back to curve_degree-2.
     xi_mult: int = -1
+    # Any non-xi roots beyond the first two (xj, xk).  Non-empty only when the
+    # intersection polynomial has 3+ roots other than xi — i.e. xi_mult < deg-2.
+    # Each entry contributes a +1 column in the relation matrix, exactly like xj/xk.
+    extra_roots: List[Any] = field(default_factory=list)
 
 @dataclass
 class WalkConfig:
@@ -1111,7 +1115,17 @@ class Genus2MetropolisWalker:
             )
             return 0
         deg = self.config.curve_degree
-        xi_mult = deg - 2
+        default_xi_mult = deg - 2  # expected for double-tangency fibers
+
+        # Build a per-xi xi_mult map from accepted history records.
+        # T(xj) = S(m) - xi_mult*xi - xj is a proper 2-cycle only when
+        # xi_mult == deg-2 (exactly two non-xi roots).  For fibers with
+        # other multiplicities the swap is not a valid involution and the
+        # pair is skipped rather than falsely asserted.
+        xi_to_xi_mult: Dict[Any, int] = {}
+        for _rec in self.history:
+            if _rec.accepted and int(getattr(_rec, 'xi_mult', -1)) > 0:
+                xi_to_xi_mult[_rec.xi] = int(_rec.xi_mult)
 
         # Collect S_of_m per xi from history records that have it.
         xi_to_S_sym: Dict[Any, Any] = {}
@@ -1144,7 +1158,10 @@ class Genus2MetropolisWalker:
 
         def _T(xi, xj_val, xi_mult_override=None):
             Fp = self.base_ring
-            xi_mult_for_T = xi_mult_override if xi_mult_override is not None else xi_mult
+            xi_mult_for_T = (
+                xi_mult_override if xi_mult_override is not None
+                else xi_to_xi_mult.get(xi, default_xi_mult)
+            )
             m_val = Fp(xi) - Fp(xj_val)
             S_val = _eval_S(xi, m_val)
             return Fp(S_val - xi_mult_for_T * Fp(xi) - Fp(xj_val))
@@ -1152,6 +1169,16 @@ class Genus2MetropolisWalker:
         def _check_pair(xi, xj_val):
             Fp = self.base_ring
             S_sym = xi_to_S_sym.get(xi, "<missing>")
+
+            # Involution is only well-defined as a 2-cycle when xi_mult == deg-2.
+            eff_mult = xi_to_xi_mult.get(xi, default_xi_mult)
+            if eff_mult != default_xi_mult:
+                raise _FiberPoleError(
+                    f"close_under_involution: xi={xi} has xi_mult={eff_mult} "
+                    f"(expected {default_xi_mult}=deg-2); "
+                    f"T is not a simple xj↔xk 2-cycle for this fiber, skipping"
+                )
+
             m1 = Fp(xi) - Fp(xj_val)
             S1 = _eval_S(xi, m1)
             partner = _T(xi, xj_val)
@@ -1255,7 +1282,6 @@ class Genus2MetropolisWalker:
 
         Fp  = self.base_ring
         deg = self.config.curve_degree
-        xi_mult = deg - 2
 
         # Normalise seed_atoms filter to a set of base-ring elements (or None).
         if seed_atoms is not None:
@@ -1275,8 +1301,21 @@ class Genus2MetropolisWalker:
             if seed_fp is not None and xi not in seed_fp:
                 continue
 
+            # The formula xk = S(m) - xi_mult*xi - xj uniquely recovers xk
+            # only when xi_mult == deg-2 (exactly two non-xi roots).  For any
+            # other multiplicity S(m) gives the *sum* of multiple unknowns, so
+            # we cannot determine individual roots.  Skip rather than assume.
+            rec_xi_mult = int(rec.xi_mult) if (rec.xi_mult is not None and int(rec.xi_mult) > 0) else (deg - 2)
+            if rec_xi_mult != deg - 2:
+                n_skipped += len(atoms_fp)
+                continue
+            xi_mult = rec_xi_mult
+
+            # Prefer fi-based fiber evaluation (exact per-m multiplicity check).
+            # Fall back to S(m) symbolic shortcut when fi is unavailable.
+            fi, G_poly_rec = self._get_fiber_context_for_rec(rec)
             S_sym = self._get_S_of_m_for_rec(rec)
-            if S_sym is None:
+            if fi is None and S_sym is None:
                 continue
 
             for xj_val in atoms_fp:
@@ -1285,18 +1324,36 @@ class Genus2MetropolisWalker:
 
                 m_val = xi - xj_val   # inversion: xj = xi - m  =>  m = xi - xj
 
-                # Evaluate S(m); skip if fiber pole (denominator = 0).
-                try:
-                    dv = Fp(S_sym.denominator()(m_val))
-                    if dv == Fp(0):
+                if fi is not None and G_poly_rec is not None:
+                    # Use the actual intersection polynomial at this m — reads
+                    # xi_mult from the fiber directly, no assumption needed.
+                    try:
+                        xk_val, _inter = compute_xk_from_fiber(
+                            xi, m_val, xj_val, fi, G_poly_rec, deg
+                        )
+                        if xk_val is None:
+                            n_skipped += 1
+                            continue
+                        xk_val = Fp(xk_val)
+                    except (ZeroDivisionError, AssertionError, _FiberPoleError):
                         n_skipped += 1
                         continue
-                    S_val = Fp(S_sym.numerator()(m_val)) / dv
-                except Exception:
-                    n_skipped += 1
-                    continue
-
-                xk_val = Fp(S_val - xi_mult * xi - xj_val)
+                    except Exception:
+                        n_skipped += 1
+                        continue
+                else:
+                    # S(m) fallback: only valid because we already verified
+                    # xi_mult == deg-2 above.
+                    try:
+                        dv = Fp(S_sym.denominator()(m_val))
+                        if dv == Fp(0):
+                            n_skipped += 1
+                            continue
+                        S_val = Fp(S_sym.numerator()(m_val)) / dv
+                    except Exception:
+                        n_skipped += 1
+                        continue
+                    xk_val = Fp(S_val - xi_mult * xi - xj_val)
 
                 # xk must lift to a curve point.
                 rhs = self.curve_poly(xk_val)
@@ -1949,16 +2006,31 @@ class Genus2MetropolisWalker:
         if xi_mult <= 0:
             return None
 
-        # For the genus-2 walk we expect exactly two non-xi roots.
-        if len(leftovers) == 1 and xi_mult >= 2:
+        if not leftovers:
+            return None  # All roots are xi; no usable relation.
+
+        # Dispatch on the number of non-xi roots.  No multiplicity pattern is
+        # assumed in advance — the actual root list drives the relation.
+        if len(leftovers) == 1:
+            # Tangency: one non-xi root.  Fold one copy of xi into the xk slot
+            # so that xk==xi and xi_mult is decremented by one.  The relation
+            # matrix adds +1 to the xi column for xk, giving the right total.
             xj = leftovers[0]
             xk = xi
             xi_mult -= 1
+            extra_roots = []
         elif len(leftovers) == 2:
             xj, xk = leftovers[0], leftovers[1]
+            extra_roots = []
         else:
-            return None
-        return xj, xk, xi_mult, poly
+            # General case: 3+ non-xi roots (xi has lower-than-expected multiplicity).
+            # xj/xk carry the first two; extra_roots carries the remainder.
+            # Each extra root contributes +1 in the relation matrix, same as xj/xk.
+            xj = leftovers[0]
+            xk = leftovers[1]
+            extra_roots = leftovers[2:]
+
+        return xj, xk, xi_mult, poly, extra_roots
 
     def _recover_xk(self, step: Dict[str, Any], xi, xj):
         """
@@ -1970,7 +2042,7 @@ class Genus2MetropolisWalker:
         derived = self._derive_relation_from_intersection_poly(step, xi)
         if derived is None:
             return None, -1
-        _xj, xk, xi_mult, _poly = derived
+        _xj, xk, xi_mult, _poly, _extra = derived
         return xk, xi_mult
 
     def _make_relation(
@@ -1995,6 +2067,7 @@ class Genus2MetropolisWalker:
         Rejected records may carry whatever diagnostic payload they have.
         """
         derived = self._derive_relation_from_intersection_poly(step, xi)
+        extra_roots: List[Any] = []
 
         if accepted:
             if derived is None:
@@ -2002,25 +2075,37 @@ class Genus2MetropolisWalker:
                     f"[MAKE_RELATION] accepted record missing usable intersection polynomial "
                     f"at step={step_index} xi={xi} xj={xj} xk={xk}"
                 )
-            xj, xk, xi_mult, poly = derived
+            xj, xk, xi_mult, poly, extra_roots = derived
         else:
             # For rejected rows, prefer derived geometry when it exists.
             if derived is not None:
-                dxj, dxk, dmult, poly = derived
+                dxj, dxk, dmult, poly, dextra = derived
                 if xj is None:
                     xj = dxj
                 if xk is None:
                     xk = dxk
                 if xi_mult <= 0:
                     xi_mult = dmult
+                if not extra_roots:
+                    extra_roots = list(dextra)
 
         deg = self.config.curve_degree
         effective_xi_mult = xi_mult if xi_mult > 0 else (deg - 2)
 
-        if xj is not None and xk is not None:
-            relation = f"{effective_xi_mult}*{xi} + {xj} + {xk} - {deg}*∞ = 0"
+        # Build relation string generically from whatever roots the poly gave us.
+        all_others = []
+        if xj is not None:
+            all_others.append(xj)
+        if xk is not None:
+            all_others.append(xk)
+        all_others.extend(extra_roots)
+        if all_others:
+            others_str = " + ".join(str(r) for r in all_others)
+            if xj is not None and xk is None and not extra_roots:
+                others_str += " + ?"
+            relation = f"{effective_xi_mult}*{xi} + {others_str} - {deg}*\u221e = 0"
         elif xj is not None:
-            relation = f"{effective_xi_mult}*{xi} + {xj} + ? - {deg}*∞ = 0"
+            relation = f"{effective_xi_mult}*{xi} + {xj} + ? - {deg}*\u221e = 0"
         else:
             relation = "no xj"
 
@@ -2051,6 +2136,7 @@ class Genus2MetropolisWalker:
             yj_sign=yj_sign,
             yk_sign=yk_sign,
             xi_mult=xi_mult,
+            extra_roots=list(extra_roots),
         )
 
     def _step_from_candidate_search(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
@@ -2093,17 +2179,25 @@ class Genus2MetropolisWalker:
                 print(roots_wm, xi, poly)
                 raise ValueError
                 return None
-            # With this:
-            if len(others) == 1 and xi_mult >= 2:
+
+            # No multiplicity pattern assumed — derive directly from the root list.
+            if not others:
+                return None
+            if len(others) == 1:
                 xj = others[0]
                 xk = xi
-                xi_mult -= 1  # Transfer one multiplicity point from xi to xk
+                xi_mult -= 1  # fold one copy of xi into the xk slot
+                extra_roots = []
             elif len(others) == 2:
                 xj, xk = others[0], others[1]
+                extra_roots = []
             else:
-                return None # or raise ValueError if in the inner function
+                # 3+ non-xi roots: xj/xk get the first two, rest go in extra_roots
+                xj = others[0]
+                xk = others[1]
+                extra_roots = others[2:]
 
-            return xj, xk, xi_mult, poly
+            return xj, xk, xi_mult, poly, extra_roots
 
         def reject(reason, *, m_val=None, xj=None, xk=None, chosen=None, extra=None):
             step_payload = self._reject_step_payload(
@@ -2223,7 +2317,7 @@ class Genus2MetropolisWalker:
                 if derived is None:
                     pool.remove(chosen); continue
 
-                xj, xk, xi_mult, poly = derived
+                xj, xk, xi_mult, poly, extra_roots = derived
 
                 # If the candidate carried explicit roots, require them to match the poly.
                 cand_xj = chosen.get("xj")
@@ -3003,9 +3097,8 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
             raise
 
         # Vieta on the quartic-model polynomial, not a Weierstrass a4.
-        # For degree-5 with triple xi root:
-        #   known roots = [xi, xi, xi, xj]
-        #   missing root = xk
+        # xi_mult is read from the record (set by _make_relation from the actual poly);
+        # falling back to curve_degree-2 only when unavailable (e.g. old records).
         if rec.xi is not None and rec.xj is not None:
             try:
                 lc = poly.leading_coefficient()
@@ -3015,11 +3108,18 @@ def enable_step_diagnostics(walker_class=Genus2MetropolisWalker):
                 a_d_minus_1 = coeffs[deg - 1] if deg - 1 < len(coeffs) else monic.parent().base_ring()(0)
                 total_root_sum = -a_d_minus_1
 
-                xi_mult = curve_degree - 2
-                known_sum = xi_mult * rec.xi + rec.xj
-                xk_vieta = total_root_sum - known_sum
+                xi_mult = int(getattr(rec, 'xi_mult', -1) or -1)
+                if xi_mult <= 0:
+                    xi_mult = curve_degree - 2
+                extra_roots_diag = list(getattr(rec, 'extra_roots', []) or [])
+                known_roots_list = [xi_mult * rec.xi, rec.xj] + extra_roots_diag
+                known_sum = sum(known_roots_list)
+                xk_vieta = total_root_sum - (xi_mult * rec.xi + rec.xj + sum(extra_roots_diag))
 
                 print(f"  monic sum-of-roots       = {total_root_sum}  (S evaluated at this m)")
+                print(f"  xi_mult (from record)    = {xi_mult}")
+                if extra_roots_diag:
+                    print(f"  extra_roots              = {extra_roots_diag}")
                 print(f"  known-root sum           = {known_sum}")
                 print(f"  Vieta-predicted xk       = {xk_vieta}")
 

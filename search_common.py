@@ -402,8 +402,8 @@ else:
     RLINEAR_C = QQ(1) / QQ(4)
 
 # generates relations involving target and base divisor atoms
-GENERATE_MIXED_RELATIONS = False #
 GENERATE_MIXED_RELATIONS = True #
+GENERATE_MIXED_RELATIONS = False #
 if not RLINEAR:
     GENERATE_MIXED_RELATIONS = False
 

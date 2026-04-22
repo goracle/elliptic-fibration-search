@@ -17,6 +17,7 @@ from search_common import *
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
 from .lp_incidence_dlp import *
+from genus2_markov_module import _call_residues
 
 # After your Mumford search in FINITE_FIELD mode:
 
@@ -1169,7 +1170,7 @@ def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
     # --------------------------------------------------
     stats.start_phase('mumford_residues')
 
-    mumford_residues = mumford_precompute_residues_parallel(
+    mumford_residues = _call_residues(
         eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
         rhs_modp_list, vecs_list,
         num_workers=num_workers,

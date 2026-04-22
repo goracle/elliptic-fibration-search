@@ -185,6 +185,11 @@ def build_relation_matrix2(
             if x is not None and x not in atom_index:
                 atom_index[x] = len(atom_index)
 
+        # Register any extra non-xi roots (3+ root fibers).
+        for x in (_get(rec, "extra_roots") or []):
+            if x is not None and x not in atom_index:
+                atom_index[x] = len(atom_index)
+
         # Step-level leaf atoms, if available.
         for x in _iter_step_leaves(rec):
             if x is not None and x not in atom_index:
@@ -253,13 +258,14 @@ def build_relation_matrix2(
                     if isinstance(cand, dict):
                         c_xj = next((cand[k] for k in ("xj", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
                         c_xk = cand.get("xk")
+                        c_extra = list(cand.get("extra_roots") or [])
                         c_yj = int(cand.get("yj_sign", 1))
                         c_yk = int(cand.get("yk_sign", 1))
                         # Per-candidate xi_mult: -1 sentinel means use record-level or default.
                         c_xi_mult = int(cand.get("xi_mult", -1))
-                        cands_to_add.append((c_xj, c_xk, c_yj, c_yk, c_xi_mult))
+                        cands_to_add.append((c_xj, c_xk, c_extra, c_yj, c_yk, c_xi_mult))
                     elif cand is not None:
-                        cands_to_add.append((cand, None, 1, 1, -1))
+                        cands_to_add.append((cand, None, [], 1, 1, -1))
 
         # Always include the primary accepted path.
         # Use the xi_mult stored on the record itself (set by _make_relation from
@@ -267,11 +273,12 @@ def build_relation_matrix2(
         _rec_yj = int(_get(rec, "yj_sign") or 1)
         _rec_yk = int(_get(rec, "yk_sign") or 1)
         _rec_xi_mult = int(_get(rec, "xi_mult") or -1)
-        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_yj, _rec_yk, _rec_xi_mult))
+        _rec_extra = list(_get(rec, "extra_roots") or [])
+        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_extra, _rec_yj, _rec_yk, _rec_xi_mult))
 
         seen_pairs = set()
 
-        for cxj, cxk, yj_sign, yk_sign, cand_xi_mult in cands_to_add:
+        for cxj, cxk, c_extra, yj_sign, yk_sign, cand_xi_mult in cands_to_add:
             if cxj is None or cxj == xi:
                 continue
 
@@ -298,8 +305,13 @@ def build_relation_matrix2(
                     f"Pass-1a missed this atom — please report."
                 )
 
-            # Deduplicate identical (xj, xk) and (xk, xj) pairs from the same step
-            pair_key = frozenset([cxj, cxk]) if cxk is not None else frozenset([cxj])
+            # Deduplicate: include extra_roots in the key so that relations with
+            # different non-xi root sets are treated as distinct.
+            all_non_xi = [cxj]
+            if cxk is not None:
+                all_non_xi.append(cxk)
+            all_non_xi.extend(c_extra)
+            pair_key = frozenset(all_non_xi)
             if pair_key in seen_pairs:
                 continue
             seen_pairs.add(pair_key)
@@ -335,6 +347,11 @@ def build_relation_matrix2(
             # so += 1 below correctly folds the coefficient into the existing atom.
             if cxk is not None and cxk in atom_index:
                 row[atom_index[cxk]] += 1
+
+            # Extra roots (3+ non-xi root fibers): each contributes +1 column.
+            for xr in c_extra:
+                if xr is not None and xr in atom_index:
+                    row[atom_index[xr]] += 1
 
             if inf_col is not None:
                 row[inf_col] += inf_coeff

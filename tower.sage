@@ -1006,7 +1006,14 @@ def _build_one_eval_poly_at(poly_Rxm, xpoint, Fm):
         return s
 
 def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_tangency_seq=None, avoid_x=None):
-    """Choose tangency points while optionally avoiding a preferred base point."""
+    """Choose tangency points with a bias toward distinct support.
+
+    The first pass uses each available x-value at most once, avoiding the
+    designated base point when possible. If more tangency equations are
+    needed than distinct x-values, the selector starts a second round over
+    the same pool before it allows heavier repetition. This tends to produce
+    relation shapes like 2+2+1 instead of concentrating everything at one x.
+    """
     if num_tangency_eqs <= 0:
         return []
 
@@ -1023,6 +1030,7 @@ def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_t
             return random.choice(pool)
         return x
 
+    # Forced sequence: keep the user's ordering, but still avoid the base x.
     if forced_tangency_seq is not None:
         seq = []
         for x in forced_tangency_seq:
@@ -1033,7 +1041,26 @@ def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_t
             seq.append(random.choice(pool))
         return seq[:num_tangency_eqs]
 
-    return [random.choice(pool) for _ in range(num_tangency_eqs)]
+    # Prefer one distinct hit on each x before repeating any of them.
+    shuffled = pool[:]
+    random.shuffle(shuffled)
+    seq = shuffled[:min(num_tangency_eqs, len(shuffled))]
+
+    remaining = num_tangency_eqs - len(seq)
+    if remaining <= 0:
+        return seq
+
+    # Second round: visit the same support again in a fresh order.
+    # This gives multiplicity patterns such as 2+2+1 when the DOF count asks for it.
+    while remaining > 0:
+        round_pool = pool[:]
+        random.shuffle(round_pool)
+        take = min(remaining, len(round_pool))
+        seq.extend(round_pool[:take])
+        remaining -= take
+
+    return seq[:num_tangency_eqs]
+
 
 def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
                         forced_tangency_seq, use_anchor_points, verbose, ctx):
