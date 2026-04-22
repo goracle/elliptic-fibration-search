@@ -250,7 +250,7 @@ def main(argv=None):
 
         ctx = multiprocessing.get_context("spawn")
         pool = ctx.Pool(processes=args.num_workers, initializer=init_worker)
-        chunk_size = floor(MAXN*2/args.num_workers)
+        chunk_size = max(floor(MAXN*2/args.num_workers),1)
 
         search_fn = make_project_markov_search_fn(
             coeffs_genus2=coeffs,
