@@ -9,6 +9,8 @@ from itertools import product
 from diagnostics2 import find_singular_fibers
 from math import gcd
 
+USE_JULIA_LADDER = True
+
 """
 ll_utilities.py: Matrix and lattice reduction helpers.
 """
@@ -349,33 +351,39 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     Pi = reduce_point_hom(Ep_local, current_sections[i_sec], p)
 
                 required_ks = required_ks_per_section[i_sec]
+                max_k = max((abs(k) for k in required_ks), default=1)
                 if not required_ks:
                     required_ks = {-1, 0, 1}
 
-                mults_i = compute_all_mults_for_section(
-                    Pi, required_ks, stats,
-                    max_k=max((abs(k) for k in required_ks), default=1),
-                    debug=(r > 1)
-                )
+                if USE_JULIA_LADDER:
+                    mults[i_sec] = {}   # or just skip entirely
+                else:
+                    mults_i = compute_all_mults_for_section(
+                        Pi, required_ks, stats,
+                        max_k=max((abs(k) for k in required_ks), default=1),
+                        debug=(r > 1)
+                    )
+                    if mults_i is None:
+                        any_mult_error = True
+                        break
+                    mults[i_sec] = mults_i
 
-                if mults_i is None:
-                    any_mult_error = True
-                    if DEBUG:
-                        print(f"[prepare_modular_data_lll] p={p}: Failed to compute multipliers for basis section {i_sec}")
-                    rejected_primes.append((p, f"multiplier_computation_failed_sec_{i_sec}"))
-                    break
-
-                mults[i_sec] = mults_i
+                    if mults_i is None:
+                        any_mult_error = True
+                        if DEBUG:
+                            print(f"[prepare_modular_data_lll] p={p}: Failed to compute multipliers for basis section {i_sec}")
+                        rejected_primes.append((p, f"multiplier_computation_failed_sec_{i_sec}"))
+                        break
 
                 # Serialise Pi for Julia iff a4/a6 have non-constant denoms
                 # (otherwise the fast numpy path runs and Julia isn't needed).
-                if _has_nonconstant_denom(a4_modp) or _has_nonconstant_denom(a6_modp):
-                    payload = prepare_section_poly_payload(
-                        Pi, a4_modp, a6_modp, int(p)
-                    )
-                else:
-                    payload = None
+                payload = prepare_section_poly_payload(Pi, a4_modp, a6_modp, int(p), D=max_k)
+                if payload is None:
+                    raise RuntimeError(f"p={p}: section {i_sec} serialization returned None")
                 sec_poly_for_p.append(payload)
+
+                if USE_JULIA_LADDER:
+                    print(f"[prepare_modular_data_lll] p={p}: using Julia ladder with {len(sec_poly_for_p)} sections")
 
             if any_mult_error:
                 continue
@@ -384,10 +392,17 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             Ep_dict[p] = Ep_local
             for i, rhs_p_val in rhs_modp_for_p.items():
                 rhs_modp_list[i][p] = rhs_p_val
-            multiplies_lll[p] = mults
-            vecs_lll[p] = vecs_transformed_for_p
-            if any(x is not None for x in sec_poly_for_p):
+
+            if USE_JULIA_LADDER:
+                if any(x is None for x in sec_poly_for_p):
+                    if DEBUG:
+                        print(f"[prepare_modular_data_lll] p={p}: missing section payload → skipping prime")
+                    continue
                 section_poly_dict[p] = sec_poly_for_p
+                vecs_lll[p] = vecs_transformed_for_p   # ✅ KEEP THIS
+            else:
+                multiplies_lll[p] = mults
+                vecs_lll[p] = vecs_transformed_for_p                
 
         except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
             if DEBUG and (p not in (2, 5)):
@@ -413,7 +428,15 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     assert detected_collisions.issubset(ram_locus), \
                         f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
+
+
+    if USE_JULIA_LADDER:
+        for p in section_poly_dict:
+            assert p not in multiplies_lll, f"p={p} has BOTH ladder and Sage mults"
+
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll, section_poly_dict
+
+
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
@@ -830,7 +853,7 @@ def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
             result += [0] * (D + 1 - len(result))
         return result[:D + 1]
 
-    # --- Clear projective denominator of Pi ---------------------------------
+    # --- Gather all denominators: Pi coords + a4 + a6 ----------------------
     coords = tuple(Pi)
     if len(coords) == 2:
         Xr, Yr = coords
@@ -841,34 +864,50 @@ def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
     else:
         Xr, Yr, Zr = coords
 
-    try:
-        Xn, Xd = Xr.numerator(), Xr.denominator()
-        Yn, Yd = Yr.numerator(), Yr.denominator()
-        Zn, Zd = Zr.numerator(), Zr.denominator()
-        L = _sage_lcm([Xd, Yd, Zd])
-        Xp = Xn * (L // Xd)
-        Yp = Yn * (L // Yd)
-        Zp = Zn * (L // Zd)
-        R = Xp.parent()
-        Xp = R([int(c) % p for c in Xp.list()])
-        Yp = R([int(c) % p for c in Yp.list()])
-        Zp = R([int(c) % p for c in Zp.list()])
+    def _get_nd(elem):
+        """Return (numerator_poly, denominator_poly) for a GF(p)(m) element."""
+        try:
+            return elem.numerator(), elem.denominator()
+        except AttributeError:
+            # Already a polynomial
+            R = elem.parent()
+            return elem, R(1)
 
-        def _ring_poly_to_ints(poly):
-            cs = poly.list() if hasattr(poly, 'list') else [poly]
-            result = [int(c) % p for c in cs]
-            if len(result) < D + 1:
-                result += [0] * (D + 1 - len(result))
-            return result[:D + 1]
+    Xn, Xd = _get_nd(Xr)
+    Yn, Yd = _get_nd(Yr)
+    Zn, Zd = _get_nd(Zr)
+    a4n, a4d = _get_nd(a4_raw)
+    a6n, a6d = _get_nd(a6_raw)
 
-        X_ints = _ring_poly_to_ints(Xp)
-        Y_ints = _ring_poly_to_ints(Yp)
-        Z_ints = _ring_poly_to_ints(Zp)
-    except AttributeError:
-        # Coords already polynomials (no .numerator/.denominator)
-        X_ints = _frac_to_poly_ints(Xr)
-        Y_ints = _frac_to_poly_ints(Yr)
-        Z_ints = _frac_to_poly_ints(Zr)
+    # LCM of all denominators — clear them projectively.
+    # Z absorbs the a4/a6 denominators; the ladder formula uses a4*Z^2
+    # so multiplying a4 by (L/a4d) and Z by a4d (etc.) keeps the curve equation
+    # homogeneous.  Concretely: work in the ring, clear to polynomials.
+    L = _sage_lcm([Xd, Yd, Zd, a4d, a6d])
+
+    def _clear(num, den):
+        """num/den * (L/den) — result is a polynomial in GF(p)[m]."""
+        factor = L // den
+        poly = num * factor
+        R = poly.parent()
+        return R([int(c) % p for c in poly.list()])
+
+    Xp = _clear(Xn, Xd)
+    Yp = _clear(Yn, Yd)
+    Zp = _clear(Zn, Zd)
+    a4p = _clear(a4n, a4d)
+    a6p = _clear(a6n, a6d)
+
+    def _ring_poly_to_ints(poly):
+        cs = poly.list() if hasattr(poly, 'list') else [poly]
+        result = [int(c) % p for c in cs]
+        if len(result) < D + 1:
+            result += [0] * (D + 1 - len(result))
+        return result[:D + 1]
+
+    X_ints = _ring_poly_to_ints(Xp)
+    Y_ints = _ring_poly_to_ints(Yp)
+    Z_ints = _ring_poly_to_ints(Zp)
 
     return {
         "p":  int(p),
@@ -876,9 +915,12 @@ def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
         "X":  X_ints,
         "Y":  Y_ints,
         "Z":  Z_ints,
-        "a4": _frac_to_poly_ints(a4_raw),
-        "a6": _frac_to_poly_ints(a6_raw),
+        "a4": _ring_poly_to_ints(a4p),
+        "a6": _ring_poly_to_ints(a6p),
     }
+
+
+
 
 
 def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
@@ -897,6 +939,7 @@ def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
     except Exception as e:
         if DEBUG:
             print(f"[prepare_section_poly_payload] p={p}: serialisation failed: {e}")
+        raise
         return None
 
 

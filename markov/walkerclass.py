@@ -3945,13 +3945,11 @@ def enrich_candidates(
     for cand in candidates:
         rec = dict(cand) if isinstance(cand, dict) else {"xj": cand}
 
-        # Step 1: extract m.
         m_val = rec.get("m")
         if m_val is None:
             if RLINEAR and rec.get("xj") is not None:
                 m_val = Fp(x_here) - Fp(rec["xj"])
             else:
-                raise NotImplementedError
                 continue
 
         try:
@@ -3960,28 +3958,21 @@ def enrich_candidates(
             raise
             continue
 
-        # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
-        # Step 2: evaluate fi(x, m) at m = m_val_fp, coefficient by coefficient.
         try:
             coeffs = []
-
             for c in fi.list():
-                try:
-                    num_val = Fp(c.numerator()(m_val_fp))
-                    den_val = Fp(c.denominator()(m_val_fp))
-                    if den_val == 0:
-                        raise ZeroDivisionError(f"Fiber pole at m={m_val_fp}")
-                    val = num_val / den_val
-                except ZeroDivisionError:
-                    raise
-                except Exception as e:
-                    raise RuntimeError(f"Failed to evaluate fi coefficient at m={m_val_fp}: {c!r}") from e
-                coeffs.append(val)
-                # Reconstruct the polynomial in R_x (the ring over Fp)
-                f_eval_poly = R_x(coeffs)
+                num_val = Fp(c.numerator()(m_val_fp))
+                den_val = Fp(c.denominator()(m_val_fp))
+                if den_val == 0:
+                    raise ZeroDivisionError(f"Fiber pole at m={m_val_fp}")
+                coeffs.append(num_val / den_val)
+            f_eval_poly = R_x(coeffs)
+        except ZeroDivisionError:
+            continue
         except Exception as e:
             print(f"CRITICAL: Evaluation failed for m={m_val_fp}. Error: {e}")
             raise
+
 
         #print("m, f_eval_poly, fi", m_val, f_eval_poly, fi)
 

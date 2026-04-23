@@ -8,25 +8,25 @@ of the run — Julia/Oscar JIT cost is paid exactly once.
 
 Protocol (newline-delimited JSON, one object per line)
 ------------------------------------------------------
-  stdin:  {"prime_list": [p, ...],
-            "tasks":     {str(p): [[v_tuple, diff_coeffs, rhs_idx], ...], ...},
-            "rhs":       {str(p): [[num_coeffs, den_coeffs], ...], ...},
-            "section_polys": {str(p): [{"p":…,"D":…,"X":…,"Y":…,"Z":…,"a4":…,"a6":…}, …], ...}}
-            # section_polys is optional; omitted when a4/a6 have constant denominators
+  NEW path (section_polys + vecs present):
+    stdin:  {"prime_list": [p, ...],
+              "section_polys": {str(p): [{"p":…,"D":…,"X":…,"Y":…,"Z":…,"a4":…,"a6":…}, …], ...},
+              "vecs":          {str(p): [[v_tuple, v_coeffs], ...], ...},
+              "rhs":           {str(p): [[num_coeffs, den_coeffs], ...], ...}}
 
-  stdout (no section_polys):
+    Julia runs the section ladder, accumulates Pm = Σ v[i]*[k_i]Pi entirely in
+    polynomial projective arithmetic, computes diff_poly = Pm.X*rhs_den - Pm.Z*rhs_num,
+    finds roots.  No Python Sage arithmetic involved at all.
+
+  OLD path (tasks present, no section_polys):
+    stdin:  {"prime_list": [p, ...],
+              "tasks": {str(p): [[v_tuple, diff_coeffs, rhs_idx], ...], ...},
+              "rhs":   {str(p): [[num_coeffs, den_coeffs], ...], ...}}
+
+  stdout (both paths):
     {str(p): {str(v_tuple): {str([rhs_idx]): [m_root, ...], ...}, ...}, ...}
 
-  stdout (with section_polys):
-    {str(p): {"roots":         {str(v_tuple): {str([rhs_idx]): [m_root, ...]}},
-              "ladder_caches": [{str(k): {"X":[…],"Y":[…],"Z":[…]}}, …]}, ...}
-    # ladder_caches is a Vector, one entry per section (null if serialisation failed).
-
   stderr: debug/error messages (drained by Python stderr thread)
-
-  The walker only needs m_root values — x_val, v0/v1, Mumford pairs, and sign
-  computation have all been removed.  enrich_candidates in walkerclass.py
-  reconstructs xj/xk and signs directly from the fiber geometry.
 
 Exit codes: 0 = clean EOF, 1 = unhandled error.
 """
@@ -38,18 +38,12 @@ using JSON3
 
 include(joinpath(@__DIR__, "section_ladder.jl"))
 
-# Signal Python that Oscar has finished loading and we are ready for tasks.
-# Python blocks on stderr waiting for this line before sending anything.
-# Flush stdout first to drain any blank lines emitted to stdout during
-# Oscar/JSON3 module loading — otherwise they sit in the buffer and get
-# flushed ahead of the first real JSON response, causing readline() on the
-# Python side to consume a blank line instead of the JSON payload.
 flush(stdout)
 println(stderr, "[julia] server ready")
 flush(stderr)
 
 # ---------------------------------------------------------------------------
-# Root-finding and RHS eval
+# Root-finding and RHS eval (unchanged)
 # ---------------------------------------------------------------------------
 
 function roots_over_fp(coeffs_lohi::Vector{<:Integer}, p::Int)::Vector{Int}
@@ -58,11 +52,9 @@ function roots_over_fp(coeffs_lohi::Vector{<:Integer}, p::Int)::Vector{Int}
     Fpm, _ = polynomial_ring(Fp, :m)
     f = Fpm([Fp(Int(c) % p) for c in coeffs_lohi])
     iszero(f) && return collect(0:p-1)
-    rs = roots(f)   # Vector{FqFieldElem} — no keyword, works on all Nemo versions
+    rs = roots(f)
     return [Int(lift(ZZ, r)) for r in rs]
 end
-
-
 
 function eval_rhs_at_m(
     num_coeffs::Vector{<:Integer},
@@ -84,7 +76,7 @@ function eval_rhs_at_m(
 end
 
 # ---------------------------------------------------------------------------
-# Per-prime computation — threaded over chunk_items ([n]P section multiples)
+# OLD path: per-prime root-finding from pre-computed diff_coeffs
 # ---------------------------------------------------------------------------
 
 function residues_for_prime(p, chunk_items, rhs_reconstruction)
@@ -113,17 +105,16 @@ function residues_for_prime(p, chunk_items, rhs_reconstruction)
         m_roots = local_cache[coeff_key]
         isempty(m_roots) && continue
 
-        rhs_entry  = rhs_reconstruction[rhs_idx + 1]  # 1-indexed
+        rhs_entry  = rhs_reconstruction[rhs_idx + 1]
         num_coeffs = Int.(rhs_entry[1])
         den_coeffs = Int.(rhs_entry[2])
 
         v_key  = string(v_tuple)
-        xr_key = string([rhs_idx])   # key is just rhs_idx now; x_val is not needed
+        xr_key = string([rhs_idx])
 
         for m_root in m_roots
             x_val = eval_rhs_at_m(num_coeffs, den_coeffs, m_root, p)
             x_val === nothing && continue
-
             if !haskey(local_result, v_key)
                 local_result[v_key] = Dict()
             end
@@ -134,18 +125,196 @@ function residues_for_prime(p, chunk_items, rhs_reconstruction)
         end
     end
 
-    # Merge per-thread results
     result = Dict()
     for tr in thread_results
         for (v_key, xmap) in tr
-            if !haskey(result, v_key)
-                result[v_key] = Dict()
-            end
+            if !haskey(result, v_key); result[v_key] = Dict(); end
             for (xr_key, m_roots) in xmap
-                if !haskey(result[v_key], xr_key)
-                    result[v_key][xr_key] = []
-                end
+                if !haskey(result[v_key], xr_key); result[v_key][xr_key] = []; end
                 append!(result[v_key][xr_key], m_roots)
+            end
+        end
+    end
+    return result
+end
+
+# ---------------------------------------------------------------------------
+# NEW path: section ladder + accumulation + diff poly + roots, all in Julia
+# ---------------------------------------------------------------------------
+
+const LADDER_MAXK = let v = get(ENV, "JULIA_LADDER_MAXK", "200")
+    parse(Int, v)
+end
+
+"""
+    residues_for_prime_sections(p, section_payloads, vecs_with_tuples, rhs_reconstruction)
+
+For one prime p:
+  1. Run section_ladder for each section to get all [k]P as PolyPt polynomial arrays.
+  2. For each (v_tuple, v_coeffs): accumulate Pm = Σ v[i]*[|k_i|]Pi (negated when k<0).
+  3. For each RHS: compute diff_poly = Pm.X * rhs_den - Pm.Z * rhs_num.
+  4. Find roots of diff_poly over GF(p).
+  5. Return {str(v_tuple): {str([rhs_idx]): [m_root, ...]}}.
+
+No Sage, no Python point arithmetic involved.
+"""
+function residues_for_prime_sections(p, section_payloads, vecs_with_tuples, rhs_reconstruction)
+    # Early exits
+    if isempty(section_payloads) || isempty(vecs_with_tuples)
+        return Dict{String,Any}()
+    end
+
+    # --- FULL materialization of JSON inputs (CRITICAL) ---
+    vecs_with_tuples_mat = [
+        (collect(Int, item[1]), collect(Int, item[2]))
+        for item in vecs_with_tuples
+    ]
+
+    Base.@assert !(vecs_with_tuples_mat isa JSON3.Array)
+    # --- base curve data ---
+    D  = Int(section_payloads[1]["D"])
+    a4 = _pad_to(collect(Int, section_payloads[1]["a4"]), D)
+    a6 = _pad_to(collect(Int, section_payloads[1]["a6"]), D)
+    rhs_padded_mat = [
+        (_pad_to(collect(Int, rhs_reconstruction[i][1]), D),
+        _pad_to(collect(Int, rhs_reconstruction[i][2]), D))
+        for i in eachindex(rhs_reconstruction)
+    ]
+
+
+    # --- build ladders (fully materialized, no lazy JSON arrays) ---
+    n_sec = length(section_payloads)
+    ladders = Vector{Dict{String,Any}}(undef, n_sec)
+
+    for i in 1:n_sec
+        pl = section_payloads[i]
+
+        ladders[i] = run_section_ladder(
+            p, D,
+            collect(Int, pl["X"]),
+            collect(Int, pl["Y"]),
+            collect(Int, pl["Z"]),
+            a4, a6,
+            LADDER_MAXK,
+        )
+    end
+
+    # --- RHS padding (fully materialized) ---
+    rhs_padded = Vector{Tuple{Vector{Int},Vector{Int}}}(undef, length(rhs_reconstruction))
+    for i in eachindex(rhs_reconstruction)
+        num = _pad_to(collect(Int, rhs_reconstruction[i][1]), D)
+        den = _pad_to(collect(Int, rhs_reconstruction[i][2]), D)
+        rhs_padded[i] = (num, den)
+    end
+
+    # --- thread-local outputs ---
+    #nT = Threads.nthreads()
+    #thread_results = [Dict{String,Any}() for _ in 1:nT]
+    nT = isdefined(Threads, :maxthreadid) ? Threads.maxthreadid() : Threads.nthreads()
+    thread_results = [Dict{String,Any}() for _ in 1:nT]
+
+    Threads.@threads :static for idx in eachindex(vecs_with_tuples_mat)
+        tid = Threads.threadid()
+        local_result = thread_results[tid]
+
+        #item = vecs_with_tuples[idx]
+        (v_tuple, v_coeffs) = vecs_with_tuples_mat[idx]
+        # --- fully copy inputs (NO views / SubArray) ---
+        #v_tuple  = collect(Int, item[1])
+        #v_coeffs = collect(Int, item[2])
+
+        # --- accumulate point ---
+        Pm = _identity(a4, a6, p, D)
+        skip = false
+
+        for i in eachindex(v_coeffs)
+            k = v_coeffs[i]
+            if k == 0
+                continue
+            end
+
+            if i > n_sec
+                skip = true
+                break
+            end
+
+            ladder = ladders[i]
+            key = string(abs(k))
+
+            if !haskey(ladder, key)
+                skip = true
+                break
+            end
+
+            entry = ladder[key]
+
+            # --- HARD validation: force materialization ---
+            try
+                X = _pad_to(collect(Int, entry["X"]), D)
+                Y = _pad_to(collect(Int, entry["Y"]), D)
+                Z = _pad_to(collect(Int, entry["Z"]), D)
+
+                Pk = PolyPt(X, Y, Z, a4, a6, p, D)
+                Pm = _add(Pm, k < 0 ? _neg(Pk) : Pk)
+
+            catch err
+                @error "ladder entry corrupt" i=i key=key err
+                skip = true
+                break
+            end
+        end
+
+        if skip || _is_id(Pm)
+            continue
+        end
+
+        v_key = string(v_tuple)
+
+        # --- RHS loop ---
+        for rhs_idx in eachindex(rhs_padded)
+            (rhs_num, rhs_den) = rhs_padded[rhs_idx]
+
+            diff_poly = _psub(
+                _pmul(Pm.X, rhs_den, p, D),
+                _pmul(Pm.Z, rhs_num, p, D),
+                p, D,
+            )
+
+            if all(iszero, diff_poly)
+                continue
+            end
+
+            m_roots = roots_over_fp(diff_poly, p)
+            if isempty(m_roots)
+                continue
+            end
+
+            xr_key = string(rhs_idx - 1)
+
+            # --- safe dict writes ---
+            if !haskey(local_result, v_key)
+                local_result[v_key] = Dict{String,Any}()
+            end
+            if !haskey(local_result[v_key], xr_key)
+                local_result[v_key][xr_key] = Int[]
+            end
+
+            append!(local_result[v_key][xr_key], m_roots)
+        end
+    end
+
+    # --- merge ---
+    result = Dict{String,Any}()
+    for tr in thread_results
+        for (v_key, xmap) in tr
+            if !haskey(result, v_key)
+                result[v_key] = Dict{String,Any}()
+            end
+            for (xr_key, roots) in xmap
+                if !haskey(result[v_key], xr_key)
+                    result[v_key][xr_key] = Int[]
+                end
+                append!(result[v_key][xr_key], roots)
             end
         end
     end
@@ -154,54 +323,8 @@ function residues_for_prime(p, chunk_items, rhs_reconstruction)
 end
 
 # ---------------------------------------------------------------------------
-# Section ladder dispatch
-# ---------------------------------------------------------------------------
-
-"""
-    run_ladder_for_prime(p_payloads, max_k) -> Vector{Union{Dict, Nothing}}
-
-Run run_section_ladder for each section payload in p_payloads.
-Returns a Vector, one entry per section: the ladder Dict, or nothing on error.
-max_k: upper bound for the ladder (should match MAXN / the largest |k| needed).
-"""
-function run_ladder_for_prime(p_payloads, max_k::Int)::Vector{Any}
-    out = Vector{Any}(undef, length(p_payloads))
-    for (i, pl) in enumerate(p_payloads)
-        if pl === nothing || ismissing(pl)
-            out[i] = nothing
-            continue
-        end
-        try
-            lc = run_section_ladder(
-                Int(pl["p"]),
-                Int(pl["D"]),
-                Vector{Int}(pl["X"]),
-                Vector{Int}(pl["Y"]),
-                Vector{Int}(pl["Z"]),
-                Vector{Int}(pl["a4"]),
-                Vector{Int}(pl["a6"]),
-                max_k,
-            )
-            out[i] = lc
-        catch e
-            msg = sprint(showerror, e)
-            println(stderr, "[julia] section_ladder error (section $i): $msg")
-            flush(stderr)
-            out[i] = nothing
-        end
-    end
-    return out
-end
-
-# ---------------------------------------------------------------------------
 # Main: persistent read-compute-write loop
 # ---------------------------------------------------------------------------
-
-# max_k for the ladder — matches Python MAXN (typically 80 or 200).
-# Can be overridden by setting JULIA_LADDER_MAXK env var before starting server.
-const LADDER_MAXK = let v = get(ENV, "JULIA_LADDER_MAXK", "200")
-    parse(Int, v)
-end
 
 function main()
     println(stderr, "[julia] main() entered, waiting for tasks")
@@ -222,45 +345,46 @@ function main()
             flush(stderr)
 
             prime_list    = Int.(task["prime_list"])
-            tasks         = task["tasks"]
             rhs           = task["rhs"]
-            # section_polys is optional — absent in non-FF mode or old clients
             section_polys = get(task, "section_polys", nothing)
-            has_sections  = section_polys !== nothing && !isempty(section_polys)
+            vecs          = get(task, "vecs", nothing)
+            has_sections  = section_polys !== nothing && !isempty(section_polys) &&
+                            vecs !== nothing && !isempty(vecs)
 
             println(stderr, "[julia] task $task_n: prime_list=$(prime_list), nthreads=$(nthreads()), has_sections=$has_sections")
             flush(stderr)
 
-            result = Dict{String, Any}()
-            for p in prime_list
-                n_items = length(tasks[string(p)])
-                n_rhs   = length(rhs[string(p)])
-                println(stderr, "[julia] task $task_n: p=$p  items=$n_items  rhs_entries=$n_rhs")
-                flush(stderr)
+            result = Dict{String,Any}()
 
-                roots_result = residues_for_prime(p, tasks[string(p)], rhs[string(p)])
-                println(stderr, "[julia] task $task_n: p=$p  residues_for_prime done")
-                flush(stderr)
+            for p in prime_list
+                p_str = string(p)
+                n_rhs = length(rhs[p_str])
 
                 if has_sections
-                    p_payloads = get(section_polys, string(p), [])
-                    if !isempty(p_payloads)
-                        ladder_caches = run_ladder_for_prime(p_payloads, LADDER_MAXK)
-                        println(stderr, "[julia] task $task_n: p=$p  ladder done ($(length(ladder_caches)) sections)")
+                    p_payloads = get(section_polys, p_str, nothing)
+                    p_vecs     = get(vecs, p_str, nothing)
+                    if p_payloads !== nothing && !isempty(p_payloads) &&
+                       p_vecs     !== nothing && !isempty(p_vecs)
+
+                        println(stderr, "[julia] task $task_n: p=$p  vecs=$(length(p_vecs))  rhs_entries=$n_rhs  sections=$(length(p_payloads))  [new path]")
                         flush(stderr)
-                        result[string(p)] = Dict(
-                            "roots"          => roots_result,
-                            "ladder_caches"  => ladder_caches,
+
+                        result[p_str] = residues_for_prime_sections(
+                            p, p_payloads, p_vecs, rhs[p_str]
                         )
-                    else
-                        # section_polys present but empty for this prime — flat format
-                        result[string(p)] = roots_result
+                        println(stderr, "[julia] task $task_n: p=$p  done")
+                        flush(stderr)
+                        continue
                     end
-                else
-                    # Old format: flat roots dict (backward-compatible)
-                    result[string(p)] = roots_result
                 end
 
+                # Old path: pre-computed diff_coeffs in tasks
+                tasks = task["tasks"]
+                n_items = length(tasks[p_str])
+                println(stderr, "[julia] task $task_n: p=$p  items=$n_items  rhs_entries=$n_rhs  [old path]")
+                flush(stderr)
+
+                result[p_str] = residues_for_prime(p, tasks[p_str], rhs[p_str])
                 println(stderr, "[julia] task $task_n: p=$p  done")
                 flush(stderr)
             end
@@ -274,6 +398,7 @@ function main()
             flush(stdout)
             println(stderr, "[julia] task $task_n: done")
             flush(stderr)
+
         catch e
             msg = sprint(showerror, e, catch_backtrace())
             println(stderr, "[julia] ERROR in task $task_n: $msg")

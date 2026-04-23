@@ -1181,7 +1181,8 @@ def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,
     # Phase 2: Modular prep
     # --------------------------------------------------
     stats.start_phase('prep_mod_data')
-    Ep_dict, rhs_modp_list, mult_lll, vecs_lll = prepare_modular_data_lll(
+    # search_main.py line 1184 — add section_poly_dict
+    Ep_dict, rhs_modp_list, mult_lll, vecs_lll, section_poly_dict = prepare_modular_data_lll(
         cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=prime_pool
     )
     stats.end_phase('prep_mod_data')
