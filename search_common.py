@@ -376,10 +376,11 @@ CONSENSUS_THRESHOLD = 0.5     # Fraction of fibrations that must agree (0.8 = 80
 # Add these constants near the top of tower.sage (with other config constants)
 
 # === ANCHOR POINT MODE CONFIGURATION ===
-USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
 USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
-USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
-NUM_ANCHOR_POINTS = 1      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
+USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
+if not FINITE_FIELD:
+    USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
+NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
 
 # === RAIL LINEARITY CONFIGURATION ===
 # RLINEAR = True:  classic linear rail    r(m) = xi - m

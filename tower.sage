@@ -938,28 +938,49 @@ def _build_build_one_Qpoly(pts_x, xs_chosen, f0, degQ, forced_Qpoly,
 
         if use_anchor_points:
             total_needed = degQ + 1
-            base_pts_count = 1
-            remaining_dof = total_needed - base_pts_count
-            num_anchors_needed = min(NUM_ANCHOR_POINTS, max(0, remaining_dof))
+            base_pts_count = len(chosen_pts_xy)
+            if base_pts_count > total_needed:
+                raise RuntimeError(
+                    f"Finite-field anchor interpolation needs at most {total_needed} fixed Q points, "
+                    f"but got {base_pts_count}"
+                )
+
+            num_anchors_needed = total_needed - base_pts_count
+            if num_anchors_needed > NUM_ANCHOR_POINTS:
+                num_anchors_needed = NUM_ANCHOR_POINTS
 
             anchor_pts = []
-            tries = 0
-            while len(anchor_pts) < num_anchors_needed and tries < num_anchors_needed * 30:
-                tries += 1
-                x_anchor = ctx['base_field'].random_element()
-                y_val = f0_coerced(x_anchor)
+            if num_anchors_needed > 0:
+                R_base_x = PolynomialRing(ctx['base_field'], 'x')
                 try:
-                    y_anchor = y_val.sqrt()
-                    anchor_pts.append((x_anchor, y_anchor))
+                    f0_base = R_base_x(f0)
                 except Exception:
-                    continue
+                    coeffs_f0 = list(f0.list()) if hasattr(f0, 'list') else [f0.coefficient(i) for i in range(int(f0.degree()) + 1)]
+                    f0_base = R_base_x([ctx['base_field'](c) for c in coeffs_f0])
 
-            if len(anchor_pts) < num_anchors_needed:
-                raise RuntimeError(f"Could not generate {num_anchors_needed} anchor points in GF({FINITE_FIELD})")
+                used_x = {ctx['base_field'](xv) for xv, _ in chosen_pts_xy}
+                tries = 0
+                while len(anchor_pts) < num_anchors_needed and tries < num_anchors_needed * 60:
+                    tries += 1
+                    x_anchor = ctx['base_field'].random_element()
+                    if x_anchor in used_x:
+                        continue
+                    y_val = f0_base(x_anchor)
+                    try:
+                        y_anchor = y_val.sqrt()
+                        anchor_pts.append((x_anchor, y_anchor))
+                        used_x.add(x_anchor)
+                    except Exception:
+                        continue
+
+                if len(anchor_pts) < num_anchors_needed:
+                    raise RuntimeError(f"Could not generate {num_anchors_needed} anchor points in GF({FINITE_FIELD})")
         else:
             anchor_pts = []
 
-        Qpoly_base = interpolate_Q_with_anchors(chosen_pts_xy, degQ, 'x', anchor_pts, seed_int=seed_int) if use_anchor_points else interpolate_Q_general(chosen_pts_xy, f0, degQ, 'x', seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
+        Qpoly_base = interpolate_Q_with_anchors(
+            chosen_pts_xy, degQ, 'x', anchor_pts, seed_int=seed_int, field=ctx['base_field']
+        ) if use_anchor_points else interpolate_Q_general(chosen_pts_xy, f0, degQ, 'x', seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
         try:
             R_base_x = PolynomialRing(ctx['base_field'], 'x')
             Qpoly_field_base = R_base_x(Qpoly_base)
@@ -988,11 +1009,14 @@ def _build_build_one_Qpoly(pts_x, xs_chosen, f0, degQ, forced_Qpoly,
 
     if use_anchor_points:
         total_needed = degQ + 1
-        base_pts_count = 1
-        remaining_dof = total_needed - base_pts_count
-        num_anchors_needed = min(NUM_ANCHOR_POINTS, max(0, remaining_dof))
-        anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=[QQ(xv) for xv in xs_chosen])
-        return interpolate_Q_with_anchors(chosen_pts_xy, degQ, ctx['xSR'], anchor_pts, seed_int=seed_int)
+        base_pts_count = len(chosen_pts_xy)
+        if base_pts_count > total_needed:
+            raise RuntimeError(
+                f"QQ anchor interpolation needs at most {total_needed} fixed Q points, but got {base_pts_count}"
+            )
+        num_anchors_needed = min(NUM_ANCHOR_POINTS, max(0, total_needed - base_pts_count))
+        anchor_pts = generate_anchor_points(num_anchors_needed, seed=seed_int, exclude_x=[QQ(xv) for xv, _ in chosen_pts_xy])
+        return interpolate_Q_with_anchors(chosen_pts_xy, degQ, ctx['xSR'], anchor_pts, seed_int=seed_int, field=QQ)
     return interpolate_Q_general(chosen_pts_xy, f0, degQ, ctx['xSR'], seed_int=seed_int, force_constraint_indices=force_Q_constraint_indices)
 
 def _build_one_eval_poly_at(poly_Rxm, xpoint, Fm):
@@ -2068,8 +2092,12 @@ def generate_anchor_points(num_points, seed=SEED_INT, exclude_x=None):
 
     return anchor_pts
 
-def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT):
-    """Compute Q(x) using base + anchor points (no tangency)."""
+def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_INT, field=QQ):
+    """Compute Q(x) using base + anchor points (no tangency).
+
+    This is field-aware: use QQ for rational arithmetic and GF(p) for
+    finite-field interpolation.
+    """
     assert degQ >= 0, f"interpolate_Q_with_anchors: negative degQ {degQ}"
 
     all_pts = list(base_pts) + list(anchor_pts)
@@ -2081,37 +2109,44 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
             f"but have {len(all_pts)} (base: {len(base_pts)}, anchors: {len(anchor_pts)})"
         )
 
-    xs = [QQ(pt[0]) for pt in all_pts]
-    ys = [QQ(pt[1]) for pt in all_pts]
+    try:
+        field = field or QQ
+    except Exception:
+        field = QQ
+
+    xs = [field(pt[0]) for pt in all_pts]
+    ys = [field(pt[1]) for pt in all_pts]
 
     if len(set(xs)) != len(xs):
         raise RuntimeError(f"interpolate_Q_with_anchors: duplicate x-coordinates: {xs}")
 
-    #print(f"[interpolate_Q_with_anchors] Lagrange interpolation with {len(all_pts)} points")
     sys.stdout.flush()
 
-    R = PolynomialRing(QQ, str(x_sym))
+    R = PolynomialRing(field, str(x_sym))
+    xgen = R.gen()
 
     Qx = R(0)
     for i, (xi, yi) in enumerate(zip(xs, ys)):
         Li = R(1)
         for j, xj in enumerate(xs):
             if i != j:
-                Li *= (R.gen() - xj) / (xi - xj)
+                denom = xi - xj
+                if denom == 0:
+                    raise RuntimeError(f"interpolate_Q_with_anchors: duplicate x-coordinates: {xs}")
+                Li *= (xgen - xj) / denom
         Qx += yi * Li
 
     # Dual check: verify at all points
     for xi, yi in zip(xs, ys):
         eval_result = Qx(xi)
-        assert eval_result == yi, \
-            f"interpolate_Q_with_anchors: verification failed at x={xi}: Q(x)={eval_result} != y={yi}"
+        assert eval_result == yi,             f"interpolate_Q_with_anchors: verification failed at x={xi}: Q(x)={eval_result} != y={yi}"
 
-    #print(f"[interpolate_Q_with_anchors] Verified Lagrange Q at {len(all_pts)} points")
     sys.stdout.flush()
 
     return Qx
 
 def measure_poly_complexity(expr_ff):
+
     """
     FINITE_FIELD-oriented complexity score. Lower is better.
     Raises on unexpected conditions.
