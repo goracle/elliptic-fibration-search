@@ -2356,21 +2356,32 @@ class Genus2MetropolisWalker:
                     pool.remove(chosen); continue
 
                 # --- choose move ---
-                tgt = self._choose_between(
-                    xj, xk,
-                    {"n": n, "step": search_out, "current_x": xi, "current_y": pt[1]},
-                )
-                if tgt is None:
+                # Build the list of fresh options before selecting so the
+                # choice is uniform over reachable neighbors.  The old code
+                # flipped a coin first and then rejected on freshness, which
+                # silently discarded an entire fiber whenever the coin landed
+                # on the already-visited root — a systematic sampling bias.
+                fresh_opts = []
+                for _tgt_cand, _sign_key in ((xj, "yj_sign"), (xk, "yk_sign")):
+                    if _tgt_cand is None:
+                        continue
+                    if not self._xi_is_fresh(_tgt_cand):
+                        continue
+                    try:
+                        _y_cand = self._recover_y(
+                            _tgt_cand,
+                            y_sign=int(chosen.get(_sign_key, 1)),
+                        )
+                    except Exception:
+                        continue
+                    if _y_cand == self.base_ring(0):
+                        continue
+                    fresh_opts.append((_tgt_cand, int(chosen.get(_sign_key, 1)), _y_cand))
+
+                if not fresh_opts:
                     pool.remove(chosen); continue
 
-                # Never repeat an xi within the same walk.
-                if not self._xi_is_fresh(tgt):
-                    pool.remove(chosen); continue
-
-                sign = int(chosen.get("yj_sign", 1)) if tgt == xj else int(chosen.get("yk_sign", 1))
-                y = self._recover_y(tgt, y_sign=sign)
-                if y == self.base_ring(0):
-                    pool.remove(chosen); continue
+                tgt, sign, y = self.rng.choice(fresh_opts)
 
                 # If we made it here, everything is valid!
                 valid_candidate_found = True
