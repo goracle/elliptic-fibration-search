@@ -615,6 +615,91 @@ def farkas_delete_rerun(
     _log("# FARKAS-DELETE RE-RUN COMPLETE")
     _log(f"{'#'*70}")
 
+def _suggest_seeds_from_noparity_nullity(
+    M_ZZ, atoms, group_order,
+    col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1,
+    n_seeds: int = 4,
+) -> list:
+    """
+    Compute the right kernel of the deduped homogeneous system over GF(group_order)
+    and collect atoms that appear in *non-parity* kernel directions.
+
+    "Non-parity" means:
+      - not the gauge direction  (support = {inf} singleton)
+      - not isolated singletons  (support size 1, non-inf atom)
+      - not flat/conservation directions (all nonzero coefficients equal)
+
+    Remaining directions are FUSION, OTHER, or mixed-coefficient directions —
+    i.e. the directions that actually carry DLP information.  We pick atoms
+    from their supports, ranked by frequency across those directions, and
+    return the top `n_seeds` as suggested walker seeds.
+
+    Returns a list of atom strings (length <= n_seeds).
+    """
+    if not _SAGE:
+        raise RuntimeError("SageMath is required — run with: sage -python ...")
+
+    n  = group_order
+    Fp = GF(Integer(n))
+
+    M_pruned, _ = _dedupe_rows_mod(M_ZZ, atoms, group_order)
+    n_cols = M_pruned.ncols()
+
+    pruned_aidx = {str(a): i for i, a in enumerate(atoms)}
+
+    def remap(col):
+        if col is None:
+            return None
+        return pruned_aidx.get(str(atoms[col])) if col < len(atoms) else None
+
+    p_col_inf  = remap(col_inf)
+
+    A = M_pruned.change_ring(Fp).sparse_matrix()
+    ker = A.right_kernel()
+
+    # Protected atoms: inf, gen0, gen1, tgt0, tgt1 — walkers should not be
+    # seeded at structural/anchor atoms.
+    protected_cols = {
+        c for c in [
+            remap(col_inf), remap(col_gen0), remap(col_gen1),
+            remap(col_tgt0), remap(col_tgt1),
+        ] if c is not None
+    }
+
+    atom_freq: dict[str, int] = {}
+
+    for vec in ker.basis():
+        support = [(j, int(vec[j])) for j in range(n_cols) if vec[j] != Fp(0)]
+        if not support:
+            continue
+
+        # Skip gauge direction.
+        if len(support) == 1 and p_col_inf is not None and support[0][0] == p_col_inf:
+            continue
+
+        # Skip isolated singletons.
+        if len(support) == 1:
+            continue
+
+        # Skip flat / conservation / parity directions.
+        coeffs = [c for _, c in support]
+        if len(set(coeffs)) == 1:
+            continue
+
+        # This is a non-parity direction; accumulate atom frequencies.
+        for j, _ in support:
+            if j in protected_cols:
+                continue
+            key = str(atoms[j])
+            atom_freq[key] = atom_freq.get(key, 0) + 1
+
+    if not atom_freq:
+        return []
+
+    ranked = sorted(atom_freq.items(), key=lambda kv: -kv[1])
+    return [atom for atom, _ in ranked[:n_seeds]]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Analyse a failed DLP solve from an HDF5 relation-matrix dump."
@@ -787,6 +872,24 @@ def main(argv=None):
         col_gen0=col_gen0,
         col_gen1=col_gen1,
     )
+
+    # --- Seed suggestion from non-parity nullity ---
+    suggested = _suggest_seeds_from_noparity_nullity(
+        M_ZZ, atoms, group_order,
+        col_inf=col_inf,
+        col_gen0=col_gen0,
+        col_gen1=col_gen1,
+        col_tgt0=col_tgt0,
+        col_tgt1=col_tgt1,
+        n_seeds=4,
+    )
+    _log(f"\n{'#'*70}")
+    _log("# SUGGESTED SEEDS (non-parity nullity atoms, most frequent first)")
+    _log(f"{'#'*70}")
+    if suggested:
+        _log(" ".join(str(s) for s in suggested))
+    else:
+        _log("(no non-parity kernel directions found; no seeds suggested)")
 
     # --- Check 3 ---
     check_structural_collapse(
