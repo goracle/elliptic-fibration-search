@@ -149,7 +149,7 @@ function load_matrix_hdf5(path::String)
         
         aidx_raw = read(f["atom_index"])
         aidx_str = isa(aidx_raw, AbstractString) ? aidx_raw : String(aidx_raw)
-        aidx = Dict{String,Int}(string(k) => v for (k,v) in JSON3.read(aidx_str))
+        aidx = Dict{String,Int}(string(k) => (v + 1) for (k,v) in JSON3.read(aidx_str))
 
         # --- 2. Load Matrix ---
         # Initialize M in the do-block scope so it's guaranteed to be defined
@@ -1312,7 +1312,7 @@ function main(args=ARGS)
             keep_rows = [r for r in 1:size(M,1) if !any(M[r,c] != 0 for c in excluded_cols)]
             M = M[keep_rows, :]
             n_dropped_rows = n_before - size(M,1)
-            n_cols_before  = length(atoms)
+            n_cols_before  = size(M, 2)
             keep_cols = [c for c in 1:n_cols_before if c ∉ excluded_cols]
             col_remap = Dict(old => new for (new, old) in enumerate(keep_cols))
             M = M[:, keep_cols]
@@ -1333,43 +1333,28 @@ function main(args=ARGS)
     known_key = parsed["known-key"]
     known_key === nothing && _log("[load] --known-key not supplied; log-G membership test will be skipped.")
 
-    # --- Repair tangent rows (coeff sum == -1) ---
-    n_cols    = size(M, 2)
-    rows_list = [[M[r,c] for c in 1:n_cols] for r in 1:size(M,1)]
-    repaired  = Int[]
-    malformed = Int[]
-    for (r, row) in enumerate(rows_list)
-        s = sum(row)
-        s == 0 && continue
-        if s == -1
-            fixed = false
-            for c in 1:n_cols
-                if row[c] == 3 && (col_inf === nothing || c != col_inf)
-                    rows_list[r][c] = 4
-                    push!(repaired, r); fixed = true; break
-                end
-            end
-            !fixed && push!(malformed, r)
-        else
-            push!(malformed, r)
-        end
+    # --- Degree-balance filter ---
+    # Every valid relation satisfies sum(row) == 0 over ZZ (the +coeff finite
+    # atoms and the -curve_degree on ∞ cancel).  Rows that violate this are
+    # degree-imbalanced and must be dropped; they arise from serialisation bugs
+    # in older logs (the xj/xk/extra_roots named-slot encoding silently dropped
+    # extra_roots).  No repair heuristic: a row is either balanced or it isn't.
+    n_cols     = size(M, 2)
+    keep_rows  = Int[]
+    malformed  = Int[]
+    for r in 1:size(M, 1)
+        sum(M[r, c] for c in 1:n_cols) == 0 ? push!(keep_rows, r) : push!(malformed, r)
     end
-    malformed_set = Set(malformed)
-    M = reduce(vcat, [reshape(rows_list[r], 1, :) for r in 1:length(rows_list) if r ∉ malformed_set])
 
-    if !isempty(repaired)
-        preview = repaired[1:min(16,end)]
-        _log("[filter] repaired $(length(repaired)) tangent row(s) (xk==xi, xi coeff 3→4): $preview" *
-             (length(repaired) > 16 ? " ..." : ""))
-    end
     if !isempty(malformed)
         preview = malformed[1:min(16,end)]
-        _log("[filter] dropping $(length(malformed)) malformed row(s) (coeff sum ≠ 0, not repairable): $preview" *
+        _log("[filter] dropping $(length(malformed)) degree-imbalanced row(s) (coeff sum ≠ 0): $preview" *
              (length(malformed) > 16 ? " ..." : ""))
-        _log("[filter] matrix after malformed-row drop: $(size(M,1)) × $(size(M,2))")
-    end
-    if isempty(repaired) && isempty(malformed)
-        _log("[filter] all rows well-formed (coeff sums all zero).")
+        isempty(keep_rows) && error("All rows are degree-imbalanced — the log is corrupt or from an old encoder.")
+        M = reduce(vcat, [reshape(M[r, :], 1, :) for r in keep_rows])
+        _log("[filter] matrix after imbalanced-row drop: $(size(M,1)) × $(size(M,2))")
+    else
+        _log("[filter] all rows degree-balanced (coeff sums all zero).")
     end
 
     # --- Check 1 ---

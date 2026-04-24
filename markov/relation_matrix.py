@@ -318,19 +318,18 @@ def build_relation_matrix2(
 
             # Resolve the actual xi multiplicity for this row.
             # Priority: per-candidate > per-record > drop.
-            # The deg-2 default is only permitted for preferred_injection synthetics
-            # (which use compute_xk_from_fiber and have a verified actual_xi_mult,
-            # but store it on the record not the candidate dict).
-            # Any row where both candidate and record have sentinel -1 has no fiber
-            # verification — drop it rather than assume deg-2.
+            # xi_mult == 0 is valid: it means xi was fully consumed by a Cantor
+            # reduction and all finite atoms for this relation live in xj/xk/extra_roots.
+            # The sentinel value -1 means no fiber multiplicity was ever set; those
+            # rows are dropped unless they come from a preferred_injection synthetic.
             step_src_check = _get(rec, "step")
             is_preferred_injection = (
                 isinstance(step_src_check, dict)
                 and step_src_check.get("source") == "preferred_injection"
             )
-            if cand_xi_mult > 0:
+            if cand_xi_mult >= 0:
                 row_xi_mult = cand_xi_mult
-            elif _rec_xi_mult > 0:
+            elif _rec_xi_mult >= 0:
                 row_xi_mult = _rec_xi_mult
             elif is_preferred_injection:
                 row_xi_mult = _default_xi_mult

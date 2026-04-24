@@ -682,11 +682,6 @@ class Genus2MetropolisWalker:
         # next chain state again.
         self.exhausted_xi: set = set()
 
-        # Running formal sum of d1 atoms accumulated across accepted leaves.
-        # Maps atom (x-coordinate in F_p) -> total coefficient.
-        # Updated on every accepted record; used by _try_partial_cantor_reduction.
-        self.running_divisor: Counter = Counter({self.current_x: 1})
-
         # Adjacency / transition matrices for spectral gap estimation.
         # mat_chain = accepted steps only          (path diagnostic, d~1)
         # mat_graph = full candidate pool per xi   (row-truncated average operator)
@@ -924,14 +919,43 @@ class Genus2MetropolisWalker:
         limit = getattr(self.config, 'log_candidate_limit', 25*infinity) or 25*infinity
         pool_summary = candidate_pool if self.config.log_full_candidates else candidate_pool[:limit]
 
+        # Serialize the relation as a flat atom list (with repetition for
+        # multiplicity) rather than the brittle named xj/xk/extra_roots slots.
+        # This is the authoritative on-disk encoding; readers must not assume
+        # any atom plays a privileged role.  xi is still stored separately as
+        # the chain-state identity, but it appears in atoms with its full
+        # multiplicity like every other atom.
+        #
+        # Degree invariant: len(atoms) == curve_degree for all valid relations
+        # (the inf contribution is tracked separately via the -curve_degree
+        # coefficient on the ∞ column; it is not listed here).
+        Fp = self.base_ring
+        cd = getattr(self.config, 'curve_degree', 5)
+        xi_mult = int(getattr(rec, 'xi_mult', -1))
+        if xi_mult < 0:
+            xi_mult = cd - 2  # fallback for preferred_injection synthetics
+        flat_atoms: List[Any] = []
+        if rec.xi is not None:
+            flat_atoms.extend([self._jsonable(rec.xi)] * xi_mult)
+        if rec.xj is not None:
+            flat_atoms.append(self._jsonable(rec.xj))
+        if rec.xk is not None:
+            flat_atoms.append(self._jsonable(rec.xk))
+        for xr in (getattr(rec, 'extra_roots', None) or []):
+            if xr is not None:
+                flat_atoms.append(self._jsonable(xr))
+
         return {
             'step_index': rec.step_index,
             'n': rec.n,
             'xi': self._jsonable(rec.xi),
             'm': self._jsonable(rec.m),
-            'xj': self._jsonable(rec.xj),
-            'xk': self._jsonable(rec.xk),
-            'xi_mult': int(getattr(rec, 'xi_mult', -1)),
+            # Flat atom list: all finite atoms in the relation with multiplicity.
+            # Replaces the old xj/xk/extra_roots named-slot encoding.
+            'atoms': flat_atoms,
+            # xi_mult retained for in-memory consumers (relation_matrix.py) that
+            # read RelationRecord objects directly and never touch the JSONL.
+            'xi_mult': xi_mult,
             'yj_sign': int(getattr(rec, 'yj_sign', 1)),
             'yk_sign': int(getattr(rec, 'yk_sign', 1)),
             'accepted': bool(rec.accepted),
@@ -1626,96 +1650,61 @@ class Genus2MetropolisWalker:
 
         return results
 
-    def _update_running_divisor(self, rec: RelationRecord) -> None:
-        """Add the atoms from an accepted record into self.running_divisor.
+    def _try_partial_cantor_reduction(self, rec: RelationRecord) -> bool:
+        """Pick two atom slots at random from rec's formal sum and attempt a Cantor reduction.
 
-        Mirrors the weighting used by build_relation_matrix2: xi gets xi_mult
-        copies (falling back to curve_degree-2 only for preferred_injection
-        synthetics that lack a fiber), xj and xk each get 1, extra_roots each
-        get 1.  The infinity contribution is not tracked here (we only care
-        about d1 atoms for the partial reduction).
+        The formal sum of the relation is read directly from rec:
+            xi_mult*[xi] + [xj] + [xk] + [extra_roots...] - degree*[inf] = 0
+
+        Two slots are sampled uniformly at random (with multiplicity, so xi with
+        xi_mult=3 gets 3 slots).  The two chosen degree-1 divisors are
+        Cantor-added on the Jacobian.  If the resulting reduced Mumford
+        u-polynomial splits completely over F_p, the two slots are replaced in
+        rec with the roots of u (each contributing one slot), keeping the degree
+        balanced.  Otherwise rec is left unchanged.
+
+        Mutates rec.xi_mult / rec.xj / rec.xk / rec.extra_roots in place.
+        Returns True if a substitution was made, False otherwise.
         """
         Fp = self.base_ring
         cd = getattr(self.config, 'curve_degree', 5)
-
-        xi = rec.xi
-        xj = rec.xj
-        xk = rec.xk
         xi_mult = rec.xi_mult if rec.xi_mult > 0 else (cd - 2)
 
-        if xi is not None:
-            self.running_divisor[Fp(xi)] += xi_mult
-        if xj is not None:
-            self.running_divisor[Fp(xj)] += 1
-        if xk is not None:
-            self.running_divisor[Fp(xk)] += 1
+        # Build flat atom list from the relation's formal sum.
+        flat = []
+        if rec.xi is not None:
+            flat.extend([Fp(rec.xi)] * int(xi_mult))
+        if rec.xj is not None:
+            flat.append(Fp(rec.xj))
+        if rec.xk is not None:
+            flat.append(Fp(rec.xk))
         for xr in (rec.extra_roots or []):
             if xr is not None:
-                self.running_divisor[Fp(xr)] += 1
+                flat.append(Fp(xr))
 
-    def _try_partial_cantor_reduction(self) -> bool:
-        """Pick two atoms at random from running_divisor and attempt a Cantor reduction.
-
-        Selects two atom slots (with multiplicity) uniformly at random from the
-        flat expansion of running_divisor.  Cantor-adds the corresponding two
-        degree-1 divisors on the Jacobian.  If the reduced Mumford u-polynomial
-        splits completely over F_p, replaces those two slots in running_divisor
-        with the roots of u (each with coefficient 1).  Otherwise leaves
-        running_divisor unchanged.
-
-        Returns True if a reduction was performed, False otherwise.
-        """
-        # Need at least 2 atom slots to pick from.
-        total_slots = sum(self.running_divisor.values())
-        if total_slots < 2:
+        if len(flat) < 2:
             return False
 
-        # Build flat list of atom slots for weighted sampling.
-        flat = []
-        for atom, coeff in self.running_divisor.items():
-            flat.extend([atom] * int(coeff))
-
-        # Sample two positions without replacement.
+        # Sample two distinct slots uniformly at random.
         idx1, idx2 = self.rng.sample(range(len(flat)), 2)
         a1 = flat[idx1]
         a2 = flat[idx2]
 
-        # Recover y-coordinates for both atoms.
+        # Recover y-coordinates.
         try:
             y1 = self._recover_y(a1)
             y2 = self._recover_y(a2)
         except Exception:
-            # Torsion / non-rational point; give up silently.
             return False
-
         if y1 is None or y2 is None:
             return False
 
-        # Build the Jacobian and form degree-1 Mumford divisors.
+        # Cantor-add the two degree-1 divisors on the Jacobian.
         try:
-            Fp = self.base_ring
-            R = self.curve_poly.parent()
-            x = R.gen()
             C = HyperellipticCurve(self.curve_poly)
             J = C.jacobian()(Fp)
-
-            # Mumford representation for a single rational point (a, y):
-            # u = x - a,  v = y  (constant, since deg v < deg u = 1)
-            d1 = J(C([Fp(a1), Fp(y1)]))
-            d2 = J(C([Fp(a2), Fp(y2)]))
-            d_sum = d1 + d2
-        except Exception:
-            return False
-
-        # Extract the reduced Mumford u-polynomial.
-        try:
-            mumford = d_sum
-            # Sage Jacobian points expose their Mumford coords via list():
-            # [u_poly, v_poly] in Mumford representation.
-            coords = list(mumford)
-            if len(coords) < 1:
-                return False
-            u_poly = coords[0]
+            d_sum = J(C([Fp(a1), Fp(y1)])) + J(C([Fp(a2), Fp(y2)]))
+            u_poly = d_sum[0]
         except Exception:
             return False
 
@@ -1725,27 +1714,45 @@ class Genus2MetropolisWalker:
         except Exception:
             return False
 
-        # Total root count (with multiplicity) must equal deg(u).
         total_roots = sum(int(m) for _, m in roots_wm)
         if total_roots != int(u_poly.degree()):
-            # Not fully split — not smooth over F_p.
             return False
 
         new_atoms = []
         for r, mult in roots_wm:
             new_atoms.extend([Fp(r)] * int(mult))
 
-        # Commit the replacement: remove the two chosen slots, add new atoms.
-        self.running_divisor[a1] -= 1
-        if self.running_divisor[a1] == 0:
-            del self.running_divisor[a1]
-
-        self.running_divisor[a2] -= 1
-        if self.running_divisor[a2] == 0:
-            del self.running_divisor[a2]
-
+        # Substitute: remove the two chosen slots, insert new_atoms.
+        # We work on a mutable counter over the flat list.
+        counts = Counter(flat)
+        counts[a1] -= 1
+        if counts[a1] == 0:
+            del counts[a1]
+        counts[a2] -= 1
+        if counts[a2] == 0:
+            del counts[a2]
         for atom in new_atoms:
-            self.running_divisor[atom] += 1
+            counts[atom] += 1
+
+        # Write the updated counts back into rec.
+        # xi retains its identity as chain state (rec.xi never changes) but is
+        # no longer privileged in the divisor encoding: its multiplicity is just
+        # whatever remains in counts after the substitution, exactly like every
+        # other atom.  If xi was fully consumed by the Cantor reduction,
+        # new_xi_mult == 0; those slots were replaced by new_atoms which live in
+        # others.  The degree invariant is preserved because the Cantor sum of
+        # two degree-1 divisors has degree 2, and we removed 2 slots and added
+        # len(new_atoms)==deg(u) slots; deg(u)==2 for a valid Cantor reduction.
+        xi_fp = Fp(rec.xi) if rec.xi is not None else None
+        new_xi_mult = int(counts.pop(xi_fp, 0)) if xi_fp is not None else 0
+        others = []
+        for atom, cnt in counts.items():
+            others.extend([atom] * int(cnt))
+
+        rec.xi_mult = new_xi_mult  # may be 0 if xi was fully replaced
+        rec.xj = others[0] if len(others) > 0 else None
+        rec.xk = others[1] if len(others) > 1 else None
+        rec.extra_roots = others[2:] if len(others) > 2 else []
 
         return True
 
@@ -1770,8 +1777,7 @@ class Genus2MetropolisWalker:
                 )
             if self.cantor_cache is not None:
                 self.cantor_cache.on_new_step(rec)
-            self._update_running_divisor(rec)
-            self._try_partial_cantor_reduction()
+            self._try_partial_cantor_reduction(rec)
 
         self._append_jsonl_log(rec)
 
