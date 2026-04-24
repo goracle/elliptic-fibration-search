@@ -154,7 +154,9 @@ function load_matrix_hdf5(path::String)
         # --- 2. Load Matrix ---
         # Initialize M in the do-block scope so it's guaranteed to be defined
         M = if haskey(f, "matrix_dense")
-            Int.(read(f["matrix_dense"]))
+            # Python/numpy writes HDF5 row-major; Julia reads it column-major,
+            # so the on-disk (nrows×ncols) array arrives transposed. Correct it here.
+            Matrix(transpose(Int.(read(f["matrix_dense"]))))
         else
             data_vals = Int.(read(f["csr/data"]))
             indices   = Int.(read(f["csr/indices"])) .+ 1

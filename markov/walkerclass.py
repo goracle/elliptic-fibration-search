@@ -130,9 +130,7 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
             assert False, f"inter.degree()={inter.degree()} != curve_degree={curve_degree}, xi={xi_val} m={m_val} xj={xj_val}"
             return None, None
 
-        #xi_mult = curve_degree - 2
-
-        # Replace the hardcoded xi_mult with the actual multiplicity from the fiber poly.
+        # Determine xi's multiplicity in the intersection poly.
         roots_wm = inter.roots()  # Sage: [(root, mult), ...]
         actual_xi_mult = 0
         for r, m in roots_wm:
@@ -547,12 +545,15 @@ class RelationRecord:
     # Default to +1 (old behaviour) when signs are not available (e.g. preferred_injection).
     yj_sign: int = 1
     yk_sign: int = 1
-    # Actual multiplicity of xi in the fiber intersection poly.
-    # Defaults to -1 (sentinel: not set); build_relation_matrix2 falls back to curve_degree-2.
-    xi_mult: int = -1
-    # Any non-xi roots beyond the first two (xj, xk).  Non-empty only when the
-    # intersection polynomial has 3+ roots other than xi — i.e. xi_mult < deg-2.
-    # Each entry contributes a +1 column in the relation matrix, exactly like xj/xk.
+    # Canonical flat atom list: all finite atoms in the relation with multiplicity.
+    # Encodes the principal divisor as a multiset — there is no privileged xi slot.
+    # len(atoms) == curve_degree for all valid accepted relations; the ∞ contribution
+    # is implicit (-curve_degree) and is NOT listed here.
+    # Sum invariant: sum(col[a] for a in atoms) + (-curve_degree) = 0.
+    atoms: List[Any] = field(default_factory=list)
+    # Secondary navigation fields: xj is the move target, xk the paired root,
+    # extra_roots any additional roots when xi_mult < deg-2.  These are derived
+    # from atoms at record-creation time and kept in sync by _try_partial_cantor_reduction.
     extra_roots: List[Any] = field(default_factory=list)
 
 @dataclass
@@ -920,30 +921,18 @@ class Genus2MetropolisWalker:
         pool_summary = candidate_pool if self.config.log_full_candidates else candidate_pool[:limit]
 
         # Serialize the relation as a flat atom list (with repetition for
-        # multiplicity) rather than the brittle named xj/xk/extra_roots slots.
-        # This is the authoritative on-disk encoding; readers must not assume
-        # any atom plays a privileged role.  xi is still stored separately as
-        # the chain-state identity, but it appears in atoms with its full
-        # multiplicity like every other atom.
-        #
-        # Degree invariant: len(atoms) == curve_degree for all valid relations
-        # (the inf contribution is tracked separately via the -curve_degree
-        # coefficient on the ∞ column; it is not listed here).
+        # multiplicity) — the canonical on-disk encoding.  rec.atoms is the
+        # authoritative source; xi_mult is gone from both the record and the log.
+        # Degree invariant: len(flat_atoms) == curve_degree for every accepted
+        # relation (∞ is implicit, contributing -curve_degree; not listed here).
         Fp = self.base_ring
         cd = getattr(self.config, 'curve_degree', 5)
-        xi_mult = int(getattr(rec, 'xi_mult', -1))
-        if xi_mult < 0:
-            xi_mult = cd - 2  # fallback for preferred_injection synthetics
-        flat_atoms: List[Any] = []
-        if rec.xi is not None:
-            flat_atoms.extend([self._jsonable(rec.xi)] * xi_mult)
-        if rec.xj is not None:
-            flat_atoms.append(self._jsonable(rec.xj))
-        if rec.xk is not None:
-            flat_atoms.append(self._jsonable(rec.xk))
-        for xr in (getattr(rec, 'extra_roots', None) or []):
-            if xr is not None:
-                flat_atoms.append(self._jsonable(xr))
+        flat_atoms: List[Any] = [self._jsonable(a) for a in (getattr(rec, 'atoms', None) or [])]
+        assert not rec.accepted or len(flat_atoms) == cd, (
+            f"[_record_to_log_dict] degree invariant violated at step={rec.step_index}: "
+            f"len(atoms)={len(flat_atoms)} != curve_degree={cd}  "
+            f"(xi={rec.xi!r})"
+        )
 
         return {
             'step_index': rec.step_index,
@@ -951,11 +940,8 @@ class Genus2MetropolisWalker:
             'xi': self._jsonable(rec.xi),
             'm': self._jsonable(rec.m),
             # Flat atom list: all finite atoms in the relation with multiplicity.
-            # Replaces the old xj/xk/extra_roots named-slot encoding.
+            # len(atoms) == curve_degree; ∞ contributes -curve_degree implicitly.
             'atoms': flat_atoms,
-            # xi_mult retained for in-memory consumers (relation_matrix.py) that
-            # read RelationRecord objects directly and never touch the JSONL.
-            'xi_mult': xi_mult,
             'yj_sign': int(getattr(rec, 'yj_sign', 1)),
             'yk_sign': int(getattr(rec, 'yk_sign', 1)),
             'accepted': bool(rec.accepted),
@@ -1150,15 +1136,16 @@ class Genus2MetropolisWalker:
         deg = self.config.curve_degree
         default_xi_mult = deg - 2  # expected for double-tangency fibers
 
-        # Build a per-xi xi_mult map from accepted history records.
-        # T(xj) = S(m) - xi_mult*xi - xj is a proper 2-cycle only when
-        # xi_mult == deg-2 (exactly two non-xi roots).  For fibers with
-        # other multiplicities the swap is not a valid involution and the
-        # pair is skipped rather than falsely asserted.
+        # Derive per-xi multiplicity from accepted records' atoms list (the
+        # canonical encoding).  T(xj) = S(m) - xi_mult*xi - xj is a proper
+        # 2-cycle only when xi_mult == deg-2 (exactly two non-xi roots).
         xi_to_xi_mult: Dict[Any, int] = {}
         for _rec in self.history:
-            if _rec.accepted and int(getattr(_rec, 'xi_mult', -1)) > 0:
-                xi_to_xi_mult[_rec.xi] = int(_rec.xi_mult)
+            if _rec.accepted and getattr(_rec, 'atoms', None):
+                _xi_fp = self.base_ring(_rec.xi)
+                _cnt = sum(1 for _a in _rec.atoms if self.base_ring(_a) == _xi_fp)
+                if _cnt > 0:
+                    xi_to_xi_mult[_rec.xi] = _cnt
 
         # Collect S_of_m per xi from history records that have it.
         xi_to_S_sym: Dict[Any, Any] = {}
@@ -1334,11 +1321,17 @@ class Genus2MetropolisWalker:
             if seed_fp is not None and xi not in seed_fp:
                 continue
 
+            # Derive xi's multiplicity from the canonical atoms list.
             # The formula xk = S(m) - xi_mult*xi - xj uniquely recovers xk
             # only when xi_mult == deg-2 (exactly two non-xi roots).  For any
-            # other multiplicity S(m) gives the *sum* of multiple unknowns, so
-            # we cannot determine individual roots.  Skip rather than assume.
-            rec_xi_mult = int(rec.xi_mult) if (rec.xi_mult is not None and int(rec.xi_mult) > 0) else (deg - 2)
+            # other multiplicity S(m) gives the *sum* of multiple unknowns.
+            _xi_fp = Fp(rec.xi)
+            _rec_atoms = getattr(rec, 'atoms', None) or []
+            rec_xi_mult = sum(1 for _a in _rec_atoms if Fp(_a) == _xi_fp)
+            if rec_xi_mult == 0:
+                # atoms not populated (old record or rejected) — skip
+                n_skipped += len(atoms_fp)
+                continue
             if rec_xi_mult != deg - 2:
                 n_skipped += len(atoms_fp)
                 continue
@@ -1429,7 +1422,7 @@ class Genus2MetropolisWalker:
                     selected_candidate = cand,
                     yj_sign          = 1,
                     yk_sign          = 1,
-                    xi_mult          = xi_mult,
+                    atoms            = [xi] * rec_xi_mult + [xj_val, xk_val],
                 )
                 self._store_record(injected)
                 n_added += 1
@@ -1651,36 +1644,24 @@ class Genus2MetropolisWalker:
         return results
 
     def _try_partial_cantor_reduction(self, rec: RelationRecord) -> bool:
-        """Pick two atom slots at random from rec's formal sum and attempt a Cantor reduction.
+        """Pick two atom slots at random from rec.atoms and attempt a Cantor reduction.
 
-        The formal sum of the relation is read directly from rec:
-            xi_mult*[xi] + [xj] + [xk] + [extra_roots...] - degree*[inf] = 0
+        rec.atoms is the canonical flat atom list (len == curve_degree, with
+        repetition for multiplicity).  Two slots are sampled uniformly at random.
+        The two chosen degree-1 divisors are Cantor-added on the Jacobian.
+        If the resulting reduced Mumford u-polynomial splits completely over F_p,
+        the two slots are replaced by the roots of u (each contributing one slot),
+        preserving the degree invariant.  Otherwise rec is left unchanged.
 
-        Two slots are sampled uniformly at random (with multiplicity, so xi with
-        xi_mult=3 gets 3 slots).  The two chosen degree-1 divisors are
-        Cantor-added on the Jacobian.  If the resulting reduced Mumford
-        u-polynomial splits completely over F_p, the two slots are replaced in
-        rec with the roots of u (each contributing one slot), keeping the degree
-        balanced.  Otherwise rec is left unchanged.
-
-        Mutates rec.xi_mult / rec.xj / rec.xk / rec.extra_roots in place.
+        Mutates rec.atoms in place (and keeps rec.xj / rec.xk / rec.extra_roots
+        in sync as secondary navigation fields).
         Returns True if a substitution was made, False otherwise.
         """
         Fp = self.base_ring
         cd = getattr(self.config, 'curve_degree', 5)
-        xi_mult = rec.xi_mult if rec.xi_mult > 0 else (cd - 2)
 
-        # Build flat atom list from the relation's formal sum.
-        flat = []
-        if rec.xi is not None:
-            flat.extend([Fp(rec.xi)] * int(xi_mult))
-        if rec.xj is not None:
-            flat.append(Fp(rec.xj))
-        if rec.xk is not None:
-            flat.append(Fp(rec.xk))
-        for xr in (rec.extra_roots or []):
-            if xr is not None:
-                flat.append(Fp(xr))
+        # Canonical source of atoms — no xi_mult needed.
+        flat = [Fp(a) for a in (rec.atoms or [])]
 
         if len(flat) < 2:
             return False
@@ -1709,21 +1690,33 @@ class Genus2MetropolisWalker:
             return False
 
         # Check that u splits completely over F_p.
+        #
+        # Principality accounting: each atom slot [ai] represents [ai] - [∞].
+        # Cantor-adding two slots gives a reduced Mumford element with deg(u) ≤ 2.
+        # In all cases the substitution is principal:
+        #
+        #   deg(u) == 2  →  remove 2 atoms + 2∞, add 2 atoms + 2∞.  Degree unchanged.
+        #   deg(u) == 1  →  remove 2 atoms + 2∞, add 1 atom  + 1∞.  Degree drops by 1.
+        #   deg(u) == 0  →  remove 2 atoms + 2∞, add 0 atoms + 0∞.  Degree drops by 2.
+        #
+        # All three are valid principal divisors; we accept whichever splits completely.
         try:
             roots_wm = u_poly.roots()
         except Exception:
             return False
 
         total_roots = sum(int(m) for _, m in roots_wm)
-        if total_roots != int(u_poly.degree()):
+        u_deg = int(u_poly.degree()) if u_poly.degree() >= 0 else 0
+        if total_roots != u_deg:
+            # u doesn't split completely over F_p — new atoms not in the base field.
             return False
 
-        new_atoms = []
+        new_atoms_from_u = []
         for r, mult in roots_wm:
-            new_atoms.extend([Fp(r)] * int(mult))
+            new_atoms_from_u.extend([Fp(r)] * int(mult))
 
-        # Substitute: remove the two chosen slots, insert new_atoms.
-        # We work on a mutable counter over the flat list.
+        # Substitute: remove the two chosen slots, insert the new roots.
+        # new degree = cd - 2 + total_roots (0, 1, or 2 less than cd).
         counts = Counter(flat)
         counts[a1] -= 1
         if counts[a1] == 0:
@@ -1731,28 +1724,42 @@ class Genus2MetropolisWalker:
         counts[a2] -= 1
         if counts[a2] == 0:
             del counts[a2]
-        for atom in new_atoms:
+        for atom in new_atoms_from_u:
             counts[atom] += 1
 
-        # Write the updated counts back into rec.
-        # xi retains its identity as chain state (rec.xi never changes) but is
-        # no longer privileged in the divisor encoding: its multiplicity is just
-        # whatever remains in counts after the substitution, exactly like every
-        # other atom.  If xi was fully consumed by the Cantor reduction,
-        # new_xi_mult == 0; those slots were replaced by new_atoms which live in
-        # others.  The degree invariant is preserved because the Cantor sum of
-        # two degree-1 divisors has degree 2, and we removed 2 slots and added
-        # len(new_atoms)==deg(u) slots; deg(u)==2 for a valid Cantor reduction.
-        xi_fp = Fp(rec.xi) if rec.xi is not None else None
-        new_xi_mult = int(counts.pop(xi_fp, 0)) if xi_fp is not None else 0
-        others = []
+        # Reconstruct canonical flat atoms list (arbitrary order within multiplicity).
+        new_flat: List[Any] = []
         for atom, cnt in counts.items():
-            others.extend([atom] * int(cnt))
+            new_flat.extend([atom] * int(cnt))
 
-        rec.xi_mult = new_xi_mult  # may be 0 if xi was fully replaced
-        rec.xj = others[0] if len(others) > 0 else None
-        rec.xk = others[1] if len(others) > 1 else None
-        rec.extra_roots = others[2:] if len(others) > 2 else []
+        expected_len = cd - 2 + total_roots
+        if len(new_flat) != expected_len:
+            raise AssertionError(
+                f"_try_partial_cantor_reduction: degree accounting broken: "
+                f"len={len(new_flat)} != cd - 2 + total_roots = {expected_len}  "
+                f"(cd={cd} u_deg={u_deg} total_roots={total_roots})"
+            )
+
+        # Commit: update rec.atoms and sync secondary navigation fields.
+        rec.atoms = new_flat
+
+        # Secondary navigation: xj = first non-xi atom, xk = second, extra_roots = rest.
+        # xi remains rec.xi (chain state, never changed by Cantor reduction).
+        xi_fp = Fp(rec.xi) if rec.xi is not None else None
+        others = [a for a in new_flat if a != xi_fp]
+        # Retain xi-copies in others if it appears more times than before would hide them;
+        # actually just partition: others = all copies not matching xi identity check.
+        others_all = []
+        xi_seen = 0
+        xi_count_new = int(counts.get(xi_fp, 0)) if xi_fp is not None else 0
+        for a in new_flat:
+            if a == xi_fp and xi_seen < xi_count_new:
+                xi_seen += 1
+            else:
+                others_all.append(a)
+        rec.xj          = others_all[0] if len(others_all) > 0 else None
+        rec.xk          = others_all[1] if len(others_all) > 1 else None
+        rec.extra_roots = others_all[2:] if len(others_all) > 2 else []
 
         return True
 
@@ -2198,16 +2205,20 @@ class Genus2MetropolisWalker:
         restart=False,
         yj_sign: int = 1,
         yk_sign: int = 1,
-        xi_mult: int = -1,
     ):
         """
         Build a RelationRecord.
 
         Accepted records must be derivable from the intersection polynomial.
         Rejected records may carry whatever diagnostic payload they have.
+        The canonical encoding is rec.atoms — a flat list of all finite atoms
+        with multiplicity (len == curve_degree for accepted records).
+        xi_mult is computed locally as a step in building atoms and is never
+        stored on the record.
         """
         derived = self._derive_relation_from_intersection_poly(step, xi)
         extra_roots: List[Any] = []
+        xi_mult_local: int = -1
 
         if accepted:
             if derived is None:
@@ -2215,7 +2226,7 @@ class Genus2MetropolisWalker:
                     f"[MAKE_RELATION] accepted record missing usable intersection polynomial "
                     f"at step={step_index} xi={xi} xj={xj} xk={xk}"
                 )
-            xj, xk, xi_mult, poly, extra_roots = derived
+            xj, xk, xi_mult_local, poly, extra_roots = derived
         else:
             # For rejected rows, prefer derived geometry when it exists.
             if derived is not None:
@@ -2224,13 +2235,13 @@ class Genus2MetropolisWalker:
                     xj = dxj
                 if xk is None:
                     xk = dxk
-                if xi_mult <= 0:
-                    xi_mult = dmult
+                if xi_mult_local <= 0:
+                    xi_mult_local = dmult
                 if not extra_roots:
                     extra_roots = list(dextra)
 
         deg = self.config.curve_degree
-        effective_xi_mult = xi_mult if xi_mult > 0 else (deg - 2)
+        effective_xi_mult = xi_mult_local if xi_mult_local > 0 else (deg - 2)
 
         # Build relation string generically from whatever roots the poly gave us.
         all_others = []
@@ -2248,6 +2259,24 @@ class Genus2MetropolisWalker:
             relation = f"{effective_xi_mult}*{xi} + {xj} + ? - {deg}*\u221e = 0"
         else:
             relation = "no xj"
+
+        # Build canonical flat atoms list: [xi]*xi_mult + [xj] + [xk] + extra_roots.
+        # Only populated for accepted records where all roots are known.
+        atoms_list: List[Any] = []
+        if accepted and xi is not None and xj is not None and xk is not None:
+            Fp = self.base_ring
+            atoms_list = (
+                [Fp(xi)] * int(effective_xi_mult)
+                + [Fp(xj), Fp(xk)]
+                + [Fp(xr) for xr in extra_roots]
+            )
+            if len(atoms_list) != deg:
+                raise AssertionError(
+                    f"[MAKE_RELATION] atoms degree invariant violated: "
+                    f"len={len(atoms_list)} != deg={deg}  "
+                    f"xi_mult={effective_xi_mult}  xj={xj}  xk={xk}  "
+                    f"extra={extra_roots}"
+                )
 
         clean_step = {}
         if isinstance(step, dict):
@@ -2275,7 +2304,7 @@ class Genus2MetropolisWalker:
             restart=restart,
             yj_sign=yj_sign,
             yk_sign=yk_sign,
-            xi_mult=xi_mult,
+            atoms=atoms_list,
             extra_roots=list(extra_roots),
         )
 
@@ -2562,10 +2591,8 @@ class Genus2MetropolisWalker:
             payload, accepted=True, restart=False,
             yj_sign=int(chosen.get("yj_sign", 1)),
             yk_sign=int(chosen.get("yk_sign", 1)),
-            xi_mult=xi_mult,
         )
 
-        assert rec.xi_mult > 0
         rec.candidate_pool = C
         rec.selected_candidate = dict(chosen)
 
@@ -2594,7 +2621,6 @@ class Genus2MetropolisWalker:
         restart: bool = False,
         yj_sign: int = 1,
         yk_sign: int = 1,
-        xi_mult: int = -1,
     ):
         rec = self._make_relation(
             step_index, n, xi, m_val, xj, xk,
@@ -2603,7 +2629,6 @@ class Genus2MetropolisWalker:
             restart=restart,
             yj_sign=yj_sign,
             yk_sign=yk_sign,
-            xi_mult=xi_mult,
         )
         self._store_record(rec)
         return rec
@@ -2643,7 +2668,7 @@ class Genus2MetropolisWalker:
         payload["global_leaf_collisions"] = self.leaf_collision_count
         return payload
 
-    def _reject_direct_step(self, *, step_payload, stage, reason, xi, n, current_point, m_val=None, xj=None, xk=None, chosen=None, extra=None, xi_mult=-1):
+    def _reject_direct_step(self, *, step_payload, stage, reason, xi, n, current_point, m_val=None, xj=None, xk=None, chosen=None, extra=None):
         payload = self._reject_step_payload(
             step_payload if isinstance(step_payload, dict) else {},
             stage=stage,
@@ -2667,10 +2692,9 @@ class Genus2MetropolisWalker:
             step_payload=payload,
             accepted=False,
             restart=False,
-            xi_mult=xi_mult,
         )
 
-    def _accept_direct_step(self, *, step_payload, n, xi, m_val, xj, xk, yj_sign=1, yk_sign=1, xi_mult=-1):
+    def _accept_direct_step(self, *, step_payload, n, xi, m_val, xj, xk, yj_sign=1, yk_sign=1):
         rec = self._store_relation_record(
             step_index=len(self.history),
             n=n,
@@ -2683,9 +2707,7 @@ class Genus2MetropolisWalker:
             restart=False,
             yj_sign=yj_sign,
             yk_sign=yk_sign,
-            xi_mult=xi_mult,
         )
-        assert rec.xi_mult > 0
         return rec
 
     def _step_direct(self, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
@@ -2784,9 +2806,7 @@ class Genus2MetropolisWalker:
 
         xj = xj_candidates[0]
         m_val = m_roots[0]
-        xk, sf_xi_mult = self._recover_xk(step, self.current_x, xj)
-        if sf_xi_mult is None:
-            sf_xi_mult = -1
+        xk, _xi_mult_unused = self._recover_xk(step, self.current_x, xj)
 
         if xk is None:
             return self._reject_direct_step(
@@ -2800,7 +2820,6 @@ class Genus2MetropolisWalker:
                 xj=xj,
                 chosen={"source": "direct_step"},
                 extra={"step": self._jsonable(step)},
-                xi_mult=sf_xi_mult,
             )
 
         xj_diag = self._point_check_details(xj, label="xj")
@@ -2826,7 +2845,6 @@ class Genus2MetropolisWalker:
                     "xk_diagnostic": xk_diag,
                     "error": repr(exc),
                 },
-                xi_mult=sf_xi_mult,
             )
 
         if next_y_xj == self.base_ring(0):
@@ -2845,7 +2863,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         if not xk_is_fp_point(xk, self.curve_poly):
@@ -2864,7 +2881,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         chosen = self._choose_between(
@@ -2893,7 +2909,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         chosen_sign = 1 if chosen == xj else int(step_payload.get("yk_sign", 1))
@@ -2918,7 +2933,6 @@ class Genus2MetropolisWalker:
                     "xk_diagnostic": xk_diag,
                     "error": repr(exc),
                 },
-                xi_mult=sf_xi_mult,
             )
 
         if next_y == self.base_ring(0):
@@ -2938,7 +2952,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         if not self._xi_is_fresh(chosen):
@@ -2958,7 +2971,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         if step_payload.get("intersection_poly") is None:
@@ -2977,7 +2989,6 @@ class Genus2MetropolisWalker:
                     "xj_diagnostic": xj_diag,
                     "xk_diagnostic": xk_diag,
                 },
-                xi_mult=sf_xi_mult,
             )
 
         self.current_x, self.current_y = chosen, next_y
@@ -3002,7 +3013,6 @@ class Genus2MetropolisWalker:
             xk=xk,
             yj_sign=1,
             yk_sign=int(step_payload.get("yk_sign", 1)),
-            xi_mult=sf_xi_mult,
         )
 
         assert self.history[-1] is rec, (

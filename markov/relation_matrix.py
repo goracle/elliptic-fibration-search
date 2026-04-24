@@ -1,5 +1,6 @@
 from __future__ import annotations
 import types
+from collections import Counter
 from sage.all import Matrix, ZZ, QQ, GF
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -109,10 +110,6 @@ def build_relation_matrix2(
     generating a divisor relation for EVERY candidate found during the step.
     """
     assert require_xk
-    # xi_mult must be fiber-derived (actual root multiplicity from intersection_poly).
-    # The sentinel value -1 means no fiber was obtained; such rows are dropped rather
-    # than assumed to have multiplicity curve_degree - 2, which may be wrong.
-    _default_xi_mult = curve_degree - 2  # kept for preferred_injection synthetics only
     inf_coeff = -curve_degree
 
     atom_index: dict[Any, int] = {}
@@ -250,112 +247,86 @@ def build_relation_matrix2(
         if xi is None or xi not in atom_index:
             continue
 
-        cands_to_add = []
+        # ── Primary record: emit row directly from rec.atoms (canonical flat list) ──
+        _primary_atoms = list(_get(rec, "atoms") or [])
+        if _primary_atoms:
+            if len(_primary_atoms) != curve_degree:
+                raise ValueError(
+                    f"[relation_matrix] degree invariant violated at "
+                    f"step={_get(rec, 'step_index')}: "
+                    f"len(atoms)={len(_primary_atoms)} != curve_degree={curve_degree} "
+                    f"(xi={xi!r})"
+                )
+            _cnt = Counter(_primary_atoms)
+            primary_row = [0] * n_cols
+            for _atom, _c in _cnt.items():
+                if _atom not in atom_index:
+                    raise AssertionError(
+                        f"[relation_matrix] BUG: atom={_atom!r} from rec.atoms "
+                        f"not in atom_index (xi={xi!r}).  Pass-1a missed it."
+                    )
+                primary_row[atom_index[_atom]] += _c
+            if inf_col is not None:
+                primary_row[inf_col] += inf_coeff
+            _row_sum = sum(primary_row)
+            if _row_sum != 0:
+                raise AssertionError(
+                    f"[relation_matrix] sum-to-zero violated: sum={_row_sum} "
+                    f"atoms={_primary_atoms}  xi={xi!r}"
+                )
+            rows.append(primary_row)
+
+        # ── Pool candidates (step leaves): build rows from xj/xk/xi_mult ──
+        # Pool candidates are raw search dicts; they carry xi_mult from the fiber
+        # but no atoms list.  We reconstruct the row from xj/xk/extra_roots and
+        # the candidate's own xi_mult.  Signs (yj_sign/yk_sign) are ignored here —
+        # the matrix cares only about x-coordinates (atom indices).
         if include_step_leaves:
             pool = _get(rec, "candidate_pool")
             if pool:
+                seen_pairs: set = set()
                 for cand in pool:
                     if isinstance(cand, dict):
                         c_xj = next((cand[k] for k in ("xj", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
                         c_xk = cand.get("xk")
                         c_extra = list(cand.get("extra_roots") or [])
-                        c_yj = int(cand.get("yj_sign", 1))
-                        c_yk = int(cand.get("yk_sign", 1))
-                        # Per-candidate xi_mult: -1 sentinel means use record-level or default.
                         c_xi_mult = int(cand.get("xi_mult", -1))
-                        cands_to_add.append((c_xj, c_xk, c_extra, c_yj, c_yk, c_xi_mult))
                     elif cand is not None:
-                        cands_to_add.append((cand, None, [], 1, 1, -1))
+                        c_xj, c_xk, c_extra, c_xi_mult = cand, None, [], -1
+                    else:
+                        continue
 
-        # Always include the primary accepted path.
-        # Use the xi_mult stored on the record itself (set by _make_relation from
-        # _recover_xk's actual multiplicity); -1 means unset / use default.
-        _rec_yj = int(_get(rec, "yj_sign") or 1)
-        _rec_yk = int(_get(rec, "yk_sign") or 1)
-        _rec_xi_mult = int(_get(rec, "xi_mult") or -1)
-        _rec_extra = list(_get(rec, "extra_roots") or [])
-        cands_to_add.append((_get(rec, "xj"), _get(rec, "xk"), _rec_extra, _rec_yj, _rec_yk, _rec_xi_mult))
+                    if c_xj is None or c_xj == xi:
+                        continue
+                    if require_xk and c_xk is None:
+                        continue
+                    if c_xk == "∞":
+                        continue
+                    if c_xi_mult < 0:
+                        continue  # no fiber-derived multiplicity — skip
+                    if c_xj not in atom_index:
+                        continue  # leaf not in factor base — skip silently
 
-        seen_pairs = set()
+                    all_non_xi = [c_xj]
+                    if c_xk is not None:
+                        all_non_xi.append(c_xk)
+                    all_non_xi.extend(c_extra)
+                    pair_key = frozenset(all_non_xi)
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
 
-        for cxj, cxk, c_extra, yj_sign, yk_sign, cand_xi_mult in cands_to_add:
-            if cxj is None or cxj == xi:
-                continue
-
-            if require_xk and cxk is None:
-                continue
-
-            # Normalize xk: if xk coincides with xi or xj, fold the +1 into
-            # that atom's coefficient now rather than silently dropping it.
-            # xk==xi  →  xi coeff becomes row_xi_mult+1 (e.g. 3+1=4), sum still 0 ✓
-            # xk==xj  →  xj coeff becomes 2,                           sum still 0 ✓
-            # (xk=="∞" means a zero-division upstream produced a spurious value;
-            #  skip the whole relation — do not fold into ∞.)
-            _xk_folded = False
-            if cxk == "∞":
-                continue  # upstream zero-division artefact; discard relation
-            if cxk is not None and (cxk == xi or cxk == cxj):
-                # Will be accumulated below via atom_index; mark as already handled.
-                _xk_folded = True
-
-            if cxj not in atom_index:
-                raise AssertionError(
-                    f"[relation_matrix] BUG: cxj={cxj!r} not in atom_index "
-                    f"(xi={_get(rec, 'xi')!r}, source={_get(rec, 'step')!r}).  "
-                    f"Pass-1a missed this atom — please report."
-                )
-
-            # Deduplicate: include extra_roots in the key so that relations with
-            # different non-xi root sets are treated as distinct.
-            all_non_xi = [cxj]
-            if cxk is not None:
-                all_non_xi.append(cxk)
-            all_non_xi.extend(c_extra)
-            pair_key = frozenset(all_non_xi)
-            if pair_key in seen_pairs:
-                continue
-            seen_pairs.add(pair_key)
-
-            # Resolve the actual xi multiplicity for this row.
-            # Priority: per-candidate > per-record > drop.
-            # xi_mult == 0 is valid: it means xi was fully consumed by a Cantor
-            # reduction and all finite atoms for this relation live in xj/xk/extra_roots.
-            # The sentinel value -1 means no fiber multiplicity was ever set; those
-            # rows are dropped unless they come from a preferred_injection synthetic.
-            step_src_check = _get(rec, "step")
-            is_preferred_injection = (
-                isinstance(step_src_check, dict)
-                and step_src_check.get("source") == "preferred_injection"
-            )
-            if cand_xi_mult >= 0:
-                row_xi_mult = cand_xi_mult
-            elif _rec_xi_mult >= 0:
-                row_xi_mult = _rec_xi_mult
-            elif is_preferred_injection:
-                row_xi_mult = _default_xi_mult
-            else:
-                # No fiber-derived multiplicity: relation is unverified, skip.
-                continue
-
-            row = [0] * n_cols
-            row[atom_index[xi]] += row_xi_mult
-
-            row[atom_index[cxj]] += 1
-
-            # _xk_folded means cxk==xi or cxk==xj; atom_index still has it,
-            # so += 1 below correctly folds the coefficient into the existing atom.
-            if cxk is not None and cxk in atom_index:
-                row[atom_index[cxk]] += 1
-
-            # Extra roots (3+ non-xi root fibers): each contributes +1 column.
-            for xr in c_extra:
-                if xr is not None and xr in atom_index:
-                    row[atom_index[xr]] += 1
-
-            if inf_col is not None:
-                row[inf_col] += inf_coeff
-
-            rows.append(row)
+                    row = [0] * n_cols
+                    row[atom_index[xi]] += c_xi_mult
+                    row[atom_index[c_xj]] += 1
+                    if c_xk is not None and c_xk in atom_index:
+                        row[atom_index[c_xk]] += 1
+                    for xr in c_extra:
+                        if xr is not None and xr in atom_index:
+                            row[atom_index[xr]] += 1
+                    if inf_col is not None:
+                        row[inf_col] += inf_coeff
+                    rows.append(row)
 
         step_src = _get(rec, "step")
         if isinstance(step_src, dict) and step_src.get("source") == "involution_closure":
@@ -641,3 +612,5 @@ def prune_dest_only(mat, atoms, protected=None):
 
     pruned_mat = Matrix(ZZ, new_row_idx, n_pruned_cols, surviving)
     return pruned_mat, pruned_atoms, removed
+
+build_relation_matrix = build_relation_matrix2
