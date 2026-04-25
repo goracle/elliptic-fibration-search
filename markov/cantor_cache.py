@@ -251,20 +251,21 @@ class CantorPairCache:
         Fp = self.Fp
         J = self.J
 
-        # Lift each x to both branches.  If x is not on C over F_p, bail out.
-        # Sage does not support unary minus on hyperelliptic curve points directly,
-        # so we construct the conjugate branch explicitly as C(x, -y).
+        # For each x, compute the two Jacobian elements corresponding to the two
+        # y-branches.  Sage's HyperellipticCurve points do not support unary minus,
+        # and projective coordinate extraction is fragile.  Instead we lift to one
+        # branch as a Jacobian element J_P, then negate in the Jacobian (which is
+        # well-supported) to get the other branch: J(-P) = -J(P).
+        # Returns None only if x is genuinely not on C over F_p (not a curve point).
+        # All other errors propagate so we can see them.
         def _both_branches(x):
             try:
                 P = C.lift_x(Fp(x))
             except (ValueError, TypeError):
-                return None
-            x_coord, y_coord = P[0], P[1]
-            try:
-                P_conj = C(x_coord, -y_coord)
-            except Exception:
-                return None
-            return (P, P_conj)
+                return None   # x not on C over F_p — legitimate None
+            J_P = J(P)        # let errors propagate
+            J_Pconj = -J_P    # Jacobian negation is supported
+            return (J_P, J_Pconj)
 
         branches_fixed_a = _both_branches(fixed_xa)
         branches_fixed_b = _both_branches(fixed_xb)
@@ -272,42 +273,46 @@ class CantorPairCache:
         branches_b = _both_branches(xb)
         branches_c = _both_branches(xc)
 
-        if any(b is None for b in (branches_fixed_a, branches_fixed_b,
-                                    branches_a, branches_b, branches_c)):
+        # Report which atoms failed to lift and return None (not an error — torsion
+        # or non-rational atoms are expected for some factor-base entries).
+        not_on_curve = []
+        for label, val, br in [
+            ("fixed_xa", fixed_xa, branches_fixed_a),
+            ("fixed_xb", fixed_xb, branches_fixed_b),
+            ("xa", xa, branches_a),
+            ("xb", xb, branches_b),
+            ("xc", xc, branches_c),
+        ]:
+            if br is None:
+                not_on_curve.append(f"{label}={val}")
+        if not_on_curve:
+            if self.verbose:
+                print(f"[reduce_triple] not on C/Fp: {', '.join(not_on_curve)}")
             return None
 
-        # Precompute all 8 D_triple values.
+        # Precompute all 8 D_triple values.  Each branch is already a J element.
         import itertools
         triple_map = {}  # Mumford (u_str, v_str) -> (r0, r1)
-        for Pa, Pb, Pc in itertools.product(branches_a, branches_b, branches_c):
-            try:
-                D = J(Pa) + J(Pb) + J(Pc)
-                u, v = D
-                key = (str(u), str(v))
-                if key not in triple_map:
-                    # Extract Mumford roots of D (the degree-2 u polynomial)
-                    try:
-                        rts = u.roots(multiplicities=False)
-                    except Exception:
-                        rts = []
-                    if len(rts) == 2:
-                        triple_map[key] = (rts[0], rts[1])
-                    elif len(rts) == 1:
-                        triple_map[key] = (rts[0], rts[0])
-            except Exception:
-                continue
+        for J_a, J_b, J_c in itertools.product(branches_a, branches_b, branches_c):
+            D = J_a + J_b + J_c   # let errors propagate
+            u, v = D
+            key = (str(u), str(v))
+            if key not in triple_map:
+                rts = u.roots(multiplicities=False)  # let errors propagate
+                if len(rts) == 2:
+                    triple_map[key] = (rts[0], rts[1])
+                elif len(rts) == 1:
+                    triple_map[key] = (rts[0], rts[0])
+                # deg(u) < 2 (e.g. identity element) — no roots to extract, skip
 
         # Try all 4 fixed-pair lifts; check if -D_fixed is in triple_map.
-        for Pfa, Pfb in itertools.product(branches_fixed_a, branches_fixed_b):
-            try:
-                D_fixed = J(Pfa) + J(Pfb)
-                D_neg = -D_fixed
-                u_neg, v_neg = D_neg
-                key = (str(u_neg), str(v_neg))
-                if key in triple_map:
-                    return triple_map[key]
-            except Exception:
-                continue
+        for J_fa, J_fb in itertools.product(branches_fixed_a, branches_fixed_b):
+            D_fixed = J_fa + J_fb   # let errors propagate
+            D_neg = -D_fixed
+            u_neg, v_neg = D_neg
+            key = (str(u_neg), str(v_neg))
+            if key in triple_map:
+                return triple_map[key]
 
         return None
 
