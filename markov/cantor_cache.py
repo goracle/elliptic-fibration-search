@@ -233,6 +233,84 @@ class CantorPairCache:
         u, v = D
         return ReducedRep.from_mumford(u, v)
 
+    def reduce_triple(self, xa, xb, xc, fixed_xa, fixed_xb):
+        """Find a consistent lift of the 5-atom principal divisor, projected to 4 atoms.
+
+        Given five x-roots from a principal divisor (sum = 0 in J), where
+        (fixed_xa, fixed_xb) are the two "known" atoms and (xa, xb, xc) are the
+        triple to reduce, find any branch assignment for all five points such that
+
+            J(fixed_xa, ±y) + J(fixed_xb, ±y) + J(xa, ±y) + J(xb, ±y) + J(xc, ±y) = 0
+
+        then return the Mumford roots (r0, r1) of -(D_fixed) = D_triple.
+
+        Returns (r0, r1) as GF(p) elements, or None if no consistent lift exists
+        (e.g. one of the x-values is not on the curve over F_p).
+        """
+        C = self.C
+        Fp = self.Fp
+        J = self.J
+
+        # Lift each x to both branches.  If x is not on C over F_p, bail out.
+        # Sage does not support unary minus on hyperelliptic curve points directly,
+        # so we construct the conjugate branch explicitly as C(x, -y).
+        def _both_branches(x):
+            try:
+                P = C.lift_x(Fp(x))
+            except (ValueError, TypeError):
+                return None
+            x_coord, y_coord = P[0], P[1]
+            try:
+                P_conj = C(x_coord, -y_coord)
+            except Exception:
+                return None
+            return (P, P_conj)
+
+        branches_fixed_a = _both_branches(fixed_xa)
+        branches_fixed_b = _both_branches(fixed_xb)
+        branches_a = _both_branches(xa)
+        branches_b = _both_branches(xb)
+        branches_c = _both_branches(xc)
+
+        if any(b is None for b in (branches_fixed_a, branches_fixed_b,
+                                    branches_a, branches_b, branches_c)):
+            return None
+
+        # Precompute all 8 D_triple values.
+        import itertools
+        triple_map = {}  # Mumford (u_str, v_str) -> (r0, r1)
+        for Pa, Pb, Pc in itertools.product(branches_a, branches_b, branches_c):
+            try:
+                D = J(Pa) + J(Pb) + J(Pc)
+                u, v = D
+                key = (str(u), str(v))
+                if key not in triple_map:
+                    # Extract Mumford roots of D (the degree-2 u polynomial)
+                    try:
+                        rts = u.roots(multiplicities=False)
+                    except Exception:
+                        rts = []
+                    if len(rts) == 2:
+                        triple_map[key] = (rts[0], rts[1])
+                    elif len(rts) == 1:
+                        triple_map[key] = (rts[0], rts[0])
+            except Exception:
+                continue
+
+        # Try all 4 fixed-pair lifts; check if -D_fixed is in triple_map.
+        for Pfa, Pfb in itertools.product(branches_fixed_a, branches_fixed_b):
+            try:
+                D_fixed = J(Pfa) + J(Pfb)
+                D_neg = -D_fixed
+                u_neg, v_neg = D_neg
+                key = (str(u_neg), str(v_neg))
+                if key in triple_map:
+                    return triple_map[key]
+            except Exception:
+                continue
+
+        return None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

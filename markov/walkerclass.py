@@ -340,9 +340,9 @@ class Genus2MetropolisWalker:
         Fp = self.base_ring
         cd = getattr(self.config, 'curve_degree', 5)
         flat_atoms: List[Any] = [_jsonable(a) for a in (getattr(rec, 'atoms', None) or [])]
-        assert not rec.accepted or len(flat_atoms) == cd, (
+        assert not rec.accepted or len(flat_atoms) in (cd, cd - 1), (
             f"[_record_to_log_dict] degree invariant violated at step={rec.step_index}: "
-            f"len(atoms)={len(flat_atoms)} != curve_degree={cd}  "
+            f"len(atoms)={len(flat_atoms)} not in ({cd-1}, {cd})  "
             f"(x_src={rec.x_src!r})"
         )
 
@@ -712,7 +712,77 @@ class Genus2MetropolisWalker:
         return close_under_involution2(self)
 
     def _try_partial_cantor_reduction(self, rec: RelationRecord) -> bool:
-        return try_partial_cantor_reduction(self, rec)
+        """For each accepted 5-atom relation, try all C(5,2)=10 fixed-pair choices.
+
+        For each choice, call CantorPairCache.reduce_triple on the remaining 3 atoms.
+        If a consistent lift exists, emit a new 4-atom RelationRecord into history.
+        Returns True if at least one 4-atom relation was emitted.
+        """
+        # Guard: only process 5-atom accepted relations; skip synthetic records.
+        step_dict = rec.step if isinstance(rec.step, dict) else {}
+        if step_dict.get("source") == "cantor_triple_reduction":
+            return False
+        if not rec.accepted:
+            return False
+        atoms = list(getattr(rec, "atoms", None) or [])
+        if len(atoms) != self.config.curve_degree:
+            return False
+        if self.cantor_cache is None:
+            return False
+
+        Fp = self.base_ring
+        emitted = False
+
+        import itertools
+        for fixed_indices in itertools.combinations(range(len(atoms)), 2):
+            triple_indices = [i for i in range(len(atoms)) if i not in fixed_indices]
+            fixed_xa, fixed_xb = atoms[fixed_indices[0]], atoms[fixed_indices[1]]
+            xa, xb, xc = (atoms[i] for i in triple_indices)
+
+            result = self.cantor_cache.reduce_triple(xa, xb, xc, fixed_xa, fixed_xb)
+            if result is None:
+                continue
+
+            r0, r1 = result
+            r0, r1 = Fp(r0), Fp(r1)
+            new_atoms = [Fp(fixed_xa), Fp(fixed_xb), r0, r1]
+
+            # Build a minimal relation string.
+            relation = (
+                f"{fixed_xa} + {fixed_xb} + {r0} + {r1} - 4*\u221e = 0"
+                f"  [cantor_triple from step {rec.step_index}]"
+            )
+
+            synthetic_step = {
+                "source": "cantor_triple_reduction",
+                "parent_step_index": rec.step_index,
+                "fixed_pair": [_jsonable(fixed_xa), _jsonable(fixed_xb)],
+                "triple": [_jsonable(xa), _jsonable(xb), _jsonable(xc)],
+                "reduced_pair": [_jsonable(r0), _jsonable(r1)],
+            }
+
+            new_rec = RelationRecord(
+                step_index=len(self.history),
+                n=rec.n,
+                x_src=fixed_xa,
+                m=None,
+                x_step=fixed_xb,
+                x_res=r0,
+                relation=relation,
+                step=synthetic_step,
+                accepted=True,
+                restart=False,
+                yj_sign=1,
+                yk_sign=1,
+                atoms=new_atoms,
+                extra_roots=[r1],
+            )
+            # Use _store_record directly to avoid re-triggering _try_partial_cantor_reduction
+            # (the source="cantor_triple_reduction" guard above handles re-entry).
+            self._store_record(new_rec)
+            emitted = True
+
+        return emitted
 
     def generate_mixed_relations(
         walker,
@@ -1125,10 +1195,10 @@ class Genus2MetropolisWalker:
                 + [Fp(x_step), Fp(x_res)]
                 + [Fp(xr) for xr in extra_roots]
             )
-            if len(atoms_list) != deg:
+            if len(atoms_list) not in (deg, deg - 1):
                 raise AssertionError(
                     f"[MAKE_RELATION] atoms degree invariant violated: "
-                    f"len={len(atoms_list)} != deg={deg}  "
+                    f"len={len(atoms_list)} not in ({deg-1}, {deg})  "
                     f"src_mult={effective_src_mult}  x_step={x_step}  x_res={x_res}  "
                     f"extra={extra_roots}"
                 )
