@@ -38,7 +38,7 @@ def _step_direct(walker, n: int, seed: Optional[int] = None) -> Optional[Relatio
     valid_leaves = {cx for cx in xj_candidates if cx is not None}
     xk_per_xj = []
     for xj_c in xj_candidates:
-        xk_c, _ = walker._recover_xk(step, walker.current_x, xj_c)
+        xk_c, _ = walker._recover_x_res(step, walker.current_x, xj_c)
         xk_per_xj.append(xk_c)
         if xk_c is not None:
             valid_leaves.add(xk_c)
@@ -94,7 +94,7 @@ def _step_direct(walker, n: int, seed: Optional[int] = None) -> Optional[Relatio
 
     x_step = xj_candidates[0]
     m_val = m_roots[0]
-    x_res, _src_mult_unused = walker._recover_xk(step, walker.current_x, x_step)
+    x_res, _src_mult_unused = walker._recover_x_res(step, walker.current_x, x_step)
 
     if x_res is None:
         return walker._reject_direct_step(
@@ -242,7 +242,7 @@ def _step_direct(walker, n: int, seed: Optional[int] = None) -> Optional[Relatio
             },
         )
 
-    if not walker._xi_is_fresh(chosen):
+    if not walker._x_src_is_fresh(chosen):
         return walker._reject_direct_step(
             step_payload=step_payload,
             stage="direct_step",

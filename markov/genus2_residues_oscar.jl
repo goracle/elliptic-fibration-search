@@ -280,21 +280,21 @@ function add_relation!(
     x_src::Int, x_step::Int, x_res::Int;
     curve_degree::Int = 5,
 )
-    xi_col  = get_or_add_atom!(rm, x_src)
-    xj_col  = get_or_add_atom!(rm, x_step)
-    xk_col  = get_or_add_atom!(rm, x_res)
-    inf_col = get_or_add_atom!(rm, INFINITY_SENTINEL)
+    src_col  = get_or_add_atom!(rm, x_src)
+    step_col = get_or_add_atom!(rm, x_step)
+    res_col  = get_or_add_atom!(rm, x_res)
+    inf_col  = get_or_add_atom!(rm, INFINITY_SENTINEL)
 
-    coeff_xi  = curve_degree - 2   # 3 for degree-5
-    coeff_xj  = 1
-    coeff_xk  = 1
-    coeff_inf = -curve_degree      # -5 for degree-5
+    coeff_src  = curve_degree - 2   # 3 for degree-5
+    coeff_step = 1
+    coeff_res  = 1
+    coeff_inf  = -curve_degree      # -5 for degree-5
 
     row = Dict{Int,Int}()
-    row[xi_col]  = coeff_xi
-    row[xj_col]  = get(row, xj_col,  0) + coeff_xj
-    row[xk_col]  = get(row, xk_col,  0) + coeff_xk
-    row[inf_col] = coeff_inf
+    row[src_col]  = coeff_src
+    row[step_col] = get(row, step_col, 0) + coeff_step
+    row[res_col]  = get(row, res_col,  0) + coeff_res
+    row[inf_col]  = coeff_inf
 
     push!(rm.rows, row)
 end
