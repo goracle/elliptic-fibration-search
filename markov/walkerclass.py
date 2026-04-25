@@ -732,6 +732,9 @@ class Genus2MetropolisWalker:
 
         Fp = self.base_ring
         emitted = False
+        n_tried = 0
+        n_none = 0
+        n_hit = 0
 
         import itertools
         for fixed_indices in itertools.combinations(range(len(atoms)), 2):
@@ -739,10 +742,13 @@ class Genus2MetropolisWalker:
             fixed_xa, fixed_xb = atoms[fixed_indices[0]], atoms[fixed_indices[1]]
             xa, xb, xc = (atoms[i] for i in triple_indices)
 
+            n_tried += 1
             result = self.cantor_cache.reduce_triple(xa, xb, xc, fixed_xa, fixed_xb)
             if result is None:
+                n_none += 1
                 continue
 
+            n_hit += 1
             r0, r1 = result
             r0, r1 = Fp(r0), Fp(r1)
             new_atoms = [Fp(fixed_xa), Fp(fixed_xb), r0, r1]
@@ -781,6 +787,12 @@ class Genus2MetropolisWalker:
             # (the source="cantor_triple_reduction" guard above handles re-entry).
             self._store_record(new_rec)
             emitted = True
+
+        if self.config.verbose:
+            status = f"[cantor_triple] step={rec.step_index}  tried={n_tried}  hits={n_hit}  none={n_none}  atoms={[int(a) for a in atoms]}"
+            if n_hit > 0:
+                status += f"  --> emitted {n_hit} 4-atom relations"
+            print(status, flush=True)
 
         return emitted
 
