@@ -1,3 +1,10 @@
+from __future__ import annotations
+import json, os, pathlib, subprocess, sys, time, ast, threading
+from collections import defaultdict
+from typing import Any
+from sage.all import GF, QQ
+from search_common import DEBUG, FINITE_FIELD
+
 """
 mumford_oscar_bridge.py
 
@@ -15,38 +22,18 @@ When section_poly_dict is absent (constant-denom / old path):
     extraction in Python) for backward compatibility.
 """
 
-from __future__ import annotations
-
-import json
-import os
-import pathlib
-import subprocess
-import sys
-import time
-import ast
-from collections import defaultdict
-from typing import Any
-
-from sage.all import GF, QQ
-
-from search_common import DEBUG, FINITE_FIELD
-
 # ---------------------------------------------------------------------------
 # Julia subprocess call
 # ---------------------------------------------------------------------------
 
 _SERVER_JL = pathlib.Path(__file__).resolve().parent / "mumford_oscar_server.jl"
 
-import threading
-
 _SERVER_PROC: subprocess.Popen | None = None
 _SERVER_LOCK = threading.Lock()
-
 
 def _drain_stderr(proc: subprocess.Popen) -> None:
     for line in proc.stderr:
         print(f"[julia] {line}", end="", flush=True)
-
 
 def _get_server() -> subprocess.Popen:
     global _SERVER_PROC
@@ -83,7 +70,6 @@ def _get_server() -> subprocess.Popen:
     threading.Thread(target=_drain_stderr, args=(_SERVER_PROC,), daemon=True).start()
     return _SERVER_PROC
 
-
 class _SageEncoder(json.JSONEncoder):
     def default(self, obj):
         try:
@@ -91,7 +77,6 @@ class _SageEncoder(json.JSONEncoder):
         except (TypeError, ValueError):
             pass
         return super().default(obj)
-
 
 def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime,
                        section_poly_dict=None, vecs_by_prime=None, debug=False):
@@ -178,7 +163,6 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime,
 
     return result_line
 
-
 # ---------------------------------------------------------------------------
 # NEW path: cheap vec builder — no Sage point arithmetic at all
 # ---------------------------------------------------------------------------
@@ -233,7 +217,6 @@ def _build_vecs_and_rhs(
         vecs_by_prime[p] = items
 
     return vecs_by_prime, rhs_by_prime
-
 
 # ---------------------------------------------------------------------------
 # OLD path: task builder with Sage point accumulation (kept for non-FF case)
@@ -349,32 +332,11 @@ def _build_tasks_and_rhs(
 
     return tasks_by_prime, rhs_by_prime
 
-
 # ---------------------------------------------------------------------------
 # Post-processing: convert Julia's string-keyed output to typed Python keys.
 # Julia returns: {str(p): {str(v_tuple): {str([rhs_idx]): [m_root, ...]}}}
 # We return:     {p(int): {v_tuple(tuple): {rhs_idx(int): [m_root(int), ...]}}}
 # ---------------------------------------------------------------------------
-
-def _assemble_results(julia_raw, prime_list):
-    results_dict = {}
-    for p in prime_list:
-        p_raw = julia_raw.get(p)
-        if not p_raw:
-            continue
-        p_results = {}
-        for v_str, xmap in p_raw.items():
-            v_tuple  = tuple(ast.literal_eval(v_str))
-            rhs_dict = {}
-            for rhs_key_str, m_roots in xmap.items():
-                rhs_idx = int(ast.literal_eval(rhs_key_str)[0])
-                rhs_dict[rhs_idx] = [int(m) for m in m_roots]
-            if rhs_dict:
-                p_results[v_tuple] = rhs_dict
-        if p_results:
-            results_dict[p] = p_results
-    return results_dict
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -466,7 +428,6 @@ def mumford_precompute_residues_oscar(
 
     assert results_dict, "Oscar bridge returned empty results — check Julia output"
     return results_dict
-
 
 def _assemble_results(julia_raw, prime_list):
     results_dict = {}

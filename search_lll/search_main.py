@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, os as _os
 from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
@@ -17,7 +17,6 @@ from search_common import *
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
 from .lp_incidence_dlp import *
-import os as _os
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
 
 _OSCAR_AVAILABLE = True
@@ -50,8 +49,6 @@ def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
             num_workers=num_workers,
             debug=debug, pool=pool, chunk_size=chunk_size,
         )
-
-
 
 # After your Mumford search in FINITE_FIELD mode:
 

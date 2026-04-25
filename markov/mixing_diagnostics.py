@@ -317,3 +317,44 @@ def mixing_one_liner(walker, step: int) -> str:
         f"C={C}  E[C]={E_C:.2f}  "
         f"C/E[C]={ratio:.2f}  birthday:{bday_str}"
     )
+
+
+
+def compute_fertility(norm, raw, vecs):
+    precomp = norm.get('precomputed_residues') or (
+        raw.get('precomputed_residues') if isinstance(raw, dict) else None
+    )
+
+    if not (precomp and vecs):
+        return {
+            'n_with_roots': None,
+            'n_total': len(vecs) if vecs else None,
+            'total_roots': None,
+            'per_n_roots': None,
+        }
+
+    fertile = set()
+    per_n = {}
+
+    for entry in precomp.values():
+        if isinstance(entry, dict):
+            fertile.update(entry.keys())
+            for vtup, sols in entry.items():
+                k = str(vtup)
+                cnt = len(sols) if isinstance(sols, (list, tuple, set)) else (1 if sols else 0)
+                if cnt > 0:
+                    per_n[k] = max(per_n.get(k, 0), cnt)
+
+    if not fertile:
+        for k, v in precomp.items():
+            if not isinstance(v, dict):
+                fertile.add(k)
+                per_n[str(k)] = 1
+
+    return {
+        'n_with_roots': len(per_n),
+        'n_total': len(vecs),
+        'total_roots': sum(per_n.values()),
+        'per_n_roots': per_n,
+    }
+

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
+import argparse, json, sys, numpy as np, h5py
+from scipy.sparse import csr_matrix
+
 """
 inspect_malformed_rows.py  --  triage malformed (coeff-sum ≠ 0) rows in relation_matrix.h5
 
 Run:
     python3 inspect_malformed_rows.py relation_matrix.h5 [--curve-degree 5] [--max-bad 50]
 """
-import argparse, json, sys
-import numpy as np
-import h5py
-from scipy.sparse import csr_matrix
 
 def load_h5(path):
     with h5py.File(path, "r") as f:

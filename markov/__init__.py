@@ -5,7 +5,7 @@ from .mixing_diagnostics import *
 from .adjacency_matrix import *
 from .dlp_diagnostics import *
 from .mumford_oscar_bridge import *
-
+from .walker import *
 """markov/__init__.py
 
 Genus-2 Markov walk subpackage.

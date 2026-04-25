@@ -1,5 +1,4 @@
-import math, random, statistics
-import numpy as np
+import math, random, statistics, numpy as np
 from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var, SR, EllipticCurve, identity_matrix, vector, matrix, kronecker, Integer as SageInteger
 from .search_config import *
 from search_common import *
@@ -8,6 +7,7 @@ from sage.rings.infinity import infinity
 from itertools import product
 from diagnostics2 import find_singular_fibers
 from math import gcd
+_sage_lcm = lcm
 
 USE_JULIA_LADDER = True
 
@@ -402,7 +402,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                 vecs_lll[p] = vecs_transformed_for_p   # ✅ KEEP THIS
             else:
                 multiplies_lll[p] = mults
-                vecs_lll[p] = vecs_transformed_for_p                
+                vecs_lll[p] = vecs_transformed_for_p
 
         except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
             if DEBUG and (p not in (2, 5)):
@@ -428,15 +428,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
                     assert detected_collisions.issubset(ram_locus), \
                         f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
-
-
     if USE_JULIA_LADDER:
         for p in section_poly_dict:
             assert p not in multiplies_lll, f"p={p} has BOTH ladder and Sage mults"
 
     return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll, section_poly_dict
-
-
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
@@ -620,7 +616,6 @@ def _trim_poly_coeffs(coeff_list, max_deg=TRUNCATE_MAX_DEG):
     # Keep low-degree coefficients (assumed stored as [c0, c1, ..., cN])
     return coeff_list[: max_deg + 1]
 
-
 # ---------------------------------------------------------------------------
 # Fast projective point arithmetic over GF(p)[m] using numpy integer arrays.
 #
@@ -732,7 +727,6 @@ def _clear_projective_coords(Pi, p):
     Zp = R([int(c) % p for c in Zp.list()])
     return Xp, Yp, Zp
 
-
 class _PolyPoint:
     """
     Projective point on y^2 = x^3 + a4(m)*x + a6(m) over GF(p)[m]/(deg<=D).
@@ -816,8 +810,6 @@ def _has_nonconstant_denom(coeff):
     except AttributeError:
         return False
 
-
-
 def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
     """
     Convert Pi's projective coords and curve coefficients a4/a6 to plain
@@ -832,7 +824,6 @@ def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
          "X": [int…], "Y": [int…], "Z": [int…],
          "a4": [int…], "a6": [int…]}
     """
-    from sage.all import lcm as _sage_lcm
 
     def _frac_to_poly_ints(elem):
         """GF(p)(m) element → int list mod p, length D+1."""
@@ -919,10 +910,6 @@ def _serialize_section_for_julia(Pi, a4_raw, a6_raw, p, D):
         "a6": _ring_poly_to_ints(a6p),
     }
 
-
-
-
-
 def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
     """
     Public helper called by mumford_oscar_bridge to build the per-prime
@@ -941,7 +928,6 @@ def prepare_section_poly_payload(Pi, a4_raw, a6_raw, p, D=None):
             print(f"[prepare_section_poly_payload] p={p}: serialisation failed: {e}")
         raise
         return None
-
 
 def _section_mults_from_julia(julia_mults_raw, required_ks,
                                base_ring, a4_raw, a6_raw, mock_curve):

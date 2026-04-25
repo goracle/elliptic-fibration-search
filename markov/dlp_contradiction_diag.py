@@ -254,11 +254,6 @@ def check_structural_collapse(M_ZZ, atoms, group_order,
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
     _log(f"  row dedup    : {sum(len(v) for v in row_sources) - len(row_sources)} duplicates removed")
 
-    def remap(col):
-        if col is None:
-            return None
-        return pruned_aidx.get(str(atoms[col]))
-
     p_col_inf  = remap(col_inf)
     p_col_gen0 = remap(col_gen0)
     p_col_gen1 = remap(col_gen1)
@@ -647,11 +642,6 @@ def _suggest_seeds_from_noparity_nullity(
 
     pruned_aidx = {str(a): i for i, a in enumerate(atoms)}
 
-    def remap(col):
-        if col is None:
-            return None
-        return pruned_aidx.get(str(atoms[col])) if col < len(atoms) else None
-
     p_col_inf  = remap(col_inf)
 
     A = M_pruned.change_ring(Fp).sparse_matrix()
@@ -698,7 +688,6 @@ def _suggest_seeds_from_noparity_nullity(
 
     ranked = sorted(atom_freq.items(), key=lambda kv: -kv[1])
     return [atom for atom, _ in ranked[:n_seeds]]
-
 
 def main(argv=None):
     ap = argparse.ArgumentParser(

@@ -208,7 +208,6 @@ def _collision_path_dlp(
 # Main
 # ---------------------------------------------------------------------------
 
-from sage.all import floor
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Cross-chain merge experiment seeded from BASE/TARGET divisor roots"

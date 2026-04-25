@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
-import argparse
-import json
-import sys
+import argparse, json, sys, h5py, numpy as np
 from collections import defaultdict
 from typing import Any
 from relation_matrix import *
-
-import h5py
-import numpy as np
 
 """
 graph_connectivity.py — bipartite connectivity analysis for a DLP relation matrix
@@ -20,7 +14,6 @@ system rather than in the homogeneous submatrix.
 """
 
 _XI_COEFF = 3
-
 
 # ---------------------------------------------------------------------------
 # HDF5 load
@@ -85,11 +78,9 @@ def load_hdf5(path: str) -> dict[str, Any]:
         col_tgt1=col_tgt1,
     )
 
-
 # ---------------------------------------------------------------------------
 # Prune dest-only atoms
 # ---------------------------------------------------------------------------
-
 
 # ---------------------------------------------------------------------------
 # Union-Find
@@ -121,7 +112,6 @@ class UnionFind:
             comp[self.find(i)].append(i)
         return dict(comp)
 
-
 def build_atom_graph(data, indices, indptr, nrows, ncols) -> UnionFind:
     uf = UnionFind(ncols)
     for r in range(nrows):
@@ -130,7 +120,6 @@ def build_atom_graph(data, indices, indptr, nrows, ncols) -> UnionFind:
         for i in range(1, len(cols)):
             uf.union(cols[0], cols[i])
     return uf
-
 
 def resolve_xs_to_cols(aidx: dict[str, int], xs: list[int] | None) -> set[int]:
     cols: set[int] = set()
@@ -141,7 +130,6 @@ def resolve_xs_to_cols(aidx: dict[str, int], xs: list[int] | None) -> set[int]:
         if c is not None:
             cols.add(int(c))
     return cols
-
 
 # ---------------------------------------------------------------------------
 # Rank over GF(p)
@@ -192,7 +180,6 @@ def rank_mod_p(data, indices, indptr, nrows, ncols, p: int, keep_cols: set[int] 
         rank += 1
 
     return rank
-
 
 # ---------------------------------------------------------------------------
 # Solve augmented system A x = b mod p, where fixed_vars are substituted
@@ -290,7 +277,6 @@ def solve_mod_p(
     return {old: x[new] for old, new in col_remap.items()} | {
         c: int(v) % p for c, v in fixed_vars.items() if c in keep_cols
     }
-
 
 # ---------------------------------------------------------------------------
 # Nullity-basis residual analysis
@@ -448,9 +434,6 @@ def nullity_residuals(
 
     sp_local = {lbl: main_idx[c] for lbl, c in special_cols.items() if c in main_idx}
 
-    def sym(v: int) -> int:
-        return min(v, p - v) if v else 0
-
     # ---- 6. Compute residuals r = M_main @ v_main and score ----
     scored = []  # (score, vi, v_main, r_vec, sp_vals, r_gen_tgt, r_total)
 
@@ -504,7 +487,6 @@ def nullity_residuals(
         for ri, rv in nonzero_r[:8]:
             tag = " <- gen/tgt" if row_touches_gen_tgt[ri] else ""
             print(f"    row={ri:5d}  raw={rv:>6}  sym={sym(rv):>6}{tag}")
-
 
 # ---------------------------------------------------------------------------
 # Parity-vector residual analysis
@@ -616,7 +598,6 @@ def parity_residual_analysis(
     # If many rows agree on the same candidate, the system is highly
     # k-sensitive and that candidate is likely the true discrete log.
     # ------------------------------------------------------------------
-    from collections import Counter as _CandCounter
 
     k_sensitive_rows = [(r, a, b) for r, a, b in symbolic_nonzero if a != 0]
     k_candidates: list[int] = []
@@ -707,7 +688,6 @@ def parity_residual_analysis(
     #   3. Rank of the (A,B) pair matrix over GF(p): rank=1 means all rows
     #      lie on a single line through the origin — pure decoupling
     # ------------------------------------------------------------------
-    from collections import Counter as _Counter
 
     print(f"\n  --- A/B coupling diagnostic ---")
 
@@ -792,7 +772,6 @@ def parity_residual_analysis(
             print("     chains through multiple rows — e.g. pure-A pins k*atom,")
             print("     pure-B pins atom, combining gives k.  Check if the atoms overlap.")
             # Check atom overlap between A-rows and B-rows.
-            from collections import defaultdict as _dd2
             a_atoms: set = set()
             b_atoms: set = set()
             for r, a, b in symbolic_nonzero:
@@ -832,7 +811,6 @@ def parity_residual_analysis(
                 print(f"\n     --- Chain-length-2 relay analysis ---")
 
                 # Build atom -> set of ALL row indices (full matrix).
-                from collections import defaultdict as _dd3
                 atom_to_rows: dict = _dd3(set)
                 for row_r in range(pnrows):
                     rs3, re3 = int(pptr[row_r]), int(pptr[row_r + 1])
@@ -872,7 +850,6 @@ def parity_residual_analysis(
                     print(f"       This is a deep structural decoupling — new relation types needed.")
                 else:
                     # Summarise by (a_atom, b_atom) bridge pair frequency.
-                    from collections import Counter as _CC2
                     pair_freq   = _CC2((a, b) for a, _, b in relay_chains)
                     a_atom_freq = _CC2(a for a, _, _ in relay_chains)
                     b_atom_freq = _CC2(b for _, _, b in relay_chains)
@@ -969,7 +946,6 @@ def parity_residual_analysis(
 
     # Atom frequency in nonzero-residual rows — tells you which atoms are blocking.
     print(f"\n  --- Atoms appearing in nonzero-residual rows (top 20 by frequency) ---")
-    from collections import defaultdict as _dd
     atom_freq: dict = _dd(int)
     atom_max_sym: dict = _dd(int)
     for r, val, a, b in numeric_nonzero:
@@ -984,7 +960,6 @@ def parity_residual_analysis(
     print("  " + "-" * 36)
     for nm, freq in top_atoms:
         print(f"  {nm:>12}  {freq:>6}  {atom_max_sym[nm]:>10}")
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -1573,7 +1548,6 @@ def main():
                 p=group_order,
                 known_key=args.known_key,
             )
-
 
 if __name__ == "__main__":
     main()

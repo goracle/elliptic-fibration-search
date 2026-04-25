@@ -1085,7 +1085,6 @@ def _build_one_tangency_points(xs_chosen, num_tangency_eqs, base_field, forced_t
 
     return seq[:num_tangency_eqs]
 
-
 def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
                         forced_tangency_seq, use_anchor_points, verbose, ctx):
     Fm, R_xm, x_var = ctx['Fm'], ctx['R_xm'], ctx['x_var']
