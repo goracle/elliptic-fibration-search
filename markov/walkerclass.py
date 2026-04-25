@@ -35,15 +35,6 @@ load('search7_genus2.sage')
 
 # DEAR AI:  EVERY RAISE IN HERE IS ON PURPOSE ASK ME IF YOU WANT TO REMOVE ONE.
 
-class _FiberPoleError(Exception):
-    """Raised when S(m) has a pole at a specific m value.
-
-    A zero denominator in S(m) means the secant-line fiber is degenerate
-    (the rational function parametrisation breaks down) at that particular m.
-    This is not a 2-cycle violation; the (x_src, x_step) pair is simply unevaluable
-    and should be skipped rather than treated as an error.
-    """
-
 # ---------------------------------------------------------------------------
 # Small algebra helpers
 # ---------------------------------------------------------------------------

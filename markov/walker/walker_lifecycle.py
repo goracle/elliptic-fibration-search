@@ -1,3 +1,16 @@
+from search_common import *
+from collections import Counter
+
+class _FiberPoleError(Exception):
+    """Raised when S(m) has a pole at a specific m value.
+
+    A zero denominator in S(m) means the secant-line fiber is degenerate
+    (the rational function parametrisation breaks down) at that particular m.
+    This is not a 2-cycle violation; the (x_src, x_step) pair is simply unevaluable
+    and should be skipped rather than treated as an error.
+    """
+
+
 def close_under_involution2(walker) -> int:
     """Verify the Vieta involution T(x_step) = S(m) - (d-2)*x_src - x_step is a
     genuine 2-cycle on every (x_src, x_step) pair in the candidate pool.
