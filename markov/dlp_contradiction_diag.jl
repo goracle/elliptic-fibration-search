@@ -404,7 +404,7 @@ function check_homogeneous(M::Matrix{Int}, atoms, aidx, group_order::Int,
             end
             length(fb_partial_bad) > 30 && _log("    ... and $(length(fb_partial_bad)-30) more rows")
             _log("\n     -> These rows contradict the known key regardless of fb atom values.")
-            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or bad relation.")
+            _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or bad relation.")
         end
         if !isempty(true_failures)
             _log("\n  ✗  $(length(true_failures)) row(s) fail on assigned atoms only -- genuine contradiction:")
@@ -414,7 +414,7 @@ function check_homogeneous(M::Matrix{Int}, atoms, aidx, group_order::Int,
             end
             length(true_failures) > 30 && _log("    ... and $(length(true_failures)-30) more rows")
             _log("\n     -> The walk data itself contradicts the known key.")
-            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or a bad")
+            _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or a bad")
             _log("        involution-closure row in the relation matrix.")
         end
         if isempty(true_failures) && isempty(fb_partial_bad)
@@ -1339,7 +1339,7 @@ function main(args=ARGS)
     # Every valid relation satisfies sum(row) == 0 over ZZ (the +coeff finite
     # atoms and the -curve_degree on ∞ cancel).  Rows that violate this are
     # degree-imbalanced and must be dropped; they arise from serialisation bugs
-    # in older logs (the xj/xk/extra_roots named-slot encoding silently dropped
+    # in older logs (the x_step/x_res/extra_roots named-slot encoding silently dropped
     # extra_roots).  No repair heuristic: a row is either balanced or it isn't.
     n_cols     = size(M, 2)
     keep_rows  = Int[]

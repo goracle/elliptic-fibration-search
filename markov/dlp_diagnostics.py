@@ -50,11 +50,11 @@ def check_involution_symmetry(walkers):
     genus2_markov_module.py's single-walker path).  This function plugs that gap.
 
     Also checks whether the hyperelliptic involution (y -> -y) is correctly
-    handled: T(xj) swaps to the other fiber root xk, which lies on the
+    handled: T(x_step) swaps to the other fiber root x_res, which lies on the
     OPPOSITE y-branch.  So if yj_sign = +1 on the original record, then the
     involution-closure record should have yj_sign reflecting the -y branch
     (conventionally still +1 if we're only tracking x-coordinates, but the
-    point is that xj↔xk with the SAME y-branch would be wrong geometry).
+    point is that x_step↔x_res with the SAME y-branch would be wrong geometry).
     """
     _section("INVOLUTION SYMMETRY CHECK")
 
@@ -62,7 +62,7 @@ def check_involution_symmetry(walkers):
         label = getattr(w, '_label', f"walker[{i}]")
         try:
             n = w.close_under_involution()
-            _log(f"  ✓  {label}: T(T(xj))==xj on {n} pairs")
+            _log(f"  ✓  {label}: T(T(x_step))==x_step on {n} pairs")
         except AssertionError as exc:
             _log(f"  ✗  {label}: INVOLUTION VIOLATION — {exc}")
             raise
@@ -71,24 +71,24 @@ def check_involution_symmetry(walkers):
             raise
 
     # Does the involution preserve y?  Answer: NO — it should NEGATE y.
-    # T maps (xj, yj) -> (xk, yk) where xk = S(m) - xi_mult*xi - xj.
-    # The point xk is a DIFFERENT x-coordinate on the curve, with its own y.
+    # T maps (x_step, yj) -> (x_res, yk) where x_res = S(m) - src_mult*x_src - x_step.
+    # The point x_res is a DIFFERENT x-coordinate on the curve, with its own y.
     # The hyperelliptic involution (x,y)->(x,-y) is a separate operation.
     # T is the Vieta partner on the SAME fiber (same secant line m),
-    # so xk has y²=G(xk) which is generically nonzero and unrelated to yj.
+    # so x_res has y²=G(x_res) which is generically nonzero and unrelated to yj.
     # Conclusion: the "does T preserve y?" question is malformed — T maps
     # to a different x, so y is recomputed from scratch.  yj_sign and yk_sign
     # are both +1 by convention (we pick the positive square root branch),
     # UNLESS the walker specifically tracks which branch, in which case
-    # yk_sign should be the sign of sqrt(G(xk)) on the fiber.
+    # yk_sign should be the sign of sqrt(G(x_res)) on the fiber.
     _log(
         "\n  NOTE on y-preservation:\n"
-        "  The Vieta involution T: xj -> xk = S(m) - xi_mult*xi - xj maps to a\n"
-        "  DIFFERENT x-coordinate.  y is recomputed at xk from y²=G(xk).\n"
+        "  The Vieta involution T: x_step -> x_res = S(m) - src_mult*x_src - x_step maps to a\n"
+        "  DIFFERENT x-coordinate.  y is recomputed at x_res from y²=G(x_res).\n"
         "  T does NOT preserve y (that would be the hyperelliptic involution x->x, y->-y).\n"
-        "  If your walker records yj_sign for the branch at xj, the analogous yk_sign\n"
-        "  at xk is independently chosen — there is no forced sign relationship between them.\n"
-        "  The matrix coefficient for xk should always be +1 (|yk_sign|=1, not the branch sign)."
+        "  If your walker records yj_sign for the branch at x_step, the analogous yk_sign\n"
+        "  at x_res is independently chosen — there is no forced sign relationship between them.\n"
+        "  The matrix coefficient for x_res should always be +1 (|yk_sign|=1, not the branch sign)."
     )
 
 def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
@@ -99,8 +99,8 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
     negative. It checks only what can be justified from the stored line data:
       - Vieta sum consistency
       - sign metadata is ±1
-      - if line coefficients v0,v1 are available, yj should match v(xj)
-        and yk should match -v(xk), both compared against the canonical branch
+      - if line coefficients v0,v1 are available, yj should match v(x_step)
+        and yk should match -v(x_res), both compared against the canonical branch
         convention used by the project.
     """
     _section("FIBER SIGN CHECK")
@@ -112,19 +112,19 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
         for rec in w.history:
             if not getattr(rec, "accepted", False):
                 continue
-            if rec.xi is None or rec.xj is None or rec.xk is None:
+            if rec.x_src is None or rec.x_step is None or rec.x_res is None:
                 continue
 
             step = _step_dict(rec)
             if step.get("source") == "involution_closure":
                 continue
 
-            xi = int(rec.xi)
-            xj = int(rec.xj)
-            xk = int(rec.xk)
+            x_src = int(rec.x_src)
+            x_step = int(rec.x_step)
+            x_res = int(rec.x_res)
 
             deg = w.config.curve_degree
-            xi_mult = deg - 2
+            src_mult = deg - 2
 
             # (a) Vieta sum check.
             S_sym = step.get("S_of_m")
@@ -134,12 +134,12 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
                     Fp = GF(p)
                     m_fp = Fp(m_val)
                     S_val = Fp(S_sym(m_fp))
-                    vieta_sum = Fp(xi_mult * xi + xj + xk)
+                    vieta_sum = Fp(src_mult * x_src + x_step + x_res)
                     if vieta_sum != S_val:
                         violations.append(
                             f"  VIETA MISMATCH  step={getattr(rec, 'step_index', '?')} "
-                            f"xi={xi} xj={xj} xk={xk}  "
-                            f"xi_mult*xi+xj+xk={vieta_sum}  S(m)={S_val}"
+                            f"x_src={x_src} x_step={x_step} x_res={x_res}  "
+                            f"src_mult*x_src+x_step+x_res={vieta_sum}  S(m)={S_val}"
                         )
                 except Exception as exc:
                     violations.append(f"  VIETA CHECK ERROR step={getattr(rec, 'step_index', '?')}: {exc}")
@@ -166,30 +166,30 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
                 try:
                     v0 = int(v0)
                     v1 = int(v1)
-                    yj_from_line = (v0 + v1 * xj) % p
-                    yk_from_line = (- (v0 + v1 * xk)) % p
+                    yj_from_line = (v0 + v1 * x_step) % p
+                    yk_from_line = (- (v0 + v1 * x_res)) % p
                     yj_branch = _branch_sign_from_residue(yj_from_line, p)
                     yk_branch = _branch_sign_from_residue(yk_from_line, p)
                     line_info = (
-                        f"  v(xj)={yj_from_line}  branch={yj_branch:+d}"
-                        f"  -v(xk)={yk_from_line}  branch={yk_branch:+d}"
+                        f"  v(x_step)={yj_from_line}  branch={yj_branch:+d}"
+                        f"  -v(x_res)={yk_from_line}  branch={yk_branch:+d}"
                     )
 
                     if yj_sign is not None and int(yj_sign) != yj_branch:
                         violations.append(
                             f"  YJ SIGN MISMATCH  step={getattr(rec, 'step_index', '?')} "
-                            f"xi={xi} xj={xj} xk={xk}  yj_sign={yj_sign}  expected={yj_branch}"
+                            f"x_src={x_src} x_step={x_step} x_res={x_res}  yj_sign={yj_sign}  expected={yj_branch}"
                         )
                     if yk_sign is not None and int(yk_sign) != yk_branch:
                         violations.append(
                             f"  YK SIGN MISMATCH  step={getattr(rec, 'step_index', '?')} "
-                            f"xi={xi} xj={xj} xk={xk}  yk_sign={yk_sign}  expected={yk_branch}"
+                            f"x_src={x_src} x_step={x_step} x_res={x_res}  yk_sign={yk_sign}  expected={yk_branch}"
                         )
                 except Exception as exc:
                     violations.append(f"  LINE SIGN CHECK ERROR step={getattr(rec, 'step_index', '?')}: {exc}")
 
             _log(
-                f"  step={getattr(rec, 'step_index', '?'):>4}  xi={xi} xj={xj} xk={xk}  "
+                f"  step={getattr(rec, 'step_index', '?'):>4}  x_src={x_src} x_step={x_step} x_res={x_res}  "
                 f"yj_sign={yj_sign}  yk_sign={yk_sign}{line_info}"
             )
 
@@ -335,7 +335,7 @@ def _row_signature_from_support(cols, vals, mod: Optional[int] = None):
 
 def check_divisor_injection(walkers, divisor_xs: Sequence):
     """
-    Check whether the four divisor atoms appear as xi and xj in the collected walks.
+    Check whether the four divisor atoms appear as x_src and x_step in the collected walks.
 
     This is a coverage check, not a causality claim. It reports whether the
     atoms survive as source-side columns in the data used to build the relation
@@ -345,8 +345,8 @@ def check_divisor_injection(walkers, divisor_xs: Sequence):
 
     for i, w in enumerate(walkers):
         label = getattr(w, "_label", f"walker[{i}]")
-        xi_counts = Counter(int(r.xi) for r in w.history if r.accepted and r.xi is not None)
-        xj_counts = Counter(int(r.xj) for r in w.history if r.accepted and r.xj is not None)
+        xi_counts = Counter(int(r.x_src) for r in w.history if r.accepted and r.x_src is not None)
+        xj_counts = Counter(int(r.x_step) for r in w.history if r.accepted and r.x_step is not None)
 
         _log(f"\n  {label}:")
         all_ok = True
@@ -354,19 +354,19 @@ def check_divisor_injection(walkers, divisor_xs: Sequence):
             ix = int(x)
             as_xi = xi_counts[ix]
             as_xj = xj_counts[ix]
-            status = "✓" if as_xi > 0 else "✗ NEVER AS xi"
+            status = "✓" if as_xi > 0 else "✗ NEVER AS x_src"
             if as_xi == 0:
                 all_ok = False
-            _log(f"    x={ix:6d}  as xi: {as_xi:4d}  as xj: {as_xj:4d}  {status}")
+            _log(f"    x={ix:6d}  as x_src: {as_xi:4d}  as x_step: {as_xj:4d}  {status}")
 
         if all_ok:
-            _log("  ✓  All divisor atoms appeared as xi at least once.")
+            _log("  ✓  All divisor atoms appeared as x_src at least once.")
         else:
             _log(
-                "  ✗  Some divisor atoms never appeared as xi.\n"
+                "  ✗  Some divisor atoms never appeared as x_src.\n"
                 "     Those atoms cannot contribute source-side rows in the matrix.\n"
                 "     That may matter for anchors or for any check that assumes the\n"
-                "     seed atoms are represented on the xi side."
+                "     seed atoms are represented on the x_src side."
             )
 
         fms = getattr(w, "first_merge_step", None)
@@ -471,7 +471,7 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
             marker = " ← divisor" if str(atom) in div_strs else ""
             _log(f"    atom={atom}  coeff={coeff}{marker}")
             _log(f"    → Isolated atom: no relation pins this column.")
-            _log(f"    → Fix: ensure at least one accepted step has xi={atom} (coeff 3).")
+            _log(f"    → Fix: ensure at least one accepted step has x_src={atom} (coeff 3).")
 
         elif kind == 'parity':
             c0 = info['flat_coeff']
@@ -481,7 +481,7 @@ def check_kernel(walkers, group_order: int, divisor_xs=()):
             _log(f"    → Touches target atoms:    {info['touches_tgt']}")
             if info['touches_gen'] and info['touches_tgt']:
                 _log(f"    ✗ CRITICAL: anchor a[gen0]+a[gen1]=1 contradicts this law.")
-                _log(f"      Each step contributes 3·a[xi]+a[xj]+a[xk]=0 (coeff-sum=5).")
+                _log(f"      Each step contributes 3·a[x_src]+a[x_step]+a[x_res]=0 (coeff-sum=5).")
                 _log(f"      The conservation forces anchor RHS → 0, not 1.")
                 _log(f"      Fix: change anchor RHS from 1 to the inverse of the")
                 _log(f"      conserved coefficient (e.g. try RHS = inverse(5) mod {group_order}"
@@ -573,7 +573,7 @@ def check_zero_compatibility(
             coeffs_in_ker = [c for _, c in hits]
             _log(f"    x={atom_str:6s}  [{label}]  IN KERNEL BASIS  coeffs={coeffs_in_ker}")
         elif pruned:
-            _log(f"    x={atom_str:6s}  [{label}]  PRUNED (never appeared as xi)")
+            _log(f"    x={atom_str:6s}  [{label}]  PRUNED (never appeared as x_src)")
         else:
             _log(f"    x={atom_str:6s}  [{label}]  not seen in kernel basis support")
 
@@ -614,15 +614,15 @@ def check_zero_compatibility(
     else:
         _log("\n  ✓  No displayed kernel basis vector mixes generator and target atoms.")
 
-    _log("\n  Steps where xi equals a target atom:")
+    _log("\n  Steps where x_src equals a target atom:")
     for i, w in enumerate(walkers):
         label = getattr(w, "_label", f"walker[{i}]")
         tgt_xi_steps = [
             r.step_index for r in w.history
-            if getattr(r, "accepted", False) and _safe_int(getattr(r, "xi", None)) in (x0_c, x0_d)
+            if getattr(r, "accepted", False) and _safe_int(getattr(r, "x_src", None)) in (x0_c, x0_d)
         ]
         preview = f"  (step indices: {tgt_xi_steps[:10]}{'...' if len(tgt_xi_steps) > 10 else ''})" if tgt_xi_steps else ""
-        _log(f"    {label}: {len(tgt_xi_steps)} accepted steps with xi in target atoms{preview}")
+        _log(f"    {label}: {len(tgt_xi_steps)} accepted steps with x_src in target atoms{preview}")
 
 def dump_matrix_hdf5(
     walkers,

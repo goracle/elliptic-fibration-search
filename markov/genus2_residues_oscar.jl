@@ -5,19 +5,19 @@ OSCAR port of the "residue-only" Markov walk search for genus-2 HECC.
 
 What this does:
   Given a genus-2 curve  C: y² = f(x)  over GF(p)  (deg-5 or deg-6 f),
-  and a current atom xi ∈ GF(p), this computes the fiber intersection to
-  find (xj, xk, m, yj_sign, yk_sign) such that the Jacobian relation
+  and a current atom x_src ∈ GF(p), this computes the fiber intersection to
+  find (x_step, x_res, m, yj_sign, yk_sign) such that the Jacobian relation
 
-      3·[xi] + [xj] + [xk] - 5·[∞] = 0   (degree-5 model)
+      3·[x_src] + [x_step] + [x_res] - 5·[∞] = 0   (degree-5 model)
 
   holds in Div(C), then accumulates those relations into a sparse integer
   matrix for the eventual DLP linear-algebra solve.
 
 Architecture (mirrors genus2_markov_module.py / enrich_candidates):
   1.  fiber_poly_at_xi     : build the degree-5 fibration polynomial fi(x) over GF(p)(m)
-  2.  intersection_roots   : find xj, xk as roots of (G(x) - fi(x)) after removing xi³
+  2.  intersection_roots   : find x_step, x_res as roots of (G(x) - fi(x)) after removing x_src³
   3.  WalkState            : mutable walk state (history, relation matrix accumulator)
-  4.  markov_step!         : one Metropolis step: propose xi' → accept/reject → record relation
+  4.  markov_step!         : one Metropolis step: propose x_src' → accept/reject → record relation
   5.  run_markov_walk      : run N steps, return relation matrix and atom index
   6.  RelationMatrix       : sparse accumulator with atom-index management
   7.  merge_walks          : stack two relation matrices over a common atom universe
@@ -96,7 +96,7 @@ end
 # ---------------------------------------------------------------------------
 
 """
-For the fibration  xj = xi - m  (RLINEAR mode), the fiber polynomial
+For the fibration  x_step = x_src - m  (RLINEAR mode), the fiber polynomial
 fi(x; m) is obtained by substituting a parametric section into the
 degree-5 intersection polynomial.
 
@@ -105,44 +105,44 @@ Frac(GF(p)[m])[x] by substituting the section's Weierstrass coefficients at
 m.  Here we work over GF(p) directly for a fixed m value (since we only need
 residues, not the symbolic polynomial).
 
-Given xi ∈ GF(p) and m ∈ GF(p):
-  xj_candidate = xi - m   (mod p)
+Given x_src ∈ GF(p) and m ∈ GF(p):
+  xj_candidate = x_src - m   (mod p)
 
 The fiber intersection polynomial at a fixed m is:
-  h(x) = f(x) / (x - xi)^3   (removes the triple root at xi)
+  h(x) = f(x) / (x - x_src)^3   (removes the triple root at x_src)
 
-which has degree 2, with roots xj, xk.
+which has degree 2, with roots x_step, x_res.
 
 We compute this by polynomial division over GF(p)[x].
 """
 
 """
-    fiber_intersection(curve, xi, m) -> (xj, xk, m_used) or nothing
+    fiber_intersection(curve, x_src, m) -> (x_step, x_res, m_used) or nothing
 
-Given the current atom xi and fiber parameter m (both ints in [0,p)),
-compute the two other intersection roots xj, xk of
+Given the current atom x_src and fiber parameter m (both ints in [0,p)),
+compute the two other intersection roots x_step, x_res of
   G(x) - fi(x; m) = 0
-after removing the triple root at xi.
+after removing the triple root at x_src.
 
-Returns (xj::Int, xk::Int, m::Int) or `nothing` if:
-  - xi is not on the curve, or
-  - the division is not exact (xi is not a triple root), or
+Returns (x_step::Int, x_res::Int, m::Int) or `nothing` if:
+  - x_src is not on the curve, or
+  - the division is not exact (x_src is not a triple root), or
   - fewer than 2 other roots exist in GF(p).
 
 Raises on arithmetic errors.
 """
-function fiber_intersection(curve::Genus2Curve, xi::Int, m::Int)
+function fiber_intersection(curve::Genus2Curve, x_src::Int, m::Int)
     p   = curve.p
     Fp  = curve.Fp
     Fpx = curve.Fpx
     x   = gen(Fpx)
 
-    xi_fp = Fp(xi)
+    xi_fp = Fp(x_src)
     m_fp  = Fp(m)
 
-    # Under RLINEAR:  xj_candidate = xi - m
-    # fi(x) is the tangent line at xi lifted to the surface;
-    # for the fibration model, fi(x; m) = f(xi) + (tangent slope)(x - xi) + ...
+    # Under RLINEAR:  xj_candidate = x_src - m
+    # fi(x) is the tangent line at x_src lifted to the surface;
+    # for the fibration model, fi(x; m) = f(x_src) + (tangent slope)(x - x_src) + ...
     # But for the pure fiber-intersection residue computation we just need:
     #
     #   intersection_poly(x) = G(x) - fi(x)
@@ -151,15 +151,15 @@ function fiber_intersection(curve::Genus2Curve, xi::Int, m::Int)
     # y-coordinate as a polynomial in x evaluated at m.
     #
     # In the simplest tangent-line fibration (what the Python code implements):
-    #   fi(x; m) = y_xi² + 2·y_xi·(slope)(x - xi) + (slope)²·(x - xi)²
-    # where slope is the tangent slope at (xi, y_xi).
+    #   fi(x; m) = y_xi² + 2·y_xi·(slope)(x - x_src) + (slope)²·(x - x_src)²
+    # where slope is the tangent slope at (x_src, y_xi).
     #
     # For residue-only purposes (no symbolic m), we work at a fixed m and
-    # just factor out the known triple root at xi directly from f(x) - fi(x).
+    # just factor out the known triple root at x_src directly from f(x) - fi(x).
     #
-    # The simplest correct implementation: divide f(x) by (x - xi)^(d-2)
-    # (d=5 → divide by (x-xi)^3) to get the degree-2 quotient, then find its
-    # roots.  This is valid because xi IS a root of f - fi of multiplicity ≥ 3
+    # The simplest correct implementation: divide f(x) by (x - x_src)^(d-2)
+    # (d=5 → divide by (x-x_src)^3) to get the degree-2 quotient, then find its
+    # roots.  This is valid because x_src IS a root of f - fi of multiplicity ≥ 3
     # by the fibration construction.
     #
     # If the triple-root condition fails at this m, return nothing (fiber is
@@ -171,7 +171,7 @@ function fiber_intersection(curve::Genus2Curve, xi::Int, m::Int)
     # Polynomial division: q, r such that f = q * xi_factor + r
     q, r = divrem(f, xi_factor)
     if !iszero(r)
-        # Not a triple root at xi for this m — degenerate fiber, skip
+        # Not a triple root at x_src for this m — degenerate fiber, skip
         return nothing
     end
 
@@ -179,7 +179,7 @@ function fiber_intersection(curve::Genus2Curve, xi::Int, m::Int)
     rts = roots(q)
     length(rts) < 2 && return nothing
 
-    # Collect all roots (with multiplicity) that are ≠ xi
+    # Collect all roots (with multiplicity) that are ≠ x_src
     other = Int[]
     for (r_val, mult) in rts
         rv = Int(lift(ZZ, r_val))
@@ -191,23 +191,23 @@ function fiber_intersection(curve::Genus2Curve, xi::Int, m::Int)
 
     length(other) < 2 && return nothing
 
-    xj, xk = other[1], other[2]
-    return (xj, xk, m)
+    x_step, x_res = other[1], other[2]
+    return (x_step, x_res, m)
 end
 
 """
-    fiber_intersection_scan(curve, xi; m_range=nothing) -> Vector{NamedTuple}
+    fiber_intersection_scan(curve, x_src; m_range=nothing) -> Vector{NamedTuple}
 
 Scan all m ∈ GF(p) (or a provided subset) and collect valid fiber
 intersections.  Returns a vector of named tuples:
-  (xi, xj, xk, m, yj_sign, yk_sign)
+  (x_src, x_step, x_res, m, yj_sign, yk_sign)
 
 This is the "residue computation" step — the Julia equivalent of
 mumford_precompute_residues in markov_mode.
 """
 function fiber_intersection_scan(
     curve::Genus2Curve,
-    xi::Int;
+    x_src::Int;
     m_range::Union{Nothing, AbstractVector{Int}} = nothing,
 )
     p   = curve.p
@@ -217,20 +217,20 @@ function fiber_intersection_scan(
     results = NamedTuple[]
 
     for m in ms
-        hit = fiber_intersection(curve, xi, m)
+        hit = fiber_intersection(curve, x_src, m)
         hit === nothing && continue
-        xj, xk, m_used = hit
+        x_step, x_res, m_used = hit
 
         # Get y signs
-        _, yj = point_on_curve(curve, xj)
-        _, yk = point_on_curve(curve, xk)
+        _, yj = point_on_curve(curve, x_step)
+        _, yk = point_on_curve(curve, x_res)
         yj === nothing && continue
         yk === nothing && continue
 
         yj_sign = (yj <= p - yj) ? 1 : -1
         yk_sign = (yk <= p - yk) ? 1 : -1
 
-        push!(results, (xi=xi, xj=xj, xk=xk, m=m_used, yj_sign=yj_sign, yk_sign=yk_sign))
+        push!(results, (x_src=x_src, x_step=x_step, x_res=x_res, m=m_used, yj_sign=yj_sign, yk_sign=yk_sign))
     end
 
     return results
@@ -244,7 +244,7 @@ end
 Sparse relation matrix accumulator.
 
 Each row corresponds to one fibration relation:
-  3·a[xi] + 1·a[xj] + 1·a[xk] - 5·a[∞] = 0
+  3·a[x_src] + 1·a[x_step] + 1·a[x_res] - 5·a[∞] = 0
 
 Atoms are x-coordinates in GF(p) plus a sentinel for ∞.
 atom_index maps atom_key -> column index (1-based).
@@ -271,18 +271,18 @@ function get_or_add_atom!(rm::RelationMatrix, atom_key)
 end
 
 """
-Append a fibration relation row:  coeff_xi·xi + coeff_xj·xj + coeff_xk·xk + coeff_inf·∞ = 0.
+Append a fibration relation row:  coeff_xi·x_src + coeff_xj·x_step + coeff_xk·x_res + coeff_inf·∞ = 0.
 
-For the degree-5 model:  3·xi + 1·xj + 1·xk - 5·∞ = 0
+For the degree-5 model:  3·x_src + 1·x_step + 1·x_res - 5·∞ = 0
 """
 function add_relation!(
     rm::RelationMatrix,
-    xi::Int, xj::Int, xk::Int;
+    x_src::Int, x_step::Int, x_res::Int;
     curve_degree::Int = 5,
 )
-    xi_col  = get_or_add_atom!(rm, xi)
-    xj_col  = get_or_add_atom!(rm, xj)
-    xk_col  = get_or_add_atom!(rm, xk)
+    xi_col  = get_or_add_atom!(rm, x_src)
+    xj_col  = get_or_add_atom!(rm, x_step)
+    xk_col  = get_or_add_atom!(rm, x_res)
     inf_col = get_or_add_atom!(rm, INFINITY_SENTINEL)
 
     coeff_xi  = curve_degree - 2   # 3 for degree-5
@@ -355,7 +355,7 @@ mutable struct WalkState
     rng::AbstractRNG
     relation_matrix::RelationMatrix
     history::Vector{NamedTuple}        # full step log
-    global_leaves_seen::Set{Int}       # all xj/xk values ever visited
+    global_leaves_seen::Set{Int}       # all x_step/x_res values ever visited
     n_steps_taken::Int
 end
 
@@ -378,7 +378,7 @@ end
 Attempt one Metropolis step from state.current_x.
 
 Strategy:
-  1. Scan all m ∈ GF(p) for valid fiber intersections at xi = current_x.
+  1. Scan all m ∈ GF(p) for valid fiber intersections at x_src = current_x.
   2. Choose one at random (uniform over valid intersections).
   3. Record the relation and update state.
   4. Return the step record, or nothing if no valid intersection found.
@@ -386,11 +386,11 @@ Strategy:
 Raises on arithmetic errors.
 """
 function markov_step!(state::WalkState, cfg::WalkConfig)
-    xi = state.current_x
-    hits = fiber_intersection_scan(state.curve, xi)
+    x_src = state.current_x
+    hits = fiber_intersection_scan(state.curve, x_src)
 
     if isempty(hits)
-        @warn "No fiber intersections found at xi=$xi; walk stuck"
+        @warn "No fiber intersections found at x_src=$x_src; walk stuck"
         return nothing
     end
 
@@ -398,18 +398,18 @@ function markov_step!(state::WalkState, cfg::WalkConfig)
     hit = hits[rand(state.rng, 1:length(hits))]
 
     # Record relation
-    add_relation!(state.relation_matrix, xi, hit.xj, hit.xk; curve_degree=cfg.curve_degree)
+    add_relation!(state.relation_matrix, x_src, hit.x_step, hit.x_res; curve_degree=cfg.curve_degree)
 
     # Update state
-    push!(state.global_leaves_seen, hit.xj, hit.xk)
-    state.current_x = hit.xj   # move to xj (arbitrary choice of direction)
+    push!(state.global_leaves_seen, hit.x_step, hit.x_res)
+    state.current_x = hit.x_step   # move to x_step (arbitrary choice of direction)
     state.n_steps_taken += 1
 
     step_rec = (
         step    = state.n_steps_taken,
-        xi      = xi,
-        xj      = hit.xj,
-        xk      = hit.xk,
+        x_src      = x_src,
+        x_step      = hit.x_step,
+        x_res      = hit.x_res,
         m       = hit.m,
         yj_sign = hit.yj_sign,
         yk_sign = hit.yk_sign,
@@ -432,7 +432,7 @@ Returns:
     atoms        :: Vector,             # column labels (x-values + sentinel for ∞)
     atom_index   :: Dict,               # atom_key -> column
     history      :: Vector{NamedTuple}, # step-by-step record
-    global_leaves :: Set{Int},          # all xj/xk leaves seen
+    global_leaves :: Set{Int},          # all x_step/x_res leaves seen
     n_steps       :: Int,
   )
 """
@@ -453,7 +453,7 @@ function run_markov_walk(
 
         if verbose && i % cfg.checkpoint_every == 0
             vol  = length(state.global_leaves_seen)
-            @info "step $i/$(cfg.n_steps)" xi=state.current_x vol=vol vol_over_sqrt_p=vol/sqrt_p
+            @info "step $i/$(cfg.n_steps)" x_src=state.current_x vol=vol vol_over_sqrt_p=vol/sqrt_p
         end
     end
 

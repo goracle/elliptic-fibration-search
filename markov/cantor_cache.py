@@ -13,11 +13,12 @@ Philosophy
 ----------
 Each accepted walk relation looks like
 
-    3·xi + xj + xk - 5·∞ = 0          (degree-5 curve)
+    mult(x_src)*x_src + x_step + x_res + ... - deg*∞ = 0
 
-The *three* unordered pairs from that relation —
+where multiplicities come from the intersection polynomial roots.  The *three*
+named unordered pairs from the principal named slots —
 
-    {xi, xj},  {xi, xk},  {xj, xk}
+    {x_src, x_step},  {x_src, x_res},  {x_step, x_res}
 
 — correspond to degree-2 effective divisors.  Cantor reduction maps each such
 divisor to its *unique* reduced representative in Jac(C).  If two pairs from
@@ -38,9 +39,9 @@ What the cache gives you
     representative, we surface which existing walk atoms can replace the new
     ones, giving the relation-matrix builder a handle for FB compression.
 
-3.  **Cheap consistency check** — involution symmetry (xj ↔ xk) implies that
-    {xi,xj} and {xi,xk} from the same relation may or may not reduce to the
-    same class; checking catches algebra bugs in xk recovery.
+3.  **Cheap consistency check** — involution symmetry (x_step ↔ x_res) implies
+    that {x_src,x_step} and {x_src,x_res} from the same relation may or may not
+    reduce to the same class; checking catches algebra bugs in x_res recovery.
 
 Cost model
 ----------
@@ -56,7 +57,7 @@ Usage
     cache = CantorPairCache(C, p)           # C = HyperellipticCurve or poly
 
     # Feed relations one at a time (call from your step loop):
-    hits = cache.add_relation(xi, xj, xk)
+    hits = cache.add_relation(x_src, x_step, x_res)
 
     # Or replay a full walker history:
     hits = cache.replay_history(walker.history)
@@ -107,7 +108,7 @@ class CantorHit:
     relation_index_new: int
     # Index of the relation that introduced existing_pair
     relation_index_old: int
-    # Which slot in the relation produced new_pair  ("xi-xj", "xi-xk", "xj-xk")
+    # Which slot in the relation produced new_pair  ("src-step", "src-res", "step-res")
     new_slot: str
     # Which slot produced the existing pair
     old_slot: str
@@ -119,16 +120,16 @@ class CantorHit:
             f"via {self.reduced_rep}"
         )
 
-def _pair_slot(xi, xj, xk, pair: FrozenSet) -> str:
+def _pair_slot(x_src, x_step, x_res, pair: FrozenSet) -> str:
     """Label which atom-slot produced this pair."""
     a, b = tuple(pair)
     s = frozenset
-    if pair == s([xi, xj]):
-        return "xi-xj"
-    if pair == s([xi, xk]):
-        return "xi-xk"
-    if pair == s([xj, xk]):
-        return "xj-xk"
+    if pair == s([x_src, x_step]):
+        return "src-step"
+    if pair == s([x_src, x_res]):
+        return "src-res"
+    if pair == s([x_step, x_res]):
+        return "step-res"
     return "unknown"
 
 # ---------------------------------------------------------------------------
@@ -143,7 +144,7 @@ class CantorPairCache:
     curve_or_poly : HyperellipticCurve or polynomial f such that C: y^2 = f(x)
     p             : prime  (required; all arithmetic is over F_p)
     curve_degree  : degree of the hyperelliptic polynomial (default 5)
-    check_involution : if True, warn when {xi,xj} and {xi,xk} from the same
+    check_involution : if True, warn when {x_src,x_step} and {x_src,x_res} from the same
                        relation do NOT reduce to different classes (degenerate step)
     """
 
@@ -238,17 +239,17 @@ class CantorPairCache:
 
     def add_relation(
         self,
-        xi,
-        xj,
-        xk,
+        x_src,
+        x_step,
+        x_res,
         relation_index: Optional[int] = None,
     ) -> List[CantorHit]:
         """Register one walk relation and return any new collision hits.
 
         Parameters
         ----------
-        xi, xj, xk     : atom x-coordinates from the relation
-        relation_index  : caller-supplied index (defaults to internal counter)
+        x_src, x_step, x_res : atom x-coordinates from the relation
+        relation_index        : caller-supplied index (defaults to internal counter)
 
         Returns
         -------
@@ -260,32 +261,32 @@ class CantorPairCache:
 
         new_hits: List[CantorHit] = []
 
-        # The three geometrically meaningful pairs from this relation
+        # The three geometrically meaningful pairs from the named slots
         pairs_with_slots: List[Tuple[FrozenSet, str]] = []
         s = frozenset
-        if xj is not None:
-            pairs_with_slots.append((s([xi, xj]), "xi-xj"))
-        if xk is not None:
-            pairs_with_slots.append((s([xi, xk]), "xi-xk"))
-        if xj is not None and xk is not None:
-            pairs_with_slots.append((s([xj, xk]), "xj-xk"))
+        if x_step is not None:
+            pairs_with_slots.append((s([x_src, x_step]), "src-step"))
+        if x_res is not None:
+            pairs_with_slots.append((s([x_src, x_res]), "src-res"))
+        if x_step is not None and x_res is not None:
+            pairs_with_slots.append((s([x_step, x_res]), "step-res"))
 
-        # Optional: warn if {xi,xj} and {xi,xk} are already equivalent (degenerate).
+        # Optional: warn if {x_src,x_step} and {x_src,x_res} are already equivalent (degenerate).
         # Compute and cache these reductions so the main loop below can reuse them.
         _precomputed: Dict[FrozenSet, Optional[ReducedRep]] = {}
-        if xj is not None:
-            _precomputed[frozenset([xi, xj])] = self._reduce_pair(xi, xj)
-        if xk is not None:
-            _precomputed[frozenset([xi, xk])] = self._reduce_pair(xi, xk)
+        if x_step is not None:
+            _precomputed[frozenset([x_src, x_step])] = self._reduce_pair(x_src, x_step)
+        if x_res is not None:
+            _precomputed[frozenset([x_src, x_res])] = self._reduce_pair(x_src, x_res)
 
-        if self.check_involution and xj is not None and xk is not None:
-            r_ij = _precomputed[frozenset([xi, xj])]
-            r_ik = _precomputed[frozenset([xi, xk])]
-            if r_ij is not None and r_ik is not None and r_ij == r_ik:
+        if self.check_involution and x_step is not None and x_res is not None:
+            r_ss = _precomputed[frozenset([x_src, x_step])]
+            r_sr = _precomputed[frozenset([x_src, x_res])]
+            if r_ss is not None and r_sr is not None and r_ss == r_sr:
                 if self.verbose:
                     print(
                         f"[CantorCache] WARNING rel#{relation_index}: "
-                        f"{{xi,xj}} ≡ {{xi,xk}} in Jac — degenerate step?"
+                        f"{{x_src,x_step}} ≡ {{x_src,x_res}} in Jac — degenerate step?"
                     )
 
         for pair, slot in pairs_with_slots:
@@ -331,7 +332,7 @@ class CantorPairCache:
 
         Handles both RelationRecord dataclasses and plain dicts.
 
-        ``accepted_only`` gates whether the relation triple (xi, xj, xk) itself
+        ``accepted_only`` gates whether the relation triple (x_src, x_step, x_res) itself
         is registered.  Candidate-pool entries are *always* swept because they
         are valid F_p points regardless of whether the step was accepted — they
         represent the full geometric neighbourhood explored at each step.
@@ -349,28 +350,28 @@ class CantorPairCache:
             if isinstance(step, dict) and step.get("source") == "involution_closure":
                 continue
 
-            xi = _get(rec, "xi")
-            xj = _get(rec, "xj")
-            xk = _get(rec, "xk")
+            x_src  = _get(rec, "x_src")
+            x_step = _get(rec, "x_step")
+            x_res  = _get(rec, "x_res")
 
             # Register the relation triple only for accepted (or when not filtering).
-            if xi is not None and (not accepted_only or _get(rec, "accepted")):
-                hits = self.add_relation(xi, xj, xk, relation_index=idx)
+            if x_src is not None and (not accepted_only or _get(rec, "accepted")):
+                hits = self.add_relation(x_src, x_step, x_res, relation_index=idx)
                 all_hits.extend(hits)
 
             # Always sweep the candidate pool — valid F_p points regardless of acceptance.
-            if xi is not None:
+            if x_src is not None:
                 pool = _get(rec, "candidate_pool") or []
                 for cand in pool:
                     if not isinstance(cand, dict):
                         continue
-                    c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x")
-                    c_xk = cand.get("xk")
+                    c_x_step = cand.get("x_step") or cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                    c_x_res  = cand.get("x_res") or cand.get("xk")
                     # Skip the already-registered accepted pair.
-                    if c_xj is not None and c_xj == xj and c_xk == xk:
+                    if c_x_step is not None and c_x_step == x_step and c_x_res == x_res:
                         continue
-                    if c_xj is not None:
-                        hits = self.add_relation(xi, c_xj, c_xk, relation_index=idx)
+                    if c_x_step is not None:
+                        hits = self.add_relation(x_src, c_x_step, c_x_res, relation_index=idx)
                         all_hits.extend(hits)
 
         return all_hits
@@ -429,7 +430,7 @@ class CantorPairCache:
         Pass the RelationRecord (or dict) directly.  Returns any hits.
 
         Processes two sources of pairs:
-        1. The accepted relation's (xi, xj, xk) triple.
+        1. The accepted relation's (x_src, x_step, x_res) triple.
         2. All candidate-pool entries for this step — these are geometrically
            valid F_p points already computed by the walker, so sweeping them
            costs only Cantor-reduce calls (cheap) and surfaces hits much earlier
@@ -446,34 +447,34 @@ class CantorPairCache:
             return []
 
         step_index = _get(rec, "step_index")
-        xi = _get(rec, "xi")
+        x_src = _get(rec, "x_src")
         all_hits: List[CantorHit] = []
 
         # 1. Accepted relation triple.
-        if _get(rec, "accepted") and xi is not None:
+        if _get(rec, "accepted") and x_src is not None:
             hits = self.add_relation(
-                xi,
-                _get(rec, "xj"),
-                _get(rec, "xk"),
+                x_src,
+                _get(rec, "x_step"),
+                _get(rec, "x_res"),
                 relation_index=step_index,
             )
             all_hits.extend(hits)
 
         # 2. Candidate pool — sweep regardless of accepted flag.
-        # Each pool entry is a dict with at least one of xj/x/candidate_x and
-        # optionally xk.  We use xi from the record (the step's source node).
-        if xi is not None:
+        # Each pool entry is a dict with at least one of x_step/xj/x/candidate_x and
+        # optionally x_res/xk.  We use x_src from the record (the step's source node).
+        if x_src is not None:
             pool = _get(rec, "candidate_pool") or []
             for cand in pool:
                 if not isinstance(cand, dict):
                     continue
-                c_xj = cand.get("xj") or cand.get("x") or cand.get("candidate_x")
-                c_xk = cand.get("xk")
+                c_x_step = cand.get("x_step") or cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                c_x_res  = cand.get("x_res") or cand.get("xk")
                 # Skip the already-accepted pair to avoid double-counting.
-                if c_xj is not None and c_xj == _get(rec, "xj") and c_xk == _get(rec, "xk"):
+                if c_x_step is not None and c_x_step == _get(rec, "x_step") and c_x_res == _get(rec, "x_res"):
                     continue
-                if c_xj is not None:
-                    hits = self.add_relation(xi, c_xj, c_xk, relation_index=step_index)
+                if c_x_step is not None:
+                    hits = self.add_relation(x_src, c_x_step, c_x_res, relation_index=step_index)
                     all_hits.extend(hits)
 
         return all_hits

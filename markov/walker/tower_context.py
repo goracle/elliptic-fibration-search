@@ -3,7 +3,7 @@ from .project_loader import *
 from search_common import *
 
 def build_project_tower_context_for_point(
-    xi,
+    x_src,
     yi=None,
     *,
     coeffs_genus2=None,
@@ -16,8 +16,8 @@ def build_project_tower_context_for_point(
     This mirrors the search7_genus2.doloop_genus2 setup path but keeps only the
     ingredients needed by the Markov candidate-search branch.
     """
-    # Tower construction requires xi to be an F_p point (no field extensions supported).
-    # This is satisfied because xi comes from a prior m-root search over F_p, guaranteeing
+    # Tower construction requires x_src to be an F_p point (no field extensions supported).
+    # This is satisfied because x_src comes from a prior m-root search over F_p, guaranteeing
     # it is a point on C(F_p).
     setup_field_and_rings = resolve_project_symbol('setup_field_and_rings', required=True)
     apply_shift_transformation = resolve_project_symbol('apply_shift_transformation', required=True)
@@ -32,25 +32,25 @@ def build_project_tower_context_for_point(
     lll_reduce_mw_basis = resolve_project_symbol('lll_reduce_mw_basis', required=True)
 
     coeffs_genus2 = coeffs_genus2 if coeffs_genus2 is not None else COEFFS_GENUS2
-    print("building tower search for point:", (xi, yi))
+    print("building tower search for point:", (x_src, yi))
 
-    #base_points = list(base_points or _project_base_points_from_globals(xi, yi, p=p))
-    base_points = [(xi, yi)]
-    assert xi is not None, xi
+    #base_points = list(base_points or _project_base_points_from_globals(x_src, yi, p=p))
+    base_points = [(x_src, yi)]
+    assert x_src is not None, x_src
     assert yi is not None, yi
     if yi is None:
         yfun = resolve_project_symbol('get_y_unshifted_genus2', default=None)
         if yfun is not None:
             try:
-                yi = yfun(xi)
+                yi = yfun(x_src)
             except Exception:
                 yi = None
                 raise
 
     if yi is None:
-        raise ValueError(f"Could not recover y-value for xi={xi!r}; please supply base_points or yi.")
+        raise ValueError(f"Could not recover y-value for x_src={x_src!r}; please supply base_points or yi.")
 
-    data_pts = [(xi, yi)]
+    data_pts = [(x_src, yi)]
     for pt in base_points:
         if pt is None:
             continue
@@ -73,7 +73,7 @@ def build_project_tower_context_for_point(
     )
     assert len(base_pts) == 1, base_pts
     shifted_G_poly, base_pts, T, T_inv, _all_known_x = apply_mobius_transformation(
-        shifted_G_poly, {xi}, base_pts
+        shifted_G_poly, {x_src}, base_pts
     )
 
     #print("base_pts, non-legacy", base_pts)
@@ -95,15 +95,15 @@ def build_project_tower_context_for_point(
         print(cd, morphism_data)
         sys.exit()
 
-    sconf, prime_pool = configure_search_parameters(cd, {xi}, base_pts, field_data['base_field'])
+    sconf, prime_pool = configure_search_parameters(cd, {x_src}, base_pts, field_data['base_field'])
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] if primary_tower else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
 
-    # Add xk(m) as second RHS via Vieta: xk = S(m) - (d-1)*xi - xj(m).
+    # Add x_res(m) as second RHS via Vieta: x_res = S(m) - (d-1)*x_src - x_step(m).
     # S(m) is the negated x^(d-1) coefficient of the monic fiber intersection poly,
-    # which equals xi + xj + xk for a degree-5 curve (d-1 = 4 roots sum to S).
-    # We use the actual xj(m) RHS from the search rather than the RLINEAR=True
-    # shortcut xi-m, so this is valid regardless of RLINEAR.
+    # which equals x_src + x_step + x_res for a degree-5 curve (d-1 = 4 roots sum to S).
+    # We use the actual x_step(m) RHS from the search rather than the RLINEAR=True
+    # shortcut x_src-m, so this is valid regardless of RLINEAR.
     _fi_for_xk = primary_tower[-1].get('f_i') if primary_tower else None
     _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
     if _fi_for_xk is not None and shifted_G_poly is not None and len(search_rhs_list) == 1:
@@ -112,13 +112,13 @@ def build_project_tower_context_for_point(
             try:
                 _base = S_of_m.parent()           # Frac(GF(p)[m])
                 _xj_rhs = _base(r_m)
-                _xi_lifted = _base(xi)
-                xk = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
-                lastrhs = E_rhs_m(x=xk)
-                last_phi_x = get_phi_x(one, two, three, xk, lastrhs)
+                _xi_lifted = _base(x_src)
+                x_res = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
+                lastrhs = E_rhs_m(x=x_res)
+                last_phi_x = get_phi_x(one, two, three, x_res, lastrhs)
                 search_rhs_list = list(search_rhs_list) + [last_phi_x]
             except Exception as e:
-                print(f"[build_project_tower_context] warning: could not build xk RHS: {e}")
+                print(f"[build_project_tower_context] warning: could not build x_res RHS: {e}")
                 raise
 
     assert len(search_rhs_list) > 1, search_rhs_list
@@ -138,7 +138,7 @@ def build_project_tower_context_for_point(
     current_sections = [current_sections[0]]
 
     if debug:
-        print(f"[tower] rebuilt for xi={xi}; sections={len(current_sections)}; primes={len(prime_pool)}")
+        print(f"[tower] rebuilt for x_src={x_src}; sections={len(current_sections)}; primes={len(prime_pool)}")
 
     return {
         'cd': cd,
@@ -159,6 +159,6 @@ def build_project_tower_context_for_point(
         'roots': roots,
         'morphism_data': morphism_data,
         'sconf': sconf,
-        'xi': xi,
+        'x_src': x_src,
         'yi': yi,
     }

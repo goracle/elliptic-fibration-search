@@ -13,7 +13,7 @@ def _collect_mumford_candidate_x_values(obj, out=None):
         return out
 
     if isinstance(obj, dict):
-        for key in ("xj", "x", "x_val", "xcoord", "candidate_x", "x_value"):
+        for key in ("x_step", "x", "x_val", "xcoord", "candidate_x", "x_value"):
             if key in obj and obj[key] is not None:
                 out.append(obj[key])
 
@@ -54,13 +54,13 @@ def _candidate_x_from_obj(obj):
     if obj is None:
         return None
     if isinstance(obj, dict):
-        for key in ("xj", "x", "x_val", "xcoord", "candidate_x", "x_value"):
+        for key in ("x_step", "x", "x_val", "xcoord", "candidate_x", "x_value"):
             if key in obj and obj[key] is not None:
                 return obj[key]
     return obj if not isinstance(obj, (dict, list, tuple, set)) else None
 
 def _candidate_record_from_x(x, source="mumford_residue", **extra):
-    rec = {"xj": x, "source": source}
+    rec = {"x_step": x, "source": source}
     rec.update(extra)
     return rec
 
@@ -68,9 +68,9 @@ def _candidates_from_residues(residues, p):
     """Extract candidate records from mumford_residues {p: {vtup: {rhs_idx: [m_root, ...]}}}.
 
     Julia now returns only m_root values — no Mumford pairs, no sign computation.
-    enrich_candidates reconstructs xj/xk and signs from the fiber geometry.
+    enrich_candidates reconstructs x_step/x_res and signs from the fiber geometry.
 
-    Returns a list of dicts with keys: xj, yj_sign, m, rhs_idx, source.
+    Returns a list of dicts with keys: x_step, yj_sign, m, rhs_idx, source.
     """
     records = []
     seen = set()  # (m_root, rhs_idx) dedup
@@ -90,7 +90,7 @@ def _candidates_from_residues(residues, p):
                     continue
                 seen.add(dedup_key)
                 records.append({
-                    "xj":      None,   # reconstructed by enrich_candidates from m
+                    "x_step":      None,   # reconstructed by enrich_candidates from m
                     "yj_sign": 1,      # enrich_candidates computes true sign from fiber
                     "m":       m_root,
                     "rhs_idx": rhs_idx,
@@ -129,7 +129,7 @@ def _normalize_candidate_output(result):
             xs = set()
             for cand in out.get("candidate_records", []):
                 if isinstance(cand, dict):
-                    x = cand.get("xj", None)
+                    x = cand.get("x_step", None)
                     if x is None:
                         x = cand.get("x", None)
                     if x is None:
@@ -148,7 +148,7 @@ def _normalize_candidate_output(result):
     if isinstance(result, (tuple, list)) and len(result) == 4:
         a, b, c, d = result
         if isinstance(a, list) and a and isinstance(a[0], dict):
-            xs = {cand.get("xj") for cand in a if cand.get("xj") is not None}
+            xs = {cand.get("x_step") for cand in a if cand.get("x_step") is not None}
             return {
                 "candidates": a,
                 "candidate_records": a,
@@ -158,7 +158,7 @@ def _normalize_candidate_output(result):
                 "stats": d,
             }
         if isinstance(a, (set, list, tuple)):
-            records = [{"xj": x} for x in a]
+            records = [{"x_step": x} for x in a]
             return {
                 "candidates": records,
                 "candidate_records": records,
@@ -200,7 +200,7 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
 
         for key in (
             "input_n", "vecs", "tower_context", "current_x", "current_y",
-            "xi", "yi", "shift", "r_expr", "n_with_roots", "per_n_roots",
+            "x_src", "yi", "shift", "r_expr", "n_with_roots", "per_n_roots",
         ):
             if key in result:
                 out[key] = result[key]
@@ -247,9 +247,9 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
 
         try:
             out["candidate_counts"] = Counter(
-                cand.get("xj")
+                cand.get("x_step")
                 for cand in out["candidate_records"]
-                if isinstance(cand, dict) and cand.get("xj") is not None
+                if isinstance(cand, dict) and cand.get("x_step") is not None
             )
         except Exception:
             out["candidate_counts"] = Counter()
@@ -278,7 +278,7 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
 
         out["found_xs"] = set(found_xs) if found_xs else set(xs)
         out["candidate_xs"] = set(xs)
-        out["candidate_records"] = [{"xj": x, "source": "mumford_residue"} for x in xs]
+        out["candidate_records"] = [{"x_step": x, "source": "mumford_residue"} for x in xs]
         out["candidates"] = list(out["candidate_records"])
 
         for item in reversed(items):
@@ -292,9 +292,9 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
 
         try:
             out["candidate_counts"] = Counter(
-                cand.get("xj")
+                cand.get("x_step")
                 for cand in out["candidate_records"]
-                if isinstance(cand, dict) and cand.get("xj") is not None
+                if isinstance(cand, dict) and cand.get("x_step") is not None
             )
         except Exception:
             out["candidate_counts"] = Counter()
@@ -307,7 +307,7 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
     out["raw_mumford_residues"] = result
     out["candidate_xs"] = set(xs)
     out["found_xs"] = set(xs)
-    out["candidate_records"] = [{"xj": x, "source": "scalar_fallback"} for x in xs]
+    out["candidate_records"] = [{"x_step": x, "source": "scalar_fallback"} for x in xs]
     out["candidates"] = list(out["candidate_records"])
 
     try:
@@ -354,7 +354,7 @@ def _solve_m_roots(step: Dict[str, Any]) -> List[Any]:
 
 
 def _get_S_of_m_for_rec(rec) -> Optional[Any]:
-    """Return the S(m) symbolic rational function for the xi of *rec*.
+    """Return the S(m) symbolic rational function for the x_src of *rec*.
 
     Priority order (mirrors _emit_step_diagnostics):
     1. rec.step['S_of_m']  – stored by the search path on accepted steps
@@ -374,7 +374,7 @@ def _get_S_of_m_for_rec(rec) -> Optional[Any]:
 
 
 def _get_fiber_context_for_rec(rec):
-    """Return (fi, G_poly) for the xi of *rec*, or (None, None) if unavailable.
+    """Return (fi, G_poly) for the x_src of *rec*, or (None, None) if unavailable.
 
     fi is the symbolic fiber poly in x over Frac(Fp[m]).
     G_poly is the curve poly in x over Fp.
@@ -396,7 +396,7 @@ def _get_fiber_context_for_rec(rec):
 
 
 
-def _intersection_poly_from_step(step: Dict[str, Any], *, xj=None, xk=None):
+def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=None):
     """Best-effort access to a degree-5 intersection polynomial.
 
     Priority:
@@ -432,17 +432,17 @@ def _intersection_poly_from_step(step: Dict[str, Any], *, xj=None, xk=None):
         return None
 
     # 2a) exact-ish match first
-    if xj is not None or xk is not None:
+    if x_step is not None or x_res is not None:
         for cand in pools:
             if not isinstance(cand, dict):
                 continue
-            cand_xj = cand.get("xj")
-            cand_xk = cand.get("xk")
-            if xj is not None and cand_xj == xj:
+            cand_xj = cand.get("x_step")
+            cand_xk = cand.get("x_res")
+            if x_step is not None and cand_xj == x_step:
                 poly = _cand_poly(cand)
                 if poly is not None:
                     return poly
-            if xk is not None and cand_xk == xk:
+            if x_res is not None and cand_xk == x_res:
                 poly = _cand_poly(cand)
                 if poly is not None:
                     return poly
@@ -456,14 +456,14 @@ def _intersection_poly_from_step(step: Dict[str, Any], *, xj=None, xk=None):
     return None
 
 
-def _derive_relation_from_intersection_poly(step: Dict[str, Any], xi):
+def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
     """
-    Return (xj, xk, xi_mult, poly) derived only from the intersection polynomial.
+    Return (x_step, x_res, src_mult, poly) derived only from the intersection polynomial.
 
-    This is the only place xj/xk/xi_mult should be trusted from.
+    This is the only place x_step/x_res/src_mult should be trusted from.
     """
     poly = _intersection_poly_from_step(step)
-    #poly = self._intersection_poly_from_step(poly_src, xj=chosen.get("xj"), xk=chosen.get("xk"))
+    #poly = self._intersection_poly_from_step(poly_src, x_step=chosen.get("x_step"), x_res=chosen.get("x_res"))
     if poly is None:
         #assert None, "poly is missing, gang!"
         return None
@@ -486,42 +486,42 @@ def _derive_relation_from_intersection_poly(step: Dict[str, Any], xi):
         raise
         return None
 
-    xi_mult = 0
+    src_mult = 0
     leftovers = []
     for r, m in roots_wm:
-        if r == xi:
-            xi_mult += int(m)
+        if r == x_src:
+            src_mult += int(m)
         else:
             leftovers.extend([r] * int(m))
 
-    if xi_mult <= 0:
+    if src_mult <= 0:
         return None
 
     if not leftovers:
-        return None  # All roots are xi; no usable relation.
+        return None  # All roots are x_src; no usable relation.
 
-    # Dispatch on the number of non-xi roots.  No multiplicity pattern is
+    # Dispatch on the number of non-x_src roots.  No multiplicity pattern is
     # assumed in advance — the actual root list drives the relation.
     if len(leftovers) == 1:
-        # Tangency: one non-xi root.  Fold one copy of xi into the xk slot
-        # so that xk==xi and xi_mult is decremented by one.  The relation
-        # matrix adds +1 to the xi column for xk, giving the right total.
-        xj = leftovers[0]
-        xk = xi
-        xi_mult -= 1
+        # Tangency: one non-x_src root.  Fold one copy of x_src into the x_res slot
+        # so that x_res==x_src and src_mult is decremented by one.  The relation
+        # matrix adds +1 to the x_src column for x_res, giving the right total.
+        x_step = leftovers[0]
+        x_res = x_src
+        src_mult -= 1
         extra_roots = []
     elif len(leftovers) == 2:
-        xj, xk = leftovers[0], leftovers[1]
+        x_step, x_res = leftovers[0], leftovers[1]
         extra_roots = []
     else:
-        # General case: 3+ non-xi roots (xi has lower-than-expected multiplicity).
-        # xj/xk carry the first two; extra_roots carries the remainder.
-        # Each extra root contributes +1 in the relation matrix, same as xj/xk.
-        xj = leftovers[0]
-        xk = leftovers[1]
+        # General case: 3+ non-x_src roots (x_src has lower-than-expected multiplicity).
+        # x_step/x_res carry the first two; extra_roots carries the remainder.
+        # Each extra root contributes +1 in the relation matrix, same as x_step/x_res.
+        x_step = leftovers[0]
+        x_res = leftovers[1]
         extra_roots = leftovers[2:]
 
-    return xj, xk, xi_mult, poly, extra_roots
+    return x_step, x_res, src_mult, poly, extra_roots
 
 
 def _jsonable(obj: Any):
@@ -544,16 +544,16 @@ def _jsonable(obj: Any):
     return str(obj)
 
 
-def _candidate_xj_from_m(base_ring, xi, m_val):
-    return base_ring(xi) - base_ring(m_val)
+def _candidate_xj_from_m(base_ring, x_src, m_val):
+    return base_ring(x_src) - base_ring(m_val)
 
 
 def _score_candidate_record(score_fn, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
     if score_fn is None:
         return 0.0
-    xj = candidate.get("xj")
+    x_step = candidate.get("x_step")
     # Raises on failure instead of silently returning 0.0
-    return float(score_fn(xj, context | {"candidate": candidate}))
+    return float(score_fn(x_step, context | {"candidate": candidate}))
 
 def _score_candidate(score_fn, candidate_x, context: Dict[str, Any]) -> float:
     if score_fn is None:

@@ -28,12 +28,12 @@ def make_project_markov_search_fn(
     num_workers = 20
     all_found_x = set()
 
-    def search_fn(xi=None, current_x=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
+    def search_fn(x_src=None, current_x=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
         yfun = get_y_unshifted_genus2
         if current_point is not None and isinstance(current_point, (tuple, list)) and len(current_point) >= 2:
             x_here, y_here = current_point[0], current_point[1]
         else:
-            x_here = xi if xi is not None else current_x
+            x_here = x_src if x_src is not None else current_x
             y_here = None
             if walker is not None and hasattr(walker, 'current_y'):
                 y_here = walker.current_y
@@ -89,7 +89,7 @@ def make_project_markov_search_fn(
             if sign_records:
                 norm['candidate_records'] = sign_records
                 norm['candidates'] = sign_records
-                norm['candidate_xs'] = {r['xj'] for r in sign_records}
+                norm['candidate_xs'] = {r['x_step'] for r in sign_records}
 
         # Fertility: fraction of n-values (vecs) that had at least one F_p root across any prime.
         # precomputed_residues[p] is keyed only by v_tuples that had roots, so union of keys = fertile set.
@@ -129,11 +129,11 @@ def make_project_markov_search_fn(
             norm['n_total'] = len(vecs) if vecs else None
             norm['total_roots'] = None
 
-        # Grab ingredients for xk computation.
+        # Grab ingredients for x_res computation.
         # f_i is in R_xm = PolynomialRing(Frac(GF(p)['m']), 'x') — poly in x with rational-function-in-m coefficients.
         # shifted_G_poly is the curve poly in x over GF(p).
         # At a specific m_val: evaluate each coeff of f_i at m=m_val -> univariate poly in x over GF(p).
-        # Then G(x) - f_i(x, m_val) = 0 has roots xi(x3), xj, xk.
+        # Then G(x) - f_i(x, m_val) = 0 has roots x_src(x3), x_step, x_res.
         _G_poly = ctx.get('shifted_G_poly')
         _tower = ctx.get('primary_tower')
         _fi = None
@@ -145,10 +145,10 @@ def make_project_markov_search_fn(
         # Curve degree from project globals, defaulting to 5.
         _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
 
-        # enrich_candidates handles: degenerate-xj skip, m recovery, xk computation
-        # via compute_xk_from_fiber, yk_sign computation from v(xk), yj_sign/yk_sign
-        # defaults, and xk_head injection with roles swapped.  It replaces the old
-        # inline loop which computed xk but never computed yk_sign.
+        # enrich_candidates handles: degenerate-x_step skip, m recovery, x_res computation
+        # via compute_xk_from_fiber, yk_sign computation from v(x_res), yj_sign/yk_sign
+        # defaults, and x_res_head injection with roles swapped.  It replaces the old
+        # inline loop which computed x_res but never computed yk_sign.
         enriched_candidates = enrich_candidates(
             norm,
             x_here=x_here,
@@ -164,7 +164,7 @@ def make_project_markov_search_fn(
         )
 
         # Attach S_of_m and inter_sym to every record while the tower context is
-        # still available.  This is a fibration property of xi (not of any xj), so
+        # still available.  This is a fibration property of x_src (not of any x_step), so
         # we compute once and stamp it on all records.
         if _fi is not None and _G_poly is not None:
             _S_of_m_rec, _inter_sym_rec = compute_S_of_m(_fi, _G_poly, _curve_degree)
@@ -172,23 +172,23 @@ def make_project_markov_search_fn(
                 if isinstance(rec, dict):
                     rec.setdefault('S_of_m', _S_of_m_rec)
                     rec.setdefault('inter_sym', _inter_sym_rec)
-        # candidate_xs is the set of xj values derived from actual m-roots only.
-        # xk_head records must be excluded here so the leaf-tracking in
+        # candidate_xs is the set of x_step values derived from actual m-roots only.
+        # x_res_head records must be excluded here so the leaf-tracking in
         # _step_from_candidate_search can separate xj_set (m-root derived) from
-        # xk_set (Vieta derived).  xk_head entries are still in enriched_candidates
+        # xk_set (Vieta derived).  x_res_head entries are still in enriched_candidates
         # and eligible for the Metropolis chooser.
         candidate_xs = {
-            c.get('xj') for c in enriched_candidates
+            c.get('x_step') for c in enriched_candidates
             if isinstance(c, dict)
-            and c.get('xj') is not None
-            and c.get('source') != 'xk_head'
+            and c.get('x_step') is not None
+            and c.get('source') != 'x_res_head'
         }
 
         # Dead-end reason classification — emitted into the result dict so the
         # walker can log *why* a step produced no candidates rather than silently
         # restarting.  Distinguishes failure modes:
         #   no_roots    — Mumford search found zero F_p roots for all vecs
-        #   torsion     — roots found but all equal xi (xi is torsion / Weierstrass pt)
+        #   torsion     — roots found but all equal x_src (x_src is torsion / Weierstrass pt)
         #   ok          — candidates available
         # Note: all_inf_xk is no longer a reachable case — compute_xk_from_fiber now
         # raises AssertionError on a fiber pole rather than returning "∞".
@@ -198,8 +198,8 @@ def make_project_markov_search_fn(
             if not raw_candidate_records:
                 _dead_end_reason = 'no_roots'
             else:
-                xjs = [r.get('xj') for r in raw_candidate_records if isinstance(r, dict)]
-                xjs_nondegenerate = [xj for xj in xjs if xj is not None and xj != x_here]
+                xjs = [r.get('x_step') for r in raw_candidate_records if isinstance(r, dict)]
+                xjs_nondegenerate = [x_step for x_step in xjs if x_step is not None and x_step != x_here]
                 if not xjs_nondegenerate:
                     _dead_end_reason = 'torsion'
                 else:
@@ -207,11 +207,11 @@ def make_project_markov_search_fn(
 
         # Deferred fertility fallback: if precomputed_residues wasn't available, use
         # the m-root-derived candidate count as a lower-bound proxy.
-        # Do NOT include xk_head records in this count — they are not m-roots.
+        # Do NOT include x_res_head records in this count — they are not m-roots.
         if norm.get('n_with_roots') is None and vecs:
             n_mroot_cands = sum(
                 1 for c in enriched_candidates
-                if isinstance(c, dict) and c.get('source') != 'xk_head'
+                if isinstance(c, dict) and c.get('source') != 'x_res_head'
             )
             if n_mroot_cands > 0:
                 norm['n_with_roots'] = min(n_mroot_cands, len(vecs))
@@ -220,18 +220,18 @@ def make_project_markov_search_fn(
                 norm['per_n_roots'] = {}  # per-vec provenance not available without precomputed_residues
 
         n_xk_head = sum(1 for c in enriched_candidates
-                        if isinstance(c, dict) and c.get('source') == 'xk_head')
+                        if isinstance(c, dict) and c.get('source') == 'x_res_head')
 
         S_of_m_step, _ = compute_S_of_m(_fi, _G_poly, _curve_degree) if _fi is not None else (None, None)
         result = {
             'candidates': enriched_candidates,
             'candidate_records': enriched_candidates,
-            'candidate_xs': candidate_xs,       # xj-only (m-root derived), for leaf tracking
-            'n_xk_head': n_xk_head,             # how many xk_head alternatives were injected
+            'candidate_xs': candidate_xs,       # x_step-only (m-root derived), for leaf tracking
+            'n_xk_head': n_xk_head,             # how many x_res_head alternatives were injected
             'stats': norm.get('stats', None),
             'found_xs': norm.get('found_xs', set()),
             'input_n': n0,
-            'S_of_m': S_of_m_step,   # fibration property of this xi, not of any xj
+            'S_of_m': S_of_m_step,   # fibration property of this x_src, not of any x_step
             'fi': _fi,               # symbolic fiber poly in x over Frac(Fp[m]); needed for synthetic injection
             'G_poly': _G_poly,       # curve poly in x over Fp; needed for synthetic injection
             'vecs': vecs,
@@ -269,7 +269,7 @@ def _run_markov_mumford_search_for_point(
     """Call the legacy Mumford search and normalize the result for Markov use.
 
     The important thing here is to keep the raw payload available, because the
-    smarter chooser wants provenance such as which n/vector produced each xj.
+    smarter chooser wants provenance such as which n/vector produced each x_step.
     """
     raw = run_mumford_search(
         cd, current_sections, prime_pool, vecs, rhs_list, shift,

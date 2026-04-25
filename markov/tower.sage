@@ -726,17 +726,17 @@ def _interpolate_Q_finite_field(curve_poly, pts, deg_Q, p):
     rows = []
     rhs = []
 
-    # Value constraints: Q(xi) = yi
-    for xi, yi in pts:
-        xi_f, yi_f = F(xi), F(yi)
+    # Value constraints: Q(x_src) = yi
+    for x_src, yi in pts:
+        xi_f, yi_f = F(x_src), F(yi)
         rows.append([xi_f**i for i in range(ncoeff)])
         rhs.append(yi_f)
 
-    # Derivative constraints: 2 * yi * Q'(xi) = f'(xi)
+    # Derivative constraints: 2 * yi * Q'(x_src) = f'(x_src)
     f_deriv = f_poly.derivative()
     deriv_rows = []
-    for xi, yi in pts:
-        xi_f, yi_f = F(xi), F(yi)
+    for x_src, yi in pts:
+        xi_f, yi_f = F(x_src), F(yi)
         coeff_2yi = 2 * yi_f
         # Row for Q'(x) coefficients: [0, 1, 2*x, 3*x^2, ...]
         row = [F(0)] + [coeff_2yi * i * (xi_f**(i-1)) for i in range(1, ncoeff)]
@@ -748,7 +748,7 @@ def _interpolate_Q_finite_field(curve_poly, pts, deg_Q, p):
             raise RuntimeError(f"Underdetermined system: need {ncoeff} constraints, have {len(rows) + len(deriv_rows)}.")
         for i in range(num_needed):
             rows.append(deriv_rows[i])
-            # Match the derivative constraint to the corresponding point's f'(xi)
+            # Match the derivative constraint to the corresponding point's f'(x_src)
             rhs.append(f_deriv(F(pts[i][0])))
 
     A = Matrix(F, rows)
@@ -1110,8 +1110,8 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
             raise RuntimeError("Could not coerce Qpoly_field into R_xm")
 
     prod_Fm = R_xm(1)
-    for xi in xs_chosen:
-        prod_Fm *= (x_var - Fm(base_field(xi)))
+    for x_src in xs_chosen:
+        prod_Fm *= (x_var - Fm(base_field(x_src)))
 
     deg_prod = int(prod_Fm.degree())
     rest_deg = int(n - 1 - deg_prod)
@@ -1608,12 +1608,12 @@ def choose_degQ(n):
 
 @PROFILE
 def poly_prod_numeric(xs, x_sym):
-    """Build (x - x1)(x - x2)... with numeric xi (QQ) substituted into SR."""
+    """Build (x - x1)(x - x2)... with numeric x_src (QQ) substituted into SR."""
     assert xs, "poly_prod_numeric: empty xs list"
 
     prod = SR(1)
-    for xi in xs:
-        prod *= (x_sym - SR(QQ(xi)))
+    for x_src in xs:
+        prod *= (x_sym - SR(QQ(x_src)))
 
     result = prod.expand()
 
@@ -1736,7 +1736,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
             xi_f = F(xi_val)
             yi_f = F(yi_val)
         except Exception as e:
-            raise RuntimeError(f"compute_implicit_derivative: cannot coerce xi={xi_val}, yi={yi_val} to GF({p}): {e}")
+            raise RuntimeError(f"compute_implicit_derivative: cannot coerce x_src={xi_val}, yi={yi_val} to GF({p}): {e}")
 
         if order == 0:
             Q0 = Q_derivs[0]
@@ -1746,11 +1746,11 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
                 q_at_xi = Q0.subs({x_sym: xi_f})
 
             constraint = (q_at_xi == yi_f)
-            #print(f"[compute_implicit_constraint] FF mode: order=0 constraint at xi={xi_f}")
+            #print(f"[compute_implicit_constraint] FF mode: order=0 constraint at x_src={xi_f}")
             sys.stdout.flush()
             return constraint
 
-        # order >= 1: Hasse derivative vanishes at xi
+        # order >= 1: Hasse derivative vanishes at x_src
         Qk = Q_derivs[order]
         try:
             qk_at_xi = Qk(xi_f)
@@ -1758,7 +1758,7 @@ def compute_implicit_derivative_constraint(order, xi_val, yi_val, f_derivs, Q_de
             qk_at_xi = Qk.subs({x_sym: xi_f})
 
         constraint = (qk_at_xi == 0)
-        #print(f"[compute_implicit_constraint] FF mode: order={order} Hasse constraint at xi={xi_f}")
+        #print(f"[compute_implicit_constraint] FF mode: order={order} Hasse constraint at x_src={xi_f}")
         sys.stdout.flush()
         return constraint
 
@@ -1920,8 +1920,8 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
         mandatory_constraints = []
         derivative_pool = []
 
-        for xi, yi in pts_xy:
-            xi_sr = SR(xi)
+        for x_src, yi in pts_xy:
+            xi_sr = SR(x_src)
             yi_sr = SR(yi)
 
             mandatory_constraints.append(Q_derivs[0].subs({x_sym: xi_sr}) == yi_sr)
@@ -1959,11 +1959,11 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
         Qx = R(solved_coeffs)
 
         # Dual computation check: verify at all input points
-        for xi, yi in pts_xy:
-            eval_result = Qx(xi)
+        for x_src, yi in pts_xy:
+            eval_result = Qx(x_src)
             yi_qq = QQ(yi)
             assert eval_result == yi_qq, \
-                f"interpolate_Q_general: verification failed at x={xi}: Q(x)={eval_result} != y={yi_qq}"
+                f"interpolate_Q_general: verification failed at x={x_src}: Q(x)={eval_result} != y={yi_qq}"
 
         #print(f"[interpolate_Q_general] QQ mode: verified Q at {len(pts_xy)} points")
         sys.stdout.flush()
@@ -1975,24 +1975,24 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
     F = GF(p)
     max_order = min(5, degQ)
 
-    pts_f = [(F(xi), F(yi)) for xi, yi in pts_xy]
+    pts_f = [(F(x_src), F(yi)) for x_src, yi in pts_xy]
 
     rows = []
     rhs = []
 
     # Mandatory value constraints
-    for xi, yi in pts_f:
+    for x_src, yi in pts_f:
         row = [F(0)] * ncoeff
         xi_pow = F(1)
         for i in range(ncoeff):
             row[i] = xi_pow
-            xi_pow = xi_pow * xi
+            xi_pow = xi_pow * x_src
         rows.append(row)
         rhs.append(yi)
 
     # Derivative constraints pool
     deriv_rows = []
-    for xi, yi in pts_f:
+    for x_src, yi in pts_f:
         for k in range(1, max_order + 1):
             if k > degQ:
                 break
@@ -2002,7 +2002,7 @@ def interpolate_Q_general(pts_xy, f_expr, degQ, x_sym, seed_int=SEED_INT, force_
                 i = j + k
                 b = F(_int_binom(i, k))
                 row[i] = b * xi_pow
-                xi_pow = xi_pow * xi
+                xi_pow = xi_pow * x_src
             deriv_rows.append(row)
 
     num_mand = len(rows)
@@ -2125,20 +2125,20 @@ def interpolate_Q_with_anchors(base_pts, degQ, x_sym, anchor_pts, seed_int=SEED_
     xgen = R.gen()
 
     Qx = R(0)
-    for i, (xi, yi) in enumerate(zip(xs, ys)):
+    for i, (x_src, yi) in enumerate(zip(xs, ys)):
         Li = R(1)
-        for j, xj in enumerate(xs):
+        for j, x_step in enumerate(xs):
             if i != j:
-                denom = xi - xj
+                denom = x_src - x_step
                 if denom == 0:
                     raise RuntimeError(f"interpolate_Q_with_anchors: duplicate x-coordinates: {xs}")
-                Li *= (xgen - xj) / denom
+                Li *= (xgen - x_step) / denom
         Qx += yi * Li
 
     # Dual check: verify at all points
-    for xi, yi in zip(xs, ys):
-        eval_result = Qx(xi)
-        assert eval_result == yi,             f"interpolate_Q_with_anchors: verification failed at x={xi}: Q(x)={eval_result} != y={yi}"
+    for x_src, yi in zip(xs, ys):
+        eval_result = Qx(x_src)
+        assert eval_result == yi,             f"interpolate_Q_with_anchors: verification failed at x={x_src}: Q(x)={eval_result} != y={yi}"
 
     sys.stdout.flush()
 
@@ -2506,13 +2506,13 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
             f"iterate_tower (FF): fx_PR base ring {poly_base} != GF({p})"
 
         # Verify points are in correct field
-        for i, (xi, yi) in enumerate(pts_xy):
+        for i, (x_src, yi) in enumerate(pts_xy):
             try:
-                xi_f = F(xi)
+                xi_f = F(x_src)
                 yi_f = F(yi)
             except Exception as e:
                 raise RuntimeError(
-                    f"iterate_tower (FF): point {i} ({xi},{yi}) cannot coerce to GF({p}): {e}"
+                    f"iterate_tower (FF): point {i} ({x_src},{yi}) cannot coerce to GF({p}): {e}"
                 )
 
         current_fx = fx_PR
@@ -2617,13 +2617,13 @@ def iterate_tower(fx_PR, pts_xy, max_steps=3, seed_int=SEED_INT, verbose=DEBUG, 
             raise RuntimeError(f"iterate_tower (QQ): cannot convert fx_PR to SR: {e}")
 
         # Verify points are rational
-        for i, (xi, yi) in enumerate(pts_xy):
+        for i, (x_src, yi) in enumerate(pts_xy):
             try:
-                xi_qq = QQ(xi)
+                xi_qq = QQ(x_src)
                 yi_qq = QQ(yi)
             except Exception as e:
                 raise RuntimeError(
-                    f"iterate_tower (QQ): point {i} ({xi},{yi}) not rational: {e}"
+                    f"iterate_tower (QQ): point {i} ({x_src},{yi}) not rational: {e}"
                 )
 
         m_parameter = None  # Will be set from first step

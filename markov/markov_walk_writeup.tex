@@ -534,8 +534,8 @@ genus2_markov_module.py
  -> constructs Genus2MetropolisWalker
  -> walker.run(500)
     for each step:
-      search_fn(xi)  ->  candidate pool (xj, xk, m, source, S_of_m)
-      Metropolis select xj
+      search_fn(x_src)  ->  candidate pool (x_step, x_res, m, source, S_of_m)
+      Metropolis select x_step
       _store_record(rec)
         -> mat_chain.ingest(rec)
         -> mat_graph.ingest(rec)

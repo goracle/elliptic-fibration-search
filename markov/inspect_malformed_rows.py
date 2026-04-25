@@ -108,10 +108,10 @@ def analyse(path, curve_degree=5, max_bad=50):
         nnz_counts[int(np.count_nonzero(row))] += 1
     print(f"\nnnz distribution of bad rows: {dict(sorted(nnz_counts.items()))}")
     if nnz_counts.get(2, 0):
-        print("  → nnz=2 rows are missing one atom term (xk dropped or xj dropped).")
+        print("  → nnz=2 rows are missing one atom term (x_res dropped or x_step dropped).")
     if nnz_counts.get(3, 0):
         print("  → nnz=3 rows have all three positions but wrong coefficient "
-              "(e.g. xi_mult wrong, or xk==xi caused xi to absorb the +1).")
+              "(e.g. src_mult wrong, or x_res==x_src caused x_src to absorb the +1).")
 
     # Check: are all bad rows also valid-looking except for missing ∞?
     if col_inf >= 0:

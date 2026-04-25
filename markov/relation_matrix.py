@@ -11,17 +11,17 @@ compute its rank.
 
 Each accepted step produces a principal divisor relation of the form
 
-    (d-2)·[xi] + [xj] + [xk] - d·[∞] = 0          (curve degree d, default 5)
+    (d-2)·[x_src] + [x_step] + [x_res] - d·[∞] = 0          (curve degree d, default 5)
 
 The columns of the matrix are the **d1 atoms**: the unique finite
-x-coordinates that appear in any role (xi / xj / xk) across the full set of
+x-coordinates that appear in any role (x_src / x_step / x_res) across the full set of
 accepted, complete relations.  The point at infinity is appended as the last
 column.
 
 Each row encodes one relation:
-    col[xi]  += (d - 2)*
-    col[xj]  += 1*
-    col[xk]  += 1*
+    col[x_src]  += (d - 2)*
+    col[x_step]  += 1*
+    col[x_res]  += 1*
     col[∞]   += -d
 *=not always
 
@@ -141,8 +141,8 @@ def build_relation_matrix2(
         if pool:
             for cand in pool:
                 if isinstance(cand, dict):
-                    # Added 'xk' so xk candidates are guaranteed columns
-                    for key in ("xj", "x", "candidate_x", "x_value", "xk"):
+                    # Added 'x_res' so x_res candidates are guaranteed columns
+                    for key in ("x_step", "x", "candidate_x", "x_value", "x_res"):
                         x = cand.get(key)
                         if x is not None:
                             yield x
@@ -151,15 +151,15 @@ def build_relation_matrix2(
 
         sel = _get(rec, "selected_candidate")
         if isinstance(sel, dict):
-            for key in ("xj", "x", "candidate_x", "x_value", "xk"):
+            for key in ("x_step", "x", "candidate_x", "x_value", "x_res"):
                 x = sel.get(key)
                 if x is not None:
                     yield x
 
     # Pass 1a: register atoms from ALL accepted non-involution records BEFORE filtering.
     #
-    # Involution/free records are excluded here too: their xj values are just
-    # T-images of existing walk atoms (xj<->xk swap), so they add no new columns.
+    # Involution/free records are excluded here too: their x_step values are just
+    # T-images of existing walk atoms (x_step<->x_res swap), so they add no new columns.
     # Excluding them keeps atom_index clean and the column count honest.
     for rec in history:
         if accepted_only and not _get(rec, "accepted"):
@@ -169,20 +169,20 @@ def build_relation_matrix2(
         if isinstance(step, dict) and step.get("source") == "involution_closure":
             continue
 
-        xi = _get(rec, "xi")
-        xj = _get(rec, "xj")
-        xk = _get(rec, "xk")
+        x_src = _get(rec, "x_src")
+        x_step = _get(rec, "x_step")
+        x_res = _get(rec, "x_res")
 
-        # Need at least one of xi/xj to be meaningful.
-        if xi is None and xj is None:
+        # Need at least one of x_src/x_step to be meaningful.
+        if x_src is None and x_step is None:
             continue
 
         # Register primary atoms unconditionally (no degenerate skip here).
-        for x in (xi, xj, xk):
+        for x in (x_src, x_step, x_res):
             if x is not None and x not in atom_index:
                 atom_index[x] = len(atom_index)
 
-        # Register any extra non-xi roots (3+ root fibers).
+        # Register any extra non-x_src roots (3+ root fibers).
         for x in (_get(rec, "extra_roots") or []):
             if x is not None and x not in atom_index:
                 atom_index[x] = len(atom_index)
@@ -194,8 +194,8 @@ def build_relation_matrix2(
 
     # Pass 1b: build used_records with full validity checks.
     # Involution/free records are excluded: they are proven algebraically identical
-    # to existing walk rows (the relation is symmetric in xj and xk, so T(xj)=xk
-    # just produces the same row with xj and xk swapped).  Including them adds
+    # to existing walk rows (the relation is symmetric in x_step and x_res, so T(x_step)=x_res
+    # just produces the same row with x_step and x_res swapped).  Including them adds
     # zero rank and pollutes the atom list with duplicate columns.
     for rec in history:
         if accepted_only and not _get(rec, "accepted"):
@@ -205,20 +205,20 @@ def build_relation_matrix2(
         if isinstance(step, dict) and step.get("source") == "involution_closure":
             continue
 
-        xi = _get(rec, "xi")
-        xj = _get(rec, "xj")
+        x_src = _get(rec, "x_src")
+        x_step = _get(rec, "x_step")
 
-        if xi is None or xj is None:
+        if x_src is None or x_step is None:
             continue
 
-        if xi == xj:
+        if x_src == x_step:
             skipped_degenerate += 1
             continue
 
         used_records.append(rec)
 
     if skipped_degenerate:
-        print(f"[relation_matrix] Skipped {skipped_degenerate} degenerate relations where xi == xj.")
+        print(f"[relation_matrix] Skipped {skipped_degenerate} degenerate relations where x_src == x_step.")
 
     if not used_records:
         print("[relation_matrix] No usable relations found in history.")
@@ -243,8 +243,8 @@ def build_relation_matrix2(
     n_involution_rows = 0
     for rec in used_records:
         rows_before_this_rec = len(rows)
-        xi = _get(rec, "xi")
-        if xi is None or xi not in atom_index:
+        x_src = _get(rec, "x_src")
+        if x_src is None or x_src not in atom_index:
             continue
 
         # ── Primary record: emit row directly from rec.atoms (canonical flat list) ──
@@ -255,7 +255,7 @@ def build_relation_matrix2(
                     f"[relation_matrix] degree invariant violated at "
                     f"step={_get(rec, 'step_index')}: "
                     f"len(atoms)={len(_primary_atoms)} != curve_degree={curve_degree} "
-                    f"(xi={xi!r})"
+                    f"(x_src={x_src!r})"
                 )
             _cnt = Counter(_primary_atoms)
             primary_row = [0] * n_cols
@@ -263,7 +263,7 @@ def build_relation_matrix2(
                 if _atom not in atom_index:
                     raise AssertionError(
                         f"[relation_matrix] BUG: atom={_atom!r} from rec.atoms "
-                        f"not in atom_index (xi={xi!r}).  Pass-1a missed it."
+                        f"not in atom_index (x_src={x_src!r}).  Pass-1a missed it."
                     )
                 primary_row[atom_index[_atom]] += _c
             if inf_col is not None:
@@ -272,14 +272,14 @@ def build_relation_matrix2(
             if _row_sum != 0:
                 raise AssertionError(
                     f"[relation_matrix] sum-to-zero violated: sum={_row_sum} "
-                    f"atoms={_primary_atoms}  xi={xi!r}"
+                    f"atoms={_primary_atoms}  x_src={x_src!r}"
                 )
             rows.append(primary_row)
 
-        # ── Pool candidates (step leaves): build rows from xj/xk/xi_mult ──
-        # Pool candidates are raw search dicts; they carry xi_mult from the fiber
-        # but no atoms list.  We reconstruct the row from xj/xk/extra_roots and
-        # the candidate's own xi_mult.  Signs (yj_sign/yk_sign) are ignored here —
+        # ── Pool candidates (step leaves): build rows from x_step/x_res/src_mult ──
+        # Pool candidates are raw search dicts; they carry src_mult from the fiber
+        # but no atoms list.  We reconstruct the row from x_step/x_res/extra_roots and
+        # the candidate's own src_mult.  Signs (yj_sign/yk_sign) are ignored here —
         # the matrix cares only about x-coordinates (atom indices).
         if include_step_leaves:
             pool = _get(rec, "candidate_pool")
@@ -287,16 +287,16 @@ def build_relation_matrix2(
                 seen_pairs: set = set()
                 for cand in pool:
                     if isinstance(cand, dict):
-                        c_xj = next((cand[k] for k in ("xj", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
-                        c_xk = cand.get("xk")
+                        c_xj = next((cand[k] for k in ("x_step", "x", "candidate_x", "x_value") if k in cand and cand[k] is not None), None)
+                        c_xk = cand.get("x_res")
                         c_extra = list(cand.get("extra_roots") or [])
-                        c_xi_mult = int(cand.get("xi_mult", -1))
+                        c_xi_mult = int(cand.get("src_mult", -1))
                     elif cand is not None:
                         c_xj, c_xk, c_extra, c_xi_mult = cand, None, [], -1
                     else:
                         continue
 
-                    if c_xj is None or c_xj == xi:
+                    if c_xj is None or c_xj == x_src:
                         continue
                     if require_xk and c_xk is None:
                         continue
@@ -317,7 +317,7 @@ def build_relation_matrix2(
                     seen_pairs.add(pair_key)
 
                     row = [0] * n_cols
-                    row[atom_index[xi]] += c_xi_mult
+                    row[atom_index[x_src]] += c_xi_mult
                     row[atom_index[c_xj]] += 1
                     if c_xk is not None and c_xk in atom_index:
                         row[atom_index[c_xk]] += 1
@@ -371,8 +371,8 @@ def print_relation_matrix_summary(
         if pool:
             for cand in pool:
                 if isinstance(cand, dict):
-                    # Added 'xk' to summary tracker
-                    for key in ("xj", "x", "candidate_x", "x_value", "xk"):
+                    # Added 'x_res' to summary tracker
+                    for key in ("x_step", "x", "candidate_x", "x_value", "x_res"):
                         x = cand.get(key)
                         if x is not None:
                             step_leaf_atoms.add(x)
@@ -449,20 +449,20 @@ def print_nullity_report(mat, atoms, *, fp_prime=2**31 - 1):
     print(f"  Rank              : {report['rank']}")
     print(f"  Nullity (total)   : {report['nullity']}")
     print(f"  ∞ contribution    : {1 if report['inf_atom_in_null'] else 0}  (irreducible)")
-    print(f"  Dest-only atoms   : {len(report['dest_only_atoms'])}  (each needs one xi-step through it)")
+    print(f"  Dest-only atoms   : {len(report['dest_only_atoms'])}  (each needs one x_src-step through it)")
     print(f"  Residual nullity  : {report['residual_nullity']}  (disconnected components?)")
     print()
 
     if report["dest_only_atoms"]:
         print("  Dest-only atoms (restart walker from these):")
         for a in report["dest_only_atoms"]:
-            print(f"    xi = {a}")
+            print(f"    x_src = {a}")
 
     if report["residual_nullity"] > 0:
         print(f"\n  Residual bottleneck atoms:")
         for b in bottlenecks:
             if b["reason"] == "residual":
-                print(f"    xi = {b['atom']}  ({b['col_nnz']} relations)  — {b['action']}")
+                print(f"    x_src = {b['atom']}  ({b['col_nnz']} relations)  — {b['action']}")
 
     print("=" * 70 + "\n")
     return bottlenecks, report

@@ -797,11 +797,11 @@ def main(argv=None):
 
     # --- Repair tangent rows (coeff sum == -1) ---
     # A valid relation has integer coefficient sum zero.  Rows with sum=-1
-    # are tangent relations where xk==xi: the walker found a tangency so the
-    # xi root has multiplicity (d-2)+1 = d-1, but the HDF5 was written before
-    # relation_matrix.py folded the coincident xk into xi's coefficient.
-    # Pattern: one finite atom has coeff 3 (xi), one has coeff 1 (xj),
-    # ∞ has coeff -5; fixing xi to 4 restores sum=0.
+    # are tangent relations where x_res==x_src: the walker found a tangency so the
+    # x_src root has multiplicity (d-2)+1 = d-1, but the HDF5 was written before
+    # relation_matrix.py folded the coincident x_res into x_src's coefficient.
+    # Pattern: one finite atom has coeff 3 (x_src), one has coeff 1 (x_step),
+    # ∞ has coeff -5; fixing x_src to 4 restores sum=0.
     # Rows with any other nonzero sum are genuinely corrupt — drop those.
     # Build a mutable row list so we can patch individual entries.
     _ncols     = M_ZZ.ncols()
@@ -831,7 +831,7 @@ def main(argv=None):
     M_ZZ = Matrix(ZZ, [row for r, row in enumerate(_rows_list) if r not in _malformed_set])
 
     if _repaired:
-        _log(f"[filter] repaired {len(_repaired)} tangent row(s) (xk==xi, xi coeff 3→4): "
+        _log(f"[filter] repaired {len(_repaired)} tangent row(s) (x_res==x_src, x_src coeff 3→4): "
              f"{_repaired[:16]}" + (" ..." if len(_repaired) > 16 else ""))
     if _malformed:
         _log(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum ≠ 0, not repairable): "
@@ -1077,7 +1077,7 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
     for name, col in [("gen0", p_col_gen0), ("gen1", p_col_gen1),
                       ("tgt0", p_col_tgt0), ("tgt1", p_col_tgt1)]:
         if col is None:
-            _log(f"  ⚠  {name} pruned away — it was dest-only (never appeared as xi).")
+            _log(f"  ⚠  {name} pruned away — it was dest-only (never appeared as x_src).")
 
     n_rows = M_pruned.nrows()
     n_cols = M_pruned.ncols()
@@ -1213,7 +1213,7 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
             if len(fb_partial_bad) > 30:
                 _log(f"    ... and {len(fb_partial_bad) - 30} more rows")
             _log("\n     -> These rows contradict the known key regardless of fb atom values.")
-            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or bad relation.")
+            _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or bad relation.")
 
         if true_failures:
             _log(f"\n  ✗  {len(true_failures)} row(s) fail on assigned atoms only -- genuine contradiction:")
@@ -1224,7 +1224,7 @@ def check_homogeneous(M_ZZ, atoms: list, aidx: dict, group_order: int,
             if len(true_failures) > 30:
                 _log(f"    ... and {len(true_failures) - 30} more rows")
             _log("\n     -> The walk data itself contradicts the known key.")
-            _log("        Likely cause: wrong xi multiplicity, wrong inf sign, or a bad")
+            _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or a bad")
             _log("        involution-closure row in the relation matrix.")
 
         if not true_failures and not fb_partial_bad:

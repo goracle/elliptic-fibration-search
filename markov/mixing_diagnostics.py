@@ -56,7 +56,7 @@ def print_mixing_report(walker, label: str = "") -> None:
         walker.global_leaves_seen
         walker.collision_log       -- list of (step_idx, outer_n, vol, count, xs)
         walker.history
-        walker.xi_visit_count
+        walker.x_src_visit_count
     """
 
     p = getattr(walker, "p", None) or FINITE_FIELD
@@ -143,8 +143,8 @@ def print_mixing_report(walker, label: str = "") -> None:
     print(f"  Regime               : {regime}")
 
     # --- revisit distribution ---
-    print(f"\n  -- Revisit distribution (xi_visit_count) --")
-    vc = walker.xi_visit_count
+    print(f"\n  -- Revisit distribution (x_src_visit_count) --")
+    vc = walker.x_src_visit_count
     if vc:
         counts = list(vc.values())
         n_visited_once = sum(1 for c in counts if c == 1)
@@ -152,12 +152,12 @@ def print_mixing_report(walker, label: str = "") -> None:
         n_visited_5plus = sum(1 for c in counts if c >= 5)
         max_visits = max(counts)
         mean_visits = statistics.mean(counts)
-        print(f"  Unique xi seen       : {len(vc)}")
+        print(f"  Unique x_src seen       : {len(vc)}")
         print(f"  Visited once         : {n_visited_once}  ({n_visited_once/len(vc):.1%})")
         print(f"  Revisited (>=2)      : {n_visited_2plus}  ({n_visited_2plus/len(vc):.1%})")
         print(f"  Revisited (>=5)      : {n_visited_5plus}")
-        print(f"  Max visits to one xi : {max_visits}")
-        print(f"  Mean visits/xi       : {mean_visits:.2f}")
+        print(f"  Max visits to one x_src : {max_visits}")
+        print(f"  Mean visits/x_src       : {mean_visits:.2f}")
         # mixing signal: revisit spacing
         if n_visited_2plus > 0:
             print(f"\n  Note: {n_visited_2plus} nodes revisited — chain is no longer a DAG.")

@@ -63,12 +63,12 @@ def enrich_candidates(
 
     candidates = norm.get("candidate_records", []) or norm.get("candidates", [])
     for cand in candidates:
-        rec = dict(cand) if isinstance(cand, dict) else {"xj": cand}
+        rec = dict(cand) if isinstance(cand, dict) else {"x_step": cand}
 
         m_val = rec.get("m")
         if m_val is None:
-            if RLINEAR and rec.get("xj") is not None:
-                m_val = Fp(x_here) - Fp(rec["xj"])
+            if RLINEAR and rec.get("x_step") is not None:
+                m_val = Fp(x_here) - Fp(rec["x_step"])
             else:
                 continue
 
@@ -127,13 +127,13 @@ def enrich_candidates(
             if r_fp == x_here_f_fp:
                 actual_xi_mult += mult
 
-                # Preserve the previous convention for excess xi multiplicity.
+                # Preserve the previous convention for excess x_src multiplicity.
                 if mult > (curve_degree - 2):
                     other_roots_f.extend([r_fp] * (mult - (curve_degree - 2)))
             else:
                 other_roots_f.extend([r_fp] * mult)
 
-        # Step 5: require exactly two non-xi roots in GF(p).
+        # Step 5: require exactly two non-x_src roots in GF(p).
         if len(other_roots_f) != 2:
             continue
 
@@ -179,35 +179,35 @@ def enrich_candidates(
         xj_val, xk_val = xj_f, xk_f
         # Step 9: pack the record.
         new_rec = {
-            "xi": x_here,
+            "x_src": x_here,
             "yi": y_here,
-            "xj": xj_val,
-            "xk": xk_val,
+            "x_step": xj_val,
+            "x_res": xk_val,
             "yj_sign": yj_sign,
             "yk_sign": yk_sign,
             "m": m_val_fp,
             "input_n": n0,
             "source": "pure_fiber_intersection",
-            "xi_mult": actual_xi_mult,
+            "src_mult": actual_xi_mult,
             "intersection_poly": intersection_poly,
             "shift": shift,
         }
         enriched.append(new_rec)
 
-        # Optional xk-head injection for RLINEAR.
+        # Optional x_res-head injection for RLINEAR.
         if RLINEAR and xk_val != x_here:
             try:
                 enriched.append({
-                    "xi": x_here,
+                    "x_src": x_here,
                     "yi": y_here,
-                    "xj": xk_val,
-                    "xk": xj_val,
+                    "x_step": xk_val,
+                    "x_res": xj_val,
                     "yj_sign": yk_sign,
                     "yk_sign": yj_sign,
                     "m": Fp(x_here) - Fp(xk_val),
                     "input_n": n0,
-                    "source": "xk_head",
-                    "xi_mult": actual_xi_mult,
+                    "source": "x_res_head",
+                    "src_mult": actual_xi_mult,
                     "intersection_poly": intersection_poly,
                     "shift": shift,
                 })

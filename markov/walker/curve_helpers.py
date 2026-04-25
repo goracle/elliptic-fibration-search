@@ -52,7 +52,7 @@ def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) 
         raise
 
     if isinstance(obj, dict):
-        for key in ('xj', 'x', 'x_val', 'xcoord', 'candidate_x', 'x_value'):
+        for key in ('x_step', 'x', 'x_val', 'xcoord', 'candidate_x', 'x_value'):
             if key in obj and obj[key] is not None:
                 out.append(obj[key])
         for value in obj.values():

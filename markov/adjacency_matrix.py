@@ -8,20 +8,20 @@ from typing import Any, Dict, List, Optional, Tuple
 Row-stochastic transition matrix for the genus-2 Markov walk.
 
 Two flavours are maintained in parallel:
-  - "chain" : transitions from accepted (xi -> xj) steps only.
-              One row per walked xi, column is the chosen xj.
+  - "chain" : transitions from accepted (x_src -> x_step) steps only.
+              One row per walked x_src, column is the chosen x_step.
               Path diagnostic only -- d~1 by construction.
-  - "graph" : one row per walked xi, uniform weight over the full L(xi)
+  - "graph" : one row per walked x_src, uniform weight over the full L(x_src)
               candidate pool.  This is the row-truncated average operator:
-              P(xi -> xj) = 1/|L(xi)| if xj in L(xi), else 0.
-              Rows are exact and deterministic (L(xi) is fixed by the curve
+              P(x_src -> x_step) = 1/|L(x_src)| if x_step in L(x_src), else 0.
+              Rows are exact and deterministic (L(x_src) is fixed by the curve
               arithmetic).  Spectral gap of the source-induced subgraph is
               the correct mixing-time diagnostic.
 
 Spectral gap
 ------------
 Computed via scipy.sparse.linalg.eigs on the source-induced sparse subgraph.
-Dest-only atoms (leaves never walked as xi) are excluded -- they have no
+Dest-only atoms (leaves never walked as x_src) are excluded -- they have no
 outgoing row in the true operator.
 
 Reporting cadence
@@ -77,9 +77,9 @@ class MarkovAdjacencyMatrix:
     label : str
         Short name printed in reports ("chain" or "graph").
     use_candidate_pool : bool
-        True  -> weight over the full candidate_pool (xj + xk of every
+        True  -> weight over the full candidate_pool (x_step + x_res of every
                  candidate record).  Good for spectral estimation.
-        False -> count only the accepted (xi -> xj) transition.
+        False -> count only the accepted (x_src -> x_step) transition.
     normalize_per_step : bool
         True  -> divide each step's leaf weights by the number of leaves
                  before accumulating, so every step contributes total weight 1
@@ -144,25 +144,25 @@ class MarkovAdjacencyMatrix:
         threshold check uses the walker's authoritative counter.
         """
         if isinstance(rec, dict):
-            xi       = rec.get("xi")
-            xj       = rec.get("xj")
+            x_src       = rec.get("x_src")
+            x_step       = rec.get("x_step")
             pool     = rec.get("candidate_pool") or []
             accepted = rec.get("accepted", True)
             restart  = rec.get("restart", False)
         else:
-            xi       = getattr(rec, "xi", None)
-            xj       = getattr(rec, "xj", None)
+            x_src       = getattr(rec, "x_src", None)
+            x_step       = getattr(rec, "x_step", None)
             pool     = getattr(rec, "candidate_pool", None) or []
             accepted = getattr(rec, "accepted", True)
             restart  = getattr(rec, "restart", False)
 
-        if xi is None:
+        if x_src is None:
             return
 
         if graph_collision_count is not None:
             self._collision_count = graph_collision_count
 
-        xi_int = _int_key(xi)
+        xi_int = _int_key(x_src)
 
         # ------ full-markov flavor ------
         # Every leaf x from the previous step points to the pool distribution
@@ -173,7 +173,7 @@ class MarkovAdjacencyMatrix:
             seen_this_step: set = set()
             for cand in pool:
                 if isinstance(cand, dict):
-                    for key in ("xj", "xk"):
+                    for key in ("x_step", "x_res"):
                         v = cand.get(key)
                         if v is not None:
                             v_int = _int_key(v)
@@ -181,9 +181,9 @@ class MarkovAdjacencyMatrix:
                                 leaves.append(v_int)
                                 seen_this_step.add(v_int)
         else:
-            # accepted-only (chain view): just the chosen xj
-            if accepted and not restart and xj is not None:
-                xj_int = _int_key(xj)
+            # accepted-only (chain view): just the chosen x_step
+            if accepted and not restart and x_step is not None:
+                xj_int = _int_key(x_step)
                 if xj_int != xi_int:
                     leaves.append(xj_int)
 
@@ -210,11 +210,11 @@ class MarkovAdjacencyMatrix:
     # ------------------------------------------------------------------
 
     def _source_atoms(self) -> List[Any]:
-        """Return the list of atoms that have appeared as xi (have outgoing edges).
+        """Return the list of atoms that have appeared as x_src (have outgoing edges).
 
         This is the meaningful subspace for spectral analysis.  Atoms that only
-        appear as destinations (xj/xk leaves) but have never been walked through
-        as xi contribute all-zero rows to the full matrix and pollute the
+        appear as destinations (x_step/x_res leaves) but have never been walked through
+        as x_src contribute all-zero rows to the full matrix and pollute the
         eigenvalue computation with spurious zero eigenvalues.
         """
         return [x for x in self._atoms if self._raw.get(x)]
@@ -330,7 +330,7 @@ class MarkovAdjacencyMatrix:
     def mean_out_degree(self) -> float:
         """Mean number of distinct destination atoms per source node.
 
-        For the chain matrix this is ~1 (one accepted xj per step).
+        For the chain matrix this is ~1 (one accepted x_step per step).
         For the graph matrix this is ~candidate_pool_size.
         The true mixing time scales as O(1 / (d * gap)) where d is this value,
         because a degree-d walk covers d times as much ground per step.
@@ -448,7 +448,7 @@ class MarkovAdjacencyMatrix:
         if self.use_candidate_pool:
             pool_note = "candidate-pool weighted"
         else:
-            pool_note = "chain (accepted xj only)"
+            pool_note = "chain (accepted x_step only)"
 
         # --- in-degree distribution ---
         in_deg: Dict[Any, int] = defaultdict(int)
@@ -513,7 +513,7 @@ class MarkovAdjacencyMatrix:
         if not is_mixing_estimator:
             lines.append(
                 f"|   [note] chain gap is a PATH diagnostic, not a mixing estimator.\n"
-                f"|          The chain has d~1 by construction (one accepted xj/step).\n"
+                f"|          The chain has d~1 by construction (one accepted x_step/step).\n"
                 f"|          Use the graph/full matrix for mixing-time inference."
             )
 

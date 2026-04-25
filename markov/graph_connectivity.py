@@ -1113,7 +1113,7 @@ def main():
     #
     # A valid principal-divisor relation has integer coefficients summing to 0.
     #
-    # sum == -1  ->  tangent relation (xk == xi): the dest atom xi had
+    # sum == -1  ->  tangent relation (x_res == x_src): the dest atom x_src had
     #   coefficient 3 written, but should be 4 (the tangency accounts for one
     #   extra copy of the root).  We find the unique finite atom with coeff 3
     #   and bump it to 4 to restore sum=0.  "Finite" means not the inf column.
@@ -1173,7 +1173,7 @@ def main():
     pnrows = len(_keep_rows)
 
     if _repaired:
-        print(f"[filter] repaired {len(_repaired)} tangent row(s) (xk==xi, xi coeff 3->4): "
+        print(f"[filter] repaired {len(_repaired)} tangent row(s) (x_res==x_src, x_src coeff 3->4): "
               f"{_repaired[:16]}" + (" ..." if len(_repaired) > 16 else ""))
     if _malformed:
         print(f"[filter] dropping {len(_malformed)} malformed row(s) (coeff sum != 0, not repairable): "
@@ -1203,7 +1203,7 @@ def main():
             if int(x) in excluded_xs:
                 print(f"  [warn] divisor x={x} was excluded as torsion/bad and will not be used.")
             else:
-                print(f"  [warn] divisor x={x} was pruned as dest-only — it never appeared as xi!")
+                print(f"  [warn] divisor x={x} was pruned as dest-only — it never appeared as x_src!")
         else:
             div_cols.append((int(x), c))
 

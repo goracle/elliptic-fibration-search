@@ -22,10 +22,10 @@ def enable_step_diagnostics(walker_class=None):
 
         print("\n" + "=" * 88)
         print(f"[DIAG] step={rec.step_index}  outer_n={rec.n}  accepted={rec.accepted}  restart={rec.restart}")
-        print(f"       xi={rec.xi}")
+        print(f"       x_src={rec.x_src}")
         print(f"       m ={rec.m}")
-        print(f"       xj={rec.xj}")
-        print(f"       xk={rec.xk}")
+        print(f"       x_step={rec.x_step}")
+        print(f"       x_res={rec.x_res}")
         print(f"       relation = {rec.relation}")
 
         # Show the m-roots if this step came from the direct step_factory path.
@@ -33,9 +33,9 @@ def enable_step_diagnostics(walker_class=None):
             try:
                 m_roots = self._solve_m_roots(step)
                 print(f"  m-roots ({len(m_roots)}): {m_roots}")
-                if rec.xi is not None:
-                    xj_from_m = [self._candidate_xj_from_m(rec.xi, m) for m in m_roots]
-                    print(f"  xj from xi - m: {xj_from_m}")
+                if rec.x_src is not None:
+                    xj_from_m = [self._candidate_xj_from_m(rec.x_src, m) for m in m_roots]
+                    print(f"  x_step from x_src - m: {xj_from_m}")
             except Exception as exc:
                 print(f"  m-root solve failed: {exc}")
                 raise
@@ -48,7 +48,7 @@ def enable_step_diagnostics(walker_class=None):
                 if isinstance(cand, dict):
                     print(
                         f"    cand[{i}] source={cand.get('source')} "
-                        f"m={cand.get('m')} xj={cand.get('xj')} xk={cand.get('xk')}"
+                        f"m={cand.get('m')} x_step={cand.get('x_step')} x_res={cand.get('x_res')}"
                     )
                 else:
                     print(f"    cand[{i}] {cand}")
@@ -57,7 +57,7 @@ def enable_step_diagnostics(walker_class=None):
 
         # Quartic-model intersection polynomial.
         #poly = self._intersection_poly_from_step(step)
-        poly = self._intersection_poly_from_step(poly_src, xj=chosen.get("xj"), xk=chosen.get("xk"))
+        poly = self._intersection_poly_from_step(poly_src, x_step=chosen.get("x_step"), x_res=chosen.get("x_res"))
         assert poly
         if poly is None:
             print("  intersection_poly: <none in step payload>")
@@ -76,9 +76,9 @@ def enable_step_diagnostics(walker_class=None):
             raise
 
         # Vieta on the quartic-model polynomial, not a Weierstrass a4.
-        # xi_mult is read from the record (set by _make_relation from the actual poly);
+        # src_mult is read from the record (set by _make_relation from the actual poly);
         # falling back to curve_degree-2 only when unavailable (e.g. old records).
-        if rec.xi is not None and rec.xj is not None:
+        if rec.x_src is not None and rec.x_step is not None:
             try:
                 lc = poly.leading_coefficient()
                 monic = poly / lc
@@ -87,25 +87,25 @@ def enable_step_diagnostics(walker_class=None):
                 a_d_minus_1 = coeffs[deg - 1] if deg - 1 < len(coeffs) else monic.parent().base_ring()(0)
                 total_root_sum = -a_d_minus_1
 
-                xi_mult = int(getattr(rec, 'xi_mult', -1) or -1)
-                if xi_mult <= 0:
-                    xi_mult = curve_degree - 2
+                src_mult = int(getattr(rec, 'src_mult', -1) or -1)
+                if src_mult <= 0:
+                    src_mult = curve_degree - 2
                 extra_roots_diag = list(getattr(rec, 'extra_roots', []) or [])
-                known_roots_list = [xi_mult * rec.xi, rec.xj] + extra_roots_diag
+                known_roots_list = [src_mult * rec.x_src, rec.x_step] + extra_roots_diag
                 known_sum = sum(known_roots_list)
-                xk_vieta = total_root_sum - (xi_mult * rec.xi + rec.xj + sum(extra_roots_diag))
+                xk_vieta = total_root_sum - (src_mult * rec.x_src + rec.x_step + sum(extra_roots_diag))
 
                 print(f"  monic sum-of-roots       = {total_root_sum}  (S evaluated at this m)")
-                print(f"  xi_mult (from record)    = {xi_mult}")
+                print(f"  src_mult (from record)    = {src_mult}")
                 if extra_roots_diag:
                     print(f"  extra_roots              = {extra_roots_diag}")
                 print(f"  known-root sum           = {known_sum}")
-                print(f"  Vieta-predicted xk       = {xk_vieta}")
+                print(f"  Vieta-predicted x_res       = {xk_vieta}")
 
-                if rec.xk is not None:
-                    print(f"  xk residual              = {rec.xk - xk_vieta}")
+                if rec.x_res is not None:
+                    print(f"  x_res residual              = {rec.x_res - xk_vieta}")
                 else:
-                    print("  xk residual              = <xk not recovered for this step>")
+                    print("  x_res residual              = <x_res not recovered for this step>")
 
                 # Print S(m) as a symbolic rational function in m if available on rec.
                 S_of_m = getattr(rec, 'S_of_m', None) or (
@@ -123,28 +123,28 @@ def enable_step_diagnostics(walker_class=None):
                     if RLINEAR:
                         print(
                             "  recurrence (symbolic)    = "
-                            f"xk(m) = S(m) - {xi_mult}*{rec.xi} - xj(m)"
-                            f"      [xj(m) = {rec.xi} - m]"
+                            f"x_res(m) = S(m) - {src_mult}*{rec.x_src} - x_step(m)"
+                            f"      [x_step(m) = {rec.x_src} - m]"
                         )
                     else:
                         print(
                             "  recurrence (symbolic)    = "
-                            f"xk(m) = S(m) - {xi_mult}*{rec.xi} - xj(m)"
-                            f"      [xj(m) != xi - m: RLINEAR=False, RHS is quadratic]"
+                            f"x_res(m) = S(m) - {src_mult}*{rec.x_src} - x_step(m)"
+                            f"      [x_step(m) != x_src - m: RLINEAR=False, RHS is quadratic]"
                         )
                 else:
                     print(f"  S(m) symbolic            = <unavailable — fi not in step payload>")
                     if RLINEAR:
                         print(
                             "  recurrence preview       = "
-                            f"xj = xi - m,  "
-                            f"xk = ({total_root_sum}) - ({xi_mult}*xi + xj)"
+                            f"x_step = x_src - m,  "
+                            f"x_res = ({total_root_sum}) - ({src_mult}*x_src + x_step)"
                             f"  [S={total_root_sum} is numeric, m already substituted]"
                         )
                     else:
                         print(
                             "  recurrence preview       = "
-                            f"xk = ({total_root_sum}) - ({xi_mult}*xi + xj)"
+                            f"x_res = ({total_root_sum}) - ({src_mult}*x_src + x_step)"
                             f"  [S={total_root_sum} is numeric, m already substituted; RLINEAR=False]"
                         )
 

@@ -40,7 +40,7 @@ class _FiberPoleError(Exception):
 
     A zero denominator in S(m) means the secant-line fiber is degenerate
     (the rational function parametrisation breaks down) at that particular m.
-    This is not a 2-cycle violation; the (xi, xj) pair is simply unevaluable
+    This is not a 2-cycle violation; the (x_src, x_step) pair is simply unevaluable
     and should be skipped rather than treated as an error.
     """
 
@@ -56,45 +56,46 @@ class _FiberPoleError(Exception):
 class RelationRecord:
     step_index: int
     n: int
-    xi: Any
+    x_src: Any                          # walk head / source atom (was: xi)
     m: Optional[Any] = None
-    xj: Optional[Any] = None
-    xk: Optional[Any] = None
+    x_step: Optional[Any] = None        # chosen move target (was: xj)
+    x_res: Optional[Any] = None         # first named residual root from intersection poly (was: xk)
     relation: str = ""
     step: Dict[str, Any] = field(default_factory=dict)
     accepted: bool = True
     restart: bool = False
     candidate_pool: List[Dict[str, Any]] = field(default_factory=list)
     selected_candidate: Dict[str, Any] = field(default_factory=dict)
-    # y-branch signs for xj and xk: +1 = canonical (positive) root, -1 = conjugate.
+    # y-branch signs for x_step and x_res: +1 = canonical (positive) root, -1 = conjugate.
     # Default to +1 (old behaviour) when signs are not available (e.g. preferred_injection).
     yj_sign: int = 1
     yk_sign: int = 1
     # Canonical flat atom list: all finite atoms in the relation with multiplicity.
-    # Encodes the principal divisor as a multiset — there is no privileged xi slot.
+    # Encodes the principal divisor as a multiset — there is no privileged x_src slot.
     # len(atoms) == curve_degree for all valid accepted relations; the ∞ contribution
     # is implicit (-curve_degree) and is NOT listed here.
     # Sum invariant: sum(col[a] for a in atoms) + (-curve_degree) = 0.
     atoms: List[Any] = field(default_factory=list)
-    # Secondary navigation fields: xj is the move target, xk the paired root,
-    # extra_roots any additional roots when xi_mult < deg-2.  These are derived
-    # from atoms at record-creation time and kept in sync by _try_partial_cantor_reduction.
+    # Secondary navigation fields: x_step is the move target, x_res the first residual root,
+    # extra_roots any additional roots beyond x_step and x_res.  The intersection poly
+    # may yield 0..many non-src roots; x_res names the first and extra_roots the rest.
+    # These are derived from atoms at record-creation time.
     extra_roots: List[Any] = field(default_factory=list)
 
 @dataclass
 class WalkConfig:
     max_n: int = 80
-    coin_bias_for_xj: float = 0.5
+    coin_bias_for_x_step: float = 0.5
     metropolis_temperature: float = 1.0
     restart_on_dead_end: bool = True
     allow_branching: bool = False
     branch_width: int = 2
     seed: int = 0
     # Degree of the hyperelliptic curve polynomial (y^2 = f(x), deg f = curve_degree).
-    # The divisor relation from a double-tangency fiber intersection is:
-    #   (curve_degree - 2)*xi + xj + xk - curve_degree*∞ = 0
-    # and Vieta recovery needs curve_degree - 3 copies of xi as known roots (triple root
-    # because of the double tangency, so 3 copies for degree 5, etc.).
+    # The divisor relation from the fiber intersection is built from the intersection
+    # poly roots with multiplicities; the generic form is:
+    #   mult(x_src)*x_src + x_step + x_res + extra_roots... - curve_degree*∞ = 0
+    # Multiplicities are read from the intersection poly, not assumed.
     curve_degree: int = 5
     # Alias kept for backward compat — always equal to curve_degree.
     degree_for_intersection: int = 5
@@ -126,7 +127,7 @@ class WalkConfig:
 class Genus2MetropolisWalker:
     """Run the proposed x-coordinate Markov walk on a genus-2 curve.
 
-    This version keeps a running total of unique xj values seen so far. The
+    This version keeps a running total of unique x_step values seen so far. The
     counter is stored in each step record's `step` dict and in the JSONL log, so
     you can inspect growth step by step without changing the rest of the file.
     """
@@ -165,7 +166,7 @@ class Genus2MetropolisWalker:
         self.current_y = self._recover_y(self.current_x, initial_y)
 
         self.visited_x = {self.current_x}
-        self.unique_xj_seen = {self.current_x}
+        self.unique_x_step_seen = {self.current_x}
         # NEW: Track ALL candidate leaves across the entire walk
         self.global_leaves_seen = {self.current_x}
         # Cumulative count of leaf insertions (not deduplicated) — the true
@@ -174,15 +175,15 @@ class Genus2MetropolisWalker:
         # Xs that are structurally pre-known (seed x).
         # Birthday collision accounting excludes these.
         self._injected_xs: set = {self.current_x}
-        # How many times each x has been stepped *through* as xi (i.e. used as chain state).
-        # We avoid re-using high-visit-count nodes as the next xi when fresher candidates exist.
-        self.xi_visit_count: Counter = Counter({self.current_x: 1})
+        # How many times each x has been stepped *through* as x_src (i.e. used as chain state).
+        # We avoid re-using high-visit-count nodes as the next x_src when fresher candidates exist.
+        self.x_src_visit_count: Counter = Counter({self.current_x: 1})
 
         self.history: List[RelationRecord] = []
         self.cantor_cache: Optional[CantorPairCache] = None
         self.dead_end_count = 0
         self.dead_end_reasons: Counter = Counter()  # reason -> count
-        self.walk_terminated: bool = False  # stop the run if no fresh xi remains
+        self.walk_terminated: bool = False  # stop the run if no fresh x_src remains
 
         # Cross-chain merge tracking.
         # Set via load_foreign_leaves(); once a leaf from this walk hits
@@ -192,7 +193,7 @@ class Genus2MetropolisWalker:
         self.first_merge_step: Optional[int] = None   # step_index of first hit
         self.first_merge_vol: Optional[int] = None    # total_leaf_insertions at first hit
         self._merged_leaves: set = set()              # dedup across all merge hits
-        self.collision_count = 0      # path collisions: chosen xj already on chain path
+        self.collision_count = 0      # path collisions: chosen x_step already on chain path
         self.leaf_collision_count = 0 # graph collisions: any leaf already in global_leaves_seen
         # Rolling averages for novelty and fertility (window = last 20 accepted steps).
         self._ROLL_WINDOW = 20
@@ -202,15 +203,15 @@ class Genus2MetropolisWalker:
         self.first_birthday_n: Optional[int] = None     # outer n of first graph/birthday collision
         self.collision_log: list = []  # [(step_index, outer_n, graph_vol, count, colliding_xs[:10]), ...]
         self._restart_cursor = 0
-        # Xi values that have been fully exhausted (ran as current_x and produced
-        # zero novelty or a dead end).  Since each xi's fiber is deterministic,
-        # re-running the same xi yields nothing new; we never select it as the
+        # x_src values that have been fully exhausted (ran as current_x and produced
+        # zero novelty or a dead end).  Since each x_src's fiber is deterministic,
+        # re-running the same x_src yields nothing new; we never select it as the
         # next chain state again.
-        self.exhausted_xi: set = set()
+        self.exhausted_x_src: set = set()
 
         # Adjacency / transition matrices for spectral gap estimation.
         # mat_chain = accepted steps only          (path diagnostic, d~1)
-        # mat_graph = full candidate pool per xi   (row-truncated average operator)
+        # mat_graph = full candidate pool per x_src   (row-truncated average operator)
         if getattr(self.config, 'spectral_enabled', True):
             _p   = self.p
             _re  = getattr(self.config, 'spectral_report_every', 10)
@@ -267,55 +268,55 @@ class Genus2MetropolisWalker:
 
 
     def _prefer_unvisited_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Partition candidates by xi_visit_count and return the least-visited tier.
+        """Partition candidates by x_src_visit_count and return the least-visited tier.
 
         We walk through visit counts 0, 1, 2, ... and return the first non-empty
-        tier, so we always prefer candidates whose xj has never (or least often)
-        been used as xi before.  Falls back to the full list if every candidate
+        tier, so we always prefer candidates whose x_step has never (or least often)
+        been used as x_src before.  Falls back to the full list if every candidate
         has been visited.
         """
         if not candidates:
             return candidates
         def _count(c):
-            xj = c.get("xj") if isinstance(c, dict) else c
-            return self.xi_visit_count.get(xj, 0)
+            x_step = c.get("x_step") if isinstance(c, dict) else c
+            return self.x_src_visit_count.get(x_step, 0)
         min_count = min(_count(c) for c in candidates)
         preferred = [c for c in candidates if _count(c) == min_count]
         return preferred
 
-    def _xi_is_fresh(self, x) -> bool:
-        """Return True only if x has never been used as xi in this walk."""
-        return x is not None and x not in self.visited_x and x not in self.exhausted_xi
+    def _x_src_is_fresh(self, x) -> bool:
+        """Return True only if x has never been used as x_src in this walk."""
+        return x is not None and x not in self.visited_x and x not in self.exhausted_x_src
 
-    def _register_unique_xj(self, xj):
-        if xj is None:
-            return False, len(self.unique_xj_seen)
-        was_new = xj not in self.unique_xj_seen
-        self.unique_xj_seen.add(xj)
-        return was_new, len(self.unique_xj_seen)
+    def _register_unique_x_step(self, x_step):
+        if x_step is None:
+            return False, len(self.unique_x_step_seen)
+        was_new = x_step not in self.unique_x_step_seen
+        self.unique_x_step_seen.add(x_step)
+        return was_new, len(self.unique_x_step_seen)
 
-    def _annotate_step_counts(self, step: Dict[str, Any], xj, accepted: bool) -> Tuple[bool, int]:
+    def _annotate_step_counts(self, step: Dict[str, Any], x_step, accepted: bool) -> Tuple[bool, int]:
         unique_new = False
-        unique_total = len(self.unique_xj_seen)
+        unique_total = len(self.unique_x_step_seen)
 
-        if accepted and xj is not None:
-            unique_new, unique_total = self._register_unique_xj(xj)
+        if accepted and x_step is not None:
+            unique_new, unique_total = self._register_unique_x_step(x_step)
 
         if isinstance(step, dict):
-            step["unique_xj_new"] = bool(unique_new)
-            step["unique_xj_total"] = int(unique_total)
+            step["unique_x_step_new"] = bool(unique_new)
+            step["unique_x_step_total"] = int(unique_total)
 
         return unique_new, unique_total
 
-    def _choose_between(self, xj, xk, context: Dict[str, Any]):
-        candidates = [c for c in (xj, xk) if c is not None]
+    def _choose_between(self, x_step, x_res, context: Dict[str, Any]):
+        candidates = [c for c in (x_step, x_res) if c is not None]
         if not candidates:
             return None
         if len(candidates) == 1:
             return candidates[0]
 
         if self.score_fn is None:
-            return xj if self.rng.random() < self.config.coin_bias_for_xj else xk
+            return x_step if self.rng.random() < self.config.coin_bias_for_x_step else x_res
 
         scores = [self._score_candidate(c, context) for c in candidates]
         temp = max(1e-12, float(self.config.metropolis_temperature))
@@ -342,7 +343,7 @@ class Genus2MetropolisWalker:
 
         # Serialize the relation as a flat atom list (with repetition for
         # multiplicity) — the canonical on-disk encoding.  rec.atoms is the
-        # authoritative source; xi_mult is gone from both the record and the log.
+        # authoritative source; src_mult is gone from both the record and the log.
         # Degree invariant: len(flat_atoms) == curve_degree for every accepted
         # relation (∞ is implicit, contributing -curve_degree; not listed here).
         Fp = self.base_ring
@@ -351,13 +352,13 @@ class Genus2MetropolisWalker:
         assert not rec.accepted or len(flat_atoms) == cd, (
             f"[_record_to_log_dict] degree invariant violated at step={rec.step_index}: "
             f"len(atoms)={len(flat_atoms)} != curve_degree={cd}  "
-            f"(xi={rec.xi!r})"
+            f"(x_src={rec.x_src!r})"
         )
 
         return {
             'step_index': rec.step_index,
             'n': rec.n,
-            'xi': _jsonable(rec.xi),
+            'x_src': _jsonable(rec.x_src),
             'm': _jsonable(rec.m),
             # Flat atom list: all finite atoms in the relation with multiplicity.
             # len(atoms) == curve_degree; ∞ contributes -curve_degree implicitly.
@@ -371,8 +372,8 @@ class Genus2MetropolisWalker:
             'candidate_pool': _jsonable(pool_summary),
             'selected_candidate': _jsonable(selected),
             'step': _jsonable(step),
-            'unique_xj_new': bool(step.get('unique_xj_new', False)),
-            'unique_xj_total': int(step.get('unique_xj_total', len(self.unique_xj_seen))),
+            'unique_x_step_new': bool(step.get('unique_x_step_new', False)),
+            'unique_x_step_total': int(step.get('unique_x_step_total', len(self.unique_x_step_seen))),
         }
 
     def _append_jsonl_log(self, rec: RelationRecord) -> None:
@@ -392,7 +393,7 @@ class Genus2MetropolisWalker:
         while self._restart_cursor < len(self.base_points):
             x, y = self.base_points[self._restart_cursor]
             self._restart_cursor += 1
-            if self._xi_is_fresh(x):
+            if self._x_src_is_fresh(x):
                 return x, y
         return None
 
@@ -456,15 +457,15 @@ class Genus2MetropolisWalker:
         for step_idx in range(num_steps):
             new_branches = []
             for bx, by, hist in branches:
-                saved = (self.current_x, self.current_y, list(self.history), set(self.visited_x), set(self.unique_xj_seen))
+                saved = (self.current_x, self.current_y, list(self.history), set(self.visited_x), set(self.unique_x_step_seen))
                 self.current_x, self.current_y = bx, by
                 self.history = list(hist)
-                self.visited_x = {r.xi for r in hist if r.xi is not None} | {bx}
-                self.unique_xj_seen = set(self.visited_x)
+                self.visited_x = {r.x_src for r in hist if r.x_src is not None} | {bx}
+                self.unique_x_step_seen = set(self.visited_x)
                 rec = self.step(n=n_values[step_idx % len(n_values)])
                 if rec is not None and rec.accepted:
                     new_branches.append((self.current_x, self.current_y, list(self.history)))
-                self.current_x, self.current_y, self.history, self.visited_x, self.unique_xj_seen = saved
+                self.current_x, self.current_y, self.history, self.visited_x, self.unique_x_step_seen = saved
             if not new_branches:
                 break
             branches = new_branches[:width]
@@ -473,14 +474,14 @@ class Genus2MetropolisWalker:
     def summary(self) -> str:
         accepted = sum(1 for r in self.history if r.accepted)
         restarts = sum(1 for r in self.history if r.restart)
-        unique_path_nodes = len(self.unique_xj_seen)
+        unique_path_nodes = len(self.unique_x_step_seen)
         total_leaves = len(self.global_leaves_seen)
 
         base = (
             f"\n--- WALK SUMMARY ---\n"
             f"Steps taken: {len(self.history)}\n"
             f"Path accepted: {accepted}\n"
-            f"Path collisions (xj revisited on chain): {self.collision_count}\n"
+            f"Path collisions (x_step revisited on chain): {self.collision_count}\n"
             f"Graph/birthday collisions (leaf already seen): {self.leaf_collision_count}\n"
             f"First birthday collision: step={self.first_birthday_step}  outer_n={self.first_birthday_n}  (graph vol at that point: {self.collision_log[0][2] if self.collision_log else 'none'})\n"
             f"Restarts: {restarts}\n"
@@ -517,7 +518,8 @@ class Genus2MetropolisWalker:
             return None
 
         kwargs = {
-            "xi": self.current_x,
+            "x_src": self.current_x,
+            "xi": self.current_x,          # backward-compat alias
             "current_x": self.current_x,
             "n": n,
             "seed": seed if seed is not None else self.config.seed,
@@ -617,14 +619,14 @@ class Genus2MetropolisWalker:
                 if self._roll_novelty else None
             )
 
-            xj_str = str(rec.xj) if rec.xj is not None else "—"
-            xk_str = str(rec.xk) if rec.xk is not None else "—"
+            x_step_str = str(rec.x_step) if rec.x_step is not None else "—"
+            x_res_str = str(rec.x_res) if rec.x_res is not None else "—"
             m_str = str(rec.m) if rec.m is not None else "—"
             rel_str = rec.relation if rec.relation else "—"
-            xj_visits = self.xi_visit_count.get(rec.xj, 0) if rec.xj is not None else 0
-            xi_visits = self.xi_visit_count.get(rec.xi, 0) if rec.xi is not None else 0
+            x_step_visits = self.x_src_visit_count.get(rec.x_step, 0) if rec.x_step is not None else 0
+            x_src_visits = self.x_src_visit_count.get(rec.x_src, 0) if rec.x_src is not None else 0
 
-            path_collision = (rec.xj is not None and not step_dict.get("unique_xj_new", False))
+            path_collision = (rec.x_step is not None and not step_dict.get("unique_x_step_new", False))
             leaf_collisions_this_step = step_dict.get("step_leaf_collisions", 0)
 
             n_with_roots = step_dict.get("n_with_roots")
@@ -634,9 +636,9 @@ class Genus2MetropolisWalker:
             if n_with_roots is None and per_n_roots_map:
                 n_with_roots = len(per_n_roots_map)
 
-            xj_leaves_count = step_dict.get("step_xj_leaves", step_leaves)
-            xk_new_count = step_dict.get("step_xk_leaves_new", 0)
-            xk_overlap = step_dict.get("step_xk_leaves_overlap", 0)
+            x_step_leaves_count = step_dict.get("step_x_step_leaves", step_leaves)
+            x_res_new_count = step_dict.get("step_x_res_leaves_new", 0)
+            x_res_overlap = step_dict.get("step_x_res_leaves_overlap", 0)
 
             if n_with_roots is not None:
                 frac_fertile = n_with_roots / n_total if n_total > 0 else 0.0
@@ -668,16 +670,16 @@ class Genus2MetropolisWalker:
                 if self._roll_fertility else None
             )
 
-            xk_leaf_note = (
-                f" (+{xk_new_count} xk-new, {xk_overlap} xk↔xj overlap)"
-                if xk_new_count or xk_overlap else ""
+            x_res_leaf_note = (
+                f" (+{x_res_new_count} x_res-new, {x_res_overlap} x_res↔x_step overlap)"
+                if x_res_new_count or x_res_overlap else ""
             )
 
             pool = getattr(rec, "candidate_pool", []) or []
-            n_xk_head_pool = sum(1 for c in pool if isinstance(c, dict) and c.get("source") == "xk_head")
-            n_xj_head_pool = len(pool) - n_xk_head_pool
-            if n_xk_head_pool:
-                rel_annotation = f"  (pool: {n_xj_head_pool} xj-head + {n_xk_head_pool} xk-head)"
+            n_x_res_head_pool = sum(1 for c in pool if isinstance(c, dict) and c.get("source") == "x_res_head")
+            n_x_step_head_pool = len(pool) - n_x_res_head_pool
+            if n_x_res_head_pool:
+                rel_annotation = f"  (pool: {n_x_step_head_pool} x_step-head + {n_x_res_head_pool} x_res-head)"
             elif len(pool) > 1:
                 rel_annotation = f"  (chosen from pool of {len(pool)})"
             else:
@@ -687,15 +689,15 @@ class Genus2MetropolisWalker:
             print(
                 f"\n{'='*70}",
                 f"\n{walk_tag}[WALK] STEP {step_no} COMPLETE  (outer n={rec.n})",
-                f"\n  Path:      xi → xj  |  xi={rec.xi}  (visited {xi_visits}×)",
-                f"\n             xj={xj_str}  (visited {xj_visits}×)  |  xk={xk_str}  |  m={m_str}",
+                f"\n  Path:      x_src → x_step  |  x_src={rec.x_src}  (visited {x_src_visits}×)",
+                f"\n             x_step={x_step_str}  (visited {x_step_visits}×)  |  x_res={x_res_str}  |  m={m_str}",
                 f"\n  Relation (example):  {rel_str}{rel_annotation}",
                 f"\n  This step: accepted={rec.accepted}  path_collision={'YES' if path_collision else 'no'}"
                 + (f"  | repeated x-coords this step (relations still novel): {leaf_collisions_this_step}" if leaf_collisions_this_step else ""),
                 f"\n  Collisions: path={self.collision_count} total  | repeated x-coords={self.leaf_collision_count} total  (birthday clock ticks when x-coord repeats; first expected near graph vol=√p={sqrt_p:.0f})"
                 + (f"  [first birthday: step={self.first_birthday_step} n={self.first_birthday_n} vol={self.collision_log[0][2]} xs={self.collision_log[0][4]}]" if self.collision_log else ""),
                 f"\n  Totals:    steps_accepted={accepted_count}  restarts={restarts}  dead_ends={self.dead_end_count}",
-                f"\n  Leaves:    xj={xj_leaves_count}{xk_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%} (new x-coords / all leaves this step)"
+                f"\n  Leaves:    x_step={x_step_leaves_count}{x_res_leaf_note}  total={step_leaves}  new={new_leaves}  novelty={novelty_ratio:.1%} (new x-coords / all leaves this step)"
                 + (f"  (avg {roll_novelty_avg:.1%} /{len(self._roll_novelty)})" if roll_novelty_avg is not None else ""),
                 f"\n  Graph vol: {total_leaves} unique x-coords seen across all leaves  ({collision_frac:.4f}×√p  [√p={sqrt_p:.1f}])",
                 f"\n  Rate:      {expansion_rate:.2f} unique leaves/step",
@@ -770,16 +772,16 @@ class Genus2MetropolisWalker:
             step_payload = rec.step if isinstance(rec.step, dict) else {}
             # Collect all leaves touched this step: accepted triple + pool candidates.
             this_step_leaves: set = set()
-            if rec.xi is not None:
-                this_step_leaves.add(rec.xi)
-            if rec.xj is not None:
-                this_step_leaves.add(rec.xj)
-            if rec.xk is not None:
-                this_step_leaves.add(rec.xk)
+            if rec.x_src is not None:
+                this_step_leaves.add(rec.x_src)
+            if rec.x_step is not None:
+                this_step_leaves.add(rec.x_step)
+            if rec.x_res is not None:
+                this_step_leaves.add(rec.x_res)
             for cand in (rec.candidate_pool or []):
                 if not isinstance(cand, dict):
                     continue
-                for key in ("xj", "x", "candidate_x", "xk"):
+                for key in ("x_step", "xj", "x", "candidate_x", "x_res", "xk"):
                     v = cand.get(key)
                     if v is not None:
                         this_step_leaves.add(v)
@@ -982,12 +984,12 @@ class Genus2MetropolisWalker:
         *,
         stage: str,
         reason: str,
-        xi,
+        x_src,
         n: int,
         current_point=None,
         m_val=None,
-        xj=None,
-        xk=None,
+        x_step=None,
+        x_res=None,
         chosen=None,
         move_committed: Optional[bool] = None,
         extra: Optional[Dict[str, Any]] = None,
@@ -998,10 +1000,10 @@ class Genus2MetropolisWalker:
         payload["reject_stage"] = stage
         payload["reject_reason"] = reason
         payload["reject_n"] = int(n)
-        payload["reject_xi"] = _jsonable(xi)
+        payload["reject_x_src"] = _jsonable(x_src)
         payload["reject_m"] = _jsonable(m_val)
-        payload["reject_xj"] = _jsonable(xj)
-        payload["reject_xk"] = _jsonable(xk)
+        payload["reject_x_step"] = _jsonable(x_step)
+        payload["reject_x_res"] = _jsonable(x_res)
 
         if current_point is not None:
             try:
@@ -1025,9 +1027,9 @@ class Genus2MetropolisWalker:
                 payload[f"reject_{k}"] = _jsonable(v)
 
         if self.config.verbose:
-            print(f"[reject] stage={stage} reason={reason} xi={xi} n={n}")
-            if m_val is not None or xj is not None or xk is not None:
-                print(f"         m={m_val} xj={xj} xk={xk}")
+            print(f"[reject] stage={stage} reason={reason} x_src={x_src} n={n}")
+            if m_val is not None or x_step is not None or x_res is not None:
+                print(f"         m={m_val} x_step={x_step} x_res={x_res}")
             if current_point is not None:
                 try:
                     cx, cy = current_point
@@ -1041,27 +1043,27 @@ class Genus2MetropolisWalker:
 
         return payload
 
-    def _recover_xk(self, step: Dict[str, Any], xi, xj):
+    def _recover_x_res(self, step: Dict[str, Any], x_src, x_step):
         """
         Compatibility wrapper.
 
         The new source of truth is the intersection polynomial; this just
-        extracts xk and xi_mult from it.
+        extracts x_res and src_mult from it.
         """
-        derived = _derive_relation_from_intersection_poly(step, xi)
+        derived = _derive_relation_from_intersection_poly(step, x_src)
         if derived is None:
             return None, -1
-        _xj, xk, xi_mult, _poly, _extra = derived
-        return xk, xi_mult
+        _x_step, x_res, src_mult, _poly, _extra = derived
+        return x_res, src_mult
 
     def _make_relation(
         self,
         step_index: int,
         n: int,
-        xi,
+        x_src,
         m_val,
-        xj,
-        xk,
+        x_step,
+        x_res,
         step: Dict[str, Any],
         accepted=True,
         restart=False,
@@ -1075,68 +1077,68 @@ class Genus2MetropolisWalker:
         Rejected records may carry whatever diagnostic payload they have.
         The canonical encoding is rec.atoms — a flat list of all finite atoms
         with multiplicity (len == curve_degree for accepted records).
-        xi_mult is computed locally as a step in building atoms and is never
+        src_mult is computed locally as a step in building atoms and is never
         stored on the record.
         """
-        derived = _derive_relation_from_intersection_poly(step, xi)
+        derived = _derive_relation_from_intersection_poly(step, x_src)
         extra_roots: List[Any] = []
-        xi_mult_local: int = -1
+        src_mult_local: int = -1
 
         if accepted:
             if derived is None:
                 raise AssertionError(
                     f"[MAKE_RELATION] accepted record missing usable intersection polynomial "
-                    f"at step={step_index} xi={xi} xj={xj} xk={xk}"
+                    f"at step={step_index} x_src={x_src} x_step={x_step} x_res={x_res}"
                 )
-            xj, xk, xi_mult_local, poly, extra_roots = derived
+            x_step, x_res, src_mult_local, poly, extra_roots = derived
         else:
             # For rejected rows, prefer derived geometry when it exists.
             if derived is not None:
-                dxj, dxk, dmult, poly, dextra = derived
-                if xj is None:
-                    xj = dxj
-                if xk is None:
-                    xk = dxk
-                if xi_mult_local <= 0:
-                    xi_mult_local = dmult
+                dx_step, dx_res, dmult, poly, dextra = derived
+                if x_step is None:
+                    x_step = dx_step
+                if x_res is None:
+                    x_res = dx_res
+                if src_mult_local <= 0:
+                    src_mult_local = dmult
                 if not extra_roots:
                     extra_roots = list(dextra)
 
         deg = self.config.curve_degree
-        effective_xi_mult = xi_mult_local if xi_mult_local > 0 else (deg - 2)
+        effective_src_mult = src_mult_local if src_mult_local > 0 else (deg - 2)
 
         # Build relation string generically from whatever roots the poly gave us.
         all_others = []
-        if xj is not None:
-            all_others.append(xj)
-        if xk is not None:
-            all_others.append(xk)
+        if x_step is not None:
+            all_others.append(x_step)
+        if x_res is not None:
+            all_others.append(x_res)
         all_others.extend(extra_roots)
         if all_others:
             others_str = " + ".join(str(r) for r in all_others)
-            if xj is not None and xk is None and not extra_roots:
+            if x_step is not None and x_res is None and not extra_roots:
                 others_str += " + ?"
-            relation = f"{effective_xi_mult}*{xi} + {others_str} - {deg}*\u221e = 0"
-        elif xj is not None:
-            relation = f"{effective_xi_mult}*{xi} + {xj} + ? - {deg}*\u221e = 0"
+            relation = f"{effective_src_mult}*{x_src} + {others_str} - {deg}*\u221e = 0"
+        elif x_step is not None:
+            relation = f"{effective_src_mult}*{x_src} + {x_step} + ? - {deg}*\u221e = 0"
         else:
-            relation = "no xj"
+            relation = "no x_step"
 
-        # Build canonical flat atoms list: [xi]*xi_mult + [xj] + [xk] + extra_roots.
+        # Build canonical flat atoms list: [x_src]*src_mult + [x_step] + [x_res] + extra_roots.
         # Only populated for accepted records where all roots are known.
         atoms_list: List[Any] = []
-        if accepted and xi is not None and xj is not None and xk is not None:
+        if accepted and x_src is not None and x_step is not None and x_res is not None:
             Fp = self.base_ring
             atoms_list = (
-                [Fp(xi)] * int(effective_xi_mult)
-                + [Fp(xj), Fp(xk)]
+                [Fp(x_src)] * int(effective_src_mult)
+                + [Fp(x_step), Fp(x_res)]
                 + [Fp(xr) for xr in extra_roots]
             )
             if len(atoms_list) != deg:
                 raise AssertionError(
                     f"[MAKE_RELATION] atoms degree invariant violated: "
                     f"len={len(atoms_list)} != deg={deg}  "
-                    f"xi_mult={effective_xi_mult}  xj={xj}  xk={xk}  "
+                    f"src_mult={effective_src_mult}  x_step={x_step}  x_res={x_res}  "
                     f"extra={extra_roots}"
                 )
 
@@ -1156,10 +1158,10 @@ class Genus2MetropolisWalker:
         return RelationRecord(
             step_index=step_index,
             n=n,
-            xi=xi,
+            x_src=x_src,
             m=m_val,
-            xj=xj,
-            xk=xk,
+            x_step=x_step,
+            x_res=x_res,
             relation=relation,
             step=clean_step,
             accepted=accepted,
@@ -1186,10 +1188,10 @@ class Genus2MetropolisWalker:
         *,
         step_index: int,
         n: int,
-        xi,
+        x_src,
         m_val=None,
-        xj=None,
-        xk=None,
+        x_step=None,
+        x_res=None,
         step_payload=None,
         accepted: bool,
         restart: bool = False,
@@ -1197,7 +1199,7 @@ class Genus2MetropolisWalker:
         yk_sign: int = 1,
     ):
         rec = self._make_relation(
-            step_index, n, xi, m_val, xj, xk,
+            step_index, n, x_src, m_val, x_step, x_res,
             step_payload or {},
             accepted=accepted,
             restart=restart,
@@ -1242,40 +1244,40 @@ class Genus2MetropolisWalker:
         payload["global_leaf_collisions"] = self.leaf_collision_count
         return payload
 
-    def _reject_direct_step(self, *, step_payload, stage, reason, xi, n, current_point, m_val=None, xj=None, xk=None, chosen=None, extra=None):
+    def _reject_direct_step(self, *, step_payload, stage, reason, x_src, n, current_point, m_val=None, x_step=None, x_res=None, chosen=None, extra=None):
         payload = self._reject_step_payload(
             step_payload if isinstance(step_payload, dict) else {},
             stage=stage,
             reason=reason,
-            xi=xi,
+            x_src=x_src,
             n=n,
             current_point=current_point,
             m_val=m_val,
-            xj=xj,
-            xk=xk,
+            x_step=x_step,
+            x_res=x_res,
             chosen=chosen,
             extra=extra or {},
         )
         return self._store_relation_record(
             step_index=len(self.history),
             n=n,
-            xi=xi,
+            x_src=x_src,
             m_val=m_val,
-            xj=xj,
-            xk=xk,
+            x_step=x_step,
+            x_res=x_res,
             step_payload=payload,
             accepted=False,
             restart=False,
         )
 
-    def _accept_direct_step(self, *, step_payload, n, xi, m_val, xj, xk, yj_sign=1, yk_sign=1):
+    def _accept_direct_step(self, *, step_payload, n, x_src, m_val, x_step, x_res, yj_sign=1, yk_sign=1):
         rec = self._store_relation_record(
             step_index=len(self.history),
             n=n,
-            xi=xi,
+            x_src=x_src,
             m_val=m_val,
-            xj=xj,
-            xk=xk,
+            x_step=x_step,
+            x_res=x_res,
             step_payload=step_payload,
             accepted=True,
             restart=False,
@@ -1295,51 +1297,51 @@ class Genus2MetropolisWalker:
             rec = self._step_direct(n=n, seed=seed)
 
         if rec is not None and not rec.accepted and not self.walk_terminated:
-            # Never allow the walk to stall on the same xi after a rejection.
+            # Never allow the walk to stall on the same x_src after a rejection.
             # If the underlying step did not already move to a fresh restart
             # point, force one here.
-            if self.current_x == rec.xi:
+            if self.current_x == rec.x_src:
                 step_dict = rec.step if isinstance(rec.step, dict) else {}
                 reason = step_dict.get("reason", "rejected")
                 nxt = self._restart_after_dead_end(
-                    xi=rec.xi,
+                    x_src=rec.x_src,
                     n=rec.n,
                     reason=reason,
-                    current_point=(rec.xi, self.current_y),
+                    current_point=(rec.x_src, self.current_y),
                 )
                 if nxt is None:
                     self.walk_terminated = True
         return rec
 
 
-    def _restart_after_dead_end(self, *, xi, n, reason, current_point=None):
-        # Mark the incoming xi as exhausted — its fiber is deterministic so
+    def _restart_after_dead_end(self, *, x_src, n, reason, current_point=None):
+        # Mark the incoming x_src as exhausted — its fiber is deterministic so
         # re-running it as chain state will produce nothing new.
-        self.exhausted_xi.add(xi)
+        self.exhausted_x_src.add(x_src)
 
         # Build candidate pool: base_points first, then accumulated leaves.
-        # Exclude any xi that is already exhausted so we never loop back to it.
+        # Exclude any x_src that is already exhausted so we never loop back to it.
         candidates = [
             (x, y) for x, y in self.base_points
-            if x is not None and y is not None and self._xi_is_fresh(x)
+            if x is not None and y is not None and self._x_src_is_fresh(x)
         ]
 
         # If base_points is only the current stuck point (or empty), augment from
         # global_leaves_seen — the actual visited graph.  This is the escape hatch
         # for the single-base-point case: without it the cursor just loops back to
-        # the same xi every time.
+        # the same x_src every time.
         if len(candidates) <= 1:
-            # Prefer leaves that have never been used as xi (freshest first).
-            never_xi = self.global_leaves_seen - self.exhausted_xi - self.visited_x
-            pool_order = sorted(never_xi, key=lambda lx: self.xi_visit_count.get(lx, 0))
+            # Prefer leaves that have never been used as x_src (freshest first).
+            never_x_src = self.global_leaves_seen - self.exhausted_x_src - self.visited_x
+            pool_order = sorted(never_x_src, key=lambda lx: self.x_src_visit_count.get(lx, 0))
             # Fall back to any non-exhausted leaf if the fresh pool is empty.
             if not pool_order:
                 pool_order = sorted(
-                    self.global_leaves_seen - self.exhausted_xi - self.visited_x,
-                    key=lambda lx: self.xi_visit_count.get(lx, 0),
+                    self.global_leaves_seen - self.exhausted_x_src - self.visited_x,
+                    key=lambda lx: self.x_src_visit_count.get(lx, 0),
                 )
             for lx in pool_order:
-                if not self._xi_is_fresh(lx):
+                if not self._x_src_is_fresh(lx):
                     continue
                 try:
                     ly = self._recover_y(lx, None)
@@ -1350,15 +1352,15 @@ class Genus2MetropolisWalker:
                 except Exception:
                     continue
 
-        # Only fresh xi values are allowed for restarts.
-        candidates = [(x, y) for x, y in candidates if self._xi_is_fresh(x)]
+        # Only fresh x_src values are allowed for restarts.
+        candidates = [(x, y) for x, y in candidates if self._x_src_is_fresh(x)]
 
         if not candidates:
             self.walk_terminated = True
             if self.config.verbose:
                 print(
                     f"[restart] no fresh restart point available after dead end: "
-                    f"reason={reason}  exhausted_xi={len(self.exhausted_xi)}  visited_x={len(self.visited_x)}"
+                    f"reason={reason}  exhausted_x_src={len(self.exhausted_x_src)}  visited_x={len(self.visited_x)}"
                 )
             return None
 
@@ -1366,12 +1368,12 @@ class Genus2MetropolisWalker:
         self._restart_cursor += 1
         self.current_x, self.current_y = x, y
         self.visited_x.add(x)
-        self.xi_visit_count[x] += 1
+        self.x_src_visit_count[x] += 1
 
         if self.config.verbose:
             print(
                 f"[restart] dead-end escape -> ({x}, {y})  reason={reason}  n={n}  "
-                f"exhausted_xi={len(self.exhausted_xi)}"
+                f"exhausted_x_src={len(self.exhausted_x_src)}"
             )
 
         return (x, y)

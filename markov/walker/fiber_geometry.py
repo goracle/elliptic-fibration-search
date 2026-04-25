@@ -64,7 +64,7 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
                 raise ZeroDivisionError(
                     f"compute_xk_from_fiber: fiber pole at m={m_val} "
                     f"(denominator of fi coefficient vanished).\n"
-                    f"  xi={xi_val}  xj={xj_val}\n"
+                    f"  x_src={xi_val}  x_step={xj_val}\n"
                     f"  fi={fi}\n"
                     f"  G_poly={G_poly}\n"
                     f"  coeffs so far={coeffs}"
@@ -76,24 +76,24 @@ def compute_xk_from_fiber(xi_val, m_val, xj_val, fi, G_poly, curve_degree):
         inter = G_poly - fi_at_m
 
         if inter.degree() != curve_degree:
-            assert False, f"inter.degree()={inter.degree()} != curve_degree={curve_degree}, xi={xi_val} m={m_val} xj={xj_val}"
+            assert False, f"inter.degree()={inter.degree()} != curve_degree={curve_degree}, x_src={xi_val} m={m_val} x_step={xj_val}"
             return None, None
 
-        # Determine xi's multiplicity in the intersection poly.
+        # Determine x_src's multiplicity in the intersection poly.
         roots_wm = inter.roots()  # Sage: [(root, mult), ...]
-        actual_xi_mult = 0
+        actual_src_mult = 0
         for r, m in roots_wm:
             if Fp(r) == Fp(xi_val):
-                actual_xi_mult = int(m)
+                actual_src_mult = int(m)
                 break
-        assert actual_xi_mult > 0, (
-            f"compute_xk_from_fiber: xi={xi_val} is not a root of the fiber intersection poly "
-            f"at m={m_val}, xj={xj_val}. roots={roots_wm}. "
-            f"This means the fiber was constructed for a different xi or the multiplicity "
+        assert actual_src_mult > 0, (
+            f"compute_xk_from_fiber: x_src={xi_val} is not a root of the fiber intersection poly "
+            f"at m={m_val}, x_step={xj_val}. roots={roots_wm}. "
+            f"This means the fiber was constructed for a different x_src or the multiplicity "
             f"assumptions are wrong."
         )
 
-        known = [xi_val] * actual_xi_mult + [xj_val]
+        known = [xi_val] * actual_src_mult + [xj_val]
         return missing_root_by_vieta(inter, known), inter
 
     except Exception:
