@@ -1165,10 +1165,10 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
     remaining = unknowns_order - num_base_rows
 
     if FINITE_FIELD is not None:
-        # FF mode: 1 base row leaves (unknowns_order - 1) slots.
-        # Reserve one for mixing; rest are tangency conditions.
+        # FF mode: 1 base row + 1 rail-tangency row (order-2 contact at r(m)).
+        # Reserve one slot for the rail derivative; rest are factor-base tangency.
         num_tangency_eqs = max(0, remaining - 1)
-        use_mixing = (remaining >= 1)
+        use_mixing = False   # replaced by rail tangency below
     elif use_anchor_points:
         # QQ mode with anchors: same as before (reserve 1 slot for mixing).
         if remaining <= 0 and verbose:
@@ -1210,6 +1210,15 @@ def _solve_build_one_ff(fx_SR, Qpoly_field, xs_chosen, degQ, parameter_m,
         Q_at_mix = _build_one_eval_poly_at(Q_poly_Fm, x_mix, Fm)
         rows.append([xmix_pows[i] for i in range(num_unknowns)])
         rhs.append(Q_at_mix)
+
+    if FINITE_FIELD is not None and remaining >= 1:
+        # Impose order-1 Hasse derivative of (f - Q^2 - prod*rest) at x = r(m).
+        # This forces a double root at the rail point, giving order-2 contact.
+        dT_at_r = [_build_one_eval_poly_at(Ti.derivative(x_var), r_expr, Fm) for Ti in T_list]
+        dQ2_at_r = _build_one_eval_poly_at(Q2.derivative(x_var), r_expr, Fm)
+        dfx_at_r = _build_one_eval_poly_at(fx_field.derivative(x_var), r_expr, Fm)
+        rows.append([dT_at_r[i] for i in range(num_unknowns)])
+        rhs.append(dfx_at_r - dQ2_at_r)
 
     if len(rows) != num_unknowns:
         raise RuntimeError(f"Equation/unknown mismatch: {len(rows)} equations vs {num_unknowns} unknowns")
