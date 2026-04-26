@@ -797,7 +797,7 @@ class Genus2MetropolisWalker:
         return emitted
 
     def generate_mixed_relations(
-        walker,
+        self,
         atoms_to_inject: List[Any],
         *,
         seed_atoms: Optional[set] = None,

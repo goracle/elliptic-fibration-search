@@ -1,5 +1,7 @@
 from search_common import *
 from collections import Counter
+from .candidate_utils import _get_fiber_context_for_rec
+from .candidate_utils import _get_S_of_m_for_rec
 
 class _FiberPoleError(Exception):
     """Raised when S(m) has a pole at a specific m value.
@@ -245,8 +247,8 @@ def generate_mixed_relations2(
 
         # Prefer fi-based fiber evaluation (exact per-m multiplicity check).
         # Fall back to S(m) symbolic shortcut when fi is unavailable.
-        fi, G_poly_rec = walker._get_fiber_context_for_rec(rec)
-        S_sym = walker._get_S_of_m_for_rec(rec)
+        fi, G_poly_rec = _get_fiber_context_for_rec(rec)
+        S_sym = _get_S_of_m_for_rec(rec)
         if fi is None and S_sym is None:
             continue
 
