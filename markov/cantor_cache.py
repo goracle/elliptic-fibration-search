@@ -363,14 +363,18 @@ class CantorPairCache:
             _precomputed[frozenset([x_src, x_res])] = self._reduce_pair(x_src, x_res)
 
         if self.check_involution and x_step is not None and x_res is not None:
-            r_ss = _precomputed[frozenset([x_src, x_step])]
-            r_sr = _precomputed[frozenset([x_src, x_res])]
-            if r_ss is not None and r_sr is not None and r_ss == r_sr:
-                if self.verbose:
-                    print(
-                        f"[CantorCache] WARNING rel#{relation_index}: "
-                        f"{{x_src,x_step}} ≡ {{x_src,x_res}} in Jac — degenerate step?"
-                    )
+            # Trivially degenerate: x_step == x_res means the intersection poly
+            # returned a repeated root.  Not a Jacobian algebra bug; skip the check.
+            if x_step != x_res:
+                r_ss = _precomputed[frozenset([x_src, x_step])]
+                r_sr = _precomputed[frozenset([x_src, x_res])]
+                if r_ss is not None and r_sr is not None and r_ss == r_sr:
+                    if self.verbose:
+                        print(
+                            f"[CantorCache] WARNING rel#{relation_index}: "
+                            f"{{x_src,x_step}} ≡ {{x_src,x_res}} in Jac (non-trivial) — "
+                            f"x_src={x_src} x_step={x_step} x_res={x_res}"
+                        )
 
         for pair, slot in pairs_with_slots:
             if len(pair) < 2:
