@@ -5,6 +5,7 @@ from search_lll.search_main import *
 from .candidate_utils import *
 from .enrichment import *
 from .phi_search import augment_with_phi as _augment_with_phi
+from .candidate_utils import _normalize_markov_mumford_result, _candidates_from_residues
 
 def make_project_markov_search_fn(
     *,
