@@ -7,6 +7,7 @@ from sage.rings.infinity import infinity
 from itertools import product
 from diagnostics2 import find_singular_fibers
 from math import gcd
+
 _sage_lcm = lcm
 
 USE_JULIA_LADDER = True

@@ -318,8 +318,6 @@ def mixing_one_liner(walker, step: int) -> str:
         f"C/E[C]={ratio:.2f}  birthday:{bday_str}"
     )
 
-
-
 def compute_fertility(norm, raw, vecs):
     precomp = norm.get('precomputed_residues') or (
         raw.get('precomputed_residues') if isinstance(raw, dict) else None

@@ -1,3 +1,7 @@
+from __future__ import annotations
+from typing import Any, Dict, List, Optional, Sequence
+from .phi import compute_phi, phi_quintic
+
 """phi_search.py  –  markov/walker/phi_search.py
 
 Post-process one search-fn result dict by attempting a φ-step.
@@ -10,11 +14,23 @@ This module takes that result and, for each candidate (x_step, m_val),
 evaluates g at the concrete m_val to get a quartic g_n over F_p, then
 calls ``compute_phi`` to obtain the rational function
 
-    φ(x,y) = A(x) + c·y
+    φ(x,y) = A(x) + y   (c normalised to 1)
 
-adapted to the fiber at the current point (P) and the candidate point
-(Q).  The quintic  h(x) = c²f(x) − A(x)²  is the intersection_poly
-that the walker's ``_make_relation`` machinery already knows how to read.
+such that  div(φ) = 2P + 2Q + R − 5∞,  where P is the current walk
+point and Q is the candidate.  The quintic  h(x) = f(x) − A(x)²  is
+the intersection_poly that the walker's ``_make_relation`` machinery
+already knows how to read.
+
+y-sign handling
+---------------
+``_recover_y`` returns the canonical (smaller) square root.  The correct
+branch for Q is not known a priori: the consistency condition φ(Q)=0
+holds for exactly one of the two y-signs.  ``augment_with_phi`` therefore
+tries both  (x_step, y_canonical)  and  (x_step, p − y_canonical)
+before giving up on a record.  Swapping the roles of P and Q is NOT used
+as a fallback — the divisor is symmetric only in the sense that either
+ordering gives a valid (but different) φ, and a wrong y-sign on Q will
+cause compute_phi to raise ValueError with a clear message.
 
 Public API
 ----------
@@ -41,13 +57,6 @@ If the result dict has no usable ``fi`` or no candidates with a concrete
 m-value, the function is a no-op and returns the dict unchanged.
 """
 
-from __future__ import annotations
-
-from typing import Any, Dict, List, Optional, Sequence
-
-from .phi import compute_phi, phi_quintic
-
-
 # ---------------------------------------------------------------------------
 # Helpers to evaluate the symbolic fiber poly at a concrete m value
 # ---------------------------------------------------------------------------
@@ -66,45 +75,23 @@ def _eval_fi_at_m(fi, m_val, p: int) -> Optional[list[int]]:
     if fi is None:
         return None
     try:
-        # fi.coefficients(sparse=False) gives [c0, c1, ...] low-first,
-        # each c_i being a rational function of m.
         coeffs_raw = fi.coefficients(sparse=False)
         g = []
         for coeff in coeffs_raw:
-            # Substitute m = m_val.  Works whether the coeff is a constant,
-            # a polynomial in m, or a rational function in m.
             try:
                 val = coeff(m_val)
             except TypeError:
-                # coeff might not be callable; try direct coercion.
                 val = coeff
+                raise
             g.append(int(val) % p)
         return g
     except Exception:
+        raise
         return None
-
 
 # ---------------------------------------------------------------------------
 # Core: attempt φ on one (P, Q) pair
 # ---------------------------------------------------------------------------
-
-def _phi_for_pair(
-    f_coeffs: list[int],
-    g_coeffs: list[int],
-    P: tuple[int, int],
-    Q: tuple[int, int],
-    p: int,
-    sage_ring,
-) -> Optional[Any]:
-    """Try compute_phi(P, Q) and return the Sage intersection poly h, or None."""
-    try:
-        A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
-    except (ValueError, ZeroDivisionError, ArithmeticError):
-        return None
-
-    h_coeffs = phi_quintic(p, f_coeffs, A_coeffs, c)
-    return sage_ring(h_coeffs)
-
 
 # ---------------------------------------------------------------------------
 # y-recovery helper (avoids importing walker internals)
@@ -124,7 +111,6 @@ def _recover_y(x_int: int, f_coeffs: list[int], p: int) -> Optional[int]:
     else:
         y = _tonelli_shanks(val, p)
     return min(y, p - y) or None   # canonical branch; None if 0
-
 
 def _tonelli_shanks(n: int, p: int) -> int:
     Q, S = p - 1, 0
@@ -148,7 +134,6 @@ def _tonelli_shanks(n: int, p: int) -> int:
         t  = (t * c) % p
         R_ = (R_ * b) % p
 
-
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -163,7 +148,12 @@ def augment_with_phi(
     sage_ring,      # PolynomialRing(GF(p), 'x')
 ) -> Dict[str, Any]:
     """Attempt to replace intersection_poly in each candidate record with the
-    φ-derived quintic h(x) = c²f(x) − A(x)².
+    φ-derived quintic h(x) = f(x) − A(x)²  (c normalised to 1).
+
+    For each candidate, both y-signs of Q are tried in order:
+        (x_step, y_canonical)  then  (x_step, p − y_canonical)
+    The first that satisfies the φ(Q)=0 consistency check is used.
+    Records for which both signs fail are left unchanged.
 
     Works in-place on the candidate_records list inside ``result`` and also
     sets the top-level ``intersection_poly`` key if at least one record
@@ -172,7 +162,7 @@ def augment_with_phi(
     Does nothing and returns unchanged if:
     - result has no ``fi`` (symbolic fiber poly), or
     - no candidate record has a usable ``m`` value, or
-    - every φ call fails (singular system, wrong intersection structure, …).
+    - every φ call fails.
     """
     fi = result.get("fi")
     if fi is None:
@@ -182,7 +172,7 @@ def augment_with_phi(
     x_src_int = int(x_src) % p
     y_src_int = int(y_src) % p
 
-    P = (x_src_int, y_src_int)   # current point is always one intersection
+    P = (x_src_int, y_src_int)   # current point — double zero enforced here too
 
     candidates: List[Dict[str, Any]] = list(
         result.get("candidate_records") or result.get("candidates") or []
@@ -198,35 +188,42 @@ def augment_with_phi(
         if m_val is None:
             continue
 
-        # Evaluate the fiber at this concrete m.
+        # Evaluate the fiber at this concrete m (passed to compute_phi for
+        # API compatibility, not used in the actual computation).
         g_coeffs = _eval_fi_at_m(fi, m_val, p)
         if g_coeffs is None:
             continue
 
-        # The candidate's x_step is the other intersection point Q.
         x_step = rec.get("x_step")
         if x_step is None:
             continue
         x_step_int = int(x_step) % p
 
-        y_step_int = _recover_y(x_step_int, f_list, p)
-        if y_step_int is None:
+        y_canonical = _recover_y(x_step_int, f_list, p)
+        if y_canonical is None:
             continue
 
-        Q = (x_step_int, y_step_int)
+        # Try both y-signs of Q.  Only one satisfies the φ(Q)=0 consistency
+        # condition; compute_phi raises ValueError for the wrong sign.
+        y_neg = (p - y_canonical) % p
+        h_sage = None
+        chosen_y = None
+        for y_try in (y_canonical, y_neg):
+            if y_try == 0:
+                continue
+            Q = (x_step_int, y_try)
+            h_sage = _phi_for_pair(f_list, g_coeffs, P, Q, p, sage_ring)
+            if h_sage is not None:
+                chosen_y = y_try
+                break
 
-        # Try both orderings of (P, Q) — the 4×4 system may be singular for
-        # one but not the other.
-        h_sage = _phi_for_pair(f_list, g_coeffs, P, Q, p, sage_ring)
-        if h_sage is None:
-            h_sage = _phi_for_pair(f_list, g_coeffs, Q, P, p, sage_ring)
         if h_sage is None:
             continue
 
-        # Success: stamp the intersection poly onto this record.
+        # Success: stamp the intersection poly and metadata onto this record.
         rec["intersection_poly"] = h_sage
         rec["phi_P"] = list(P)
-        rec["phi_Q"] = list(Q)
+        rec["phi_Q"] = [x_step_int, chosen_y]
         any_succeeded = True
 
         # Also promote to top-level if not already set.
@@ -234,3 +231,27 @@ def augment_with_phi(
             result["intersection_poly"] = h_sage
 
     return result
+
+def _phi_for_pair(
+    f_coeffs: list[int],
+    g_coeffs: list[int],
+    P: tuple[int, int],
+    Q: tuple[int, int],
+    p: int,
+    sage_ring,
+) -> Optional[Any]:
+    try:
+        A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
+    except ValueError as e:
+        # Expected failure: the caller is trying the wrong y-branch.
+        # Let it return None so the caller can try the other sign.
+        if "consistency check φ(Q)=0 failed" in str(e):
+            return None
+        # Raise all other unexpected ValueErrors
+        raise
+    except (ZeroDivisionError, ArithmeticError):
+        # Always raise actual arithmetic anomalies
+        raise
+
+    h_coeffs = phi_quintic(p, f_coeffs, A_coeffs, c)
+    return sage_ring(h_coeffs)

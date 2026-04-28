@@ -1,4 +1,3 @@
-from .candidate_utils import _normalize_candidate_output
 from .candidate_utils import *
 from .curve_helpers import *
 

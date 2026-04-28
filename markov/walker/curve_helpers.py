@@ -84,7 +84,6 @@ def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) 
 
     return out
 
-
 def xk_is_fp_point(xk_val, G_poly):
     if G_poly is None or xk_val is None:
         return False
@@ -95,7 +94,6 @@ def xk_is_fp_point(xk_val, G_poly):
     except Exception:
         raise
         return False
-
 
 def poly_roots_with_multiplicity(poly) -> List[Tuple[Any, int]]:
     """Return roots as (root, multiplicity) pairs over the polynomial's base field."""

@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Sequence, Tuple
+
 """phi.py  –  markov/walker/phi.py
 
 Construct the rational function
@@ -5,50 +8,62 @@ Construct the rational function
     φ(x, y) = A(x) + c·y,   A(x) = a₀ + a₁x + a₂x²,   c ∈ F_p
 
 on the genus-2 hyperelliptic curve  C: y² = f(x)  (deg f = 5)
-that is "adapted" to a fiber  F: y² = g(x)  (deg g = 4)  at two
-intersection points P (double tangency) and Q (simple tangency).
+with principal divisor
 
-Expected principal divisor
---------------------------
     div(φ) = 2·P + 2·Q + R − 5·∞
 
-which has degree 0 and is therefore principal.  R is a third F_p-rational
-point, recovered from the remaining root of c²f(x) − A(x)² via Vieta.
+P and Q are two F_p-rational points on C, not Weierstrass points.
+R is a third F_p-rational point recovered via Vieta.
 
-The four interpolation conditions
------------------------------------
-Let φ'|_C denote the derivative of φ along C under  2y dy = f'(x) dx:
+Why h(x) = f(x) − A(x)² has double roots at xP, xQ
+-----------------------------------------------------
+With c normalised to 1, φ(x, y) = A(x) + y and h(x) = f(x) − A(x)².
 
-    φ'|_C = A'(x) + c · f'(x) / (2y)
+    h(xP) = 0   ←→   f(xP) = A(xP)²   ←→   yP² = A(xP)²
+                ←→   A(xP) = ±yP       ←→   φ(P) = 0   [sign chosen: A(xP)=−yP]
 
-and let  y'_F(x) = g'(x) / (2y)  be the slope of the fiber branch.
+    h'(xP) = f'(xP) − 2A(xP)A'(xP)
+           = f'(xP) − 2(−yP)A'(xP)
+           = f'(xP) + 2yP · A'(xP)
 
-  (1)  φ(x_P, y_P) = 0        ← φ vanishes at P
-  (2)  φ(x_Q, y_Q) = 0        ← φ vanishes at Q
-  (3)  φ'|_C (P) = y'_F(P)    ← zero-locus of φ is tangent to F at P
-  (4)  φ'|_C (Q) = y'_F(Q)    ← zero-locus of φ is tangent to F at Q
+    Setting h'(xP) = 0:
 
-These are 4 linear equations in (a₀, a₁, a₂, c) ∈ F_p⁴.
+        A'(xP) = −f'(xP) / (2yP)
+
+    which is exactly  φ'|_C(P) = 0,  where  φ'|_C = A'(x) + f'(x)/(2y)
+    is the derivative of φ along the curve  2y dy = f'(x) dx.
+
+The four conditions (with c = 1)
+---------------------------------
+  (1) a₀ + a₁xP + a₂xP² + yP = 0          [φ(P) = 0]
+  (2) a₁ + 2a₂xP + f'(xP)/(2yP) = 0       [φ'|_C(P) = 0  →  double root at xP]
+  (3) a₀ + a₁xQ + a₂xQ² + yQ = 0          [φ(Q) = 0]
+  (4) a₁ + 2a₂xQ + f'(xQ)/(2yQ) = 0       [φ'|_C(Q) = 0  →  double root at xQ]
+
+(2) and (4) are a 2×2 system in (a₁, a₂) — solved first.
+(1) then gives a₀.  (3) is a consistency check that constrains the valid
+y-sign for Q: only one of (xQ, yQ) or (xQ, −yQ) will satisfy it.
+
+Note on g_coeffs
+-----------------
+g_coeffs (a fiber polynomial) appears in the signature for backward
+compatibility with callers that supply it, but it is NOT used in the
+computation.  The correct double-zero conditions depend only on f.
 
 Coefficient convention
 -----------------------
-Polynomials are represented as lists of coefficients **low-degree first**:
+Polynomials are lists of coefficients **low-degree first**:
 
     f_coeffs[i]  =  coefficient of x^i
-
-so  f_coeffs = [f0, f1, f2, f3, f4, f5]  for a degree-5 poly.
 
 Usage
 -----
     from markov.walker.phi import compute_phi, verify_phi
 
     A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
-    checks = verify_phi(p, f_coeffs, g_coeffs, A_coeffs, c, P, Q, R)
+    checks = verify_phi(p, f_coeffs, A_coeffs, c, P, Q, R)
     assert all(checks.values()), checks
 """
-
-from __future__ import annotations
-from typing import Sequence, Tuple
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -56,7 +71,6 @@ from typing import Sequence, Tuple
 
 Fp      = int
 Point   = Tuple[Fp, Fp]
-
 
 # ---------------------------------------------------------------------------
 # Low-level modular helpers
@@ -69,11 +83,9 @@ def _poly_eval(coeffs: Sequence[int], x: int, p: int) -> int:
         result = (result * x + c) % p
     return result
 
-
 def _poly_deriv(coeffs: Sequence[int], p: int) -> list[int]:
     """Formal derivative of a polynomial given coefficient-low-first."""
     return [(i * coeffs[i]) % p for i in range(1, len(coeffs))]
-
 
 def _modinv(a: int, p: int) -> int:
     """Modular inverse via Fermat (p must be prime)."""
@@ -82,44 +94,6 @@ def _modinv(a: int, p: int) -> int:
         raise ZeroDivisionError(f"modinv: zero argument mod {p}")
     return pow(a, p - 2, p)
 
-
-def _solve_4x4(M: list[list[int]], b: list[int], p: int) -> list[int]:
-    """
-    Solve M·x = b over F_p by Gauss-Jordan elimination.
-    M is a 4×4 list-of-lists; b is length-4.  Returns [x0, x1, x2, x3].
-    Raises ValueError if the system is singular.
-    """
-    # Work on augmented matrix [M | b], all entries mod p.
-    aug = [[int(M[i][j]) % p for j in range(4)] + [int(b[i]) % p]
-           for i in range(4)]
-
-    for col in range(4):
-        # Partial pivot.
-        pivot = next(
-            (row for row in range(col, 4) if aug[row][col] % p != 0),
-            None,
-        )
-        if pivot is None:
-            raise ValueError(
-                f"compute_phi: singular linear system at column {col}; "
-                "P and Q may coincide or be degenerate."
-            )
-        aug[col], aug[pivot] = aug[pivot], aug[col]
-
-        # Scale pivot row so diagonal is 1.
-        inv = _modinv(aug[col][col], p)
-        aug[col] = [(v * inv) % p for v in aug[col]]
-
-        # Eliminate column in all other rows.
-        for row in range(4):
-            if row != col and aug[row][col] != 0:
-                factor = aug[row][col]
-                aug[row] = [(aug[row][j] - factor * aug[col][j]) % p
-                            for j in range(5)]
-
-    return [aug[i][4] for i in range(4)]
-
-
 # ---------------------------------------------------------------------------
 # Main construction
 # ---------------------------------------------------------------------------
@@ -127,32 +101,40 @@ def _solve_4x4(M: list[list[int]], b: list[int], p: int) -> list[int]:
 def compute_phi(
     p: int,
     f_coeffs: Sequence[int],   # y² = f(x), len 6, degree-5 poly  (low first)
-    g_coeffs: Sequence[int],   # fiber y² = g(x), len 5, degree-4 (low first)
-    P: Point,                  # (x_P, y_P) — double-tangency intersection
-    Q: Point,                  # (x_Q, y_Q) — single-tangency intersection
+    g_coeffs: Sequence[int],   # UNUSED – kept for backward-compat with callers
+    P: Point,                  # (x_P, y_P) – one point; double root enforced here
+    Q: Point,                  # (x_Q, y_Q) – other point; double root enforced here
 ) -> tuple[list[int], int, Point]:
     """
-    Compute the rational function φ(x,y) = A(x) + c·y adapted to the fiber
-    at P (double tangency) and Q (single tangency).
+    Compute φ(x,y) = A(x) + y  (c normalised to 1) such that
+    div(φ) = 2P + 2Q + R − 5∞.
 
     Parameters
     ----------
     p         : prime characteristic
     f_coeffs  : coefficients of the curve polynomial f (low first), deg 5
-    g_coeffs  : coefficients of the fiber polynomial g (low first), deg ≤ 4
-    P         : (x_P, y_P)  — double-tangency point in C ∩ F
-    Q         : (x_Q, y_Q)  — single-tangency point in C ∩ F
+    g_coeffs  : ignored (retained for API compatibility)
+    P         : (x_P, y_P)  in C(F_p), not a Weierstrass point
+    Q         : (x_Q, y_Q)  in C(F_p), not a Weierstrass point
+                Only one y-sign for Q will be consistent; the caller is
+                responsible for passing the correct branch (phi_search.py
+                tries both).
 
     Returns
     -------
     A_coeffs  : [a0, a1, a2]  coefficients of A(x) = a0 + a1·x + a2·x²
-    c         : scalar in F_p
-    R         : (x_R, y_R)   third zero of φ on C, from Vieta + φ=0
+    c         : 1  (always, by normalisation)
+    R         : (x_R, y_R)   third zero of φ on C, from Vieta
+
+    Raises
+    ------
+    ValueError        – degenerate geometry (same x-coord, Weierstrass pts,
+                        or consistency check failed for chosen y-sign of Q)
+    ArithmeticError   – Vieta candidate R is not on the curve (should not
+                        happen when the consistency check passes)
     """
     f  = [int(v) % p for v in f_coeffs]
-    g  = [int(v) % p for v in g_coeffs]
     fp = _poly_deriv(f, p)
-    gp = _poly_deriv(g, p)
 
     xP, yP = int(P[0]) % p, int(P[1]) % p
     xQ, yQ = int(Q[0]) % p, int(Q[1]) % p
@@ -160,82 +142,87 @@ def compute_phi(
     if yP == 0 or yQ == 0:
         raise ValueError(
             "compute_phi: P or Q is a Weierstrass point (y=0); "
-            "the fiber-slope formula 1/(2y) is undefined there."
+            "φ'|_C = A'(x) + f'(x)/(2y) is undefined there."
+        )
+
+    if xP == xQ:
+        raise ValueError(
+            "compute_phi: P and Q share an x-coordinate; the 2×2 system "
+            "for (a₁, a₂) is singular."
         )
 
     inv2  = _modinv(2, p)
     invyP = _modinv(yP, p)
     invyQ = _modinv(yQ, p)
 
-    # RHS of conditions (3) and (4): g'(x)/(2y)  at P and Q.
-    rhs_P = _poly_eval(gp, xP, p) * invyP % p * inv2 % p
-    rhs_Q = _poly_eval(gp, xQ, p) * invyQ % p * inv2 % p
-
-    # f'(x)/(2y) at P and Q: the f-slope contribution in φ'|_C.
+    # φ'|_C at P and Q (must equal zero for double roots).
+    # fslope_X  =  f'(xX) / (2·yX)
     fslope_P = _poly_eval(fp, xP, p) * invyP % p * inv2 % p
     fslope_Q = _poly_eval(fp, xQ, p) * invyQ % p * inv2 % p
 
-    # Linear system in unknowns [a0, a1, a2, c]:
+    # -----------------------------------------------------------------------
+    # Step 1: solve 2×2 for (a₁, a₂) from conditions (2) and (4).
     #
-    #  (1) a0 + a1·xP + a2·xP² + c·yP = 0
-    #  (2) a0 + a1·xQ + a2·xQ² + c·yQ = 0
-    #  (3)      a1 + 2·a2·xP  + c·fslope_P = rhs_P
-    #  (4)      a1 + 2·a2·xQ  + c·fslope_Q = rhs_Q
+    #   a₁ + 2a₂xP = −fslope_P
+    #   a₁ + 2a₂xQ = −fslope_Q
+    #
+    # Subtract → 2a₂(xP − xQ) = −fslope_P + fslope_Q
+    # -----------------------------------------------------------------------
+    two_xdiff = (2 * (xP - xQ)) % p
+    a2 = (fslope_Q - fslope_P) % p * _modinv(two_xdiff, p) % p
+    a1 = (-fslope_P - 2 * a2 * xP) % p
 
+    # Step 2: a₀ from condition (1).
     xP2 = xP * xP % p
-    xQ2 = xQ * xQ % p
+    a0  = (-yP - a1 * xP - a2 * xP2) % p
 
-    M = [
-        [1,  xP,  xP2,           yP      ],
-        [1,  xQ,  xQ2,           yQ      ],
-        [0,  1,   2 * xP % p,    fslope_P],
-        [0,  1,   2 * xQ % p,    fslope_Q],
-    ]
-    b = [0, 0, rhs_P, rhs_Q]
-
-    a0, a1, a2, c = _solve_4x4(M, b, p)
+    # c is normalised to 1.
+    c = 1
     A_coeffs = [a0, a1, a2]
 
-    if c == 0:
+    # Step 3: consistency check — condition (3) must hold for the chosen
+    # y-sign of Q.  If it fails the caller should try Q = (xQ, p−yQ).
+    xQ2   = xQ * xQ % p
+    check = (a0 + a1 * xQ + a2 * xQ2 + yQ) % p
+    if check != 0:
         raise ValueError(
-            "compute_phi: solved c = 0, φ degenerates to a polynomial in x only. "
-            "Try different P, Q or check that g ≠ f."
+            f"compute_phi: consistency check φ(Q)=0 failed (residue={check}). "
+            "The y-sign of Q is wrong — try Q = (x_Q, p − y_Q)."
         )
 
     # -----------------------------------------------------------------------
-    # Recover R via Vieta on  h(x) = c²·f(x) − A(x)²
+    # Step 4: recover R via Vieta on  h(x) = f(x) − A(x)²  (c²=1).
     #
     # h has degree 5:
-    #   coeff(x⁵) = c²·f[5]      (leading coeff of f, usually 1 if monic)
-    #   coeff(x⁴) = c²·f[4] − a2²
+    #   leading coeff    = f[5]       (from f, degree 5)
+    #   coeff of x⁴     = f[4] − a2²
     #
-    # Sum of all 5 roots = −coeff(x⁴) / coeff(x⁵)
-    # Under the claimed divisor 2P + 2Q + R: sum = 2·xP + 2·xQ + xR
+    # With divisor 2P + 2Q + R, the five roots are xP, xP, xQ, xQ, xR:
+    #   sum of roots  = 2xP + 2xQ + xR  =  −coeff(x⁴) / coeff(x⁵)
     # -----------------------------------------------------------------------
-    c2   = c * c % p
     f4   = f[4] if len(f) > 4 else 0
     f5   = f[5] if len(f) > 5 else 1    # leading coeff (1 for monic)
     a2sq = a2 * a2 % p
 
-    sum_roots = (-(c2 * f4 - a2sq) % p) * _modinv(c2 * f5 % p, p) % p
+    # sum_roots = -(f4 - a2sq) / f5  =  (a2sq - f4) / f5
+    sum_roots = (a2sq - f4) % p * _modinv(f5, p) % p
     xR = (sum_roots - 2 * xP - 2 * xQ) % p
 
-    # y_R from φ(R) = 0:  y_R = −A(x_R) / c
-    yR = (-_poly_eval(A_coeffs, xR, p) % p) * _modinv(c, p) % p
+    # y_R from φ(R) = 0:  A(xR) + yR = 0  →  yR = −A(xR)
+    yR = (-_poly_eval(A_coeffs, xR, p)) % p
 
-    # Quick on-curve check — this also validates the Vieta step.
+    # On-curve check — validates the entire construction.
     yR_sq = yR * yR % p
     fR    = _poly_eval(f, xR, p)
     if yR_sq != fR:
         raise ArithmeticError(
             f"compute_phi: Vieta candidate R = ({xR}, {yR}) is not on the curve "
             f"(y²={yR_sq}, f(x_R)={fR}).  "
-            "The claimed double-zero structure at P and Q may not hold — "
-            "check the fiber/curve intersection multiplicities."
+            "This should not happen when the consistency check passed; "
+            "verify that P and Q are distinct F_p-points on C with the correct y-signs."
         )
 
     return A_coeffs, c, (xR, yR)
-
 
 # ---------------------------------------------------------------------------
 # Verifier
@@ -244,12 +231,13 @@ def compute_phi(
 def verify_phi(
     p: int,
     f_coeffs: Sequence[int],
-    g_coeffs: Sequence[int],
     A_coeffs: Sequence[int],
     c: int,
     P: Point,
     Q: Point,
     R: Point,
+    # g_coeffs is accepted but ignored (backward compat).
+    g_coeffs: Sequence[int] | None = None,
 ) -> dict[str, bool]:
     """
     Sanity checks for the constructed φ and the claimed divisor 2P+2Q+R−5∞.
@@ -264,25 +252,16 @@ def verify_phi(
     P_on_curve, Q_on_curve, R_on_curve
         All three points lie on  y² = f(x).
 
-    P_on_fiber, Q_on_fiber
-        P and Q lie on  y² = g(x).
-
     double_zero_P, double_zero_Q
-        x_P (resp. x_Q) is a double root of  h(x) = c²f(x) − A(x)².
-        This is the condition that enforces multiplicity-2 zeros.
-        NOTE: the interpolation conditions guarantee φ(P)=φ(Q)=0 but
-        do NOT automatically enforce h'(x_P)=0 unless the fiber slope
-        happens to coincide with the curve slope at P.  Check this to
-        confirm the divisor structure.
+        h(x) = c²f(x) − A(x)² has h(xP)=h'(xP)=0 and similarly for Q.
 
-    dphi_curve_P_eq_fiber_slope_P, dphi_curve_Q_eq_fiber_slope_Q
-        The φ'|_C interpolation conditions were met.
+    dphi_curve_P_zero, dphi_curve_Q_zero
+        φ'|_C = A'(x) + c·f'(x)/(2y) vanishes at P and Q.
+        This is the condition that forces the double zeros.
     """
     f  = [int(v) % p for v in f_coeffs]
-    g  = [int(v) % p for v in g_coeffs]
     A  = [int(v) % p for v in A_coeffs]
     fp = _poly_deriv(f, p)
-    gp = _poly_deriv(g, p)
     Ap = _poly_deriv(A, p)
     inv2 = _modinv(2, p)
 
@@ -293,17 +272,12 @@ def verify_phi(
     def dphi_curve(pt: Point) -> int:
         """φ'|_C = A'(x) + c·f'(x)/(2y)."""
         x, y = int(pt[0]) % p, int(pt[1]) % p
-        return (_poly_eval(Ap, x, p) + c * _poly_eval(fp, x, p) % p * _modinv(y, p) % p * inv2) % p
-
-    def fiber_slope(pt: Point) -> int:
-        """y'_F = g'(x)/(2y)."""
-        x, y = int(pt[0]) % p, int(pt[1]) % p
-        return _poly_eval(gp, x, p) * _modinv(y, p) % p * inv2 % p
+        return (_poly_eval(Ap, x, p) + c * _poly_eval(fp, x, p) * _modinv(y, p) % p * inv2) % p
 
     def h_val(x: int) -> int:
         """h(x) = c²f(x) − A(x)²."""
         c2 = c * c % p
-        return (c2 * _poly_eval(f, x, p) - _poly_eval(A, x, p) ** 2) % p
+        return (c2 * _poly_eval(f, x, p) - pow(_poly_eval(A, x, p), 2, p)) % p
 
     def h_deriv_val(x: int) -> int:
         """h'(x) = c²f'(x) − 2A(x)A'(x)."""
@@ -325,19 +299,13 @@ def verify_phi(
         "P_on_curve":  pow(yP, 2, p) == _poly_eval(f, xP, p),
         "Q_on_curve":  pow(yQ, 2, p) == _poly_eval(f, xQ, p),
         "R_on_curve":  pow(int(R[1]), 2, p) == _poly_eval(f, int(R[0]) % p, p),
-        # P and Q on the fiber.
-        "P_on_fiber":  pow(yP, 2, p) == _poly_eval(g, xP, p),
-        "Q_on_fiber":  pow(yQ, 2, p) == _poly_eval(g, xQ, p),
-        # Double-zero structure — h(x_P) = h'(x_P) = 0, same for Q.
+        # Double-zero structure: h(xP)=h'(xP)=0, same for Q.
         "double_zero_P":  h_val(xP) == 0 and h_deriv_val(xP) == 0,
         "double_zero_Q":  h_val(xQ) == 0 and h_deriv_val(xQ) == 0,
-        # Interpolation conditions were met.
-        "dphi_curve_P_eq_fiber_slope_P":
-            dphi_curve(P) == fiber_slope(P),
-        "dphi_curve_Q_eq_fiber_slope_Q":
-            dphi_curve(Q) == fiber_slope(Q),
+        # φ'|_C = 0 at P and Q — the direct condition for double zeros.
+        "dphi_curve_P_zero":  dphi_curve(P) == 0,
+        "dphi_curve_Q_zero":  dphi_curve(Q) == 0,
     }
-
 
 # ---------------------------------------------------------------------------
 # Convenience: evaluate φ at a point
@@ -347,7 +315,6 @@ def phi_eval(A_coeffs: Sequence[int], c: int, pt: Point, p: int) -> int:
     """Evaluate φ(x, y) = A(x) + c·y at pt over F_p."""
     x, y = int(pt[0]) % p, int(pt[1]) % p
     return (_poly_eval([int(a) % p for a in A_coeffs], x, p) + c * y) % p
-
 
 # ---------------------------------------------------------------------------
 # Convenience: recover the full quintic h(x) = c²f(x) − A(x)²
@@ -362,16 +329,15 @@ def phi_quintic(
     """
     Return the coefficients of  h(x) = c²·f(x) − A(x)²  (low-degree first).
 
-    The zeros of h on F_p are the x-coordinates of the zeros of φ on the curve
-    (each zero of φ appears with the same multiplicity as the corresponding
-    root of h).  Should factor as  (x−xP)²·(x−xQ)²·(x−xR) · c² (up to leading
-    coefficient) under the claimed divisor 2P+2Q+R−5∞.
+    With c=1 this is simply  f(x) − A(x)².  The zeros of h on F_p are the
+    x-coordinates of the zeros of φ on the curve.  Under the claimed divisor
+    2P+2Q+R−5∞, h factors as  (x−xP)²·(x−xQ)²·(x−xR)·f[5]  over F_p.
     """
     f = [int(v) % p for v in f_coeffs]
     A = [int(v) % p for v in A_coeffs]
     c2 = c * c % p
 
-    # c²·f(x): multiply each coefficient by c².
+    # c²·f(x)
     cf = [c2 * fi % p for fi in f]
 
     # A(x)²: convolve A with itself.
@@ -383,8 +349,8 @@ def phi_quintic(
 
     # h = c²f − A²: zero-pad to the same length.
     n = max(len(cf), len(A2))
-    cf  = cf  + [0] * (n - len(cf))
-    A2  = A2  + [0] * (n - len(A2))
-    h   = [(cf[i] - A2[i]) % p for i in range(n)]
+    cf = cf + [0] * (n - len(cf))
+    A2 = A2 + [0] * (n - len(A2))
+    h  = [(cf[i] - A2[i]) % p for i in range(n)]
 
     return h

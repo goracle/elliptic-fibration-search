@@ -1,7 +1,6 @@
 from sage.all import *
 from pathlib import Path
 from .curve_helpers import *
-from .curve_helpers import _coerce_base_ring
 
 PROJECT_REGISTRY: Dict[str, Any] = {}
 
@@ -23,7 +22,6 @@ def resolve_project_symbol(name: str, default: Any = None, required: bool = Fals
             "Call load_project_sources() before using this function."
         )
     return default
-
 
 def load_project_sources(base_dir: Optional[Path] = None, verbose: bool = True) -> Dict[str, bool]:
     """Load tower.sage and search7_genus2.sage into PROJECT_REGISTRY."""
@@ -111,12 +109,9 @@ def project_base_points_from_globals(current_x=None, current_y=None, p: Optional
 
     return pts
 
-
 def exec_namespace(src: str) -> Dict[str, Any]:
     """Execute preparsed sage source and return the resulting namespace."""
     ns: Dict[str, Any] = {}
     exec(src, ns)
     return ns
-
-
 

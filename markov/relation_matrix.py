@@ -152,7 +152,6 @@ def verify_relation_is_principal(rec, curve, p) -> dict:
         return J(curve(x_fp, y))
 
     # Build multiplicity-counted list of x-values.
-    from collections import Counter
     atom_counter = Counter(Fp(a) for a in atoms_raw)
 
     # x_src in Fp.
@@ -197,7 +196,6 @@ def verify_relation_is_principal(rec, curve, p) -> dict:
            if ok else
            f"NOT principal ✗  n_tried={n_tried}  atoms={[int(a) for a in atoms_raw]}")
     return {"ok": ok, "signs": signs_out, "n_tried": n_tried, "zero_sum": ok, "msg": msg}
-
 
 def verify_history_relations(history, curve, p, *, accepted_only=True, verbose=True) -> dict:
     """Run verify_relation_is_principal on every accepted record in history.
@@ -246,7 +244,6 @@ def verify_history_relations(history, curve, p, *, accepted_only=True, verbose=T
             print("  All relations verified as principal divisors ✓")
 
     return {"n_checked": n_checked, "n_ok": n_ok, "n_fail": n_fail, "failures": failures}
-
 
 def build_relation_matrix2(
     history: Sequence[Any],

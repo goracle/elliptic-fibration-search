@@ -1,7 +1,6 @@
 from search_common import *
 from collections import Counter
-from .candidate_utils import _get_fiber_context_for_rec
-from .candidate_utils import _get_S_of_m_for_rec
+from .candidate_utils import _get_fiber_context_for_rec, _get_S_of_m_for_rec
 
 class _FiberPoleError(Exception):
     """Raised when S(m) has a pole at a specific m value.
@@ -11,7 +10,6 @@ class _FiberPoleError(Exception):
     This is not a 2-cycle violation; the (x_src, x_step) pair is simply unevaluable
     and should be skipped rather than treated as an error.
     """
-
 
 def close_under_involution2(walker) -> int:
     """Verify the Vieta involution T(x_step) = S(m) - (d-2)*x_src - x_step is a
@@ -183,7 +181,6 @@ def close_under_involution2(walker) -> int:
     )
     return n_checked
 
-
 def generate_mixed_relations2(
     walker,
     atoms_to_inject: List[Any],
@@ -347,7 +344,6 @@ def generate_mixed_relations2(
         f" inject_pool={len(atoms_fp)})"
     )
     return n_added
-
 
 def try_partial_cantor_reduction(walker, rec: RelationRecord) -> bool:
     """Pick two atom slots at random from rec.atoms and attempt a Cantor reduction.

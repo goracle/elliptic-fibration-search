@@ -30,6 +30,7 @@ from search_common import *
 from .walker import *
 from .walker.curve_helpers import _coerce_base_ring
 from .walker.candidate_utils import _jsonable, _derive_relation_from_intersection_poly
+
 load('tower.sage')
 load('search7_genus2.sage')
 
@@ -256,7 +257,6 @@ class Genus2MetropolisWalker:
             parameter_m=None,
             use_anchor_points=True,
         )
-
 
     def _prefer_unvisited_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Partition candidates by x_src_visit_count and return the least-visited tier.
@@ -808,8 +808,6 @@ class Genus2MetropolisWalker:
         label: str = "mixed",
     ) -> int:
         return generate_mixed_relations2(self, atoms_to_inject, label=label, seed_atoms=seed_atoms)
-
-
 
     def _store_record(self, rec: RelationRecord) -> RelationRecord:
         # Only trim the candidate pool if the user hasn't requested full candidates.
@@ -1410,7 +1408,6 @@ class Genus2MetropolisWalker:
         self._store_record(rec)
         return rec
 
-
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
         if self.walk_terminated:
             return None
@@ -1436,7 +1433,6 @@ class Genus2MetropolisWalker:
                 if nxt is None:
                     self.walk_terminated = True
         return rec
-
 
     def _restart_after_dead_end(self, *, x_src, n, reason, current_point=None):
         # Mark the incoming x_src as exhausted — its fiber is deterministic so
@@ -1505,7 +1501,6 @@ class Genus2MetropolisWalker:
     def _step_direct(self, n, seed):
         return _step_direct(self, n, seed)
 
-
 def build_default_walker(
     coeffs: Sequence[Any],
     initial_x: Any,
@@ -1543,5 +1538,4 @@ def build_default_walker(
         score_fn=score_fn,
         config=cfg,
     )
-
 

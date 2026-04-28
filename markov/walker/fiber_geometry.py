@@ -1,4 +1,5 @@
 
+
 def compute_S_of_m(fi, G_poly, curve_degree):
     """Return the x^(d-1) coefficient of (G(x) - f_i(x, m)) as a symbolic
     rational function in m, without evaluating m numerically.

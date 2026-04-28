@@ -1,5 +1,5 @@
-from collections import Counter
 import dataclasses
+from collections import Counter
 from .fiber_geometry import *
 
 def _collect_mumford_candidate_x_values(obj, out=None):
@@ -170,8 +170,6 @@ def _normalize_candidate_output(result):
 
     raise TypeError(f"Unsupported search result type: {type(result)!r}")
 
-
-
 def _normalize_markov_mumford_result(result, fallback_step=None):
     """
     Normalize the legacy Mumford-search return payload into a walker-friendly dict.
@@ -318,13 +316,11 @@ def _normalize_markov_mumford_result(result, fallback_step=None):
 
     return out
 
-
 def safe_solve_univariate_roots(poly, ring=None) -> List[Any]:
     """Solve poly=0 in its base ring, returning roots if Sage can see them."""
     roots = poly.roots(multiplicities=False)
     assert roots, roots
     return list(roots)
-
 
 def _as_set(values):
     if values is None:
@@ -334,7 +330,6 @@ def _as_set(values):
     if isinstance(values, (list, tuple)):
         return {v for v in values if v is not None}
     return {values}
-
 
 def _solve_m_roots(step: Dict[str, Any]) -> List[Any]:
     r_expr = step.get("r_expr")
@@ -351,7 +346,6 @@ def _solve_m_roots(step: Dict[str, Any]) -> List[Any]:
     except Exception:
         raise
         return []
-
 
 def _get_S_of_m_for_rec(rec) -> Optional[Any]:
     """Return the S(m) symbolic rational function for the x_src of *rec*.
@@ -371,7 +365,6 @@ def _get_S_of_m_for_rec(rec) -> Optional[Any]:
             if S_sym is not None:
                 return S_sym
     return None
-
 
 def _get_fiber_context_for_rec(rec):
     """Return (fi, G_poly) for the x_src of *rec*, or (None, None) if unavailable.
@@ -393,8 +386,6 @@ def _get_fiber_context_for_rec(rec):
             if fi is not None and G_poly is not None:
                 return fi, G_poly
     return None, None
-
-
 
 def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=None):
     """Best-effort access to a degree-5 intersection polynomial.
@@ -454,7 +445,6 @@ def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=Non
             return poly
 
     return None
-
 
 def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
     """
@@ -523,7 +513,6 @@ def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
 
     return x_step, x_res, src_mult, poly, extra_roots
 
-
 def _jsonable(obj: Any):
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
@@ -543,10 +532,8 @@ def _jsonable(obj: Any):
         return [_jsonable(v) for v in obj]
     return str(obj)
 
-
 def _candidate_xj_from_m(base_ring, x_src, m_val):
     return base_ring(x_src) - base_ring(m_val)
-
 
 def _score_candidate_record(score_fn, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
     if score_fn is None:
