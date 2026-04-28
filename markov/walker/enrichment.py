@@ -102,12 +102,16 @@ def enrich_candidates(
             raise
             continue
 
-        #print("G_Rx", G_Rx)
-        intersection_poly = G_Rx - f_eval_poly # no square on f
-
         # Step 4: find all roots in the base field.
+        # We solve f(x) - g(x) = 0 only to locate x_step / x_res — the roots
+        # are correct.  The polynomial itself is NOT a valid intersection_poly
+        # for the relation matrix: its roots carry no principal-divisor structure.
+        # intersection_poly is left None here and must be filled in by
+        # augment_with_phi (phi_search.py) after enrich_candidates returns.
+        intersection_poly = None
+        _root_poly = G_Rx - f_eval_poly
         try:
-            roots_wm = intersection_poly.roots()
+            roots_wm = _root_poly.roots()
         except Exception:
             raise
             continue
@@ -172,9 +176,7 @@ def enrich_candidates(
             raise
             continue
 
-        assert intersection_poly
-
-        #print("intersection poly", intersection_poly, actual_xi_mult)
+        # intersection_poly is intentionally None here; augment_with_phi fills it in.
 
         xj_val, xk_val = xj_f, xk_f
         # Step 9: pack the record.

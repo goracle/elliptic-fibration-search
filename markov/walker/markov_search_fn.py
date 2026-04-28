@@ -6,6 +6,7 @@ from .candidate_utils import *
 from .candidate_utils import _normalize_markov_mumford_result
 from .candidate_utils import _candidates_from_residues
 from .enrichment import *
+from .phi_search import augment_with_phi as _augment_with_phi
 
 def make_project_markov_search_fn(
     *,
@@ -27,6 +28,13 @@ def make_project_markov_search_fn(
     prime_pool = PRIME_POOL
     num_workers = 20
     all_found_x = set()
+
+    # Build once at factory time for augment_with_phi.
+    # coeffs_genus2 is high-degree first (descending); phi.py wants low-degree first.
+    from sage.all import GF as _GF, PolynomialRing as _PR
+    _phi_Fp       = _GF(int(p))
+    _phi_ring     = _PR(_phi_Fp, 'x')
+    _phi_f_coeffs = list(reversed(coeffs_genus2))
 
     def search_fn(x_src=None, current_x=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
         yfun = get_y_unshifted_genus2
@@ -243,6 +251,15 @@ def make_project_markov_search_fn(
             # Memory Fix: Omit 'context', 'raw_mumford_residues', 'new_sections', 'precomputed_residues'
             # which hold uncollectable SageMath Rings and Ideals.
         }
+
+        result = _augment_with_phi(
+            result,
+            f_coeffs  = _phi_f_coeffs,
+            p         = p,
+            x_src     = x_here,
+            y_src     = y_here,
+            sage_ring = _phi_ring,
+        )
 
         return result
 
