@@ -95,6 +95,159 @@ def _get(rec, key):
         return rec.get(key)
     return getattr(rec, key, None)
 
+def verify_relation_is_principal(rec, curve, p) -> dict:
+    """Verify that a stored relation record encodes a principal divisor on Jac(C).
+
+    A relation record stores atoms = [x_src]*mult + [x_step] + [x_res] + extra_roots,
+    all as x-coordinates only.  To verify the relation is principal we must assign
+    y-signs to each atom, lift the x-coordinates to curve points (x, ±y), and check
+    that their sum in Jac(C) equals zero.
+
+    x_src appears with multiplicity > 1, so its y-sign is fixed once; the sign
+    choices that matter are one per *distinct non-src* x-value (x_step, x_res,
+    extra_roots).  In the generic degree-5 case that is 2 free signs → 4 candidates.
+    We try all 2^k combinations and return the first one that sums to zero, or report
+    failure.
+
+    Parameters
+    ----------
+    rec   : RelationRecord (or dict with same fields)
+    curve : SageMath HyperellipticCurve object, defined over GF(p)
+    p     : field characteristic (int), used to lift x-coordinates into GF(p)
+
+    Returns
+    -------
+    dict with keys:
+        'ok'          : bool   — True if any sign assignment makes the sum zero
+        'signs'       : dict   — {x_val: sign (+1/-1)} for the winning assignment,
+                                 or None on failure
+        'n_tried'     : int    — number of sign combinations attempted
+        'zero_sum'    : bool   — same as 'ok'
+        'msg'         : str    — human-readable summary
+    """
+    from sage.all import GF, ZZ, PolynomialRing
+    import itertools
+
+    atoms_raw = _get(rec, "atoms") or []
+    x_src = _get(rec, "x_src")
+    if not atoms_raw:
+        return {"ok": False, "signs": None, "n_tried": 0, "zero_sum": False,
+                "msg": "no atoms in record"}
+
+    Fp = GF(p)
+    J = curve.jacobian()(Fp)
+    f, _ = curve.hyperelliptic_polynomials()
+
+    def lift_point(x_fp, sign):
+        """Return a Jacobian divisor [(x, sign*y)] - [∞], or None if x not on curve."""
+        y2 = f(x_fp)
+        if y2 == 0:
+            # Ramification point: y=0, sign is moot.
+            return J(curve.lift_x(x_fp))
+        sq = y2.sqrt(extend=False, all=True)
+        if not sq:
+            return None  # x not on curve over Fp
+        y_can = min(sq, key=lambda v: int(v))  # canonical = smaller representative
+        y = y_can if sign >= 0 else -y_can
+        return J(curve(x_fp, y))
+
+    # Build multiplicity-counted list of x-values.
+    from collections import Counter
+    atom_counter = Counter(Fp(a) for a in atoms_raw)
+
+    # x_src in Fp.
+    x_src_fp = Fp(x_src) if x_src is not None else None
+
+    # Identify atoms whose sign is free vs. fixed.
+    # x_src's sign: if src multiplicity >= 2, one sign choice applies to all copies,
+    # so it is *one* free bit.  But we only need to flip the non-src atoms because the
+    # src sign cancels algebraically only if src_mult is even — for odd src_mult it's
+    # also a free bit.  We brute-force *all* distinct x-values to keep this general.
+    distinct_xs = list(atom_counter.keys())
+
+    # For each distinct x, try sign +1 or -1; enumerate all 2^k combos.
+    n_distinct = len(distinct_xs)
+    best = None
+    n_tried = 0
+
+    for signs_tuple in itertools.product([1, -1], repeat=n_distinct):
+        sign_map = dict(zip(distinct_xs, signs_tuple))
+        n_tried += 1
+
+        total = J(0)
+        failed = False
+        for x_fp, mult in atom_counter.items():
+            pt = lift_point(x_fp, sign_map[x_fp])
+            if pt is None:
+                failed = True
+                break
+            total += mult * pt
+
+        if failed:
+            continue
+
+        if total == J(0):
+            best = sign_map
+            break
+
+    ok = best is not None
+    # Convert sign_map keys back to plain Python ints for readability.
+    signs_out = {int(x): s for x, s in best.items()} if best else None
+    msg = (f"principal ✓  signs={signs_out}  n_tried={n_tried}"
+           if ok else
+           f"NOT principal ✗  n_tried={n_tried}  atoms={[int(a) for a in atoms_raw]}")
+    return {"ok": ok, "signs": signs_out, "n_tried": n_tried, "zero_sum": ok, "msg": msg}
+
+
+def verify_history_relations(history, curve, p, *, accepted_only=True, verbose=True) -> dict:
+    """Run verify_relation_is_principal on every accepted record in history.
+
+    Parameters
+    ----------
+    history      : list of RelationRecord
+    curve        : HyperellipticCurve over GF(p)
+    p            : int, field characteristic
+    accepted_only: if True, skip non-accepted records
+    verbose      : if True, print per-record results for failures and a summary
+
+    Returns
+    -------
+    dict with keys:
+        'n_checked'  : int
+        'n_ok'       : int
+        'n_fail'     : int
+        'failures'   : list of (step_index, msg) for failed records
+    """
+    n_checked = 0
+    n_ok = 0
+    failures = []
+
+    for rec in history:
+        if accepted_only and not _get(rec, "accepted"):
+            continue
+        atoms = _get(rec, "atoms") or []
+        if not atoms:
+            continue
+
+        step_idx = _get(rec, "step_index")
+        result = verify_relation_is_principal(rec, curve, p)
+        n_checked += 1
+        if result["ok"]:
+            n_ok += 1
+        else:
+            failures.append((step_idx, result["msg"]))
+            if verbose:
+                print(f"  [verify] FAIL  step={step_idx}  {result['msg']}")
+
+    n_fail = len(failures)
+    if verbose:
+        print(f"\n[verify_history_relations] checked={n_checked}  ok={n_ok}  fail={n_fail}")
+        if n_fail == 0:
+            print("  All relations verified as principal divisors ✓")
+
+    return {"n_checked": n_checked, "n_ok": n_ok, "n_fail": n_fail, "failures": failures}
+
+
 def build_relation_matrix2(
     history: Sequence[Any],
     *,

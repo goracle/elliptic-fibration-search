@@ -785,6 +785,10 @@ class Genus2MetropolisWalker:
             )
             # Use _store_record directly to avoid re-triggering _try_partial_cantor_reduction
             # (the source="cantor_triple_reduction" guard above handles re-entry).
+            if not self._verify_atoms_principal(new_atoms):
+                print(f"  [verify] REJECT non-principal cantor_triple relation "
+                      f"atoms={[int(a) for a in new_atoms]}")
+                continue
             self._store_record(new_rec)
             emitted = True
 
@@ -1343,20 +1347,67 @@ class Genus2MetropolisWalker:
             restart=False,
         )
 
+    def _verify_atoms_principal(self, atoms_list) -> bool:
+        """Return True iff some sign assignment on atoms_list sums to zero in Jac(C).
+
+        Tries all 2^k sign combinations where k = number of distinct x-values in
+        atoms_list.  Builds the HyperellipticCurve on first call and caches it as
+        self._hec.  Returns False immediately if any x-value has no Fp square root
+        under all sign choices (i.e. is not on the curve).
+        """
+        if not atoms_list:
+            return False
+        if not hasattr(self, "_hec") or self._hec is None:
+            from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
+            self._hec = HyperellipticCurve(self.curve_poly)
+        C = self._hec
+        Fp = self.base_ring
+        J = C.jacobian()(Fp)
+        f = self.curve_poly
+
+        from collections import Counter
+        import itertools
+        atom_counter = Counter(Fp(a) for a in atoms_list)
+        distinct_xs = list(atom_counter.keys())
+
+        def lift(x_fp, sign):
+            y2 = f(x_fp)
+            if y2 == 0:
+                return J(C.lift_x(x_fp))
+            sq = y2.sqrt(extend=False, all=True)
+            if not sq:
+                return None
+            y_can = min(sq, key=lambda v: int(v))
+            return J(C(x_fp, y_can if sign >= 0 else -y_can))
+
+        for signs in itertools.product([1, -1], repeat=len(distinct_xs)):
+            sign_map = dict(zip(distinct_xs, signs))
+            total = J(0)
+            ok = True
+            for x_fp, mult in atom_counter.items():
+                pt = lift(x_fp, sign_map[x_fp])
+                if pt is None:
+                    ok = False
+                    break
+                total += mult * pt
+            if ok and total == J(0):
+                return True
+        return False
+
     def _accept_direct_step(self, *, step_payload, n, x_src, m_val, x_step, x_res, yj_sign=1, yk_sign=1):
-        rec = self._store_relation_record(
-            step_index=len(self.history),
-            n=n,
-            x_src=x_src,
-            m_val=m_val,
-            x_step=x_step,
-            x_res=x_res,
-            step_payload=step_payload,
+        rec = self._make_relation(
+            len(self.history), n, x_src, m_val, x_step, x_res,
+            step_payload or {},
             accepted=True,
             restart=False,
             yj_sign=yj_sign,
             yk_sign=yk_sign,
         )
+        if rec.atoms and not self._verify_atoms_principal(rec.atoms):
+            print(f"  [verify] REJECT non-principal relation at step={rec.step_index} "
+                  f"atoms={[int(a) for a in rec.atoms]}")
+            return None
+        self._store_record(rec)
         return rec
 
 

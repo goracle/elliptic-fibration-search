@@ -244,6 +244,19 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
 
             tgt, sign, y = walker.rng.choice(fresh_opts)
 
+            # Verify the relation is a principal divisor before committing.
+            # Build atoms tentatively the same way _make_relation will, then check.
+            # If it fails, try the next candidate rather than rejecting the whole step.
+            _tentative_atoms = (
+                [walker.base_ring(x_src)] * src_mult
+                + [walker.base_ring(x_step), walker.base_ring(x_res)]
+                + [walker.base_ring(xr) for xr in extra_roots]
+            )
+            if not walker._verify_atoms_principal(_tentative_atoms):
+                print(f"  [verify] candidate non-principal, trying next  "
+                      f"x_src={x_src} x_step={x_step} x_res={x_res}")
+                pool.remove(chosen); continue
+
             # If we made it here, everything is valid!
             valid_candidate_found = True
             break
