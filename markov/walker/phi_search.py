@@ -259,12 +259,16 @@ def augment_with_phi(
                 y_canonical = _recover_y(xrs, f_list, p)
                 if y_canonical is None:
                     continue
-                new_rec = dict(rec)   # shallow copy of original record
-                new_rec["x_step"]          = xrs
+                y_neg_rs = (p - y_canonical) % p
+                new_rec = dict(rec)
+                new_rec["x_step"]            = xrs
+                new_rec["x_res"]             = xrs   # self geometry: x_res == x_step
+                new_rec["yj_sign"]           = 1
+                new_rec["yk_sign"]           = 1
                 new_rec["intersection_poly"] = h_sage
-                new_rec["phi_geo"]         = "self_rs"
-                new_rec["source"]          = "phi_self_rs"
-                new_rec["phi_mumford_RS"]  = [int(sum_RS) % p, int(prod_RS) % p]
+                new_rec["phi_geo"]           = "self_rs"
+                new_rec["source"]            = "phi_self_rs"
+                new_rec["phi_mumford_RS"]    = [int(sum_RS) % p, int(prod_RS) % p]
                 candidates.append(new_rec)
 
             continue
@@ -293,10 +297,28 @@ def augment_with_phi(
         if h_sage is None:
             continue
 
-        # Success: stamp the intersection poly and metadata onto this record.
+        # Recover R so we can populate x_res.  Re-run compute_phi with the
+        # winning y-sign — _phi_for_pair discards R, so we need it again.
+        Q_win = (x_step_int, chosen_y)
+        try:
+            A_coeffs_win, c_win, R_win = compute_phi(p, f_list, g_coeffs, P, Q_win)
+            xR_int = int(R_win[0]) % p
+            yR_int = int(R_win[1]) % p
+            # Canonical y-sign for x_res: 1 if yR is the smaller root, -1 otherwise
+            yR_neg = (p - yR_int) % p
+            yk_sign = 1 if yR_int <= yR_neg else -1
+        except Exception:
+            xR_int  = None
+            yk_sign = 1
+
+        # Success: stamp intersection poly, x_res, and sign metadata.
         rec["intersection_poly"] = h_sage
-        rec["phi_P"] = list(P)
-        rec["phi_Q"] = [x_step_int, chosen_y]
+        rec["x_res"]    = xR_int
+        rec["yk_sign"]  = yk_sign
+        rec["yj_sign"]  = 1 if chosen_y == y_canonical else -1
+        rec["phi_P"]    = list(P)
+        rec["phi_Q"]    = [x_step_int, chosen_y]
+        rec["phi_geo"]  = "generic"
         any_succeeded = True
 
         # Also promote to top-level if not already set.
@@ -329,10 +351,8 @@ def _phi_for_pair(
     """
     try:
         A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
-    except ValueError as e:
-        if "consistency check φ(Q)=0 failed" in str(e):
-            return None
-        raise
+    except ValueError:
+        return None
     except (ZeroDivisionError, ArithmeticError):
         raise
 

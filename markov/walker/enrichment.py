@@ -15,38 +15,29 @@ def enrich_candidates(
     T_inv=None,
 ):
     """
-    Enrich candidate records by reconstructing the fiber intersection directly
-    over GF(p), using only the shared m-parameter.
+    Enrich candidate records by evaluating the fiber at each m-value and
+    collecting all non-src roots as candidate x_step values.
 
-    Main fixes versus the previous version:
-      - evaluates coefficients at m_val_fp more carefully, avoiding brittle
-        direct subs-on-fraction-field behavior where possible
-      - coerces all comparisons into GF(p)
-      - skips candidates cleanly on poles / malformed evaluations
-      - keeps the geometric reconstruction path explicit and strict
+    Root multiplicities and divisor structure are intentionally ignored here —
+    phi (augment_with_phi) is the only source of valid relations.  This function
+    just feeds x-coordinates to phi; any candidate that phi can't build a
+    relation for will be dropped downstream.
+
+    The only early rejections are:
+      - fiber pole at m (ZeroDivisionError in coefficient evaluation)
+      - fiber has no F_p roots at all
+      - every root equals x_src (no candidate step exists)
     """
     enriched = []
     _n_poles = _n_no_roots = _n_wrong_nroots = _n_sign_fail = 0
-
 
     if p is None or G_poly is None or fi is None:
         return []
 
     Fp = GF(int(p))
-    shift_fp = Fp(shift)
-
-    def _eval_at_m(obj, m_val_fp):
-        """
-        Evaluate a coefficient-like object at m = m_val_fp and coerce into GF(p).
-
-        Tries callable evaluation first, then symbolic substitution, then direct
-        coercion. This is intentionally conservative.
-        """
-        return Fp(obj(m_val_fp))
-
-    x_here_f = x_here
-    x_here_f_fp = Fp(x_here_f)
     R_x = PolynomialRing(Fp, "x")
+
+    x_here_f_fp = Fp(x_here)
 
     candidates = norm.get("candidate_records", []) or norm.get("candidates", [])
     for cand in candidates:
@@ -64,6 +55,7 @@ def enrich_candidates(
         except Exception:
             raise
 
+        # Evaluate fiber polynomial at this m.
         try:
             coeffs = []
             for c in fi.list():
@@ -79,24 +71,10 @@ def enrich_candidates(
             print(f"CRITICAL: Evaluation failed for m={m_val_fp}. Error: {e}")
             raise
 
-        #print("m, f_eval_poly, fi", m_val, f_eval_poly, fi)
-
-        # Step 3: intersection polynomial on the fiber.
+        # Find roots of (fiber - G) over F_p.
         try:
             G_Rx = R_x(G_poly)
-        except Exception:
-            raise
-
-        # Step 4: find all roots in the base field.
-        # We solve f(x) - g(x) = 0 only to locate x_step / x_res — the roots
-        # are correct.  The polynomial itself is NOT a valid intersection_poly
-        # for the relation matrix: its roots carry no principal-divisor structure.
-        # intersection_poly is left None here and must be filled in by
-        # augment_with_phi (phi_search.py) after enrich_candidates returns.
-        intersection_poly = None
-        _root_poly = G_Rx - f_eval_poly
-        try:
-            roots_wm = _root_poly.roots()
+            roots_wm = (G_Rx - f_eval_poly).roots()
         except Exception:
             raise
 
@@ -106,166 +84,36 @@ def enrich_candidates(
         # Diagnostic: print root structure for first 3 candidates.
         _cand_idx = _n_poles + _n_no_roots + _n_wrong_nroots + _n_sign_fail + len(enriched)
         if _cand_idx < 3:
-            print(f"  [root_dbg] cand#{_cand_idx} m={m_val_fp} roots_wm={[(int(r), int(mult)) for r,mult in roots_wm]}  x_src={int(x_here_f_fp)}")
+            print(f"  [root_dbg] cand#{_cand_idx} m={m_val_fp} "
+                  f"roots_wm={[(int(r), int(mult)) for r,mult in roots_wm]}  "
+                  f"x_src={int(x_here_f_fp)}")
 
-        other_roots_f = []
-        actual_xi_mult = 0
-
+        # Collect every distinct non-src root as a candidate x_step.
+        # Multiplicity is irrelevant — phi is the only thing that determines
+        # whether a valid relation exists for a given (x_src, x_step) pair.
+        any_emitted = False
         for r, mult in roots_wm:
-            try:
-                r_fp = Fp(r)
-            except Exception:
-                raise
-
+            r_fp = Fp(r)
             if r_fp == x_here_f_fp:
-                actual_xi_mult += mult
+                continue
 
-                # Preserve the previous convention for excess x_src multiplicity.
-                if mult > (curve_degree - 2):
-                    other_roots_f.extend([r_fp] * (mult - (curve_degree - 2)))
-            else:
-                if r_fp not in other_roots_f:
-                    other_roots_f.append(r_fp)
-
-        # Step 5: need 1 or 2 distinct non-x_src roots.
-        # len==2: generic relation xi^src_mult + xj + xk - deg*inf = 0
-        # len==1: self relation  xi^src_mult + 2*xj - deg*inf = 0 (double root)
-        # len==0 or >2: degenerate, skip.
-        _phi_extra_roots = []
-        if len(other_roots_f) == 2:
-            xj_f, xk_f = other_roots_f
-        elif len(other_roots_f) == 1:
-            # Double-root geometry: xi(x3) + 2*xj — call phi to get real R.
-            from .phi import compute_phi as _compute_phi
-            from .phi import phi_quintic as _phi_quintic
-            xj_f = other_roots_f[0]
-            # Degenerate: the fiber's only non-src root is x_src itself.
-            # div = 3*xi + 2*xi — no valid move exists; skip.
-            if xj_f == x_here_f_fp:
-                _n_wrong_nroots += 1; continue
-            # recover y for xi and xj
-            def _sqrt_fp(v):
-                v = Fp(v)
-                if v == 0: return Fp(0)
-                sq = v.sqrt(extend=False, all=True)
-                if not sq: return None
-                return min(sq, key=lambda r: int(r))
-            yj_fp = _sqrt_fp(G_poly(xj_f))
-            if yj_fp is None:
-                _n_wrong_nroots += 1; continue
-            f_list = [int(G_poly[i]) % int(p) for i in range(G_poly.degree()+1)]
-            P = (int(x_here_f_fp), int(Fp(y_here)))
-            # try both y-signs for Q
-            xk_f = None
-            src_mult_phi = 2
-            _phi_diag = _cand_idx < 3
-            # Try both y-signs of P and both y-signs of Q.
-            # phi enforces A(xP)=-yP, so the branch of P matters too.
-            yi_int = int(Fp(y_here))
-            for yi_try in (yi_int, int(p) - yi_int):
-                P_try = (int(x_here_f_fp), yi_try)
-                for yj_try in (int(yj_fp), int(p) - int(yj_fp)):
-                    Q = (int(xj_f), yj_try)
-                    try:
-                        A_coeffs, c, R = _compute_phi(int(p), f_list, f_list, P_try, Q)
-                        if _phi_diag:
-                            print(f"  [phi_diag] P={P_try} Q={Q} -> R={R} c={c}")
-                        if isinstance(R[0], tuple):
-                            if _phi_diag: print(f"  [phi_diag] R is Mumford pair, skipping")
-                            continue
-                        xk_f = xj_f
-                        _phi_R_x = Fp(R[0])
-                        actual_xi_mult = src_mult_phi
-                        break
-                    except (ValueError, ZeroDivisionError, ArithmeticError) as e:
-                        if _phi_diag: print(f"  [phi_diag] P={P_try} Q={Q} -> exception: {e}")
-                        continue
-                if xk_f is not None:
-                    break
-            if xk_f is None:
-                _n_wrong_nroots += 1; continue
-            _phi_extra_roots = [_phi_R_x]
-        else:
-            _n_wrong_nroots += 1; continue
-
-        # Step 6: evaluate Y directly from the fiber.
-        try:
-            yj_f_2 = f_eval_poly(xj_f)
-            yk_f_2 = f_eval_poly(xk_f)
-        except Exception:
-            raise
-
-        # Step 7: strict sign validation against the original curve model.
-        def _get_strict_sign(x_val_f, y2_val_f):
-            """Return +1 if the canonical (smaller) square root is positive, -1 otherwise.
-
-            y2_val_f is f(x) evaluated from the fiber — equal to G(x) when the
-            candidate is on the curve.  We take the square root over Fp and compare
-            against the canonical branch.
-            """
-            x_int = Fp(x_val_f)
-            curve_y2 = Fp(G_poly(x_int))
-            y2_fp = Fp(y2_val_f)
-            if y2_fp != curve_y2:
-                print(f"[sign_fail] x={x_val_f} fiber_y2={y2_fp} curve_y2={curve_y2}")
-                print(f"[sign_fail] x={x_val_f} fiber_y2={y2_fp} curve_y2={curve_y2}")
-                raise ValueError(
-                    f"Y-coordinate validation failed for X={x_val_f}: "
-                    f"fiber y²={y2_fp}, curve y²={curve_y2}."
-                )
-            if y2_fp == 0:
-                return 1  # Weierstrass point — sign is irrelevant
-            sq = y2_fp.sqrt(extend=False, all=True)
-            if not sq:
-                raise ValueError(f"No square root for y²={y2_fp} at x={x_val_f}")
-            y_int = int(min(sq, key=lambda v: int(v)))
-            canonical_y = min(y_int, int(p) - y_int)
-            return 1 if y_int == canonical_y else -1
-
-        try:
-            yj_sign = _get_strict_sign(xj_f, yj_f_2)
-            yk_sign = _get_strict_sign(xk_f, yk_f_2)
-        except Exception:
-            _n_sign_fail += 1; continue
-
-        # intersection_poly is intentionally None here; augment_with_phi fills it in.
-
-        xj_val, xk_val = xj_f, xk_f
-        # Step 9: pack the record.
-        new_rec = {
-            "x_src": x_here,
-            "yi": y_here,
-            "x_step": xj_val,
-            "x_res": xk_val,
-            "yj_sign": yj_sign,
-            "yk_sign": yk_sign,
-            "m": m_val_fp,
-            "input_n": n0,
-            "source": "pure_fiber_intersection",
-            "src_mult": actual_xi_mult,
-            "extra_roots": _phi_extra_roots,
-            "intersection_poly": intersection_poly,
-            "shift": shift,
-        }
-        enriched.append(new_rec)
-
-        if RLINEAR and xk_val != x_here:
             enriched.append({
-                "x_src": x_here,
-                "yi": y_here,
-                "x_step": xk_val,
-                "x_res": xj_val,
-                "yj_sign": yk_sign,
-                "yk_sign": yj_sign,
-                "m": Fp(x_here) - Fp(xk_val),
-                "input_n": n0,
-                "source": "x_res_head",
-                "src_mult": actual_xi_mult,
-                "intersection_poly": intersection_poly,
-                "shift": shift,
+                "x_src":             x_here,
+                "yi":                y_here,
+                "x_step":            r_fp,
+                "x_res":             None,
+                "m":                 m_val_fp,
+                "input_n":           n0,
+                "source":            "pure_fiber_intersection",
+                "intersection_poly": None,
+                "shift":             shift,
             })
+            any_emitted = True
 
-    print(f"[enrich] x_here={x_here_f_fp} candidates={len(candidates)} enriched={len(enriched)} "
-          f"poles={_n_poles} no_roots={_n_no_roots} wrong_nroots={_n_wrong_nroots} sign_fail={_n_sign_fail}")
+        if not any_emitted:
+            _n_wrong_nroots += 1  # all roots were x_src
+
+    print(f"[enrich] x_here={x_here_f_fp} candidates={len(candidates)} "
+          f"enriched={len(enriched)} poles={_n_poles} no_roots={_n_no_roots} "
+          f"all_src={_n_wrong_nroots} sign_fail={_n_sign_fail}")
     return enriched
-
