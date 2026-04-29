@@ -287,13 +287,23 @@ def make_project_markov_search_fn(
 
         if valid_final:
             _dead_end_reason = 'ok'
-        elif enriched_candidates:
-            # Records exist but every x_step == x_src — genuine torsion point.
+        elif final_candidates:
+            # Post-phi candidates exist but every x_step == x_src — genuine torsion.
             _dead_end_reason = 'torsion'
-        elif (norm.get('n_with_roots') or norm.get('total_roots') or _n_pre_enrich_stubs > 0):
-            # Julia found roots, stubs were created, but enrichment dropped them all.
-            # Typical causes: _fi is None (tower context missing fiber poly),
-            # _G_poly is None, or all fibers were tangent / had sign mismatches.
+            print(f"  [torsion_dbg] x_here={x_here}  "
+                  f"enriched={len(enriched_candidates)}  "
+                  f"final={len(final_candidates)}  valid_final=0")
+            for _r in final_candidates[:5]:
+                if not isinstance(_r, dict):
+                    continue
+                print(f"  [torsion_dbg]   source={_r.get('source')}  "
+                      f"x_step={_r.get('x_step')}  x_res={_r.get('x_res')}  "
+                      f"phi_geo={_r.get('phi_geo')}  m={_r.get('m')}")
+        elif enriched_candidates or (norm.get('n_with_roots') or norm.get('total_roots') or _n_pre_enrich_stubs > 0):
+            # Enrichment produced records but phi dropped them all (x_res never
+            # populated), OR Julia found roots but enrichment itself dropped them.
+            # Typical causes: both y-signs failed in phi, degenerate fiber,
+            # _fi/_G_poly missing, or sign mismatches.
             _dead_end_reason = 'no_valid_candidates'
         else:
             _dead_end_reason = 'no_roots'
