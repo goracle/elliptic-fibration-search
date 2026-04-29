@@ -1144,40 +1144,49 @@ class Genus2MetropolisWalker:
         restart=False,
         yj_sign: int = 1,
         yk_sign: int = 1,
+        src_mult: Optional[int] = None,
+        extra_roots: Optional[List[Any]] = None,
     ):
         """
         Build a RelationRecord.
 
-        Accepted records must be derivable from the intersection polynomial.
-        Rejected records may carry whatever diagnostic payload they have.
+        x_step, x_res, src_mult, and extra_roots are authoritative when supplied
+        by the caller (phi-derived geometry).  The intersection polynomial in
+        ``step`` is used only as a fallback when src_mult is not provided.
+
         The canonical encoding is rec.atoms — a flat list of all finite atoms
         with multiplicity (len == curve_degree for accepted records).
         src_mult is computed locally as a step in building atoms and is never
         stored on the record.
         """
-        derived = _derive_relation_from_intersection_poly(step, x_src)
-        extra_roots: List[Any] = []
-        src_mult_local: int = -1
+        src_mult_local: int = src_mult if (src_mult is not None and src_mult > 0) else -1
+        extra_roots_local: List[Any] = list(extra_roots) if extra_roots is not None else []
 
-        if accepted:
-            if derived is None:
-                raise AssertionError(
-                    f"[MAKE_RELATION] accepted record missing usable intersection polynomial "
-                    f"at step={step_index} x_src={x_src} x_step={x_step} x_res={x_res}"
-                )
-            x_step, x_res, src_mult_local, poly, extra_roots = derived
+        # Only consult the poly when the caller did not supply src_mult.
+        if src_mult_local <= 0:
+            derived = _derive_relation_from_intersection_poly(step, x_src)
         else:
-            # For rejected rows, prefer derived geometry when it exists.
-            if derived is not None:
-                dx_step, dx_res, dmult, poly, dextra = derived
-                if x_step is None:
-                    x_step = dx_step
-                if x_res is None:
-                    x_res = dx_res
-                if src_mult_local <= 0:
-                    src_mult_local = dmult
-                if not extra_roots:
-                    extra_roots = list(dextra)
+            derived = None
+
+        if accepted and src_mult_local <= 0:
+            if derived is None:
+                # No poly and no caller-supplied src_mult: conservative default
+                # (generic 2P+2Q+R divisor: src_mult = curve_degree - 2).
+                src_mult_local = self.config.curve_degree - 2
+            else:
+                _dx, _dr, src_mult_local, _poly, extra_roots_local = derived
+                # x_step/x_res from caller are authoritative; only take src_mult/extras from poly.
+        elif not accepted and derived is not None:
+            # For rejected rows, fill in any missing geometry from poly.
+            dx_step, dx_res, dmult, _poly, dextra = derived
+            if x_step is None:
+                x_step = dx_step
+            if x_res is None:
+                x_res = dx_res
+            if src_mult_local <= 0:
+                src_mult_local = dmult
+            if not extra_roots_local:
+                extra_roots_local = list(dextra)
 
         deg = self.config.curve_degree
         effective_src_mult = src_mult_local if src_mult_local > 0 else (deg - 2)
@@ -1188,10 +1197,10 @@ class Genus2MetropolisWalker:
             all_others.append(x_step)
         if x_res is not None:
             all_others.append(x_res)
-        all_others.extend(extra_roots)
+        all_others.extend(extra_roots_local)
         if all_others:
             others_str = " + ".join(str(r) for r in all_others)
-            if x_step is not None and x_res is None and not extra_roots:
+            if x_step is not None and x_res is None and not extra_roots_local:
                 others_str += " + ?"
             relation = f"{effective_src_mult}*{x_src} + {others_str} - {deg}*\u221e = 0"
         elif x_step is not None:
@@ -1207,14 +1216,14 @@ class Genus2MetropolisWalker:
             atoms_list = (
                 [Fp(x_src)] * int(effective_src_mult)
                 + [Fp(x_step), Fp(x_res)]
-                + [Fp(xr) for xr in extra_roots]
+                + [Fp(xr) for xr in extra_roots_local]
             )
             if len(atoms_list) not in (deg, deg - 1):
                 raise AssertionError(
                     f"[MAKE_RELATION] atoms degree invariant violated: "
                     f"len={len(atoms_list)} not in ({deg-1}, {deg})  "
                     f"src_mult={effective_src_mult}  x_step={x_step}  x_res={x_res}  "
-                    f"extra={extra_roots}"
+                    f"extra={extra_roots_local}"
                 )
 
         clean_step = {}
@@ -1244,7 +1253,7 @@ class Genus2MetropolisWalker:
             yj_sign=yj_sign,
             yk_sign=yk_sign,
             atoms=atoms_list,
-            extra_roots=list(extra_roots),
+            extra_roots=list(extra_roots_local),
         )
 
     def _step_from_candidate_search(self, n: int, seed: Optional[int] = None):

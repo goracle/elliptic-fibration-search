@@ -9,25 +9,22 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
     # subsequent run as current_x would produce no new information.
     walker.exhausted_x_src.add(x_src)
 
-    def _poly_from(obj):
-        if not isinstance(obj, dict):
-            return None
-        for key in ["intersection_poly"]:
-            poly = obj.get(key)
-            if poly is not None:
-                return poly
-        return None
+    def _poly_aux(poly, x_step, x_res):
+        """Optional: extract src_mult and extra_roots from intersection_poly.
 
-    def _derive_from_poly(obj):
-        poly = _poly_from(obj)
+        The candidate record is the authoritative source for x_step, x_res,
+        yj_sign, and yk_sign.  The poly (when present) is used only to:
+          - count the multiplicity of x_src (for atom construction), and
+          - collect any extra roots beyond x_step and x_res.
+
+        Returns (src_mult, extra_roots) or None if the poly is absent,
+        unfactorable, or doesn't contain x_src as a root.
+        """
         if poly is None:
-            assert None, "poly is missing!! gang."
             return None
-
         try:
             roots_wm = poly.roots(multiplicities=True)
         except Exception:
-            raise
             return None
 
         src_mult = 0
@@ -39,28 +36,12 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
                 others.extend([r] * int(m))
 
         if src_mult <= 0:
-            print(roots_wm, x_src, poly)
-            raise ValueError
             return None
 
-        # No multiplicity pattern assumed — derive directly from the root list.
-        if not others:
-            return None
-        if len(others) == 1:
-            x_step = others[0]
-            x_res = x_src
-            src_mult -= 1  # fold one copy of x_src into the x_res slot
-            extra_roots = []
-        elif len(others) == 2:
-            x_step, x_res = others[0], others[1]
-            extra_roots = []
-        else:
-            # 3+ non-x_src roots: x_step/x_res get the first two, rest go in extra_roots
-            x_step = others[0]
-            x_res = others[1]
-            extra_roots = others[2:]
-
-        return x_step, x_res, src_mult, poly, extra_roots
+        # Extra roots: everything that isn't x_src, x_step, or x_res.
+        seen = {x_step, x_res}
+        extra_roots = [r for r in others if r not in seen]
+        return src_mult, extra_roots
 
     def reject(reason, *, m_val=None, x_step=None, x_res=None, chosen=None, extra=None):
         step_payload = walker._reject_step_payload(
@@ -154,8 +135,7 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
         return walker._point_check_details(c.get("x_res"), "x_res").get("is_fp_point", False)
 
     pool = [c for c in C if is_fp(c)] or C
-    #pool = walker._prefer_unvisited_candidates(pool) # Use the built-in tiering
-    pool = list(pool)  # Make a copy so we can pop from it
+    pool = list(pool)
 
     valid_candidate_found = False
 
@@ -171,35 +151,43 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
         if not isinstance(chosen, dict):
             chosen = {"x_step": chosen}
 
-        # Geometry must come from the intersection polynomial.
-        poly_src = dict(search_out)
-        poly_src.update(chosen)
-
         try:
-            derived = _derive_from_poly(poly_src)
-            if derived is None:
+            # --- geometry from candidate record (authoritative) ---
+            x_step = chosen.get("x_step")
+            x_res  = chosen.get("x_res")
+            m      = chosen.get("m")
+
+            if x_step is None or x_res is None:
                 pool.remove(chosen); continue
 
-            x_step, x_res, src_mult, poly, extra_roots = derived
-
-            # If the candidate carried explicit roots, require them to match the poly.
-            cand_xj = chosen.get("x_step")
-            cand_xk = chosen.get("x_res")
-            if cand_xj is not None and cand_xk is not None and {cand_xj, cand_xk} != {x_step, x_res}:
-                pool.remove(chosen); continue
-
-            m = chosen.get("m")
+            # --- src_mult + extra_roots: candidate record is authoritative ---
+            # enrich_candidates stores actual_xi_mult on each record; use it.
+            # Fall back to poly factoring only when the record doesn't carry it.
+            # Final fallback: curve_degree - 2 (generic 2P+2Q+R divisor).
+            cand_src_mult = chosen.get("src_mult")
+            poly = chosen.get("intersection_poly") or search_out.get("intersection_poly")
+            aux  = _poly_aux(poly, x_step, x_res)
+            if aux is not None:
+                src_mult, extra_roots = aux
+            elif cand_src_mult is not None and int(cand_src_mult) > 0:
+                src_mult    = int(cand_src_mult)
+                extra_roots = []
+                poly        = None
+            else:
+                src_mult    = walker.config.curve_degree - 2
+                extra_roots = []
+                poly        = None
 
             # --- validate x_step ---
+            if not xk_is_fp_point(x_step, walker.curve_poly):
+                pool.remove(chosen); continue
+
             try:
                 yj = walker._recover_y(x_step, y_sign=int(chosen.get("yj_sign", 1)))
-            except Exception as e:
+            except Exception:
                 pool.remove(chosen); continue
 
             if yj == walker.base_ring(0):
-                pool.remove(chosen); continue
-
-            if not xk_is_fp_point(x_step, walker.curve_poly):
                 pool.remove(chosen); continue
 
             # --- validate x_res ---
@@ -208,45 +196,35 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
 
             try:
                 yk = walker._recover_y(x_res, y_sign=int(chosen.get("yk_sign", 1)))
-            except Exception as e:
-                raise
+            except Exception:
                 pool.remove(chosen); continue
 
             if yk == walker.base_ring(0):
                 pool.remove(chosen); continue
 
-            # --- choose move ---
-            # Build the list of fresh options before selecting so the
-            # choice is uniform over reachable neighbors.  The old code
-            # flipped a coin first and then rejected on freshness, which
-            # silently discarded an entire fiber whenever the coin landed
-            # on the already-visited root — a systematic sampling bias.
+            # --- choose move target ---
+            # Build fresh-options list over both neighbors uniformly, avoiding
+            # the old coin-flip bias that silently discarded half the fibers.
             fresh_opts = []
-            for _tgt_cand, _sign_key in ((x_step, "yj_sign"), (x_res, "yk_sign")):
-                if _tgt_cand is None:
+            for _tgt, _sign_key in ((x_step, "yj_sign"), (x_res, "yk_sign")):
+                if _tgt is None:
                     continue
-                if not walker._x_src_is_fresh(_tgt_cand):
+                if not walker._x_src_is_fresh(_tgt):
                     continue
                 try:
-                    _y_cand = walker._recover_y(
-                        _tgt_cand,
-                        y_sign=int(chosen.get(_sign_key, 1)),
-                    )
+                    _y = walker._recover_y(_tgt, y_sign=int(chosen.get(_sign_key, 1)))
                 except Exception:
-                    raise
                     continue
-                if _y_cand == walker.base_ring(0):
+                if _y == walker.base_ring(0):
                     continue
-                fresh_opts.append((_tgt_cand, int(chosen.get(_sign_key, 1)), _y_cand))
+                fresh_opts.append((_tgt, int(chosen.get(_sign_key, 1)), _y))
 
             if not fresh_opts:
                 pool.remove(chosen); continue
 
             tgt, sign, y = walker.rng.choice(fresh_opts)
 
-            # Verify the relation is a principal divisor before committing.
-            # Build atoms tentatively the same way _make_relation will, then check.
-            # If it fails, try the next candidate rather than rejecting the whole step.
+            # --- verify relation is principal ---
             _tentative_atoms = (
                 [walker.base_ring(x_src)] * src_mult
                 + [walker.base_ring(x_step), walker.base_ring(x_res)]
@@ -257,16 +235,12 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
                       f"x_src={x_src} x_step={x_step} x_res={x_res}")
                 pool.remove(chosen); continue
 
-            # If we made it here, everything is valid!
             valid_candidate_found = True
             break
 
         except Exception:
-                # Catch any _recover_y or internal errors for this specific candidate
-                pool.remove(chosen)
-                raise
-                continue
-            # --- END OF EXISTING VALIDATION LOGIC ---
+            pool.remove(chosen)
+            continue
 
     if not valid_candidate_found:
         walker.dead_end_count += 1
@@ -294,13 +268,15 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
 
     payload = dict(search_out)
     payload["move_committed"] = True
-    payload["intersection_poly"] = poly
+    payload["intersection_poly"] = poly  # may be None if phi didn't fire
 
     rec = walker._make_relation(
         len(walker.history), n, x_src, m, x_step, x_res,
         payload, accepted=True, restart=False,
         yj_sign=int(chosen.get("yj_sign", 1)),
         yk_sign=int(chosen.get("yk_sign", 1)),
+        src_mult=src_mult,
+        extra_roots=extra_roots,
     )
 
     rec.candidate_pool = C
@@ -308,4 +284,3 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
 
     walker._store_record(rec)
     return rec
-

@@ -137,11 +137,17 @@ def enrich_candidates(
             else:
                 other_roots_f.extend([r_fp] * mult)
 
-        # Step 5: require exactly two non-x_src roots in GF(p).
+        # Step 5: require exactly two distinct non-x_src roots in GF(p).
+        # A repeated non-x_src root means the fiber is tangent at that point
+        # (double root of intersection) — not a valid relation, skip it.
         if len(other_roots_f) != 2:
             continue
 
         xj_f, xk_f = other_roots_f
+
+        if xj_f == xk_f:
+            # Tangent fiber: x_step == x_res, divisor is degenerate.
+            continue
 
         # Step 6: evaluate Y directly from the fiber.
         try:
@@ -152,28 +158,34 @@ def enrich_candidates(
             continue
 
         # Step 7: strict sign validation against the original curve model.
-        def _get_strict_sign(x_val_f, y_val_f):
-            y_int2 = int(Fp(y_val_f))
-            x_int = Fp(x_val_f)
-            curve_y2 = int(Fp(G_poly(x_int)))
+        def _get_strict_sign(x_val_f, y2_val_f):
+            """Return +1 if the canonical (smaller) square root is positive, -1 otherwise.
 
-            if (y_int2 ) % int(p) != curve_y2:
-                print("y_int", y_int, "y_int^2", y_int**2 % p, "curve_y2", curve_y2)
+            y2_val_f is f(x) evaluated from the fiber — equal to G(x) when the
+            candidate is on the curve.  We take the square root over Fp and compare
+            against the canonical branch.
+            """
+            x_int = Fp(x_val_f)
+            curve_y2 = Fp(G_poly(x_int))
+            y2_fp = Fp(y2_val_f)
+            if y2_fp != curve_y2:
                 raise ValueError(
                     f"Y-coordinate validation failed for X={x_val_f}: "
-                    f"fiber Y={y_val_f}, but Y^2 != G(X)."
+                    f"fiber y²={y2_fp}, curve y²={curve_y2}."
                 )
-
+            if y2_fp == 0:
+                return 1  # Weierstrass point — sign is irrelevant
+            sq = y2_fp.sqrt(extend=False, all=True)
+            if not sq:
+                raise ValueError(f"No square root for y²={y2_fp} at x={x_val_f}")
+            y_int = int(min(sq, key=lambda v: int(v)))
             canonical_y = min(y_int, int(p) - y_int)
             return 1 if y_int == canonical_y else -1
 
         try:
-            #yj_sign = _get_strict_sign(xj_f, yj_f_2)
-            #yk_sign = _get_strict_sign(xk_f, yk_f_2)
-            yj_sign = 1
-            yk_sign = 1
+            yj_sign = _get_strict_sign(xj_f, yj_f_2)
+            yk_sign = _get_strict_sign(xk_f, yk_f_2)
         except Exception:
-            raise
             continue
 
         # intersection_poly is intentionally None here; augment_with_phi fills it in.
