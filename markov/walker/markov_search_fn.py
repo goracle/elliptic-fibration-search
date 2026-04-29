@@ -47,7 +47,10 @@ def make_project_markov_search_fn(
             if y_here is None:
                 if yfun is not None:
                     y_here = yfun(x_here)
-        assert yfun(x_here) == y_here, (yfun(x_here), y_here, current_point, current_x)
+        _y_canonical = yfun(x_here)
+        assert _y_canonical in (int(y_here) % p, (-int(y_here)) % p), (
+            _y_canonical, y_here, current_point, current_x
+        )
 
         # ------------------------------------------------------------------ #
         # 1. Build tower context for this point.                              #

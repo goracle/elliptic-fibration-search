@@ -38,9 +38,17 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
         if src_mult <= 0:
             return None
 
-        # Extra roots: everything that isn't x_src, x_step, or x_res.
-        seen = {x_step, x_res}
-        extra_roots = [r for r in others if r not in seen]
+        # Extra roots: remove exactly one occurrence of x_step and one of x_res
+        # from others (the expected single appearance of each in the divisor).
+        # Any remaining copies — e.g. a second x_step when it appears as a
+        # double root — are genuine extra atoms and must be kept.
+        remaining = list(others)
+        for expected in (x_step, x_res):
+            try:
+                remaining.remove(expected)
+            except ValueError:
+                pass  # not present (degenerate geometry), leave unchanged
+        extra_roots = remaining
         return src_mult, extra_roots
 
     def reject(reason, *, m_val=None, x_step=None, x_res=None, chosen=None, extra=None):
@@ -279,6 +287,13 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
                     + [walker.base_ring(x_step), walker.base_ring(x_res)]
                     + [walker.base_ring(xr) for xr in extra_roots]
                 )
+                _aux_raw = _poly_aux(poly, x_step, x_res)
+                print(f"  [verify_dbg] x_src={x_src} x_step={x_step} x_res={x_res} "
+                      f"src_mult={src_mult} "
+                      f"aux={'None' if _aux_raw is None else f'src_mult={_aux_raw[0]} extra={_aux_raw[1]}'} "
+                      f"cand_src_mult={cand_src_mult} "
+                      f"poly_roots={[(int(r), int(m)) for r, m in poly.roots(multiplicities=True)] if poly is not None else 'N/A'} "
+                      f"atoms={[int(a) for a in _tentative_atoms]}")
                 if not walker._verify_atoms_principal(_tentative_atoms):
                     print(f"  [verify] candidate non-principal, trying next  "
                           f"x_src={x_src} x_step={x_step} x_res={x_res}")

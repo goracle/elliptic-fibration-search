@@ -166,8 +166,16 @@ def augment_with_phi(
         root xrs a new synthetic candidate record with source='phi_self_rs'
         is appended to the candidates list so the Metropolis chooser sees it.
 
-    Records for which φ fails (wrong y-sign / degenerate) are left unchanged.
-    Works in-place; returns ``result`` (same object).
+    Records for which φ fails (wrong y-sign / degenerate) and whose source is
+    ``pure_fiber_intersection`` are removed from the candidate list — they have
+    no ``x_res`` and would be unconditionally skipped by the walker anyway.
+    Records from other sources (e.g. ``phi_self_rs``, legacy stubs) are left
+    unchanged so existing fallback paths continue to work.
+
+    The local ``candidates`` list (which may have ``phi_self_rs`` records
+    appended during the self-geometry branch) is written back to
+    ``result["candidate_records"]`` and ``result["candidates"]`` before
+    returning, so those appended records are not silently dropped.
 
     Does nothing and returns unchanged if:
     - result has no ``fi`` (symbolic fiber poly), or
@@ -190,6 +198,12 @@ def augment_with_phi(
     )
 
     any_succeeded = False
+
+    for i, _dbg_rec in enumerate(candidates[:3]):
+        print(f"[phi_aug_dbg] rec#{i} "
+              f"keys={list(_dbg_rec.keys()) if isinstance(_dbg_rec, dict) else type(_dbg_rec)} "
+              f"m={_dbg_rec.get('m') if isinstance(_dbg_rec, dict) else '?'} "
+              f"x_step={_dbg_rec.get('x_step') if isinstance(_dbg_rec, dict) else '?'}")
 
     for rec in candidates:
         if not isinstance(rec, dict):
@@ -324,6 +338,23 @@ def augment_with_phi(
         # Also promote to top-level if not already set.
         if result.get("intersection_poly") is None:
             result["intersection_poly"] = h_sage
+
+    # Write the (possibly appended) candidates list back to result so that
+    # phi_self_rs records injected during the self-geometry branch are not
+    # silently dropped, and filter out pure_fiber_intersection records that
+    # phi couldn't complete (x_res still None) — the walker would skip them
+    # unconditionally anyway, so dropping them here gives a clean candidate
+    # list and avoids the [cand_skip] missing x_step or x_res wall.
+    candidates = [
+        c for c in candidates
+        if not (
+            isinstance(c, dict)
+            and c.get("source") == "pure_fiber_intersection"
+            and c.get("x_res") is None
+        )
+    ]
+    result["candidate_records"] = candidates
+    result["candidates"]        = candidates
 
     return result
 
