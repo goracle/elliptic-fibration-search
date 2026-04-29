@@ -84,6 +84,7 @@ def build_project_tower_context_for_point(
     #print(primary_tower, fibrations, tower_for_mumford)
 
     E_rhs_m, r_m, roots = extract_geometry_from_tower(primary_tower, field_data['Fm'])
+    print("E_rhs_m, r_m:", E_rhs_m, r_m)
 
     cd, morphism_data = build_curve_data(E_rhs_m, roots, base_pts)
     one, two, three = morphism_data
@@ -99,29 +100,11 @@ def build_project_tower_context_for_point(
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] if primary_tower else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
 
-    # Add x_res(m) as second RHS via Vieta: x_res = S(m) - (d-1)*x_src - x_step(m).
-    # S(m) is the negated x^(d-1) coefficient of the monic fiber intersection poly,
-    # which equals x_src + x_step + x_res for a degree-5 curve (d-1 = 4 roots sum to S).
-    # We use the actual x_step(m) RHS from the search rather than the RLINEAR=True
-    # shortcut x_src-m, so this is valid regardless of RLINEAR.
-    _fi_for_xk = primary_tower[-1].get('f_i') if primary_tower else None
     _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
-    if _fi_for_xk is not None and shifted_G_poly is not None and len(search_rhs_list) == 1:
-        S_of_m, _ = compute_S_of_m(_fi_for_xk, shifted_G_poly, _curve_degree)
-        if S_of_m is not None:
-            try:
-                _base = S_of_m.parent()           # Frac(GF(p)[m])
-                _xj_rhs = _base(r_m)
-                _xi_lifted = _base(x_src)
-                x_res = S_of_m - (_curve_degree - 1) * _xi_lifted - _xj_rhs
-                lastrhs = E_rhs_m(x=x_res)
-                last_phi_x = get_phi_x(one, two, three, x_res, lastrhs)
-                search_rhs_list = list(search_rhs_list) + [last_phi_x]
-            except Exception as e:
-                print(f"[build_project_tower_context] warning: could not build x_res RHS: {e}")
-                raise
 
-    assert len(search_rhs_list) > 1, search_rhs_list
+    assert len(search_rhs_list) >= 1, search_rhs_list
+    assert len(search_rhs_list) == 1, search_rhs_list
+    print("search rhs list:", search_rhs_list)
 
     testfunc, shift = setup_rationality_test_function(shift, T, T_inv)
 

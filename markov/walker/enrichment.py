@@ -75,6 +75,9 @@ def enrich_candidates(
         try:
             G_Rx = R_x(G_poly)
             roots_wm = (G_Rx - f_eval_poly).roots()
+            raw = [r for r,_ in roots_wm]
+            for xraw in raw:
+                assert get_y_unshifted_genus2(xraw), (xraw, roots_wm, get_y_unshifted_genus2(xraw), m_val, m_val_fp)
         except Exception:
             raise
 
@@ -83,7 +86,7 @@ def enrich_candidates(
 
         # Diagnostic: print root structure for first 3 candidates.
         _cand_idx = _n_poles + _n_no_roots + _n_wrong_nroots + _n_sign_fail + len(enriched)
-        if _cand_idx < 3:
+        if _cand_idx < 300:
             print(f"  [root_dbg] cand#{_cand_idx} m={m_val_fp} "
                   f"roots_wm={[(int(r), int(mult)) for r,mult in roots_wm]}  "
                   f"x_src={int(x_here_f_fp)}")

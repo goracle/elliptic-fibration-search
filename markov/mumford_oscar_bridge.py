@@ -94,7 +94,7 @@ def _call_julia_server(prime_list, tasks_by_prime, rhs_by_prime,
         for p, entries in rhs_by_prime.items()
     }
 
-    if vecs_by_prime is not None and section_poly_dict:
+    if vecs_by_prime is not None and section_poly_dict is not None:
         # New path: send vecs + section_polys, no tasks needed.
         section_serial = {}
         for p, payloads in section_poly_dict.items():
@@ -374,7 +374,7 @@ def mumford_precompute_residues_oscar(
 
     t0 = time.time()
 
-    use_new_path = bool(section_poly_dict)
+    use_new_path = section_poly_dict is not None
 
     if use_new_path:
         # New path: cheap vec builder, Julia does all the arithmetic.

@@ -311,7 +311,7 @@ PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 sh
 # CRYPTOGRAPHY RELATED PARAMS
 FINITE_FIELD = None
 FINITE_FIELD = next_prime(2**14)
-MAXN = 800 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
+MAXN = 80 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
 SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
 BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
 BLOCK_WIEDEMANN = False   # set True to always use block Wiedemann in the final solve

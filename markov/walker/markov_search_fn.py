@@ -73,6 +73,7 @@ def make_project_markov_search_fn(
         # Extract fiber poly and curve poly from context up front so we can
         # diagnose None early rather than silently failing inside enrich_candidates.
         _G_poly = ctx.get('shifted_G_poly')
+        #print("_G_poly", _G_poly) # quartic side curve
         _tower  = ctx.get('primary_tower')
         _fi     = None
         if _tower and isinstance(_tower, (list, tuple)) and len(_tower) > 0:
@@ -167,6 +168,7 @@ def make_project_markov_search_fn(
         # ------------------------------------------------------------------ #
         # 5. Enrich candidates: fiber intersection → (x_step, x_res, signs). #
         # ------------------------------------------------------------------ #
+        print("fi,_fi=", _fi)
         enriched_candidates = enrich_candidates(
             norm,
             x_here=x_here,
