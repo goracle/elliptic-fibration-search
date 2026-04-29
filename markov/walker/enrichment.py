@@ -26,8 +26,8 @@ def enrich_candidates(
       - keeps the geometric reconstruction path explicit and strict
     """
     enriched = []
+    _n_poles = _n_no_roots = _n_wrong_nroots = _n_sign_fail = 0
 
-    print("x_here", x_here)
 
     if p is None or G_poly is None or fi is None:
         return []
@@ -42,20 +42,7 @@ def enrich_candidates(
         Tries callable evaluation first, then symbolic substitution, then direct
         coercion. This is intentionally conservative.
         """
-        # Most polynomial/rational-function objects in Sage can be called.
-        try:
-            return Fp(obj(m_val_fp))
-        except Exception:
-            raise
-
-        # Symbolic / expression fallback.
-        try:
-            return Fp(obj.subs(m=m_val_fp))
-        except Exception:
-            raise
-
-        # Plain field element / integer / already-evaluated object.
-        return Fp(obj)
+        return Fp(obj(m_val_fp))
 
     x_here_f = x_here
     x_here_f_fp = Fp(x_here_f)
@@ -76,7 +63,6 @@ def enrich_candidates(
             m_val_fp = Fp(m_val)
         except Exception:
             raise
-            continue
 
         try:
             coeffs = []
@@ -88,7 +74,7 @@ def enrich_candidates(
                 coeffs.append(num_val / den_val)
             f_eval_poly = R_x(coeffs)
         except ZeroDivisionError:
-            continue
+            _n_poles += 1; continue
         except Exception as e:
             print(f"CRITICAL: Evaluation failed for m={m_val_fp}. Error: {e}")
             raise
@@ -100,7 +86,6 @@ def enrich_candidates(
             G_Rx = R_x(G_poly)
         except Exception:
             raise
-            continue
 
         # Step 4: find all roots in the base field.
         # We solve f(x) - g(x) = 0 only to locate x_step / x_res — the roots
@@ -114,9 +99,9 @@ def enrich_candidates(
             roots_wm = _root_poly.roots()
         except Exception:
             raise
-            continue
 
-        assert roots_wm, roots_wm
+        if not roots_wm:
+            _n_no_roots += 1; continue
 
         other_roots_f = []
         actual_xi_mult = 0
@@ -126,7 +111,6 @@ def enrich_candidates(
                 r_fp = Fp(r)
             except Exception:
                 raise
-                continue
 
             if r_fp == x_here_f_fp:
                 actual_xi_mult += mult
@@ -137,17 +121,16 @@ def enrich_candidates(
             else:
                 other_roots_f.extend([r_fp] * mult)
 
-        # Step 5: require exactly two distinct non-x_src roots in GF(p).
-        # A repeated non-x_src root means the fiber is tangent at that point
-        # (double root of intersection) — not a valid relation, skip it.
-        if len(other_roots_f) != 2:
-            continue
-
-        xj_f, xk_f = other_roots_f
-
-        if xj_f == xk_f:
-            # Tangent fiber: x_step == x_res, divisor is degenerate.
-            continue
+        # Step 5: need 1 or 2 distinct non-x_src roots.
+        # len==2: generic relation xi^src_mult + xj + xk - deg*inf = 0
+        # len==1: self relation  xi^src_mult + 2*xj - deg*inf = 0 (double root)
+        # len==0 or >2: degenerate, skip.
+        if len(other_roots_f) == 2:
+            xj_f, xk_f = other_roots_f
+        elif len(other_roots_f) == 1:
+            xj_f = xk_f = other_roots_f[0]
+        else:
+            _n_wrong_nroots += 1; continue
 
         # Step 6: evaluate Y directly from the fiber.
         try:
@@ -155,7 +138,6 @@ def enrich_candidates(
             yk_f_2 = f_eval_poly(xk_f)
         except Exception:
             raise
-            continue
 
         # Step 7: strict sign validation against the original curve model.
         def _get_strict_sign(x_val_f, y2_val_f):
@@ -169,6 +151,8 @@ def enrich_candidates(
             curve_y2 = Fp(G_poly(x_int))
             y2_fp = Fp(y2_val_f)
             if y2_fp != curve_y2:
+                print(f"[sign_fail] x={x_val_f} fiber_y2={y2_fp} curve_y2={curve_y2}")
+                print(f"[sign_fail] x={x_val_f} fiber_y2={y2_fp} curve_y2={curve_y2}")
                 raise ValueError(
                     f"Y-coordinate validation failed for X={x_val_f}: "
                     f"fiber y²={y2_fp}, curve y²={curve_y2}."
@@ -186,7 +170,7 @@ def enrich_candidates(
             yj_sign = _get_strict_sign(xj_f, yj_f_2)
             yk_sign = _get_strict_sign(xk_f, yk_f_2)
         except Exception:
-            continue
+            _n_sign_fail += 1; continue
 
         # intersection_poly is intentionally None here; augment_with_phi fills it in.
 
@@ -208,25 +192,23 @@ def enrich_candidates(
         }
         enriched.append(new_rec)
 
-        # Optional x_res-head injection for RLINEAR.
         if RLINEAR and xk_val != x_here:
-            try:
-                enriched.append({
-                    "x_src": x_here,
-                    "yi": y_here,
-                    "x_step": xk_val,
-                    "x_res": xj_val,
-                    "yj_sign": yk_sign,
-                    "yk_sign": yj_sign,
-                    "m": Fp(x_here) - Fp(xk_val),
-                    "input_n": n0,
-                    "source": "x_res_head",
-                    "src_mult": actual_xi_mult,
-                    "intersection_poly": intersection_poly,
-                    "shift": shift,
-                })
-            except Exception:
-                raise
+            enriched.append({
+                "x_src": x_here,
+                "yi": y_here,
+                "x_step": xk_val,
+                "x_res": xj_val,
+                "yj_sign": yk_sign,
+                "yk_sign": yj_sign,
+                "m": Fp(x_here) - Fp(xk_val),
+                "input_n": n0,
+                "source": "x_res_head",
+                "src_mult": actual_xi_mult,
+                "intersection_poly": intersection_poly,
+                "shift": shift,
+            })
 
+    print(f"[enrich] x_here={x_here_f_fp} candidates={len(candidates)} enriched={len(enriched)} "
+          f"poles={_n_poles} no_roots={_n_no_roots} wrong_nroots={_n_wrong_nroots} sign_fail={_n_sign_fail}")
     return enriched
 

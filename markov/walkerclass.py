@@ -786,8 +786,7 @@ class Genus2MetropolisWalker:
             # Use _store_record directly to avoid re-triggering _try_partial_cantor_reduction
             # (the source="cantor_triple_reduction" guard above handles re-entry).
             if not self._verify_atoms_principal(new_atoms):
-                print(f"  [verify] REJECT non-principal cantor_triple relation "
-                      f"atoms={[int(a) for a in new_atoms]}")
+                # print(f"  [verify] REJECT non-principal cantor_triple relation " f"atoms={[int(a) for a in new_atoms]}")
                 continue
             self._store_record(new_rec)
             emitted = True

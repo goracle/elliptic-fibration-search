@@ -225,15 +225,19 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
             tgt, sign, y = walker.rng.choice(fresh_opts)
 
             # --- verify relation is principal ---
-            _tentative_atoms = (
-                [walker.base_ring(x_src)] * src_mult
-                + [walker.base_ring(x_step), walker.base_ring(x_res)]
-                + [walker.base_ring(xr) for xr in extra_roots]
-            )
-            if not walker._verify_atoms_principal(_tentative_atoms):
-                print(f"  [verify] candidate non-principal, trying next  "
-                      f"x_src={x_src} x_step={x_step} x_res={x_res}")
-                pool.remove(chosen); continue
+            # Only run when phi has fired and produced a real intersection_poly.
+            # Pre-phi atoms (x_step==x_res double-root geometry) are not expected
+            # to be principal and must not be checked here.
+            if poly is not None:
+                _tentative_atoms = (
+                    [walker.base_ring(x_src)] * src_mult
+                    + [walker.base_ring(x_step), walker.base_ring(x_res)]
+                    + [walker.base_ring(xr) for xr in extra_roots]
+                )
+                if not walker._verify_atoms_principal(_tentative_atoms):
+                    print(f"  [verify] candidate non-principal, trying next  "
+                          f"x_src={x_src} x_step={x_step} x_res={x_res}")
+                    pool.remove(chosen); continue
 
             valid_candidate_found = True
             break
