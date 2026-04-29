@@ -191,27 +191,6 @@ def make_project_markov_search_fn(
             and c.get('source') != 'x_res_head'
         }
 
-        # Dead-end reason classification — emitted into the result dict so the
-        # walker can log *why* a step produced no candidates rather than silently
-        # restarting.  Distinguishes failure modes:
-        #   no_roots    — Mumford search found zero F_p roots for all vecs
-        #   torsion     — roots found but all equal x_src (x_src is torsion / Weierstrass pt)
-        #   ok          — candidates available
-        # Note: all_inf_xk is no longer a reachable case — compute_xk_from_fiber now
-        # raises AssertionError on a fiber pole rather than returning "∞".
-        _dead_end_reason = 'ok'
-        if not enriched_candidates:
-            raw_candidate_records = norm.get('candidate_records', []) or []
-            if not raw_candidate_records:
-                _dead_end_reason = 'no_roots'
-            else:
-                xjs = [r.get('x_step') for r in raw_candidate_records if isinstance(r, dict)]
-                xjs_nondegenerate = [x_step for x_step in xjs if x_step is not None and x_step != x_here]
-                if not xjs_nondegenerate:
-                    _dead_end_reason = 'torsion'
-                else:
-                    _dead_end_reason = 'no_roots'  # shouldn't happen; fallback
-
         # Deferred fertility fallback: if precomputed_residues wasn't available, use
         # the m-root-derived candidate count as a lower-bound proxy.
         # Do NOT include x_res_head records in this count — they are not m-roots.
@@ -246,7 +225,6 @@ def make_project_markov_search_fn(
             'n_total': norm.get('n_total', None),
             'total_roots': norm.get('total_roots', None),
             'per_n_roots': norm.get('per_n_roots', None),
-            'dead_end_reason': _dead_end_reason,
             # Memory Fix: Omit 'context', 'raw_mumford_residues', 'new_sections', 'precomputed_residues'
             # which hold uncollectable SageMath Rings and Ideals.
         }
@@ -260,6 +238,38 @@ def make_project_markov_search_fn(
             sage_ring = _phi_ring,
         )
 
+        # Dead-end reason classification — must run AFTER _augment_with_phi so that
+        # phi-derived candidates are counted, and AFTER enrich_candidates so that
+        # x_step is populated.  Pre-enrichment stubs from _candidates_from_residues
+        # have x_step=None; classifying before enrichment misidentifies all stub-only
+        # results as torsion (xjs_nondegenerate is vacuously empty).
+        #
+        # Failure modes:
+        #   ok                  — at least one candidate with x_step != x_src
+        #   torsion             — enrichment produced records but all have x_step == x_src
+        #                         (genuine Weierstrass / torsion point)
+        #   no_valid_candidates — Mumford found m-roots but none survived enrichment/phi
+        #                         (geometry failure: tangent fiber, sign mismatch, etc.)
+        #   no_roots            — Mumford found zero F_p roots for all vecs
+        final_candidates = result.get('candidate_records') or result.get('candidates') or []
+        valid_final = [
+            c for c in final_candidates
+            if isinstance(c, dict)
+            and c.get('x_step') is not None
+            and c.get('x_step') != x_here
+        ]
+        if valid_final:
+            _dead_end_reason = 'ok'
+        elif enriched_candidates:
+            # Enrichment produced records but all had x_step == x_src — genuine torsion.
+            _dead_end_reason = 'torsion'
+        elif norm.get('n_with_roots') or norm.get('total_roots'):
+            # Mumford found m-roots but enrichment produced nothing — geometry failure.
+            _dead_end_reason = 'no_valid_candidates'
+        else:
+            _dead_end_reason = 'no_roots'
+
+        result['dead_end_reason'] = _dead_end_reason
         return result
 
     return search_fn
