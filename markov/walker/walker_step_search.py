@@ -71,20 +71,36 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
     X = {x for x in search_out.get("candidate_xs", set()) if x is not None}
 
     # --- leaf bookkeeping ---
-    organic = X - walker._injected_xs
+    # Novelty counts only genuine next-step candidates: x_step values that differ
+    # from x_src.  Self-steps (x_step == x_src) are a geometry failure in the phi
+    # branch, not a mixing failure, and must never trigger zero_novelty_thermal.
+    X_novel_candidates = {x for x in X if x != x_src}
+    organic = X_novel_candidates - walker._injected_xs
     new_leaves_count = len(organic - walker.global_leaves_seen)
 
     # During thermalization, zero novelty means we haven't mixed yet — escape.
     # Post-thermalization, zero novelty is normal (graph is saturated near this x_src);
     # fall through to candidate selection and commit as a regular step.
-    if new_leaves_count == 0 and len(X) > 0 and n < walker.config.nthermal:
+    #
+    # Exception 1: if x_src has never been used as x_src before (visit count == 0),
+    # this is a freshly-restarted position.  Escaping immediately would cause an
+    # infinite restart loop because the restart point's leaves are all already seen.
+    # Let the step commit so the walk actually advances from the new position.
+    #
+    # Exception 2: if X_novel_candidates is empty, there are no non-self leaves at
+    # all — this is a pure geometry failure, not a mixing failure.  Fall through so
+    # the dead-end path handles it cleanly instead of looping through restarts.
+    _x_src_prior_visits = walker.x_src_visit_count.get(x_src, 0)
+    if (new_leaves_count == 0 and len(X_novel_candidates) > 0
+            and n < walker.config.nthermal and _x_src_prior_visits > 0):
         walker.dead_end_count += 1
         walker.dead_end_reasons["zero_novelty_thermal"] += 1
         walker.exhausted_x_src.add(x_src)
         rec = reject(
             "zero_novelty_thermal",
             extra={
-                "leaves_found": len(X),
+                "leaves_found": len(X_novel_candidates),
+                "leaves_found_including_self": len(X),
                 "thermal_threshold": walker.config.nthermal,
                 "thermalized": False,
             },
@@ -158,6 +174,15 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
             m      = chosen.get("m")
 
             if x_step is None or x_res is None:
+                print(f"  [cand_skip] missing x_step or x_res  x_src={x_src} rec={chosen.get('source')}")
+                pool.remove(chosen); continue
+
+            # --- degenerate: both neighbors are x_src (phi self-loop geometry) ---
+            # This happens when the fiber has a triple root at x_src and the phi
+            # branch sets x_step=x_res=x_src.  No fresh move is possible; skip
+            # before entering the full validation gauntlet.
+            if x_step == x_src and x_res == x_src:
+                print(f"  [cand_skip] degenerate self-loop: x_step=x_res=x_src={x_src}  source={chosen.get('source')}")
                 pool.remove(chosen); continue
 
             # --- src_mult + extra_roots: candidate record is authoritative ---
@@ -165,13 +190,13 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
             # Fall back to poly factoring only when the record doesn't carry it.
             # Final fallback: curve_degree - 2 (generic 2P+2Q+R divisor).
             cand_src_mult = chosen.get("src_mult")
-            poly = chosen.get("intersection_poly") or search_out.get("intersection_poly")
+            poly = chosen.get("intersection_poly")
             aux  = _poly_aux(poly, x_step, x_res)
             if aux is not None:
                 src_mult, extra_roots = aux
             elif cand_src_mult is not None and int(cand_src_mult) > 0:
                 src_mult    = int(cand_src_mult)
-                extra_roots = []
+                extra_roots = list(chosen.get("extra_roots") or [])
                 poly        = None
             else:
                 src_mult    = walker.config.curve_degree - 2
@@ -180,34 +205,46 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
 
             # --- validate x_step ---
             if not xk_is_fp_point(x_step, walker.curve_poly):
+                print(f"  [cand_skip] x_step={x_step} not on curve  x_src={x_src}")
                 pool.remove(chosen); continue
 
             try:
                 yj = walker._recover_y(x_step, y_sign=int(chosen.get("yj_sign", 1)))
-            except Exception:
+            except Exception as e:
+                print(f"  [cand_skip] _recover_y failed for x_step={x_step}: {e}")
                 pool.remove(chosen); continue
 
             if yj == walker.base_ring(0):
+                print(f"  [cand_skip] x_step={x_step} is Weierstrass point (y=0)")
                 pool.remove(chosen); continue
 
             # --- validate x_res ---
             if not xk_is_fp_point(x_res, walker.curve_poly):
+                print(f"  [cand_skip] x_res={x_res} not on curve  x_src={x_src}")
                 pool.remove(chosen); continue
 
             try:
                 yk = walker._recover_y(x_res, y_sign=int(chosen.get("yk_sign", 1)))
-            except Exception:
+            except Exception as e:
+                print(f"  [cand_skip] _recover_y failed for x_res={x_res}: {e}")
                 pool.remove(chosen); continue
 
             if yk == walker.base_ring(0):
+                print(f"  [cand_skip] x_res={x_res} is Weierstrass point (y=0)")
                 pool.remove(chosen); continue
 
             # --- choose move target ---
             # Build fresh-options list over both neighbors uniformly, avoiding
             # the old coin-flip bias that silently discarded half the fibers.
+            # x_src itself is never a valid move target (exhausted at top of fn).
+            # x_res may equal x_step in the phi double-root geometry (2P+2Q+R);
+            # in that case it still contributes a valid move via x_step.
             fresh_opts = []
             for _tgt, _sign_key in ((x_step, "yj_sign"), (x_res, "yk_sign")):
                 if _tgt is None:
+                    continue
+                if _tgt == x_src:
+                    # Self-loop half: skip this neighbor but keep the other.
                     continue
                 if not walker._x_src_is_fresh(_tgt):
                     continue
@@ -220,10 +257,18 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
                 fresh_opts.append((_tgt, int(chosen.get(_sign_key, 1)), _y))
 
             if not fresh_opts:
+                _why = []
+                for _tgt, _sk in ((x_step, "yj_sign"), (x_res, "yk_sign")):
+                    if _tgt is None: _why.append("None")
+                    elif _tgt == x_src: _why.append(f"{_tgt}==x_src")
+                    elif not walker._x_src_is_fresh(_tgt): _why.append(f"{_tgt}=not_fresh(visited={_tgt in walker.visited_x},exhausted={_tgt in walker.exhausted_x_src})")
+                    else: _why.append(f"{_tgt}=y_fail")
+                print(f"  [cand_skip] fresh_opts empty  x_src={x_src} x_step={x_step} x_res={x_res}  reasons={_why}")
                 pool.remove(chosen); continue
 
             tgt, sign, y = walker.rng.choice(fresh_opts)
 
+            if x_step != x_res: print(f"[generic_cand] x_src={x_src} x_step={x_step} x_res={x_res} poly={poly is not None}")
             # --- verify relation is principal ---
             # Only run when phi has fired and produced a real intersection_poly.
             # Pre-phi atoms (x_step==x_res double-root geometry) are not expected

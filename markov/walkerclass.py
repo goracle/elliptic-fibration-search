@@ -1495,8 +1495,11 @@ class Genus2MetropolisWalker:
         x, y = candidates[self._restart_cursor % len(candidates)]
         self._restart_cursor += 1
         self.current_x, self.current_y = x, y
-        self.visited_x.add(x)
-        self.x_src_visit_count[x] += 1
+        # Do NOT add x to visited_x or increment x_src_visit_count here.
+        # The restart point must remain "fresh" so that the next step can use
+        # it as x_src without being blocked by zero_novelty_thermal.
+        # visited_x and x_src_visit_count are updated in walker_step_search.py
+        # when the step actually commits (walker.visited_x.add(tgt) etc.).
 
         if self.config.verbose:
             print(

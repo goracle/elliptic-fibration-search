@@ -103,6 +103,11 @@ def enrich_candidates(
         if not roots_wm:
             _n_no_roots += 1; continue
 
+        # Diagnostic: print root structure for first 3 candidates.
+        _cand_idx = _n_poles + _n_no_roots + _n_wrong_nroots + _n_sign_fail + len(enriched)
+        if _cand_idx < 3:
+            print(f"  [root_dbg] cand#{_cand_idx} m={m_val_fp} roots_wm={[(int(r), int(mult)) for r,mult in roots_wm]}  x_src={int(x_here_f_fp)}")
+
         other_roots_f = []
         actual_xi_mult = 0
 
@@ -119,16 +124,67 @@ def enrich_candidates(
                 if mult > (curve_degree - 2):
                     other_roots_f.extend([r_fp] * (mult - (curve_degree - 2)))
             else:
-                other_roots_f.extend([r_fp] * mult)
+                if r_fp not in other_roots_f:
+                    other_roots_f.append(r_fp)
 
         # Step 5: need 1 or 2 distinct non-x_src roots.
         # len==2: generic relation xi^src_mult + xj + xk - deg*inf = 0
         # len==1: self relation  xi^src_mult + 2*xj - deg*inf = 0 (double root)
         # len==0 or >2: degenerate, skip.
+        _phi_extra_roots = []
         if len(other_roots_f) == 2:
             xj_f, xk_f = other_roots_f
         elif len(other_roots_f) == 1:
-            xj_f = xk_f = other_roots_f[0]
+            # Double-root geometry: xi(x3) + 2*xj — call phi to get real R.
+            from .phi import compute_phi as _compute_phi
+            from .phi import phi_quintic as _phi_quintic
+            xj_f = other_roots_f[0]
+            # Degenerate: the fiber's only non-src root is x_src itself.
+            # div = 3*xi + 2*xi — no valid move exists; skip.
+            if xj_f == x_here_f_fp:
+                _n_wrong_nroots += 1; continue
+            # recover y for xi and xj
+            def _sqrt_fp(v):
+                v = Fp(v)
+                if v == 0: return Fp(0)
+                sq = v.sqrt(extend=False, all=True)
+                if not sq: return None
+                return min(sq, key=lambda r: int(r))
+            yj_fp = _sqrt_fp(G_poly(xj_f))
+            if yj_fp is None:
+                _n_wrong_nroots += 1; continue
+            f_list = [int(G_poly[i]) % int(p) for i in range(G_poly.degree()+1)]
+            P = (int(x_here_f_fp), int(Fp(y_here)))
+            # try both y-signs for Q
+            xk_f = None
+            src_mult_phi = 2
+            _phi_diag = _cand_idx < 3
+            # Try both y-signs of P and both y-signs of Q.
+            # phi enforces A(xP)=-yP, so the branch of P matters too.
+            yi_int = int(Fp(y_here))
+            for yi_try in (yi_int, int(p) - yi_int):
+                P_try = (int(x_here_f_fp), yi_try)
+                for yj_try in (int(yj_fp), int(p) - int(yj_fp)):
+                    Q = (int(xj_f), yj_try)
+                    try:
+                        A_coeffs, c, R = _compute_phi(int(p), f_list, f_list, P_try, Q)
+                        if _phi_diag:
+                            print(f"  [phi_diag] P={P_try} Q={Q} -> R={R} c={c}")
+                        if isinstance(R[0], tuple):
+                            if _phi_diag: print(f"  [phi_diag] R is Mumford pair, skipping")
+                            continue
+                        xk_f = xj_f
+                        _phi_R_x = Fp(R[0])
+                        actual_xi_mult = src_mult_phi
+                        break
+                    except (ValueError, ZeroDivisionError, ArithmeticError) as e:
+                        if _phi_diag: print(f"  [phi_diag] P={P_try} Q={Q} -> exception: {e}")
+                        continue
+                if xk_f is not None:
+                    break
+            if xk_f is None:
+                _n_wrong_nroots += 1; continue
+            _phi_extra_roots = [_phi_R_x]
         else:
             _n_wrong_nroots += 1; continue
 
@@ -187,6 +243,7 @@ def enrich_candidates(
             "input_n": n0,
             "source": "pure_fiber_intersection",
             "src_mult": actual_xi_mult,
+            "extra_roots": _phi_extra_roots,
             "intersection_poly": intersection_poly,
             "shift": shift,
         }

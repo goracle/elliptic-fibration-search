@@ -183,6 +183,7 @@ def augment_with_phi(
     y_src_int = int(y_src) % p
 
     P = (x_src_int, y_src_int)   # current point — double zero enforced here too
+    print(f"[phi_dbg] P={P} f(xP)={sum(c*pow(x_src_int,i,p)%p for i,c in enumerate(f_list))%p} yP^2={y_src_int*y_src_int%p}")
 
     candidates: List[Dict[str, Any]] = list(
         result.get("candidate_records") or result.get("candidates") or []

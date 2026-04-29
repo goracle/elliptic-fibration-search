@@ -17,18 +17,21 @@ Four geometries are supported, dispatched automatically by compute_phi:
 │ Self-conjugate (y=0)     │    –     │ (degenerate; rejected)       │ –            │
 └──────────────────────────┴──────────┴──────────────────────────────┴──────────────┘
 
+c is a free unknown in all cases; returned A_coeffs are normalised so c = 1.
+
 Generic case (P ≠ Q, xP ≠ xQ)
 -------------------------------
-A(x) = a₀ + a₁x + a₂x², c = 1.
-h(x) = f(x) − A(x)² has degree 5 and roots xP(×2), xQ(×2), xR(×1).
-Four conditions:
+φ(x,y) = A(x) + c·y,  A(x) = a₀ + a₁x + a₂x²,  c ∈ F_p a free unknown.
+h(x) = c²f(x) − A(x)² has degree 5 and roots xP(×2), xQ(×2), xR(×1).
+Four conditions imposed simultaneously (4×4 homogeneous system in a₀,a₁,a₂,c):
 
-  (1) A(xP) = −yP                     [φ(P) = 0]
-  (2) A'(xP) = −f'(xP)/(2yP)         [double root at xP]
-  (3) A(xQ) = −yQ                     [φ(Q) = 0, consistency check for y-sign]
-  (4) A'(xQ) = −f'(xQ)/(2yQ)         [double root at xQ]
+  (1) A(xP) + c·yP = 0                     [φ(P) = 0]
+  (2) A'(xP) + c·f'(xP)/(2yP) = 0         [double root at xP]
+  (3) A(xQ) + c·yQ = 0                     [φ(Q) = 0]
+  (4) A'(xQ) + c·f'(xQ)/(2yQ) = 0         [double root at xQ]
 
-(2)+(4) → 2×2 system for (a₁,a₂); (1) → a₀; (3) → sign check on yQ.
+The system has rank 3 iff P,Q lie in the correct divisor class; the null
+vector determines (a₀,a₁,a₂,c) up to scale.  We normalise c = 1.
 Vieta: xR = −(f[4]−a₂²)/f[5] − 2xP − 2xQ.
 
 Conjugate case (xP = xQ, yQ = −yP)
@@ -131,16 +134,61 @@ def _modinv(a: int, p: int) -> int:
 # Main construction
 # ---------------------------------------------------------------------------
 
+def _null_vec_4x4(M: list[list[int]], p: int) -> list[int] | None:
+    """Find a non-trivial null vector of the 4×4 matrix M over F_p via
+    reduced row-echelon form, or return None if M has full rank (rank 4).
+
+    The null space of a valid φ-system has dimension exactly 1 (rank 3),
+    corresponding to the overall scale freedom of φ.  The returned vector
+    has the free variable set to 1; the caller normalises by dividing through
+    by the c-component (index 3).
+    """
+    mat = [[row[j] % p for j in range(4)] for row in M]
+    pivot_of_col: dict[int, int] = {}   # col → pivot row
+    pivot_row = 0
+    for col in range(4):
+        found = next((r for r in range(pivot_row, 4) if mat[r][col] != 0), None)
+        if found is None:
+            continue
+        mat[pivot_row], mat[found] = mat[found], mat[pivot_row]
+        inv = pow(mat[pivot_row][col], p - 2, p)
+        mat[pivot_row] = [mat[pivot_row][j] * inv % p for j in range(4)]
+        for r in range(4):
+            if r != pivot_row and mat[r][col] != 0:
+                fac = mat[r][col]
+                mat[r] = [(mat[r][j] - fac * mat[pivot_row][j]) % p for j in range(4)]
+        pivot_of_col[col] = pivot_row
+        pivot_row += 1
+
+    if pivot_row == 4:
+        return None  # full rank — only trivial solution
+
+    # rank 3: one free column.
+    free_col = next(c for c in range(4) if c not in pivot_of_col)
+    v = [0] * 4
+    v[free_col] = 1
+    for col, pr in pivot_of_col.items():
+        v[col] = (p - mat[pr][free_col]) % p
+    return v
+
+
 def compute_phi(
     p: int,
     f_coeffs: Sequence[int],   # y² = f(x), len 6, degree-5 poly  (low first)
     g_coeffs: Sequence[int],   # UNUSED – kept for backward-compat with callers
-    P: Point,                  # (x_P, y_P) – one point; double root enforced here
-    Q: Point,                  # (x_Q, y_Q) – other point; double root enforced here
+    P: Point,                  # (x_P, y_P) – current walk point
+    Q: Point,                  # (x_Q, y_Q) – candidate next point
 ) -> tuple[list[int], int, Point]:
     """
-    Compute φ(x,y) = A(x) + y  (c normalised to 1) such that
+    Compute φ(x,y) = A(x) + c·y  with c ∈ F_p a free unknown, such that
     div(φ) = 2P + 2Q + R − 5∞.
+
+    Four conditions impose a 4×4 homogeneous linear system in (a₀,a₁,a₂,c).
+    When P and Q lie in the correct divisor class, the system has rank 3 and a
+    1-dimensional solution space; c is determined (up to an overall scale) by
+    the geometry, not assumed.  The returned A_coeffs are normalised so that
+    c = 1.  If the system has rank 4 (only the trivial solution), Q does not
+    belong to the expected divisor class and ValueError is raised.
 
     Parameters
     ----------
@@ -149,22 +197,20 @@ def compute_phi(
     g_coeffs  : ignored (retained for API compatibility)
     P         : (x_P, y_P)  in C(F_p), not a Weierstrass point
     Q         : (x_Q, y_Q)  in C(F_p), not a Weierstrass point
-                Only one y-sign for Q will be consistent; the caller is
-                responsible for passing the correct branch (phi_search.py
-                tries both).
 
     Returns
     -------
     A_coeffs  : [a0, a1, a2]  coefficients of A(x) = a0 + a1·x + a2·x²
-    c         : 1  (always, by normalisation)
+                (normalised so that c = 1)
+    c         : 1  (after normalisation; the raw solved c is verified ≠ 0)
     R         : (x_R, y_R)   third zero of φ on C, from Vieta
 
     Raises
     ------
-    ValueError        – degenerate geometry (same x-coord, Weierstrass pts,
-                        or consistency check failed for chosen y-sign of Q)
-    ArithmeticError   – Vieta candidate R is not on the curve (should not
-                        happen when the consistency check passes)
+    ValueError      – degenerate geometry (same x-coord, Weierstrass pts) or
+                      Q is not in the correct divisor class (rank-4 system or
+                      c = 0 in the null vector)
+    ArithmeticError – Vieta candidate R is not on the curve
     """
     f  = [int(v) % p for v in f_coeffs]
     fp = _poly_deriv(f, p)
@@ -191,46 +237,64 @@ def compute_phi(
     invyP = _modinv(yP, p)
     invyQ = _modinv(yQ, p)
 
-    # φ'|_C at P and Q (must equal zero for double roots).
-    # fslope_X  =  f'(xX) / (2·yX)
-    fslope_P = _poly_eval(fp, xP, p) * invyP % p * inv2 % p
-    fslope_Q = _poly_eval(fp, xQ, p) * invyQ % p * inv2 % p
+    # φ'|_C = A'(x) + c·f'(x)/(2y).  At a double zero x₀ this must vanish:
+    #   A'(x₀) + c·f'(x₀)/(2y₀) = 0.
+    # Define sP = f'(xP)/(2yP),  sQ = f'(xQ)/(2yQ).
+    sP = _poly_eval(fp, xP, p) * invyP % p * inv2 % p
+    sQ = _poly_eval(fp, xQ, p) * invyQ % p * inv2 % p
 
-    # -----------------------------------------------------------------------
-    # Step 1: solve 2×2 for (a₁, a₂) from conditions (2) and (4).
-    #
-    #   a₁ + 2a₂xP = −fslope_P
-    #   a₁ + 2a₂xQ = −fslope_Q
-    #
-    # Subtract → 2a₂(xP − xQ) = −fslope_P + fslope_Q
-    # -----------------------------------------------------------------------
-    two_xdiff = (2 * (xP - xQ)) % p
-    a2 = (fslope_Q - fslope_P) % p * _modinv(two_xdiff, p) % p
-    a1 = (-fslope_P - 2 * a2 * xP) % p
-
-    # Step 2: a₀ from condition (1).
     xP2 = xP * xP % p
-    a0  = (-yP - a1 * xP - a2 * xP2) % p
+    xQ2 = xQ * xQ % p
 
-    # c is normalised to 1.
-    c = 1
-    A_coeffs = [a0, a1, a2]
-
-    # Step 3: consistency check — condition (3) must hold for the chosen
-    # y-sign of Q.  If it fails the caller should try Q = (xQ, p−yQ).
-    xQ2   = xQ * xQ % p
-    check = (a0 + a1 * xQ + a2 * xQ2 + yQ) % p
-    if check != 0:
+    # -----------------------------------------------------------------------
+    # Solve the 4×4 homogeneous system  M·(a₀,a₁,a₂,c)ᵀ = 0  over F_p.
+    #
+    # The four conditions for div(φ) = 2P + 2Q + R − 5∞ are:
+    #   (1)  a₀ + a₁xP + a₂xP² + c·yP = 0      [φ(P) = 0]
+    #   (2)       a₁   + 2a₂xP + c·sP  = 0      [φ'|_C(P) = 0]
+    #   (3)  a₀ + a₁xQ + a₂xQ² + c·yQ = 0      [φ(Q) = 0]
+    #   (4)       a₁   + 2a₂xQ + c·sQ  = 0      [φ'|_C(Q) = 0]
+    #
+    # All four are used simultaneously; c is a genuine unknown.  When P and Q
+    # are in the correct divisor class the system has rank 3 (solution unique
+    # up to an overall scale); we normalise the result so that c = 1.
+    # -----------------------------------------------------------------------
+    M = [
+        [1,  xP,  xP2,       yP],   # (1)
+        [0,   1,  2*xP % p,  sP],   # (2)
+        [1,  xQ,  xQ2,       yQ],   # (3)
+        [0,   1,  2*xQ % p,  sQ],   # (4)
+    ]
+    v = _null_vec_4x4(M, p)
+    if v is None:
         raise ValueError(
-            f"compute_phi: consistency check φ(Q)=0 failed (residue={check}). "
-            "The y-sign of Q is wrong — try Q = (x_Q, p − y_Q)."
+            f"compute_phi: P={P}, Q={Q} — the 4×4 system has full rank; "
+            "Q is not in the correct divisor class for this P.  "
+            "Check that both points are on C and that the Mumford candidate "
+            "corresponds to a valid Jacobian step."
         )
 
+    a0_raw, a1_raw, a2_raw, c_raw = v
+    if c_raw == 0:
+        raise ValueError(
+            f"compute_phi: degenerate solution (c = 0) for P={P}, Q={Q}; "
+            "φ collapses to a function of x alone, which cannot give the "
+            "required pole order at ∞."
+        )
+
+    # Normalise: divide through by c so that c = 1.
+    inv_c = pow(int(c_raw), p - 2, p)
+    a0 = a0_raw * inv_c % p
+    a1 = a1_raw * inv_c % p
+    a2 = a2_raw * inv_c % p
+    c  = 1
+    A_coeffs = [a0, a1, a2]
+
     # -----------------------------------------------------------------------
-    # Step 4: recover R via Vieta on  h(x) = f(x) − A(x)²  (c²=1).
+    # Recover R via Vieta on  h(x) = c²·f(x) − A(x)²  (c = 1 after normalisation).
     #
     # h has degree 5:
-    #   leading coeff    = f[5]       (from f, degree 5)
+    #   leading coeff    = f[5]       (from c²f, c=1)
     #   coeff of x⁴     = f[4] − a2²
     #
     # With divisor 2P + 2Q + R, the five roots are xP, xP, xQ, xQ, xR:
