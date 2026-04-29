@@ -81,12 +81,10 @@ def _eval_fi_at_m(fi, m_val, p: int) -> Optional[list[int]]:
             try:
                 val = coeff(m_val)
             except TypeError:
-                val = coeff
-                raise
+                return None
             g.append(int(val) % p)
         return g
     except Exception:
-        raise
         return None
 
 # ---------------------------------------------------------------------------
@@ -225,7 +223,6 @@ def augment_with_phi(
                     p, f_list, g_coeffs, P, Q_self
                 )
             except (ValueError, ZeroDivisionError, ArithmeticError):
-                raise
                 continue
 
             # R_mumford is ((sum_RS, prod_RS), None) for the self geometry.

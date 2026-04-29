@@ -312,7 +312,7 @@ def _compute_phi_self(
     #     f''(xP) − 2s² + 2yP·A''(xP) = 0
     #     A''(xP) = (2s² − f''(xP)) / (2yP)
     f2xP = _poly_eval(fpp, xP, p)
-    d2   = (2 * s % p * s - f2xP) % p * invyP % p * inv2 % p
+    d2   = (2 * s * s - f2xP) % p * invyP % p * inv2 % p
 
     # d3 = A'''(xP)
     #   h'''(xP) = f'''(xP) − 2(3·A'·A'' + A·A''') = 0
@@ -320,7 +320,7 @@ def _compute_phi_self(
     #     f'''(xP) − 6s·d2 + 2yP·A'''(xP) = 0
     #     A'''(xP) = (6s·d2 − f'''(xP)) / (2yP)
     f3xP = _poly_eval(fppp, xP, p)
-    d3   = (6 * s % p * d2 - f3xP) % p * invyP % p * inv2 % p
+    d3   = (6 * s * d2 - f3xP) % p * invyP % p * inv2 % p
 
     # Recover A coefficients from Taylor data at xP.
     # A(x) = a₀ + a₁x + a₂x² + a₃x³
@@ -335,11 +335,11 @@ def _compute_phi_self(
 
     # A''(x) = 2a₂ + 6a₃x  →  A''(xP) = 2a₂ + 6a₃xP = d2
     #   a₂ = (d2 − 6a₃xP) / 2
-    a2 = (d2 - 6 * a3 % p * xP) % p * inv2 % p
+    a2 = (d2 - 6 * a3 * xP) % p * inv2 % p
 
     # A'(xP) = a₁ + 2a₂xP + 3a₃xP² = s
     xP2 = xP * xP % p
-    a1  = (s - 2 * a2 * xP - 3 * a3 % p * xP2) % p
+    a1  = (s - 2 * a2 * xP - 3 * a3 * xP2) % p
 
     # A(xP) = a₀ + a₁xP + a₂xP² + a₃xP³ = −yP
     xP3 = xP2 * xP % p
