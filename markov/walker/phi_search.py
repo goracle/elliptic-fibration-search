@@ -148,16 +148,28 @@ def augment_with_phi(
     sage_ring,      # PolynomialRing(GF(p), 'x')
 ) -> Dict[str, Any]:
     """Attempt to replace intersection_poly in each candidate record with the
-    φ-derived quintic h(x) = f(x) − A(x)²  (c normalised to 1).
+    φ-derived polynomial h(x) = f(x) − A(x)²  (c normalised to 1).
 
-    For each candidate, both y-signs of Q are tried in order:
-        (x_step, y_canonical)  then  (x_step, p − y_canonical)
-    The first that satisfies the φ(Q)=0 consistency check is used.
-    Records for which both signs fail are left unchanged.
+    Three geometries are handled:
 
-    Works in-place on the candidate_records list inside ``result`` and also
-    sets the top-level ``intersection_poly`` key if at least one record
-    succeeds.  Returns ``result`` (same object).
+    Generic (x_step ≠ x_src):
+        A(x) quadratic, div(φ) = 2P+2Q+R−5∞, h has degree 5.
+        Both y-signs of Q are tried; the one satisfying φ(Q)=0 is kept.
+
+    Conjugate (x_step == x_src, y_step == −y_src):
+        compute_phi dispatches automatically to _compute_phi_conjugate.
+        A(x) quadratic, div(φ) = 4P+R−5∞, h has degree 5.
+
+    Self (x_step == x_src, y_step == y_src  i.e. P = Q exactly):
+        compute_phi dispatches to _compute_phi_self.
+        A(x) cubic, div(φ) = 4P+R+S−6∞, h has degree 6.
+        R is returned as a Mumford u-polynomial pair ((sum_RS, prod_RS), None).
+        u(x) = x²−sum_RS·x+prod_RS is factored over F_p; for each rational
+        root xrs a new synthetic candidate record with source='phi_self_rs'
+        is appended to the candidates list so the Metropolis chooser sees it.
+
+    Records for which φ fails (wrong y-sign / degenerate) are left unchanged.
+    Works in-place; returns ``result`` (same object).
 
     Does nothing and returns unchanged if:
     - result has no ``fi`` (symbolic fiber poly), or
@@ -199,6 +211,69 @@ def augment_with_phi(
             continue
         x_step_int = int(x_step) % p
 
+        # ---------------------------------------------------------------
+        # Self geometry: P = Q (x_step == x_src, same y).
+        # compute_phi uses a degree-3 A, div(φ) = 4P + R + S − 6∞.
+        # R is returned as a Mumford pair ((sum_RS, prod_RS), None).
+        # We factor u(x) = x²−sum·x+prod over F_p and stamp each rational
+        # root as a separate candidate record.
+        # ---------------------------------------------------------------
+        if x_step_int == x_src_int:
+            Q_self = P   # P = Q
+            try:
+                A_coeffs, c, R_mumford = compute_phi(
+                    p, f_list, g_coeffs, P, Q_self
+                )
+            except (ValueError, ZeroDivisionError, ArithmeticError):
+                raise
+                continue
+
+            # R_mumford is ((sum_RS, prod_RS), None) for the self geometry.
+            if not (isinstance(R_mumford, tuple) and len(R_mumford) == 2
+                    and isinstance(R_mumford[0], tuple) and R_mumford[1] is None):
+                continue
+
+            sum_RS, prod_RS = R_mumford[0]
+            rs_roots = _mumford_roots(int(sum_RS) % p, int(prod_RS) % p, p)
+
+            if not rs_roots:
+                # u(x) doesn't split over F_p — no rational next point.
+                continue
+
+            h_coeffs = phi_quintic(p, f_list, A_coeffs, c)
+            h_sage   = sage_ring(h_coeffs)
+
+            # Stamp the self-geometry result onto the original record and
+            # inject extra records for the additional root(s).
+            rec["intersection_poly"] = h_sage
+            rec["phi_P"] = list(P)
+            rec["phi_Q"] = list(P)   # Q = P in self geometry
+            rec["phi_mumford_RS"] = [int(sum_RS) % p, int(prod_RS) % p]
+            rec["phi_geo"] = "self"
+            any_succeeded = True
+
+            if result.get("intersection_poly") is None:
+                result["intersection_poly"] = h_sage
+
+            # For each rational RS root, inject a synthetic candidate record
+            # so the Metropolis chooser sees it as a possible next step.
+            for xrs in rs_roots:
+                y_canonical = _recover_y(xrs, f_list, p)
+                if y_canonical is None:
+                    continue
+                new_rec = dict(rec)   # shallow copy of original record
+                new_rec["x_step"]          = xrs
+                new_rec["intersection_poly"] = h_sage
+                new_rec["phi_geo"]         = "self_rs"
+                new_rec["source"]          = "phi_self_rs"
+                new_rec["phi_mumford_RS"]  = [int(sum_RS) % p, int(prod_RS) % p]
+                candidates.append(new_rec)
+
+            continue
+
+        # ---------------------------------------------------------------
+        # Generic / conjugate geometry: x_step != x_src (or same x, neg y).
+        # ---------------------------------------------------------------
         y_canonical = _recover_y(x_step_int, f_list, p)
         if y_canonical is None:
             continue
@@ -240,18 +315,54 @@ def _phi_for_pair(
     p: int,
     sage_ring,
 ) -> Optional[Any]:
+    """Attempt φ construction for one (P, Q) pair.
+
+    Returns the Sage polynomial h(x) = f(x) − A(x)² on success, or None on
+    a consistency failure (wrong y-branch for Q).
+
+    For the generic/conjugate geometry (P ≠ Q or Q = conjugate of P) h has
+    degree 5 and is returned directly.
+
+    For the self geometry (P = Q exactly) h has degree 6.  R from compute_phi
+    is a Mumford pair ((sum_RS, prod_RS), None) rather than a single point;
+    phi_quintic is called the same way because it only needs A_coeffs.
+
+    Raises all non-consistency arithmetic errors.
+    """
     try:
         A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
     except ValueError as e:
-        # Expected failure: the caller is trying the wrong y-branch.
-        # Let it return None so the caller can try the other sign.
         if "consistency check φ(Q)=0 failed" in str(e):
             return None
-        # Raise all other unexpected ValueErrors
         raise
     except (ZeroDivisionError, ArithmeticError):
-        # Always raise actual arithmetic anomalies
         raise
 
     h_coeffs = phi_quintic(p, f_coeffs, A_coeffs, c)
     return sage_ring(h_coeffs)
+
+
+def _mumford_roots(sum_RS: int, prod_RS: int, p: int) -> list[int]:
+    """Factor u(x) = x² − sum_RS·x + prod_RS over F_p.
+
+    Returns a list of 0, 1, or 2 distinct roots (x-coordinates of the
+    extra zeros R, S from the self-geometry φ).
+    """
+    # Discriminant = sum² − 4·prod
+    disc = (sum_RS * sum_RS - 4 * prod_RS) % p
+    if disc == 0:
+        # Double root: x = sum/2
+        return [sum_RS * pow(2, p - 2, p) % p]
+    if pow(disc, (p - 1) // 2, p) != 1:
+        # No roots over F_p.
+        return []
+    # Two distinct roots.
+    if p % 4 == 3:
+        sqrt_disc = pow(disc, (p + 1) // 4, p)
+    else:
+        # Tonelli-Shanks (reuse from module level)
+        sqrt_disc = _tonelli_shanks(disc, p)
+    inv2 = pow(2, p - 2, p)
+    r1 = (sum_RS + sqrt_disc) * inv2 % p
+    r2 = (sum_RS - sqrt_disc) * inv2 % p
+    return sorted(set([r1, r2]))

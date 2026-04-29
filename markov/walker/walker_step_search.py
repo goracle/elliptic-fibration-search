@@ -1,5 +1,6 @@
 from .candidate_utils import *
 from .curve_helpers import *
+from .candidate_utils import _normalize_candidate_output
 
 def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
     x_src = walker.current_x
