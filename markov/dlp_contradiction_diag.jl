@@ -131,6 +131,495 @@ function dedupe_rows_mod(M::Matrix{Int}, modulus::Int; keep_zero_rows=false)
 end
 
 # ---------------------------------------------------------------------------
+# Mumford arithmetic over GF(p) for genus-2 hyperelliptic curves
+# y^2 = f(x),  deg(f) = 5
+# ---------------------------------------------------------------------------
+
+"""
+Default curve coefficients for y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4.
+Stored as [c0, c1, c2, c3, c4, c5] where f(x) = Σ cᵢ xⁱ (ascending degree).
+"""
+const DEFAULT_CURVE_COEFFS = [4, 5, 2, 3, 0, 1]  # constant term first
+
+"""
+Evaluate f(x) mod p given coefficients in ascending-degree order.
+"""
+function eval_poly_mod(coeffs::Vector{Int}, x::Int, p::Int)::Int
+    result = 0
+    xpow   = 1
+    for c in coeffs
+        result = mod(result + c * xpow, p)
+        xpow   = mod(xpow * x, p)
+    end
+    return result
+end
+
+"""
+Polynomial multiplication mod p.  Both inputs are coefficient vectors
+(ascending degree).  Returns coefficient vector of length len(a)+len(b)-1.
+"""
+function polymul_mod(a::Vector{Int}, b::Vector{Int}, p::Int)::Vector{Int}
+    (isempty(a) || isempty(b)) && return Int[]
+    out = zeros(Int, length(a) + length(b) - 1)
+    for (i, ca) in enumerate(a), (j, cb) in enumerate(b)
+        out[i+j-1] = mod(out[i+j-1] + ca * cb, p)
+    end
+    return out
+end
+
+"""
+Polynomial addition mod p (ascending degree, zero-padded).
+"""
+function polyadd_mod(a::Vector{Int}, b::Vector{Int}, p::Int)::Vector{Int}
+    n = max(length(a), length(b))
+    out = zeros(Int, n)
+    for (i, c) in enumerate(a); out[i] = mod(out[i] + c, p); end
+    for (i, c) in enumerate(b); out[i] = mod(out[i] + c, p); end
+    return out
+end
+
+"""
+Polynomial subtraction mod p (ascending degree, zero-padded).
+"""
+function polysub_mod(a::Vector{Int}, b::Vector{Int}, p::Int)::Vector{Int}
+    n = max(length(a), length(b))
+    out = zeros(Int, n)
+    for (i, c) in enumerate(a); out[i] = mod(out[i] + c, p); end
+    for (i, c) in enumerate(b); out[i] = mod(out[i] - c, p); end
+    return out
+end
+
+"""
+Polynomial division mod p: returns (quotient, remainder), ascending degree.
+Throws on division by zero poly.
+"""
+function polydivrem_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    isempty(b) && throw(ArgumentError("polydivrem_mod: divisor is empty"))
+    # strip trailing zeros from b
+    b_deg = findlast(!=(0), b)
+    b_deg === nothing && throw(ArgumentError("polydivrem_mod: divisor is zero polynomial"))
+    b = b[1:b_deg]
+
+    deg_b = b_deg - 1
+    inv_lead_b = invmod(b[end], p)
+
+    r = copy(a)
+    # strip trailing zeros from r
+    while length(r) > 0 && r[end] == 0; pop!(r); end
+
+    q = Int[]
+    while length(r) > 0 && length(r) - 1 >= deg_b
+        deg_r  = length(r) - 1
+        coeff  = mod(r[end] * inv_lead_b, p)
+        # prepend coeff to quotient (will reverse at end)
+        pushfirst!(q, coeff)
+        # subtract coeff * x^(deg_r - deg_b) * b from r
+        shift = deg_r - deg_b
+        for (i, bc) in enumerate(b)
+            idx = i + shift
+            r[idx] = mod(r[idx] - coeff * bc, p)
+        end
+        # strip trailing zeros
+        while length(r) > 0 && r[end] == 0; pop!(r); end
+    end
+
+    # pad quotient to correct length
+    expected_q_len = max(0, length(a) - deg_b)
+    while length(q) < expected_q_len; push!(q, 0); end
+
+    isempty(r) && push!(r, 0)
+    return q, r
+end
+
+"""
+Polynomial GCD mod p using Euclidean algorithm.  Returns monic GCD.
+"""
+function polygcd_mod(a::Vector{Int}, b::Vector{Int}, p::Int)::Vector{Int}
+    # strip trailing zeros
+    strip(v) = begin
+        w = copy(v)
+        while length(w) > 1 && w[end] == 0; pop!(w); end
+        w
+    end
+    a, b = strip(a), strip(b)
+    while !(length(b) == 1 && b[1] == 0)
+        _, r = polydivrem_mod(a, b, p)
+        a, b = b, strip(r)
+    end
+    # make monic
+    a = strip(a)
+    if !isempty(a) && a[end] != 0 && a[end] != 1
+        inv_lc = invmod(a[end], p)
+        a = mod.(a .* inv_lc, p)
+    end
+    return a
+end
+
+"""
+One step of Cantor's algorithm: compose two semi-reduced Mumford divisors
+(u1,v1) and (u2,v2) on y^2 = f(x) over GF(p).
+Returns a (possibly non-reduced) Mumford pair (u, v) with deg(u) = deg(u1)+deg(u2).
+All polynomials are coefficient vectors (ascending degree).
+
+Algorithm (Cohen–Frey §14.1 / Cantor 1987):
+  d1, e1, e2  s.t.  e1*u1 + e2*u2 = d1 = gcd(u1,u2)
+  d,  c1, c2  s.t.  c1*d1 + c2*(v1+v2) = d = gcd(d1, v1+v2)
+  s1 = c1*e1,  s2 = c1*e2,  s3 = c2
+  u  = u1*u2 / d^2
+  v  = (s1*u1*v2 + s2*u2*v1 + s3*(v1*v2 + f)) / d   mod u
+"""
+function mumford_compose(u1::Vector{Int}, v1::Vector{Int},
+                         u2::Vector{Int}, v2::Vector{Int},
+                         f_coeffs::Vector{Int}, p::Int)
+    # Step 1
+    d1, e1, e2 = poly_extgcd_mod(u1, u2, p)
+
+    # Step 2
+    v_diff     = polysub_mod(v1, v2, p)
+    d, c1, c2  = poly_extgcd_mod(d1, v_diff, p)
+
+    # s1 = c1*e1,  s2 = c1*e2
+    s1 = polymul_mod(c1, e1, p)
+    s2 = polymul_mod(c1, e2, p)
+    s3 = c2
+
+    # u = u1*u2 / d^2
+    u1u2     = polymul_mod(u1, u2, p)
+    d2       = polymul_mod(d, d, p)
+    u, rem_u = polydivrem_mod(u1u2, d2, p)
+    all(x == 0 for x in rem_u) || throw(ErrorException("mumford_compose: d^2 does not divide u1*u2"))
+    # make u monic
+    if !isempty(u) && u[end] != 0 && u[end] != 1
+        inv_lc = invmod(u[end], p)
+        u = mod.(u .* inv_lc, p)
+    end
+
+    # v_num = s1*u1*v2 + s2*u2*v1 + s3*(v1*v2 - f)
+    t1    = polymul_mod(s1, polymul_mod(u1, v2, p), p)
+    t2    = polymul_mod(s2, polymul_mod(u2, v1, p), p)
+    v1v2  = polymul_mod(v1, v2, p)
+    fv    = polysub_mod(v1v2, f_coeffs, p)
+    t3    = polymul_mod(s3, fv, p)
+    v_num = polyadd_mod(polyadd_mod(t1, t2, p), t3, p)
+
+    # v = v_num / d   mod u
+    v_quot, rem_v = polydivrem_mod(v_num, d, p)
+    all(x == 0 for x in rem_v) || throw(ErrorException("mumford_compose: d does not divide v_num"))
+    _, v = polydivrem_mod(v_quot, u, p)
+
+    return u, v
+end
+
+"""
+Extended GCD for polynomials over GF(p).
+Returns (g, s, t) such that s*a + t*b = g (g monic).
+"""
+function poly_extgcd_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    strip(v) = begin
+        w = copy(v)
+        while length(w) > 1 && w[end] == 0; pop!(w); end
+        w
+    end
+    make_monic(v) = begin
+        v = strip(v)
+        (isempty(v) || v[end] == 0 || v[end] == 1) && return v, 1
+        lc = v[end]
+        inv_lc = invmod(lc, p)
+        return mod.(v .* inv_lc, p), inv_lc
+    end
+
+    a, b = strip(a), strip(b)
+    # trivial cases
+    is_zero(v) = all(x == 0 for x in v)
+    if is_zero(a)
+        g, sc = make_monic(b)
+        return g, [0], [mod(sc, p)]
+    end
+    if is_zero(b)
+        g, sc = make_monic(a)
+        return g, [mod(sc, p)], [0]
+    end
+
+    old_r, r    = copy(a), copy(b)
+    old_s, s    = [1], [0]
+    old_t, t    = [0], [1]
+
+    while !is_zero(strip(r))
+        q, rem = polydivrem_mod(old_r, r, p)
+        old_r, r = r, strip(rem)
+        new_s = polysub_mod(old_s, polymul_mod(q, s, p), p)
+        old_s, s = s, new_s
+        new_t = polysub_mod(old_t, polymul_mod(q, t, p), p)
+        old_t, t = t, new_t
+    end
+
+    g = strip(old_r)
+    s_out, t_out = old_s, old_t
+    # make g monic
+    if !isempty(g) && g[end] != 0 && g[end] != 1
+        inv_lc = invmod(g[end], p)
+        g     = mod.(g .* inv_lc, p)
+        s_out = mod.(s_out .* inv_lc, p)
+        t_out = mod.(t_out .* inv_lc, p)
+    end
+    return g, s_out, t_out
+end
+
+"""
+Mumford reduction step: given (u, v) with deg(u) > g=2,
+reduce to a semi-reduced divisor of degree ≤ 2.
+Returns (u_red, v_red).
+"""
+function mumford_reduce(u::Vector{Int}, v::Vector{Int},
+                        f_coeffs::Vector{Int}, p::Int)
+    strip(w) = begin z = copy(w); while length(z)>1 && z[end]==0; pop!(z); end; z end
+    g = 2
+    u, v = strip(u), strip(v)
+    while length(u) - 1 > g   # deg(u) > g
+        # u' = (f - v^2) / u
+        v2    = polymul_mod(v, v, p)
+        fmv2  = polysub_mod(f_coeffs, v2, p)
+        u2, rem = polydivrem_mod(fmv2, u, p)
+        all(x == 0 for x in rem) || throw(ErrorException("mumford_reduce: (f-v^2)/u not exact; divisor not on curve"))
+        u2 = strip(u2)
+        # make u2 monic
+        if !isempty(u2) && u2[end] != 0 && u2[end] != 1
+            inv_lc = invmod(u2[end], p)
+            u2 = mod.(u2 .* inv_lc, p)
+        end
+        # v' = (-v) mod u2
+        _, v2r = polydivrem_mod(mod.(Int.(p) .- v, p), u2, p)
+        u, v = u2, strip(v2r)
+    end
+    return u, v
+end
+
+"""
+Add a single degree-1 divisor point (x=a, y=+sqrt(f(a))) to a Mumford
+divisor (u, v) over GF(p).  All +y branch assumed.
+Returns the new (u, v) after one Cantor composition + reduction step.
+"""
+function mumford_add_point(u::Vector{Int}, v::Vector{Int},
+                           a::Int, f_coeffs::Vector{Int}, p::Int)
+    fa = eval_poly_mod(f_coeffs, a, p)
+    fa == 0 && throw(ErrorException("mumford_add_point: point (a=$a) is a Weierstrass point (y=0)"))
+
+    y_a = tonelli_shanks(fa, p)
+    y_a === nothing && throw(ErrorException("mumford_add_point: f($a)=$fa is not a QR mod p=$p"))
+
+    # Canonicalize the chosen square root so the lift is deterministic.
+    y_a = min(y_a, mod(-y_a, p))
+
+    # degree-1 Mumford divisor: u2 = x - a, v2 = y_a (constant)
+    u2 = [mod(-a, p), 1]   # x - a  (ascending: [const, x^1])
+    v2 = [y_a]
+
+    u_new, v_new = mumford_compose(u, v, u2, v2, f_coeffs, p)
+
+    # Invariant check: u_new must divide f - v_new^2
+    v2sq     = polymul_mod(v_new, v_new, p)
+    fmv2     = polysub_mod(f_coeffs, v2sq, p)
+    _, check = polydivrem_mod(fmv2, u_new, p)
+    all(x == 0 for x in check) || throw(ErrorException(
+        "mumford_add_point: invariant u|(f-v^2) broken after compose at x=$a; " *
+        "remainder=$(check)"))
+
+    return mumford_reduce(u_new, v_new, f_coeffs, p)
+end
+
+"""
+Tonelli-Shanks modular square root.  Returns r s.t. r^2 ≡ n (mod p), or nothing.
+"""
+function tonelli_shanks(n::Int, p::Int)::Union{Int,Nothing}
+    n = mod(n, p)
+    n == 0 && return 0
+    # Euler criterion
+    powermod(n, (p-1)÷2, p) == 1 || return nothing
+    p == 2 && return n
+    # factor out 2s from p-1: p-1 = q * 2^s, q odd
+    q, s = p - 1, 0
+    while q % 2 == 0; q ÷= 2; s += 1; end
+    s == 1 && return powermod(n, (p+1)÷4, p)
+    # find quadratic non-residue z
+    z = 2
+    while powermod(z, (p-1)÷2, p) != p - 1; z += 1; end
+    m  = s
+    c  = powermod(z, q, p)
+    t  = powermod(n, q, p)
+    r  = powermod(n, (q+1)÷2, p)
+    while true
+        t == 1 && return r
+        # find least i s.t. t^(2^i) = 1
+        i, tmp = 1, mod(t * t, p)
+        while tmp != 1; tmp = mod(tmp * tmp, p); i += 1; end
+        # b = c^(2^(m-i-1)) by repeated squaring
+        b = c
+        for _ in 1:(m-i-1); b = mod(b * b, p); end
+        m  = i
+        c  = mod(b * b, p)
+        t  = mod(t * c, p)
+        r  = mod(r * b, p)
+    end
+end
+
+"""
+Check whether a monic polynomial u(x) of degree ≤ 2 splits completely over GF(p).
+- deg 0 or deg 1: trivially split.
+- deg 2: splits iff discriminant is a QR (or zero).
+Returns true iff fully split.
+"""
+function is_fully_split(u::Vector{Int}, p::Int)::Bool
+    strip(w) = begin z = copy(w); while length(z)>1 && z[end]==0; pop!(z); end; z end
+    u = strip(u)
+    deg = length(u) - 1
+    deg <= 1 && return true
+    deg == 2 || throw(ArgumentError("is_fully_split: expected deg ≤ 2, got $deg"))
+    # u = x^2 + bx + c  (monic)  =>  disc = b^2 - 4c
+    b    = u[2]   # coefficient of x^1
+    c    = u[1]   # constant term
+    disc = mod(b * b - 4 * c, p)
+    disc == 0 && return true
+    return powermod(disc, (p-1)÷2, p) == 1
+end
+
+"""
+Apply Mumford reduction to a single row of the relation matrix.
+Returns (is_split::Bool, u_reduced::Vector{Int}) or throws on error.
+
+The row is a Dict-style collection of (col_index => coefficient) entries
+for the finite atoms (∞ column excluded).  All y-branches assumed +y.
+atom_xs maps col index -> x-value (Int).
+f_coeffs is the curve polynomial in ascending degree.
+"""
+function reduce_row_mumford(atom_xs::Dict{Int,Int}, row_support::Vector{Tuple{Int,Int}},
+                             f_coeffs::Vector{Int}, p::Int)
+    # Start from identity: u = 1 (empty divisor), v = 0
+    u = [1]
+    v = [0]
+    for (col, coeff) in row_support
+        coeff == 0 && continue
+        x_val = get(atom_xs, col, nothing)
+        x_val === nothing && throw(ErrorException("reduce_row_mumford: col $col has no x-value"))
+        for _ in 1:coeff
+            u, v = mumford_add_point(u, v, x_val, f_coeffs, p)
+        end
+    end
+    split = is_fully_split(u, p)
+    return split, u
+end
+
+"""
+Load curve coefficients from HDF5 if present (key "curve_coeffs"),
+otherwise return the hardcoded default for y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4.
+"""
+function load_curve_coeffs(h5_path::String)::Vector{Int}
+    h5open(h5_path, "r") do f
+        haskey(f, "curve_coeffs") || return DEFAULT_CURVE_COEFFS
+        raw = read(f["curve_coeffs"])
+        return Int.(raw)
+    end
+end
+
+"""
+Mumford-reduction filter: for each row of M, compose all finite atoms
+(+y branch, all positive coefficients) into a Mumford divisor, reduce,
+and keep the row iff u(x) splits completely over GF(p).
+
+Returns (M_filtered::Matrix{Int}, n_kept::Int, n_dropped::Int).
+Logs progress and yield statistics.
+"""
+function apply_mumford_reduce_filter(M::Matrix{Int}, atoms::Vector,
+                                     col_inf::Union{Int,Nothing},
+                                     curve_coeffs::Vector{Int}, p::Int)
+    _section("MUMFORD REDUCTION FILTER  (--reduce)")
+    _log("  curve: y^2 = f(x),  f coeffs (asc degree) = $curve_coeffs")
+    _log("  field: GF($p)  |  matrix: $(size(M,1)) rows × $(size(M,2)) cols")
+
+    # Build map: col -> x-value (atom name is the x-coordinate as a string)
+    atom_xs = Dict{Int,Int}()
+    for (j, atm) in enumerate(atoms)
+        j == col_inf && continue
+        x_val = tryparse(Int, string(atm))
+        x_val === nothing && throw(ErrorException("apply_mumford_reduce_filter: atom \"$atm\" (col $j) is not an integer x-coordinate"))
+        atom_xs[j] = x_val
+    end
+
+    # Sanity-test: find any atom x s.t. f(x) is a QR and verify we can add it twice
+    let test_x = nothing
+        for (_, xv) in atom_xs
+            fx = eval_poly_mod(curve_coeffs, xv, p)
+            if fx != 0 && powermod(fx, (p-1)÷2, p) == 1
+                test_x = xv; break
+            end
+        end
+        if test_x !== nothing
+            try
+                u1, v1 = mumford_add_point([1], [0], test_x, curve_coeffs, p)
+                u2, v2 = mumford_add_point(u1, v1, test_x, curve_coeffs, p)
+                _log("  [sanity] Mumford self-test OK: 2*P at x=$test_x → u=$(u2)")
+            catch e
+                throw(ErrorException("Mumford arithmetic self-test failed at x=$test_x: $e"))
+            end
+        else
+            _log("  [sanity] no QR atom found for self-test (all atoms may be non-QR?)")
+        end
+    end
+
+    nr, nc = size(M)
+    keep_rows   = Int[]
+    n_error     = 0
+    n_split     = 0
+    n_nonsplit  = 0
+
+    for i in 1:nr
+        # Build finite support: skip ∞ column
+        support = Tuple{Int,Int}[]
+        for j in 1:nc
+            (col_inf !== nothing && j == col_inf) && continue
+            M[i,j] != 0 && push!(support, (j, M[i,j]))
+        end
+
+        if isempty(support)
+            # Row is only ∞ column — trivially the identity; keep it
+            n_split += 1
+            push!(keep_rows, i)
+            continue
+        end
+
+        try
+            split, u_red = reduce_row_mumford(atom_xs, support, curve_coeffs, p)
+            if split
+                n_split += 1
+                push!(keep_rows, i)
+            else
+                n_nonsplit += 1
+            end
+        catch e
+            n_error += 1
+            if n_error <= 5
+                _log("  [reduce] row $i error: $e")
+            elseif n_error == 6
+                _log("  [reduce] suppressing further row errors ...")
+            end
+            # On error: drop the row (conservative)
+        end
+    end
+
+    total_processed = n_split + n_nonsplit + n_error
+    pct_kept = nr > 0 ? @sprintf("%.1f%%", 100.0 * n_split / nr) : "N/A"
+    _log("  processed: $total_processed / $nr rows")
+    _log("  split (kept) : $n_split  ($pct_kept)")
+    _log("  non-split    : $n_nonsplit")
+    _log("  errors (drop): $n_error")
+
+    isempty(keep_rows) && _log("  ⚠  no rows survived Mumford reduction filter — proceeding with empty matrix")
+
+    M_out = isempty(keep_rows) ? Matrix{Int}(undef, 0, nc) : M[keep_rows, :]
+    _log("  matrix after filter: $(size(M_out,1)) rows × $(size(M_out,2)) cols")
+    return M_out, n_split, n_nonsplit
+end
+
+# ---------------------------------------------------------------------------
 # HDF5 loader
 # ---------------------------------------------------------------------------
 """
@@ -176,7 +665,8 @@ function load_matrix_hdf5(path::String)
 
         # --- 3. Load Metadata ---
         group_order = haskey(f, "group_order") ? Int(read(f["group_order"])) : nothing
-        divisor_xs  = haskey(f, "divisor_xs")  ? Int.(read(f["divisor_xs"])) : nothing
+        field_prime = haskey(f, "field_prime")  ? Int(read(f["field_prime"])) : nothing
+        divisor_xs  = haskey(f, "divisor_xs")   ? Int.(read(f["divisor_xs"])) : nothing
 
         function _col(key)
             !haskey(f, key) && return nothing
@@ -190,6 +680,7 @@ function load_matrix_hdf5(path::String)
             atoms = atoms,
             aidx = aidx,
             group_order = group_order,
+            field_prime = field_prime,
             divisor_xs = divisor_xs,
             col_inf = _col("col_inf"),
             col_gen0 = _col("col_gen0"),
@@ -235,6 +726,7 @@ Convert a plain Int matrix to a Nemo matrix over GF(p).
 """
 function to_nemo_mat(M::Matrix{Int}, Fp)
     nr, nc = size(M)
+    nr == 0 && return matrix(Fp, 0, nc, elem_type(Fp)[])
     rows = [[Fp(M[i,j]) for j in 1:nc] for i in 1:nr]
     return matrix(Fp, nr, nc, reduce(vcat, [r for r in rows]))
 end
@@ -1241,6 +1733,13 @@ function main(args=ARGS)
             arg_type = Int
             nargs    = '+'
             default  = nothing
+        "--field-prime"
+            help = "Field prime p (the F_p over which the curve is defined; used for Mumford reduction). Overrides HDF5 metadata."
+            arg_type = Int
+            default  = nothing
+        "--reduce"
+            help   = "Apply Mumford reduction to each relation row after loading; keep only rows whose reduced u(x) splits completely over GF(p).  Expect low yield."
+            action = :store_true
     end
     parsed = parse_args(args, s)
 
@@ -1259,6 +1758,7 @@ function main(args=ARGS)
     atoms       = data.atoms
     aidx        = data.aidx
     group_order = something(parsed["group-order"], data.group_order)
+    field_prime = something(parsed["field-prime"],  data.field_prime, nothing)
     divisor_xs  = data.divisor_xs
 
     col_inf  = data.col_inf
@@ -1366,6 +1866,14 @@ function main(args=ARGS)
         _log("[filter] all rows degree-balanced (coeff sums all zero).")
     end
 
+    # --- Mumford reduction filter (--reduce) ---
+    if parsed["reduce"]
+        field_prime === nothing && error("--reduce requires --field-prime <p> (or field_prime stored in HDF5)")
+        curve_coeffs = load_curve_coeffs(hdf5_path)
+        M, _, _ = apply_mumford_reduce_filter(M, atoms, col_inf, curve_coeffs, field_prime)
+        size(M, 1) == 0 && error("--reduce: no rows survived Mumford filter; cannot continue.")
+    end
+
     # --- Check 1 ---
     if known_key !== nothing
         check_homogeneous(M, atoms, aidx, group_order,
@@ -1419,6 +1927,67 @@ function main(args=ARGS)
     _log("\n$('#'^70)")
     _log("# DIAGNOSTICS COMPLETE")
     _log("$('#'^70)\n")
+end
+
+function mumford_add_point(u::Vector{Int}, v::Vector{Int},
+                          a::Int, f_coeffs::Vector{Int}, p::Int)
+
+    # 1. compute y from f(a)
+    fa = eval_poly_mod(f_coeffs, a, p)
+    y  = sqrt_mod(fa, p)   # assume exists
+
+    # (optional but fine)
+    if y > p - y
+        y = mod(-y, p)
+    end
+
+    # 2. build point divisor
+    uP = mod.([-a, 1], p)
+    vP = [y]
+
+    # 3. compose
+    u3, v3 = mumford_compose(u, v, uP, vP, f_coeffs, p)
+
+    # 🔥 4. CRITICAL: reduce
+    u3, v3 = mumford_reduce(u3, v3, f_coeffs, p)
+
+    # 5. final sanity check
+    check_mumford_invariant(u3, v3, f_coeffs, p)
+
+    return u3, v3
+end
+
+
+function sqrt_mod(a::Int, p::Int)
+    a = mod(a, p)
+    a == 0 && return 0
+
+    # Legendre symbol check (optional but helpful)
+    if powermod(a, (p - 1) ÷ 2, p) != 1
+        error("sqrt_mod: no square root exists for $a mod $p")
+    end
+
+    if p % 4 == 3
+        return powermod(a, (p + 1) ÷ 4, p)
+    end
+
+    error("sqrt_mod: general Tonelli–Shanks not implemented")
+end
+
+function check_mumford_invariant(u::Vector{Int}, v::Vector{Int}, f::Vector{Int}, p::Int)
+    # Compute v^2 mod p
+    v2 = poly_mul_mod(v, v, p)
+
+    # Compute f - v^2 mod p
+    diff = poly_sub_mod(f, v2, p)
+
+    # Compute remainder of diff mod u
+    _, r = poly_divrem_mod(diff, u, p)
+
+    # Normalize remainder
+    r = poly_normalize_mod(r, p)
+
+    return isempty(r) || all(x -> x % p == 0, r)
 end
 
 main()
