@@ -11,7 +11,7 @@ Four geometries are supported, dispatched automatically by compute_phi:
 ┌──────────────────────────┬──────────┬──────────────────────────────┬──────────────┐
 │ Geometry                 │ deg A(x) │ div(φ)                       │ Extra zeros  │
 ├──────────────────────────┼──────────┼──────────────────────────────┼──────────────┤
-│ Generic  P ≠ Q           │    2     │ 2P + 2Q + R   − 5∞           │ R (1 point)  │
+│ Generic  P ≠ Q           │    2     │ 2P + Q + R + S − 5∞          │ R,S (Mumford)│
 │ Conjugate  Q = (xP,−yP)  │    2     │ 4P            + R   − 5∞     │ R (1 point)  │
 │ Self  P = Q              │    3     │ 4P + R + S    − 6∞           │ R,S (Mumford)│
 │ Self-conjugate (y=0)     │    –     │ (degenerate; rejected)       │ –            │
@@ -20,16 +20,30 @@ Four geometries are supported, dispatched automatically by compute_phi:
 Generic case (P ≠ Q, xP ≠ xQ)
 -------------------------------
 A(x) = a₀ + a₁x + a₂x², c = 1.
-h(x) = f(x) − A(x)² has degree 5 and roots xP(×2), xQ(×2), xR(×1).
-Four conditions:
+h(x) = f(x) − A(x)² has degree 5 and roots xP(×2), xQ(×1), xR(×1), xS(×1).
+Three conditions (2P + Q simple zero is non-degenerate / non-homogeneous):
 
   (1) A(xP) = −yP                     [φ(P) = 0]
   (2) A'(xP) = −f'(xP)/(2yP)         [double root at xP]
-  (3) A(xQ) = −yQ                     [φ(Q) = 0, consistency check for y-sign]
-  (4) A'(xQ) = −f'(xQ)/(2yQ)         [double root at xQ]
+  (3) A(xQ) = −yQ                     [φ(Q) = 0, simple zero]
 
-(2)+(4) → 2×2 system for (a₁,a₂); (1) → a₀; (3) → sign check on yQ.
-Vieta: xR = −(f[4]−a₂²)/f[5] − 2xP − 2xQ.
+(The old 4-condition system enforcing a double root at Q too was homogeneous /
+overdetermined, leaving only a 1-parameter family; dropping condition (4) gives
+a unique solution.)
+
+(2) → a₁ + 2a₂xP = −fslope_P;  (1) after solving (2) with (3):
+  From (2): a₁ = −fslope_P − 2a₂xP
+  Sub into (3): −fslope_P·(xQ−xP) + a₂(xQ²−xP²) − (yQ−yP) ≡ 0 mod p
+                → a₂ = (yQ − yP + fslope_P·(xQ−xP)) / (xQ²−xP²)
+  Then a₁ and a₀ follow.
+
+Vieta: roots xP(×2), xQ, xR, xS.  Sum of five roots = (a₂²−f[4])/f[5].
+  xR + xS = sum − 2xP − xQ
+  xR · xS recovered from the x³ coefficient of h.
+
+Returns ((sum_RS, prod_RS), None) as a Mumford pair.
+The caller must factor u(x) = x² − (xR+xS)x + xR*xS over F_p; if u has no
+F_p roots the geometry is skipped (no field-extension arithmetic supported).
 
 Conjugate case (xP = xQ, yQ = −yP)
 -------------------------------------
@@ -83,9 +97,9 @@ Usage
 
     A_coeffs, c, R = compute_phi(p, f_coeffs, g_coeffs, P, Q)
 
-    # Generic/conjugate: R is a single (xR, yR) point.
-    # Self (P=Q):        R is a Mumford pair ((sum, prod), None) — check with
-    #                    isinstance(R[0], tuple).
+    # Generic/self:  R is a Mumford pair ((sum_RS, prod_RS), None) — check with
+    #                isinstance(R[0], tuple).
+    # Conjugate:     R is a single (xR, yR) point.
 
     checks = verify_phi(p, f_coeffs, A_coeffs, c, P, Q, R)
     assert all(checks.values()), checks
@@ -135,36 +149,36 @@ def compute_phi(
     p: int,
     f_coeffs: Sequence[int],   # y² = f(x), len 6, degree-5 poly  (low first)
     g_coeffs: Sequence[int],   # UNUSED – kept for backward-compat with callers
-    P: Point,                  # (x_P, y_P) – one point; double root enforced here
-    Q: Point,                  # (x_Q, y_Q) – other point; double root enforced here
-) -> tuple[list[int], int, Point]:
+    P: Point,                  # (x_P, y_P) – double-root point
+    Q: Point,                  # (x_Q, y_Q) – simple-zero point
+) -> tuple[list[int], int, tuple]:
     """
     Compute φ(x,y) = A(x) + y  (c normalised to 1) such that
-    div(φ) = 2P + 2Q + R − 5∞.
+    div(φ) = 2P + Q + R + S − 5∞  (generic, P≠Q, xP≠xQ),
+             4P + R − 5∞           (conjugate, Q=(xP,−yP)),
+          or 4P + R + S − 6∞       (self, P=Q exactly).
 
     Parameters
     ----------
     p         : prime characteristic
     f_coeffs  : coefficients of the curve polynomial f (low first), deg 5
     g_coeffs  : ignored (retained for API compatibility)
-    P         : (x_P, y_P)  in C(F_p), not a Weierstrass point
-    Q         : (x_Q, y_Q)  in C(F_p), not a Weierstrass point
-                Only one y-sign for Q will be consistent; the caller is
-                responsible for passing the correct branch (phi_search.py
-                tries both).
+    P         : (x_P, y_P)  in C(F_p), not a Weierstrass point; double root here
+    Q         : (x_Q, y_Q)  in C(F_p), not a Weierstrass point; simple zero here
 
     Returns
     -------
-    A_coeffs  : [a0, a1, a2]  coefficients of A(x) = a0 + a1·x + a2·x²
+    A_coeffs  : coefficients of A(x) (deg 2 for generic/conjugate, deg 3 for self)
     c         : 1  (always, by normalisation)
-    R         : (x_R, y_R)   third zero of φ on C, from Vieta
+    R         : Generic/self → ((sum_RS, prod_RS), None) as Mumford pair.
+                Conjugate     → (x_R, y_R) as a single point.
 
     Raises
     ------
-    ValueError        – degenerate geometry (same x-coord, Weierstrass pts,
-                        or consistency check failed for chosen y-sign of Q)
-    ArithmeticError   – Vieta candidate R is not on the curve (should not
-                        happen when the consistency check passes)
+    ValueError        – degenerate geometry (Weierstrass points, or the Mumford
+                        u-polynomial has no F_p roots in the generic case — skip,
+                        no field-extension arithmetic supported)
+    ArithmeticError   – internal sanity check failed (indicates a bug)
     """
     f  = [int(v) % p for v in f_coeffs]
     fp = _poly_deriv(f, p)
@@ -189,76 +203,87 @@ def compute_phi(
 
     inv2  = _modinv(2, p)
     invyP = _modinv(yP, p)
-    invyQ = _modinv(yQ, p)
 
-    # φ'|_C at P and Q (must equal zero for double roots).
-    # fslope_X  =  f'(xX) / (2·yX)
+    # slope of the curve tangent at P (needed for the double-root condition).
+    # fslope_P = f'(xP) / (2·yP)  — this equals −A'(xP) when h'(xP)=0.
     fslope_P = _poly_eval(fp, xP, p) * invyP % p * inv2 % p
-    fslope_Q = _poly_eval(fp, xQ, p) * invyQ % p * inv2 % p
 
     # -----------------------------------------------------------------------
-    # Step 1: solve 2×2 for (a₁, a₂) from conditions (2) and (4).
+    # Solve for (a₀, a₁, a₂) from three conditions:
     #
-    #   a₁ + 2a₂xP = −fslope_P
-    #   a₁ + 2a₂xQ = −fslope_Q
+    #   (1) A(xP)  = −yP                      [φ(P) = 0]
+    #   (2) A'(xP) = −fslope_P                [double root at xP: h'(xP)=0]
+    #   (3) A(xQ)  = −yQ                      [φ(Q) = 0, simple zero]
     #
-    # Subtract → 2a₂(xP − xQ) = −fslope_P + fslope_Q
+    # From (2): a₁ + 2·a₂·xP = −fslope_P
+    #   →  a₁ = −fslope_P − 2·a₂·xP
+    #
+    # Substitute into (3) − (1):
+    #   A(xQ) − A(xP) = −yQ − (−yP) = yP − yQ
+    #   a₁(xQ−xP) + a₂(xQ²−xP²) = yP − yQ
+    #   (−fslope_P − 2·a₂·xP)(xQ−xP) + a₂(xQ²−xP²) = yP − yQ
+    #   a₂·[(xQ²−xP²) − 2xP(xQ−xP)] = yP − yQ + fslope_P·(xQ−xP)
+    #   a₂·(xQ−xP)·(xQ−xP)           = yP − yQ + fslope_P·(xQ−xP)
+    #   a₂·(xQ−xP)²                  = yP − yQ + fslope_P·(xQ−xP)
     # -----------------------------------------------------------------------
-    two_xdiff = (2 * (xP - xQ)) % p
-    a2 = (fslope_Q - fslope_P) % p * _modinv(two_xdiff, p) % p
-    a1 = (-fslope_P - 2 * a2 * xP) % p
-
-    # Step 2: a₀ from condition (1).
     xP2 = xP * xP % p
-    a0  = (-yP - a1 * xP - a2 * xP2) % p
+    xQ2 = xQ * xQ % p
+    xdiff  = (xQ - xP) % p   # non-zero since xP ≠ xQ
+    xdiff2 = xdiff * xdiff % p
 
-    # c is normalised to 1.
+    rhs_a2 = (yP - yQ + fslope_P * xdiff) % p
+    a2 = rhs_a2 * _modinv(xdiff2, p) % p
+
+    a1 = (-fslope_P - 2 * a2 * xP) % p
+    a0 = (-yP - a1 * xP - a2 * xP2) % p
+
     c = 1
     A_coeffs = [a0, a1, a2]
 
-    # Step 3: consistency check — condition (3) must hold for the chosen
-    # y-sign of Q.  If it fails the caller should try Q = (xQ, p−yQ).
-    xQ2   = xQ * xQ % p
-    check = (a0 + a1 * xQ + a2 * xQ2 + yQ) % p
-    if check != 0:
-        raise ValueError(
-            f"compute_phi: consistency check φ(Q)=0 failed (residue={check}). "
-            "The y-sign of Q is wrong — try Q = (x_Q, p − y_Q)."
-        )
-
-    # -----------------------------------------------------------------------
-    # Step 4: recover R via Vieta on  h(x) = f(x) − A(x)²  (c²=1).
-    #
-    # h has degree 5:
-    #   leading coeff    = f[5]       (from f, degree 5)
-    #   coeff of x⁴     = f[4] − a2²
-    #
-    # With divisor 2P + 2Q + R, the five roots are xP, xP, xQ, xQ, xR:
-    #   sum of roots  = 2xP + 2xQ + xR  =  −coeff(x⁴) / coeff(x⁵)
-    # -----------------------------------------------------------------------
-    f4   = f[4] if len(f) > 4 else 0
-    f5   = f[5] if len(f) > 5 else 1    # leading coeff (1 for monic)
-    a2sq = a2 * a2 % p
-
-    # sum_roots = -(f4 - a2sq) / f5  =  (a2sq - f4) / f5
-    sum_roots = (a2sq - f4) % p * _modinv(f5, p) % p
-    xR = (sum_roots - 2 * xP - 2 * xQ) % p
-
-    # y_R from φ(R) = 0:  A(xR) + yR = 0  →  yR = −A(xR)
-    yR = (-_poly_eval(A_coeffs, xR, p)) % p
-
-    # On-curve check — validates the entire construction.
-    yR_sq = yR * yR % p
-    fR    = _poly_eval(f, xR, p)
-    if yR_sq != fR:
+    # Sanity: verify φ(P)=0, h'(xP)=0, φ(Q)=0.
+    _Ap = _poly_deriv(A_coeffs, p)
+    if (_poly_eval(A_coeffs, xP, p) + yP) % p != 0:
+        raise ArithmeticError("compute_phi generic: φ(P)≠0 after construction (bug).")
+    if (_poly_eval(_Ap, xP, p) + fslope_P) % p != 0:
+        raise ArithmeticError("compute_phi generic: A'(xP)+fslope_P≠0 (bug).")
+    if (_poly_eval(A_coeffs, xQ, p) + yQ) % p != 0:
         raise ArithmeticError(
-            f"compute_phi: Vieta candidate R = ({xR}, {yR}) is not on the curve "
-            f"(y²={yR_sq}, f(x_R)={fR}).  "
-            "This should not happen when the consistency check passed; "
-            "verify that P and Q are distinct F_p-points on C with the correct y-signs."
+            "compute_phi generic: φ(Q)≠0 — Q's y-sign is wrong; "
+            "try Q = (x_Q, p − y_Q)."
         )
 
-    return A_coeffs, c, (xR, yR)
+    # -----------------------------------------------------------------------
+    # Vieta for h(x) = f(x) − A(x)²  (degree 5, leading coeff f[5]).
+    #
+    # Roots are xP(×2), xQ(×1), xR, xS.
+    #
+    # h(x) = f[5]·x⁵ + (f[4]−a₂²)·x⁴ + (f[3]−2a₁a₂)·x³ + …
+    #
+    # Vieta elementary symmetric polynomials (roots r₁…r₅):
+    #   e₁ = Σrᵢ        = −(f[4]−a₂²) / f[5]
+    #   e₂ = Σᵢ<ⱼrᵢrⱼ  =  (f[3]−2a₁a₂) / f[5]
+    #
+    # With roots xP, xP, xQ, xR, xS:
+    #   e₁ = 2xP + xQ + xR + xS
+    #     →  sum_RS = xR+xS = e₁ − 2xP − xQ
+    #   e₂ = xP²+ 2xP·xQ + (2xP+xQ)(xR+xS) + xR·xS
+    #     →  prod_RS = xR·xS = e₂ − xP² − 2xP·xQ − (2xP+xQ)·sum_RS
+    # -----------------------------------------------------------------------
+    f3 = f[3] if len(f) > 3 else 0
+    f4 = f[4] if len(f) > 4 else 0
+    f5 = f[5] if len(f) > 5 else 1
+
+    a2sq = a2 * a2 % p
+    inv_f5 = _modinv(f5, p)
+
+    e1 = (-(f4 - a2sq)) % p * inv_f5 % p
+    e2 = (f3 - 2 * a1 % p * a2) % p * inv_f5 % p
+
+    sum_RS  = (e1 - 2 * xP - xQ) % p
+    # e₂ = xP² + 2xP·xQ + (2xP+xQ)·sum_RS + prod_RS
+    prod_RS = (e2 - xP2 - 2 * xP % p * xQ - (2 * xP + xQ) % p * sum_RS) % p
+
+    return A_coeffs, c, ((sum_RS, prod_RS), None)
 
 
 def _compute_phi_self(
@@ -611,11 +636,48 @@ def verify_phi(
             "mumford_u_correct":  mumford_ok,
         }
 
-    # Generic / conjugate geometry.
+    # Generic geometry: R is a Mumford pair ((sum_RS, prod_RS), None), P≠Q.
+    # (Same sentinel shape as self, but deg A = 2 not 3.)
+    _generic_mumford = (not _self_geo
+                        and isinstance(R, tuple) and len(R) == 2
+                        and isinstance(R[0], tuple) and R[1] is None)
+
+    if _generic_mumford:
+        sum_RS, prod_RS = R[0]
+
+        # Re-derive Mumford pair from A coefficients and Vieta, then compare.
+        a2v = A[2] if len(A) > 2 else 0
+        a1v = A[1] if len(A) > 1 else 0
+        f5v = f[5] if len(f) > 5 else 1
+        f4v = f[4] if len(f) > 4 else 0
+        f3v = f[3] if len(f) > 3 else 0
+        inv_f5v = pow(f5v, p - 2, p)
+        xP2v = xP * xP % p
+
+        e1v = (-(f4v - a2v * a2v % p)) % p * inv_f5v % p
+        e2v = (f3v - 2 * a1v % p * a2v) % p * inv_f5v % p
+        exp_sum  = (e1v - 2 * xP - xQ) % p
+        exp_prod = (e2v - xP2v - 2 * xP % p * xQ % p
+                    - (2 * xP + xQ) % p * exp_sum) % p
+        mumford_ok = (int(sum_RS) % p == exp_sum
+                      and int(prod_RS) % p == exp_prod)
+
+        return {
+            "phi_P_zero":        phi(P) == 0,
+            "phi_Q_zero":        phi(Q) == 0,
+            "P_on_curve":        pow(yP, 2, p) == _poly_eval(f, xP, p),
+            "Q_on_curve":        pow(yQ, 2, p) == _poly_eval(f, xQ, p),
+            "double_zero_P":     h_val(xP) == 0 and h_deriv_val(xP) == 0,
+            "simple_zero_Q":     h_val(xQ) == 0,   # simple root, not double
+            "dphi_curve_P_zero": dphi_curve(P) == 0,
+            "mumford_u_correct": mumford_ok,
+        }
+
+    # Conjugate geometry: R is a plain (xR, yR) point.
     xR, yR = int(R[0]) % p, int(R[1]) % p
 
     return {
-        # φ vanishes at all three zeros.
+        # φ vanishes at all zeros.
         "phi_P_zero":  phi(P) == 0,
         "phi_Q_zero":  phi(Q) == 0,
         "phi_R_zero":  phi(R) == 0,
@@ -623,12 +685,10 @@ def verify_phi(
         "P_on_curve":  pow(yP, 2, p) == _poly_eval(f, xP, p),
         "Q_on_curve":  pow(yQ, 2, p) == _poly_eval(f, xQ, p),
         "R_on_curve":  pow(int(R[1]), 2, p) == _poly_eval(f, int(R[0]) % p, p),
-        # Double-zero structure.
+        # Four-fold zero structure at xP (conjugate case: div = 4P+R−5∞).
         "double_zero_P":  h_val(xP) == 0 and h_deriv_val(xP) == 0,
-        "double_zero_Q":  h_val(xQ) == 0 and h_deriv_val(xQ) == 0,
-        # φ'|_C = 0 at P and Q.
+        # φ'|_C = 0 at P.
         "dphi_curve_P_zero":  dphi_curve(P) == 0,
-        "dphi_curve_Q_zero":  dphi_curve(Q) == 0,
     }
 
 
@@ -656,11 +716,13 @@ def phi_quintic(
     Return the coefficients of  h(x) = c²·f(x) − A(x)²  (low-degree first).
 
     Works for any degree of A(x):
-    - deg A = 2 (generic / conjugate): h has degree 5, roots xP(×2),xQ(×2),xR.
-    - deg A = 3 (self, P=Q):           h has degree 6, roots xP(×4),xR,xS.
+    - deg A = 2 (generic / conjugate): h has degree 5.
+      Generic:   roots xP(×2), xQ(×1), xR, xS  (divisor 2P+Q+R+S−5∞).
+      Conjugate: roots xP(×4), xR               (divisor 4P+R−5∞).
+    - deg A = 3 (self, P=Q):           h has degree 6, roots xP(×4), xR, xS.
 
-    Under the generic divisor 2P+2Q+R−5∞, h factors as
-        f[5]·(x−xP)²·(x−xQ)²·(x−xR)  over F_p.
+    Under the generic divisor 2P+Q+R+S−5∞, h factors as
+        f[5]·(x−xP)²·(x−xQ)·(x−xR)·(x−xS)  over F_p.
     Under the self divisor 4P+R+S−6∞, h factors as
         −a₃²·(x−xP)⁴·(x−xR)·(x−xS)  over F_p.
     """

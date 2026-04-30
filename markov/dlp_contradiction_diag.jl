@@ -505,6 +505,13 @@ function extract_pin_rows(ker_bas::Vector{Vector{Int}}, atoms, n_cols::Int, p::I
                 kind = "other"
                 counts["other"] += 1
                 msg = "kernel[$(vi-1)]: OTHER support_size=$(length(support)) distinct_coeffs=$(sort(unique(coeffs_vals)))"
+
+                coeff2_cols = [(j, atoms[j]) for (j, c) in support if c == 2]
+                if !isempty(coeff2_cols)
+                    push!(detail_lines, "    coeff=2 cols ($(length(coeff2_cols))): " *
+                          join(["col $j: atom=$atom" for (j, atom) in coeff2_cols], ", "))
+                end
+
                 for (j, c) in support[1:min(20,end)]
                     push!(detail_lines, "    col $j: atom=$(atoms[j])  coeff=$c")
                 end
