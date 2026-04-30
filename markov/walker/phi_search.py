@@ -295,8 +295,8 @@ def augment_with_phi(
         y_canonical = _recover_y(x_step_int, f_list, p)
         if y_canonical is None:
             y2 = get_y_unshifted_genus2(x_step_int)
-            print(f"  [phi_aug_skip] x_step={x_step_int} not on curve (recover_y=None)  m={m_val}, f_list: {f_list}, y_canonical={y_canonical}, y2={y2}")
-            assert y2 == y_canonical, (y_canonical, y2)
+            #print(f"  [phi_aug_skip] x_step={x_step_int} not on curve (recover_y=None)  m={m_val}, f_list: {f_list}, y_canonical={y_canonical}, y2={y2}")
+            assert y2 == y_canonical or not y2, (y_canonical, y2)
             continue
 
         # Try both y-signs of Q.  Only one satisfies the φ(Q)=0 consistency

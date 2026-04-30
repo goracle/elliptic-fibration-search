@@ -142,7 +142,7 @@ end
 # NEW path: section ladder + accumulation + diff poly + roots, all in Julia
 # ---------------------------------------------------------------------------
 
-const LADDER_MAXK = let v = get(ENV, "JULIA_LADDER_MAXK", "200")
+const LADDER_MAXK = let v = get(ENV, "JULIA_LADDER_MAXK", "1600")
     parse(Int, v)
 end
 
@@ -289,7 +289,7 @@ function residues_for_prime_sections(p, section_payloads, vecs_with_tuples, rhs_
                 continue
             end
 
-            xr_key = string(rhs_idx - 1)
+            xr_key = string([rhs_idx - 1])
 
             # --- safe dict writes ---
             if !haskey(local_result, v_key)

@@ -264,6 +264,12 @@ def make_project_markov_search_fn(
             sage_ring = _phi_ring,
         )
 
+
+        print(f"[dead_end_dbg] pre-classify: "
+            f"enriched={len(enriched_candidates)}  "
+            f"final_candidates={len(result.get('candidate_records') or result.get('candidates') or [])}  "
+            f"phi result keys={list(result.keys())}")
+
         # ------------------------------------------------------------------ #
         # 11. Dead-end reason classification.                                 #
         #                                                                     #
