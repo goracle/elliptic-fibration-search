@@ -52,7 +52,7 @@ def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) 
         raise
 
     if isinstance(obj, dict):
-        for key in ('x_step', 'x', 'x_val', 'xcoord', 'candidate_x', 'x_value'):
+        for key in ('pt_step', 'pt', 'candidate_pt', 'pt_value'):
             if key in obj and obj[key] is not None:
                 out.append(obj[key])
         for value in obj.values():
@@ -85,6 +85,8 @@ def _collect_candidate_x_like_values(obj: Any, out: Optional[List[Any]] = None) 
     return out
 
 def xk_is_fp_point(xk_val, G_poly):
+    if isinstance(xk_val, tuple):
+        xk_val = xk_val[0]
     if G_poly is None or xk_val is None:
         return False
 

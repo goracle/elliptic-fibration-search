@@ -5,8 +5,9 @@ from search_lll.search_main import *
 from .candidate_utils import *
 from .enrichment import *
 from .phi_search import augment_with_phi as _augment_with_phi
-from .candidate_utils import _normalize_markov_mumford_result, _candidates_from_residues
 
+#from .candidate_utils import normalize_markov_mumford_result
+#from .candidate_utils import candidates_from_residues
 def make_project_markov_search_fn(
     *,
     coeffs_genus2=None,
@@ -35,29 +36,18 @@ def make_project_markov_search_fn(
     _phi_ring     = _PR(_phi_Fp, 'x')
     _phi_f_coeffs = list(reversed(coeffs_genus2))
 
-    def search_fn(x_src=None, current_x=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
+    def search_fn(pt_src=None, current_pt=None, n=None, seed=None, current_point=None, walker=None, **kwargs):
         yfun = get_y_unshifted_genus2
         if current_point is not None and isinstance(current_point, (tuple, list)) and len(current_point) >= 2:
-            x_here, y_here = current_point[0], current_point[1]
+            pt_here = current_point
         else:
-            x_here = x_src if x_src is not None else current_x
-            y_here = None
-            if walker is not None and hasattr(walker, 'current_y'):
-                y_here = walker.current_y
-            if y_here is None:
-                if yfun is not None:
-                    y_here = yfun(x_here)
-        _y_canonical = yfun(x_here)
-        assert _y_canonical in (int(y_here) % p, (-int(y_here)) % p), (
-            _y_canonical, y_here, current_point, current_x
-        )
+            pt_here = pt_src if pt_src is not None else current_pt
 
         # ------------------------------------------------------------------ #
         # 1. Build tower context for this point.                              #
         # ------------------------------------------------------------------ #
         ctx = build_project_tower_context_for_point(
-            x_here,
-            y_here,
+            pt_here,
             coeffs_genus2=coeffs_genus2,
             base_points=base_points if base_points is not None else getattr(walker, 'base_points', None),
             p=p,
@@ -82,11 +72,11 @@ def make_project_markov_search_fn(
                 _fi = last.get('f_i')
 
         if _fi is None:
-            print(f"[search_fn] WARNING: _fi is None for x_here={x_here}  "
+            print(f"[search_fn] WARNING: _fi is None for pt_here={pt_here}  "
                   f"tower keys={list(last.keys()) if isinstance(last, dict) else 'not a dict'}  "
                   f"tower len={len(_tower) if _tower else 0}")
         if _G_poly is None:
-            print(f"[search_fn] WARNING: _G_poly is None for x_here={x_here}  "
+            print(f"[search_fn] WARNING: _G_poly is None for pt_here={pt_here}  "
                   f"ctx keys={list(ctx.keys())}")
 
         _curve_degree = int(resolve_project_symbol('CURVE_DEGREE', default=5))
@@ -115,18 +105,18 @@ def make_project_markov_search_fn(
             shifted_coeffs=None, pool=pool, chunk_size=chunk_size
         )
 
-        norm = _normalize_markov_mumford_result(raw, fallback_step=ctx)
+        norm = normalize_markov_mumford_result(raw, fallback_step=ctx)
 
         # ------------------------------------------------------------------ #
         # 3. Override candidates with sign-aware records from raw residues.   #
         # ------------------------------------------------------------------ #
         _raw_residues = norm.get('residues') if isinstance(norm, dict) else None
         if _raw_residues:
-            sign_records = _candidates_from_residues(_raw_residues, p)
+            sign_records = candidates_from_residues(_raw_residues, p)
             if sign_records:
                 norm['candidate_records'] = sign_records
                 norm['candidates']        = sign_records
-                norm['candidate_xs']      = {r['x_step'] for r in sign_records}
+                norm['candidate_pt']      = {r['pt_step'] for r in sign_records}
 
         # ------------------------------------------------------------------ #
         # 4. Compute fertility (n-values that produced at least one F_p root).#
@@ -166,13 +156,14 @@ def make_project_markov_search_fn(
         _n_pre_enrich_stubs = len(norm.get('candidate_records') or norm.get('candidates') or [])
 
         # ------------------------------------------------------------------ #
-        # 5. Enrich candidates: fiber intersection → (x_step, x_res, signs). #
+        # 5. Enrich candidates: fiber intersection → (pt_step, pt_res, signs). #
         # ------------------------------------------------------------------ #
         print("fi,_fi=", _fi)
+        _Ep = getattr(walker, '_recover_y', ctx.get('_recover_y')) # me hacking bad ai code
+        assert _Ep, _Ep
         enriched_candidates = enrich_candidates(
             norm,
-            x_here=x_here,
-            y_here=y_here,
+            pt_here=pt_here,
             n0=n0,
             fi=_fi,
             G_poly=_G_poly,
@@ -181,9 +172,10 @@ def make_project_markov_search_fn(
             shift=ctx.get('shift', 0),
             T=ctx.get('T'),
             T_inv=ctx.get('T_inv'),
+            Ep=_Ep
         )
 
-        print(f"[search_fn] x_here={x_here}  stubs={_n_pre_enrich_stubs}  "
+        print(f"[search_fn] pt_here={pt_here}  stubs={_n_pre_enrich_stubs}  "
               f"enriched={len(enriched_candidates)}  _fi={'ok' if _fi is not None else 'NONE'}  "
               f"_G_poly={'ok' if _G_poly is not None else 'NONE'}")
 
@@ -198,13 +190,13 @@ def make_project_markov_search_fn(
                     rec.setdefault('inter_sym', _inter_sym_rec)
 
         # ------------------------------------------------------------------ #
-        # 7. candidate_xs: m-root-derived steps only (no x_res_head).        #
+        # 7. candidate_xs: m-root-derived steps only (no pt_res_head).        #
         # ------------------------------------------------------------------ #
         candidate_xs = {
-            c.get('x_step') for c in enriched_candidates
+            c.get('pt_step') for c in enriched_candidates
             if isinstance(c, dict)
-            and c.get('x_step') is not None
-            and c.get('source') != 'x_res_head'
+            and c.get('pt_step') is not None
+            and c.get('source') != 'pt_res_head'
         }
 
         # ------------------------------------------------------------------ #
@@ -213,7 +205,7 @@ def make_project_markov_search_fn(
         if norm.get('n_with_roots') is None and vecs:
             n_mroot_cands = sum(
                 1 for c in enriched_candidates
-                if isinstance(c, dict) and c.get('source') != 'x_res_head'
+                if isinstance(c, dict) and c.get('source') != 'pt_res_head'
             )
             if n_mroot_cands > 0:
                 norm['n_with_roots'] = min(n_mroot_cands, len(vecs))
@@ -223,7 +215,7 @@ def make_project_markov_search_fn(
 
         n_xk_head = sum(
             1 for c in enriched_candidates
-            if isinstance(c, dict) and c.get('source') == 'x_res_head'
+            if isinstance(c, dict) and c.get('source') == 'pt_res_head'
         )
 
         S_of_m_step, _ = (compute_S_of_m(_fi, _G_poly, _curve_degree)
@@ -259,11 +251,9 @@ def make_project_markov_search_fn(
             result,
             f_coeffs  = _phi_f_coeffs,
             p         = p,
-            x_src     = x_here,
-            y_src     = y_here,
+            pt_src     = pt_here,
             sage_ring = _phi_ring,
         )
-
 
         print(f"[dead_end_dbg] pre-classify: "
             f"enriched={len(enriched_candidates)}  "
@@ -274,12 +264,12 @@ def make_project_markov_search_fn(
         # 11. Dead-end reason classification.                                 #
         #                                                                     #
         # Must run AFTER _augment_with_phi (phi-derived candidates counted)  #
-        # and AFTER enrich_candidates (x_step populated).                    #
+        # and AFTER enrich_candidates (pt_step populated).                    #
         #                                                                     #
         # Priority order:                                                     #
-        #   ok                  — ≥1 candidate with x_step ≠ x_src           #
+        #   ok                  — ≥1 candidate with pt_step ≠ pt_src           #
         #   torsion             — enrichment produced records but all have    #
-        #                         x_step == x_src (Weierstrass/torsion pt)   #
+        #                         pt_step == pt_src (Weierstrass/torsion pt)   #
         #   no_valid_candidates — Mumford/Julia found roots (stubs existed or #
         #                         n_with_roots set) but none survived         #
         #                         enrichment/phi (geometry failure)           #
@@ -289,26 +279,26 @@ def make_project_markov_search_fn(
         valid_final = [
             c for c in final_candidates
             if isinstance(c, dict)
-            and c.get('x_step') is not None
-            and c.get('x_step') != x_here
+            and c.get('pt_step') is not None
+            and c.get('pt_step') != pt_here
         ]
 
         if valid_final:
             _dead_end_reason = 'ok'
         elif final_candidates:
-            # Post-phi candidates exist but every x_step == x_src — genuine torsion.
+            # Post-phi candidates exist but every pt_step == pt_src — genuine torsion.
             _dead_end_reason = 'torsion'
-            print(f"  [torsion_dbg] x_here={x_here}  "
+            print(f"  [torsion_dbg] pt_here={pt_here}  "
                   f"enriched={len(enriched_candidates)}  "
                   f"final={len(final_candidates)}  valid_final=0")
             for _r in final_candidates[:5]:
                 if not isinstance(_r, dict):
                     continue
                 print(f"  [torsion_dbg]   source={_r.get('source')}  "
-                      f"x_step={_r.get('x_step')}  x_res={_r.get('x_res')}  "
+                      f"pt_step={_r.get('pt_step')}  pt_res={_r.get('pt_res')}  "
                       f"phi_geo={_r.get('phi_geo')}  m={_r.get('m')}")
         elif enriched_candidates or (norm.get('n_with_roots') or norm.get('total_roots') or _n_pre_enrich_stubs > 0):
-            # Enrichment produced records but phi dropped them all (x_res never
+            # Enrichment produced records but phi dropped them all (pt_res never
             # populated), OR Julia found roots but enrichment itself dropped them.
             # Typical causes: both y-signs failed in phi, degenerate fiber,
             # _fi/_G_poly missing, or sign mismatches.
@@ -320,7 +310,6 @@ def make_project_markov_search_fn(
         return result
 
     return search_fn
-
 
 def _run_markov_mumford_search_for_point(
     *,
@@ -342,11 +331,11 @@ def _run_markov_mumford_search_for_point(
     """Call the legacy Mumford search and normalize the result for Markov use.
 
     The important thing here is to keep the raw payload available, because the
-    smarter chooser wants provenance such as which n/vector produced each x_step.
+    smarter chooser wants provenance such as which n/vector produced each pt_step.
     """
     raw = run_mumford_search(
         cd, current_sections, prime_pool, vecs, rhs_list, shift,
         rationality_test_func, coeffs_genus2, tower_data,
         num_workers, debug, x_b, shifted_coeffs, markov_mode=True, pool=pool, chunk_size=chunk_size
     )
-    return _normalize_markov_mumford_result(raw)
+    return normalize_markov_mumford_result(raw)

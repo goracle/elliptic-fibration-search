@@ -396,24 +396,17 @@ end
 
 
 """
-Add a single degree-1 divisor point (x=a, y=+sqrt(f(a))) to a Mumford
-divisor (u, v) over GF(p).  The y-branch is chosen deterministically.
+Add a single degree-1 divisor point (x=a, y=y_a) to a Mumford
+divisor (u, v) over GF(p).  The caller supplies the exact y-coordinate.
 Returns the new (u, v) after one Cantor composition + reduction step.
 """
 function mumford_add_point(u::Vector{Int}, v::Vector{Int},
-                           a::Int, f_coeffs::Vector{Int}, p::Int)
-    fa = eval_poly_mod(f_coeffs, a, p)
-    fa == 0 && throw(ErrorException("mumford_add_point: point (a=$a) is a Weierstrass point (y=0)"))
-
-    y_a = tonelli_shanks(fa, p)
-    y_a === nothing && throw(ErrorException("mumford_add_point: f($a)=$fa is not a QR mod p=$p"))
-
-    # Canonicalize the chosen square root so the lift is deterministic.
-    y_a = min(y_a, mod(-y_a, p))
+                           a::Int, y_a::Int, f_coeffs::Vector{Int}, p::Int)
+    y_a == 0 && throw(ErrorException("mumford_add_point: point (a=$a) is a Weierstrass point (y=0)"))
 
     # degree-1 Mumford divisor: u2 = x - a, v2 = y_a (constant)
     u2 = [mod(-a, p), 1]   # x - a  (ascending: [const, x^1])
-    v2 = [y_a]
+    v2 = [mod(y_a, p)]
 
     u_new, v_new = mumford_compose(u, v, u2, v2, f_coeffs, p)
     u_new, v_new = mumford_reduce(u_new, v_new, f_coeffs, p)
@@ -480,69 +473,50 @@ end
 Apply Mumford reduction to a single row of the relation matrix.
 Returns (is_split::Bool, u_reduced::Vector{Int}) or throws on error.
 
-The row is a Dict-style collection of (col_index => coefficient) entries
-for the finite atoms (∞ column excluded).  The x-values come from the atom
-labels, and the missing y-signs are brute-forced.
-atom_xs maps col index -> x-value (Int).
+atom_xys maps col index -> (x, y) pair.  The y-coordinate is used directly,
+so no sign brute-force is needed.
 f_coeffs is the curve polynomial in ascending degree.
 """
 
-function reduce_row_mumford(atom_xs::Dict{Int,Int}, row_support::Vector{Tuple{Int,Int}},
+function reduce_row_mumford(atom_xys::Dict{Int,Tuple{Int,Int}}, row_support::Vector{Tuple{Int,Int}},
                              f_coeffs::Vector{Int}, p::Int)
-    # Expand the row into x-coordinates with multiplicity, ignoring ∞.
-    # The x-values are known from the atom labels, but the y-signs are not,
-    # so we brute-force the missing sign choices and keep the first valid lift.
-    xs = Int[]
+    # Expand the row into (x, y) pairs with multiplicity, ignoring ∞.
+    xys = Tuple{Int,Int}[]
     for (col, coeff) in row_support
         coeff == 0 && continue
-        x_val = get(atom_xs, col, nothing)
-        x_val === nothing && throw(ErrorException("reduce_row_mumford: col $col has no x-value"))
+        xy = get(atom_xys, col, nothing)
+        xy === nothing && throw(ErrorException("reduce_row_mumford: col $col has no (x,y) entry"))
+        x_val, y_val = xy
+        # Negative coefficient means involution (negate y).
+        actual_y = coeff > 0 ? y_val : mod(-y_val, p)
         for _ in 1:abs(coeff)
-            push!(xs, x_val)
+            push!(xys, (x_val, actual_y))
         end
     end
 
-    isempty(xs) && return true, [1]
+    isempty(xys) && return true, [1]
 
-    # Precompute a square root for each x, if one exists.
-    ys0 = Vector{Union{Int,Nothing}}(undef, length(xs))
-    for i in eachindex(xs)
-        fx = eval_poly_mod(f_coeffs, xs[i], p)
-        y = tonelli_shanks(fx, p)
-        y === nothing && return false, Int[]
-        ys0[i] = y
+    # Validate each point lies on the curve.
+    for (x_val, y_val) in xys
+        fx = eval_poly_mod(f_coeffs, x_val, p)
+        mod(y_val * y_val - fx, p) == 0 || return false, Int[]
+        y_val == 0 && return false, Int[]  # Weierstrass point — not supported
     end
 
-    # Brute-force the missing y-signs.  Fix the first sign to avoid
-    # duplicating the global ± symmetry.
-    n = length(xs)
-    total_masks = 1 << max(n - 1, 0)
-
-    for mask in 0:(total_masks - 1)
-        ys = Vector{Int}(undef, n)
-        ys[1] = ys0[1]::Int
-        for i in 2:n
-            y0 = ys0[i]::Int
-            bit = (mask >> (i - 2)) & 1
-            ys[i] = bit == 0 ? y0 : mod(-y0, p)
+    # Compose all points into a Mumford divisor using the stored y-coordinates.
+    try
+        u = [1]
+        v = [0]
+        for (x_val, y_val) in xys
+            u, v = mumford_add_point(u, v, x_val, y_val, f_coeffs, p)
         end
-
-        try
-            u = [1]
-            v = [0]
-            for i in 1:n
-                u, v = mumford_add_point(u, v, xs[i], ys[i], f_coeffs, p)
-            end
-            u, v = mumford_reduce(u, v, f_coeffs, p)
-            check_mumford_invariant(u, v, f_coeffs, p)
-            split = is_fully_split(u, p)
-            return split, u
-        catch
-            # try the next sign pattern
-        end
+        u, v = mumford_reduce(u, v, f_coeffs, p)
+        check_mumford_invariant(u, v, f_coeffs, p)
+        split = is_fully_split(u, p)
+        return split, u
+    catch
+        return false, Int[]
     end
-
-    return false, Int[]
 end
 
 """
@@ -572,30 +546,43 @@ function apply_mumford_reduce_filter(M::Matrix{Int}, atoms::Vector,
     _log("  curve: y^2 = f(x),  f coeffs (asc degree) = $curve_coeffs")
     _log("  field: GF($p)  |  matrix: $(size(M,1)) rows × $(size(M,2)) cols")
 
-    # Build map: col -> x-value (atom name is the x-coordinate as a string)
-    atom_xs = Dict{Int,Int}()
+    # Build map: col -> (x, y) pair (atom name is "(x, y)" string; legacy bare-x also accepted)
+    atom_xys = Dict{Int, Tuple{Int,Int}}()
     for (j, atm) in enumerate(atoms)
         j == col_inf && continue
-        x_val = tryparse(Int, string(atm))
-        x_val === nothing && throw(ErrorException("apply_mumford_reduce_filter: atom \"$atm\" (col $j) is not an integer x-coordinate"))
-        atom_xs[j] = x_val
+        s = string(atm)
+        # Try "(x, y)" format first
+        m = match(r"^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$", s)
+        if m !== nothing
+            atom_xys[j] = (parse(Int, m.captures[1]), parse(Int, m.captures[2]))
+        else
+            # Legacy: bare integer x — compute canonical y branch
+            x_val = tryparse(Int, s)
+            x_val === nothing && throw(ErrorException("apply_mumford_reduce_filter: atom \"$s\" (col $j) is not a valid (x,y) or bare-x atom"))
+            fx = eval_poly_mod(curve_coeffs, x_val, p)
+            y_canon = tonelli_shanks(fx, p)
+            y_canon === nothing && throw(ErrorException("apply_mumford_reduce_filter: legacy atom x=$x_val has no square root mod $p"))
+            atom_xys[j] = (x_val, min(y_canon, mod(-y_canon, p)))
+        end
     end
 
-    # Sanity-test: find any atom x s.t. f(x) is a QR and verify we can add it twice
-    let test_x = nothing
-        for (_, xv) in atom_xs
-            fx = eval_poly_mod(curve_coeffs, xv, p)
+    # Sanity-test: find any atom s.t. f(x) is a QR and verify we can add it twice
+    let test_xy = nothing
+        for (_, xy) in atom_xys
+            x_val, y_val = xy
+            fx = eval_poly_mod(curve_coeffs, x_val, p)
             if fx != 0 && powermod(fx, (p-1)÷2, p) == 1
-                test_x = xv; break
+                test_xy = xy; break
             end
         end
-        if test_x !== nothing
+        if test_xy !== nothing
+            x_t, y_t = test_xy
             try
-                u1, v1 = mumford_add_point([1], [0], test_x, curve_coeffs, p)
-                u2, v2 = mumford_add_point(u1, v1, test_x, curve_coeffs, p)
-                _log("  [sanity] Mumford self-test OK: 2*P at x=$test_x → u=$(u2)")
+                u1, v1 = mumford_add_point([1], [0], x_t, y_t, curve_coeffs, p)
+                u2, v2 = mumford_add_point(u1, v1, x_t, y_t, curve_coeffs, p)
+                _log("  [sanity] Mumford self-test OK: 2*P at ($x_t,$y_t) → u=$(u2)")
             catch e
-                throw(ErrorException("Mumford arithmetic self-test failed at x=$test_x: $e"))
+                throw(ErrorException("Mumford arithmetic self-test failed at ($x_t,$y_t): $e"))
             end
         else
             _log("  [sanity] no QR atom found for self-test (all atoms may be non-QR?)")
@@ -624,7 +611,7 @@ function apply_mumford_reduce_filter(M::Matrix{Int}, atoms::Vector,
         end
 
         try
-            split, u_red = reduce_row_mumford(atom_xs, support, curve_coeffs, p)
+            split, u_red = reduce_row_mumford(atom_xys, support, curve_coeffs, p)
             if split
                 n_split += 1
                 push!(keep_rows, i)
@@ -703,6 +690,9 @@ function load_matrix_hdf5(path::String)
         # --- 3. Load Metadata ---
         group_order = haskey(f, "group_order") ? Int(read(f["group_order"])) : nothing
         field_prime = haskey(f, "field_prime")  ? Int(read(f["field_prime"])) : nothing
+        # divisor_xs may now be stored as a flat int array [x0,y0,x1,y1,...] or a legacy
+        # plain x-only array.  We keep it as-is here; infer_special_cols_from_divisor_xs
+        # handles both forms via aidx lookup by "(x, y)" key.
         divisor_xs  = haskey(f, "divisor_xs")   ? Int.(read(f["divisor_xs"])) : nothing
 
         function _col(key)
@@ -749,8 +739,19 @@ function infer_special_cols_from_divisor_xs(aidx, divisor_xs)
     divisor_xs === nothing && return Dict{String,Union{Nothing,Int}}()
     labels = ["gen0", "gen1", "tgt0", "tgt1"]
     inferred = Dict{String,Union{Nothing,Int}}()
-    for (lab, x) in zip(labels, divisor_xs)
-        inferred[lab] = get(aidx, string(x), nothing)
+    # divisor_xs is [x0, y0, x1, y1, ...] interleaved pairs (one per special divisor point).
+    # Fall back to bare-x lookup for legacy files that only stored x-coordinates.
+    n_pairs = length(divisor_xs) ÷ 2
+    for (idx, lab) in enumerate(labels)
+        idx > n_pairs && break
+        x_val = divisor_xs[2*idx - 1]
+        y_val = divisor_xs[2*idx]
+        # Try (x, y) tuple key first, then legacy bare-x key.
+        key_xy  = "($(x_val), $(y_val))"
+        key_x   = string(x_val)
+        col = get(aidx, key_xy, nothing)
+        col === nothing && (col = get(aidx, key_x, nothing))
+        inferred[lab] = col
     end
     return inferred
 end
@@ -1841,15 +1842,30 @@ function main(args=ARGS)
     if parsed["exclude-xs"] !== nothing
         protected_cols = Set(c for c in [col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1] if c !== nothing)
         excluded_cols  = Set{Int}()
-        for x in parsed["exclude-xs"]
-            c = get(aidx, string(x), nothing)
-            if c === nothing
-                _log("[filter] --exclude-xs $x: not found in atom index, skipping")
-            elseif c ∈ protected_cols
-                _log("[filter] --exclude-xs $x: is a protected col ($c), skipping")
+        exclude_x_set  = Set(parsed["exclude-xs"])
+        for (j, atm) in enumerate(atoms)
+            s = string(atm)
+            # Extract x-component from "(x, y)" or legacy bare-x.
+            m = match(r"^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$", s)
+            x_val = m !== nothing ? parse(Int, m.captures[1]) : tryparse(Int, s)
+            x_val === nothing && continue
+            x_val ∉ exclude_x_set && continue
+            c = j
+            if c ∈ protected_cols
+                _log("[filter] --exclude-xs $x_val: atom $s is a protected col ($c), skipping")
             else
                 push!(excluded_cols, c)
             end
+        end
+        # Also handle any x not matched as an atom (warn user)
+        for x in parsed["exclude-xs"]
+            found = any(begin
+                s = string(atm)
+                m = match(r"^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$", s)
+                xv = m !== nothing ? parse(Int, m.captures[1]) : tryparse(Int, s)
+                xv !== nothing && xv == x
+            end for atm in atoms)
+            found || _log("[filter] --exclude-xs $x: no atom with this x-coordinate found, skipping")
         end
         if !isempty(excluded_cols)
             excluded_atoms = [atoms[c] for c in sort(collect(excluded_cols))]
@@ -2080,11 +2096,12 @@ end
 
 
 """
-Try all sign combinations for a single relation row and recover a valid Mumford divisor.
+Recover a valid Mumford divisor from a single relation row using the stored
+(x, y) atom coordinates.
 
 Args:
   row        :: Vector{Int}     # row of matrix (coefficients)
-  atoms      :: Vector{String}  # column labels (x-coordinates as strings, "∞" allowed)
+  atoms      :: Vector{String}  # column labels — "(x, y)" strings, "∞" allowed
   col_inf    :: Int             # index of ∞ column
   f_coeffs   :: Vector{Int}     # curve f(x) coeffs (ascending)
   p          :: Int             # field prime
@@ -2093,77 +2110,55 @@ Returns:
   (u, v) if a valid Mumford divisor is found, else nothing
 """
 function recover_row_mumford(row, atoms, col_inf, f_coeffs, p)
-    # --- extract affine x's with multiplicity ---
-    xs = Int[]
+    # --- extract affine (x, y) pairs with multiplicity ---
+    xys = Tuple{Int,Int}[]
     for j in eachindex(row)
         c = row[j]
         if j == col_inf || c == 0
             continue
         end
-        x = parse(Int, atoms[j])
+        s = string(atoms[j])
+        m = match(r"^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$", s)
+        if m !== nothing
+            x_val = parse(Int, m.captures[1])
+            y_val = parse(Int, m.captures[2])
+        else
+            # Legacy bare-x atom — compute canonical y branch
+            x_val = parse(Int, s)
+            fx = eval_poly_mod(f_coeffs, x_val, p)
+            y_raw = tonelli_shanks(fx, p)
+            y_raw === nothing && return nothing
+            y_val = min(y_raw, mod(-y_raw, p))
+        end
+        # Negative coefficient means involution (negate y).
+        actual_y = c > 0 ? y_val : mod(-y_val, p)
         for _ in 1:abs(c)
-            push!(xs, x)
+            push!(xys, (x_val, actual_y))
         end
     end
 
-    n = length(xs)
-    if n == 0
+    isempty(xys) && return nothing
+
+    # --- validate each point lies on the curve ---
+    for (x_val, y_val) in xys
+        fx = eval_poly_mod(f_coeffs, x_val, p)
+        mod(y_val * y_val - fx, p) != 0 && return nothing
+        y_val == 0 && return nothing
+    end
+
+    # --- build divisor using stored y-coordinates directly ---
+    try
+        u = [1]
+        v = [0]
+        for (x_val, y_val) in xys
+            u, v = mumford_add_point(u, v, x_val, y_val, f_coeffs, p)
+        end
+        u, v = mumford_reduce(u, v, f_coeffs, p)
+        check_mumford_invariant(u, v, f_coeffs, p)
+        return (u, v)
+    catch
         return nothing
     end
-
-    # --- precompute sqrt(f(x)) for each x ---
-    ys0 = Vector{Union{Int,Nothing}}(undef, n)
-    for i in 1:n
-        fx = eval_poly_mod(f_coeffs, xs[i], p)
-        y = tonelli_shanks(fx, p)
-        if y === nothing
-            return nothing  # not even on curve
-        end
-        ys0[i] = y
-    end
-
-    # --- fix first sign to break ± global symmetry ---
-    total = 1 << (n - 1)
-
-    for mask in 0:(total - 1)
-        # build sign assignment
-        ys = Vector{Int}(undef, n)
-        ys[1] = ys0[1]  # fix first sign
-
-        for i in 2:n
-            bit = (mask >> (i - 2)) & 1
-            y0 = ys0[i]
-            ys[i] = bit == 0 ? y0 : mod(-y0, p)
-        end
-
-        # --- build divisor incrementally ---
-        try
-            # start with identity: u=1, v=0
-            u = [1]
-            v = [0]
-
-            for i in 1:n
-                u, v = mumford_add_point(u, v, xs[i], ys[i], f_coeffs, p)
-
-                # optional early check (fast fail)
-                # comment out if too expensive
-                check_mumford_invariant(u, v, f_coeffs, p)
-            end
-
-            # final reduction
-            u, v = mumford_reduce(u, v, f_coeffs, p)
-
-            # final invariant check
-            check_mumford_invariant(u, v, f_coeffs, p)
-
-            return (u, v)
-
-        catch err
-            # ignore and try next sign combo
-        end
-    end
-
-    return nothing
 end
 
 function mumford_reduce(u::Vector{Int}, v::Vector{Int},

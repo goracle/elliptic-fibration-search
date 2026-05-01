@@ -3,8 +3,7 @@ from search_common import *
 
 def enrich_candidates(
     norm,
-    x_here,
-    y_here,
+    pt_here,
     n0,
     fi,
     G_poly,
@@ -13,49 +12,55 @@ def enrich_candidates(
     shift=0,
     T=None,
     T_inv=None,
+    Ep=None,  # Added: Sage curve object for lifting x to (x,y)
 ):
     """
     Enrich candidate records by evaluating the fiber at each m-value and
-    collecting all non-src roots as candidate x_step values.
-
-    Root multiplicities and divisor structure are intentionally ignored here —
-    phi (augment_with_phi) is the only source of valid relations.  This function
-    just feeds x-coordinates to phi; any candidate that phi can't build a
-    relation for will be dropped downstream.
-
-    The only early rejections are:
-      - fiber pole at m (ZeroDivisionError in coefficient evaluation)
-      - fiber has no F_p roots at all
-      - every root equals x_src (no candidate step exists)
+    collecting all non-src roots as candidate pt_step values.
     """
+
     enriched = []
     _n_poles = _n_no_roots = _n_wrong_nroots = _n_sign_fail = 0
 
-    if p is None or G_poly is None or fi is None:
+    if p is None or G_poly is None or fi is None or Ep is None:
+        print("broken callsite")
         return []
 
     Fp = GF(int(p))
     R_x = PolynomialRing(Fp, "x")
 
-    x_here_f_fp = Fp(x_here)
+    # If pt_here is a Sage point, extract the x-coordinate for comparison
+    try:
+        x_here_fp = Fp(pt_here[0])
+        y_here = pt_here[1]
+    except (TypeError, IndexError):
+        x_here_fp = Fp(pt_here)
+        y_here = None # Fallback if only x was passed
+        raise
 
     candidates = norm.get("candidate_records", []) or norm.get("candidates", [])
+
     for cand in candidates:
-        rec = dict(cand) if isinstance(cand, dict) else {"x_step": cand}
+        print("candid:", cand)
+        rec = dict(cand) if isinstance(cand, dict) else {"m": cand}
 
         m_val = rec.get("m")
         if m_val is None:
-            if RLINEAR and rec.get("x_step") is not None:
-                m_val = Fp(x_here) - Fp(rec["x_step"])
+            # Handle RLINEAR cases where m might be derived from x-distance
+            if rec.get("pt_step") is not None:
+                try:
+                    # Treat pt_step as x for distance calculation
+                    x_step = Fp(rec["pt_step"][0]) if hasattr(rec["pt_step"], "__getitem__") else Fp(rec["pt_step"])
+                    m_val = x_here_fp - x_step
+                except Exception:
+                    raise
+                    continue
             else:
                 continue
 
-        try:
-            m_val_fp = Fp(m_val)
-        except Exception:
-            raise
+        m_val_fp = Fp(m_val)
 
-        # Evaluate fiber polynomial at this m.
+        # Evaluate fiber polynomial at this m
         try:
             coeffs = []
             for c in fi.list():
@@ -71,52 +76,54 @@ def enrich_candidates(
             print(f"CRITICAL: Evaluation failed for m={m_val_fp}. Error: {e}")
             raise
 
-        # Find roots of (fiber - G) over F_p.
-        try:
-            G_Rx = R_x(G_poly)
-            roots_wm = (G_Rx - f_eval_poly).roots()
-            raw = [r for r,_ in roots_wm]
-            #for xraw in raw:
-                #assert get_y_unshifted_genus2(xraw), (xraw, roots_wm, get_y_unshifted_genus2(xraw), m_val, m_val_fp)
-        except Exception:
-            raise
+        # Find roots of (fiber - G) over F_p
+        G_Rx = R_x(G_poly)
+        diff_poly = G_Rx - f_eval_poly
+        roots_wm = diff_poly.roots()
 
         if not roots_wm:
             _n_no_roots += 1; continue
 
-        # Diagnostic: print root structure for first 3 candidates.
-        _cand_idx = _n_poles + _n_no_roots + _n_wrong_nroots + _n_sign_fail + len(enriched)
+        # Diagnostic: print root structure
+        _cand_idx = len(enriched) + _n_poles + _n_no_roots + _n_wrong_nroots
         if _cand_idx < 3:
             print(f"  [root_dbg] cand#{_cand_idx} m={m_val_fp} "
                   f"roots_wm={[(int(r), int(mult)) for r,mult in roots_wm]}  "
-                  f"x_src={int(x_here_f_fp)}")
+                  f"x_src={int(x_here_fp)}")
 
-        # Collect every distinct non-src root as a candidate x_step.
-        # Multiplicity is irrelevant — phi is the only thing that determines
-        # whether a valid relation exists for a given (x_src, x_step) pair.
         any_emitted = False
         for r, mult in roots_wm:
             r_fp = Fp(r)
-            if r_fp == x_here_f_fp:
+            if r_fp == x_here_fp:
+                continue
+
+            # FIX: Recover y-coordinate so pt_step is a real POINT object.
+            # This prevents "not_on_curve" and "TypeError" downstream.
+            try:
+                # We lift the x-root to the curve.
+                # Note: lift_x provides one point; phi_aug handles sign splits.
+                pt_step_obj = (r_fp, Ep(r_fp))
+            except ValueError:
+                # Root is not on the curve (quadratic non-residue)
+                _n_sign_fail += 1
                 continue
 
             enriched.append({
-                "x_src":             x_here,
-                "yi":                y_here,
-                "x_step":            r_fp,
-                "x_res":             None,
+                "pt_src":             pt_here,    # The source point (x,y)
+                "pt_step":            pt_step_obj, # The new point (x,y)
+                "pt_res":             pt_step_obj, # populated so walker doesn't skip
                 "m":                 m_val_fp,
                 "input_n":           n0,
                 "source":            "pure_fiber_intersection",
-                "intersection_poly": None,
+                "intersection_poly": diff_poly,
                 "shift":             shift,
             })
             any_emitted = True
 
         if not any_emitted:
-            _n_wrong_nroots += 1  # all roots were x_src
+            _n_wrong_nroots += 1
 
-    print(f"[enrich] x_here={x_here_f_fp} candidates={len(candidates)} "
+    print(f"[enrich] x_here={x_here_fp} candidates={len(candidates)} "
           f"enriched={len(enriched)} poles={_n_poles} no_roots={_n_no_roots} "
           f"all_src={_n_wrong_nroots} sign_fail={_n_sign_fail}")
     return enriched

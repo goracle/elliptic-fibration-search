@@ -1,4 +1,5 @@
 
+
 def _step_direct(walker, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
     xi_before = walker.current_x
     current_point = (walker.current_x, walker.current_y)

@@ -3,8 +3,7 @@ from .project_loader import *
 from search_common import *
 
 def build_project_tower_context_for_point(
-    x_src,
-    yi=None,
+    pt_src,
     *,
     coeffs_genus2=None,
     base_points=None,
@@ -16,8 +15,8 @@ def build_project_tower_context_for_point(
     This mirrors the search7_genus2.doloop_genus2 setup path but keeps only the
     ingredients needed by the Markov candidate-search branch.
     """
-    # Tower construction requires x_src to be an F_p point (no field extensions supported).
-    # This is satisfied because x_src comes from a prior m-root search over F_p, guaranteeing
+    # Tower construction requires pt_src to be an F_p point (no field extensions supported).
+    # This is satisfied because pt_src comes from a prior m-root search over F_p, guaranteeing
     # it is a point on C(F_p).
     setup_field_and_rings = resolve_project_symbol('setup_field_and_rings', required=True)
     apply_shift_transformation = resolve_project_symbol('apply_shift_transformation', required=True)
@@ -32,25 +31,13 @@ def build_project_tower_context_for_point(
     lll_reduce_mw_basis = resolve_project_symbol('lll_reduce_mw_basis', required=True)
 
     coeffs_genus2 = coeffs_genus2 if coeffs_genus2 is not None else COEFFS_GENUS2
-    print("building tower search for point:", (x_src, yi))
+    print("building tower search for point:", pt_src)
 
-    #base_points = list(base_points or _project_base_points_from_globals(x_src, yi, p=p))
-    base_points = [(x_src, yi)]
-    assert x_src is not None, x_src
-    assert yi is not None, yi
-    if yi is None:
-        yfun = resolve_project_symbol('get_y_unshifted_genus2', default=None)
-        if yfun is not None:
-            try:
-                yi = yfun(x_src)
-            except Exception:
-                yi = None
-                raise
+    #base_points = list(base_points or _project_base_points_from_globals(pt_src, p=p))
+    base_points = [pt_src]
+    assert pt_src is not None, pt_src
 
-    if yi is None:
-        raise ValueError(f"Could not recover y-value for x_src={x_src!r}; please supply base_points or yi.")
-
-    data_pts = [(x_src, yi)]
+    data_pts = [pt_src]
     for pt in base_points:
         if pt is None:
             continue
@@ -73,7 +60,7 @@ def build_project_tower_context_for_point(
     )
     assert len(base_pts) == 1, base_pts
     shifted_G_poly, base_pts, T, T_inv, _all_known_x = apply_mobius_transformation(
-        shifted_G_poly, {x_src}, base_pts
+        shifted_G_poly, {pt_src}, base_pts
     )
 
     #print("base_pts, non-legacy", base_pts)
@@ -96,7 +83,7 @@ def build_project_tower_context_for_point(
         print(cd, morphism_data)
         sys.exit()
 
-    sconf, prime_pool = configure_search_parameters(cd, {x_src}, base_pts, field_data['base_field'])
+    sconf, prime_pool = configure_search_parameters(cd, {pt_src[0]}, base_pts, field_data['base_field']) # builds from x, legacy code, do not change to pt
     E_rhs_m_symbolic = primary_tower[-1]['f_i'] if primary_tower else None
     search_rhs_list = build_search_rhs_list(cd, roots, E_rhs_m_symbolic, one, two, three)
 
@@ -121,7 +108,7 @@ def build_project_tower_context_for_point(
     current_sections = [current_sections[0]]
 
     if debug:
-        print(f"[tower] rebuilt for x_src={x_src}; sections={len(current_sections)}; primes={len(prime_pool)}")
+        print(f"[tower] rebuilt for pt_src={pt_src}; sections={len(current_sections)}; primes={len(prime_pool)}")
 
     return {
         'cd': cd,
@@ -142,6 +129,5 @@ def build_project_tower_context_for_point(
         'roots': roots,
         'morphism_data': morphism_data,
         'sconf': sconf,
-        'x_src': x_src,
-        'yi': yi,
+        'pt_src': pt_src,
     }

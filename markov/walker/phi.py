@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Sequence, Tuple
+
 """phi.py  –  markov/walker/phi.py
 
 Construct the rational function
@@ -105,16 +108,12 @@ Usage
     assert all(checks.values()), checks
 """
 
-from __future__ import annotations
-from typing import Sequence, Tuple
-
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
 
 Fp      = int
 Point   = Tuple[Fp, Fp]
-
 
 # ---------------------------------------------------------------------------
 # Low-level modular helpers
@@ -127,11 +126,9 @@ def _poly_eval(coeffs: Sequence[int], x: int, p: int) -> int:
         result = (result * x + c) % p
     return result
 
-
 def _poly_deriv(coeffs: Sequence[int], p: int) -> list[int]:
     """Formal derivative of a polynomial given coefficient-low-first."""
     return [(i * coeffs[i]) % p for i in range(1, len(coeffs))]
-
 
 def _modinv(a: int, p: int) -> int:
     """Modular inverse via Fermat (p must be prime)."""
@@ -139,7 +136,6 @@ def _modinv(a: int, p: int) -> int:
     if a == 0:
         raise ZeroDivisionError(f"modinv: zero argument mod {p}")
     return pow(a, p - 2, p)
-
 
 # ---------------------------------------------------------------------------
 # Main construction
@@ -284,7 +280,6 @@ def compute_phi(
     prod_RS = (e2 - xP2 - 2 * xP % p * xQ - (2 * xP + xQ) % p * sum_RS) % p
 
     return A_coeffs, c, ((sum_RS, prod_RS), None)
-
 
 def _compute_phi_self(
     p: int,
@@ -437,7 +432,6 @@ def _compute_phi_self(
 
     return A_coeffs, 1, ((sum_RS, prod_RS), None)
 
-
 def _compute_phi_conjugate(
     p: int,
     f: list[int],    # already reduced mod p, low-degree first
@@ -511,7 +505,6 @@ def _compute_phi_conjugate(
         )
 
     return A_coeffs, c, (xR, yR)
-
 
 # ---------------------------------------------------------------------------
 # Verifier
@@ -691,7 +684,6 @@ def verify_phi(
         "dphi_curve_P_zero":  dphi_curve(P) == 0,
     }
 
-
 # ---------------------------------------------------------------------------
 # Convenience: evaluate φ at a point
 # ---------------------------------------------------------------------------
@@ -700,7 +692,6 @@ def phi_eval(A_coeffs: Sequence[int], c: int, pt: Point, p: int) -> int:
     """Evaluate φ(x, y) = A(x) + c·y at pt over F_p."""
     x, y = int(pt[0]) % p, int(pt[1]) % p
     return (_poly_eval([int(a) % p for a in A_coeffs], x, p) + c * y) % p
-
 
 # ---------------------------------------------------------------------------
 # Convenience: recover the full quintic h(x) = c²f(x) − A(x)²

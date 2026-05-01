@@ -1,320 +1,7 @@
 import dataclasses
 from collections import Counter
 from .fiber_geometry import *
-
-def _collect_mumford_candidate_x_values(obj, out=None):
-    """
-    Recursively collect candidate x-values from a Mumford payload.
-    """
-    if out is None:
-        out = []
-
-    if obj is None:
-        return out
-
-    if isinstance(obj, dict):
-        for key in ("x_step", "x", "x_val", "xcoord", "candidate_x", "x_value"):
-            if key in obj and obj[key] is not None:
-                out.append(obj[key])
-
-        if obj and all(not isinstance(v, dict) for v in obj.values()):
-            for k, v in obj.items():
-                if isinstance(v, (list, tuple, set)) and not isinstance(k, (list, tuple, set, dict)):
-                    out.append(k)
-
-        for value in obj.values():
-            _collect_mumford_candidate_x_values(value, out)
-        return out
-
-    if isinstance(obj, (list, tuple, set)):
-        for value in obj:
-            _collect_mumford_candidate_x_values(value, out)
-        return out
-
-    return out
-
-def _dedupe_preserve_order(values):
-    seen = set()
-    out_vals = []
-    for v in values:
-        if v is None:
-            continue
-        try:
-            key = v if hash(v) is not None else repr(v)
-        except Exception:
-            key = repr(v)
-            raise
-        if key in seen:
-            continue
-        seen.add(key)
-        out_vals.append(v)
-    return out_vals
-
-def _candidate_x_from_obj(obj):
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        for key in ("x_step", "x", "x_val", "xcoord", "candidate_x", "x_value"):
-            if key in obj and obj[key] is not None:
-                return obj[key]
-    return obj if not isinstance(obj, (dict, list, tuple, set)) else None
-
-def _candidate_record_from_x(x, source="mumford_residue", **extra):
-    rec = {"x_step": x, "source": source}
-    rec.update(extra)
-    return rec
-
-def _candidates_from_residues(residues, p):
-    """Extract candidate records from mumford_residues {p: {vtup: {rhs_idx: [m_root, ...]}}}.
-
-    Julia now returns only m_root values — no Mumford pairs, no sign computation.
-    enrich_candidates reconstructs x_step/x_res and signs from the fiber geometry.
-
-    Returns a list of dicts with keys: x_step, yj_sign, m, rhs_idx, source.
-    """
-    records = []
-    seen = set()  # (m_root, rhs_idx) dedup
-
-    pmap = residues.get(p, {})
-    for vtup, rhs_map in pmap.items():
-        if not isinstance(rhs_map, dict):
-            continue
-        for rhs_idx, m_roots in rhs_map.items():
-            if not m_roots:
-                continue
-            rhs_idx = int(rhs_idx)
-            for m_root in m_roots:
-                m_root = int(m_root)
-                dedup_key = (m_root, rhs_idx)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-                records.append({
-                    "x_step":      None,   # reconstructed by enrich_candidates from m
-                    "yj_sign": 1,      # enrich_candidates computes true sign from fiber
-                    "m":       m_root,
-                    "rhs_idx": rhs_idx,
-                    "source":  "mumford_residue",
-                })
-
-    return records
-
-def _normalize_candidate_output(result):
-    """
-    Normalize any search result into the walker-friendly dict shape.
-    """
-    if result is None:
-        return {
-            "candidates": [],
-            "candidate_records": [],
-            "candidate_xs": set(),
-            "new_sections": [],
-            "precomputed_residues": None,
-            "stats": None,
-        }
-
-    if isinstance(result, dict):
-        out = dict(result)
-        out.setdefault("candidates", [])
-        out.setdefault("candidate_records", out.get("candidates", []))
-        out.setdefault("candidate_xs", set())
-        out.setdefault("new_sections", [])
-        out.setdefault("precomputed_residues", None)
-        out.setdefault("stats", None)
-
-        if not out.get("candidate_records") and out.get("candidates"):
-            out["candidate_records"] = list(out["candidates"])
-
-        if not out.get("candidate_xs"):
-            xs = set()
-            for cand in out.get("candidate_records", []):
-                if isinstance(cand, dict):
-                    x = cand.get("x_step", None)
-                    if x is None:
-                        x = cand.get("x", None)
-                    if x is None:
-                        x = cand.get("candidate_x", None)
-                    if x is None:
-                        x = cand.get("x_value", None)
-                    if x is not None:
-                        xs.add(x)
-                else:
-                    if cand is not None:
-                        xs.add(cand)
-            out["candidate_xs"] = xs
-
-        return out
-
-    if isinstance(result, (tuple, list)) and len(result) == 4:
-        a, b, c, d = result
-        if isinstance(a, list) and a and isinstance(a[0], dict):
-            xs = {cand.get("x_step") for cand in a if cand.get("x_step") is not None}
-            return {
-                "candidates": a,
-                "candidate_records": a,
-                "candidate_xs": xs,
-                "new_sections": b,
-                "precomputed_residues": c,
-                "stats": d,
-            }
-        if isinstance(a, (set, list, tuple)):
-            records = [{"x_step": x} for x in a]
-            return {
-                "candidates": records,
-                "candidate_records": records,
-                "candidate_xs": set(a),
-                "new_sections": b,
-                "precomputed_residues": c,
-                "stats": d,
-            }
-
-    raise TypeError(f"Unsupported search result type: {type(result)!r}")
-
-def _normalize_markov_mumford_result(result, fallback_step=None):
-    """
-    Normalize the legacy Mumford-search return payload into a walker-friendly dict.
-    """
-    out = {
-        "candidates": [],
-        "candidate_records": [],
-        "candidate_xs": set(),
-        "new_sections": [],
-        "precomputed_residues": None,
-        "residues": None,          # markov_mode fast-exit: {p: {vtup: {x_val: [(sol, yj_sign, v0, v1)]}}}
-        "stats": None,
-        "raw_mumford_residues": None,
-        "found_xs": set(),
-    }
-
-    if result is None:
-        return out
-
-    if isinstance(result, dict):
-        out["raw_mumford_residues"] = result.get("raw_mumford_residues", result)
-        out["precomputed_residues"] = result.get("precomputed_residues", None)
-        out["residues"] = result.get("residues", None)   # signed residues from markov fast-exit
-        out["stats"] = result.get("stats", None)
-        out["new_sections"] = result.get("new_sections", [])
-
-        for key in (
-            "input_n", "vecs", "tower_context", "current_x", "current_y",
-            "x_src", "yi", "shift", "r_expr", "n_with_roots", "per_n_roots",
-        ):
-            if key in result:
-                out[key] = result[key]
-
-        if "found_xs" in result:
-            out["found_xs"] = _as_set(result.get("found_xs"))
-        if "candidate_xs" in result:
-            out["candidate_xs"] = _as_set(result.get("candidate_xs"))
-
-        raw_candidates = result.get("candidate_records", None)
-        if raw_candidates is None:
-            raw_candidates = result.get("candidates", None)
-
-        if raw_candidates is not None:
-            if isinstance(raw_candidates, (list, tuple)):
-                out["candidate_records"] = list(raw_candidates)
-            else:
-                out["candidate_records"] = [raw_candidates]
-
-        for cand in out["candidate_records"]:
-            x = _candidate_x_from_obj(cand)
-            if x is not None:
-                out["candidate_xs"].add(x)
-                out["found_xs"].add(x)
-
-        if not out["candidate_xs"]:
-            xs = _collect_mumford_candidate_x_values(out["raw_mumford_residues"], [])
-            xs = _dedupe_preserve_order(xs)
-            if xs:
-                out["candidate_xs"] = set(xs)
-                out["candidate_records"] = [_candidate_record_from_x(x) for x in xs]
-
-        if not out["candidate_xs"] and fallback_step is not None:
-            xs = _collect_mumford_candidate_x_values(fallback_step, [])
-            xs = _dedupe_preserve_order(xs)
-            if xs:
-                out["candidate_xs"] = set(xs)
-                out["candidate_records"] = [_candidate_record_from_x(x, source="fallback_step") for x in xs]
-
-        if not out["candidate_records"] and out["candidate_xs"]:
-            out["candidate_records"] = [_candidate_record_from_x(x) for x in out["candidate_xs"]]
-
-        out["candidates"] = list(out["candidate_records"])
-
-        try:
-            out["candidate_counts"] = Counter(
-                cand.get("x_step")
-                for cand in out["candidate_records"]
-                if isinstance(cand, dict) and cand.get("x_step") is not None
-            )
-        except Exception:
-            out["candidate_counts"] = Counter()
-            raise
-
-        return out
-
-    if isinstance(result, (tuple, list)):
-        items = list(result)
-        out["raw_mumford_residues"] = items
-
-        xs = []
-        found_xs = set()
-
-        for item in items:
-            if isinstance(item, (list, tuple, set)):
-                for v in item:
-                    if v is not None:
-                        found_xs.add(v)
-            xs.extend(_collect_mumford_candidate_x_values(item, []))
-
-        xs = _dedupe_preserve_order(xs)
-
-        if not xs and found_xs:
-            xs = _dedupe_preserve_order(list(found_xs))
-
-        out["found_xs"] = set(found_xs) if found_xs else set(xs)
-        out["candidate_xs"] = set(xs)
-        out["candidate_records"] = [{"x_step": x, "source": "mumford_residue"} for x in xs]
-        out["candidates"] = list(out["candidate_records"])
-
-        for item in reversed(items):
-            if isinstance(item, dict):
-                if out["stats"] is None and "stats" in item:
-                    out["stats"] = item["stats"]
-                if out["precomputed_residues"] is None and "precomputed_residues" in item:
-                    out["precomputed_residues"] = item["precomputed_residues"]
-                if not out["new_sections"] and "new_sections" in item:
-                    out["new_sections"] = item["new_sections"]
-
-        try:
-            out["candidate_counts"] = Counter(
-                cand.get("x_step")
-                for cand in out["candidate_records"]
-                if isinstance(cand, dict) and cand.get("x_step") is not None
-            )
-        except Exception:
-            out["candidate_counts"] = Counter()
-            raise
-
-        return out
-
-    xs = _collect_mumford_candidate_x_values(result, [])
-    xs = _dedupe_preserve_order(xs)
-    out["raw_mumford_residues"] = result
-    out["candidate_xs"] = set(xs)
-    out["found_xs"] = set(xs)
-    out["candidate_records"] = [{"x_step": x, "source": "scalar_fallback"} for x in xs]
-    out["candidates"] = list(out["candidate_records"])
-
-    try:
-        out["candidate_counts"] = Counter(xs)
-    except Exception:
-        out["candidate_counts"] = Counter()
-        raise
-
-    return out
+from sage.all import Integer
 
 def safe_solve_univariate_roots(poly, ring=None) -> List[Any]:
     """Solve poly=0 in its base ring, returning roots if Sage can see them."""
@@ -348,7 +35,7 @@ def _solve_m_roots(step: Dict[str, Any]) -> List[Any]:
         return []
 
 def _get_S_of_m_for_rec(rec) -> Optional[Any]:
-    """Return the S(m) symbolic rational function for the x_src of *rec*.
+    """Return the S(m) symbolic rational function for the pt_src of *rec*.
 
     Priority order (mirrors _emit_step_diagnostics):
     1. rec.step['S_of_m']  – stored by the search path on accepted steps
@@ -367,7 +54,7 @@ def _get_S_of_m_for_rec(rec) -> Optional[Any]:
     return None
 
 def _get_fiber_context_for_rec(rec):
-    """Return (fi, G_poly) for the x_src of *rec*, or (None, None) if unavailable.
+    """Return (fi, G_poly) for the pt_src of *rec*, or (None, None) if unavailable.
 
     fi is the symbolic fiber poly in x over Frac(Fp[m]).
     G_poly is the curve poly in x over Fp.
@@ -387,7 +74,7 @@ def _get_fiber_context_for_rec(rec):
                 return fi, G_poly
     return None, None
 
-def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=None):
+def _intersection_poly_from_step(step: Dict[str, Any], *, pt_step=None, pt_res=None):
     """Best-effort access to a degree-5 intersection polynomial.
 
     Priority:
@@ -423,17 +110,17 @@ def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=Non
         return None
 
     # 2a) exact-ish match first
-    if x_step is not None or x_res is not None:
+    if pt_step is not None or pt_res is not None:
         for cand in pools:
             if not isinstance(cand, dict):
                 continue
-            cand_xj = cand.get("x_step")
-            cand_xk = cand.get("x_res")
-            if x_step is not None and cand_xj == x_step:
+            cand_xj = cand.get("pt_step")
+            cand_xk = cand.get("pt_res")
+            if pt_step is not None and cand_xj == pt_step:
                 poly = _cand_poly(cand)
                 if poly is not None:
                     return poly
-            if x_res is not None and cand_xk == x_res:
+            if pt_res is not None and cand_xk == pt_res:
                 poly = _cand_poly(cand)
                 if poly is not None:
                     return poly
@@ -446,14 +133,14 @@ def _intersection_poly_from_step(step: Dict[str, Any], *, x_step=None, x_res=Non
 
     return None
 
-def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
+def _derive_relation_from_intersection_poly(step: Dict[str, Any], pt_src):
     """
-    Return (x_step, x_res, src_mult, poly) derived only from the intersection polynomial.
+    Return (pt_step, pt_res, src_mult, poly) derived only from the intersection polynomial.
 
-    This is the only place x_step/x_res/src_mult should be trusted from.
+    This is the only place pt_step/pt_res/src_mult should be trusted from.
     """
     poly = _intersection_poly_from_step(step)
-    #poly = self._intersection_poly_from_step(poly_src, x_step=chosen.get("x_step"), x_res=chosen.get("x_res"))
+    #poly = self._intersection_poly_from_step(poly_src, pt_step=chosen.get("pt_step"), pt_res=chosen.get("pt_res"))
     if poly is None:
         #assert None, "poly is missing, gang!"
         return None
@@ -479,7 +166,7 @@ def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
     src_mult = 0
     leftovers = []
     for r, m in roots_wm:
-        if r == x_src:
+        if r == pt_src:
             src_mult += int(m)
         else:
             leftovers.extend([r] * int(m))
@@ -488,30 +175,30 @@ def _derive_relation_from_intersection_poly(step: Dict[str, Any], x_src):
         return None
 
     if not leftovers:
-        return None  # All roots are x_src; no usable relation.
+        return None  # All roots are pt_src; no usable relation.
 
-    # Dispatch on the number of non-x_src roots.  No multiplicity pattern is
+    # Dispatch on the number of non-pt_src roots.  No multiplicity pattern is
     # assumed in advance — the actual root list drives the relation.
     if len(leftovers) == 1:
-        # Tangency: one non-x_src root.  Fold one copy of x_src into the x_res slot
-        # so that x_res==x_src and src_mult is decremented by one.  The relation
-        # matrix adds +1 to the x_src column for x_res, giving the right total.
-        x_step = leftovers[0]
-        x_res = x_src
+        # Tangency: one non-pt_src root.  Fold one copy of pt_src into the pt_res slot
+        # so that pt_res==pt_src and src_mult is decremented by one.  The relation
+        # matrix adds +1 to the pt_src column for pt_res, giving the right total.
+        pt_step = leftovers[0]
+        pt_res = pt_src
         src_mult -= 1
         extra_roots = []
     elif len(leftovers) == 2:
-        x_step, x_res = leftovers[0], leftovers[1]
+        pt_step, pt_res = leftovers[0], leftovers[1]
         extra_roots = []
     else:
-        # General case: 3+ non-x_src roots (x_src has lower-than-expected multiplicity).
-        # x_step/x_res carry the first two; extra_roots carries the remainder.
-        # Each extra root contributes +1 in the relation matrix, same as x_step/x_res.
-        x_step = leftovers[0]
-        x_res = leftovers[1]
+        # General case: 3+ non-pt_src roots (pt_src has lower-than-expected multiplicity).
+        # pt_step/pt_res carry the first two; extra_roots carries the remainder.
+        # Each extra root contributes +1 in the relation matrix, same as pt_step/pt_res.
+        pt_step = leftovers[0]
+        pt_res = leftovers[1]
         extra_roots = leftovers[2:]
 
-    return x_step, x_res, src_mult, poly, extra_roots
+    return pt_step, pt_res, src_mult, poly, extra_roots
 
 def _jsonable(obj: Any):
     if obj is None or isinstance(obj, (bool, int, float, str)):
@@ -532,15 +219,15 @@ def _jsonable(obj: Any):
         return [_jsonable(v) for v in obj]
     return str(obj)
 
-def _candidate_xj_from_m(base_ring, x_src, m_val):
-    return base_ring(x_src) - base_ring(m_val)
+def _candidate_xj_from_m(base_ring, pt_src, m_val):
+    return base_ring(pt_src) - base_ring(m_val)
 
 def _score_candidate_record(score_fn, candidate: Dict[str, Any], context: Dict[str, Any]) -> float:
     if score_fn is None:
         return 0.0
-    x_step = candidate.get("x_step")
+    pt_step = candidate.get("pt_step")
     # Raises on failure instead of silently returning 0.0
-    return float(score_fn(x_step, context | {"candidate": candidate}))
+    return float(score_fn(pt_step, context | {"candidate": candidate}))
 
 def _score_candidate(score_fn, candidate_x, context: Dict[str, Any]) -> float:
     if score_fn is None:
@@ -549,3 +236,309 @@ def _score_candidate(score_fn, candidate_x, context: Dict[str, Any]) -> float:
     # Raises on failure instead of silently returning 0.0
     return float(score_fn(candidate_x, context))
 
+def _collect_mumford_candidate_pts(obj, out=None):
+    """
+    Recursively collect candidate (x, y) points or atoms from a Mumford payload.
+    """
+    if out is None:
+        out = []
+
+    if obj is None:
+        return out
+
+    if isinstance(obj, dict):
+        # Check for explicit point/atom keys first
+        for key in ("pt_step", "atom_record", "point", "candidate_pt", "pt_src"):
+            if key in obj and obj[key] is not None:
+                out.append(obj[key])
+
+        # Recurse into children
+        for value in obj.values():
+            _collect_mumford_candidate_pts(value, out)
+        return out
+
+    if isinstance(obj, (list, tuple, set)):
+        # Treat 2-tuples as points if they aren't containers themselves
+        if len(obj) == 2 and not isinstance(obj[0], (dict, list, tuple)):
+             out.append(tuple(obj))
+        else:
+            for value in obj:
+                _collect_mumford_candidate_pts(value, out)
+        return out
+
+    return out
+
+def _dedupe_preserve_order(values):
+    seen = set()
+    out_vals = []
+    for v in values:
+        if v is None:
+            continue
+        try:
+            # Handle non-hashable coordinates via repr
+            key = v if hash(v) is not None else repr(v)
+        except Exception:
+            key = repr(v)
+        if key in seen:
+            continue
+        seen.add(key)
+        out_vals.append(v)
+    return out_vals
+
+def _candidate_pt_from_obj(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        # Look for pt_step first, then fall back to x for reconstruction
+        for key in ("pt_step", "pt_src", "x", "candidate_x"):
+            if key in obj and obj[key] is not None:
+                return obj[key]
+    return obj if not isinstance(obj, (dict, list, tuple, set)) else None
+
+def _candidate_record_from_pt(pt, source="mumford_residue", **extra):
+    """The central record generator. Use this instead of _candidate_record_from_x."""
+    rec = {"pt_step": pt, "source": source}
+    rec.update(extra)
+    return rec
+
+def candidates_from_residues(residues, p):
+    """Extract candidate records from residues. Signs reconstructed later."""
+    records = []
+    seen = set()
+    pmap = residues.get(p, {})
+    for vtup, rhs_map in pmap.items():
+        if not isinstance(rhs_map, dict):
+            continue
+        for rhs_idx, m_roots in rhs_map.items():
+            if not m_roots:
+                continue
+            rhs_idx = int(rhs_idx)
+            for m_root in m_roots:
+                m_root = int(m_root)
+                if (m_root, rhs_idx) in seen:
+                    continue
+                seen.add((m_root, rhs_idx))
+                records.append({
+                    "pt_step": None,  # Populated by enrich_candidates
+                    "m": m_root,
+                    "rhs_idx": rhs_idx,
+                    "source": "mumford_residue",
+                })
+    return records
+
+def normalize_markov_mumford_result(result, fallback_step=None):
+    """
+    Normalize the legacy Mumford-search return payload into a walker-friendly dict.
+    """
+    # 1. Initialize the standardized state
+    out = _initialize_empty_normalization_payload()
+
+    if result is None:
+        return out
+
+    # 2. Extract raw data based on the input type
+    if isinstance(result, dict):
+        out = _extract_from_dict_result(result, out)
+    elif isinstance(result, (tuple, list)):
+        out = _extract_from_sequence_result(result, out)
+    else:
+        out["raw_mumford_residues"] = result
+
+    # 3. Finalize candidates: if records are empty, try to scrape them from residues
+    if not out["candidate_pt"]:
+        out = _populate_candidates_from_scraping(out, fallback_step)
+
+    # 4. Final assembly: ensure candidate list and counts are in sync
+    out["candidates"] = list(out["candidate_records"])
+    out["candidate_counts"] = _calculate_candidate_counts(out["candidate_records"])
+
+    return out
+
+def _initialize_empty_normalization_payload():
+    return {
+        "candidates": [],
+        "candidate_records": [],
+        "candidate_pt": set(),
+        "new_sections": [],
+        "precomputed_residues": None,
+        "residues": None,
+        "stats": None,
+        "raw_mumford_residues": None,
+        "found_pt": set(),
+    }
+
+def _extract_from_dict_result(result, out):
+    """Handles dictionary-style payloads."""
+    out["raw_mumford_residues"] = result.get("raw_mumford_residues", result)
+    out["precomputed_residues"] = result.get("precomputed_residues")
+    out["residues"] = result.get("residues")
+    out["stats"] = result.get("stats")
+    out["new_sections"] = result.get("new_sections", [])
+
+    # Map core search keys
+    for key in ("input_n", "vecs", "tower_context", "current_pt",
+                "pt_src", "shift", "r_expr", "n_with_roots", "per_n_roots"):
+        if key in result:
+            out[key] = result[key]
+
+    # Handle explicit point sets
+    if "found_pt" in result:
+        out["found_pt"] = _as_set(result.get("found_pt"))
+    if "candidate_pt" in result:
+        out["candidate_pt"] = _as_set(result.get("candidate_pt"))
+
+    # Process existing records
+    raw_cands = result.get("candidate_records") or result.get("candidates")
+    if raw_cands:
+        out["candidate_records"] = list(raw_cands) if isinstance(raw_cands, (list, tuple)) else [raw_cands]
+        for cand in out["candidate_records"]:
+            pt = _candidate_pt_from_obj(cand) # Fixed to use PT version
+            if pt is not None:
+                out["candidate_pt"].add(pt)
+                out["found_pt"].add(pt)
+    return out
+
+def _calculate_candidate_counts(records):
+    """Safe calculation of candidate frequencies."""
+    try:
+        return Counter(
+            cand.get("pt_step")
+            for cand in records
+            if isinstance(cand, dict) and cand.get("pt_step") is not None
+        )
+    except Exception:
+        return Counter()
+
+def _validate_is_point(obj, source_context=""):
+    """
+    Enforces 'NO SILENT FAILURES'.
+    Ensures obj is a subscriptable point (x, y), not a bare x.
+    """
+    if isinstance(obj, (int, Integer, float)):
+        raise TypeError(
+            f"Upstream Failure: {source_context} provided a scalar '{type(obj).__name__}' "
+            f"instead of a point tuple (x, y). Value: {obj}"
+        )
+    if obj is not None and not isinstance(obj, (tuple, list)):
+         raise TypeError(f"Point must be tuple or list, got {type(obj).__name__}: {obj}")
+    return obj
+
+def normalize_candidate_output(result):
+    """
+    Normalize any search result into the walker-friendly dict shape.
+    Strictly enforces that points are coordinates, not scalars.
+    """
+    # 1. Handle Null Result
+    if result is None:
+        return {
+            "candidates": [],
+            "candidate_records": [],
+            "candidate_pt": set(),
+            "new_sections": [],
+            "precomputed_residues": None,
+            "stats": None,
+        }
+
+    # 2. Handle Dictionary Result (Most common from phi/scraping)
+    if isinstance(result, dict):
+        out = dict(result)
+        out.setdefault("candidates", [])
+        out.setdefault("candidate_records", list(out.get("candidates", [])))
+        out.setdefault("new_sections", [])
+        out.setdefault("precomputed_residues", None)
+        out.setdefault("stats", None)
+
+        # Build candidate_pt set while enforcing point integrity
+        found_pts = set()
+        for cand in out["candidate_records"]:
+            if isinstance(cand, dict):
+                # Check keys in order of precedence
+                pt = next((cand.get(k) for k in ["pt_step", "x", "candidate_x", "x_value"]
+                          if cand.get(k) is not None), None)
+                if pt is not None:
+                    found_pts.add(_validate_is_point(pt, f"Record Source: {cand.get('source', 'unknown')}"))
+            else:
+                # If the record itself is just a value, it better be a tuple
+                found_pts.add(_validate_is_point(cand, "Raw Candidate List"))
+
+        out["candidate_pt"] = found_pts
+        return out
+
+    # 3. Handle Legacy 4-tuple Result (a, b, c, d)
+    if isinstance(result, (tuple, list)) and len(result) == 4:
+        cands, news, resids, stats = result
+
+        # Case A: List of dictionaries
+        if isinstance(cands, list) and cands and isinstance(cands[0], dict):
+            pts = {
+                _validate_is_point(c.get("pt_step"), "4-tuple dict list")
+                for c in cands if c.get("pt_step") is not None
+            }
+            return {
+                "candidates": cands,
+                "candidate_records": cands,
+                "candidate_pt": pts,
+                "new_sections": news,
+                "precomputed_residues": resids,
+                "stats": stats,
+            }
+
+        # Case B: List of raw objects (must be point tuples)
+        if isinstance(cands, (set, list, tuple)):
+            processed_pts = { _validate_is_point(p, "4-tuple raw list") for p in cands }
+            records = [{"pt_step": p} for p in processed_pts]
+            return {
+                "candidates": records,
+                "candidate_records": records,
+                "candidate_pt": processed_pts,
+                "new_sections": news,
+                "precomputed_residues": resids,
+                "stats": stats,
+            }
+
+    raise TypeError(f"Unsupported search result type: {type(result)!r}")
+
+def _populate_candidates_from_scraping(out, fallback_step):
+    """
+    Scrapes raw residues if no explicit records were provided.
+    Strictly enforces that scraped 'pts' are coordinate tuples (x, y).
+    """
+    # 1. Attempt to collect points from primary residue source
+    pts = _collect_mumford_candidate_pts(out.get("raw_mumford_residues", []), [])
+    source = "mumford_residue"
+
+    # 2. Fallback logic
+    if not pts and fallback_step is not None:
+        pts = _collect_mumford_candidate_pts(fallback_step, [])
+        source = "fallback_step"
+
+    if pts:
+        pts = _dedupe_preserve_order(pts)
+
+        # Validate every point before committing to 'out'
+        # This prevents Integers from leaking into pt_step
+        validated_pts = []
+        for p in pts:
+            # Re-using the validation logic to ensure subscriptability
+            _validate_is_point(p, source_context=f"Scraper Source: {source}")
+            validated_pts.append(p)
+
+        out["candidate_pt"] = set(validated_pts)
+        out["candidate_records"] = [
+            _candidate_record_from_pt(p, source=source)
+            for p in validated_pts
+        ]
+
+    # 3. Final check: Synchronize records if points exist but records don't
+    elif out.get("candidate_pt") and not out.get("candidate_records"):
+        # Validate existing points in set for good measure
+        pts_list = list(out["candidate_pt"])
+        for p in pts_list:
+            _validate_is_point(p, source_context="Pre-existing candidate_pt set")
+
+        out["candidate_records"] = [
+            _candidate_record_from_pt(p, source="unknown_recovery")
+            for p in pts_list
+        ]
+
+    return out

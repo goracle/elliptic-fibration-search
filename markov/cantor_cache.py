@@ -13,18 +13,24 @@ Philosophy
 ----------
 Each accepted walk relation looks like
 
-    mult(x_src)*x_src + x_step + x_res + ... - deg*∞ = 0
+    mult(atom_src)*atom_src + atom_step + atom_res + ... - deg*∞ = 0
 
-where multiplicities come from the intersection polynomial roots.  The *three*
+where atoms are *signed* d1 atoms — (x, y) pairs on C over F_p — and
+multiplicities come from the intersection polynomial roots.  The *three*
 named unordered pairs from the principal named slots —
 
-    {x_src, x_step},  {x_src, x_res},  {x_step, x_res}
+    {atom_src, atom_step},  {atom_src, atom_res},  {atom_step, atom_res}
 
 — correspond to degree-2 effective divisors.  Cantor reduction maps each such
 divisor to its *unique* reduced representative in Jac(C).  If two pairs from
 *different* relations reduce to the same representative, the two divisors are
-linearly equivalent, which is a hidden collision that the x-coordinate walk
+linearly equivalent, which is a hidden collision that the (x,y)-coordinate walk
 alone would miss.
+
+Atoms are (x, y) tuples throughout.  The y-coordinate carries the branch sign;
+using it lets _reduce_pair build the Jacobian point with the correct sign rather
+than relying on Sage's arbitrary lift_x branch choice.  A pair is a frozenset of
+two (x, y) atoms; this is well-defined because Python tuples are hashable.
 
 We deliberately avoid random-subset explosion by only ever looking at pairs
 (size-2 subsets).  Cross-relation triple combinations are not attempted unless
@@ -33,15 +39,16 @@ explicitly requested and are off by default.
 What the cache gives you
 ------------------------
 1.  **Early collision detection** — hidden Jacobian equivalences discovered as
-    each new relation is added, before any x-coordinate repeats.
+    each new relation is added, before any (x,y)-atom repeats.
 
 2.  **Atom substitution hints** — when a new pair reduces to a known
     representative, we surface which existing walk atoms can replace the new
     ones, giving the relation-matrix builder a handle for FB compression.
 
-3.  **Cheap consistency check** — involution symmetry (x_step ↔ x_res) implies
-    that {x_src,x_step} and {x_src,x_res} from the same relation may or may not
-    reduce to the same class; checking catches algebra bugs in x_res recovery.
+3.  **Cheap consistency check** — involution symmetry (atom_step ↔ atom_res)
+    implies that {atom_src,atom_step} and {atom_src,atom_res} from the same
+    relation may or may not reduce to the same class; checking catches algebra
+    bugs in x_res / y_res recovery.
 
 Cost model
 ----------
@@ -56,8 +63,9 @@ Usage
 
     cache = CantorPairCache(C, p)           # C = HyperellipticCurve or poly
 
-    # Feed relations one at a time (call from your step loop):
-    hits = cache.add_relation(x_src, x_step, x_res)
+    # Feed relations one at a time (call from your step loop);
+    # atoms are (x, y) tuples:
+    hits = cache.add_relation(atom_src, atom_step, atom_res)
 
     # Or replay a full walker history:
     hits = cache.replay_history(walker.history)
@@ -120,15 +128,14 @@ class CantorHit:
             f"via {self.reduced_rep}"
         )
 
-def _pair_slot(x_src, x_step, x_res, pair: FrozenSet) -> str:
-    """Label which atom-slot produced this pair."""
-    a, b = tuple(pair)
+def _pair_slot(atom_src, atom_step, atom_res, pair: FrozenSet) -> str:
+    """Label which atom-slot produced this pair.  Atoms are (x, y) tuples."""
     s = frozenset
-    if pair == s([x_src, x_step]):
+    if pair == s([atom_src, atom_step]):
         return "src-step"
-    if pair == s([x_src, x_res]):
+    if pair == s([atom_src, atom_res]):
         return "src-res"
-    if pair == s([x_step, x_res]):
+    if pair == s([atom_step, atom_res]):
         return "step-res"
     return "unknown"
 
@@ -202,47 +209,77 @@ class CantorPairCache:
     # Cantor reduction
     # ------------------------------------------------------------------
 
-    def _reduce_pair(self, xa, xb) -> Optional[ReducedRep]:
-        """Cantor-reduce the degree-2 divisor {xa} + {xb} on C over F_p.
+    def _reduce_pair(self, atom_a, atom_b) -> Optional[ReducedRep]:
+        """Cantor-reduce the degree-2 divisor {atom_a} + {atom_b} on C over F_p.
 
-        Returns None if the pair is degenerate (xa == xb, or either is not on C).
+        Each atom is an (x, y) tuple.  The y-coordinate is used to select the
+        correct branch sign explicitly rather than relying on Sage's lift_x
+        arbitrary choice.
+
+        Returns None if the pair is degenerate (atom_a == atom_b, or either
+        x-coordinate is not on C over F_p).
         """
-        if xa == xb:
+        if atom_a == atom_b:
             return None
 
         Fp = self.Fp
         J = self.J
         self._n_cantor_calls += 1
 
+        xa, ya = atom_a
+        xb, yb = atom_b
+
         try:
             xa_fp = Fp(xa)
             xb_fp = Fp(xb)
+            ya_fp = Fp(ya)
+            yb_fp = Fp(yb)
         except Exception as e:
-            raise ValueError(f"Cannot coerce to F_p: {xa!r}, {xb!r}: {e}") from e
+            raise ValueError(
+                f"Cannot coerce atom to F_p: {atom_a!r}, {atom_b!r}: {e}"
+            ) from e
 
-        try:
-            Pa = self.C.lift_x(xa_fp)
-        except (ValueError, TypeError):
-            return None   # xa not on C over F_p
-        try:
-            Pb = self.C.lift_x(xb_fp)
-        except (ValueError, TypeError):
-            return None   # xb not on C over F_p
+        # Build Jacobian points using the supplied y-coordinates to get the
+        # correct branch sign.  lift_x returns one branch; negate in J if
+        # the y doesn't match.
+        def _jac_point(x_fp, y_fp):
+            try:
+                P = self.C.lift_x(x_fp)
+            except (ValueError, TypeError):
+                return None   # x not on C over F_p
+            # P[1] is the y-coordinate of the lifted branch.
+            # If it doesn't match our y, negate in the Jacobian.
+            J_P = J(P)
+            if P[1] != y_fp:
+                J_P = -J_P
+            return J_P
+
+        J_a = _jac_point(xa_fp, ya_fp)
+        if J_a is None:
+            return None
+        J_b = _jac_point(xb_fp, yb_fp)
+        if J_b is None:
+            return None
+
         # Jacobian arithmetic — let genuine errors propagate
-        D = J(Pa) + J(Pb)
+        D = J_a + J_b
         u, v = D
         return ReducedRep.from_mumford(u, v)
 
-    def reduce_triple(self, xa, xb, xc, fixed_xa, fixed_xb):
+    def reduce_triple(self, xa, xb, xc, fixed_atom_a, fixed_atom_b):
         """Find a consistent lift of the 5-atom principal divisor, projected to 4 atoms.
 
-        Given five x-roots from a principal divisor (sum = 0 in J), where
-        (fixed_xa, fixed_xb) are the two "known" atoms and (xa, xb, xc) are the
-        triple to reduce, find any branch assignment for all five points such that
+        Given five (x,y) atoms from a principal divisor (sum = 0 in J), where
+        (fixed_atom_a, fixed_atom_b) are the two "known" atoms and (xa, xb, xc) are the
+        triple to reduce (passed as plain x-coordinates since their signs are unknown),
+        find any branch assignment for all five points such that
 
-            J(fixed_xa, ±y) + J(fixed_xb, ±y) + J(xa, ±y) + J(xb, ±y) + J(xc, ±y) = 0
+            J(fixed_atom_a) + J(fixed_atom_b) + J(xa, ±y) + J(xb, ±y) + J(xc, ±y) = 0
 
         then return the Mumford roots (r0, r1) of -(D_fixed) = D_triple.
+
+        fixed_atom_a, fixed_atom_b : (x, y) tuples (sign known)
+        xa, xb, xc                 : x-coordinates only (sign resolved by search)
 
         Returns (r0, r1) as GF(p) elements, or None if no consistent lift exists
         (e.g. one of the x-values is not on the curve over F_p).
@@ -267,8 +304,21 @@ class CantorPairCache:
             J_Pconj = -J_P    # Jacobian negation is supported
             return (J_P, J_Pconj)
 
-        branches_fixed_a = _both_branches(fixed_xa)
-        branches_fixed_b = _both_branches(fixed_xb)
+        def _fixed_branch(atom):
+            """Return a single Jacobian element for a known (x, y) atom."""
+            x_fp = Fp(atom[0])
+            y_fp = Fp(atom[1])
+            try:
+                P = C.lift_x(x_fp)
+            except (ValueError, TypeError):
+                return None
+            J_P = J(P)
+            if P[1] != y_fp:
+                J_P = -J_P
+            return J_P
+
+        J_fa = _fixed_branch(fixed_atom_a)
+        J_fb = _fixed_branch(fixed_atom_b)
         branches_a = _both_branches(xa)
         branches_b = _both_branches(xb)
         branches_c = _both_branches(xc)
@@ -277,8 +327,8 @@ class CantorPairCache:
         # or non-rational atoms are expected for some factor-base entries).
         not_on_curve = []
         for label, val, br in [
-            ("fixed_xa", fixed_xa, branches_fixed_a),
-            ("fixed_xb", fixed_xb, branches_fixed_b),
+            ("fixed_atom_a", fixed_atom_a, J_fa),
+            ("fixed_atom_b", fixed_atom_b, J_fb),
             ("xa", xa, branches_a),
             ("xb", xb, branches_b),
             ("xc", xc, branches_c),
@@ -305,14 +355,13 @@ class CantorPairCache:
                     triple_map[key] = (rts[0], rts[0])
                 # deg(u) < 2 (e.g. identity element) — no roots to extract, skip
 
-        # Try all 4 fixed-pair lifts; check if -D_fixed is in triple_map.
-        for J_fa, J_fb in itertools.product(branches_fixed_a, branches_fixed_b):
-            D_fixed = J_fa + J_fb   # let errors propagate
-            D_neg = -D_fixed
-            u_neg, v_neg = D_neg
-            key = (str(u_neg), str(v_neg))
-            if key in triple_map:
-                return triple_map[key]
+        # fixed atoms have known signs; compute D_fixed directly (no branch search).
+        D_fixed = J_fa + J_fb   # let errors propagate
+        D_neg = -D_fixed
+        u_neg, v_neg = D_neg
+        key = (str(u_neg), str(v_neg))
+        if key in triple_map:
+            return triple_map[key]
 
         return None
 
@@ -322,17 +371,17 @@ class CantorPairCache:
 
     def add_relation(
         self,
-        x_src,
-        x_step,
-        x_res,
+        atom_src,
+        atom_step,
+        atom_res,
         relation_index: Optional[int] = None,
     ) -> List[CantorHit]:
         """Register one walk relation and return any new collision hits.
 
         Parameters
         ----------
-        x_src, x_step, x_res : atom x-coordinates from the relation
-        relation_index        : caller-supplied index (defaults to internal counter)
+        atom_src, atom_step, atom_res : (x, y) atom tuples from the relation
+        relation_index                : caller-supplied index (defaults to internal counter)
 
         Returns
         -------
@@ -344,49 +393,50 @@ class CantorPairCache:
 
         new_hits: List[CantorHit] = []
 
-        # The three geometrically meaningful pairs from the named slots
+        # The three geometrically meaningful pairs from the named slots.
+        # Pairs are frozensets of (x,y) atom tuples — hashable because tuples are.
         pairs_with_slots: List[Tuple[FrozenSet, str]] = []
         s = frozenset
-        if x_step is not None:
-            pairs_with_slots.append((s([x_src, x_step]), "src-step"))
-        if x_res is not None:
-            pairs_with_slots.append((s([x_src, x_res]), "src-res"))
-        if x_step is not None and x_res is not None:
-            pairs_with_slots.append((s([x_step, x_res]), "step-res"))
+        if atom_step is not None:
+            pairs_with_slots.append((s([atom_src, atom_step]), "src-step"))
+        if atom_res is not None:
+            pairs_with_slots.append((s([atom_src, atom_res]), "src-res"))
+        if atom_step is not None and atom_res is not None:
+            pairs_with_slots.append((s([atom_step, atom_res]), "step-res"))
 
-        # Optional: warn if {x_src,x_step} and {x_src,x_res} are already equivalent (degenerate).
-        # Compute and cache these reductions so the main loop below can reuse them.
+        # Optional: warn if {atom_src,atom_step} and {atom_src,atom_res} are already
+        # equivalent (degenerate).  Precompute reductions so the main loop can reuse.
         _precomputed: Dict[FrozenSet, Optional[ReducedRep]] = {}
-        if x_step is not None:
-            _precomputed[frozenset([x_src, x_step])] = self._reduce_pair(x_src, x_step)
-        if x_res is not None:
-            _precomputed[frozenset([x_src, x_res])] = self._reduce_pair(x_src, x_res)
+        if atom_step is not None:
+            _precomputed[frozenset([atom_src, atom_step])] = self._reduce_pair(atom_src, atom_step)
+        if atom_res is not None:
+            _precomputed[frozenset([atom_src, atom_res])] = self._reduce_pair(atom_src, atom_res)
 
-        if self.check_involution and x_step is not None and x_res is not None:
-            # Trivially degenerate: x_step == x_res means the intersection poly
+        if self.check_involution and atom_step is not None and atom_res is not None:
+            # Trivially degenerate: atom_step == atom_res means the intersection poly
             # returned a repeated root.  Not a Jacobian algebra bug; skip the check.
-            if x_step != x_res:
-                r_ss = _precomputed[frozenset([x_src, x_step])]
-                r_sr = _precomputed[frozenset([x_src, x_res])]
+            if atom_step != atom_res:
+                r_ss = _precomputed[frozenset([atom_src, atom_step])]
+                r_sr = _precomputed[frozenset([atom_src, atom_res])]
                 if r_ss is not None and r_sr is not None and r_ss == r_sr:
                     if self.verbose:
                         print(
                             f"[CantorCache] WARNING rel#{relation_index}: "
-                            f"{{x_src,x_step}} ≡ {{x_src,x_res}} in Jac (non-trivial) — "
-                            f"x_src={x_src} x_step={x_step} x_res={x_res}"
+                            f"{{atom_src,atom_step}} ≡ {{atom_src,atom_res}} in Jac (non-trivial) — "
+                            f"atom_src={atom_src} atom_step={atom_step} atom_res={atom_res}"
                         )
 
         for pair, slot in pairs_with_slots:
             if len(pair) < 2:
-                continue  # skip if xa == xb
+                continue  # skip if the two atoms are identical
 
             # Skip if we've already cached this exact pair
             if pair in self._pair_to_entry:
                 continue
 
-            xa, xb = tuple(pair)
+            atom_a, atom_b = tuple(pair)
             # Reuse precomputed reduction if available, otherwise compute now
-            rep = _precomputed.get(pair, self._reduce_pair(xa, xb))
+            rep = _precomputed.get(pair, self._reduce_pair(atom_a, atom_b))
             if rep is None:
                 continue
 
@@ -419,10 +469,14 @@ class CantorPairCache:
 
         Handles both RelationRecord dataclasses and plain dicts.
 
-        ``accepted_only`` gates whether the relation triple (x_src, x_step, x_res) itself
-        is registered.  Candidate-pool entries are *always* swept because they
-        are valid F_p points regardless of whether the step was accepted — they
-        represent the full geometric neighbourhood explored at each step.
+        Atoms are extracted as (x, y) tuples from the record fields:
+            atom_src  = (x_src,  y_src)
+            atom_step = (x_step, y_step)
+            atom_res  = (x_res,  y_res)
+
+        ``accepted_only`` gates whether the relation triple itself is registered.
+        Candidate-pool entries are *always* swept because they are valid F_p
+        points regardless of whether the step was accepted.
         """
         all_hits: List[CantorHit] = []
 
@@ -431,35 +485,47 @@ class CantorPairCache:
                 return rec.get(key)
             return getattr(rec, key, None)
 
+        def _atom(rec, x_key, y_key):
+            x = _get(rec, x_key)
+            y = _get(rec, y_key)
+            if x is None or y is None:
+                return None
+            return (x, y)
+
         for idx, rec in enumerate(history):
             # Skip involution-closure synthetic records — they add no new pairs.
             step = _get(rec, "step")
             if isinstance(step, dict) and step.get("source") == "involution_closure":
                 continue
 
-            x_src  = _get(rec, "x_src")
-            x_step = _get(rec, "x_step")
-            x_res  = _get(rec, "x_res")
+            atom_src  = _atom(rec, "x_src",  "y_src")
+            atom_step = _atom(rec, "x_step", "y_step")
+            atom_res  = _atom(rec, "x_res",  "y_res")
 
             # Register the relation triple only for accepted (or when not filtering).
-            if x_src is not None and (not accepted_only or _get(rec, "accepted")):
-                hits = self.add_relation(x_src, x_step, x_res, relation_index=idx)
+            if atom_src is not None and (not accepted_only or _get(rec, "accepted")):
+                hits = self.add_relation(atom_src, atom_step, atom_res, relation_index=idx)
                 all_hits.extend(hits)
 
             # Always sweep the candidate pool — valid F_p points regardless of acceptance.
-            if x_src is not None:
+            if atom_src is not None:
                 pool = _get(rec, "candidate_pool") or []
                 for cand in pool:
                     if not isinstance(cand, dict):
                         continue
                     c_x_step = cand.get("x_step") or cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                    c_y_step = cand.get("y_step") or cand.get("yj")
                     c_x_res  = cand.get("x_res") or cand.get("xk")
-                    # Skip the already-registered accepted pair.
-                    if c_x_step is not None and c_x_step == x_step and c_x_res == x_res:
+                    c_y_res  = cand.get("y_res") or cand.get("yk")
+                    if c_x_step is None or c_y_step is None:
                         continue
-                    if c_x_step is not None:
-                        hits = self.add_relation(x_src, c_x_step, c_x_res, relation_index=idx)
-                        all_hits.extend(hits)
+                    c_atom_step = (c_x_step, c_y_step)
+                    c_atom_res  = (c_x_res, c_y_res) if (c_x_res is not None and c_y_res is not None) else None
+                    # Skip the already-registered accepted pair to avoid double-counting.
+                    if c_atom_step == atom_step and c_atom_res == atom_res:
+                        continue
+                    hits = self.add_relation(atom_src, c_atom_step, c_atom_res, relation_index=idx)
+                    all_hits.extend(hits)
 
         return all_hits
 
@@ -516,8 +582,12 @@ class CantorPairCache:
 
         Pass the RelationRecord (or dict) directly.  Returns any hits.
 
+        Atoms are extracted as (x, y) tuples.  Records must carry y_src, y_step,
+        y_res alongside their x counterparts; candidate pool dicts must carry
+        y_step/yj and y_res/yk alongside x_step/xj and x_res/xk.
+
         Processes two sources of pairs:
-        1. The accepted relation's (x_src, x_step, x_res) triple.
+        1. The accepted relation's (atom_src, atom_step, atom_res) triple.
         2. All candidate-pool entries for this step — these are geometrically
            valid F_p points already computed by the walker, so sweeping them
            costs only Cantor-reduce calls (cheap) and surfaces hits much earlier
@@ -534,35 +604,48 @@ class CantorPairCache:
             return []
 
         step_index = _get(rec, "step_index")
-        x_src = _get(rec, "x_src")
+
+        def _atom(x_key, y_key):
+            x = _get(rec, x_key)
+            y = _get(rec, y_key)
+            if x is None or y is None:
+                return None
+            return (x, y)
+
+        atom_src  = _atom("x_src",  "y_src")
+        atom_step = _atom("x_step", "y_step")
+        atom_res  = _atom("x_res",  "y_res")
         all_hits: List[CantorHit] = []
 
         # 1. Accepted relation triple.
-        if _get(rec, "accepted") and x_src is not None:
+        if _get(rec, "accepted") and atom_src is not None:
             hits = self.add_relation(
-                x_src,
-                _get(rec, "x_step"),
-                _get(rec, "x_res"),
+                atom_src,
+                atom_step,
+                atom_res,
                 relation_index=step_index,
             )
             all_hits.extend(hits)
 
         # 2. Candidate pool — sweep regardless of accepted flag.
-        # Each pool entry is a dict with at least one of x_step/xj/x/candidate_x and
-        # optionally x_res/xk.  We use x_src from the record (the step's source node).
-        if x_src is not None:
+        if atom_src is not None:
             pool = _get(rec, "candidate_pool") or []
             for cand in pool:
                 if not isinstance(cand, dict):
                     continue
                 c_x_step = cand.get("x_step") or cand.get("xj") or cand.get("x") or cand.get("candidate_x")
+                c_y_step = cand.get("y_step") or cand.get("yj")
                 c_x_res  = cand.get("x_res") or cand.get("xk")
-                # Skip the already-accepted pair to avoid double-counting.
-                if c_x_step is not None and c_x_step == _get(rec, "x_step") and c_x_res == _get(rec, "x_res"):
+                c_y_res  = cand.get("y_res") or cand.get("yk")
+                if c_x_step is None or c_y_step is None:
                     continue
-                if c_x_step is not None:
-                    hits = self.add_relation(x_src, c_x_step, c_x_res, relation_index=step_index)
-                    all_hits.extend(hits)
+                c_atom_step = (c_x_step, c_y_step)
+                c_atom_res  = (c_x_res, c_y_res) if (c_x_res is not None and c_y_res is not None) else None
+                # Skip the already-accepted pair to avoid double-counting.
+                if c_atom_step == atom_step and c_atom_res == atom_res:
+                    continue
+                hits = self.add_relation(atom_src, c_atom_step, c_atom_res, relation_index=step_index)
+                all_hits.extend(hits)
 
         return all_hits
 
