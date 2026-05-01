@@ -32,31 +32,6 @@ def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Op
     # 6. Commit Step
     return _commit_step(walker, valid_record, search_out, pt_src_tuple, n)
 
-def _get_geometry_metadata(walker, chosen, pt_src, pt_step, pt_res):
-    """
-    Extracts divisor metadata, prioritizing the intersection polynomial.
-    """
-    poly = chosen.get("intersection_poly")
-    if poly is not None:
-        try:
-            roots = poly.roots(multiplicities=True)
-            src_mult = next((m for r, m in roots if r == pt_src[0]), 0)
-
-            # Collect extra roots by removing one instance of pt_step and pt_res
-            others = []
-            for r, m in roots: others.extend([r] * int(m))
-
-            for expected in (pt_step[0], pt_res[0]):
-                if expected in others: others.remove(expected)
-
-            return int(src_mult), others
-        except Exception:
-            pass # Fall back to record metadata
-
-    src_mult = chosen.get("src_mult") or (walker.config.curve_degree - 2)
-    extra_roots = chosen.get("extra_roots") or []
-    return int(src_mult), list(extra_roots)
-
 def _commit_step(walker, chosen, search_out, pt_src, n):
     """
     Commits the validated move to the walker's history.
@@ -80,12 +55,12 @@ def _commit_step(walker, chosen, search_out, pt_src, n):
 
     # Create Relation
     rec = walker._make_relation(
-        len(walker.history), n, pt_src[0], chosen.get("m"),
-        chosen["pt_step"], chosen["pt_res"],
-        search_out, accepted=True,
-        src_mult=chosen["_src_mult"],
-        extra_roots=chosen["_extra_roots"]
-    )
+            len(walker.history), n, pt_src, chosen.get("m"),
+            chosen["pt_step"], chosen["pt_res"],
+            search_out, accepted=True,
+            src_mult=chosen["_src_mult"],
+            extra_pts=chosen.get("_extra_roots")
+        )
 
     walker._store_record(rec)
     return rec
@@ -150,75 +125,6 @@ def _handle_thermal_novelty(walker, search_out, pt_src, n):
         "step_leaf_collisions": collisions,
     })
 
-def _select_and_validate_candidate(walker, candidates, search_out, pt_src, n):
-    """
-    Firewalled selection loop.
-    Standardizes on (x, y) tuples and ensures NO SILENT FAILURES.
-    """
-    # 1. Filter out malformed records immediately (Firewall)
-    # This removes the 'pt_step: None' records seen in your logs.
-    pool = [c for c in candidates if _is_well_formed_candidate(c)]
-
-    if not pool:
-        if walker.config.verbose:
-            print(f"  [warn] Pool empty after well-formed check. Raw count: {len(candidates)}")
-        return None
-
-    while pool:
-        # 2. Select a candidate using the walker's selection strategy
-        # FIX: Standardized on 'pt_src' to avoid NameError: 'pt'
-        chosen = walker._choose_candidate_record(
-            pool,
-            {"n": n, "step": search_out, "current_pt": pt_src}
-        )
-
-        if not chosen:
-            break
-
-        try:
-            # 3. Extract Points (Guaranteed to be tuples by the firewall)
-            pt_step = chosen["pt_step"]
-            pt_res  = chosen["pt_res"]
-
-            # 4. Geometry Check: Degenerate Self-Loops
-            # In a phi-step, if both roots collapse back to the source, no move is possible.
-            if pt_step == pt_src and pt_res == pt_src:
-                if walker.config.verbose:
-                    print(f"  [cand_skip] degenerate self-loop at {pt_src}")
-                pool.remove(chosen)
-                continue
-
-            # 5. Extract Multiplicity & Extra Roots (Divisor Metadata)
-            # Prioritizes the intersection polynomial; falls back to record metadata.
-            src_mult, extra_roots = _get_geometry_metadata(walker, chosen, pt_src, pt_step, pt_res)
-
-            # 6. Branch Verification (Principality)
-            # Ensure the divisor (src_mult)P + Q + R + ... is principal.
-            atoms = _build_atoms(walker, pt_src, pt_step, pt_res, src_mult, extra_roots)
-
-            if not walker._verify_atoms_principal(atoms):
-                if walker.config.verbose:
-                    print(f"  [verify_fail] non-principal relation for {pt_step}")
-                pool.remove(chosen)
-                continue
-
-            # 7. Package Validated Metadata
-            # Store calculated values back on the record to prevent re-calculation in commit
-            chosen["_validated_atoms"] = atoms
-            chosen["_src_mult"] = src_mult
-            chosen["_extra_roots"] = extra_roots
-
-            return chosen
-
-        except (TypeError, KeyError, ValueError) as e:
-            # NO SILENT FAILURES: Trace specific geometry or data corruption issues
-            print(f"  [geom_exception] {type(e).__name__}: {e}")
-            if chosen in pool:
-                pool.remove(chosen)
-            continue
-
-    return None
-
 def _is_well_formed_candidate(c: Any) -> bool:
     """
     Firewall check: Ensures the record is a dict and points are subscriptable tuples.
@@ -236,13 +142,13 @@ def _is_well_formed_candidate(c: Any) -> bool:
 
     return True
 
-def _build_atoms(walker, pt_src, pt_step, pt_res, poly):
+def _build_atoms(walker, pt_src, pt_step, pt_res, poly, src_mult=None, extra_roots=None):
     """
     Constructs the atom list for a phi-step.
-    Ensures exactly 5 atoms by treating the polynomial as authoritative.
+    Authoritative: Uses poly if present.
+    Fallback: Uses src_mult/extra_roots if poly is None.
     """
-    # 1. If we have a polynomial, it DEFINES the atoms.
-    # We do not manually add pt_step or pt_res because they are roots of this poly.
+    # 1. Authoritative Path: Polynomial roots
     if poly is not None:
         try:
             roots_wm = poly.roots(multiplicities=True)
@@ -250,28 +156,147 @@ def _build_atoms(walker, pt_src, pt_step, pt_res, poly):
             for r, m in roots_wm:
                 all_x_roots.extend([r] * int(m))
 
-            # A phi-step MUST have 5 roots (2P + Q + R + S)
             if len(all_x_roots) != 5:
                 return []
 
             atoms = []
-            # Recover y-branches for each root.
-            # In phi-steps, y is determined by the intersection y = A(x).
             for xr in all_x_roots:
-                # Use the walker's branch recovery
                 yr = walker._recover_y(xr)
                 atoms.append((xr, yr))
-
-            # This returns EXACTLY 5 atoms.
             return atoms
-
-        except Exception as e:
-            print(f"  [build_fail] Poly factoring error: {e}")
+        except Exception:
             return []
 
-    # 2. Fallback for legacy/generic steps without a polynomial
-    # This remains 3 or 4 atoms depending on the move type.
+    # 2. Fallback Path: Metadata-based (Generic steps or injected RS points)
+    # This prevents the TypeError when calling with 6 arguments
+    if src_mult is not None:
+        atoms = [pt_src] * src_mult
+        atoms.append(pt_step)
+        atoms.append(pt_res)
+        for xr in (extra_roots or []):
+            yr = walker._recover_y(xr)
+            atoms.append((xr, yr))
+        return atoms
+
+    # 3. Legacy Path: Basic point collection
     atoms = [pt_src, pt_step]
     if pt_res:
         atoms.append(pt_res)
     return atoms
+
+def _select_and_validate_candidate(walker, candidates, search_out, pt_src, n):
+    """
+    Firewalled selection loop.
+    Standardizes on (x, y) tuples and ensures NO SILENT FAILURES.
+    """
+    pool = [c for c in candidates if _is_well_formed_candidate(c)]
+
+    if not pool:
+        return None
+
+    while pool:
+        chosen = walker._choose_candidate_record(
+            pool,
+            {"n": n, "step": search_out, "current_pt": pt_src}
+        )
+        if not chosen:
+            break
+
+        try:
+            pt_step = chosen["pt_step"]
+            pt_res  = chosen["pt_res"]
+            poly    = chosen.get("intersection_poly")
+
+            # Degenerate Self-Loop Check
+            if pt_step == pt_src and pt_res == pt_src:
+                pool.remove(chosen)
+                continue
+
+            # Get Metadata (Needed for Fallback or Commit)
+            src_mult, extra_roots = _get_geometry_metadata(walker, chosen, pt_src, pt_step, pt_res)
+
+            # Build Atoms (Passes 6 arguments: walker + 5 parameters)
+            atoms = _build_atoms(walker, pt_src, pt_step, pt_res, poly, src_mult, extra_roots)
+
+            if not atoms:
+                pool.remove(chosen)
+                continue
+
+            # Verify Principality
+            if not walker._verify_atoms_principal(atoms):
+                pool.remove(chosen)
+                continue
+
+            # Success: Store metadata for _commit_step
+            chosen["_validated_atoms"] = atoms
+            chosen["_src_mult"] = src_mult
+            chosen["_extra_roots"] = extra_roots
+
+            return chosen
+
+        except (TypeError, KeyError, ValueError) as e:
+            if chosen in pool:
+                pool.remove(chosen)
+            continue
+
+    return None
+
+def _get_geometry_metadata(walker, chosen, pt_src, pt_step, pt_res):
+    """
+    Extracts divisor metadata. Transitioned to (x, y) paradigm.
+    Strictly purges primary points to prevent len(atoms) errors.
+    """
+    poly = chosen.get("intersection_poly")
+    if poly is not None:
+        try:
+            roots_data = poly.roots(multiplicities=True)
+            print("poly, roots_data", poly, roots_data)
+
+            # 1. Identify source multiplicity
+            src_mult = 0
+            for x_val, m in roots_data:
+                if x_val == pt_src[0]:
+                    src_mult = int(m)
+                    break
+
+            # 2. Build full pool
+            pool = []
+            for x_val, m in roots_data:
+                pool.extend([x_val] * int(m))
+
+            # UPSTREAM ASSERT: Ensure the polynomial degree matches geometric expectation
+            if len(pool) != walker.config.curve_degree:
+                raise AssertionError(
+                    f"[GEOM_UPSTREAM] Poly degree mismatch: {len(pool)} != {walker.config.curve_degree}. "
+                    f"Roots: {roots_data}"
+                )
+
+            # 3. Purge exactly what will be passed as primary arguments
+            # Remove source points
+            for _ in range(src_mult):
+                if pt_src[0] in pool:
+                    pool.remove(pt_src[0])
+
+            # Remove step and residual points
+            for x_target in (pt_step[0], pt_res[0]):
+                if x_target in pool:
+                    pool.remove(x_target)
+
+            # UPSTREAM ASSERT: The remaining 'others' must fill the remaining slots
+            expected_extra = walker.config.curve_degree - src_mult - 2
+            if len(pool) != expected_extra:
+                 raise AssertionError(
+                     f"[GEOM_UPSTREAM] Purge failed. Expected {expected_extra} extras, found {len(pool)}. "
+                     f"Pool: {pool}, src_mult: {src_mult}"
+                 )
+
+            return src_mult, pool
+
+        except Exception as e:
+            print(f"[CRITICAL] Geometry extraction failed: {e}")
+            raise e
+
+    # Fallback logic
+    src_mult = chosen.get("src_mult") or (walker.config.curve_degree - 2)
+    extra_roots = chosen.get("extra_roots") or []
+    return int(src_mult), list(extra_roots)

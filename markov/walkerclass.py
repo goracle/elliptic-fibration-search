@@ -1001,6 +1001,8 @@ class Genus2MetropolisWalker:
         - If y_sign is given, choose that branch consistently.
         - If no sign is given, fall back to a deterministic canonical choice.
         """
+        if isinstance(x_val, (tuple, list)):
+            x_val = x_val[0]
         if self.p is not None:
             p = int(self.p)
 
@@ -1157,130 +1159,79 @@ class Genus2MetropolisWalker:
         self,
         step_index: int,
         n: int,
-        pt_src,
-        m_val,
-        pt_step,
-        pt_res,
-        step: Dict[str, Any],
-        accepted=True,
-        restart=False,
-        yj_sign: int = 1,
-        yk_sign: int = 1,
+        pt_src: Tuple[Any, Any],  # Authoritative (x, y) tuple
+        m_val: Any,
+        pt_step: Tuple[Any, Any], # Authoritative (x, y) tuple
+        pt_res: Tuple[Any, Any],  # Authoritative (x, y) tuple
+        step_metadata: Dict[str, Any],
+        accepted: bool = True,
+        restart: bool = False,
         src_mult: Optional[int] = None,
-        extra_pts: Optional[List[Any]] = None,
+        extra_pts: Optional[List[Tuple[Any, Any]]] = None,
     ):
         """
-        Build a RelationRecord.
+        Build a RelationRecord using the Point Paradigm.
 
-        pt_step, pt_res, src_mult, and extra_pts are authoritative when supplied
-        by the caller (phi-derived geometry).  The intersection polynomial in
-        ``step`` is used only as a fallback when src_mult is not provided.
-
-        The canonical encoding is rec.atoms — a flat list of all finite atoms
-        with multiplicity (len == curve_degree for accepted records).
-        src_mult is computed locally as a step in building atoms and is never
-        stored on the record.
+        This method treats all point inputs as authoritative (x, y) tuples.
+        It prioritizes '_validated_atoms' from the step metadata, which
+        ensures exact geometric consistency without re-calculating signs.
         """
-        src_mult_local: int = src_mult if (src_mult is not None and src_mult > 0) else -1
-        extra_pts_local: List[Any] = list(extra_pts) if extra_pts is not None else []
-
-        # Only consult the poly when the caller did not supply src_mult.
-        if src_mult_local <= 0:
-            derived = _derive_relation_from_intersection_poly(step, pt_src)
-        else:
-            derived = None
-
-        if accepted and src_mult_local <= 0:
-            if derived is None:
-                # No poly and no caller-supplied src_mult: conservative default
-                # (generic 2P+2Q+R divisor: src_mult = curve_degree - 2).
-                src_mult_local = self.config.curve_degree - 2
-            else:
-                _dx, _dr, src_mult_local, _poly, extra_pts_local = derived
-                # pt_step/pt_res from caller are authoritative; only take src_mult/extras from poly.
-        elif not accepted and derived is not None:
-            # For rejected rows, fill in any missing geometry from poly.
-            dpt_step, dpt_res, dmult, _poly, dextra = derived
-            if pt_step is None:
-                pt_step = dpt_step
-            if pt_res is None:
-                pt_res = dpt_res
-            if src_mult_local <= 0:
-                src_mult_local = dmult
-            if not extra_pts_local:
-                extra_pts_local = list(dextra)
-
+        Fp = self.base_ring
         deg = self.config.curve_degree
-        effective_src_mult = src_mult_local if src_mult_local > 0 else (deg - 2)
 
-        # Build relation string generically from whatever roots the poly gave us.
-        all_others = []
-        if pt_step is not None:
-            all_others.append(pt_step)
-        if pt_res is not None:
-            all_others.append(pt_res)
-        all_others.extend(extra_pts_local)
-        if all_others:
-            others_str = " + ".join(str(r) for r in all_others)
-            if pt_step is not None and pt_res is None and not extra_pts_local:
-                others_str += " + ?"
-            relation = f"{effective_src_mult}*{pt_src} + {others_str} - {deg}*\u221e = 0"
-        elif pt_step is not None:
-            relation = f"{effective_src_mult}*{pt_src} + {pt_step} + ? - {deg}*\u221e = 0"
+        # 1. Atom Recovery: Prioritize the validator's work
+        # If the validator already built and checked the atoms, use them as-is.
+        atoms_list = step_metadata.get("_validated_atoms", [])
+
+        # 2. Fallback: If no validated atoms exist (e.g. rejected/legacy steps)
+        if not atoms_list and accepted:
+            # We must reconstruct them from the provided point tuples
+            effective_mult = src_mult if src_mult is not None else (deg - 2)
+
+            # Ensure everything is a clean (Fp, Fp) tuple
+            # In markov/walkerclass.py -> _make_relation
+
+            def _clean(pt):
+                # Handle (x, y) tuples or lists
+                if isinstance(pt, (tuple, list)) and len(pt) >= 2:
+                    return (Fp(pt[0]), Fp(pt[1]))
+
+                # Fallback for scalar x: recover y from the walker's current state if it matches
+                # otherwise use the standard recovery tool
+                x_val = pt
+                if hasattr(self, 'current_x') and x_val == self.current_x:
+                    return (Fp(x_val), Fp(self.current_y))
+
+                return (Fp(x_val), Fp(self._recover_y(x_val)))
+
+            atoms_list = [_clean(pt_src)] * int(effective_mult)
+            if pt_step: atoms_list.append(_clean(pt_step))
+            if pt_res:  atoms_list.append(_clean(pt_res))
+            if extra_pts:
+                atoms_list.extend([_clean(p) for p in extra_pts])
+
+        # 3. String Representation
+        if atoms_list:
+            # Group by point to make the string readable (e.g., 2*P + Q...)
+            from collections import Counter
+            counts = Counter(atoms_list)
+            parts = [f"{count}*{pt}" if count > 1 else f"{pt}" for pt, count in counts.items()]
+            relation_str = " + ".join(parts) + f" - {deg}*∞ = 0"
         else:
-            relation = "no pt_step"
+            relation_str = "no atoms found" if accepted else "step_rejected"
 
-        # Build canonical flat atoms list: [pt_src]*src_mult + [pt_step] + [pt_res] + extra_pts.
-        # Each element is a (x, y) tuple of GF(p) elements; (x, +y) and (x, -y) are
-        # DISTINCT atoms — the y-coordinate preserves the branch sign and is used verbatim
-        # as the column key in the relation matrix.
-        # Only populated for accepted records where all roots are known.
-        atoms_list: List[Any] = []
-        if accepted and pt_src is not None and pt_step is not None and pt_res is not None:
-            Fp = self.base_ring
-            # Recover y for each atom using available sign information.
-            # pt_src: use current_y (already on the walker) — it is the authoritative branch.
-            y_src_atom = self.current_y if hasattr(self, 'current_y') and self.current_y is not None else self._recover_y(pt_src)
-            # pt_step: yj_sign selects the branch.
-            y_step_atom = self._recover_y(pt_step, y_sign=yj_sign)
-            # pt_res: yk_sign selects the branch.
-            y_res_atom  = self._recover_y(pt_res,  y_sign=yk_sign)
-            # Locate this block inside _make_relation:
-            def _atom(xr, y_sign=None):
-                # Check if xr is already a tuple (x, y)
-                if isinstance(xr, (tuple, list)) and len(xr) == 2:
-                    x_val, y_val = xr
-                    return (Fp(x_val), self.base_ring(y_val))
+        # 4. Data Sanitization (Remove heavy search objects)
+        clean_metadata = {}
+        if isinstance(step_metadata, dict):
+            bad_keys = {"candidates", "candidate_records", "fi", "context"}
+            clean_metadata = {k: v for k, v in step_metadata.items() if k not in bad_keys}
 
-                # Otherwise, it's a bare x_val; recover y normally
-                return (Fp(xr), self._recover_y(xr, y_sign=y_sign))
-
-            # Then the list comprehension will work regardless of the input format:
-            atoms_list = (
-                [(Fp(pt_src),  y_src_atom)] * int(effective_src_mult)
-                + [(Fp(pt_step), y_step_atom), (Fp(pt_res), y_res_atom)]
-                + [_atom(xr) for xr in extra_pts_local]
+        # 5. Invariant Check
+        if accepted and len(atoms_list) not in (deg, deg - 1):
+            raise AssertionError(
+                f"[POINT_PARADIGM] Invariant violation: len(atoms)={len(atoms_list)} "
+                f"expected {deg} or {deg-1}. Source: {pt_src}"
             )
-            if len(atoms_list) not in (deg, deg - 1):
-                raise AssertionError(
-                    f"[MAKE_RELATION] atoms degree invariant violated: "
-                    f"len={len(atoms_list)} not in ({deg-1}, {deg})  "
-                    f"src_mult={effective_src_mult}  pt_step={pt_step}  pt_res={pt_res}  "
-                    f"extra={extra_pts_local}"
-                )
-
-        clean_step = {}
-        if isinstance(step, dict):
-            bad_keys = {
-                "raw_mumford_residues",
-                "precomputed_residues",
-                "context",
-                "candidates",
-                "candidate_records",
-            }
-            for k, v in step.items():
-                if k not in bad_keys:
-                    clean_step[k] = v
 
         return RelationRecord(
             step_index=step_index,
@@ -1289,12 +1240,12 @@ class Genus2MetropolisWalker:
             m=m_val,
             pt_step=pt_step,
             pt_res=pt_res,
-            relation=relation,
-            step=clean_step,
+            relation=relation_str,
+            step=clean_metadata,
             accepted=accepted,
             restart=restart,
             atoms=atoms_list,
-            extra_pts=list(extra_pts_local),
+            extra_pts=extra_pts or []
         )
 
     def _step_from_candidate_search(self, n: int, seed: Optional[int] = None):

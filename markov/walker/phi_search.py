@@ -365,7 +365,9 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _inject_rs_candidates(candidates, base_rec, R_m, f_list, p, ring, source_tag):
     """
     Calculates roots for R and S and adds them as full point records.
-    Removes intersection_poly to prevent atom-doubling during validation.
+
+    DEFINITIVE BUG FIX: Strips all phi-related metadata inherited from base_rec
+    to prevent the "double stuffer" bug (8 atoms) in walker_step_search.py.
     """
     if not (R_m and isinstance(R_m[0], tuple)):
         return
@@ -376,24 +378,34 @@ def _inject_rs_candidates(candidates, base_rec, R_m, f_list, p, ring, source_tag
         if y_rs_canonical is None:
             continue
 
-        # Inject both y-branches
+        # Inject both y-branches so the walker can find the valid direction
         for y_rs in (y_rs_canonical, (p - y_rs_canonical) % p):
-            full_pt = (xrs, y_rs)
+            full_pt = (int(xrs), int(y_rs))
 
+            # Create a shallow copy of the base record metadata
             new_rec = dict(base_rec)
 
-            # 1. REMOVE THE POLY: This prevents the "8 atoms" bug.
-            # The injected record represents a single point (R or S),
-            # so the walker should build the relation manually from pt_step.
-            if "intersection_poly" in new_rec:
-                del new_rec["intersection_poly"]
+            # --- THE FIX: STRIP ALL PHI GEOMETRY ---
+            # We must remove everything that would trigger _get_geometry_metadata
+            # into thinking this is still a 5-point phi-step.
+            phi_keys = [
+                "intersection_poly",
+                "phi_P",
+                "phi_Q",
+                "phi_geo",
+                "phi_mumford_RS",
+                "_validated_atoms" # Clear any previous validation cache
+            ]
+            for key in phi_keys:
+                if key in new_rec:
+                    del new_rec[key]
 
-            # 2. Update point fields to subscriptable tuples
+            # Set the authoritative point fields for a standard step
             new_rec["pt_step"] = full_pt
             new_rec["pt"] = full_pt
             new_rec["pt_res"] = full_pt
 
-            # 3. Tag source for tracking
+            # Label the source for debugging
             new_rec["source"] = "phi_self_rs" if "self" in source_tag else "phi_generic_r"
 
             candidates.append(new_rec)
