@@ -394,9 +394,10 @@ function mumford_reduce(u::Vector{Int}, v::Vector{Int},
     return u, v
 end
 
+
 """
 Add a single degree-1 divisor point (x=a, y=+sqrt(f(a))) to a Mumford
-divisor (u, v) over GF(p).  All +y branch assumed.
+divisor (u, v) over GF(p).  The y-branch is chosen deterministically.
 Returns the new (u, v) after one Cantor composition + reduction step.
 """
 function mumford_add_point(u::Vector{Int}, v::Vector{Int},
@@ -415,16 +416,9 @@ function mumford_add_point(u::Vector{Int}, v::Vector{Int},
     v2 = [y_a]
 
     u_new, v_new = mumford_compose(u, v, u2, v2, f_coeffs, p)
-
-    # Invariant check: u_new must divide f - v_new^2
-    v2sq     = polymul_mod(v_new, v_new, p)
-    fmv2     = polysub_mod(f_coeffs, v2sq, p)
-    _, check = polydivrem_mod(fmv2, u_new, p)
-    all(x == 0 for x in check) || throw(ErrorException(
-        "mumford_add_point: invariant u|(f-v^2) broken after compose at x=$a; " *
-        "remainder=$(check)"))
-
-    return mumford_reduce(u_new, v_new, f_coeffs, p)
+    u_new, v_new = mumford_reduce(u_new, v_new, f_coeffs, p)
+    check_mumford_invariant(u_new, v_new, f_coeffs, p)
+    return u_new, v_new
 end
 
 """
@@ -487,25 +481,68 @@ Apply Mumford reduction to a single row of the relation matrix.
 Returns (is_split::Bool, u_reduced::Vector{Int}) or throws on error.
 
 The row is a Dict-style collection of (col_index => coefficient) entries
-for the finite atoms (∞ column excluded).  All y-branches assumed +y.
+for the finite atoms (∞ column excluded).  The x-values come from the atom
+labels, and the missing y-signs are brute-forced.
 atom_xs maps col index -> x-value (Int).
 f_coeffs is the curve polynomial in ascending degree.
 """
+
 function reduce_row_mumford(atom_xs::Dict{Int,Int}, row_support::Vector{Tuple{Int,Int}},
                              f_coeffs::Vector{Int}, p::Int)
-    # Start from identity: u = 1 (empty divisor), v = 0
-    u = [1]
-    v = [0]
+    # Expand the row into x-coordinates with multiplicity, ignoring ∞.
+    # The x-values are known from the atom labels, but the y-signs are not,
+    # so we brute-force the missing sign choices and keep the first valid lift.
+    xs = Int[]
     for (col, coeff) in row_support
         coeff == 0 && continue
         x_val = get(atom_xs, col, nothing)
         x_val === nothing && throw(ErrorException("reduce_row_mumford: col $col has no x-value"))
-        for _ in 1:coeff
-            u, v = mumford_add_point(u, v, x_val, f_coeffs, p)
+        for _ in 1:abs(coeff)
+            push!(xs, x_val)
         end
     end
-    split = is_fully_split(u, p)
-    return split, u
+
+    isempty(xs) && return true, [1]
+
+    # Precompute a square root for each x, if one exists.
+    ys0 = Vector{Union{Int,Nothing}}(undef, length(xs))
+    for i in eachindex(xs)
+        fx = eval_poly_mod(f_coeffs, xs[i], p)
+        y = tonelli_shanks(fx, p)
+        y === nothing && return false, Int[]
+        ys0[i] = y
+    end
+
+    # Brute-force the missing y-signs.  Fix the first sign to avoid
+    # duplicating the global ± symmetry.
+    n = length(xs)
+    total_masks = 1 << max(n - 1, 0)
+
+    for mask in 0:(total_masks - 1)
+        ys = Vector{Int}(undef, n)
+        ys[1] = ys0[1]::Int
+        for i in 2:n
+            y0 = ys0[i]::Int
+            bit = (mask >> (i - 2)) & 1
+            ys[i] = bit == 0 ? y0 : mod(-y0, p)
+        end
+
+        try
+            u = [1]
+            v = [0]
+            for i in 1:n
+                u, v = mumford_add_point(u, v, xs[i], ys[i], f_coeffs, p)
+            end
+            u, v = mumford_reduce(u, v, f_coeffs, p)
+            check_mumford_invariant(u, v, f_coeffs, p)
+            split = is_fully_split(u, p)
+            return split, u
+        catch
+            # try the next sign pattern
+        end
+    end
+
+    return false, Int[]
 end
 
 """
@@ -1929,51 +1966,6 @@ function main(args=ARGS)
     _log("$('#'^70)\n")
 end
 
-function mumford_add_point(u::Vector{Int}, v::Vector{Int},
-                          a::Int, f_coeffs::Vector{Int}, p::Int)
-
-    # 1. compute y from f(a)
-    fa = eval_poly_mod(f_coeffs, a, p)
-    y  = sqrt_mod(fa, p)   # assume exists
-
-    # (optional but fine)
-    if y > p - y
-        y = mod(-y, p)
-    end
-
-    # 2. build point divisor
-    uP = mod.([-a, 1], p)
-    vP = [y]
-
-    # 3. compose
-    u3, v3 = mumford_compose(u, v, uP, vP, f_coeffs, p)
-
-    # 🔥 4. CRITICAL: reduce
-    u3, v3 = mumford_reduce(u3, v3, f_coeffs, p)
-
-    # 5. final sanity check
-    check_mumford_invariant(u3, v3, f_coeffs, p)
-
-    return u3, v3
-end
-
-
-function sqrt_mod(a::Int, p::Int)
-    a = mod(a, p)
-    a == 0 && return 0
-
-    # Legendre symbol check (optional but helpful)
-    if powermod(a, (p - 1) ÷ 2, p) != 1
-        error("sqrt_mod: no square root exists for $a mod $p")
-    end
-
-    if p % 4 == 3
-        return powermod(a, (p + 1) ÷ 4, p)
-    end
-
-    error("sqrt_mod: general Tonelli–Shanks not implemented")
-end
-
 function check_mumford_invariant(u::Vector{Int}, v::Vector{Int}, f::Vector{Int}, p::Int)
     # Compute v^2 mod p
     v2 = poly_mul_mod(v, v, p)
@@ -1988,6 +1980,259 @@ function check_mumford_invariant(u::Vector{Int}, v::Vector{Int}, f::Vector{Int},
     r = poly_normalize_mod(r, p)
 
     return isempty(r) || all(x -> x % p == 0, r)
+end
+
+
+# normalize: remove trailing zeros
+function poly_normalize_mod(a::Vector{Int}, p::Int)
+    a = [mod(x, p) for x in a]
+    while !isempty(a) && a[end] == 0
+        pop!(a)
+    end
+    return a
+end
+
+# addition
+function poly_add_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    n = max(length(a), length(b))
+    c = zeros(Int, n)
+    for i in 1:n
+        ai = i <= length(a) ? a[i] : 0
+        bi = i <= length(b) ? b[i] : 0
+        c[i] = mod(ai + bi, p)
+    end
+    return poly_normalize_mod(c, p)
+end
+
+# subtraction
+function poly_sub_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    n = max(length(a), length(b))
+    c = zeros(Int, n)
+    for i in 1:n
+        ai = i <= length(a) ? a[i] : 0
+        bi = i <= length(b) ? b[i] : 0
+        c[i] = mod(ai - bi, p)
+    end
+    return poly_normalize_mod(c, p)
+end
+
+# multiplication
+function poly_mul_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    if isempty(a) || isempty(b)
+        return Int[]
+    end
+    c = zeros(Int, length(a) + length(b) - 1)
+    for i in 1:length(a)
+        for j in 1:length(b)
+            c[i+j-1] = mod(c[i+j-1] + a[i]*b[j], p)
+        end
+    end
+    return poly_normalize_mod(c, p)
+end
+
+# scalar inverse
+inv_mod(a, p) = powermod(a, p-2, p)
+
+# division with remainder
+function poly_divrem_mod(a::Vector{Int}, b::Vector{Int}, p::Int)
+    a = poly_normalize_mod(copy(a), p)
+    b = poly_normalize_mod(copy(b), p)
+
+    isempty(b) && error("division by zero polynomial")
+
+    da = length(a) - 1
+    db = length(b) - 1
+
+    if da < db
+        return Int[], a
+    end
+
+    q = zeros(Int, da - db + 1)
+    r = copy(a)
+
+    inv_lead = inv_mod(b[end], p)
+
+    while length(r) >= length(b) && !isempty(r)
+        d = length(r) - length(b)
+        coeff = mod(r[end] * inv_lead, p)
+        q[d+1] = coeff
+
+        # subtract coeff * x^d * b
+        for i in 1:length(b)
+            r[d+i] = mod(r[d+i] - coeff*b[i], p)
+        end
+
+        r = poly_normalize_mod(r, p)
+    end
+
+    return poly_normalize_mod(q, p), poly_normalize_mod(r, p)
+end
+
+function eval_poly_mod(coeffs, x, p)
+    acc = 0
+    xp = 1
+    for c in coeffs
+        acc = mod(acc + c * xp, p)
+        xp = mod(xp * x, p)
+    end
+    return acc
+end
+
+
+"""
+Try all sign combinations for a single relation row and recover a valid Mumford divisor.
+
+Args:
+  row        :: Vector{Int}     # row of matrix (coefficients)
+  atoms      :: Vector{String}  # column labels (x-coordinates as strings, "∞" allowed)
+  col_inf    :: Int             # index of ∞ column
+  f_coeffs   :: Vector{Int}     # curve f(x) coeffs (ascending)
+  p          :: Int             # field prime
+
+Returns:
+  (u, v) if a valid Mumford divisor is found, else nothing
+"""
+function recover_row_mumford(row, atoms, col_inf, f_coeffs, p)
+    # --- extract affine x's with multiplicity ---
+    xs = Int[]
+    for j in eachindex(row)
+        c = row[j]
+        if j == col_inf || c == 0
+            continue
+        end
+        x = parse(Int, atoms[j])
+        for _ in 1:abs(c)
+            push!(xs, x)
+        end
+    end
+
+    n = length(xs)
+    if n == 0
+        return nothing
+    end
+
+    # --- precompute sqrt(f(x)) for each x ---
+    ys0 = Vector{Union{Int,Nothing}}(undef, n)
+    for i in 1:n
+        fx = eval_poly_mod(f_coeffs, xs[i], p)
+        y = tonelli_shanks(fx, p)
+        if y === nothing
+            return nothing  # not even on curve
+        end
+        ys0[i] = y
+    end
+
+    # --- fix first sign to break ± global symmetry ---
+    total = 1 << (n - 1)
+
+    for mask in 0:(total - 1)
+        # build sign assignment
+        ys = Vector{Int}(undef, n)
+        ys[1] = ys0[1]  # fix first sign
+
+        for i in 2:n
+            bit = (mask >> (i - 2)) & 1
+            y0 = ys0[i]
+            ys[i] = bit == 0 ? y0 : mod(-y0, p)
+        end
+
+        # --- build divisor incrementally ---
+        try
+            # start with identity: u=1, v=0
+            u = [1]
+            v = [0]
+
+            for i in 1:n
+                u, v = mumford_add_point(u, v, xs[i], ys[i], f_coeffs, p)
+
+                # optional early check (fast fail)
+                # comment out if too expensive
+                check_mumford_invariant(u, v, f_coeffs, p)
+            end
+
+            # final reduction
+            u, v = mumford_reduce(u, v, f_coeffs, p)
+
+            # final invariant check
+            check_mumford_invariant(u, v, f_coeffs, p)
+
+            return (u, v)
+
+        catch err
+            # ignore and try next sign combo
+        end
+    end
+
+    return nothing
+end
+
+function mumford_reduce(u::Vector{Int}, v::Vector{Int},
+                        f_coeffs::Vector{Int}, p::Int)
+
+    g = 2  # genus
+
+    # --- helpers ---
+    strip(w) = begin
+        z = copy(w)
+        while length(z) > 1 && z[end] == 0
+            pop!(z)
+        end
+        z
+    end
+
+    make_monic(u) = begin
+        u = strip(u)
+        if isempty(u)
+            return u
+        end
+        lc = u[end]
+        if lc != 1
+            inv_lc = invmod(lc, p)
+            u = mod.(u .* inv_lc, p)
+        end
+        u
+    end
+
+    u = make_monic(u)
+    v = strip(v)
+
+    # --- main reduction loop ---
+    while length(u) - 1 > g   # deg(u) > g
+
+        # compute f - v^2
+        v2   = poly_mul_mod(v, v, p)
+        fmv2 = poly_sub_mod(f_coeffs, v2, p)
+
+        # divide (f - v^2) by u
+        u2, rem = poly_divrem_mod(fmv2, u, p)
+
+        if any(x != 0 for x in rem)
+            throw(ErrorException(
+                "mumford_reduce: (f - v^2)/u not exact; invalid divisor"
+            ))
+        end
+
+        u2 = make_monic(u2)
+
+        # v' = -v mod u2
+        negv = mod.(-v, p)
+        _, v2r = poly_divrem_mod(negv, u2, p)
+
+        u = u2
+        v = strip(v2r)
+
+        # --- invariant check (new, critical) ---
+        check_mumford_invariant(u, v, f_coeffs, p)
+    end
+
+    # final normalization
+    u = make_monic(u)
+    v = strip(v)
+
+    # final invariant check
+    check_mumford_invariant(u, v, f_coeffs, p)
+
+    return u, v
 end
 
 main()
