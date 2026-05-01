@@ -272,60 +272,53 @@ def augment_with_phi(
 
     for rec in snapshot:
         if not isinstance(rec, dict) or rec.get("source") in {"phi_generic_r", "phi_self_rs"}:
-            print("what up")
             continue
 
         m_val = rec.get("m")
         g_coeffs_eval = _eval_fi_at_m(fi, m_val, p)
         if g_coeffs_eval is None:
-            print("here2")
             continue
 
         # 2. Extract and normalize candidate x-coordinate
         pt_step = rec.get("pt_step")
         if pt_step is None:
-            print(rec)
             continue
 
         # ---------------------------------------------------------------
-        # Self geometry: P = Q[cite: 15]
+        # Self geometry: P = Q
         # ---------------------------------------------------------------
         if pt_step == P:
-            print("here")
             Q_self = P
             try:
                 A_coeffs, c, R_mumford = compute_phi(p, f_list, g_coeffs_eval, P, Q_self)
                 _apply_phi_to_record(rec, A_coeffs, c, R_mumford, P, Q_self, "self", sage_ring, f_list, p)
-
-                # Inject synthetic RS points as point objects
                 _inject_rs_candidates(candidates, rec, R_mumford, f_list, p, sage_ring, "self_rs")
-            except (ValueError, ZeroDivisionError, ArithmeticError):
+            except ValueError:
+                # Self-geometry consistency failure — no valid phi at this m; skip.
+                pass
+            except (ZeroDivisionError, ArithmeticError):
                 raise
-                continue
             continue
 
         # ---------------------------------------------------------------
-        # Generic / conjugate geometry: Recover y and build Q[cite: 15]
+        # Generic / conjugate geometry: Recover y and build Q
         # ---------------------------------------------------------------
         y_canonical = _recover_y(pt_step, f_list, p)
         if y_canonical is None:
             continue
 
-        y_used = None
         for y_try in (y_canonical, (p - y_canonical) % p):
             Q_try = (pt_step[0], y_try)
             try:
                 A_coeffs, c, R_mumford = compute_phi(p, f_list, g_coeffs_eval, P, Q_try)
-                y_used = y_try
                 _apply_phi_to_record(rec, A_coeffs, c, R_mumford, P, Q_try, "generic", sage_ring, f_list, p)
                 _inject_rs_candidates(candidates, rec, R_mumford, f_list, p, sage_ring, "generic_rs")
                 break
             except ValueError:
-                raise
+                # Wrong y-branch: try the other sign
                 continue
             except (ZeroDivisionError, ArithmeticError):
                 raise
-                break
 
     # Final cleanup and write-back[cite: 15]
     result["candidate_records"] = _dedupe_records(candidates)
@@ -335,7 +328,14 @@ def augment_with_phi(
 def _apply_phi_to_record(rec, A_coeffs, c, R_m, P, Q, geo, ring, f_list, p):
     """Updates a record with phi metadata using point tuples."""
     h_coeffs = phi_quintic(p, f_list, A_coeffs, c)
-    rec["intersection_poly"] = ring(h_coeffs)
+    poly = ring(h_coeffs)
+    expected_deg = len(f_list) - 1   # curve degree = deg(f)
+    if poly.degree() != expected_deg:
+        raise ArithmeticError(
+            f"phi_quintic produced degree {poly.degree()} poly, expected {expected_deg}; "
+            f"leading cancellation in f(x)-A(x)^2  (P={P}, Q={Q}, geo={geo})"
+        )
+    rec["intersection_poly"] = poly
     rec["phi_P"] = P  # Now a tuple
     rec["phi_Q"] = Q  # Now a tuple
     rec["phi_geo"] = geo
@@ -364,48 +364,69 @@ def _dedupe_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def _inject_rs_candidates(candidates, base_rec, R_m, f_list, p, ring, source_tag):
     """
-    Calculates roots for R and S and adds them as full point records.
+    Calculates roots for R and S from the Mumford pair and adds them as walk
+    candidates targeting those points as pt_step.
 
-    DEFINITIVE BUG FIX: Strips all phi-related metadata inherited from base_rec
-    to prevent the "double stuffer" bug (8 atoms) in walker_step_search.py.
+    Each injected record has:
+      - pt_step  = the RS point being targeted
+      - pt_res   = the *other* RS root (or base_rec's pt_res if only one root)
+      - src_mult = 2  (the standard Markov src multiplicity for a quintic)
+      - intersection_poly stripped (the phi poly encodes P,Q,R,S; RS records
+        must go through the fallback path with their own geometry)
+
+    Injecting both y-branches is intentional: compute_phi fixes A(x) relative
+    to P and Q, not R and S, so both branches of R/S are geometrically valid
+    candidates at this stage.  The Jacobian check in _verify_atoms_principal
+    selects the correct one.
     """
     if not (R_m and isinstance(R_m[0], tuple)):
         return
 
     sum_RS, prod_RS = R_m[0]
-    for xrs in _mumford_roots(int(sum_RS) % p, int(prod_RS) % p, p):
-        y_rs_canonical = _recover_y(xrs, f_list, p)
-        if y_rs_canonical is None:
+    rs_xs = _mumford_roots(int(sum_RS) % p, int(prod_RS) % p, p)
+
+    # Pre-compute all RS (x, y) candidates before injecting, so we can set
+    # pt_res to the *other* root when two distinct roots exist.
+    rs_pts = []
+    for xrs in rs_xs:
+        y_can = _recover_y(xrs, f_list, p)
+        if y_can is None:
             continue
+        rs_pts.append((int(xrs), int(y_can)))
+        rs_pts.append((int(xrs), int((p - y_can) % p)))
 
-        # Inject both y-branches so the walker can find the valid direction
-        for y_rs in (y_rs_canonical, (p - y_rs_canonical) % p):
-            full_pt = (int(xrs), int(y_rs))
+    phi_keys = [
+        "intersection_poly",
+        "phi_P", "phi_Q", "phi_geo", "phi_mumford_RS",
+        "_validated_atoms",
+    ]
+    source = "phi_self_rs" if "self" in source_tag else "phi_generic_r"
 
-            # Create a shallow copy of the base record metadata
-            new_rec = dict(base_rec)
+    for i, full_pt in enumerate(rs_pts):
+        xrs = full_pt[0]
 
-            # --- THE FIX: STRIP ALL PHI GEOMETRY ---
-            # We must remove everything that would trigger _get_geometry_metadata
-            # into thinking this is still a 5-point phi-step.
-            phi_keys = [
-                "intersection_poly",
-                "phi_P",
-                "phi_Q",
-                "phi_geo",
-                "phi_mumford_RS",
-                "_validated_atoms" # Clear any previous validation cache
-            ]
-            for key in phi_keys:
-                if key in new_rec:
-                    del new_rec[key]
+        # For pt_res: use the other distinct x-root's canonical point if it exists,
+        # otherwise fall back to the base record's pt_res.
+        other_xs = [x for x in rs_xs if x != xrs]
+        if other_xs:
+            y_other = _recover_y(other_xs[0], f_list, p)
+            pt_res_out = (int(other_xs[0]), int(y_other)) if y_other is not None else base_rec.get("pt_res")
+        else:
+            # Double root: no distinct other x.  Use base_rec pt_res so we
+            # don't set pt_res == pt_step.
+            pt_res_out = base_rec.get("pt_res")
 
-            # Set the authoritative point fields for a standard step
-            new_rec["pt_step"] = full_pt
-            new_rec["pt"] = full_pt
-            new_rec["pt_res"] = full_pt
+        new_rec = dict(base_rec)
+        for key in phi_keys:
+            new_rec.pop(key, None)
 
-            # Label the source for debugging
-            new_rec["source"] = "phi_self_rs" if "self" in source_tag else "phi_generic_r"
+        new_rec["pt_step"] = full_pt
+        new_rec["pt"] = full_pt
+        new_rec["pt_res"] = pt_res_out
+        # src_mult=2 is the standard Markov multiplicity for a quintic walk
+        # (degree-2 copies of pt_src).  The fallback in _get_geometry_metadata
+        # would guess curve_degree-2=3 which is wrong for RS records.
+        new_rec["src_mult"] = 2
+        new_rec["source"] = source
 
-            candidates.append(new_rec)
+        candidates.append(new_rec)

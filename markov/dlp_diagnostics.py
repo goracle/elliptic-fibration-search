@@ -112,16 +112,16 @@ def check_fiber_sign(walkers, p: int, coeffs, n_spot_checks: int = 5):
         for rec in w.history:
             if not getattr(rec, "accepted", False):
                 continue
-            if rec.x_src is None or rec.x_step is None or rec.x_res is None:
+            if rec.pt_src is None or rec.pt_step is None or rec.pt_res is None:
                 continue
 
             step = _step_dict(rec)
             if step.get("source") == "involution_closure":
                 continue
 
-            x_src = int(rec.x_src)
-            x_step = int(rec.x_step)
-            x_res = int(rec.x_res)
+            x_src = int(rec.pt_src[0])
+            x_step = int(rec.pt_step[0])
+            x_res = int(rec.pt_res[0])
 
             deg = w.config.curve_degree
             src_mult = deg - 2
@@ -345,8 +345,8 @@ def check_divisor_injection(walkers, divisor_xs: Sequence):
 
     for i, w in enumerate(walkers):
         label = getattr(w, "_label", f"walker[{i}]")
-        xi_counts = Counter(int(r.x_src) for r in w.history if r.accepted and r.x_src is not None)
-        xj_counts = Counter(int(r.x_step) for r in w.history if r.accepted and r.x_step is not None)
+        xi_counts = Counter(int(r.pt_src[0]) for r in w.history if r.accepted and r.pt_src is not None)
+        xj_counts = Counter(int(r.pt_step[0]) for r in w.history if r.accepted and r.pt_step is not None)
 
         _log(f"\n  {label}:")
         all_ok = True
@@ -619,7 +619,7 @@ def check_zero_compatibility(
         label = getattr(w, "_label", f"walker[{i}]")
         tgt_xi_steps = [
             r.step_index for r in w.history
-            if getattr(r, "accepted", False) and _safe_int(getattr(r, "x_src", None)) in (x0_c, x0_d)
+            if getattr(r, "accepted", False) and _safe_int(getattr(r, "pt_src", (None,))[0]) in (x0_c, x0_d)
         ]
         preview = f"  (step indices: {tgt_xi_steps[:10]}{'...' if len(tgt_xi_steps) > 10 else ''})" if tgt_xi_steps else ""
         _log(f"    {label}: {len(tgt_xi_steps)} accepted steps with x_src in target atoms{preview}")

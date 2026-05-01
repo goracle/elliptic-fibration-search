@@ -41,7 +41,6 @@ def enrich_candidates(
     candidates = norm.get("candidate_records", []) or norm.get("candidates", [])
 
     for cand in candidates:
-        print("candid:", cand)
         rec = dict(cand) if isinstance(cand, dict) else {"m": cand}
 
         m_val = rec.get("m")

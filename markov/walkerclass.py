@@ -1370,8 +1370,8 @@ class Genus2MetropolisWalker:
         # Genus 2 phi-steps define div(phi) = 2P + Q + R + S - 5*inf.
         # If we have 4 or 6 atoms, the sum in the Jacobian will never be zero.
         if len(atoms_list) != 5:
-            if self.config.verbose:
-                print(f"  [verify_fail] Degree mismatch: {len(atoms_list)} atoms. Expected 5 for phi-step.")
+            # 4-atom records are routine non-phi enrichment steps (src_mult=2, no R,S).
+            # Pool summary in _select_and_validate_candidate counts these as degree-skip.
             return False
 
         # 3. Summation in Jacobian
@@ -1401,8 +1401,12 @@ class Genus2MetropolisWalker:
         is_principal = (total == J(0))
 
         if not is_principal and self.config.verbose:
-            # This is where we catch branch/sign errors
-            print(f"  [verify_dbg] Jacobian sum: {total} (Expected 0). Check y-signs/multiplicity.")
+            atom_strs = [(int(a[0]), int(a[1])) if isinstance(a, (tuple, list)) else a for a in atoms_list]
+            print(
+                f"  [verify_fail] Jacobian sum ≠ 0: got {total}. "
+                f"Likely wrong y-branch on one or more atoms. "
+                f"Atoms: {atom_strs}"
+            )
 
         return is_principal
 

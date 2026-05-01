@@ -463,7 +463,7 @@ def _iter_atom_tuples(atoms: Optional[List[Any]]):
         if atom is not None:
             yield tuple(atom) if isinstance(atom, (list, tuple)) else atom
 
-def _is_involution(rec: Any) -> bool:
+def is_involution(rec: Any) -> bool:
     """Check if a record is from an involution closure."""
     step = _get(rec, "step")
     return isinstance(step, dict) and step.get("source") == "involution_closure"
@@ -498,7 +498,7 @@ def build_relation_matrix2(
     valid_records = [
         rec for rec in history
         if (not accepted_only or _get(rec, "accepted"))
-        and not _is_involution(rec)
+        and not is_involution(rec)
         and not _is_degenerate(rec)
     ]
 

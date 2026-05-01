@@ -1,6 +1,7 @@
 from search_common import *
 from collections import Counter
 from .candidate_utils import _get_fiber_context_for_rec, _get_S_of_m_for_rec
+from markov.relation_matrix import *
 
 class _FiberPoleError(Exception):
     """Raised when S(m) has a pole at a specific m value.
@@ -24,12 +25,12 @@ def close_under_involution2(walker) -> int:
         # 1. Validation & Atom extraction
         if not rec.accepted or not getattr(rec, 'atoms', None):
             continue
-        if _is_involution(rec): # Skip closure sentinels
+        if is_involution(rec): # Skip closure sentinels
             continue
 
-        x_src_fp = walker.base_ring(rec.x_src)
+        x_src_fp = walker.base_ring(rec.pt_src[0])
         # Canonical multiplicity from atoms
-        src_mult = sum(1 for a in rec.atoms if walker.base_ring(a) == x_src_fp)
+        src_mult = sum(1 for a in rec.atoms if walker.base_ring(a[0]) == x_src_fp)
 
         # Involution check only defined for (deg-2) non-src roots
         if src_mult != deg - 2:
@@ -41,21 +42,22 @@ def close_under_involution2(walker) -> int:
 
         # 2. Check each candidate in the pool
         for cand in (rec.candidate_pool or []):
-            xj_val = cand.get('x_step') if isinstance(cand, dict) else cand
-            if xj_val is None or xj_val == rec.x_src:
+            pt_step = cand.get('pt_step') if isinstance(cand, dict) else cand
+            xj_val = pt_step[0] if pt_step is not None else None
+            if xj_val is None or xj_val == rec.pt_src[0]:
                 continue
 
-            key = (rec.x_src, xj_val)
+            key = (rec.pt_src[0], xj_val)
             if key in seen_pairs: continue
             seen_pairs.add(key)
 
             try:
                 # Perform the T(T(x)) check
-                partner = _eval_T(walker, S_sym, rec.x_src, xj_val, src_mult)
-                roundtrip = _eval_T(walker, S_sym, rec.x_src, partner, src_mult)
+                partner = _eval_T(walker, S_sym, rec.pt_src[0], xj_val, src_mult)
+                roundtrip = _eval_T(walker, S_sym, rec.pt_src[0], partner, src_mult)
 
                 if roundtrip != walker.base_ring(xj_val):
-                    raise AssertionError(f"Involution violation at x_src={rec.x_src}")
+                    raise AssertionError(f"Involution violation at pt_src={rec.pt_src}")
                 n_checked += 1
             except _FiberPoleError:
                 continue
@@ -72,8 +74,8 @@ def generate_mixed_relations2(walker, atoms_to_inject: List[Any], label: str = "
         if not rec.accepted or not getattr(rec, 'atoms', None):
             continue
 
-        x_src = Fp(rec.x_src)
-        src_mult = sum(1 for a in rec.atoms if Fp(a) == x_src)
+        x_src = Fp(rec.pt_src[0])
+        src_mult = sum(1 for a in rec.atoms if Fp(a[0]) == x_src)
 
         # Fiber must be exactly (deg-2)*x_src + x_step + x_res
         if src_mult != deg - 2:
