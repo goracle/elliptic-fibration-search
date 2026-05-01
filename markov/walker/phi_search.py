@@ -412,9 +412,10 @@ def _inject_rs_candidates(candidates, base_rec, R_m, f_list, p, ring, source_tag
             y_other = _recover_y(other_xs[0], f_list, p)
             pt_res_out = (int(other_xs[0]), int(y_other)) if y_other is not None else base_rec.get("pt_res")
         else:
-            # Double root: no distinct other x.  Use base_rec pt_res so we
-            # don't set pt_res == pt_step.
-            pt_res_out = base_rec.get("pt_res")
+            # Double root R=S: the relation is 2*pt_src + pt_step + R + R - 5*∞ = 0,
+            # so pt_res is the same point as pt_step.  The fallback atom builder will
+            # produce [pt_src, pt_src, R, R] which is correct.
+            pt_res_out = full_pt
 
         new_rec = dict(base_rec)
         for key in phi_keys:
