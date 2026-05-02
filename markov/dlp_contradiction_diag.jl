@@ -76,13 +76,16 @@ end
 # ---------------------------------------------------------------------------
 """
 Collapse exact duplicate rows and scalar multiples over GF(modulus).
-Returns (M_dedup::Matrix{Int}, row_sources::Vector{Vector{Int}}).
+Returns (keep_rows::Vector{Int}, row_sources::Vector{Vector{Int}}).
+
+This keeps only the first representative row of each equivalence class and
+avoids materializing another dense copy of the matrix.
 """
-function dedupe_rows_mod(M::Matrix{Int}, modulus::Int; keep_zero_rows=false)
+function dedupe_rows_mod(M::AbstractMatrix{Int}, modulus::Int; keep_zero_rows=false)
     modulus === nothing && throw(ArgumentError("modulus is required"))
     nr, nc = size(M)
-    seen       = Dict{Vector{Tuple{Int,Int}}, Int}()
-    dedup_rows = Vector{Vector{Int}}()
+    seen        = Dict{Vector{Tuple{Int,Int}}, Int}()
+    keep_rows   = Int[]
     row_sources = Vector{Vector{Int}}()
 
     for i in 1:nr
@@ -97,8 +100,8 @@ function dedupe_rows_mod(M::Matrix{Int}, modulus::Int; keep_zero_rows=false)
             keep_zero_rows || continue
             sig = Tuple{Int,Int}[]
             if !haskey(seen, sig)
-                seen[sig] = length(dedup_rows) + 1
-                push!(dedup_rows, zeros(Int, nc))
+                seen[sig] = length(keep_rows) + 1
+                push!(keep_rows, i)
                 push!(row_sources, [i])
             else
                 push!(row_sources[seen[sig]], i)
@@ -111,23 +114,15 @@ function dedupe_rows_mod(M::Matrix{Int}, modulus::Int; keep_zero_rows=false)
         sig = [(j, (v * inv_lead) % modulus) for (j, v) in entries]
 
         if !haskey(seen, sig)
-            seen[sig] = length(dedup_rows) + 1
-            row = zeros(Int, nc)
-            for (j, v) in sig
-                row[j] = v
-            end
-            push!(dedup_rows, row)
+            seen[sig] = length(keep_rows) + 1
+            push!(keep_rows, i)
             push!(row_sources, [i])
         else
             push!(row_sources[seen[sig]], i)
         end
     end
 
-    if isempty(dedup_rows)
-        return Matrix{Int}(undef, 0, nc), row_sources
-    end
-    M_dedup = reduce(vcat, [reshape(r, 1, :) for r in dedup_rows])
-    return M_dedup, row_sources
+    return keep_rows, row_sources
 end
 
 # ---------------------------------------------------------------------------
@@ -536,10 +531,10 @@ Mumford-reduction filter: for each row of M, compose all finite atoms
 (+y branch, all positive coefficients) into a Mumford divisor, reduce,
 and keep the row iff u(x) splits completely over GF(p).
 
-Returns (M_filtered::Matrix{Int}, n_kept::Int, n_dropped::Int).
+Returns (M_filtered::AbstractMatrix{Int}, n_kept::Int, n_dropped::Int).
 Logs progress and yield statistics.
 """
-function apply_mumford_reduce_filter(M::Matrix{Int}, atoms::Vector,
+function apply_mumford_reduce_filter(M::AbstractMatrix{Int}, atoms::Vector,
                                      col_inf::Union{Int,Nothing},
                                      curve_coeffs::Vector{Int}, p::Int)
     _section("MUMFORD REDUCTION FILTER  (--reduce)")
@@ -676,15 +671,20 @@ function load_matrix_hdf5(path::String)
             indptr    = Int.(read(f["csr/indptr"]))
             shape     = Tuple(Int.(read(f["csr/shape"])))
             nr, nc    = shape
-            
-            # Create the dense matrix directly from CSR data
-            temp_M = zeros(Int, nr, nc)
+
+            # Build a sparse matrix directly from CSR triplets.
+            I = Vector{Int}(undef, length(data_vals))
+            J = Vector{Int}(undef, length(data_vals))
+            V = copy(data_vals)
+            k = 1
             for r in 1:nr
-                for idx in (indptr[r]+1):indptr[r+1]
-                    temp_M[r, indices[idx]] = data_vals[idx]
+                for idx in (indptr[r] + 1):(indptr[r + 1])
+                    I[k] = r
+                    J[k] = indices[idx]
+                    k += 1
                 end
             end
-            temp_M # Return this as the value of the 'if' block
+            sparse(I, J, V, nr, nc)
         end
 
         # --- 3. Load Metadata ---
@@ -721,7 +721,7 @@ end
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-function drop_rows(M::Matrix{Int}, rows_to_drop::AbstractSet{Int})
+function drop_rows(M::AbstractMatrix{Int}, rows_to_drop::AbstractSet{Int})
     keep = [i for i in 1:size(M,1) if i ∉ rows_to_drop]
     return M[keep, :]
 end
@@ -761,12 +761,20 @@ end
 # ---------------------------------------------------------------------------
 """
 Convert a plain Int matrix to a Nemo matrix over GF(p).
+Avoids building an intermediate Vector{Vector} copy.
 """
-function to_nemo_mat(M::Matrix{Int}, Fp)
+function to_nemo_mat(M::AbstractMatrix{Int}, Fp)
     nr, nc = size(M)
     nr == 0 && return matrix(Fp, 0, nc, elem_type(Fp)[])
-    rows = [[Fp(M[i,j]) for j in 1:nc] for i in 1:nr]
-    return matrix(Fp, nr, nc, reduce(vcat, [r for r in rows]))
+    data = Vector{elem_type(Fp)}(undef, nr * nc)
+    k = 1
+    @inbounds for i in 1:nr
+        for j in 1:nc
+            data[k] = Fp(M[i, j])
+            k += 1
+        end
+    end
+    return matrix(Fp, nr, nc, data)
 end
 
 """
@@ -800,14 +808,15 @@ end
 # ---------------------------------------------------------------------------
 # Check 1: Homogeneous system + log-G membership
 # ---------------------------------------------------------------------------
-function check_homogeneous(M::Matrix{Int}, atoms, aidx, group_order::Int,
+function check_homogeneous(M::AbstractMatrix{Int}, atoms, aidx, group_order::Int,
                             known_key::Int, col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf)
     _section("CHECK 1: HOMOGENEOUS SYSTEM  (walk relations, no anchor)")
 
     n  = group_order
     Fp = GF(n)
 
-    M_pruned, row_sources = dedupe_rows_mod(M, group_order)
+    keep_rows, row_sources = dedupe_rows_mod(M, group_order)
+    M_pruned = M[keep_rows, :]
     pruned_aidx = Dict(string(atoms[i]) => i for i in 1:length(atoms))
     nr, nc = size(M_pruned)
 
@@ -1105,14 +1114,15 @@ When the full affine system A*x = b has no solution, extract a left-kernel
 vector y s.t. y^T*A = 0 but y^T*b ≠ 0.
 Returns (nonzero_entries, walk_row_indices).
 """
-function extract_contradiction_certificate(M::Matrix{Int}, atoms, group_order::Int;
+function extract_contradiction_certificate(M::AbstractMatrix{Int}, atoms, group_order::Int;
                                            col_inf=nothing, col_gen0=nothing, col_gen1=nothing,
                                            n_anchor_rows::Int=2)
     _section("CHECK 2: CONTRADICTION CERTIFICATE  (left-kernel Farkas row)")
     n  = group_order
     Fp = GF(n)
 
-    M_pruned, row_sources = dedupe_rows_mod(M, group_order)
+    keep_rows, row_sources = dedupe_rows_mod(M, group_order)
+    M_pruned = M[keep_rows, :]
     pruned_aidx = Dict(string(atoms[i]) => i for i in 1:length(atoms))
 
     n_removed = size(M,1) - size(M_pruned,1)
@@ -1290,14 +1300,15 @@ end
 # ---------------------------------------------------------------------------
 # Check 3: Structural collapse triage
 # ---------------------------------------------------------------------------
-function check_structural_collapse(M::Matrix{Int}, atoms, group_order::Int;
+function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::Int;
                                    col_inf=nothing, col_gen0=nothing, col_gen1=nothing,
                                    col_tgt0=nothing, col_tgt1=nothing)
     _section("CHECK 3: STRUCTURAL COLLAPSE TRIAGE")
     n  = group_order
     Fp = GF(n)
 
-    M_pruned, row_sources = dedupe_rows_mod(M, group_order)
+    keep_rows, row_sources = dedupe_rows_mod(M, group_order)
+    M_pruned = M[keep_rows, :]
     pruned_aidx = Dict(string(atoms[i]) => i for i in 1:length(atoms))
     n_removed   = sum(length(v) for v in row_sources) - length(row_sources)
     _log("  row dedup    : $n_removed duplicates removed")
@@ -1477,14 +1488,15 @@ end
 # ---------------------------------------------------------------------------
 # Check 4: Incremental consistency filter
 # ---------------------------------------------------------------------------
-function incremental_consistency_filter(M::Matrix{Int}, atoms, group_order::Int;
+function incremental_consistency_filter(M::AbstractMatrix{Int}, atoms, group_order::Int;
                                         col_inf=nothing, col_gen0=nothing, col_gen1=nothing,
                                         col_tgt0=nothing, col_tgt1=nothing)
     _section("CHECK 4: INCREMENTAL CONSISTENCY FILTER")
     n  = group_order
     p  = n
 
-    M_pruned, row_sources = dedupe_rows_mod(M, group_order)
+    keep_rows, row_sources = dedupe_rows_mod(M, group_order)
+    M_pruned = M[keep_rows, :]
     pruned_aidx = Dict(string(atoms[i]) => i for i in 1:length(atoms))
     n_removed   = sum(length(v) for v in row_sources) - length(row_sources)
     _log("  row dedup    : $n_removed duplicates removed")
@@ -1633,12 +1645,13 @@ end
 # ---------------------------------------------------------------------------
 # Seed suggestion from non-parity nullity
 # ---------------------------------------------------------------------------
-function suggest_seeds_from_noparity_nullity(M::Matrix{Int}, atoms, group_order::Int,
+function suggest_seeds_from_noparity_nullity(M::AbstractMatrix{Int}, atoms, group_order::Int,
                                               col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1;
                                               n_seeds::Int=4)
     n  = group_order
     Fp = GF(n)
-    M_pruned, _ = dedupe_rows_mod(M, group_order)
+    keep_rows, _ = dedupe_rows_mod(M, group_order)
+    M_pruned = M[keep_rows, :]
     n_cols = size(M_pruned, 2)
     pruned_aidx = Dict(string(atoms[i]) => i for i in 1:length(atoms))
 
@@ -1684,7 +1697,7 @@ end
 # ---------------------------------------------------------------------------
 # Farkas-delete re-run
 # ---------------------------------------------------------------------------
-function farkas_delete_rerun(M::Matrix{Int}, atoms, aidx, group_order::Int,
+function farkas_delete_rerun(M::AbstractMatrix{Int}, atoms, aidx, group_order::Int,
                               farkas_walk_rows::Vector{Int},
                               col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1;
                               known_key=nothing)
@@ -1945,6 +1958,8 @@ function main(args=ARGS)
         M, atoms, group_order;
         col_inf=col_inf, col_gen0=col_gen0, col_gen1=col_gen1)
 
+    GC.gc()
+
     # --- Seed suggestion ---
     suggested = suggest_seeds_from_noparity_nullity(
         M, atoms, group_order,
@@ -1963,10 +1978,14 @@ function main(args=ARGS)
                                col_inf=col_inf, col_gen0=col_gen0, col_gen1=col_gen1,
                                col_tgt0=col_tgt0, col_tgt1=col_tgt1)
 
+    GC.gc()
+
     # --- Check 4 ---
     incremental_consistency_filter(M, atoms, group_order;
                                    col_inf=col_inf, col_gen0=col_gen0, col_gen1=col_gen1,
                                    col_tgt0=col_tgt0, col_tgt1=col_tgt1)
+
+    GC.gc()
 
     # --- Farkas-delete re-run ---
     if parsed["farkas-delete"] && !isempty(farkas_walk_rows)
