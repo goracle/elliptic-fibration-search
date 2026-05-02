@@ -1061,11 +1061,22 @@ end
 """
 right_kernel_basis_wiedemann(A_sp, p; block_size, expected_nullity, seed, verbose)
 
-Compute the right null space of sparse A over GF(p) using sparse modular elimination.
-A_sp must be a Julia SparseMatrixCSC{Int,Int} (values already reduced mod p).
-Returns Vector{Vector{Int}} — each element is a kernel vector (length ncols).
-"""
+Scalar Wiedemann for the right null space of a rectangular sparse A (m×n) over GF(p).
 
+Strategy: work with C = A*A^T  (m×m, symmetric).
+  ker(C) = {y : A*A^T*y = 0}.  For any y in ker(C),  w = A^T*y  satisfies
+  A*w = A*(A^T*y) = C*y = 0,  so w is in ker(A).
+
+Per kernel vector:
+  1. Random u, v ∈ GF(p)^m.
+  2. Scalar Krylov sequence s[k] = u · C^k v  for k=0..L,  L = 2m+slack.
+     Each C-step = spmv_mod(A, spmv_T_mod(A^T, x)) [A^T first, then A, since C=A*A^T].
+  3. BM on s → minimal poly λ of degree d.
+  4. y = λ(C)*v = Σ λ[k] * C^k * v  (length m).
+  5. w = A^T * y  (length n).  Verify A*w = 0.
+
+Working vectors always stay in GF(p)^m — no dimension confusion.
+"""
 function right_kernel_basis_wiedemann(
         A_sp::SparseMatrixCSC{Int,Int},
         p::Int;
@@ -1075,161 +1086,129 @@ function right_kernel_basis_wiedemann(
         verbose::Bool = true)
 
     m, n = size(A_sp)
-    verbose && _log("  [bw] sparse modular elimination  matrix=$(m)×$(n)  nnz=$(nnz(A_sp))")
-    verbose && _log("  [bw] note: this path now computes ker(A) directly; block_size/seed are kept only for compatibility")
+    rng  = MersenneTwister(seed)
 
-    # Convert CSC -> row dictionaries once.  This stage is embarrassingly parallel.
-    rows = [Dict{Int,Int}() for _ in 1:m]
-    rv = rowvals(A_sp)
-    nz = nonzeros(A_sp)
+    # Work with B = A^T*A (n×n).  When n > rank(A), B is always singular with
+    # nullity = n - rank(A) ≥ expected_nullity.  (A*A^T is m×m and is *invertible*
+    # when A has full row rank after dedup, making its kernel trivial — that was the
+    # bug in the previous version.)
+    #
+    # Krylov sequence: s[k] = u · (A * vk),  vk = (A^T*A)^k * v0.
+    # Projecting through A (not directly onto vk) ensures the zero eigenspace of
+    # A^T*A does not appear in the scalar sequence, so BM finds a polynomial λ with
+    # λ(0) ≠ 0.  Applying λ(A^T*A) to v0 then projects v0 onto ker(A^T*A) ∩ ker(A).
+    #
+    # Krylov length: min poly of B on a random vector has degree ≤ rank(A) ≤ min(m,n).
+    L = 2 * min(m, n) + 64
+    verbose && _log("  [bw] Scalar Wiedemann (B=A^T*A, n×n)  m=$m  n=$n  nnz=$(nnz(A_sp))  L=$L  want=$(expected_nullity)")
 
-    if Threads.nthreads() == 1 || nnz(A_sp) < 10_000
-        @inbounds for col in 1:n
-            for idx in nzrange(A_sp, col)
-                r = rv[idx]
-                v = mod(nz[idx], p)
-                v == 0 && continue
-                rows[r][col] = v
-            end
-        end
-    else
-        # Threaded ingest uses per-chunk buffers, then one merge pass.
-        nchunks = max(1, min(Threads.nthreads(), n))
-        col_chunks = collect(Iterators.partition(1:n, cld(n, nchunks)))
-        triplets = [Vector{NTuple{3,Int}}() for _ in 1:length(col_chunks)]
-        Threads.@threads for chunk_idx in 1:length(col_chunks)
-            cols = col_chunks[chunk_idx]
-            local_triplets = triplets[chunk_idx]
-            for col in cols
-                @inbounds for idx in nzrange(A_sp, col)
-                    r = rv[idx]
-                    v = mod(nz[idx], p)
-                    v == 0 && continue
-                    push!(local_triplets, (r, col, v))
+    # Scalar BM over GF(p).
+    function scalar_bm(s::Vector{Int})::Vector{Int}
+        nn = length(s)
+        C_bm = [1]; B_bm = [1]
+        L_bm = 0; bm_m = 1; b_bm = 1
+        for i in 1:nn
+            d = mod(sum(C_bm[k+1] * s[i-k] for k in 0:L_bm if i-k >= 1; init=0), p)
+            if d == 0
+                bm_m += 1
+            elseif 2*L_bm <= i-1
+                T = copy(C_bm)
+                inv_b = invmod(b_bm, p)
+                coef  = mod(d * inv_b, p)
+                new_len = max(length(C_bm), length(B_bm) + bm_m)
+                resize!(C_bm, new_len)
+                for k in eachindex(B_bm)
+                    C_bm[k+bm_m] = mod(C_bm[k+bm_m] - coef * B_bm[k], p)
                 end
-            end
-        end
-        for chunk_triplets in triplets
-            for (r, col, v) in chunk_triplets
-                rows[r][col] = v
-            end
-        end
-    end
-
-    # Workspace used for row arithmetic.  Storage stays in `rows` / `pivot_row_by_col`.
-    work = Dict{Int,Int}()
-
-    function axpy_row!(dest::Dict{Int,Int}, src::Dict{Int,Int}, scale::Int)
-        scale = mod(scale, p)
-        scale == 0 && return dest
-
-        empty!(work)
-        sizehint!(work, length(dest) + length(src))
-
-        # Copy canonical storage into the temporary op buffer.
-        for (k, v) in dest
-            vv = mod(v, p)
-            vv == 0 && continue
-            work[k] = vv
-        end
-
-        # Apply the row operation in the buffer.
-        for (k, v) in src
-            nv = mod(get(work, k, 0) + scale * v, p)
-            if nv == 0
-                delete!(work, k)
+                L_bm = i - L_bm; B_bm = T; b_bm = d; bm_m = 1
             else
-                work[k] = nv
-            end
-        end
-
-        # Rebuild canonical storage from the op buffer.
-        empty!(dest)
-        for (k, v) in work
-            dest[k] = v
-        end
-        return dest
-    end
-
-    pivot_row_by_col = Dict{Int,Dict{Int,Int}}()
-    pivot_order      = Int[]
-
-    for i in 1:m
-        row = rows[i]
-        isempty(row) && continue
-
-        # Eliminate all already-known pivot columns from this row.
-        while true
-            pivot_col = nothing
-            for c in keys(row)
-                if haskey(pivot_row_by_col, c)
-                    pivot_col = c
-                    break
+                inv_b = invmod(b_bm, p)
+                coef  = mod(d * inv_b, p)
+                new_len = max(length(C_bm), length(B_bm) + bm_m)
+                resize!(C_bm, new_len)
+                for k in eachindex(B_bm)
+                    C_bm[k+bm_m] = mod(C_bm[k+bm_m] - coef * B_bm[k], p)
                 end
+                bm_m += 1
             end
-            pivot_col === nothing && break
-            prow = pivot_row_by_col[pivot_col]
-            coeff = get(row, pivot_col, 0)
-            coeff == 0 && break
-            axpy_row!(row, prow, -coeff)
-            isempty(row) && break
         end
-        isempty(row) && continue
-
-        # Choose a deterministic pivot column among the remaining nonzeros.
-        pivot_col = typemax(Int)
-        for c in keys(row)
-            c < pivot_col && (pivot_col = c)
-        end
-        pivot_val = row[pivot_col]
-        pivot_val == 0 && continue
-        inv_pivot = invmod(pivot_val, p)
-        for (k, v) in row
-            row[k] = mod(v * inv_pivot, p)
-        end
-        row[pivot_col] = 1
-
-        # Store the row as a pivot equation.
-        pivot_row_by_col[pivot_col] = row
-        push!(pivot_order, pivot_col)
+        return C_bm
     end
 
-    pivot_set = Set(keys(pivot_row_by_col))
-    free_cols = [j for j in 1:n if !(j in pivot_set)]
-    verbose && _log("  [bw] elimination complete: pivots=$(length(pivot_order))  free_cols=$(length(free_cols))")
+    basis    = Vector{Vector{Int}}()
+    seen     = Set{Vector{Int}}()
+    attempts = 0
+    max_attempts = expected_nullity * 8 + 40
 
-    basis = Vector{Vector{Int}}()
-    for f in free_cols
-        x = zeros(Int, n)
-        x[f] = 1
+    while length(basis) < expected_nullity && attempts < max_attempts
+        attempts += 1
 
-        for pcol in reverse(pivot_order)
-            row = pivot_row_by_col[pcol]
-            s = 0
-            for (c, v) in row
-                c == pcol && continue
-                s = mod(s + v * x[c], p)
-            end
-            x[pcol] = mod(-s, p)
+        v = rand(rng, 0:p-1, n)   # starting vector in GF(p)^n  (column space)
+        u = rand(rng, 0:p-1, m)   # left projector  in GF(p)^m  (row space)
+
+        # Build scalar Krylov sequence s[k] = u · (A * vk).
+        # vk = (A^T*A)^k * v;  each step: Avk = A*vk (m-dim), vk = A^T*Avk (n-dim).
+        s  = zeros(Int, L + 1)
+        vk = copy(v)
+        for k in 0:L
+            Avk = spmv_mod(A_sp, vk, p)              # A*vk,      length m
+            s[k+1] = mod(dot(u, Avk), p)
+            k < L && (vk = spmv_T_mod(A_sp, Avk, p)) # A^T*(A*vk), length n
         end
 
-        if any(!=(0), x)
-            # normalize so the first nonzero entry is 1
-            fi = findfirst(!=(0), x)
-            if fi !== nothing
-                inv_fi = invmod(x[fi], p)
-                x = mod.(x .* inv_fi, p)
-            end
-            push!(basis, x)
-            verbose && _log("  [bw] kernel vector $(length(basis)) found (free col=$f, support=$(count(!=(0), x)))")
+        # BM → minimal polynomial λ.
+        lambda = scalar_bm(s)
+        d = length(lambda) - 1
+
+        if d == 0
+            verbose && length(basis) == 0 && _log("  [bw] attempt=$attempts: trivial BM poly, retrying")
+            continue
         end
+
+        # Compute x = λ(A^T*A)*v = Σ_{k=0}^{d} λ[k+1] * (A^T*A)^k * v  (length n).
+        x  = zeros(Int, n)
+        vk = copy(v)
+        for k in 0:d
+            lk = mod(lambda[k+1], p)
+            if lk != 0
+                @inbounds for i in 1:n; x[i] = mod(x[i] + lk * vk[i], p); end
+            end
+            if k < d
+                Avk = spmv_mod(A_sp, vk, p)
+                vk  = spmv_T_mod(A_sp, Avk, p)
+            end
+        end
+
+        all(==(0), x) && continue
+
+        # Verify A*x = 0.
+        Ax = spmv_mod(A_sp, x, p)
+        if any(!=(0), Ax)
+            verbose && length(basis) == 0 && _log("  [bw] attempt=$attempts: A*x≠0, retrying")
+            continue
+        end
+
+        # Normalize by leading nonzero.
+        fi = findfirst(!=(0), x)
+        fi === nothing && continue
+        inv_fi = invmod(x[fi], p)
+        x = mod.(x .* inv_fi, p)
+
+        x in seen && continue
+        push!(seen, x)
+        push!(basis, x)
+        verbose && _log("  [bw] kernel vector $(length(basis))/$(expected_nullity) found (attempt=$attempts, deg=$d, support=$(count(!=(0),x)))")
     end
 
     if isempty(basis)
-        verbose && _log("  [bw] no kernel vectors recovered from elimination")
+        verbose && _log("  [bw] no kernel vectors recovered after $attempts attempts")
+    else
+        verbose && _log("  [bw] recovered $(length(basis)) kernel vector(s) in $attempts attempts")
     end
     return basis
 end
+
+
 
 
 function to_sparse_mod(A::SparseMatrixCSC{Int,Int}, p::Int)::SparseMatrixCSC{Int,Int}
@@ -1303,10 +1282,10 @@ function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
         nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
         return [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_ker] for j in 1:nc_ker]
     else
-        _log("  [kernel] matrix too large for dense ($(m)×$(n)); using sparse modular elimination")
+        _log("  [kernel] matrix too large for dense ($(m)×$(n)); using Block Wiedemann")
         A_sp = to_sparse_mod(A, p)
         return right_kernel_basis_wiedemann(A_sp, p;
-                                            block_size=64,
+                                            block_size=max(64, min(256, expected_nullity + 16)),
                                             expected_nullity=expected_nullity,
                                             seed=42,
                                             verbose=true)
