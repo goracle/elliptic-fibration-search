@@ -42,7 +42,7 @@ using ArgParse
 using Nemo          # GF, matrix, kernel, rank
 using SparseArrays
 using LinearAlgebra
-using Random: seed!, randperm
+using Random: seed!, randperm, MersenneTwister
 using Printf  # Add this line
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -553,7 +553,7 @@ function apply_mumford_reduce_filter(M::AbstractMatrix{Int}, atoms::Vector,
         else
             # Legacy: bare integer x — compute canonical y branch
             x_val = tryparse(Int, s)
-            x_val === nothing && throw(ErrorException("apply_mumford_reduce_filter: atom \"$s\" (col $j) is not a valid (x,y) or bare-x atom"))
+            x_val === nothing && throw(ErrorException("apply_mumford_reduce_filter: atom "$s" (col $j) is not a valid (x,y) or bare-x atom"))
             fx = eval_poly_mod(curve_coeffs, x_val, p)
             y_canon = tonelli_shanks(fx, p)
             y_canon === nothing && throw(ErrorException("apply_mumford_reduce_filter: legacy atom x=$x_val has no square root mod $p"))
@@ -585,45 +585,85 @@ function apply_mumford_reduce_filter(M::AbstractMatrix{Int}, atoms::Vector,
     end
 
     nr, nc = size(M)
-    keep_rows   = Int[]
-    n_error     = 0
-    n_split     = 0
-    n_nonsplit  = 0
+    keep_flags   = falses(nr)
+    nchunks      = max(1, min(Threads.nthreads(), nr))
+    n_error_t    = zeros(Int, nchunks)
+    n_split_t    = zeros(Int, nchunks)
+    n_nonsplit_t = zeros(Int, nchunks)
+    sample_errors = Vector{Tuple{Int,String}}()
+    sample_lock   = ReentrantLock()
 
-    for i in 1:nr
-        # Build finite support: skip ∞ column
-        support = Tuple{Int,Int}[]
-        for j in 1:nc
-            (col_inf !== nothing && j == col_inf) && continue
-            M[i,j] != 0 && push!(support, (j, M[i,j]))
-        end
-
-        if isempty(support)
-            # Row is only ∞ column — trivially the identity; keep it
-            n_split += 1
-            push!(keep_rows, i)
-            continue
-        end
-
-        try
-            split, u_red = reduce_row_mumford(atom_xys, support, curve_coeffs, p)
-            if split
-                n_split += 1
-                push!(keep_rows, i)
-            else
-                n_nonsplit += 1
+    if nchunks == 1 || nr < 256
+        for i in 1:nr
+            support = Tuple{Int,Int}[]
+            for j in 1:nc
+                (col_inf !== nothing && j == col_inf) && continue
+                M[i,j] != 0 && push!(support, (j, M[i,j]))
             end
-        catch e
-            n_error += 1
-            if n_error <= 5
-                _log("  [reduce] row $i error: $e")
-            elseif n_error == 6
-                _log("  [reduce] suppressing further row errors ...")
+
+            if isempty(support)
+                n_split_t[1] += 1
+                keep_flags[i] = true
+                continue
             end
-            # On error: drop the row (conservative)
+
+            try
+                split, u_red = reduce_row_mumford(atom_xys, support, curve_coeffs, p)
+                if split
+                    n_split_t[1] += 1
+                    keep_flags[i] = true
+                else
+                    n_nonsplit_t[1] += 1
+                end
+            catch e
+                n_error_t[1] += 1
+                if length(sample_errors) < 5
+                    push!(sample_errors, (i, sprint(showerror, e)))
+                end
+            end
+        end
+    else
+        row_chunks = collect(Iterators.partition(1:nr, cld(nr, nchunks)))
+        Threads.@threads for chunk_idx in 1:length(row_chunks)
+            rows = row_chunks[chunk_idx]
+            for i in rows
+                support = Tuple{Int,Int}[]
+                for j in 1:nc
+                    (col_inf !== nothing && j == col_inf) && continue
+                    M[i,j] != 0 && push!(support, (j, M[i,j]))
+                end
+
+                if isempty(support)
+                    n_split_t[chunk_idx] += 1
+                    keep_flags[i] = true
+                    continue
+                end
+
+                try
+                    split, u_red = reduce_row_mumford(atom_xys, support, curve_coeffs, p)
+                    if split
+                        n_split_t[chunk_idx] += 1
+                        keep_flags[i] = true
+                    else
+                        n_nonsplit_t[chunk_idx] += 1
+                    end
+                catch e
+                    n_error_t[chunk_idx] += 1
+                    if length(sample_errors) < 5
+                        lock(sample_lock) do
+                            if length(sample_errors) < 5
+                                push!(sample_errors, (i, sprint(showerror, e)))
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 
+    n_split    = sum(n_split_t)
+    n_nonsplit = sum(n_nonsplit_t)
+    n_error    = sum(n_error_t)
     total_processed = n_split + n_nonsplit + n_error
     pct_kept = nr > 0 ? @sprintf("%.1f%%", 100.0 * n_split / nr) : "N/A"
     _log("  processed: $total_processed / $nr rows")
@@ -631,21 +671,13 @@ function apply_mumford_reduce_filter(M::AbstractMatrix{Int}, atoms::Vector,
     _log("  non-split    : $n_nonsplit")
     _log("  errors (drop): $n_error")
 
+    keep_rows = findall(identity, keep_flags)
     isempty(keep_rows) && _log("  ⚠  no rows survived Mumford reduction filter — proceeding with empty matrix")
 
     M_out = isempty(keep_rows) ? Matrix{Int}(undef, 0, nc) : M[keep_rows, :]
     _log("  matrix after filter: $(size(M_out,1)) rows × $(size(M_out,2)) cols")
     return M_out, n_split, n_nonsplit
 end
-
-# ---------------------------------------------------------------------------
-# HDF5 loader
-# ---------------------------------------------------------------------------
-"""
-Load the pruned relation matrix and metadata from an HDF5 dump.
-Returns a NamedTuple with fields: M, atoms, aidx, group_order, divisor_xs,
-col_inf, col_gen0, col_gen1, col_tgt0, col_tgt1.
-"""
 function load_matrix_hdf5(path::String)
     isfile(path) || throw(ErrorException("file not found: $path"))
 
@@ -735,29 +767,97 @@ function remap_col(col, old_atoms, pruned_aidx)
     return get(pruned_aidx, key, nothing)
 end
 
-function infer_special_cols_from_divisor_xs(aidx, divisor_xs)
+"""
+Infer special column indices from divisor_xs stored in the HDF5.
+
+Handles two on-disk formats:
+  - Interleaved xy (len=8): [x0,y0,x1,y1,x2,y2,x3,y3]  — preferred, written by
+    updated dump_matrix_hdf5 when coeffs/p are available.
+  - Bare-x (len=4): [x0,x1,x2,x3]  — legacy format.
+
+For bare-x format with (x,y)-keyed aidx, we attempt to recover y by scanning
+aidx for any key of the form "(x_val, *)".  If curve_coeffs and field_prime are
+supplied we also compute y directly via Tonelli-Shanks.
+
+Returns Dict{String,Union{Nothing,Int}} mapping "gen0/gen1/tgt0/tgt1" -> col.
+"""
+function infer_special_cols_from_divisor_xs(aidx, divisor_xs;
+                                             curve_coeffs=nothing, field_prime=nothing)
     divisor_xs === nothing && return Dict{String,Union{Nothing,Int}}()
     labels = ["gen0", "gen1", "tgt0", "tgt1"]
     inferred = Dict{String,Union{Nothing,Int}}()
-    # divisor_xs is [x0, y0, x1, y1, ...] interleaved pairs (one per special divisor point).
-    # Fall back to bare-x lookup for legacy files that only stored x-coordinates.
-    n_pairs = length(divisor_xs) ÷ 2
-    for (idx, lab) in enumerate(labels)
-        idx > n_pairs && break
-        x_val = divisor_xs[2*idx - 1]
-        y_val = divisor_xs[2*idx]
-        # Try (x, y) tuple key first, then legacy bare-x key.
-        key_xy  = "($(x_val), $(y_val))"
-        key_x   = string(x_val)
-        col = get(aidx, key_xy, nothing)
-        col === nothing && (col = get(aidx, key_x, nothing))
-        inferred[lab] = col
+
+    # Build a map x_val -> column index by scanning all aidx keys that look like
+    # "(x, y)" strings.  Used as fallback when we know x but not y.
+    x_to_col = Dict{Int, Int}()
+    for (key, col) in aidx
+        m = match(r"^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$", key)
+        if m !== nothing
+            x_val = parse(Int, m.captures[1])
+            # Keep first encountered (canonical y branch is the smaller one,
+            # but either column is the right atom for this x).
+            if !haskey(x_to_col, x_val)
+                x_to_col[x_val] = col
+            end
+        end
+    end
+
+    # Determine whether we have interleaved xy (len==8) or bare-x (len==4).
+    if length(divisor_xs) >= 8
+        # Interleaved xy format.
+        n_pairs = length(divisor_xs) ÷ 2
+        for (idx, lab) in enumerate(labels)
+            idx > n_pairs && break
+            x_val = divisor_xs[2*idx - 1]
+            y_val = divisor_xs[2*idx]
+            key_xy = "($(x_val), $(y_val))"
+            col = get(aidx, key_xy, nothing)
+            if col === nothing
+                # Try the other branch: -y mod p.
+                if field_prime !== nothing
+                    y2 = mod(-y_val, field_prime)
+                    col = get(aidx, "($(x_val), $(y2))", nothing)
+                end
+            end
+            # Final fallback: bare-x key or x_to_col scan.
+            col === nothing && (col = get(aidx, string(x_val), nothing))
+            col === nothing && (col = get(x_to_col, x_val, nothing))
+            inferred[lab] = col
+        end
+    else
+        # Bare-x format (len == 4).  Try to recover y.
+        n_xs = min(length(divisor_xs), 4)
+        for (idx, lab) in enumerate(labels)
+            idx > n_xs && break
+            x_val = Int(divisor_xs[idx])
+            col = nothing
+
+            # 1. Direct bare-x key (legacy atoms).
+            col = get(aidx, string(x_val), nothing)
+
+            # 2. Scan x_to_col built from "(x, y)" keys.
+            col === nothing && (col = get(x_to_col, x_val, nothing))
+
+            # 3. Tonelli-Shanks from stored curve coefficients.
+            if col === nothing && curve_coeffs !== nothing && field_prime !== nothing
+                p = field_prime
+                y = tonelli_shanks(eval_poly_mod(curve_coeffs, x_val, p), p)
+                if y !== nothing
+                    col = get(aidx, "($(x_val), $(y))", nothing)
+                    if col === nothing
+                        col = get(aidx, "($(x_val), $(mod(-y, p)))", nothing)
+                    end
+                end
+            end
+
+            inferred[lab] = col
+        end
     end
     return inferred
 end
 
 # ---------------------------------------------------------------------------
-# Nemo GF matrix helpers
+# Nemo GF matrix helpers  (retained for small matrices / non-kernel uses)
 # ---------------------------------------------------------------------------
 """
 Convert a plain Int matrix to a Nemo matrix over GF(p).
@@ -777,32 +877,447 @@ function to_nemo_mat(M::AbstractMatrix{Int}, Fp)
     return matrix(Fp, nr, nc, data)
 end
 
+# ---------------------------------------------------------------------------
+# Block Wiedemann sparse null-space computation over GF(p)
+#
+# Works entirely with Julia SparseArrays — never builds a dense Nemo matrix.
+# Suitable for matrices where nrows × ncols × 4 bytes would OOM Nemo's kernel.
+#
+# Algorithm (Coppersmith 1994 / Villard 1997):
+#   Given A ∈ GF(p)^{m×n}, find a basis for ker(A) (right null space).
+#
+#   1. Choose random block matrices U ∈ GF(p)^{b×m}, V ∈ GF(p)^{b×n}.
+#   2. Compute Krylov sequence:  F_i = U * A^i * V^T  ∈ GF(p)^{b×b}
+#      for i = 0 .. L = 2*ceil(n/b) + slack.
+#   3. Run block Berlekamp-Massey on {F_i} to find the minimal matrix
+#      polynomial Λ(x) = Σ Λ_k x^k  of degree d ≤ ceil(n/b).
+#   4. For each column v_j of V, compute  w_j = Σ_k Λ_k * (A^k * v_j).
+#      Non-zero w_j are kernel vectors.  We collect enough starting vectors
+#      until we have ≥ expected_nullity kernel vectors.
+#
+# Memory: O(nnz(A) + b*n) per iteration — never O(m*n).
+# ---------------------------------------------------------------------------
+
 """
-Compute right kernel basis of A over GF(p).
-Returns a Vector of coefficient vectors (each a Vector{Int} mod p).
+Sparse mat-vec: A (m×n sparse Int) times v (length-n Int vector), mod p.
 """
-function right_kernel_basis(A_nemo, p::Int)
-    ker_mat = kernel(A_nemo; side=:right)
+function spmv_mod(A::SparseMatrixCSC{Int,Int}, v::Vector{Int}, p::Int)::Vector{Int}
+    m = size(A, 1)
+    out = zeros(Int, m)
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    @inbounds for col in 1:size(A,2)
+        vj = v[col]
+        vj == 0 && continue
+        for idx in nzrange(A, col)
+            out[rows[idx]] = mod(out[rows[idx]] + vals[idx] * vj, p)
+        end
+    end
+    return out
+end
 
-    # Optional sanity check
-    @assert ker_mat isa Nemo.MatElem
+"""
+Sparse mat-vec with A^T: returns A^T * v mod p (v length-m, out length-n).
+"""
+function spmv_T_mod(A::SparseMatrixCSC{Int,Int}, v::Vector{Int}, p::Int)::Vector{Int}
+    n = size(A, 2)
+    out = zeros(Int, n)
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    @inbounds for col in 1:size(A,2)
+        s = 0
+        for idx in nzrange(A, col)
+            s += vals[idx] * v[rows[idx]]
+        end
+        out[col] = mod(s, p)
+    end
+    return out
+end
 
-    nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
+"""
+b×b matrix-vector product mod p.  A is stored column-major (Vector{Int} length b*b).
+"""
+@inline function matvec_bb_mod(A::Matrix{Int}, v::Vector{Int}, p::Int, b::Int)::Vector{Int}
+    out = zeros(Int, b)
+    @inbounds for j in 1:b
+        vj = v[j]
+        vj == 0 && continue
+        for i in 1:b
+            out[i] = mod(out[i] + A[i,j] * vj, p)
+        end
+    end
+    return out
+end
 
-    basis = Vector{Vector{Int}}()
-    for j in 1:nc_ker
-        vec = [Int(lift(ZZ, ker_mat[i, j])) for i in 1:nr_ker]
-        push!(basis, vec)
+"""
+Block Berlekamp-Massey over GF(p) for b×b matrix sequences.
+
+Given sequence F[0..L-1] of b×b matrices over GF(p), returns the minimal
+matrix polynomial Λ such that Σ_k Λ[k] * F[i+k] = 0 for all valid i.
+
+Returns (Λ, d) where Λ is a Vector of b×b Int matrices (ascending degree)
+and d = length(Λ)-1 is the degree.
+
+This is a scalar BM run on each row of the sequence, then combined.
+For our purposes (finding kernel vectors) we run scalar BM on each of the
+b projection sequences u_i^T * F_k and take the LCM of their minimal polys,
+which gives us a scalar polynomial that annihilates the sequence.
+"""
+function block_bm_scalar_lcm(F_seq::Vector{Matrix{Int}}, p::Int, b::Int)
+    L = length(F_seq)
+    # For each pair (i,j) with i in 1:b, run scalar BM on the sequence F_seq[k][i,j].
+    # Then take LCM of all resulting minimal polynomials.
+    # In practice: run on the diagonal (i==j) and first row — usually sufficient.
+    
+    # Scalar BM over GF(p) — returns minimal poly as coefficient vector (ascending).
+    function scalar_bm(s::Vector{Int})
+        n = length(s)
+        C = [1]; B = [1]
+        L_bm = 0; m = 1; b_bm = 1
+        for i in 1:n
+            d = mod(sum(C[k+1] * s[i-k] for k in 0:L_bm if i-k >= 1; init=0), p)
+            if d == 0
+                m += 1
+            elseif 2*L_bm <= i-1
+                T = copy(C)
+                inv_b = invmod(b_bm, p)
+                coef  = mod(d * inv_b, p)
+                # C = C - coef * x^m * B
+                new_len = max(length(C), length(B) + m)
+                resize!(C, new_len)
+                for k in eachindex(B)
+                    C[k+m] = mod(C[k+m] - coef * B[k], p)
+                end
+                L_bm = i - L_bm
+                B = T; b_bm = d; m = 1
+            else
+                inv_b = invmod(b_bm, p)
+                coef  = mod(d * inv_b, p)
+                new_len = max(length(C), length(B) + m)
+                resize!(C, new_len)
+                for k in eachindex(B)
+                    C[k+m] = mod(C[k+m] - coef * B[k], p)
+                end
+                m += 1
+            end
+        end
+        return C  # C[1..L_bm+1], C[1]==1
     end
 
+    # Polynomial LCM over GF(p) via GCD.
+    function poly_gcd(a::Vector{Int}, b_poly::Vector{Int})
+        strip(v) = begin w=copy(v); while length(w)>1 && w[end]==0; pop!(w); end; w end
+        is_zero(v) = all(==(0), v)
+        a, b_poly = strip(a), strip(b_poly)
+        while !is_zero(strip(b_poly))
+            _, r = polydivrem_mod(a, b_poly, p)
+            a, b_poly = b_poly, strip(r)
+        end
+        a = strip(a)
+        if !isempty(a) && a[end] != 0 && a[end] != 1
+            inv_lc = invmod(a[end], p)
+            a = mod.(a .* inv_lc, p)
+        end
+        return a
+    end
+
+    function poly_lcm(a::Vector{Int}, b_poly::Vector{Int})
+        g = poly_gcd(a, b_poly)
+        # lcm = a * b / gcd; but divide first to avoid degree explosion
+        b_div, _ = polydivrem_mod(b_poly, g, p)
+        polymul_mod(a, b_div, p)
+    end
+
+    min_poly = [1]  # start with 1, take LCM with each scalar minimal poly
+    n_probes = min(b * b, 20)  # probe up to 20 scalar sequences
+    probed = 0
+    for i in 1:b
+        for j in 1:b
+            probed >= n_probes && break
+            seq = [mod(F_seq[k][i, j], p) for k in 1:L]
+            mp  = scalar_bm(seq)
+            min_poly = poly_lcm(min_poly, mp)
+            probed += 1
+        end
+        probed >= n_probes && break
+    end
+    return min_poly  # ascending-degree coefficients, monic
+end
+
+"""
+Build a random b×n matrix over GF(p) as a Vector of b row-vectors.
+"""
+function rand_block(b::Int, n::Int, p::Int, rng)
+    [rand(rng, 0:p-1, n) for _ in 1:b]
+end
+
+"""
+Apply a b×n block (list of b row vectors) to an n-vector: returns b-vector.
+"""
+function block_apply(rows::Vector{Vector{Int}}, v::Vector{Int}, p::Int)
+    [mod(dot(r, v), p) for r in rows]
+end
+
+"""
+right_kernel_basis_wiedemann(A_sp, p; block_size, expected_nullity, seed, verbose)
+
+Compute the right null space of sparse A over GF(p) using sparse modular elimination.
+A_sp must be a Julia SparseMatrixCSC{Int,Int} (values already reduced mod p).
+Returns Vector{Vector{Int}} — each element is a kernel vector (length ncols).
+"""
+
+function right_kernel_basis_wiedemann(
+        A_sp::SparseMatrixCSC{Int,Int},
+        p::Int;
+        block_size::Int = 64,
+        expected_nullity::Int = 1,
+        seed::Int = 42,
+        verbose::Bool = true)
+
+    m, n = size(A_sp)
+    verbose && _log("  [bw] sparse modular elimination  matrix=$(m)×$(n)  nnz=$(nnz(A_sp))")
+    verbose && _log("  [bw] note: this path now computes ker(A) directly; block_size/seed are kept only for compatibility")
+
+    # Convert CSC -> row dictionaries once.  This stage is embarrassingly parallel.
+    rows = [Dict{Int,Int}() for _ in 1:m]
+    rv = rowvals(A_sp)
+    nz = nonzeros(A_sp)
+
+    if Threads.nthreads() == 1 || nnz(A_sp) < 10_000
+        @inbounds for col in 1:n
+            for idx in nzrange(A_sp, col)
+                r = rv[idx]
+                v = mod(nz[idx], p)
+                v == 0 && continue
+                rows[r][col] = v
+            end
+        end
+    else
+        # Threaded ingest uses per-chunk buffers, then one merge pass.
+        nchunks = max(1, min(Threads.nthreads(), n))
+        col_chunks = collect(Iterators.partition(1:n, cld(n, nchunks)))
+        triplets = [Vector{NTuple{3,Int}}() for _ in 1:length(col_chunks)]
+        Threads.@threads for chunk_idx in 1:length(col_chunks)
+            cols = col_chunks[chunk_idx]
+            local_triplets = triplets[chunk_idx]
+            for col in cols
+                @inbounds for idx in nzrange(A_sp, col)
+                    r = rv[idx]
+                    v = mod(nz[idx], p)
+                    v == 0 && continue
+                    push!(local_triplets, (r, col, v))
+                end
+            end
+        end
+        for chunk_triplets in triplets
+            for (r, col, v) in chunk_triplets
+                rows[r][col] = v
+            end
+        end
+    end
+
+    # Workspace used for row arithmetic.  Storage stays in `rows` / `pivot_row_by_col`.
+    work = Dict{Int,Int}()
+
+    function axpy_row!(dest::Dict{Int,Int}, src::Dict{Int,Int}, scale::Int)
+        scale = mod(scale, p)
+        scale == 0 && return dest
+
+        empty!(work)
+        sizehint!(work, length(dest) + length(src))
+
+        # Copy canonical storage into the temporary op buffer.
+        for (k, v) in dest
+            vv = mod(v, p)
+            vv == 0 && continue
+            work[k] = vv
+        end
+
+        # Apply the row operation in the buffer.
+        for (k, v) in src
+            nv = mod(get(work, k, 0) + scale * v, p)
+            if nv == 0
+                delete!(work, k)
+            else
+                work[k] = nv
+            end
+        end
+
+        # Rebuild canonical storage from the op buffer.
+        empty!(dest)
+        for (k, v) in work
+            dest[k] = v
+        end
+        return dest
+    end
+
+    pivot_row_by_col = Dict{Int,Dict{Int,Int}}()
+    pivot_order      = Int[]
+
+    for i in 1:m
+        row = rows[i]
+        isempty(row) && continue
+
+        # Eliminate all already-known pivot columns from this row.
+        while true
+            pivot_col = nothing
+            for c in keys(row)
+                if haskey(pivot_row_by_col, c)
+                    pivot_col = c
+                    break
+                end
+            end
+            pivot_col === nothing && break
+            prow = pivot_row_by_col[pivot_col]
+            coeff = get(row, pivot_col, 0)
+            coeff == 0 && break
+            axpy_row!(row, prow, -coeff)
+            isempty(row) && break
+        end
+        isempty(row) && continue
+
+        # Choose a deterministic pivot column among the remaining nonzeros.
+        pivot_col = typemax(Int)
+        for c in keys(row)
+            c < pivot_col && (pivot_col = c)
+        end
+        pivot_val = row[pivot_col]
+        pivot_val == 0 && continue
+        inv_pivot = invmod(pivot_val, p)
+        for (k, v) in row
+            row[k] = mod(v * inv_pivot, p)
+        end
+        row[pivot_col] = 1
+
+        # Store the row as a pivot equation.
+        pivot_row_by_col[pivot_col] = row
+        push!(pivot_order, pivot_col)
+    end
+
+    pivot_set = Set(keys(pivot_row_by_col))
+    free_cols = [j for j in 1:n if !(j in pivot_set)]
+    verbose && _log("  [bw] elimination complete: pivots=$(length(pivot_order))  free_cols=$(length(free_cols))")
+
+    basis = Vector{Vector{Int}}()
+    for f in free_cols
+        x = zeros(Int, n)
+        x[f] = 1
+
+        for pcol in reverse(pivot_order)
+            row = pivot_row_by_col[pcol]
+            s = 0
+            for (c, v) in row
+                c == pcol && continue
+                s = mod(s + v * x[c], p)
+            end
+            x[pcol] = mod(-s, p)
+        end
+
+        if any(!=(0), x)
+            # normalize so the first nonzero entry is 1
+            fi = findfirst(!=(0), x)
+            if fi !== nothing
+                inv_fi = invmod(x[fi], p)
+                x = mod.(x .* inv_fi, p)
+            end
+            push!(basis, x)
+            verbose && _log("  [bw] kernel vector $(length(basis)) found (free col=$f, support=$(count(!=(0), x)))")
+        end
+    end
+
+    if isempty(basis)
+        verbose && _log("  [bw] no kernel vectors recovered from elimination")
+    end
     return basis
 end
+
+
+function to_sparse_mod(A::SparseMatrixCSC{Int,Int}, p::Int)::SparseMatrixCSC{Int,Int}
+    m, n = size(A)
+    rv = rowvals(A)
+    nz = nonzeros(A)
+    I_idx = Int[]; J_idx = Int[]; V_vals = Int[]
+    for j in 1:n
+        @inbounds for idx in nzrange(A, j)
+            v = mod(nz[idx], p)
+            v == 0 && continue
+            push!(I_idx, rv[idx])
+            push!(J_idx, j)
+            push!(V_vals, v)
+        end
+    end
+    return sparse(I_idx, J_idx, V_vals, m, n)
+end
+
+function to_sparse_mod(M::AbstractMatrix{Int}, p::Int)::SparseMatrixCSC{Int,Int}
+    m, n = size(M)
+    if Threads.nthreads() == 1 || m * n < 250_000
+        I_idx = Int[]; J_idx = Int[]; V_vals = Int[]
+        for j in 1:n, i in 1:m
+            v = mod(M[i,j], p)
+            if v != 0
+                push!(I_idx, i); push!(J_idx, j); push!(V_vals, v)
+            end
+        end
+        return sparse(I_idx, J_idx, V_vals, m, n)
+    end
+
+    nchunks = max(1, min(Threads.nthreads(), n))
+    perI = [Int[] for _ in 1:nchunks]
+    perJ = [Int[] for _ in 1:nchunks]
+    perV = [Int[] for _ in 1:nchunks]
+    col_chunks = collect(Iterators.partition(1:n, cld(n, nchunks)))
+
+    Threads.@threads for chunk_idx in 1:length(col_chunks)
+        cols = col_chunks[chunk_idx]
+        I_loc = perI[chunk_idx]
+        J_loc = perJ[chunk_idx]
+        V_loc = perV[chunk_idx]
+        for j in cols
+            @inbounds for i in 1:m
+                v = mod(M[i,j], p)
+                if v != 0
+                    push!(I_loc, i)
+                    push!(J_loc, j)
+                    push!(V_loc, v)
+                end
+            end
+        end
+    end
+
+    I_idx = vcat(perI...)
+    J_idx = vcat(perJ...)
+    V_vals = vcat(perV...)
+    return sparse(I_idx, J_idx, V_vals, m, n)
+end
+
+function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
+                             expected_nullity::Int=1,
+                             dense_threshold::Int=50_000_000)
+    m, n = size(A)
+    if m * n <= dense_threshold
+        _log("  [kernel] using Nemo dense kernel ($(m)×$(n) = $(m*n) elements)")
+        Fp     = GF(p)
+        A_nemo = to_nemo_mat(A, Fp)
+        ker_mat = kernel(A_nemo; side=:right)
+        nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
+        return [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_ker] for j in 1:nc_ker]
+    else
+        _log("  [kernel] matrix too large for dense ($(m)×$(n)); using sparse modular elimination")
+        A_sp = to_sparse_mod(A, p)
+        return right_kernel_basis_wiedemann(A_sp, p;
+                                            block_size=64,
+                                            expected_nullity=expected_nullity,
+                                            seed=42,
+                                            verbose=true)
+    end
+end
+
 """
 Compute left kernel basis of A over GF(p) (= right kernel of A^T).
 """
-function left_kernel_basis(A_nemo, p::Int)
-    AT = transpose(A_nemo)
-    return right_kernel_basis(AT, p)
+function left_kernel_basis(A::AbstractMatrix{Int}, p::Int; kwargs...)
+    right_kernel_basis(permutedims(A), p; kwargs...)
 end
 
 # ---------------------------------------------------------------------------
@@ -835,8 +1350,7 @@ function check_homogeneous(M::AbstractMatrix{Int}, atoms, aidx, group_order::Int
         col === nothing && _log("  ⚠  $name unresolved — no column mapping available.")
     end
 
-    A_nemo   = to_nemo_mat(M_pruned, Fp)
-    ker_bas  = right_kernel_basis(A_nemo, n)
+    ker_bas  = right_kernel_basis(M_pruned, n; expected_nullity=max(2, nc - nr + 4))
     null_hom = length(ker_bas)
     rank_hom = nc - null_hom
     _log("\n  Pre-normalization nullity: $null_hom on the $(nr)×$(nc) system")
@@ -1137,7 +1651,7 @@ function extract_contradiction_certificate(M::AbstractMatrix{Int}, atoms, group_
     n_walk, n_cols = size(M_pruned)
 
     A_nemo    = to_nemo_mat(M_pruned, Fp)
-    ker_bas   = right_kernel_basis(A_nemo, n)
+    ker_bas   = right_kernel_basis(M_pruned, n; expected_nullity=max(2, n_cols - n_walk + 4))
     null_pre  = length(ker_bas)
     _log("  pre-normalization nullity: $null_pre on the $(n_walk)×$(n_cols) homogeneous system")
     extract_pin_rows(ker_bas, atoms, n_cols, n, p_col_inf; pin_isolated=false, max_preview=10)
@@ -1194,7 +1708,7 @@ function extract_contradiction_certificate(M::AbstractMatrix{Int}, atoms, group_
     end
     _log("  ✗  inconsistent — extracting left-kernel certificate ...")
 
-    left_bas   = left_kernel_basis(A_full_nemo, n)
+    left_bas   = left_kernel_basis(A_full_int, n; expected_nullity=4)
     left_null  = length(left_bas)
     _log("  left kernel dimension: $left_null")
 
@@ -1328,14 +1842,29 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
     p_col_tgt1 = remap(col_tgt1)
 
     n_rows, n_cols = size(M_pruned)
-    A_nemo   = to_nemo_mat(M_pruned, Fp)
-    rnk      = rank(A_nemo)
-    full_null = n_cols - rnk
+
+    # Guard: if the dense Nemo matrix would OOM, skip the rank-dependent sub-checks
+    # and fall back to BW for kernel only.
+    dense_ok = (n_rows * n_cols <= 200_000_000)
+    if dense_ok
+        A_nemo   = to_nemo_mat(M_pruned, Fp)
+        rnk      = rank(A_nemo)
+        full_null = n_cols - rnk
+    else
+        _log("  [check3] matrix too large for Nemo dense ($(n_rows)×$(n_cols)); skipping rank/A_nemo sub-checks")
+        A_nemo    = nothing
+        ker_bas3  = right_kernel_basis(M_pruned, n; expected_nullity=max(2, n_cols - n_rows + 4))
+        full_null = length(ker_bas3)
+        rnk       = n_cols - full_null
+    end
     _log("  pruned matrix: $n_rows rows × $n_cols cols")
     _log("  nullity       : $full_null")
 
     # A) Special-column order test
     _log("\n  --- A) Special-column order test ---")
+    if A_nemo === nothing
+        _log("  skipped (dense matrix unavailable)")
+    else
     specials = [("inf",p_col_inf),("gen0",p_col_gen0),("gen1",p_col_gen1),
                 ("tgt0",p_col_tgt0),("tgt1",p_col_tgt1)]
     for (name, col) in specials
@@ -1356,10 +1885,13 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
         end
         _log("  $(lpad(name,6)) (col $(lpad(col,5))): " * (found_k !== nothing ? "k=$found_k" : "k>24"))
     end
+    end  # end A_nemo guard for section A
 
     # B) Rank-without-inf test
     _log("\n  --- B) Rank-without-inf test ---")
-    if p_col_inf !== nothing
+    if A_nemo === nothing
+        _log("  skipped (dense matrix unavailable)")
+    elseif p_col_inf !== nothing
         cols_no_inf = [j for j in 1:n_cols if j != p_col_inf]
         A_no_inf    = to_nemo_mat(M_pruned[:, cols_no_inf], Fp)
         null_no_inf = length(cols_no_inf) - rank(A_no_inf)
@@ -1378,6 +1910,9 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
     # C) Direct fusion audit
     _log("\n  --- C) Direct fusion audit ---")
     special_by_col = Dict(c => nm for (nm, c) in specials if c !== nothing)
+    if A_nemo === nothing
+        _log("  skipped (dense matrix unavailable)")
+    else
     col_groups = Dict{Vector{Tuple{Int,Int}}, Vector{Int}}()
     zero_cols  = Int[]
     for j in 1:n_cols
@@ -1431,12 +1966,17 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
     else
         _log("  no proportional column classes found.")
     end
+    end  # end A_nemo guard for section C
 
-    # C2) Kernel-basis fusion sanity check (right kernel needed; compute here)
+    # C2) Kernel-basis fusion sanity check
     _log("\n  --- C2) Kernel-basis fusion sanity check ---")
-    ker_bas = right_kernel_basis(A_nemo, n)
+    ker_bas_c2 = if A_nemo === nothing
+        right_kernel_basis(M_pruned, n; expected_nullity=max(2, n_cols - n_rows + 4))
+    else
+        right_kernel_basis(M_pruned, n; expected_nullity=max(2, n_cols - n_rows + 4))
+    end
     kernel_fusions = Tuple{Any,Any}[]
-    for vec in ker_bas
+    for vec in ker_bas_c2
         support = [(j, vec[j]) for j in 1:n_cols if vec[j] != 0]
         if length(support) == 2
             (j0, c0), (j1, c1) = support
@@ -1460,8 +2000,13 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
     for (col_name, p_col) in [("gen0",p_col_gen0),("gen1",p_col_gen1),
                                ("tgt0",p_col_tgt0),("tgt1",p_col_tgt1)]
         p_col === nothing && continue
+        if A_nemo !== nothing
         hitting_rows = [(i, Int(lift(ZZ, A_nemo[i,p_col])))
                         for i in 1:n_rows if A_nemo[i,p_col] != Fp(0)]
+        else
+        hitting_rows = [(i, mod(M_pruned[i,p_col], n))
+                        for i in 1:n_rows if mod(M_pruned[i,p_col], n) != 0]
+        end
         _log("  $col_name: $(length(hitting_rows)) row(s)")
         for (row_i, coeff) in hitting_rows[1:min(5,end)]
             row_atoms = [(atoms[j], M_pruned[row_i,j]) for j in 1:n_cols if M_pruned[row_i,j]!=0]
@@ -1472,6 +2017,9 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
 
     # E) Row-subsampling stability
     _log("\n  --- E) Row-subsampling stability ---")
+    if A_nemo === nothing
+        _log("  skipped (dense matrix unavailable)")
+    else
     seed!(42)
     n_drop = max(1, n_rows ÷ 10)
     _log("  base nullity=$full_null; dropping $n_drop/$n_rows rows per trial")
@@ -1483,6 +2031,7 @@ function check_structural_collapse(M::AbstractMatrix{Int}, atoms, group_order::I
         delta = null_sub - full_null
         _log("  trial $trial: nullity=$null_sub delta=$(delta >= 0 ? "+$delta" : "$delta")")
     end
+    end  # end A_nemo guard for section E
 end
 
 # ---------------------------------------------------------------------------
@@ -1667,8 +2216,8 @@ function suggest_seeds_from_noparity_nullity(M::AbstractMatrix{Int}, atoms, grou
     protected_cols = Set(c for c in [remap(col_inf), remap(col_gen0), remap(col_gen1),
                                       remap(col_tgt0), remap(col_tgt1)] if c !== nothing)
 
-    A_nemo  = to_nemo_mat(M_pruned, Fp)
-    ker_bas = right_kernel_basis(A_nemo, n)
+    A_nemo  = nothing  # not constructed here; BW used instead
+    ker_bas = right_kernel_basis(M_pruned, n; expected_nullity=max(2, n_cols - size(M_pruned,1) + 4))
 
     atom_freq = Dict{String,Int}()
     for vec in ker_bas
@@ -1827,7 +2376,10 @@ function main(args=ARGS)
     _log("[load] col_inf=$col_inf  col_gen0=$col_gen0  col_gen1=$col_gen1  col_tgt0=$col_tgt0  col_tgt1=$col_tgt1")
 
     # --- Recover special columns from divisor_xs when metadata omits them ---
-    inferred_specials = infer_special_cols_from_divisor_xs(aidx, divisor_xs)
+    curve_coeffs_for_infer = load_curve_coeffs(hdf5_path)  # never nothing; falls back to DEFAULT
+    inferred_specials = infer_special_cols_from_divisor_xs(aidx, divisor_xs;
+                                                            curve_coeffs=curve_coeffs_for_infer,
+                                                            field_prime=field_prime)
     if divisor_xs !== nothing
         updates = String[]
         if col_gen0 === nothing && haskey(inferred_specials, "gen0") && inferred_specials["gen0"] !== nothing
@@ -1946,11 +2498,18 @@ function main(args=ARGS)
                           known_key, col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf)
     else
         _section("CHECK 1: HOMOGENEOUS SYSTEM  (skipped — no --known-key)")
-        Fp      = GF(group_order)
-        A_hom   = to_nemo_mat(M, Fp)
-        rank_hom = rank(A_hom)
-        null_hom = size(M,2) - rank_hom
-        _log("  rows=$(size(M,1))  cols=$(size(M,2))  rank=$rank_hom  nullity=$null_hom")
+        nr_hom, nc_hom = size(M)
+        if nr_hom * nc_hom <= 200_000_000
+            Fp      = GF(group_order)
+            A_hom   = to_nemo_mat(M, Fp)
+            rank_hom = rank(A_hom)
+            null_hom = nc_hom - rank_hom
+        else
+            ker_hom  = right_kernel_basis(M, group_order; expected_nullity=max(2, nc_hom - nr_hom + 4))
+            null_hom = length(ker_hom)
+            rank_hom = nc_hom - null_hom
+        end
+        _log("  rows=$nr_hom  cols=$nc_hom  rank=$rank_hom  nullity=$null_hom")
     end
 
     # --- Check 2 ---

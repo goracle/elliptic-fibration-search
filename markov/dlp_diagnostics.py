@@ -630,6 +630,8 @@ def dump_matrix_hdf5(
     group_order: int,
     path: str = "relation_matrix.h5",
     augment: bool = False,
+    coeffs=None,
+    p: int = None,
 ):
     """Dump the pruned relation matrix and metadata to an HDF5 file.
 
@@ -639,7 +641,9 @@ def dump_matrix_hdf5(
     /matrix_dense    : int32 dense matrix (rows × cols), stored if small enough
     /atoms           : variable-length UTF-8 strings, one per column
     /atom_index      : JSON string mapping atom_str -> col_index
-    /divisor_xs      : int64 array of the four divisor x-coordinates
+    /divisor_xs      : int64 array [x0,y0,x1,y1,x2,y2,x3,y3] — interleaved (x,y)
+                       pairs for gen0,gen1,tgt0,tgt1.  Falls back to bare-x
+                       [x0,x1,x2,x3] if y cannot be determined (coeffs/p absent).
     /group_order     : scalar int64
     /col_inf         : scalar int64 (column index of ∞, or -1)
     /col_gen0        : scalar int64
@@ -775,9 +779,78 @@ def dump_matrix_hdf5(
     ]
     atom_idx_js = json.dumps(aidx).encode("utf-8")
 
-    def _col(x):
-        c = aidx.get(str(int(x)))
+    # ------------------------------------------------------------------
+    # Resolve the y-coordinate for each divisor x so we can do exact
+    # (x, y) atom lookups.  Atoms are now keyed as "(x, y)" strings.
+    # ------------------------------------------------------------------
+    def _y_for_x(x_val):
+        """Return canonical y for x on the curve, or None if unavailable."""
+        if coeffs is None or p is None:
+            return None
+        # eval f(x) mod p
+        fx = 0
+        xpow = 1
+        for c in coeffs:
+            fx = (fx + int(c) * xpow) % p
+            xpow = xpow * x_val % p
+        # Tonelli-Shanks
+        n = fx % p
+        if n == 0:
+            return 0
+        if pow(n, (p - 1) // 2, p) != 1:
+            return None     # not a QR — divisor x is not on this curve branch
+        if p % 4 == 3:
+            r = pow(n, (p + 1) // 4, p)
+        else:
+            # Full Tonelli-Shanks
+            q, s = p - 1, 0
+            while q % 2 == 0:
+                q //= 2; s += 1
+            z = 2
+            while pow(z, (p - 1) // 2, p) != p - 1:
+                z += 1
+            m, c2, t, r = s, pow(z, q, p), pow(n, q, p), pow(n, (q + 1) // 2, p)
+            while True:
+                if t == 1:
+                    break
+                i, tmp = 1, t * t % p
+                while tmp != 1:
+                    tmp = tmp * tmp % p; i += 1
+                b = c2
+                for _ in range(m - i - 1):
+                    b = b * b % p
+                m, c2, t, r = i, b * b % p, t * (b * b % p) % p, r * b % p
+        return min(r, p - r)  # canonical (smaller) branch
+
+    def _col(x_val):
+        """Column index for divisor x, trying (x,y) key then bare-x fallback."""
+        x_val = int(x_val)
+        y = _y_for_x(x_val)
+        if y is not None:
+            key = f"({x_val}, {y})"
+            c = aidx.get(key)
+            if c is not None:
+                return np.int64(c)
+            # try the other y branch
+            key2 = f"({x_val}, {(p - y) % p})"
+            c = aidx.get(key2)
+            if c is not None:
+                return np.int64(c)
+        # bare-x fallback (legacy atoms or coeffs not supplied)
+        c = aidx.get(str(x_val))
         return np.int64(-1 if c is None else c)
+
+    # Build interleaved [x0,y0,x1,y1,...] for divisor_xs if y is computable,
+    # otherwise fall back to bare-x [x0,x1,x2,x3].
+    def _divisor_xs_array():
+        pairs = []
+        for x_val in [x0_a, x0_b, x0_c, x0_d]:
+            y = _y_for_x(int(x_val))
+            if y is None:
+                # Can't compute y — fall back to bare-x format
+                return np.array([x0_a, x0_b, x0_c, x0_d], dtype=np.int64)
+            pairs.extend([int(x_val), int(y)])
+        return np.array(pairs, dtype=np.int64)
 
     with h5py.File(path, "w") as f:
         # CSR group — always written.
@@ -802,12 +875,19 @@ def dump_matrix_hdf5(
         f.create_dataset("atom_index",  data=atom_idx_js)
 
         # Metadata.
-        f.create_dataset("divisor_xs",  data=np.array([x0_a, x0_b, x0_c, x0_d], dtype=np.int64))
+        dxs = _divisor_xs_array()
+        f.create_dataset("divisor_xs",  data=dxs)
+        _log(f"[dump_matrix_hdf5] divisor_xs written as {'interleaved xy' if len(dxs)==8 else 'bare-x (coeffs/p not supplied)'}: {dxs.tolist()}")
         f.create_dataset("group_order", data=np.int64(group_order))
+        if p is not None:
+            f.create_dataset("field_prime", data=np.int64(p))
+        if coeffs is not None:
+            f.create_dataset("curve_coeffs", data=np.array([int(c) for c in coeffs], dtype=np.int64))
         f.create_dataset("col_gen0",    data=_col(x0_a))
         f.create_dataset("col_gen1",    data=_col(x0_b))
         f.create_dataset("col_tgt0",    data=_col(x0_c))
         f.create_dataset("col_tgt1",    data=_col(x0_d))
+        _log(f"[dump_matrix_hdf5] col_gen0={_col(x0_a)} col_gen1={_col(x0_b)} col_tgt0={_col(x0_c)} col_tgt1={_col(x0_d)}")
         inf_col_idx = aidx.get(_INFINITY)
         f.create_dataset("col_inf",     data=np.int64(-1 if inf_col_idx is None else inf_col_idx))
 
@@ -840,7 +920,8 @@ def run_all_checks(
     """
     if dump_path is not None:
         try:
-            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path, augment=augment)
+            dump_matrix_hdf5(walkers, divisor_xs, group_order, path=dump_path, augment=augment,
+                             coeffs=coeffs, p=p)
         except Exception as exc:
             _log(f"  [dump_matrix_hdf5 FAILED: {exc}]")
             raise
