@@ -902,15 +902,42 @@ end
 Sparse mat-vec: A (m×n sparse Int) times v (length-n Int vector), mod p.
 """
 function spmv_mod(A::SparseMatrixCSC{Int,Int}, v::Vector{Int}, p::Int)::Vector{Int}
-    m = size(A, 1)
-    out = zeros(Int, m)
+    m    = size(A, 1)
+    nc   = size(A, 2)
+    nt   = Threads.nthreads()
     rows = rowvals(A)
     vals = nonzeros(A)
-    @inbounds for col in 1:size(A,2)
-        vj = v[col]
-        vj == 0 && continue
-        for idx in nzrange(A, col)
-            out[rows[idx]] = mod(out[rows[idx]] + vals[idx] * vj, p)
+    if nt == 1 || nc < 512
+        out = zeros(Int, m)
+        @inbounds for col in 1:nc
+            vj = v[col]
+            vj == 0 && continue
+            for idx in nzrange(A, col)
+                out[rows[idx]] = mod(out[rows[idx]] + vals[idx] * vj, p)
+            end
+        end
+        return out
+    end
+    # Each thread accumulates into its own output vector (partitioned by column)
+    # to avoid row-write races.  Merge serially at the end.
+    col_chunks  = collect(Iterators.partition(1:nc, cld(nc, nt)))
+    local_outs  = [zeros(Int, m) for _ in 1:length(col_chunks)]
+    Threads.@threads for t in 1:length(col_chunks)
+        lo = local_outs[t]
+        @inbounds for col in col_chunks[t]
+            vj = v[col]
+            vj == 0 && continue
+            for idx in nzrange(A, col)
+                r = rows[idx]
+                lo[r] = mod(lo[r] + vals[idx] * vj, p)
+            end
+        end
+    end
+    out = local_outs[1]
+    @inbounds for t in 2:length(local_outs)
+        lo = local_outs[t]
+        for i in 1:m
+            out[i] = mod(out[i] + lo[i], p)
         end
     end
     return out
@@ -920,13 +947,14 @@ end
 Sparse mat-vec with A^T: returns A^T * v mod p (v length-m, out length-n).
 """
 function spmv_T_mod(A::SparseMatrixCSC{Int,Int}, v::Vector{Int}, p::Int)::Vector{Int}
-    n = size(A, 2)
-    out = zeros(Int, n)
+    nc   = size(A, 2)
+    out  = zeros(Int, nc)
     rows = rowvals(A)
     vals = nonzeros(A)
-    @inbounds for col in 1:size(A,2)
+    # Each column of A gives one independent output element — embarrassingly parallel.
+    Threads.@threads for col in 1:nc
         s = 0
-        for idx in nzrange(A, col)
+        @inbounds for idx in nzrange(A, col)
             s += vals[idx] * v[rows[idx]]
         end
         out[col] = mod(s, p)
@@ -1175,9 +1203,13 @@ function right_kernel_basis_wiedemann(
         [rand(rng, 0:p-1, n) for _ in 1:k]
     end
 
-    function build_seeded_krylov_basis()
-        empty!(basis_vecs)
-        empty!(basis_pivot)
+    function build_seeded_krylov_basis(; wipe::Bool=false)
+        # On restarts we keep the existing basis and seed new random directions
+        # into it.  Only wipe when explicitly requested (e.g. first call).
+        if wipe
+            empty!(basis_vecs)
+            empty!(basis_pivot)
+        end
 
         frontier = random_block_vectors(seed_block_sz)
         added_total = 0
@@ -1204,21 +1236,33 @@ function right_kernel_basis_wiedemann(
                 length(basis_vecs) >= max_basis && break
             end
 
-            # Then absorb one B-step from everything we just discovered.
+            # Then absorb one B-step from everything we just discovered,
+            # computing B-images in parallel and inserting serially.
             absorb_list = vcat(frontier, next_frontier)
-            absorb_len = length(absorb_list)
+            absorb_len  = length(absorb_list)
             image_stride = max(16, cld(absorb_len, 8))
-            for (idx, v) in enumerate(absorb_list)
-                qB = B_apply(v)
-                inserted, _, w = insert_basis!(qB)
-                if inserted
-                    added_this_sweep += 1
-                    push!(image_frontier, w)
+            batch_sz_seed = max(1, Threads.nthreads() * 4)
+            ab_idx = 1
+            while ab_idx <= absorb_len
+                ab_end  = min(ab_idx + batch_sz_seed - 1, absorb_len)
+                ab_batch = absorb_list[ab_idx:ab_end]
+                ab_images = Vector{Vector{Int}}(undef, length(ab_batch))
+                Threads.@threads for k in 1:length(ab_batch)
+                    ab_images[k] = B_apply(ab_batch[k])
                 end
-                if verbose && (idx == 1 || idx % image_stride == 0 || idx == absorb_len)
-                    _log("  [bw] sweep=$sweep  image pass $idx/$absorb_len  basis=$(length(basis_vecs))  added=$added_this_sweep")
+                for (k, img) in enumerate(ab_images)
+                    inserted, _, w = insert_basis!(img)
+                    if inserted
+                        added_this_sweep += 1
+                        push!(image_frontier, w)
+                    end
+                    glob_idx = ab_idx + k - 1
+                    if verbose && (glob_idx == 1 || glob_idx % image_stride == 0 || glob_idx == absorb_len)
+                        _log("  [bw] sweep=$sweep  image pass $glob_idx/$absorb_len  basis=$(length(basis_vecs))  added=$added_this_sweep")
+                    end
                 end
                 length(basis_vecs) >= max_basis && break
+                ab_idx = ab_end + 1
             end
 
             added_total += added_this_sweep
@@ -1237,23 +1281,38 @@ function right_kernel_basis_wiedemann(
     end
 
     function close_under_B!()
-        # Keep sweeping the current basis under B until a full pass inserts no new
-        # vectors, or until we hit the closure limit.  This is the part the old
-        # implementation was too timid about.
+        # Sweep the live basis under B, processing newly inserted vectors in the
+        # same round rather than waiting for the next one.  We walk by index so
+        # that any vector appended during this sweep is picked up before we exit.
+        # A round ends when the live index has caught up to the current end of the
+        # basis without inserting anything new; only then is the subspace closed.
+        #
+        # B_apply calls are batched and parallelised; insert_basis! is serial
+        # (it mutates the shared basis and cannot be safely concurrent).
+        batch_sz = max(1, Threads.nthreads() * 4)
         for closure_round in 1:max_closures
+            start_len = length(basis_vecs)
             added = 0
-            current_basis = copy(basis_vecs)
-            basis_len = length(current_basis)
-            stride = max(16, cld(basis_len, 8))
-            verbose && _log("  [bw] closure_round=$closure_round  start_basis=$basis_len")
-            for (idx, q) in enumerate(current_basis)
-                qB = B_apply(q)
-                inserted, _, _ = insert_basis!(qB)
-                inserted && (added += 1)
-                if verbose && (idx == 1 || idx % stride == 0 || idx == basis_len)
-                    _log("  [bw] closure_round=$closure_round  progress $idx/$basis_len  basis=$(length(basis_vecs))  added=$added")
+            idx = 1
+            verbose && _log("  [bw] closure_round=$closure_round  start_basis=$start_len")
+            while idx <= length(basis_vecs)
+                # Grab a batch of basis vectors, compute their B-images in parallel.
+                batch_end = min(idx + batch_sz - 1, length(basis_vecs))
+                batch     = basis_vecs[idx:batch_end]
+                images    = Vector{Vector{Int}}(undef, length(batch))
+                Threads.@threads for k in 1:length(batch)
+                    images[k] = B_apply(batch[k])
+                end
+                # Insert results serially to keep the basis consistent.
+                for img in images
+                    inserted, _, _ = insert_basis!(img)
+                    inserted && (added += 1)
+                end
+                if verbose && (idx == 1 || batch_end % max(16, cld(start_len, 8)) == 0 || batch_end == length(basis_vecs))
+                    _log("  [bw] closure_round=$closure_round  progress $batch_end/$(length(basis_vecs))  basis=$(length(basis_vecs))  added=$added")
                 end
                 length(basis_vecs) >= max_basis && break
+                idx = batch_end + 1
             end
             verbose && _log("  [bw] closure_round=$closure_round  basis=$(length(basis_vecs))  added=$added")
             added == 0 && return true
@@ -1266,8 +1325,12 @@ function right_kernel_basis_wiedemann(
     seen  = Set{Vector{Int}}()
 
     for restart in 1:max_restarts
+        prev_dim = length(basis_vecs)
+        # First restart seeds from scratch; subsequent ones inject fresh random
+        # directions into the existing span so accumulated progress is kept.
+        wipe_this = (restart == 1)
         verbose && _log("  [bw] restart=$restart  seeding long Krylov basis (seed_block_sz=$seed_block_sz, max_sweeps=$max_sweeps)")
-        build_seeded_krylov_basis()
+        build_seeded_krylov_basis(; wipe=wipe_this)
 
         if isempty(basis_vecs)
             verbose && _log("  [bw] restart=$restart produced no basis vectors; retrying")
@@ -1279,21 +1342,17 @@ function right_kernel_basis_wiedemann(
         status = closed ? "yes" : "no"
         verbose && _log("  [bw] restart=$restart  invariant_basis=$status  dim=$k")
 
-        # If the basis is still not closed, one more closure sweep after the new
-        # vectors were inserted can often settle it.  If not, restart with fresh
-        # seeds rather than trusting a partial invariant subspace.
         if !closed
-            closed = close_under_B!()
-            k = length(basis_vecs)
-            status = closed ? "yes" : "no"
-            verbose && _log("  [bw] restart=$restart  after second closure pass: invariant_basis=$status  dim=$k")
-            closed = close_under_B!()
-            k = length(basis_vecs)
-        end
-
-        if !closed
-            verbose && _log("  [bw] restart=$restart: basis still not invariant; continuing")
-            continue
+            # If the basis grew since we entered this restart, don't discard it —
+            # just move on to the next restart which will seed more directions into
+            # the same span.  Only treat it as a true stall if nothing was added.
+            if k > prev_dim
+                verbose && _log("  [bw] restart=$restart: basis grew ($prev_dim→$k) but not yet closed; continuing")
+            else
+                verbose && _log("  [bw] restart=$restart: basis stagnant at dim=$k; will re-seed")
+            end
+            # Either way, attempt kernel extraction before looping — the partially
+            # closed subspace may already contain good kernel vectors.
         end
 
         # Build T, the matrix of B restricted to the current basis:
