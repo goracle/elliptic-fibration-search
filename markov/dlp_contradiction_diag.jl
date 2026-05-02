@@ -1077,6 +1077,7 @@ Per kernel vector:
 
 Working vectors always stay in GF(p)^m — no dimension confusion.
 """
+
 function right_kernel_basis_wiedemann(
         A_sp::SparseMatrixCSC{Int,Int},
         p::Int;
@@ -1088,128 +1089,339 @@ function right_kernel_basis_wiedemann(
     m, n = size(A_sp)
     rng  = MersenneTwister(seed)
 
-    # Work with B = A^T*A (n×n).  When n > rank(A), B is always singular with
-    # nullity = n - rank(A) ≥ expected_nullity.  (A*A^T is m×m and is *invertible*
-    # when A has full row rank after dedup, making its kernel trivial — that was the
-    # bug in the previous version.)
+    # Long-sequence block Krylov / block Wiedemann-style solver.
     #
-    # Krylov sequence: s[k] = u · (A * vk),  vk = (A^T*A)^k * v0.
-    # Projecting through A (not directly onto vk) ensures the zero eigenspace of
-    # A^T*A does not appear in the scalar sequence, so BM finds a polynomial λ with
-    # λ(0) ≠ 0.  Applying λ(A^T*A) to v0 then projects v0 onto ker(A^T*A) ∩ ker(A).
+    # We build a large Krylov-generated subspace for B = A^T*A by repeatedly
+    # applying B to a block of random starting vectors, then close the span under
+    # B until it is invariant.  Once the restricted operator T is exact, we lift
+    # ker(T) back to ambient space and certify each candidate with A*x = 0.
     #
-    # Krylov length: min poly of B on a random vector has degree ≤ rank(A) ≤ min(m,n).
-    L = 2 * min(m, n) + 64
-    verbose && _log("  [bw] Scalar Wiedemann (B=A^T*A, n×n)  m=$m  n=$n  nnz=$(nnz(A_sp))  L=$L  want=$(expected_nullity)")
+    # This is intentionally conservative: if the span is too small or refuses to
+    # close, we keep expanding rather than returning speculative vectors.
 
-    # Scalar BM over GF(p).
-    function scalar_bm(s::Vector{Int})::Vector{Int}
-        nn = length(s)
-        C_bm = [1]; B_bm = [1]
-        L_bm = 0; bm_m = 1; b_bm = 1
-        for i in 1:nn
-            d = mod(sum(C_bm[k+1] * s[i-k] for k in 0:L_bm if i-k >= 1; init=0), p)
-            if d == 0
-                bm_m += 1
-            elseif 2*L_bm <= i-1
-                T = copy(C_bm)
-                inv_b = invmod(b_bm, p)
-                coef  = mod(d * inv_b, p)
-                new_len = max(length(C_bm), length(B_bm) + bm_m)
-                resize!(C_bm, new_len)
-                for k in eachindex(B_bm)
-                    C_bm[k+bm_m] = mod(C_bm[k+bm_m] - coef * B_bm[k], p)
-                end
-                L_bm = i - L_bm; B_bm = T; b_bm = d; bm_m = 1
-            else
-                inv_b = invmod(b_bm, p)
-                coef  = mod(d * inv_b, p)
-                new_len = max(length(C_bm), length(B_bm) + bm_m)
-                resize!(C_bm, new_len)
-                for k in eachindex(B_bm)
-                    C_bm[k+bm_m] = mod(C_bm[k+bm_m] - coef * B_bm[k], p)
-                end
-                bm_m += 1
-            end
-        end
-        return C_bm
+    max_basis      = min(n, max(8 * block_size, expected_nullity + 256, 1024))
+    max_sweeps     = max(12, cld(max_basis, max(1, block_size)) + 8)
+    max_closures   = max(4, cld(expected_nullity, max(1, block_size)) + 4)
+    max_restarts   = max(3, cld(expected_nullity, max(1, block_size)) + 2)
+    seed_block_sz  = min(n, max(block_size, expected_nullity ÷ 2 + 32, 64))
+
+    verbose && _log("  [bw] Block Krylov solver (B=A^T*A, n×n)  m=$m  n=$n  nnz=$(nnz(A_sp))  block=$block_size  target=$(expected_nullity)")
+
+    # Sparse operator B = A^T*A, applied without materializing B.
+    B_apply(v::Vector{Int}) = spmv_T_mod(A_sp, spmv_mod(A_sp, v, p), p)
+
+    # Dense kernel over GF(p) for the small basis matrix T.
+    function dense_kernel_basis_mod(M::Matrix{Int}, p::Int)
+        Fp = GF(p)
+        ker_mat = kernel(to_nemo_mat(M, Fp); side=:right)
+        nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
+        return [Int[lift(ZZ, ker_mat[i, j]) for i in 1:nr_ker] for j in 1:nc_ker]
     end
 
-    basis    = Vector{Vector{Int}}()
-    seen     = Set{Vector{Int}}()
-    attempts = 0
-    max_attempts = expected_nullity * 8 + 40
+    # Reduced row-echelon-style basis for vectors over GF(p).
+    basis_vecs  = Vector{Vector{Int}}()
+    basis_pivot = Int[]
 
-    while length(basis) < expected_nullity && attempts < max_attempts
-        attempts += 1
-
-        v = rand(rng, 0:p-1, n)   # starting vector in GF(p)^n  (column space)
-        u = rand(rng, 0:p-1, m)   # left projector  in GF(p)^m  (row space)
-
-        # Build scalar Krylov sequence s[k] = u · (A * vk).
-        # vk = (A^T*A)^k * v;  each step: Avk = A*vk (m-dim), vk = A^T*Avk (n-dim).
-        s  = zeros(Int, L + 1)
-        vk = copy(v)
-        for k in 0:L
-            Avk = spmv_mod(A_sp, vk, p)              # A*vk,      length m
-            s[k+1] = mod(dot(u, Avk), p)
-            k < L && (vk = spmv_T_mod(A_sp, Avk, p)) # A^T*(A*vk), length n
-        end
-
-        # BM → minimal polynomial λ.
-        lambda = scalar_bm(s)
-        d = length(lambda) - 1
-
-        if d == 0
-            verbose && length(basis) == 0 && _log("  [bw] attempt=$attempts: trivial BM poly, retrying")
-            continue
-        end
-
-        # Compute x = λ(A^T*A)*v = Σ_{k=0}^{d} λ[k+1] * (A^T*A)^k * v  (length n).
-        x  = zeros(Int, n)
-        vk = copy(v)
-        for k in 0:d
-            lk = mod(lambda[k+1], p)
-            if lk != 0
-                @inbounds for i in 1:n; x[i] = mod(x[i] + lk * vk[i], p); end
+    function reduce_with_basis(v::Vector{Int})
+        w = copy(v)
+        coeffs = zeros(Int, length(basis_vecs))
+        for k in length(basis_vecs):-1:1
+            pk = basis_pivot[k]
+            c = w[pk]
+            if c != 0
+                coeffs[k] = c
+                bv = basis_vecs[k]
+                @inbounds for j in 1:n
+                    w[j] = mod(w[j] - c * bv[j], p)
+                end
             end
-            if k < d
-                Avk = spmv_mod(A_sp, vk, p)
-                vk  = spmv_T_mod(A_sp, Avk, p)
+        end
+        return coeffs, w
+    end
+
+    function insert_basis!(v::Vector{Int})
+        coeffs, w = reduce_with_basis(v)
+        all(==(0), w) && return false, coeffs, w
+
+        pv = findfirst(!=(0), w)
+        pv === nothing && return false, coeffs, w
+        inv_pv = invmod(w[pv], p)
+        w = mod.(w .* inv_pv, p)
+
+        # Eliminate the new pivot from all existing basis vectors to keep the
+        # basis in reduced form.
+        for i in eachindex(basis_vecs)
+            c = basis_vecs[i][pv]
+            if c != 0
+                bi = basis_vecs[i]
+                @inbounds for j in 1:n
+                    bi[j] = mod(bi[j] - c * w[j], p)
+                end
             end
         end
 
-        all(==(0), x) && continue
+        # Insert while preserving increasing pivot order.
+        pos = searchsortedfirst(basis_pivot, pv)
+        insert!(basis_pivot, pos, pv)
+        insert!(basis_vecs, pos, w)
+        return true, coeffs, w
+    end
 
-        # Verify A*x = 0.
-        Ax = spmv_mod(A_sp, x, p)
-        if any(!=(0), Ax)
-            verbose && length(basis) == 0 && _log("  [bw] attempt=$attempts: A*x≠0, retrying")
+    function basis_coordinates(v::Vector{Int})
+        return reduce_with_basis(v)
+    end
+
+    function random_block_vectors(k::Int)
+        [rand(rng, 0:p-1, n) for _ in 1:k]
+    end
+
+    function build_seeded_krylov_basis()
+        empty!(basis_vecs)
+        empty!(basis_pivot)
+
+        frontier = random_block_vectors(seed_block_sz)
+        added_total = 0
+
+        for sweep in 1:max_sweeps
+            added_this_sweep = 0
+            next_frontier = Vector{Vector{Int}}()
+            image_frontier = Vector{Vector{Int}}()
+
+            frontier_len = length(frontier)
+            step_stride = max(16, cld(frontier_len, 8))
+            verbose && _log("  [bw] sweep=$sweep  frontier=$frontier_len  basis=$(length(basis_vecs))")
+
+            # First absorb the current frontier itself.
+            for (idx, v) in enumerate(frontier)
+                inserted, _, w = insert_basis!(v)
+                if inserted
+                    added_this_sweep += 1
+                    push!(next_frontier, w)
+                end
+                if verbose && (idx == 1 || idx % step_stride == 0 || idx == frontier_len)
+                    _log("  [bw] sweep=$sweep  frontier pass $idx/$frontier_len  basis=$(length(basis_vecs))  added=$added_this_sweep")
+                end
+                length(basis_vecs) >= max_basis && break
+            end
+
+            # Then absorb one B-step from everything we just discovered.
+            absorb_list = vcat(frontier, next_frontier)
+            absorb_len = length(absorb_list)
+            image_stride = max(16, cld(absorb_len, 8))
+            for (idx, v) in enumerate(absorb_list)
+                qB = B_apply(v)
+                inserted, _, w = insert_basis!(qB)
+                if inserted
+                    added_this_sweep += 1
+                    push!(image_frontier, w)
+                end
+                if verbose && (idx == 1 || idx % image_stride == 0 || idx == absorb_len)
+                    _log("  [bw] sweep=$sweep  image pass $idx/$absorb_len  basis=$(length(basis_vecs))  added=$added_this_sweep")
+                end
+                length(basis_vecs) >= max_basis && break
+            end
+
+            added_total += added_this_sweep
+            verbose && _log("  [bw] sweep=$sweep  basis=$(length(basis_vecs))  added=$added_this_sweep  next_frontier=$(length(vcat(next_frontier, image_frontier)))")
+
+            # Advance the frontier.  Even if nothing new was inserted this sweep,
+            # keep a few more rounds going: a shallow frontier can stall before the
+            # actual invariant subspace has been exposed.
+            frontier = vcat(next_frontier, image_frontier)
+            isempty(frontier) && break
+            length(basis_vecs) >= max_basis && break
+            added_this_sweep == 0 && sweep >= 3 && break
+        end
+
+        return added_total
+    end
+
+    function close_under_B!()
+        # Keep sweeping the current basis under B until a full pass inserts no new
+        # vectors, or until we hit the closure limit.  This is the part the old
+        # implementation was too timid about.
+        for closure_round in 1:max_closures
+            added = 0
+            current_basis = copy(basis_vecs)
+            basis_len = length(current_basis)
+            stride = max(16, cld(basis_len, 8))
+            verbose && _log("  [bw] closure_round=$closure_round  start_basis=$basis_len")
+            for (idx, q) in enumerate(current_basis)
+                qB = B_apply(q)
+                inserted, _, _ = insert_basis!(qB)
+                inserted && (added += 1)
+                if verbose && (idx == 1 || idx % stride == 0 || idx == basis_len)
+                    _log("  [bw] closure_round=$closure_round  progress $idx/$basis_len  basis=$(length(basis_vecs))  added=$added")
+                end
+                length(basis_vecs) >= max_basis && break
+            end
+            verbose && _log("  [bw] closure_round=$closure_round  basis=$(length(basis_vecs))  added=$added")
+            added == 0 && return true
+            length(basis_vecs) >= max_basis && break
+        end
+        return false
+    end
+
+    basis = Vector{Vector{Int}}()
+    seen  = Set{Vector{Int}}()
+
+    for restart in 1:max_restarts
+        verbose && _log("  [bw] restart=$restart  seeding long Krylov basis (seed_block_sz=$seed_block_sz, max_sweeps=$max_sweeps)")
+        build_seeded_krylov_basis()
+
+        if isempty(basis_vecs)
+            verbose && _log("  [bw] restart=$restart produced no basis vectors; retrying")
             continue
         end
 
-        # Normalize by leading nonzero.
-        fi = findfirst(!=(0), x)
-        fi === nothing && continue
-        inv_fi = invmod(x[fi], p)
-        x = mod.(x .* inv_fi, p)
+        closed = close_under_B!()
+        k = length(basis_vecs)
+        status = closed ? "yes" : "no"
+        verbose && _log("  [bw] restart=$restart  invariant_basis=$status  dim=$k")
 
-        x in seen && continue
-        push!(seen, x)
-        push!(basis, x)
-        verbose && _log("  [bw] kernel vector $(length(basis))/$(expected_nullity) found (attempt=$attempts, deg=$d, support=$(count(!=(0),x)))")
+        # If the basis is still not closed, one more closure sweep after the new
+        # vectors were inserted can often settle it.  If not, restart with fresh
+        # seeds rather than trusting a partial invariant subspace.
+        if !closed
+            closed = close_under_B!()
+            k = length(basis_vecs)
+            status = closed ? "yes" : "no"
+            verbose && _log("  [bw] restart=$restart  after second closure pass: invariant_basis=$status  dim=$k")
+            closed = close_under_B!()
+            k = length(basis_vecs)
+        end
+
+        if !closed
+            verbose && _log("  [bw] restart=$restart: basis still not invariant; continuing")
+            continue
+        end
+
+        # Build T, the matrix of B restricted to the current basis:
+        #   B * q_j = sum_i T[i,j] q_i.
+        T = zeros(Int, k, k)
+        invariant_ok = true
+        for j in 1:k
+            coeffs, residual = basis_coordinates(B_apply(basis_vecs[j]))
+            if any(!=(0), residual)
+                invariant_ok = false
+                continue
+            end
+            @inbounds for i in 1:k
+                T[i, j] = mod(coeffs[i], p)
+            end
+        end
+
+        if !invariant_ok
+            # Some basis vectors leaked out of the current span.  Instead of
+            # stopping at the first witness, scan the whole basis and add every
+            # leaked residual we can see in this pass.
+            leak_count = 0
+            current_basis = copy(basis_vecs)
+            basis_len = length(current_basis)
+            stride = max(16, cld(basis_len, 8))
+            verbose && _log("  [bw] restart=$restart  leak_scan start_basis=$basis_len")
+            for (idx, q) in enumerate(current_basis)
+                coeffs, residual = basis_coordinates(B_apply(q))
+                if any(!=(0), residual)
+                    inserted, _, _ = insert_basis!(residual)
+                    inserted && (leak_count += 1)
+                else
+                    @inbounds for i in 1:length(coeffs)
+                        T[i, idx] = mod(coeffs[i], p)
+                    end
+                end
+                if verbose && (idx == 1 || idx % stride == 0 || idx == basis_len)
+                    _log("  [bw] restart=$restart  leak_scan progress $idx/$basis_len  basis=$(length(basis_vecs))  leaks=$leak_count")
+                end
+                length(basis_vecs) >= max_basis && break
+            end
+            verbose && _log("  [bw] restart=$restart  leak_scan inserted=$leak_count  dim=$(length(basis_vecs))")
+            closed = close_under_B!()
+            k = length(basis_vecs)
+            status = closed ? "yes" : "no"
+            verbose && _log("  [bw] restart=$restart  post-leak closure: invariant_basis=$status  dim=$k")
+            if !closed
+                continue
+            end
+            T = zeros(Int, k, k)
+            invariant_ok = true
+            for j in 1:k
+                coeffs, residual = basis_coordinates(B_apply(basis_vecs[j]))
+                if any(!=(0), residual)
+                    invariant_ok = false
+                    break
+                end
+                @inbounds for i in 1:k
+                    T[i, j] = mod(coeffs[i], p)
+                end
+            end
+        end
+
+        if !invariant_ok
+            verbose && _log("  [bw] restart=$restart: basis still not invariant; continuing")
+            continue
+        end
+
+        verbose && _log("  [bw] invariant subspace dimension k=$k")
+        ker_T = dense_kernel_basis_mod(T, p)
+        if isempty(ker_T)
+            verbose && _log("  [bw] restart=$restart: ker(T)=0")
+            continue
+        end
+
+        # Lift kernel vectors: x = Q * y, where Q columns are the basis vectors.
+        candidates = Vector{Vector{Int}}()
+        empty!(seen)
+        for y in ker_T
+            x = zeros(Int, n)
+            for j in 1:k
+                yj = mod(y[j], p)
+                if yj != 0
+                    qj = basis_vecs[j]
+                    @inbounds for i in 1:n
+                        x[i] = mod(x[i] + yj * qj[i], p)
+                    end
+                end
+            end
+            all(==(0), x) && continue
+
+            # Verify the candidate in the original system, not just in T.
+            Ax = spmv_mod(A_sp, x, p)
+            if any(!=(0), Ax)
+                verbose && _log("  [bw] restart=$restart: lifted candidate failed A*x=0; discarding")
+                continue
+            end
+
+            fi = findfirst(!=(0), x)
+            fi === nothing && continue
+            inv_fi = invmod(x[fi], p)
+            x = mod.(x .* inv_fi, p)
+
+            if !(x in seen)
+                push!(seen, x)
+                push!(candidates, x)
+            end
+            length(candidates) >= expected_nullity && break
+        end
+
+        if !isempty(candidates)
+            basis = candidates
+            verbose && _log("  [bw] recovered $(length(basis)) kernel vector(s) from restart=$restart")
+            if length(basis) >= expected_nullity
+                break
+            end
+        else
+            verbose && _log("  [bw] restart=$restart: no verified kernel vectors recovered")
+        end
     end
 
     if isempty(basis)
-        verbose && _log("  [bw] no kernel vectors recovered after $attempts attempts")
+        verbose && _log("  [bw] no kernel vectors recovered")
     else
-        verbose && _log("  [bw] recovered $(length(basis)) kernel vector(s) in $attempts attempts")
+        verbose && _log("  [bw] recovered $(length(basis)) kernel vector(s) total")
     end
     return basis
 end
-
-
-
 
 function to_sparse_mod(A::SparseMatrixCSC{Int,Int}, p::Int)::SparseMatrixCSC{Int,Int}
     m, n = size(A)
@@ -1285,7 +1497,7 @@ function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
         _log("  [kernel] matrix too large for dense ($(m)×$(n)); using Block Wiedemann")
         A_sp = to_sparse_mod(A, p)
         return right_kernel_basis_wiedemann(A_sp, p;
-                                            block_size=max(64, min(256, expected_nullity + 16)),
+                                            block_size=max(32, min(64, expected_nullity + 16)),
                                             expected_nullity=expected_nullity,
                                             seed=42,
                                             verbose=true)
@@ -1358,7 +1570,8 @@ function check_homogeneous(M::AbstractMatrix{Int}, atoms, aidx, group_order::Int
         coeffs  = [c for (_,c) in support]
         is_flat = length(unique(coeffs)) == 1
         special_vals = Dict(nm => (c <= length(bv) ? bv[c] : 0) for (nm,c) in special_cols)
-        _log("  basis[$(bi-1)]: support_size=$(length(support)) flat=$(is_flat ? "yes" : "no") specials=$special_vals")
+        flat_status = is_flat ? "yes" : "no"
+        _log("  basis[$(bi-1)]: support_size=$(length(support)) flat=$flat_status specials=$special_vals")
         is_flat  && _log("    flat vector: all atoms share the same log")
         !is_flat && length(unique(values(special_vals))) == 1 && _log("    special atoms all equal")
         !is_flat && length(unique(values(special_vals))) > 1  && _log("    special atoms differ; DLP direction still present")
