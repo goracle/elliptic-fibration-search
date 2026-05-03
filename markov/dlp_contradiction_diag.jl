@@ -1759,22 +1759,23 @@ function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
     # to pin the rank exactly with high probability.  The cost is O(n²) sparse GE
     # on a row-sufficient subsample, typically 2–5× the first probe time but still
     # orders of magnitude cheaper than BW.
-    if nullity_est > 8 * expected_nullity && probe_rows < m
-        probe2_rows = min(m, n + 2 * expected_nullity + 256)
-        if probe2_rows > probe_rows
-            _log(@sprintf("  [rank-probe2] initial probe too loose (nullity≤%d >> target %d); re-probing on %d / %d rows ...",
-                          nullity_est, expected_nullity, probe2_rows, m))
-            t_probe2 = @elapsed begin
-                rank_est2, nullity_est2 = sparse_rank_estimate(A_sp, p; n_rows=probe2_rows)
-            end
-            _log(@sprintf("  [rank-probe2] done in %.2fs  rank≥%d  nullity≤%d",
-                          t_probe2, rank_est2, nullity_est2))
-            # Accept the tighter result.
-            rank_est    = rank_est2
-            nullity_est = nullity_est2
-            probe_rows  = probe2_rows
-        end
-    end
+    # rank-probe2 disabled (too slow)
+    # if nullity_est > 8 * expected_nullity && probe_rows < m
+    #     probe2_rows = min(m, n + 2 * expected_nullity + 256)
+    #     if probe2_rows > probe_rows
+    #         _log(@sprintf("  [rank-probe2] initial probe too loose (nullity≤%d >> target %d); re-probing on %d / %d rows ...",
+    #                       nullity_est, expected_nullity, probe2_rows, m))
+    #         t_probe2 = @elapsed begin
+    #             rank_est2, nullity_est2 = sparse_rank_estimate(A_sp, p; n_rows=probe2_rows)
+    #         end
+    #         _log(@sprintf("  [rank-probe2] done in %.2fs  rank≥%d  nullity≤%d",
+    #                       t_probe2, rank_est2, nullity_est2))
+    #         # Accept the tighter result.
+    #         rank_est    = rank_est2
+    #         nullity_est = nullity_est2
+    #         probe_rows  = probe2_rows
+    #     end
+    # end
 
     # --- Cheap-rank detection: can we skip Block Wiedemann? ---
     cheap, cheap_reason = rank_is_cheap(m, n, rank_est, nullity_est, probe_rows;
@@ -2965,16 +2966,16 @@ function main(args=ARGS)
     known_key === nothing && _log("[load] --known-key not supplied; log-G membership test will be skipped.")
 
     # --- Degree-balance filter ---
-    # Every valid relation satisfies sum(row) == 0 over ZZ (the +coeff finite
-    # atoms and the -curve_degree on ∞ cancel).  Rows that violate this are
-    # degree-imbalanced and must be dropped; they arise from serialisation bugs
-    # in older logs (the x_step/x_res/extra_roots named-slot encoding silently dropped
-    # extra_roots).  No repair heuristic: a row is either balanced or it isn't.
+    # Every valid relation satisfies sum(row) == 0 mod group_order.
+    # The ∞ coefficient is stored as its positive representative mod group_order
+    # (e.g. -5 mod 25373 = 25368), so the sum over plain ZZ will be ~group_order,
+    # not 0.  We must check mod group_order, not over ZZ.
     n_cols     = size(M, 2)
     keep_rows  = Int[]
     malformed  = Int[]
     for r in 1:size(M, 1)
-        sum(M[r, c] for c in 1:n_cols) == 0 ? push!(keep_rows, r) : push!(malformed, r)
+        s = mod(sum(Int(M[r, c]) for c in 1:n_cols), group_order)
+        s == 0 ? push!(keep_rows, r) : push!(malformed, r)
     end
 
     if !isempty(malformed)
