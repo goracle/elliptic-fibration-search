@@ -875,103 +875,44 @@ end
 
 function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
                              expected_nullity::Int=1,
-                             dense_threshold::Int=50_000_000)
+                             dense_threshold::Int=100_000_000)
     m, n = size(A)
 
-    # --- Fast path: matrix fits comfortably in Nemo dense ---
-    if m * n <= dense_threshold
-        _log("  [kernel] using Nemo dense kernel ($(m)×$(n) = $(m*n) elements)")
-        Fp     = GF(p)
-        A_nemo = to_nemo_mat(A, Fp)
-        ker_mat = kernel(A_nemo; side=:right)
-        nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
-        return [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_ker] for j in 1:nc_ker]
+    # Block Wiedemann is currently disabled (buggy). All calls route through
+    # Nemo dense. If the matrix is genuinely too large, we raise rather than
+    # silently falling back to broken BW.
+    if m * n > dense_threshold
+        throw(ErrorException(
+            "[kernel] matrix $(m)×$(n) = $(m*n) elements exceeds dense_threshold=$dense_threshold " *
+            "and Block Wiedemann is currently disabled. Reduce the matrix or raise dense_threshold."
+        ))
     end
 
-    # --- Large matrix: run sparse rank probe first ---
-    _log("  [kernel] matrix too large for dense ($(m)×$(n) = $(m*n) > $dense_threshold)")
-    A_sp = to_sparse_mod(A, p)
+    _log("  [kernel] using Nemo dense kernel ($(m)×$(n) = $(m*n) elements)")
+    Fp      = GF(p)
+    A_nemo  = to_nemo_mat(A, Fp)
+    ker_mat = kernel(A_nemo; side=:right)
+    nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
+    return [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_ker] for j in 1:nc_ker]
 
-    # Probe size: cover as many rows as practical without dominating wall time.
-    # If m is modest enough to probe fully, do so — it makes rank_is_cheap
-    # condition 2 fire and avoids BW entirely.
-    probe_rows = min(m, max(4096, 8 * Int(ceil(sqrt(n)))))
-    _log("  [rank-probe] sparse GE on $probe_rows / $m rows × $n cols ...")
-    t_probe = @elapsed begin
-        rank_est, nullity_est = sparse_rank_estimate(A_sp, p; n_rows=probe_rows)
-    end
-    _log(@sprintf("  [rank-probe] done in %.2fs  rank≥%d  nullity≤%d  (BW target was %d)",
-                  t_probe, rank_est, nullity_est, expected_nullity))
-
-    # --- Second targeted probe when initial probe is too loose ---
+    # --- Block Wiedemann (disabled — buggy, do not re-enable without fixing) ---
+    # To re-enable: remove the size check / throw above, restore the probe +
+    # rank_is_cheap routing below, and delete this comment block.
     #
-    # The initial probe samples min(m, max(4096, 8√n)) rows.  For a near-square
-    # matrix (m ≈ n) this is often only 20–30% of rows, giving a nullity upper
-    # bound far above the true nullity (e.g. nullity≤10591 when true nullity≈70).
-    # In that regime the cheap-rank conditions below can't fire even though a
-    # full-row dense solve would be perfectly tractable.
-    #
-    # Trigger: nullity_est > 8 * expected_nullity  AND  probe was a strict subsample.
-    # Action: re-probe using min(m, n + 2*expected_nullity + 256) rows — just enough
-    # to pin the rank exactly with high probability.  The cost is O(n²) sparse GE
-    # on a row-sufficient subsample, typically 2–5× the first probe time but still
-    # orders of magnitude cheaper than BW.
-    # rank-probe2 disabled (too slow)
-    # if nullity_est > 8 * expected_nullity && probe_rows < m
-    #     probe2_rows = min(m, n + 2 * expected_nullity + 256)
-    #     if probe2_rows > probe_rows
-    #         _log(@sprintf("  [rank-probe2] initial probe too loose (nullity≤%d >> target %d); re-probing on %d / %d rows ...",
-    #                       nullity_est, expected_nullity, probe2_rows, m))
-    #         t_probe2 = @elapsed begin
-    #             rank_est2, nullity_est2 = sparse_rank_estimate(A_sp, p; n_rows=probe2_rows)
-    #         end
-    #         _log(@sprintf("  [rank-probe2] done in %.2fs  rank≥%d  nullity≤%d",
-    #                       t_probe2, rank_est2, nullity_est2))
-    #         # Accept the tighter result.
-    #         rank_est    = rank_est2
-    #         nullity_est = nullity_est2
-    #         probe_rows  = probe2_rows
-    #     end
+    # A_sp = to_sparse_mod(A, p)
+    # probe_rows = min(m, max(4096, 8 * Int(ceil(sqrt(n)))))
+    # rank_est, nullity_est = sparse_rank_estimate(A_sp, p; n_rows=probe_rows)
+    # cheap, _ = rank_is_cheap(m, n, rank_est, nullity_est, probe_rows;
+    #                          dense_threshold=dense_threshold)
+    # if cheap
+    #     needed = min(m, max(n + nullity_est + 64, probe_rows))
+    #     return dense_kernel_from_subsample(A, p, needed, nullity_est)
     # end
-
-    # --- Cheap-rank detection: can we skip Block Wiedemann? ---
-    cheap, cheap_reason = rank_is_cheap(m, n, rank_est, nullity_est, probe_rows;
-                                        dense_threshold=dense_threshold)
-
-    if nullity_est == 0
-        # Full-rank probe: kernel is trivially empty regardless.
-        _log("  [rank-probe] nullity=0 → skipping BW (trivial kernel)")
-        return Vector{Vector{Int}}()
-    end
-
-    if cheap
-        _log("  [rank-probe] rank computable cheaply: $cheap_reason")
-        _log("  [rank-probe] routing to Nemo dense kernel (skipping Block Wiedemann)")
-        # For exhaustive or thin cases, use however many rows fit within 4× threshold.
-        needed = min(m, max(n + nullity_est + 64, probe_rows))
-        if needed * n <= 4 * dense_threshold
-            _log("  [kernel] dense subsample: $(needed)×$(n) (nullity_est=$nullity_est)")
-            return dense_kernel_from_subsample(A, p, needed, nullity_est)
-        else
-            # Subsample still too large: fall through to BW but log it.
-            _log("  [rank-probe] subsample $(needed)×$(n) still exceeds 4× threshold — falling back to BW")
-            cheap = false
-        end
-    end
-
-    # --- Block Wiedemann path ---
-    # Use the probe's nullity estimate if it's tighter than the caller's guess.
-    effective_nullity = nullity_est < expected_nullity ? nullity_est : expected_nullity
-    if effective_nullity != expected_nullity
-        _log("  [rank-probe] tightening expected_nullity: $expected_nullity → $effective_nullity")
-    end
-    _log("  [kernel] proceeding with Block Wiedemann (nullity_est=$nullity_est, effective_nullity=$effective_nullity)")
-
-    return right_kernel_basis_wiedemann(A_sp, p;
-                                        block_size=max(32, min(64, effective_nullity + 16)),
-                                        expected_nullity=effective_nullity,
-                                        seed=42,
-                                        verbose=true)
+    # effective_nullity = min(nullity_est, expected_nullity)
+    # return right_kernel_basis_wiedemann(A_sp, p;
+    #                                     block_size=max(32, min(64, effective_nullity + 16)),
+    #                                     expected_nullity=effective_nullity,
+    #                                     seed=42, verbose=true)
 end
 
 """
