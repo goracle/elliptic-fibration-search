@@ -1541,10 +1541,187 @@ function to_sparse_mod(M::AbstractMatrix{Int}, p::Int)::SparseMatrixCSC{Int,Int}
     return sparse(I_idx, J_idx, V_vals, m, n)
 end
 
+"""
+    sparse_rank_estimate(A_sp, p; n_rows, rng) -> (rank_est, nullity_est)
+
+Cheap rank estimate via sparse Gaussian elimination mod p on a random
+row-sample of size `n_rows`.  Returns `(rank_est, nullity_est)` where
+`nullity_est = n - rank_est`.  The estimate is a lower bound on rank.
+
+Implementation: rows are stored as sparse Dict{col→val} and reduced in-place
+against a pivot table that maps each pivot column to its (sparse) pivot row.
+This never allocates an n_rows×n dense array, so it is safe even when
+n_rows ≈ n ≈ 14000.  Memory is O(nnz of selected rows) rather than O(n_rows×n).
+"""
+function sparse_rank_estimate(A_sp::SparseMatrixCSC{Int,Int}, p::Int;
+                               n_rows::Int = min(size(A_sp,1), 1024),
+                               rng = MersenneTwister(99))
+    m, n = size(A_sp)
+    n_rows = min(n_rows, m)
+
+    # Select rows: random sample without replacement.
+    row_perm = randperm(rng, m)[1:n_rows]
+
+    # Load selected rows as sparse dicts: local_idx -> Dict{col->val}
+    # (local_idx is position in row_perm, not original row index)
+    row_map = Dict(row_perm[i] => i for i in 1:n_rows)
+    rows    = [Dict{Int,Int}() for _ in 1:n_rows]
+    rv = rowvals(A_sp); nz_vals = nonzeros(A_sp)
+    for col in 1:n
+        for idx in nzrange(A_sp, col)
+            r = rv[idx]
+            haskey(row_map, r) || continue
+            v = mod(nz_vals[idx], p)
+            v == 0 && continue
+            rows[row_map[r]][col] = v
+        end
+    end
+
+    # Sparse column-pivot GE mod p.
+    # pivot_cols: sorted list of active pivot column indices.
+    # pivot_table: col -> monic sparse pivot row (Dict{col->val}).
+    # One pass in column order suffices because pivot rows are monic and
+    # elimination of column pc cannot re-introduce entries at columns < pc.
+    pivot_cols  = Int[]
+    pivot_table = Dict{Int, Dict{Int,Int}}()
+    rank_est    = 0
+
+    for local_i in 1:n_rows
+        row = rows[local_i]
+        isempty(row) && continue
+
+        # Reduce row against existing pivots in column order (single pass).
+        for pc in pivot_cols
+            c = get(row, pc, 0)
+            c == 0 && continue
+            prow = pivot_table[pc]
+            for (j, pv) in prow
+                cur = get(row, j, 0)
+                nv  = mod(cur - c * pv, p)
+                if nv == 0
+                    delete!(row, j)
+                else
+                    row[j] = nv
+                end
+            end
+        end
+
+        isempty(row) && continue
+
+        # Find the smallest column index as pivot (leftmost non-zero).
+        pc  = minimum(keys(row))
+        pv  = row[pc]
+        inv_pv = invmod(pv, p)
+
+        # Normalise to make pivot entry 1.
+        new_prow = Dict{Int,Int}()
+        for (j, v) in row
+            nv = mod(v * inv_pv, p)
+            nv != 0 && (new_prow[j] = nv)
+        end
+
+        pivot_table[pc] = new_prow
+        insert!(pivot_cols, searchsortedfirst(pivot_cols, pc), pc)
+        rank_est += 1
+
+        # Early exit: rank can't exceed n.
+        rank_est >= n && break
+    end
+
+    return rank_est, n - rank_est
+end
+
+"""
+    rank_is_cheap(m, n, rank_est, nullity_est, probe_rows) -> (cheap::Bool, reason::String)
+
+Decide whether an exact rank/kernel computation is cheap enough to prefer
+Nemo dense over Block Wiedemann, even when m*n > dense_threshold.
+
+Returns (true, reason) when ANY of the following hold:
+
+  1. THIN MATRIX  — min(m,n) ≤ 512: the smaller dimension is tiny, so Nemo's
+     O(min(m,n)^2 * max(m,n)) dense kernel is dominated by the I/O cost.
+
+  2. EXHAUSTIVE PROBE — probe_rows == m: the sparse GE covered every row, so
+     rank_est is exact (not just a lower bound).  Rank is known; kernel can be
+     computed without BW.  We allow up to 4× the normal dense_threshold since
+     the probe already paid the row-scan cost.
+
+  3. PROBE SATURATED — rank_est == min(probe_rows, n): the probe filled all
+     available pivot slots, meaning the true rank is likely min(m, n) and
+     nullity is near zero.  A full-row dense pass will confirm cheaply.
+     Applied only when probe_rows >= 0.75*m (probe is representative).
+
+  4. NULLITY TINY — nullity_est <= 4 AND probe_rows >= 0.5*m: the kernel is
+     at most 4-dimensional; BW's overhead per kernel vector is hard to amortize
+     for such small nullity.  A targeted dense solve on a row-sufficient
+     subsample (n + nullity_est + 64 rows) is cheaper.
+"""
+function rank_is_cheap(m::Int, n::Int, rank_est::Int, nullity_est::Int,
+                       probe_rows::Int; dense_threshold::Int=50_000_000)
+    # 1. Thin matrix: short dimension makes dense cheap regardless.
+    if min(m, n) <= 512
+        return true, "thin matrix (min(m,n)=$(min(m,n)) ≤ 512)"
+    end
+
+    # 2. Exhaustive probe: rank is exact, allow 4× dense threshold.
+    if probe_rows >= m && m * n <= 4 * dense_threshold
+        return true, "exhaustive probe (all $m rows sampled) → exact rank=$rank_est"
+    end
+
+    # 3. Probe saturated: rank filled all pivot slots and probe is representative.
+    if rank_est >= min(probe_rows, n) && probe_rows >= div(3 * m, 4)
+        return true, "probe saturated at rank=$rank_est (probe=$probe_rows / $m rows, min(probe,n)=$(min(probe_rows,n)))"
+    end
+
+    # 4. Tiny nullity with a representative probe: BW overhead unwarranted.
+    if nullity_est <= 4 && probe_rows >= m ÷ 2
+        needed = min(m, n + nullity_est + 64)   # rows sufficient for dense solve
+        if needed * n <= 4 * dense_threshold
+            return true, "tiny nullity=$nullity_est with representative probe ($probe_rows / $m rows); dense subsample ($needed×$n) is cheap"
+        end
+    end
+
+    return false, ""
+end
+
+"""
+dense_kernel_from_subsample(A, p, needed_rows, rank_est, nullity_est)
+
+When rank_is_cheap fires for a matrix that is still too large for a full dense
+solve, compute the kernel by extracting a row-sufficient subsample.
+
+Strategy: take the first `needed_rows` rows (after the sparse probe has already
+established that rank stabilises quickly), run Nemo dense kernel on that block.
+If the resulting nullity matches nullity_est, return it; otherwise fall back to
+the full matrix (trusting that m*n <= 4*dense_threshold already checked).
+"""
+function dense_kernel_from_subsample(A::AbstractMatrix{Int}, p::Int,
+                                     needed_rows::Int, nullity_est::Int)
+    m, n  = size(A)
+    nrows_use = min(m, needed_rows)
+    Fp        = GF(p)
+    A_sub     = to_nemo_mat(A[1:nrows_use, :], Fp)
+    ker_mat   = kernel(A_sub; side=:right)
+    nr_k, nc_k = nrows(ker_mat), ncols(ker_mat)
+    result = [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_k] for j in 1:nc_k]
+    # Sanity: if we got fewer kernel vectors than expected and there are more rows,
+    # retry on the full matrix (it fits by construction from the caller's check).
+    if length(result) < nullity_est && nrows_use < m
+        A_full  = to_nemo_mat(A, Fp)
+        ker_full = kernel(A_full; side=:right)
+        nr_f, nc_f = nrows(ker_full), ncols(ker_full)
+        result = [Int[Int(lift(ZZ, ker_full[i,j])) for i in 1:nr_f] for j in 1:nc_f]
+    end
+    return result
+end
+
 function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
                              expected_nullity::Int=1,
                              dense_threshold::Int=50_000_000)
     m, n = size(A)
+
+    # --- Fast path: matrix fits comfortably in Nemo dense ---
     if m * n <= dense_threshold
         _log("  [kernel] using Nemo dense kernel ($(m)×$(n) = $(m*n) elements)")
         Fp     = GF(p)
@@ -1552,15 +1729,91 @@ function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
         ker_mat = kernel(A_nemo; side=:right)
         nr_ker, nc_ker = nrows(ker_mat), ncols(ker_mat)
         return [Int[Int(lift(ZZ, ker_mat[i,j])) for i in 1:nr_ker] for j in 1:nc_ker]
-    else
-        _log("  [kernel] matrix too large for dense ($(m)×$(n)); using Block Wiedemann")
-        A_sp = to_sparse_mod(A, p)
-        return right_kernel_basis_wiedemann(A_sp, p;
-                                            block_size=max(32, min(64, expected_nullity + 16)),
-                                            expected_nullity=expected_nullity,
-                                            seed=42,
-                                            verbose=true)
     end
+
+    # --- Large matrix: run sparse rank probe first ---
+    _log("  [kernel] matrix too large for dense ($(m)×$(n) = $(m*n) > $dense_threshold)")
+    A_sp = to_sparse_mod(A, p)
+
+    # Probe size: cover as many rows as practical without dominating wall time.
+    # If m is modest enough to probe fully, do so — it makes rank_is_cheap
+    # condition 2 fire and avoids BW entirely.
+    probe_rows = min(m, max(4096, 8 * Int(ceil(sqrt(n)))))
+    _log("  [rank-probe] sparse GE on $probe_rows / $m rows × $n cols ...")
+    t_probe = @elapsed begin
+        rank_est, nullity_est = sparse_rank_estimate(A_sp, p; n_rows=probe_rows)
+    end
+    _log(@sprintf("  [rank-probe] done in %.2fs  rank≥%d  nullity≤%d  (BW target was %d)",
+                  t_probe, rank_est, nullity_est, expected_nullity))
+
+    # --- Second targeted probe when initial probe is too loose ---
+    #
+    # The initial probe samples min(m, max(4096, 8√n)) rows.  For a near-square
+    # matrix (m ≈ n) this is often only 20–30% of rows, giving a nullity upper
+    # bound far above the true nullity (e.g. nullity≤10591 when true nullity≈70).
+    # In that regime the cheap-rank conditions below can't fire even though a
+    # full-row dense solve would be perfectly tractable.
+    #
+    # Trigger: nullity_est > 8 * expected_nullity  AND  probe was a strict subsample.
+    # Action: re-probe using min(m, n + 2*expected_nullity + 256) rows — just enough
+    # to pin the rank exactly with high probability.  The cost is O(n²) sparse GE
+    # on a row-sufficient subsample, typically 2–5× the first probe time but still
+    # orders of magnitude cheaper than BW.
+    if nullity_est > 8 * expected_nullity && probe_rows < m
+        probe2_rows = min(m, n + 2 * expected_nullity + 256)
+        if probe2_rows > probe_rows
+            _log(@sprintf("  [rank-probe2] initial probe too loose (nullity≤%d >> target %d); re-probing on %d / %d rows ...",
+                          nullity_est, expected_nullity, probe2_rows, m))
+            t_probe2 = @elapsed begin
+                rank_est2, nullity_est2 = sparse_rank_estimate(A_sp, p; n_rows=probe2_rows)
+            end
+            _log(@sprintf("  [rank-probe2] done in %.2fs  rank≥%d  nullity≤%d",
+                          t_probe2, rank_est2, nullity_est2))
+            # Accept the tighter result.
+            rank_est    = rank_est2
+            nullity_est = nullity_est2
+            probe_rows  = probe2_rows
+        end
+    end
+
+    # --- Cheap-rank detection: can we skip Block Wiedemann? ---
+    cheap, cheap_reason = rank_is_cheap(m, n, rank_est, nullity_est, probe_rows;
+                                        dense_threshold=dense_threshold)
+
+    if nullity_est == 0
+        # Full-rank probe: kernel is trivially empty regardless.
+        _log("  [rank-probe] nullity=0 → skipping BW (trivial kernel)")
+        return Vector{Vector{Int}}()
+    end
+
+    if cheap
+        _log("  [rank-probe] rank computable cheaply: $cheap_reason")
+        _log("  [rank-probe] routing to Nemo dense kernel (skipping Block Wiedemann)")
+        # For exhaustive or thin cases, use however many rows fit within 4× threshold.
+        needed = min(m, max(n + nullity_est + 64, probe_rows))
+        if needed * n <= 4 * dense_threshold
+            _log("  [kernel] dense subsample: $(needed)×$(n) (nullity_est=$nullity_est)")
+            return dense_kernel_from_subsample(A, p, needed, nullity_est)
+        else
+            # Subsample still too large: fall through to BW but log it.
+            _log("  [rank-probe] subsample $(needed)×$(n) still exceeds 4× threshold — falling back to BW")
+            cheap = false
+        end
+    end
+
+    # --- Block Wiedemann path ---
+    # Use the probe's nullity estimate if it's tighter than the caller's guess.
+    effective_nullity = nullity_est < expected_nullity ? nullity_est : expected_nullity
+    if effective_nullity != expected_nullity
+        _log("  [rank-probe] tightening expected_nullity: $expected_nullity → $effective_nullity")
+    end
+    _log("  [kernel] proceeding with Block Wiedemann (nullity_est=$nullity_est, effective_nullity=$effective_nullity)")
+
+    return right_kernel_basis_wiedemann(A_sp, p;
+                                        block_size=max(32, min(64, effective_nullity + 16)),
+                                        expected_nullity=effective_nullity,
+                                        seed=42,
+                                        verbose=true)
 end
 
 """
