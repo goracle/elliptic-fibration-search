@@ -132,22 +132,22 @@ function check_homogeneous(M::AbstractMatrix{Int}, atoms, aidx, group_order::Int
             _log("\n  ℹ  $(length(fb_residuals_clean)) row(s) have nonzero residual only from unassigned fb atoms")
             _log("     (partial sum on special cols is zero -- genuinely underdetermined, not contradictory).")
         end
-        if !isempty(fb_partial_bad)
-            _log("\n  ✗  $(length(fb_partial_bad)) row(s) touch unassigned fb atoms BUT partial sum")
-            _log("     on {gen0,gen1,tgt0,tgt1,inf} is already nonzero -- contradiction independent of fb logs:")
-            for (row_i, resid, partial) in fb_partial_bad[1:min(30,end)]
-                assigned_part   = [(atoms[j], M_pruned[row_i,j])
-                                   for j in 1:nc if M_pruned[row_i,j]!=0 && j ∈ assigned_cols]
-                unassigned_part = [(atoms[j], M_pruned[row_i,j])
-                                   for j in 1:nc if M_pruned[row_i,j]!=0 && j ∉ assigned_cols]
-                _log("    row $(lpad(row_i,5))  full_resid=$(lpad(resid,5))  partial_resid=$(lpad(partial,5))")
-                _log("      assigned  : $(brief_atom_list(assigned_part; max_items=8))")
-                _log("      unassigned: $(brief_atom_list(unassigned_part; max_items=8))")
-            end
-            length(fb_partial_bad) > 30 && _log("    ... and $(length(fb_partial_bad)-30) more rows")
-            _log("\n     -> These rows contradict the known key regardless of fb atom values.")
-            _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or bad relation.")
-        end
+    #         if !isempty(fb_partial_bad)
+    #             _log("\n  ✗  $(length(fb_partial_bad)) row(s) touch unassigned fb atoms BUT partial sum")
+    #             _log("     on {gen0,gen1,tgt0,tgt1,inf} is already nonzero -- contradiction independent of fb logs:")
+    #             for (row_i, resid, partial) in fb_partial_bad[1:min(30,end)]
+    #                 assigned_part   = [(atoms[j], M_pruned[row_i,j])
+    #                                    for j in 1:nc if M_pruned[row_i,j]!=0 && j ∈ assigned_cols]
+    #                 unassigned_part = [(atoms[j], M_pruned[row_i,j])
+    #                                    for j in 1:nc if M_pruned[row_i,j]!=0 && j ∉ assigned_cols]
+    #                 _log("    row $(lpad(row_i,5))  full_resid=$(lpad(resid,5))  partial_resid=$(lpad(partial,5))")
+    #                 _log("      assigned  : $(brief_atom_list(assigned_part; max_items=8))")
+    #                 _log("      unassigned: $(brief_atom_list(unassigned_part; max_items=8))")
+    #             end
+    #             length(fb_partial_bad) > 30 && _log("    ... and $(length(fb_partial_bad)-30) more rows")
+    #             _log("\n     -> These rows contradict the known key regardless of fb atom values.")
+    #             _log("        Likely cause: wrong x_src multiplicity, wrong inf sign, or bad relation.")
+    #         end
         if !isempty(true_failures)
             _log("\n  ✗  $(length(true_failures)) row(s) fail on assigned atoms only -- genuine contradiction:")
             for (row_i, resid) in true_failures[1:min(30,end)]

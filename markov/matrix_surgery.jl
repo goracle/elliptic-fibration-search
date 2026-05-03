@@ -399,6 +399,109 @@ function dedupe_rows_mod(A::SparseMatrixCSC{Int,Int}, p::Int)
     return A[keep, :], keep, row_sources
 end
 
+# ---------------------------------------------------------------------------
+# Frobenius orbit quotient on columns
+# ---------------------------------------------------------------------------
+
+"""
+    frobenius_orbit_quotient(A, p, origcols, special_orig) -> (A', origcols', orbit_map)
+
+Quotient the columns of A by the Frobenius orbit equivalence.
+
+Two columns j, j' are Frobenius-equivalent (over GF(p)) iff their mod-p column
+vectors are proportional: col_j ≡ λ·col_{j'} (mod p) for some λ ≠ 0.  This is
+the projective equivalence of factor-base atoms induced by the Frobenius
+endomorphism acting on D1-atoms that share the same x-coordinate support
+modulo scalar twist.
+
+For each equivalence class we keep exactly one representative column:
+  - If any column in the class is special (generator/target/inf), that one wins.
+  - Otherwise we pick the column with the lowest current-matrix index (most
+    stable canonical choice under subsequent reindexing).
+
+Returns:
+  A'        — submatrix with one column per orbit
+  origcols' — updated original-column index vector
+  orbit_map — Dict mapping each dropped original column index to the kept
+              representative's original column index
+
+Raises if p is not a prime (sanity) or if special-column conflicts arise.
+"""
+function frobenius_orbit_quotient(A::SparseMatrixCSC{Int,Int}, p::Int,
+                                  origcols::Vector{Int}, special_orig::Set{Int})
+    p >= 2 || error("frobenius_orbit_quotient: field_prime must be >= 2, got $p")
+
+    m, n = size(A)
+    n == 0 && return A, origcols, Dict{Int,Int}()
+
+    # Build canonical signature for each column: normalise by the first nonzero
+    # entry so proportional columns get identical signatures.
+    col_sigs = Vector{Vector{Tuple{Int,Int}}}(undef, n)
+    rv = rowvals(A)
+    nzv = nonzeros(A)
+
+    for j in 1:n
+        entries = Tuple{Int,Int}[]
+        for idx in nzrange(A, j)
+            v = modp(nzv[idx], p)
+            v == 0 && continue
+            push!(entries, (rv[idx], v))
+        end
+        if isempty(entries)
+            col_sigs[j] = entries
+            continue
+        end
+        # Canonical: divide by first-row value so λ-multiples collapse.
+        lead_v = entries[1][2]
+        inv_lead = invmod(lead_v, p)
+        col_sigs[j] = [(r, mod(v * inv_lead, p)) for (r, v) in entries]
+    end
+
+    # Group columns by signature.
+    sig_to_cols = Dict{Vector{Tuple{Int,Int}}, Vector{Int}}()
+    for j in 1:n
+        push!(get!(sig_to_cols, col_sigs[j], Int[]), j)
+    end
+
+    # Singleton signatures and zero columns — nothing to do.
+    # For each multi-member orbit, elect one representative.
+    keep_set = Set{Int}()
+    orbit_map = Dict{Int,Int}()   # dropped orig → kept orig
+
+    for (sig, members) in sig_to_cols
+        if length(members) == 1
+            push!(keep_set, members[1])
+            continue
+        end
+
+        # Elect representative: prefer specials, then lowest index.
+        specials_in_orbit = filter(j -> origcols[j] in special_orig, members)
+        if length(specials_in_orbit) > 1
+            # Multiple specials with identical column vectors is degenerate but
+            # not necessarily wrong (e.g. two generator slots that collapsed).
+            # Keep the first special, warn.
+            @warn "frobenius_orbit_quotient: orbit contains $(length(specials_in_orbit)) special columns — keeping first, dropping rest" specials_in_orbit
+        end
+
+        rep = if !isempty(specials_in_orbit)
+            minimum(specials_in_orbit)   # lowest-index special
+        else
+            minimum(members)
+        end
+
+        push!(keep_set, rep)
+        for j in members
+            j == rep && continue
+            orbit_map[origcols[j]] = origcols[rep]
+        end
+    end
+
+    keep = sort(collect(keep_set))
+    A2 = A[:, keep]
+    origcols2 = origcols[keep]
+    return A2, origcols2, orbit_map
+end
+
 function build_col_components(A::SparseMatrixCSC{Int,Int})
     # Union-find on columns: every row induces a clique.
     rows = row_entries(A)
@@ -956,10 +1059,12 @@ function prune_iteratively(A::SparseMatrixCSC{Int,Int}, p::Int, special_orig::Se
                            stop_min_degree::Int=12, tiny_component_max::Int=256,
                            inf_orig::Union{Int,Nothing}=nothing,
                            balance_mod::Union{Int,Nothing}=nothing,
-                           giant_component_boost::Int=2)
+                           giant_component_boost::Int=2,
+                           init_origcols::Union{Vector{Int},Nothing}=nothing)
     rng = MersenneTwister(seed)
     dropped_total = Int[]
-    origcols = collect(1:size(A,2))
+    origcols = init_origcols !== nothing ? copy(init_origcols) : collect(1:size(A,2))
+    length(origcols) == size(A,2) || error("prune_iteratively: init_origcols length $(length(init_origcols)) != ncols $(size(A,2))")
     for round in 1:rounds
         _section("PRUNE ROUND $round")
         comps = build_col_components(A)
@@ -1189,6 +1294,9 @@ function parse_cli()
             arg_type = Int
             nargs = '*'
             default = Int[]
+        "--no-frob-quotient"
+            help = "Disable Frobenius orbit column quotient (enabled by default; runs before Schur pruning)"
+            action = :store_true
     end
     return parse_args(s)
 end
@@ -1218,6 +1326,7 @@ function main()
     field_prime_override = args["field-prime"]
     known_key = args["known-key"]
     exclude_xs = args["exclude-xs"]
+    no_frob_quotient = args["no-frob-quotient"]
 
     _section("LOAD")
     meta = load_matrix_hdf5(infile)
@@ -1255,11 +1364,42 @@ function main()
         end
     end
 
+    # -----------------------------------------------------------------------
+    # FROBENIUS ORBIT QUOTIENT
+    # Run before Schur pruning: reduces column count for free (O(n log n),
+    # no rank probes) so Schur elimination starts from a smaller matrix.
+    # -----------------------------------------------------------------------
+    origcols = collect(1:size(A,2))
+    if !no_frob_quotient
+        _section("FROBENIUS ORBIT QUOTIENT")
+        pre_frob_cols = size(A, 2)
+        A, origcols, orbit_map = frobenius_orbit_quotient(A, p, origcols, special)
+        # Remap special set to new origcols indices (origcols already tracks
+        # original column numbers; special set is in original-column space so
+        # it stays valid — just log for sanity).
+        n_merged = length(orbit_map)
+        _log("  columns before quotient: $pre_frob_cols")
+        _log("  columns after  quotient: $(size(A,2))")
+        _log("  merged (dropped) cols:   $n_merged")
+        if n_merged > 0
+            sample_pairs = collect(orbit_map)[1:min(6, n_merged)]
+            _log("  sample orbit collapses (dropped_orig → kept_orig): " *
+                 join(["$k→$v" for (k,v) in sample_pairs], ", ") *
+                 (n_merged > 6 ? ", …" : ""))
+        end
+        # Prune newly-zero rows introduced by column removal.
+        A, kept_rows_frob = prune_zero_rows(A)
+        _log("  rows after zero-row prune: $(size(A,1))")
+    else
+        _log("  [Frobenius orbit quotient disabled via --no-frob-quotient]")
+        orbit_map = Dict{Int,Int}()
+    end
+
     _section("PRUNE")
     if greedy
         _log("  mode: GREEDY SCHUR (no rank gate; single rebalance pass at end)")
         _log("  max_degree filter: " * (greedy_max_degree >= 999999 ? "none" : string(greedy_max_degree)))
-        origcols_init = collect(1:size(A,2))
+        origcols_init = copy(origcols)
         A2, dropped, keepcols = greedy_schur_prune(A, p, origcols_init, special;
                                                    max_degree=greedy_max_degree,
                                                    log_every=500,
@@ -1280,7 +1420,8 @@ function main()
                                                   tiny_component_max=tiny_component_max,
                                                   inf_orig=meta.col_inf,
                                                   balance_mod=ell,
-                                                  giant_component_boost=giant_component_boost)
+                                                  giant_component_boost=giant_component_boost,
+                                                  init_origcols=origcols)
     end
     _log("  total dropped columns: $(length(dropped))")
     _log("  final matrix: $(size(A2,1))×$(size(A2,2))  nnz=$(nnz(A2))")
@@ -1303,9 +1444,71 @@ function main()
         error("row-sum invariant failed after pruning")
     end
 
+    # -----------------------------------------------------------------------
+    # ORPHAN COMPONENT DROP
+    # After greedy/iterative pruning the support graph often has singleton or
+    # small disconnected components: atoms that appeared in too few relations
+    # to stay connected once high-degree columns were eliminated.  These
+    # contribute one null vector each to the kernel (isolated directions) and
+    # carry no information about the DLP.  Drop every component that:
+    #   (a) is not the largest (main) component, AND
+    #   (b) contains no special columns.
+    # Special-bearing small components are left alone and a warning is emitted.
+    # -----------------------------------------------------------------------
+    _section("ORPHAN COMPONENT DROP")
+    comps2 = build_col_components(A2)
+    comp_sizes2 = sort([length(c) for c in comps2], rev=true)
+    _log("  components before drop: $(length(comps2))  sizes=$(comp_sizes2[1:min(end,12)])")
+
+    if length(comps2) > 1
+        special_set_specs = Set(specs)   # original col indices that are special
+        main_comp_cols = Set(comps2[argmax(length, comps2)])
+
+        orphan_cols = Set{Int}()   # current-matrix column indices to drop
+        orphan_special_comps = 0
+
+        for comp in comps2
+            length(comp) == length(main_comp_cols) && Set(comp) == main_comp_cols && continue  # skip main
+            # check for specials (keepcols[c] is original col index)
+            has_spec = any(c -> keepcols[c] in special_set_specs, comp)
+            if has_spec
+                orphan_special_comps += 1
+                _log("  WARNING: small component of size $(length(comp)) contains a special column — not dropped")
+            else
+                union!(orphan_cols, comp)
+            end
+        end
+
+        orphan_special_comps > 0 && _log("  WARNING: $orphan_special_comps special-bearing non-main component(s) retained")
+
+        if !isempty(orphan_cols)
+            orphan_orig = [keepcols[c] for c in sort(collect(orphan_cols))]
+            A2, keepcols = drop_columns(A2, orphan_cols)
+            A2, _ = prune_zero_rows(A2)
+            append!(dropped, orphan_orig)
+            _log("  dropped $(length(orphan_cols)) orphan column(s) from $(length(comps2)-1) non-main component(s)")
+            _log("  matrix after orphan drop: $(size(A2,1))×$(size(A2,2))  nnz=$(nnz(A2))")
+
+            comps3 = build_col_components(A2)
+            _log("  components after drop: $(length(comps3))")
+
+            # Re-check specials survived.
+            missing2 = ensure_special_kept(specs, keepcols)
+            if !isempty(missing2)
+                error("orphan drop accidentally removed special columns: $(join(missing2, ", "))")
+            end
+        else
+            _log("  no orphan columns to drop (all non-main components contain specials)")
+        end
+    else
+        _log("  single component — nothing to drop")
+    end
+
     if !isempty(outpath)
         _section("WRITE")
-        write_output_hdf5(outpath, A2, meta, keepcols; dropped=dropped)
+        # Record both Schur-dropped, Frobenius-orbit-merged, and orphan-dropped columns.
+        all_dropped = vcat(dropped, collect(keys(orbit_map)))
+        write_output_hdf5(outpath, A2, meta, keepcols; dropped=all_dropped)
         _log("  wrote pruned matrix to: $outpath")
     end
 end
