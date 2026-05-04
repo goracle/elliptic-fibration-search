@@ -1462,13 +1462,14 @@ function main()
 
     if length(comps2) > 1
         special_set_specs = Set(specs)   # original col indices that are special
-        main_comp_cols = Set(comps2[argmax(length, comps2)])
+        main_idx = argmax(length.(comps2))
+        main_comp_cols = Set(comps2[main_idx])
 
         orphan_cols = Set{Int}()   # current-matrix column indices to drop
         orphan_special_comps = 0
 
-        for comp in comps2
-            length(comp) == length(main_comp_cols) && Set(comp) == main_comp_cols && continue  # skip main
+        for (ci, comp) in enumerate(comps2)
+            ci == main_idx && continue
             # check for specials (keepcols[c] is original col index)
             has_spec = any(c -> keepcols[c] in special_set_specs, comp)
             if has_spec
