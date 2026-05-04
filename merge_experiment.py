@@ -233,11 +233,25 @@ def main(argv=None):
                     help="x-coordinate of the DLP target point (integer mod p)")
     ap.add_argument("--group-order", type=int, default=None,
                     help="Known group order n for the DLP solve (optional)")
-    ap.add_argument("--seed-xs", type=int, nargs="+", metavar="X",
-                    help="Override starting x-coords for walks A/B/C/D (1–4 ints). "
-                         "Provided values overwrite the corresponding PREFERRED_X_COORDS "
-                         "entries in order; unspecified walks keep their divisor-root seeds.")
+    ap.add_argument("--seed-atoms", nargs="+", metavar="ATOM",
+                    help="Override seed atoms for walks A/B/C/D as (x,y) pairs, e.g. "
+                         "'(3948,7776) (4238,10501) (15723,7378) (158,16118)'. "
+                         "Up to 4 atoms in A/B/C/D order; unspecified walks keep "
+                         "their PREFERRED_X_COORDS seeds.")
     args = ap.parse_args(argv)
+
+    # Parse --seed-atoms tokens into (x, y) tuples.  Tokens may arrive split
+    # across shell-quoting boundaries, e.g. ["(3948,", "7776)"], so rejoin first.
+    import re as _re
+    _seed_atoms: "list | None" = None
+    if args.seed_atoms:
+        joined = " ".join(args.seed_atoms)
+        tokens = _re.findall(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', joined)
+        if not tokens:
+            ap.error("--seed-atoms: could not parse any (x,y) pairs from: " + joined)
+        if len(tokens) > 4:
+            ap.error("--seed-atoms accepts at most 4 (x,y) pairs (one per walk A/B/C/D)")
+        _seed_atoms = [(int(x), int(y)) for x, y in tokens]
 
     # -- Resolve project globals -------------------------------------------
     search_fn = None
@@ -275,31 +289,31 @@ def main(argv=None):
 
     sqrt_p = math.sqrt(p)
 
-    # -- Divisor root seeds ------------------------------------------------
-    # x0, x1 are the Mumford u-poly roots of BASE_DIVISOR  (the generator G)
-    # x2, x3 are the Mumford u-poly roots of TARGET_DIVISOR (the challenge T)
-    divisor_xs = _divisor_seed_xs()
-    x0_a, x0_b, x0_c, x0_d = divisor_xs
+    # -- Divisor atom seeds ------------------------------------------------
+    # Each seed is an (x, y) atom tuple from PREFERRED_X_COORDS.
+    # A/B are the BASE_DIVISOR (generator G) atoms; C/D are TARGET_DIVISOR.
+    seed_atom_list = list(PREFERRED_X_COORDS) if PREFERRED_X_COORDS else [None]*4
 
-    # Apply --seed-xs overrides (up to 4 values, in A/B/C/D order).
-    if args.seed_xs:
-        if len(args.seed_xs) > 4:
-            ap.error("--seed-xs accepts at most 4 values (one per walk A/B/C/D)")
-        walk_vars = [x0_a, x0_b, x0_c, x0_d]
-        for i, val in enumerate(args.seed_xs):
-            walk_vars[i] = val
-        x0_a, x0_b, x0_c, x0_d = walk_vars
-        _log(f"\n[seeds] --seed-xs override applied: {args.seed_xs}")
+    # Apply --seed-atoms overrides (up to 4 atoms, in A/B/C/D order).
+    if _seed_atoms:
+        for i, atom in enumerate(_seed_atoms):
+            seed_atom_list[i] = atom
+        _log(f"\n[seeds] --seed-atoms override applied: {_seed_atoms}")
 
-    _log(f"\n[seeds] divisor roots (PREFERRED_X_COORDS): {divisor_xs}")
-    _log(f"[seeds]   BASE_DIVISOR   roots: x0_A={x0_a}, x0_B={x0_b}")
-    _log(f"[seeds]   TARGET_DIVISOR roots: x0_C={x0_c}, x0_D={x0_d}")
+    def _x(atom):
+        return int(atom[0]) if isinstance(atom, tuple) else int(atom)
 
-    # In GENERATE_MIXED_RELATIONS mode the interesting xi is only the seed
-    # atom (step 0); after one step the chain leaves G/T territory, so injection
-    # yields nothing useful.  G atoms = BASE_DIVISOR roots, T atoms = TARGET.
-    G_atoms = {x0_a, x0_b}
-    T_atoms = {x0_c, x0_d}
+    x0_a, x0_b, x0_c, x0_d = [_x(a) for a in seed_atom_list[:4]]
+    divisor_xs = [x0_a, x0_b, x0_c, x0_d]
+
+    _log(f"\n[seeds] divisor atoms (PREFERRED_X_COORDS): {list(seed_atom_list[:4])}")
+    _log(f"[seeds]   BASE_DIVISOR   atoms: A={seed_atom_list[0]}, B={seed_atom_list[1]}")
+    _log(f"[seeds]   TARGET_DIVISOR atoms: C={seed_atom_list[2]}, D={seed_atom_list[3]}")
+
+    # G_atoms / T_atoms carry full (x, y) tuples so the relation-matrix
+    # protection and dlp_diagnostics key lookups match the atom index exactly.
+    G_atoms = {seed_atom_list[0], seed_atom_list[1]}
+    T_atoms = {seed_atom_list[2], seed_atom_list[3]}
 
     def _bp(x0):
         if _HAS_PROJECT:
