@@ -316,6 +316,8 @@ def main(argv=None):
             base_points=_bp(x0_a), verbose=True, log_path="walk_A.jsonl",
             search_fn=search_fn,
         )
+        if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
+            walker_a.set_dlp_points(BASE_DIVISOR, TARGET_DIVISOR)
         walker_a.config.spectral_enabled = False
         walker_a.mat_chain = None
         walker_a.mat_graph = None
@@ -367,6 +369,8 @@ def main(argv=None):
             base_points=_bp(x0), verbose=False, log_path=log_path,
             search_fn=search_fn,
         )
+        if BASE_DIVISOR is not None and TARGET_DIVISOR is not None:
+            w.set_dlp_points(BASE_DIVISOR, TARGET_DIVISOR)
 
         n_foreign = w.load_foreign_leaves(args.snapshot, label="A")
         _log(f"[{label}] foreign leaves loaded from A snapshot: {n_foreign}")

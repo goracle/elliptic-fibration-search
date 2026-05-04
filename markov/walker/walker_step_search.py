@@ -1,6 +1,7 @@
 from .candidate_utils import *
 from .curve_helpers import *
 from typing import Optional, List, Dict, Any, Tuple
+from .dlp_anchor_injection import inject_dlp_relations
 
 def step_from_candidate_search(walker, n: int, seed: Optional[int] = None) -> Optional[RelationRecord]:
     """
@@ -67,6 +68,12 @@ def _commit_step(walker, chosen, search_out, pt_src, n):
         )
 
     walker._store_record(rec)
+
+    # Attempt synthetic phi-relations anchored at each G-atom and T-atom so
+    # those x-coordinates appear as columns in the relation matrix.
+    # No-op if set_dlp_points() has not been called on the walker.
+    inject_dlp_relations(walker, rec, n)
+
     return rec
 
 def _handle_dead_end(walker, search_out, pt_src, n, reason):

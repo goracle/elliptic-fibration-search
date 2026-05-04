@@ -30,6 +30,7 @@ from search_common import *
 from .walker import *
 from .walker.curve_helpers import _coerce_base_ring
 from .walker.candidate_utils import _jsonable, _derive_relation_from_intersection_poly
+from .walker.dlp_anchor_injection import set_dlp_points as _dlp_set_dlp_points
 
 load('tower.sage')
 load('search7_genus2.sage')
@@ -243,6 +244,14 @@ class Genus2MetropolisWalker:
 
         if not self.base_points:
             self.base_points.append((self.current_x, self.current_y))
+
+        # DLP anchor injection: populated by set_dlp_points().
+        # Each entry is a (x, y) Fp-tuple derived from the Mumford v-polynomial
+        # (NOT the canonical sqrt branch -- v(x_root) is the geometrically correct y).
+        self._dlp_base_atoms:   list = []
+        self._dlp_target_atoms: list = []
+        self._dlp_base_div      = None   # Sage Jacobian element, kept for diagnostics
+        self._dlp_target_div    = None
 
     def _default_step_factory(self, current_x, n, seed=None, current_point=None):
         if "build_one_fibration_step" not in globals():
@@ -1425,6 +1434,26 @@ class Genus2MetropolisWalker:
             return None
         self._store_record(rec)
         return rec
+
+    def set_dlp_points(self, base_divisor, target_divisor) -> None:
+        """
+        Register the DLP base G and target T divisors.
+
+        Parameters
+        ----------
+        base_divisor    : Sage Jacobian element -- G in n*G = T
+        target_divisor  : Sage Jacobian element -- T in n*G = T
+
+        Parses each divisor's Mumford (u, v) representation to obtain the
+        geometrically correct (x, v(x)) atom tuples.  The canonical sqrt branch
+        is NOT used for y -- v(x_root) is the correct y for each atom.
+
+        After this call, every committed Markov step also attempts synthetic
+        phi-relations anchored at each G-atom and T-atom, inserting those
+        x-coordinates as columns in the relation matrix so the DLP nullspace
+        can encode the secret exponent.
+        """
+        _dlp_set_dlp_points(self, base_divisor, target_divisor)
 
     def step(self, n: Optional[int] = None, seed: Optional[int] = None) -> Optional[RelationRecord]:
         if self.walk_terminated:
