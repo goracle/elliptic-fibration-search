@@ -84,6 +84,7 @@ def _divisor_seed_xs() -> List[int]:
 
     PREFERRED_X_COORDS is populated by setup_prime_subgroup_cryptosystem()
     at import time in search_common and is asserted to have exactly 4 entries.
+    Each entry is an (x, y) atom tuple; this function returns only the x parts.
 
     Returns a list of 4 ints in the same order as PREFERRED_X_COORDS.
     """
@@ -96,7 +97,8 @@ def _divisor_seed_xs() -> List[int]:
             "_divisor_seed_xs: PREFERRED_X_COORDS not available; "
             "call load_project_sources() before invoking main()."
         )
-    result = [int(x) for x in xs]
+    # Each element is an (x, y) atom tuple; extract x.
+    result = [int(atom[0]) if isinstance(atom, tuple) else int(atom) for atom in xs]
     assert len(result) == 4, f"Expected 4 divisor roots, got {len(result)}: {result}"
     return result
 

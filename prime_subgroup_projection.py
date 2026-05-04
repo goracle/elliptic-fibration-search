@@ -52,13 +52,18 @@ def generate_keypair_from_secret(coeffs_genus2, p, secret_key, data_pts_genus2):
     G = J(P_base)
     Q = Integer(secret_key) * G
 
-    preferred_x_values = set()
+    preferred_atoms = set()
     for D in (G, Q):
         u = D[0]
         for root, _ in u.roots():
-            preferred_x_values.add(int(root))
+            x_int = int(root)
+            y2_val = f_poly(K(x_int))
+            if y2_val.is_square() and not y2_val.is_zero():
+                y_int = int(y2_val.sqrt())
+                y_canon = min(y_int, p - y_int)
+                preferred_atoms.add((x_int, y_canon))
 
-    return G, Q, preferred_x_values
+    return G, Q, preferred_atoms
 
 def get_random_x_on_hyperelliptic(coeffs, p):
     Fp = GF(p)
@@ -256,18 +261,23 @@ def setup_prime_subgroup_cryptosystem(p, coeffs_genus2, base_pts_x, secret_key, 
     if Q is None:
         raise RuntimeError(f"Failed to find Q with split u(x) after {max_attempts} attempts")
 
-    # Extract x-coordinates (now guaranteed to exist since u(x) splits)
-    preferred_x_coords = set()
+    # Extract atoms — (x, y) tuples using the canonical (smaller) y branch.
+    preferred_atoms = set()
     for D in [G, Q]:
         u_poly = D[0]
         for root, _ in u_poly.roots():
-            preferred_x_coords.add(int(root))
+            x_int = int(root)
+            y2_val = f(F(x_int))
+            if y2_val.is_square() and not y2_val.is_zero():
+                y_int = int(y2_val.sqrt())
+                y_canon = min(y_int, p - y_int)
+                preferred_atoms.add((x_int, y_canon))
 
-    assert len(preferred_x_coords) == 4, f"Expected 4 x-coords, got {len(preferred_x_coords)}: {preferred_x_coords}"
+    assert len(preferred_atoms) == 4, f"Expected 4 atoms, got {len(preferred_atoms)}: {preferred_atoms}"
 
     if verbose:
-        print(f"Generated {len(preferred_x_coords)} preferred x-coordinates: {preferred_x_coords}")
+        print(f"Generated {len(preferred_atoms)} preferred atoms: {preferred_atoms}")
         print(f"G has u(x) = {G[0]} (splits)")
         print(f"Q has u(x) = {Q[0]} (splits)")
 
-    return ell, base_pts_x, G, Q, preferred_x_coords, final_secret, cofactor
+    return ell, base_pts_x, G, Q, preferred_atoms, final_secret, cofactor

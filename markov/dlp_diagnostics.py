@@ -701,29 +701,58 @@ def dump_matrix_hdf5(
 
     _log(f"[dump_matrix_hdf5] matrix is {nrows}×{ncols} (raw, pre-prune)  path={path}")
 
-    # Build numpy dense array first (needed for both dense and CSR paths).
-    # Use int32 — coefficients are small (−5 … +3).
-    M_np = np.array(M_ZZ, dtype=np.int32)
+    # Build CSR directly from Sage's sparse row representation.
+    # Never do np.array(M_ZZ) on a large Sage matrix — it materialises a full
+    # dense Python array via element-by-element calls and OOMs on anything
+    # bigger than a few thousand rows × cols.
+    data_list: list = []
+    idx_list:  list = []
+    ptr_list:  list = [0]
 
-    # CSR via scipy if available, otherwise manual.
-    try:
-        sp = _csr(M_np)
-        csr_data    = sp.data.astype(np.int32)
-        csr_indices = sp.indices.astype(np.int32)
-        csr_indptr  = sp.indptr.astype(np.int32)
-    except ImportError:
-        # Manual CSR construction.
-        data_list, idx_list, ptr_list = [], [], [0]
+    _nzfn = getattr(M_ZZ, "nonzero_positions_in_row", None) or getattr(M_ZZ, "nonzero_positions_row", None)
+    if callable(_nzfn):
         for r in range(nrows):
-            for c in range(ncols):
-                v = int(M_np[r, c])
+            for c in _nzfn(r):
+                v = int(M_ZZ[r, c])
                 if v != 0:
                     data_list.append(v)
-                    idx_list.append(c)
+                    idx_list.append(int(c))
             ptr_list.append(len(data_list))
-        csr_data    = np.array(data_list, dtype=np.int32)
-        csr_indices = np.array(idx_list,  dtype=np.int32)
-        csr_indptr  = np.array(ptr_list,  dtype=np.int32)
+    else:
+        # Fallback: sparse row-dict API (no dense materialisation).
+        for r in range(nrows):
+            row = M_ZZ.row(r)
+            d = getattr(row, "dict", None)
+            if callable(d):
+                for c, v in sorted(d().items()):
+                    iv = int(v)
+                    if iv != 0:
+                        data_list.append(iv)
+                        idx_list.append(int(c))
+            else:
+                # Last resort: column scan (slow but correct, no dense alloc).
+                for c in range(ncols):
+                    v = int(M_ZZ[r, c])
+                    if v != 0:
+                        data_list.append(v)
+                        idx_list.append(c)
+            ptr_list.append(len(data_list))
+
+    csr_data    = np.array(data_list, dtype=np.int32)
+    csr_indices = np.array(idx_list,  dtype=np.int32)
+    csr_indptr  = np.array(ptr_list,  dtype=np.int32)
+
+    # Dense numpy array only for the small-matrix path (optional /matrix_dense
+    # dataset).  Reconstruct from CSR to avoid a second Sage call; skip if too large.
+    _dense_bytes = nrows * ncols * 4
+    if _dense_bytes <= 500 * 1024 * 1024:
+        M_np = np.zeros((nrows, ncols), dtype=np.int32)
+        if len(csr_data):
+            rows_idx = np.repeat(np.arange(nrows, dtype=np.int32),
+                                 np.diff(csr_indptr).astype(np.int32))
+            M_np[rows_idx, csr_indices] = csr_data
+    else:
+        M_np = None
 
     import os
 
@@ -1063,10 +1092,27 @@ def _build_combined_matrix(
 
     M_raw = Matrix(ZZ, rows)
 
+    # Atoms are "(x, y)" strings.  If the caller passed bare ints/x-values as
+    # protected, expand each to every matching "(x, *)" atom key so that
+    # prune_dest_only keeps all branches regardless of y.
+    expanded_protected: Optional[list] = None
+    if protected is not None:
+        bare_xs = {str(int(p)) for p in protected}
+        expanded_protected = list(protected)  # keep originals (handles bare-x atoms)
+        for a in all_atoms:
+            a_str = str(a)
+            if a_str.startswith("("):
+                try:
+                    x_part = a_str.split(",")[0].lstrip("(").strip()
+                    if x_part in bare_xs:
+                        expanded_protected.append(a)
+                except Exception:
+                    pass
+
     M_pruned, pruned_atoms, removed = prune_dest_only(
         M_raw,
         all_atoms,
-        protected=protected,
+        protected=expanded_protected,
     )
     pruned_aidx = {str(a): i for i, a in enumerate(pruned_atoms)}
 
@@ -1155,7 +1201,18 @@ def check_known_key(
     nullity = n_cols - M.rank()
 
     def col_of(x):
-        return aidx.get(str(int(x)))
+        """Look up column by bare x, trying all (x, y) atom keys first."""
+        x_str = str(int(x))
+        # Try bare-x key (legacy / non-point-paradigm atoms).
+        c = aidx.get(x_str)
+        if c is not None:
+            return c
+        # Try "(x, y)" keys — iterate aidx for entries whose x matches.
+        prefix = f"({x_str},"
+        for key, idx in aidx.items():
+            if key.startswith(prefix):
+                return idx
+        return None
 
     inf_col  = aidx.get(_INFINITY)
     gen_col  = col_of(x0_a)
