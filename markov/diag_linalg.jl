@@ -875,18 +875,8 @@ end
 
 function right_kernel_basis(A::AbstractMatrix{Int}, p::Int;
                              expected_nullity::Int=1,
-                             dense_threshold::Int=100_000_000)
+                             dense_threshold::Int=typemax(Int))  # ignored, BW removed
     m, n = size(A)
-
-    # Block Wiedemann is currently disabled (buggy). All calls route through
-    # Nemo dense. If the matrix is genuinely too large, we raise rather than
-    # silently falling back to broken BW.
-    if m * n > dense_threshold
-        throw(ErrorException(
-            "[kernel] matrix $(m)×$(n) = $(m*n) elements exceeds dense_threshold=$dense_threshold " *
-            "and Block Wiedemann is currently disabled. Reduce the matrix or raise dense_threshold."
-        ))
-    end
 
     _log("  [kernel] using Nemo dense kernel ($(m)×$(n) = $(m*n) elements)")
     Fp      = GF(p)
