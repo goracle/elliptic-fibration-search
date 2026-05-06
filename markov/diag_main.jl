@@ -58,6 +58,9 @@ function main(args=ARGS)
         "--reduce"
             help   = "Apply Mumford reduction to each relation row after loading; keep only rows whose reduced u(x) splits completely over GF(p).  Expect low yield."
             action = :store_true
+        "--solve-dlp"
+            help   = "Attempt DLP solve via left-null scheme (Diem/Gaudry-Harley): strip gen/tgt columns to RHS, compute left null of atom block, recover key."
+            action = :store_true
     end
     parsed = parse_args(args, s)
 
@@ -208,6 +211,41 @@ function main(args=ARGS)
         curve_coeffs = load_curve_coeffs(hdf5_path)
         M, _, _ = apply_mumford_reduce_filter(M, atoms, col_inf, curve_coeffs, field_prime)
         size(M, 1) == 0 && error("--reduce: no rows survived Mumford filter; cannot continue.")
+    end
+
+    # --- DLP Solve (left-null / Diem scheme) — runs first when requested ---
+    if parsed["solve-dlp"]
+        recovered = solve_dlp_from_relations(
+            M, atoms, group_order;
+            col_gen0 = col_gen0,
+            col_gen1 = col_gen1,
+            col_tgt0 = col_tgt0,
+            col_tgt1 = col_tgt1,
+            col_inf  = col_inf,
+        )
+
+        _log("\n$('#'^70)")
+        if recovered !== nothing
+            _log("# DLP SOLVE RESULT:  key = $recovered")
+            if known_key !== nothing
+                if mod(recovered - known_key, group_order) == 0
+                    _log("#   ✓  matches --known-key $known_key")
+                else
+                    _log("#   ✗  MISMATCH with --known-key $known_key")
+                    _log("#      recovered=$recovered  expected=$known_key")
+                end
+            end
+            _log("$('#'^70)\n")
+            _log("$('#'^70)")
+            _log("# DIAGNOSTICS COMPLETE")
+            _log("$('#'^70)\n")
+            return
+        else
+            _log("# DLP SOLVE RESULT:  failed — falling through to diagnostics")
+            _log("$('#'^70)\n")
+        end
+
+        GC.gc()
     end
 
     # --- Check 1 ---

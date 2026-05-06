@@ -986,3 +986,350 @@ function farkas_delete_rerun(M::AbstractMatrix{Int}, atoms, aidx, group_order::I
     _log("# FARKAS-DELETE RE-RUN COMPLETE")
     _log("$('#'^70)")
 end
+
+# ---------------------------------------------------------------------------
+# DLP SOLVE — Diem/Gaudry-Harley left-null scheme
+#
+# The relation matrix M has the shape:
+#
+#   sum_j  r_{ij} * [F_j]  +  a_i * [G]  +  b_i * [T]  =  0   in Jac
+#
+# where F_j are factor-base atoms (columns col_atom_*), and [G], [T] are
+# the generator/target divisors stored in col_gen0/col_gen1/col_tgt0/col_tgt1.
+# For genus-2 each divisor contributes two affine points → two columns.
+#
+# We form:
+#   a_i  = M[i, col_gen0] + M[i, col_gen1]   (summed scalar; mod ell)
+#   b_i  = M[i, col_tgt0] + M[i, col_tgt1]
+#
+# Then the atom-only submatrix B (rows × #atoms) satisfies
+#   B * logs(atoms) = -(a_i * log G + b_i * log T)  row-wise.
+#
+# A left null vector γ of B gives:
+#   (γ·a) * log G  +  (γ·b) * log T  =  0   mod ell
+#   ⟹  log T  =  -(γ·a) * (γ·b)^{-1}  mod ell
+#
+# This function attempts to recover the key.  It does NOT require a known key.
+# ---------------------------------------------------------------------------
+
+"""
+    solve_dlp_from_relations(M, atoms, group_order;
+                             col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf,
+                             max_kernel_vectors)
+
+Solve the DLP by direct gauge-fixed linear solve over GF(ell).
+
+The relation matrix has two kinds of rows:
+  - SEED rows: involve gen and/or tgt columns (a_i ≠ 0 or b_i ≠ 0).
+    These encode  B_seed·x + a_i·logG + b_i·logT = 0.
+  - WALK rows: pure atom-to-atom relations (a_i = b_i = 0).
+    These encode  B_walk·x = 0.
+
+When the walk rows are full column-rank in the atom space (right nullity of
+B_walk = 0), the right-kernel approach fails.  Instead we use a direct solve:
+
+  1. The full system M·[x; logG; logT] = 0 has nullity = 1 over GF(ell),
+     with the single kernel direction being the flat all-ones conservation
+     vector.  This means atom logs are uniquely determined up to an additive
+     constant (the gauge freedom).
+
+  2. Augment B_walk with a single gauge-fixing row pinning x[gauge_col] = c.
+     The augmented system then has a unique solution x over GF(ell).
+
+  3. Substitute x into the seed rows to recover (logG, logT) as the solution
+     of an overdetermined 2-variable linear system over GF(ell).
+
+  4. Return key = logT / logG  mod ell.
+
+Returns the recovered key (Int) on success, or nothing on failure.
+"""
+function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::Int;
+                                   col_gen0=nothing, col_gen1=nothing,
+                                   col_tgt0=nothing, col_tgt1=nothing,
+                                   col_inf=nothing)
+    _section("DLP SOLVE  (direct gauge-fixed solve)")
+    ell = group_order
+
+    # ------------------------------------------------------------------
+    # 0. Validate special columns
+    # ------------------------------------------------------------------
+    missing_cols = String[]
+    col_gen0 === nothing && push!(missing_cols, "col_gen0")
+    col_gen1 === nothing && push!(missing_cols, "col_gen1")
+    col_tgt0 === nothing && push!(missing_cols, "col_tgt0")
+    col_tgt1 === nothing && push!(missing_cols, "col_tgt1")
+    if !isempty(missing_cols)
+        _log("  ✗  cannot solve — missing special columns: $(join(missing_cols, ", "))")
+        _log("     Run with --col-gen0 / --col-gen1 / --col-tgt0 / --col-tgt1")
+        return nothing
+    end
+
+    nr_raw, nc_raw = size(M)
+    _log("  input matrix   : $(nr_raw) rows × $(nc_raw) cols")
+    _log("  group order ell: $ell")
+    _log("  col_gen0=$(col_gen0)  col_gen1=$(col_gen1)  col_tgt0=$(col_tgt0)  col_tgt1=$(col_tgt1)" *
+         (col_inf !== nothing ? "  col_inf=$(col_inf)" : ""))
+
+    # ------------------------------------------------------------------
+    # 1. Deduplicate rows mod ell
+    # ------------------------------------------------------------------
+    keep_rows, _ = dedupe_rows_mod(M, ell)
+    M = M[keep_rows, :]
+    nr, nc = size(M)
+    _log("  after row dedup: $(nr) rows × $(nc) cols  (removed $(nr_raw - nr) duplicate(s))")
+
+    # ------------------------------------------------------------------
+    # 2. Extract a and b scalars and partition rows into seed vs walk
+    #
+    #   a_i = M[i,col_gen0] + M[i,col_gen1]  mod ell   (gen coefficient)
+    #   b_i = M[i,col_tgt0] + M[i,col_tgt1]  mod ell   (tgt coefficient)
+    #
+    # SEED rows: a_i ≠ 0 or b_i ≠ 0  (involve gen or tgt)
+    # WALK rows: a_i = 0 and b_i = 0  (pure atom-to-atom)
+    # ------------------------------------------------------------------
+    a_vec = [mod(Int(M[i, col_gen0]) + Int(M[i, col_gen1]), ell) for i in 1:nr]
+    b_vec = [mod(Int(M[i, col_tgt0]) + Int(M[i, col_tgt1]), ell) for i in 1:nr]
+
+    seed_rows = [i for i in 1:nr if a_vec[i] != 0 || b_vec[i] != 0]
+    walk_rows = [i for i in 1:nr if a_vec[i] == 0 && b_vec[i] == 0]
+
+    n_gen_rows = count(i -> a_vec[i] != 0, seed_rows)
+    n_tgt_rows = count(i -> b_vec[i] != 0, seed_rows)
+    _log("  seed rows      : $(length(seed_rows))  ($(n_gen_rows) gen, $(n_tgt_rows) tgt)")
+    _log("  walk rows      : $(length(walk_rows))")
+
+    if isempty(seed_rows)
+        _log("  ✗  no seed rows — gen/tgt never appear in any relation")
+        _log("     Check col_gen0/col_gen1/col_tgt0/col_tgt1 are correct.")
+        return nothing
+    end
+
+    # Print seed rows for inspection
+    _log("  seed row details (all):")
+    special_set_diag = Set{Int}(c for c in [col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf] if c !== nothing)
+    for i in seed_rows
+        atom_entries = [(string(atoms[j]), Int(M[i,j])) for j in 1:nc if !(j in special_set_diag) && M[i,j] != 0]
+        _log("    row $i: a=$(a_vec[i]) b=$(b_vec[i])  atom_nnz=$(length(atom_entries))  $(brief_atom_list(atom_entries; max_items=6))")
+    end
+
+    # ------------------------------------------------------------------
+    # 3. Build atom-only submatrix B (all rows, special cols stripped)
+    # ------------------------------------------------------------------
+    special_set = Set{Int}(c for c in [col_gen0, col_gen1, col_tgt0, col_tgt1, col_inf]
+                               if c !== nothing)
+    atom_cols = [j for j in 1:nc if !(j in special_set)]
+    n_atoms = length(atom_cols)
+    _log("  atom columns   : $n_atoms  ($(nc - n_atoms) special cols stripped)")
+
+    if n_atoms == 0
+        _log("  ✗  no atom columns remain after stripping specials")
+        return nothing
+    end
+
+    # Column index remapping: original col j -> position in atom_cols
+    col_to_atom_idx = Dict{Int,Int}(atom_cols[k] => k for k in 1:n_atoms)
+
+    B_walk = M[walk_rows, atom_cols]   # walk_rows × n_atoms
+    B_seed = M[seed_rows, atom_cols]   # seed_rows × n_atoms
+    a_seed = a_vec[seed_rows]
+    b_seed = b_vec[seed_rows]
+
+    nr_walk, nc_B = size(B_walk)
+    _log("  B_walk         : $nr_walk rows × $nc_B cols")
+    _log("  B_seed         : $(length(seed_rows)) rows × $nc_B cols")
+
+    if nr_walk == 0
+        _log("  ✗  no walk rows — cannot compute left null space")
+        return nothing
+    end
+
+    # ------------------------------------------------------------------
+    # 4. Direct solve via gauge-fixed inhomogeneous system
+    #
+    # The walk rows satisfy M_walk · [atoms; logG; logT; log∞] = 0 in the
+    # FULL column space, but walk rows have a_i = b_i = 0 by construction,
+    # so the gen/tgt columns contribute nothing.  However col_inf IS present
+    # in walk rows (each relation balances as Σ coeff = 0 mod ell, with the
+    # ∞ column carrying the balance term).
+    #
+    # After stripping gen/tgt cols (which are zero in walk rows anyway),
+    # each walk row satisfies:
+    #   B_walk_atom · x  +  M[i, col_inf] · log(∞) = 0   mod ell
+    #
+    # Gauge choice: fix log(∞) = 1.  Then:
+    #   B_walk_atom · x = -M[walk_rows, col_inf] · 1  mod ell
+    #
+    # This is an inhomogeneous system with a unique solution (Check 2 confirms
+    # consistency; full system nullity=1 is the flat direction which we fix
+    # by pinning log(∞)).
+    #
+    # For seed rows i, col_inf also appears, so the full seed equation is:
+    #   B_seed_atom[i,:] · x + M[i,col_inf] · log(∞) + a_i·logG + b_i·logT = 0
+    #   => a_i·logG + b_i·logT = -(B_seed_atom[i,:]·x + M[i,col_inf]·log_inf)
+    #
+    # We solve that 2-variable system over (logG, logT) to get the key.
+    #
+    # If col_inf is not known, we fall back to pinning x[atom_1] = 0 (which
+    # fixes the gauge but may give a different solution family; we then try
+    # multiple RHS values to find a consistent seed read-off).
+    # ------------------------------------------------------------------
+    dense_elements = nr_walk * nc_B
+    if dense_elements > 100_000_000
+        _log("  ⚠  B_walk is large ($(nr_walk)×$(nc_B) = $(dense_elements) elements)")
+        _log("     Consider running matrix_surgery first to reduce atom count.")
+        _log("     Proceeding with Nemo — may be slow or OOM.")
+    end
+
+    Fp = GF(ell)
+    recovered_keys = Int[]
+
+    if col_inf !== nothing
+        # ------------------------------------------------------------------
+        # Primary path: col_inf known — use it as gauge (log∞ = log_inf_val).
+        # Try log_inf_val ∈ {1, 2} as cross-check.
+        # ------------------------------------------------------------------
+        # Walk-row RHS: for walk row i, rhs[i] = -M[i, col_inf] * log_inf_val mod ell
+        # (col_inf is in the full M, not in atom_cols, so index directly into M)
+        inf_walk_coeffs = [Int(M[walk_rows[i], col_inf]) for i in 1:nr_walk]
+        inf_seed_coeffs = [Int(M[seed_rows[i], col_inf]) for i in 1:length(seed_rows)]
+
+        for log_inf_val in [1, 2]
+            _log("\n  direct solve: log(∞) = $log_inf_val (gauge) ...")
+
+            rhs_walk = [mod(-inf_walk_coeffs[i] * log_inf_val, ell) for i in 1:nr_walk]
+
+            _log("  building Nemo matrix ($(nr_walk)×$(nc_B)) ...")
+            A_nemo = to_nemo_mat(B_walk, Fp)
+            b_nemo = matrix(Fp, nr_walk, 1, [Fp(v) for v in rhs_walk])
+
+            _log("  calling can_solve_with_solution on $(nr_walk)×$(nc_B) system ...")
+            ok, x_nemo = can_solve_with_solution(A_nemo, b_nemo; side=:right)
+
+            if !ok
+                _log("  ✗  log∞=$log_inf_val: walk system inconsistent (unexpected)")
+                continue
+            end
+
+            x = [Int(lift(ZZ, x_nemo[i, 1])) for i in 1:nc_B]
+            _log("  ✓  log∞=$log_inf_val: obtained atom log vector")
+
+            # Verify walk residuals
+            n_bad = count(i -> mod(sum(Int(B_walk[i,j]) * x[j] for j in 1:nc_B; init=0) +
+                                   inf_walk_coeffs[i] * log_inf_val, ell) != 0, 1:nr_walk)
+            n_bad > 0 && _log("  ⚠  walk residual: $n_bad / $nr_walk rows nonzero")
+            n_bad == 0 && _log("  walk residual check: all $nr_walk rows zero ✓")
+
+            # Seed substitution: rhs for seed row i includes the ∞ contribution
+            n_seed = length(seed_rows)
+            rhs_seed = [mod(-(sum(Int(B_seed[i,j]) * x[j] for j in 1:nc_B; init=0) +
+                              inf_seed_coeffs[i] * log_inf_val), ell)
+                        for i in 1:n_seed]
+
+            sys_A = zeros(Int, n_seed, 2)
+            sys_b = zeros(Int, n_seed)
+            for i in 1:n_seed
+                sys_A[i, 1] = a_seed[i]
+                sys_A[i, 2] = b_seed[i]
+                sys_b[i]    = rhs_seed[i]
+            end
+
+            A2_nemo = matrix(Fp, n_seed, 2, [Fp(v) for v in vec(sys_A)])
+            b2_nemo = matrix(Fp, n_seed, 1, [Fp(v) for v in sys_b])
+            ok2, sol2 = can_solve_with_solution(A2_nemo, b2_nemo; side=:right)
+
+            if !ok2
+                _log("  ✗  log∞=$log_inf_val: seed system inconsistent")
+                continue
+            end
+
+            logG = Int(lift(ZZ, sol2[1, 1]))
+            logT = Int(lift(ZZ, sol2[2, 1]))
+            _log("  logG = $logG  logT = $logT")
+
+            if logG == 0
+                _log("  ✗  log∞=$log_inf_val: logG = 0 (degenerate)")
+                continue
+            end
+
+            key = mod(logT * invmod(logG, ell), ell)
+            _log("  candidate key = $key")
+            push!(recovered_keys, key)
+        end
+    else
+        # ------------------------------------------------------------------
+        # Fallback: col_inf unknown — pin x[1] = 0 (zero gauge shift) and
+        # solve the homogeneous walk system.  The walk rows should balance
+        # purely in atom space if col_inf was already stripped upstream.
+        # ------------------------------------------------------------------
+        _log("\n  col_inf not known — solving homogeneous walk system (x[1]=0 gauge) ...")
+        # Build augmented system: [B_walk; e_1] x = [0...0; 0]
+        # i.e. we want the solution with x[1]=0 to fix the gauge.
+        # Since the system B_walk x = 0 has nullity >= 1 (the flat direction),
+        # we augment with the gauge row to pin it.
+        n_aug = nr_walk + 1
+        B_aug = vcat(B_walk, zeros(Int, 1, nc_B))
+        B_aug[n_aug, 1] = 1
+        rhs_aug = zeros(Int, n_aug)
+
+        A_nemo = to_nemo_mat(B_aug, Fp)
+        b_nemo = matrix(Fp, n_aug, 1, [Fp(v) for v in rhs_aug])
+        ok, x_nemo = can_solve_with_solution(A_nemo, b_nemo; side=:right)
+
+        if !ok
+            _log("  ✗  fallback homogeneous solve failed — walk system truly inconsistent in atom space")
+        else
+            x = [Int(lift(ZZ, x_nemo[i, 1])) for i in 1:nc_B]
+            _log("  ✓  obtained atom log vector (x[1]=0 gauge)")
+
+            n_seed = length(seed_rows)
+            rhs_seed = [mod(-sum(Int(B_seed[i,j]) * x[j] for j in 1:nc_B; init=0), ell)
+                        for i in 1:n_seed]
+            sys_A = zeros(Int, n_seed, 2)
+            sys_b = zeros(Int, n_seed)
+            for i in 1:n_seed
+                sys_A[i, 1] = a_seed[i]
+                sys_A[i, 2] = b_seed[i]
+                sys_b[i]    = rhs_seed[i]
+            end
+            A2_nemo = matrix(Fp, n_seed, 2, [Fp(v) for v in vec(sys_A)])
+            b2_nemo = matrix(Fp, n_seed, 1, [Fp(v) for v in sys_b])
+            ok2, sol2 = can_solve_with_solution(A2_nemo, b2_nemo; side=:right)
+            if ok2
+                logG = Int(lift(ZZ, sol2[1, 1]))
+                logT = Int(lift(ZZ, sol2[2, 1]))
+                _log("  logG = $logG  logT = $logT")
+                if logG != 0
+                    key = mod(logT * invmod(logG, ell), ell)
+                    _log("  candidate key = $key")
+                    push!(recovered_keys, key)
+                else
+                    _log("  ✗  logG = 0 (degenerate gauge)")
+                end
+            else
+                _log("  ✗  seed system inconsistent in fallback path")
+            end
+        end
+    end
+
+    # ------------------------------------------------------------------
+    # 6. Report
+    # ------------------------------------------------------------------
+    if isempty(recovered_keys)
+        _log("\n  ✗  no valid key recovered from direct solve")
+        _log("     Possible causes: walk rows are inconsistent in atom space (col_inf")
+        _log("     entries missing or wrong), or seed rows contradict each other.")
+        return nothing
+    end
+
+    unique_keys = unique(recovered_keys)
+    if length(unique_keys) == 1
+        key = unique_keys[1]
+        _log("\n  ✓  gauge choices agree: key = $key")
+        return key
+    else
+        _log("\n  ⚠  gauge choices gave different keys: $unique_keys")
+        _log("     This should not happen if the system is consistent.")
+        _log("     Reporting first candidate: $(recovered_keys[1])")
+        return recovered_keys[1]
+    end
+end
