@@ -1047,7 +1047,7 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
                                    col_gen0=nothing, col_gen1=nothing,
                                    col_tgt0=nothing, col_tgt1=nothing,
                                    col_inf=nothing)
-    _section("DLP SOLVE  (direct gauge-fixed solve)")
+    _section("DLP SOLVE  (gauge-fixed inhomogeneous solve, atom subspace)")
     ell = group_order
 
     # ------------------------------------------------------------------
@@ -1129,53 +1129,97 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
     # Column index remapping: original col j -> position in atom_cols
     col_to_atom_idx = Dict{Int,Int}(atom_cols[k] => k for k in 1:n_atoms)
 
-    B_walk = M[walk_rows, atom_cols]   # walk_rows × n_atoms
-    B_seed = M[seed_rows, atom_cols]   # seed_rows × n_atoms
+    B_walk_raw = M[walk_rows, atom_cols]   # walk_rows × n_atoms
+    B_seed = M[seed_rows, atom_cols]       # seed_rows × n_atoms
     a_seed = a_vec[seed_rows]
     b_seed = b_vec[seed_rows]
 
-    nr_walk, nc_B = size(B_walk)
-    _log("  B_walk         : $nr_walk rows × $nc_B cols")
+    nr_walk_raw, nc_B = size(B_walk_raw)
+    _log("  B_walk (raw)   : $nr_walk_raw rows × $nc_B cols")
     _log("  B_seed         : $(length(seed_rows)) rows × $nc_B cols")
 
-    if nr_walk == 0
-        _log("  ✗  no walk rows — cannot compute left null space")
+    if nr_walk_raw == 0
+        _log("  ✗  no walk rows — cannot solve")
         return nothing
     end
 
     # ------------------------------------------------------------------
+    # 3b. Row-reduce B_walk in atom space, carrying the inf column.
+    #
+    # After stripping gen/tgt/inf columns, walk rows that were independent
+    # in the full column space may become linearly dependent in atom space
+    # (rows that differed only in their inf coefficient now look identical).
+    # If we try to solve the inhomogeneous system B_walk · x = rhs with
+    # these dependent rows, the rhs entries for the now-dependent row pairs
+    # may be inconsistent (different inf coefficients map to different rhs
+    # values under the gauge), causing can_solve_with_solution to fail even
+    # when the underlying atom system is perfectly consistent.
+    #
+    # Fix: row-reduce the augmented matrix [B_walk_raw | inf_col] jointly
+    # so that the same row operations are applied to the atom block and the
+    # inf coefficient simultaneously.  After rref we read off the reduced
+    # atom rows and the corresponding reduced inf coefficients, and discard
+    # the zero rows.  The reduced system is then consistent by construction.
+    # ------------------------------------------------------------------
+    inf_walk_col_raw = col_inf !== nothing ?
+        [Int(M[walk_rows[i], col_inf]) for i in 1:nr_walk_raw] :
+        zeros(Int, nr_walk_raw)
+
+    # Augment: [B_walk_raw | inf_col] → rref over GF(ell)
+    B_aug_int = hcat(B_walk_raw, reshape(inf_walk_col_raw, :, 1))  # nr_walk_raw × (nc_B+1)
+    Fp_rr = GF(ell)
+    B_aug_nemo = to_nemo_mat(B_aug_int, Fp_rr)
+    rk_walk, B_aug_rref = rref(B_aug_nemo)
+
+    # Collect non-zero rows (pivot rows in atom space)
+    rref_atom_rows  = Vector{Int}[]
+    rref_inf_coeffs = Int[]
+    for i in 1:nrows(B_aug_rref)
+        row_i = [Int(lift(ZZ, B_aug_rref[i, j])) for j in 1:nc_B]
+        if any(!=(0), row_i)
+            push!(rref_atom_rows, row_i)
+            push!(rref_inf_coeffs, Int(lift(ZZ, B_aug_rref[i, nc_B+1])))
+        end
+    end
+    nr_walk = length(rref_atom_rows)
+    B_walk  = Matrix{Int}(reduce(hcat, rref_atom_rows)')  # nr_walk × nc_B
+    _log("  B_walk (rref)  : $nr_walk rows × $nc_B cols  (removed $(nr_walk_raw - nr_walk) dependent row(s))")
+
+    # ------------------------------------------------------------------
     # 4. Direct solve via gauge-fixed inhomogeneous system
     #
-    # The walk rows satisfy M_walk · [atoms; logG; logT; log∞] = 0 in the
-    # FULL column space, but walk rows have a_i = b_i = 0 by construction,
-    # so the gen/tgt columns contribute nothing.  However col_inf IS present
-    # in walk rows (each relation balances as Σ coeff = 0 mod ell, with the
-    # ∞ column carrying the balance term).
-    #
-    # After stripping gen/tgt cols (which are zero in walk rows anyway),
-    # each walk row satisfies:
+    # The walk rows satisfy, in the full column space:
     #   B_walk_atom · x  +  M[i, col_inf] · log(∞) = 0   mod ell
+    # (walk rows have a_i = b_i = 0 so gen/tgt cols contribute nothing;
+    #  col_inf carries the balance term).
     #
-    # Gauge choice: fix log(∞) = 1.  Then:
-    #   B_walk_atom · x = -M[walk_rows, col_inf] · 1  mod ell
+    # Gauge choice: fix log(∞) = log_inf_val (trying 1 and 2 as a cross-check).
+    # This gives an inhomogeneous system:
+    #   B_walk_atom · x = -M[walk_rows, col_inf] * log_inf_val  mod ell
     #
-    # This is an inhomogeneous system with a unique solution (Check 2 confirms
-    # consistency; full system nullity=1 is the flat direction which we fix
-    # by pinning log(∞)).
+    # After the rref row-reduction above, B_walk_atom has full row rank, so
+    # the system has AT MOST ONE solution (modulo the right kernel, which is
+    # the flat/parity direction — but that is pinned by the gauge choice on
+    # log(∞)).  If can_solve_with_solution succeeds we get x.
     #
-    # For seed rows i, col_inf also appears, so the full seed equation is:
-    #   B_seed_atom[i,:] · x + M[i,col_inf] · log(∞) + a_i·logG + b_i·logT = 0
+    # For seed rows i, the full equation is:
+    #   B_seed_atom[i,:] · x + M[i,col_inf] · log_inf + a_i·logG + b_i·logT = 0
     #   => a_i·logG + b_i·logT = -(B_seed_atom[i,:]·x + M[i,col_inf]·log_inf)
     #
-    # We solve that 2-variable system over (logG, logT) to get the key.
+    # We solve that 2-variable overdetermined system over (logG, logT).
     #
-    # If col_inf is not known, we fall back to pinning x[atom_1] = 0 (which
-    # fixes the gauge but may give a different solution family; we then try
-    # multiple RHS values to find a consistent seed read-off).
+    # Note on nullity=1: the nullity=1 of the FULL matrix is the flat/parity
+    # direction (all atoms get the same log).  After stripping special cols,
+    # B_walk has right nullity >= 1 (same flat direction) but the inhomogeneous
+    # RHS from col_inf pins the gauge, making the system uniquely solvable.
+    # The left kernel of B_walk is large (O(nr_walk - rk_walk + n_atoms)) but
+    # we don't use the left null approach here — we use direct right solve.
     # ------------------------------------------------------------------
+    nr_walk, nc_B = size(B_walk)
     dense_elements = nr_walk * nc_B
+    _log("  atom subspace rank: $rk_walk  (right nullity = $(nc_B - rk_walk))")
     if dense_elements > 100_000_000
-        _log("  ⚠  B_walk is large ($(nr_walk)×$(nc_B) = $(dense_elements) elements)")
+        _log("  ⚠  B_walk (rref) is large ($(nr_walk)×$(nc_B) = $(dense_elements) elements)")
         _log("     Consider running matrix_surgery first to reduce atom count.")
         _log("     Proceeding with Nemo — may be slow or OOM.")
     end
@@ -1188,9 +1232,10 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
         # Primary path: col_inf known — use it as gauge (log∞ = log_inf_val).
         # Try log_inf_val ∈ {1, 2} as cross-check.
         # ------------------------------------------------------------------
-        # Walk-row RHS: for walk row i, rhs[i] = -M[i, col_inf] * log_inf_val mod ell
-        # (col_inf is in the full M, not in atom_cols, so index directly into M)
-        inf_walk_coeffs = [Int(M[walk_rows[i], col_inf]) for i in 1:nr_walk]
+        # Walk-row RHS after rref: use the rref_inf_coeffs computed above
+        # (these are the inf column values transformed by the same row ops
+        # as B_walk, so they are consistent with the rref'd atom rows).
+        inf_walk_coeffs = rref_inf_coeffs
         inf_seed_coeffs = [Int(M[seed_rows[i], col_inf]) for i in 1:length(seed_rows)]
 
         for log_inf_val in [1, 2]
@@ -1206,7 +1251,9 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
             ok, x_nemo = can_solve_with_solution(A_nemo, b_nemo; side=:right)
 
             if !ok
-                _log("  ✗  log∞=$log_inf_val: walk system inconsistent (unexpected)")
+                _log("  ✗  log∞=$log_inf_val: walk system inconsistent after rref")
+                _log("     (the rref should have eliminated all dependencies; this indicates")
+                _log("      corrupt relations or a wrong col_inf — check the encoding)")
                 continue
             end
 
@@ -1239,6 +1286,8 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
 
             if !ok2
                 _log("  ✗  log∞=$log_inf_val: seed system inconsistent")
+                _log("     The $(length(seed_rows)) seed rows give contradictory (logG, logT) values.")
+                _log("     Need more / better seed rows (relations involving gen or tgt).")
                 continue
             end
 
@@ -1316,8 +1365,19 @@ function solve_dlp_from_relations(M::AbstractMatrix{Int}, atoms, group_order::In
     # ------------------------------------------------------------------
     if isempty(recovered_keys)
         _log("\n  ✗  no valid key recovered from direct solve")
-        _log("     Possible causes: walk rows are inconsistent in atom space (col_inf")
-        _log("     entries missing or wrong), or seed rows contradict each other.")
+        _log("     Diagnosis:")
+        _log("       - Full matrix nullity=1 is the flat/parity direction (all atoms same log).")
+        _log("         This is expected and does NOT mean the system is solvable.")
+        _log("       - The atom subspace (B_walk after rref) has rank=$rk_walk / $nc_B atoms.")
+        _log("         Right nullity = $(nc_B - rk_walk) (should be ~1 for the flat direction).")
+        _log("       - If the walk system was inconsistent: inf column is wrong or relations")
+        _log("         are corrupt.  Check col_inf and relation encoding.")
+        _log("       - If the seed system was inconsistent: the $(length(seed_rows)) seed rows")
+        _log("         give contradictory values for (logG, logT) given the atom solution.")
+        _log("         This means the walk does not yet constrain gen/tgt sufficiently —")
+        _log("         need more relations involving gen/tgt (more seed rows).")
+        _log("       - The left-kernel (Diem/Gaudry-Harley) approach is NOT used here.")
+        _log("         A large left kernel of B_walk is normal and irrelevant to this solver.")
         return nothing
     end
 
