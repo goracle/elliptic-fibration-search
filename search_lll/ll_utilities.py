@@ -10,7 +10,7 @@ from math import gcd
 
 _sage_lcm = lcm
 
-USE_JULIA_LADDER = True
+USE_JULIA_LADDER = False # wth is this, i forgor
 
 """
 ll_utilities.py: Matrix and lattice reduction helpers.

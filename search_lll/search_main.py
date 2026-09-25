@@ -3,6 +3,17 @@ from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
 from .search_analysis import *
+# [fix] modularthread.py and search_analysis.py both define
+# _batch_check_rationality (modularthread's is the one actually used at the
+# call sites below). `from module import *` silently skips names starting
+# with "_" unless the module declares __all__, so despite line 6 below doing
+# `from .modularthread import *`, _batch_check_rationality was never actually
+# bound in this module's namespace -- hence NameError at the call sites in
+# run_standard_lattice_search, even though the function exists and works
+# fine when called from within modularthread.py itself (no import boundary
+# there). Import it explicitly by name so the wildcard's underscore rule
+# doesn't silently drop it.
+from .modularthread import _batch_check_rationality
 from .modularthread import *
 from .ll_utilities import *
 from .diagnostics_univariate import *
@@ -14,13 +25,14 @@ from .index_calculus import *
 from sage.all import QQ, PolynomialRing, SR
 from .riemann_roch_localization import *
 from search_common import *
+from bounds import predict_qc_distribution
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
 if FINITE_FIELD:
     from .lp_incidence_dlp import *
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
 
-_OSCAR_AVAILABLE = True
+_OSCAR_AVAILABLE = False
 def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                    rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size,
                    section_poly_dict=None):
@@ -44,12 +56,14 @@ def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
         )
     else:
         from search_lll.mumford.mumford_parallel import mumford_precompute_residues_parallel
-        return mumford_precompute_residues_parallel(
+        ret = mumford_precompute_residues_parallel(
             eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
             rhs_modp_list, vecs_list,
             num_workers=num_workers,
             debug=debug, pool=pool, chunk_size=chunk_size,
         )
+        print(ret)
+        return ret
 
 # After your Mumford search in FINITE_FIELD mode:
 
@@ -601,8 +615,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                     stats.counters[f'residues_seen_p_{p_ret}'] = len(stats.residues_by_prime[p_ret])
 
                 except Exception as e:
-                    if debug:
-                        print(f"[precompute fail] p={p}: {e}")
+                    print(f"[precompute fail] p={p}: {e}")
                     precomputed_residues[p] = {}
                     stats.residues_by_prime[p].update(set())
                     stats.counters[f'modular_checks_p_{p}'] = 0
@@ -1111,7 +1124,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                 })
                 processed_m_vals[m_val] = v
                 candidate_xs.add(x_val_q)
-                if any(c != 0 for c in v):
+                if any(c != 0 for c in v) and False: #this section hangs for some reason, turned off
                     new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
                     new_sections_raw.append(new_sec)
                     candidate_records[-1]["section"] = new_sec

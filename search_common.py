@@ -27,7 +27,7 @@ TERMINATE_WHEN_6 = 3           # stop once this many distinct rational x-coords 
 # Legacy genus-1 fields, kept for modules that still import A1..A6/COEFFS/DATA_PTS.
 A1, A2, A3, A4, A5, A6 = QQ(8), QQ(-3), QQ(-14), QQ(3), QQ(6), QQ(1)
 COEFFS = [A1, A2, A3, A4, A5, A6]
-DATA_PTS = [(QQ(0), QQ(1))]
+DATA_PTS = [QQ(0)]
 TERMINATE_WHEN = 4
 
 # Past curves this file has been pointed at are archived in curve_archive.py
@@ -47,11 +47,11 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # STATIC CONFIG
 # ============================================================================
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
-HEIGHT_BOUND = 6 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
 
 # magic prime settings, chosen empirically. All primes < 100, excluding 2, 3.
-PRIME_POOL = list(primes(100))
+PRIME_POOL = list(primes(6000))
 
 # --- cryptography-related params (FINITE_FIELD mode only) ---
 MAXN = 80                  # no notion of height in FF mode; max n for section multiple [n]P
@@ -69,12 +69,12 @@ if DATA_PTS_GENUS2 is None:
 if FINITE_FIELD:
     PRIME_POOL = [FINITE_FIELD]  # in FF mode the field characteristic is the only "prime" that matters
 
-NUM_PRIME_SUBSETS = 500            # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 2000            # important for stability under different seeds; >= 250 recommended
 VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
 MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 9      # safe range is 7-9; above 15 is too stringent
-MAX_MODULUS = 10**9
+MAX_MODULUS = 10**100
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
 HENSEL_SLOPPY = True
@@ -2988,6 +2988,11 @@ if _IS_MAIN_PROCESS:
     print("DATA_PTS_GENUS2 =", DATA_PTS_GENUS2)
 
 @PROFILE
+class _SkipRationalization(Exception):
+    """Internal control-flow signal for get_phi_x: fall through to the
+    symbolic sqrt path when Y-linear rationalization doesn't apply."""
+    pass
+
 def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
     """
     Compute phi_x = X/Z on the Weierstrass model.
@@ -3142,6 +3147,63 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
             raise RuntimeError(f"get_phi_x (FF): rationalization failed: {e}")
 
     # QQ / SR mode
+    #
+    # BUG (fixed): this used to just do y_val_sqrt = sqrt(quartic_rhs) and
+    # substitute that in directly. Since quartic_rhs (y^2, as a function of m)
+    # is generically NOT a perfect square, that left a bare, un-cancelled
+    # sqrt(...) sitting in the returned phi_x forever -- even in the many
+    # cases where the sqrt actually cancels out of the X/Z ratio, exactly as
+    # the FF branch above already handles via rationalization in the
+    # quadratic basis {1, Y} with Y^2 = quartic_rhs. Downstream code
+    # (bounds.py's compute_residue_counts_for_primes, prepare_modular_data_lll)
+    # assumes phi_x is a plain rational function of m and chokes on the
+    # leftover sqrt with "no conversion of this rational to integer" /
+    # "Cannot coerce RHS into QQ(m)". Mirror the FF branch's rationalization
+    # here (working entirely in SR, using an SR symbol Y with Y^2 = y2
+    # substituted for y) instead of symbolically sqrt-ing.
+    try:
+        y2_sr = SR(quartic_rhs).expand()
+        ySR = SR.var('y')
+        Y = SR.var('Y')
+
+        one_at_xY = SR(one).subs(x=x_coord_func, y=Y).expand()
+        three_at_xY = SR(three).subs(x=x_coord_func, y=Y).expand()
+
+        if not (one_at_xY.is_polynomial(Y) and three_at_xY.is_polynomial(Y)):
+            # Not a polynomial-in-Y morphism (unexpected for a Weierstrass
+            # X/Z map); skip rationalization and fall through to the sqrt path.
+            raise _SkipRationalization()
+
+        def _reduce_to_linear_in_Y_SR(expr_in_Y, y2):
+            """expr_in_Y is an SR polynomial in the symbol Y; reduce modulo
+            Y^2 = y2 and return (A, B) with expr = A + B*Y."""
+            deg = int(expr_in_Y.degree(Y))
+            A = SR(0)
+            B = SR(0)
+            for i in range(deg + 1):
+                c = SR(expr_in_Y.coefficient(Y, i))
+                if c == 0:
+                    continue
+                if i % 2 == 0:
+                    A += c * (y2 ** (i // 2))
+                else:
+                    B += c * (y2 ** (i // 2))
+            return A, B
+
+        Ax, Bx = _reduce_to_linear_in_Y_SR(one_at_xY, y2_sr)
+        Az, Bz = _reduce_to_linear_in_Y_SR(three_at_xY, y2_sr)
+
+        rational = _rationalize_linear_ratio(Ax, Bx, Az, Bz, SR, y2_sr)
+        if rational is not None:
+            return rational if rational == "INF" else SR(rational).simplify_full()
+        # If the Y-term genuinely doesn't cancel (shouldn't normally happen
+        # for a Weierstrass X/Z ratio), fall through to the old symbolic
+        # sqrt path as a last resort rather than silently returning garbage.
+    except _SkipRationalization:
+        pass
+    except Exception as e:
+        raise RuntimeError(f"get_phi_x (QQ): rationalization failed: {e}")
+
     try:
         y_val_sqrt = sqrt(quartic_rhs)
     except Exception as e:

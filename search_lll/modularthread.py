@@ -11,6 +11,18 @@ from .archimedean_optim import minimize_archimedean_t_linear_const
 
 """
 modular_workers.py: Parallel worker functions and modular reduction setup.
+
+NOTE on import order (bit us before, writing it down so it doesn't again):
+search_lll/__init__.py does `from .modularthread import *` BEFORE
+`from .ll_utilities import *`. ll_utilities.py has its own, more current
+versions of prepare_modular_data_lll() and compute_all_mults_for_section()
+(5-tuple return incl. section_poly_dict, Julia-ladder support, etc.) which
+end up shadowing anything defined here under those same names. This file
+used to carry stale duplicates of both -- they were never actually called
+(ll_utilities' copies always won), just dead weight that cost two separate
+debugging sessions before the mismatch was found. Removed. If you need to
+add a same-named helper here again, either import it from ll_utilities
+instead of redefining it, or give it a different name.
 """
 
 # Standard library and external imports
@@ -88,60 +100,6 @@ def reduce_point_hom(E_mod_p, P, p, logger=None):
     except Exception as outer_e:
         log(f"[reduce_point_hom] p={p} unexpected error: {outer_e}")
         return None
-
-def compute_all_mults_for_section(Pi, required_ks, stats,
-                                  max_k=None, debug=False):
-    """
-    Compute specific multiples {k: k*Pi} for a reduced section Pi.
-    Handles None input for Pi (returns None).
-    """
-    if Pi is None:
-        return None
-
-    if max_k is None:
-        try:
-            max_k = max(abs(k) for k in required_ks)
-        except ValueError:
-            max_k = MAX_K_ABS # fallback
-
-    max_k = min(int(max_k), MAX_K_ABS)
-
-    computed = {}
-    try:
-        identity = Pi.curve()(0)
-        computed[0] = identity
-    except Exception:
-        computed[0] = None
-
-    computed[1] = Pi
-
-    for k_abs in range(2, max_k + 1):
-        if k_abs in computed:
-            continue
-        try:
-            computed[k_abs] = k_abs * Pi
-            if stats: stats.incr('modular_mults')
-        except Exception:
-            if debug:
-                print(f"    [mults] k*Pi failed at k={k_abs}")
-            break
-
-    final_mults = {}
-    for k in required_ks:
-        k_abs = abs(int(k))
-        if k_abs not in computed:
-            continue
-
-        k_val = computed[k_abs]
-        if k_val is None:
-            continue
-
-        if k < 0:
-            final_mults[k] = -k_val
-        else:
-            final_mults[k] = k_val
-
-    return final_mults
 
 def lll_reduce_basis_modp(p, sections, curve_modp,
                           truncate_deg=TRUNCATE_MAX_DEG,
@@ -270,339 +228,9 @@ def lll_reduce_basis_modp(p, sections, curve_modp,
 # === Preparation and LLL Reduction (Modular) ==================
 # ==============================================================
 
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
-    """
-    Prepare modular data for LLL-based search across multiple primes.
-    NOW RECORDS REJECTED PRIMES IN STATS FOR POSTERIOR ADJUSTMENT.
-    """
-    if search_primes is None:
-        search_primes = prime_pool
-
-    r = len(current_sections)
-    if r == 0:
-        return {}, [], {}, {}
-
-    Ep_dict, rhs_modp_list = {}, [{} for _ in rhs_list]
-    multiplies_lll, vecs_lll = {}, {}
-    rejected_primes = []
-
-    PR_m = PolynomialRing(QQ, 'm')
-    var_sym = var('m')
-
-    processed_rhs_list = [{'num': PR_m(rhs.numerator()), 'den': PR_m(rhs.denominator())} for rhs in rhs_list]
-    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
-    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
-
-    for p in search_primes:
-        try:
-            if any(int(QQ(c).denominator()) % p == 0 for c in a4_num.coefficients(sparse=False)):
-                rejected_primes.append((p, "a4_denom_divisible"))
-                continue
-            if any(int(QQ(c).denominator()) % p == 0 for c in a6_num.coefficients(sparse=False)):
-                rejected_primes.append((p, "a6_denom_divisible"))
-                continue
-
-            Rp = PolynomialRing(GF(p), 'm')
-            Fp_m = Rp.fraction_field()
-
-            try:
-                if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
-                    rejected_primes.append((p, "a4_a6_denom_zero"))
-                    continue
-            except Exception:
-                rejected_primes.append((p, "denom_coercion_failed"))
-                continue
-
-            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
-            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-
-            if p == 3 and DEBUG:
-                print("\n" + "="*70)
-                print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
-                try:
-                    mod_p_fiber_report = find_singular_fibers(a4=a4_modp, a6=a6_modp, verbose=True)
-                    print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
-                except Exception as e_diag:
-                    print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
-                print("="*70 + "\n")
-
-            try:
-                disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
-                if disc_modp.is_zero():
-                    rejected_primes.append((p, "singular_discriminant"))
-                    continue
-            except Exception:
-                rejected_primes.append((p, "discriminant_check_failed"))
-                continue
-
-            try:
-                Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
-                if hasattr(Delta_poly, 'numerator'):
-                    Delta_poly = Delta_poly.numerator()
-                Delta_pr = PR_m(SR(Delta_poly))
-
-                has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
-
-                if has_collision:
-                    deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
-                    rejected_primes.append((p, f"fiber_collision_deg_{deg}"))
-                    continue
-            except Exception as e:
-                if DEBUG:
-                    print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
-
-            try:
-                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
-            except ArithmeticError as e:
-                rejected_primes.append((p, "elliptic_curve_construction_failed"))
-                continue
-
-            rhs_modp_for_p = {}
-            for i, rhs_data in enumerate(processed_rhs_list):
-                try:
-                    if rhs_data['den'].change_ring(GF(p)).is_zero():
-                        continue
-                    rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
-                except Exception:
-                    pass
-
-            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
-
-            if Uinv is None:
-                Uinv_mat = identity_matrix(ZZ, r)
-            else:
-                try:
-                    Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
-                except Exception:
-                    Uinv_mat = identity_matrix(ZZ, r)
-
-            vecs_transformed_for_p = []
-            for v in vecs:
-                try:
-                    vZ = vector(ZZ, [int(c) for c in v])
-                    transformed = vZ * Uinv_mat
-                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
-                except Exception:
-                    try:
-                        vecs_transformed_for_p.append(tuple(int(c) for c in v))
-                    except Exception:
-                        vecs_transformed_for_p.append(None)
-
-            required_ks_per_section = [set() for _ in range(r)]
-            for v_trans in vecs_transformed_for_p:
-                if v_trans is None:
-                    continue
-                for j, coeff in enumerate(v_trans):
-                    required_ks_per_section[j].add(int(coeff))
-
-            mults = [{} for _ in range(r)]
-            any_mult_error = False
-            for i_sec in range(r):
-                Pi = new_basis[i_sec]
-                required_ks = required_ks_per_section[i_sec]
-                if not required_ks:
-                    required_ks = {-1, 0, 1}
-
-                mults_i = compute_all_mults_for_section(
-                    Pi, required_ks, stats,
-                    max_k=max((abs(k) for k in required_ks), default=1),
-                    debug=(r > 1)
-                )
-
-                if mults_i is None:
-                    any_mult_error = True
-                    rejected_primes.append((p, f"multiplier_computation_failed_sec_{i_sec}"))
-                    break
-                mults[i_sec] = mults_i
-
-            if any_mult_error:
-                continue
-
-            Ep_dict[p] = Ep_local
-            for i, rhs_p_val in rhs_modp_for_p.items():
-                rhs_modp_list[i][p] = rhs_p_val
-            multiplies_lll[p] = mults
-            vecs_lll[p] = vecs_transformed_for_p
-
-        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if DEBUG and (p not in (2, 5)):
-                print(f"Skipping prime {p} due to error during preparation: {e}")
-            rejected_primes.append((p, f"exception_{type(e).__name__}"))
-            continue
-
-    if stats is not None:
-        if not hasattr(stats, 'rejected_primes'):
-            stats.rejected_primes = []
-        stats.rejected_primes.extend(rejected_primes)
-
-        if DEBUG:
-            print(f"\n[prepare_modular_data_lll] Rejected {len(rejected_primes)} primes:")
-            for p, reason in rejected_primes:
-                print(f"  p={p}: {reason}")
-
-            try:
-                ram_locus = compute_ramification_locus(cd)
-                detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
-                assert detected_collisions.issubset(ram_locus), \
-                    f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
-            except Exception as e:
-                print(f"Ramification locus check failed: {e}")
-
-    return Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll
-
 # ==============================================================
 # === Main Worker Functions (Single Subset) ====================
 # ==============================================================
-
-def process_prime_subset(p_subset, cd, current_sections, prime_pool, r_m, shift, rhs_list, vecs, tmax):
-    """
-    Worker function to find m-candidates for a single subset of primes.
-    (This is the OLDER version from source [22])
-    """
-    if not p_subset:
-        return set()
-
-    # Prepare modular data for this specific prime subset.
-    Ep_dict, rhs_modp_list_full, mult_lll, vecs_lll = prepare_modular_data_lll(
-        cd, current_sections, prime_pool, rhs_list, vecs, stats=None, search_primes=p_subset
-    )
-
-    if not Ep_dict:
-        return set()
-
-    found_candidates_for_subset = set()
-    r = len(current_sections)
-
-    # Process each search vector for this subset
-    for idx, v_orig in enumerate(vecs):
-        if all(c == 0 for c in v_orig):
-            continue
-        v_orig_tuple = tuple(v_orig)
-
-        residue_map = {}
-        for p in p_subset:
-            if p not in Ep_dict:
-                continue
-
-            v_p_list = vecs_lll.get(p)
-            if v_p_list is None:
-                continue
-            if idx >= len(v_p_list):
-                continue
-
-            v_p_transformed = v_p_list[idx]
-            mults = mult_lll.get(p)
-            if mults is None:
-                continue
-
-            Ep = Ep_dict[p]
-
-            Pm = Ep(0)
-            for j, coeff in enumerate(v_p_transformed):
-                if int(coeff) in mults[j]:
-                    Pm += mults[j][int(coeff)]
-
-            if Pm.is_zero():
-                continue
-
-            # Find roots for each RHS function
-            roots_for_p = set()
-            for i, rhs_ff in enumerate(rhs_list):
-                # Get the correct RHS list for this prime
-                if i not in rhs_modp_list_full:
-                    continue
-                rhs_modp_list = rhs_modp_list_full[i]
-                if p not in rhs_modp_list:
-                    continue
-
-                rhs_p = rhs_modp_list[p]
-                try:
-                    num_modp = (Pm[0]/Pm[2] - rhs_p).numerator()
-                    if not num_modp.is_zero():
-                        roots = {int(r) for r in num_modp.roots(ring=GF(p), multiplicities=False)}
-                        roots_for_p.update(roots)
-                except (ZeroDivisionError, ArithmeticError):
-                    continue
-
-            if roots_for_p:
-                residue_map[p] = roots_for_p
-
-        # Apply CRT to find m-candidates from the collected roots
-        primes_for_crt = [p for p in p_subset if p in residue_map]
-        if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
-            continue
-
-        lists = [residue_map[p] for p in primes_for_crt]
-        for combo in itertools.product(*lists):
-            M = reduce(mul, primes_for_crt, 1)
-
-            if M > MAX_MODULUS:
-                continue
-
-            m0 = crt_cached(combo, tuple(primes_for_crt))
-
-            try:
-                best_ms = minimize_archimedean_t_linear_const(int(m0), int(M), r_m, shift, tmax)
-            except TypeError:
-                best_ms = [(t, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)] # t, m, x, score
-
-            for t_cand, m_cand, _, _ in best_ms:
-                found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
-
-            try:
-                a, b = rational_reconstruct(m0 % M, M)
-
-                m_val_rational = QQ(a) / QQ(b)
-                # Pass filter_primes_keys instead of extra_primes_for_filtering
-                if _check_rational_m_candidate(m_val_rational, residue_map_for_filter,
-                                                filter_primes_keys,
-                                                coeffs_genus2=coeffs_genus2, shift=shift,
-                                                r_m_linear=r_m_linear, r_m_sym=r_m):
-                    found_candidates_for_subset.add( (m_val_rational, v_orig_tuple) )
-                    stats_counter['rational_recon_success_worker'] += 1
-                else:
-                    stats_counter['rational_recon_failure_worker'] += 1
-
-                #found_candidates_for_subset.add((QQ(a) / QQ(b), v_orig_tuple))
-            except RationalReconstructionError:
-                pass
-
-    return found_candidates_for_subset, Counter(), set() # Return empty stats
-
-def _make_executor(max_workers=None):
-    """
-    Try to create a ProcessPoolExecutor with 'fork' on Linux, fall back to threads.
-    """
-    try:
-        ctx = multiprocessing.get_context("fork")
-        return ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx)
-    except Exception as e:
-        if DEBUG:
-            print(f"Warning: couldn't start process pool with fork: {e}. Falling back to threads.")
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-def process_candidate_numeric(m_val, v_tuple, r_m_callable, shift, rationality_test_func, current_sections):
-    """Fast candidate processor (pickleable for multiprocessing)."""
-    try:
-        x_val = r_m_callable(m_val) - shift
-        y_val = rationality_test_func(x_val)
-        if y_val is not None:
-            v = vector(QQ, v_tuple)
-            new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections))) if current_sections else None
-            return m_val, x_val, y_val, v, new_sec
-    except (TypeError, ZeroDivisionError, ArithmeticError):
-        if DEBUG: print("here we are.")
-        return None
-    return None
-
-def r_m_numeric_top(m_val, r_m_expr):
-    """
-    Evaluate symbolic r_m_expr at numeric m_val.
-    Returns QQ(x)
-    """
-    SR_m = var('m')
-    val = r_m_expr.subs({SR_m: m_val})
-    return QQ(val)
 
 def compute_residues_for_prime_worker(args):
     """
@@ -638,14 +266,32 @@ def compute_residues_for_prime_worker(args):
         try:
             v_p_transformed = vecs_lll_p[idx]
         except Exception:
-            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-            continue # Skip vector if transform failed
+            print(f"[compute_residues_for_prime_worker] p={p} v={v_orig_tuple}: vecs_lll_p[{idx}] lookup failed")
+            raise
+
+        # [fix] see compute_residues_for_prime_worker_old for full rationale:
+        # mults_p entries are always LargePrimeMockPoint; seed Pm from the same
+        # curve those terms live on rather than from Ep_local, so the type can't
+        # diverge (Ep_local real/mock and mults_p real/mock are decided by two
+        # independent conditions upstream).
+        try:
+            first_term = next(
+                (mpj.get(int(c)) if hasattr(mpj, 'get') else
+                 (mpj[int(c)] if mpj is not None and 0 <= int(c) < len(mpj) else None))
+                for j, c in enumerate(v_p_transformed)
+                for mpj in [mults_p[j]] if mpj is not None
+            )
+        except StopIteration:
+            first_term = None
 
         try:
-            Pm = Ep_local(0)
+            if first_term is not None:
+                Pm = first_term.curve()(0)
+            else:
+                Pm = Ep_local(0)
         except Exception:
-            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-            continue # Skip vector if identity fails
+            print(f"[compute_residues_for_prime_worker] p={p} v={v_orig_tuple}: identity construction failed")
+            raise
 
         for j, coeff in enumerate(v_p_transformed):
             try:
@@ -654,21 +300,31 @@ def compute_residues_for_prime_worker(args):
                     continue
                 key = int(coeff)
                 if hasattr(mpj, 'get'):
-                    if key in mpj:
-                        Pm += mpj[key]
+                    term = mpj.get(key)
+                    has_term = key in mpj
                 else:
-                    if 0 <= key < len(mpj):
-                        Pm += mpj[key]
+                    term = mpj[key] if 0 <= key < len(mpj) else None
+                    has_term = 0 <= key < len(mpj)
+                if has_term:
+                    assert type(Pm) is type(term), (
+                        f"[compute_residues_for_prime_worker] p={p} v={v_orig_tuple} j={j}: "
+                        f"Pm is {type(Pm).__name__} but mults_p[{j}][{key}] is {type(term).__name__}"
+                    )
+                    Pm += term
+            except AssertionError:
+                raise
             except Exception:
-                continue # Skip coeff if lookup fails
+                print(f"[compute_residues_for_prime_worker] p={p} v={v_orig_tuple} j={j} coeff={coeff}: "
+                      f"lookup/add failed, Pm type={type(Pm)}, mpj[key] type={type(mpj.get(key) if hasattr(mpj,'get') else (mpj[key] if 0 <= key < len(mpj) else None))}")
+                raise
 
         try:
             if Pm.is_zero():
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
         except Exception:
-             result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-             continue
+             print(f"[compute_residues_for_prime_worker] p={p} v={v_orig_tuple}: Pm.is_zero() failed, Pm type={type(Pm)}")
+             raise
 
         roots_by_rhs = []
         for i_rhs in range(num_rhs):
@@ -831,14 +487,33 @@ def compute_residues_for_prime_worker_old(args):
         try:
             v_p_transformed = vecs_lll_p[idx]
         except Exception:
-            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-            continue
+            print(f"[compute_residues_for_prime_worker_old] p={p} v={v_orig_tuple}: vecs_lll_p[{idx}] lookup failed")
+            raise
+
+        # [fix] compute_all_mults_for_section always returns LargePrimeMockPoint
+        # entries in mults_p, regardless of whether Ep_local (built independently,
+        # from whether EllipticCurve() overflowed for this prime) is real or mock.
+        # Seed Pm's identity from the curve the mults_p terms actually live on --
+        # not from Ep_local -- so the accumulator's type can never diverge from
+        # what gets += into it.
+        try:
+            first_term = next(
+                (mpj.get(int(c)) if hasattr(mpj, 'get') else
+                 (mpj[int(c)] if mpj is not None and 0 <= int(c) < len(mpj) else None))
+                for j, c in enumerate(v_p_transformed)
+                for mpj in [mults_p[j]] if mpj is not None
+            )
+        except StopIteration:
+            first_term = None
 
         try:
-            Pm = Ep_local(0)
+            if first_term is not None:
+                Pm = first_term.curve()(0)
+            else:
+                Pm = Ep_local(0)
         except Exception:
-            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-            continue
+            print(f"[compute_residues_for_prime_worker_old] p={p} v={v_orig_tuple}: identity construction failed")
+            raise
 
         for j, coeff in enumerate(v_p_transformed):
             try:
@@ -847,21 +522,44 @@ def compute_residues_for_prime_worker_old(args):
                     continue
                 key = int(coeff)
                 if hasattr(mpj, 'get'):
-                    if key in mpj:
-                        Pm += mpj[key]
+                    term = mpj.get(key)
+                    has_term = key in mpj
                 else:
-                    if 0 <= key < len(mpj):
-                        Pm += mpj[key]
+                    term = mpj[key] if 0 <= key < len(mpj) else None
+                    has_term = 0 <= key < len(mpj)
+                if has_term:
+                    # [assert] mults_p entries come from compute_all_mults_for_section,
+                    # which always returns LargePrimeMockPoint (see ll_utilities.py
+                    # compute_all_mults_for_section: both the Julia-ladder and the
+                    # numpy/Sage-fallback branches wrap results in LargePrimeMockPoint
+                    # unconditionally). Pm must therefore also be a LargePrimeMockPoint
+                    # from the same accumulation step on, or += silently has no valid
+                    # operator (LargePrimeMockPoint has no __radd__, and giving it one
+                    # would risk mixing real Weierstrass arithmetic with the mock's
+                    # projective formulas -- wrong answers instead of a crash).
+                    # Catch the type mismatch here, at first divergence, instead of
+                    # inside the += a few lines down.
+                    assert type(Pm) is type(term), (
+                        f"[compute_residues_for_prime_worker_old] p={p} v={v_orig_tuple} j={j}: "
+                        f"Pm is {type(Pm).__name__} but mults_p[{j}][{key}] is {type(term).__name__} "
+                        f"-- Ep_local(0) and compute_all_mults_for_section disagree on real-vs-mock "
+                        f"curve for this prime."
+                    )
+                    Pm += term
+            except AssertionError:
+                raise
             except Exception:
-                continue
+                print(f"[compute_residues_for_prime_worker_old] p={p} v={v_orig_tuple} j={j} coeff={coeff}: "
+                      f"lookup/add failed, Pm type={type(Pm)}, mpj[key] type={type(mpj.get(key) if hasattr(mpj,'get') else (mpj[key] if 0 <= key < len(mpj) else None))}")
+                raise
 
         try:
             if Pm.is_zero():
                 result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
                 continue
         except Exception:
-            result_for_p[v_orig_tuple] = [set() for _ in range(num_rhs)]
-            continue
+            print(f"[compute_residues_for_prime_worker_old] p={p} v={v_orig_tuple}: Pm.is_zero() failed, Pm type={type(Pm)}")
+            raise
 
         roots_by_rhs = []
         for i_rhs in range(num_rhs):
@@ -972,79 +670,6 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
 
     return rational_candidates
 
-# In modularthread.py
-
-def check_specific_t_value2(t_candidate, m0, M, residue_map_for_filter, extra_primes,
-                           coeffs_genus2: list[QQ], shift: QQ,
-                           r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
-    """
-    Checks if a single integer t is valid against the extra prime constraints.
-    Computes x correctly using r_m relation, and performs the Kronecker check.
-    """
-    m0_val = ZZ(m0)
-    M_val = ZZ(M)
-    t_candidate_val = ZZ(t_candidate)
-
-    m_candidate_val = m0_val + t_candidate_val * M_val
-
-    for q in extra_primes:
-        allowed_m_residues = residue_map_for_filter.get(q)
-        m_cand_mod_q = m_candidate_val % q
-
-        # --- FIXED: Correct handling of allowed_m_residues being set() ---
-        if allowed_m_residues is None:
-             # Should not happen if extra_primes == residue_map_for_filter.keys()
-             continue
-
-        if not allowed_m_residues or m_cand_mod_q not in allowed_m_residues:
-            if verbose:
-                print(f"Filter fail (x-coord): t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
-            return False
-        # --- END FIX ---
-
-        # --- UNIFIED MODULAR CHECK ---
-        try:
-            x_mod_q = 0 # Placeholder for initial state
-
-            # 1. Calculate x_mod_q correctly using the generalized r_m relation: x = r_m(m) - shift
-            if r_m_linear:
-                slope, intercept = r_m_linear
-                # Modular reduction of coefficients and shift
-                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
-                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
-                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
-                # x = slope*m + intercept - shift (mod q)
-                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
-            else:
-                # Fallback to evaluating rational
-                m_q = QQ(m_candidate_val)
-                x_val = r_m_sym.subs({var('m'): m_q}) - shift
-                x_val = QQ(x_val)
-                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
-
-            # 2. Calculate G(x_mod_q) = RHS_mod_q
-            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
-            for coeff in coeffs_genus2[1:]:
-                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
-                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
-
-            if RHS_mod_q < 0:
-                RHS_mod_q = RHS_mod_q + q
-
-            # 3. Perform Kronecker check
-            if kronecker(RHS_mod_q, q) == -1:
-                if verbose:
-                    print(f"Filter fail (y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
-                return False
-
-        except Exception:
-            if verbose:
-                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
-            continue
-        # --- END UNIFIED MODULAR CHECK ---
-
-    return True
-
 def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None):
     """
     Worker function to find m-candidates for a single subset of primes.
@@ -1142,9 +767,18 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
                     best_ms = [(t, QQ(m0 + t * M), 0, 0.0) for t in (-1, 0, 1)]
 
                 for t_cand, m_cand, _, _ in best_ms:
-                    if check_specific_t_value(t_cand, m0, M, residue_map_for_filter, filter_primes_keys,
-                                              coeffs_genus2=coeffs_genus2, shift=shift,
-                                              r_m_linear=None, r_m_sym=r_m):
+                    # [fix] check_specific_t_value was never defined anywhere in the
+                    # codebase (dead call, NameError at runtime). Its argument shape
+                    # (residue_map_for_filter, filter_primes_keys, coeffs_genus2, shift,
+                    # r_m_linear, r_m_sym) is identical to _check_rational_m_candidate
+                    # below, just keyed by (t_cand, m0, M) instead of a single
+                    # pre-combined m_candidate -- m_cand from best_ms is exactly that
+                    # combined value, already unused elsewhere in this branch. Route
+                    # Path 1 through the same filter Path 2 uses.
+                    if _check_rational_m_candidate(QQ(m_cand), residue_map_for_filter,
+                                                    filter_primes_keys,
+                                                    coeffs_genus2=coeffs_genus2, shift=shift,
+                                                    r_m_linear=None, r_m_sym=r_m):
                         found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
 
                 # Path 2: Rational Reconstruction
@@ -1167,160 +801,6 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
 
     return found_candidates_for_subset, stats_counter, tested_crt_classes
 
-def check_specific_t_value3(t_candidate, m0, M, residue_map_for_filter, extra_primes,
-                           coeffs_genus2: list[QQ], shift: QQ,
-                           r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
-    """
-    Checks if a single integer t is valid against the extra prime constraints.
-    Returns False if any constraint is violated, True otherwise.
-
-    If residue_map_for_filter is empty or all primes have empty residues,
-    returns True (no constraints to check).
-    """
-    m0_val = ZZ(m0)
-    M_val = ZZ(M)
-    t_candidate_val = ZZ(t_candidate)
-
-    m_candidate_val = m0_val + t_candidate_val * M_val
-
-    # If no filtering primes, accept by default
-    if not extra_primes or not residue_map_for_filter:
-        return True
-
-    for q in extra_primes:
-        allowed_m_residues = residue_map_for_filter.get(q)
-
-        # Skip primes not in filter map
-        if allowed_m_residues is None:
-            continue
-
-        # If empty set, this prime forbids ALL residues -> reject
-        if not allowed_m_residues:
-            if verbose:
-                print(f"Filter fail: Prime {q} has empty allowed residue set (forbids all)")
-            return False
-
-        m_cand_mod_q = m_candidate_val % q
-
-        if m_cand_mod_q not in allowed_m_residues:
-            if verbose:
-                print(f"Filter fail (x-coord): t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
-            return False
-
-        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
-        try:
-            x_mod_q = 0
-
-            if r_m_linear:
-                slope, intercept = r_m_linear
-                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
-                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
-                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
-                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
-            else:
-                m_q = QQ(m_candidate_val)
-                x_val = r_m_sym.subs({var('m'): m_q}) - shift
-                x_val = QQ(x_val)
-                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
-
-            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
-            for coeff in coeffs_genus2[1:]:
-                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
-                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
-
-            if RHS_mod_q < 0:
-                RHS_mod_q = RHS_mod_q + q
-
-            if kronecker(RHS_mod_q, q) == -1:
-                if verbose:
-                    print(f"Filter fail (y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
-                return False
-
-        except Exception:
-            if verbose:
-                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
-            continue
-
-    return True
-
-def _check_rational_m_candidate2(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
-                                coeffs_genus2: list[QQ], shift: QQ,
-                                r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
-    """
-    Applies consistency checks for a rational m_candidate.
-    Returns False if any constraint is violated, True otherwise.
-
-    If residue_map_for_filter is empty or all primes have empty residues,
-    returns True (no constraints to check).
-    """
-    m_candidate_val_num = ZZ(m_candidate.numerator())
-    m_candidate_val_den = ZZ(m_candidate.denominator())
-
-    # If no filtering primes, accept by default
-    if not extra_primes or not residue_map_for_filter:
-        return True
-
-    for q in extra_primes:
-        # Reject if denominator divisible by filter prime
-        if m_candidate_val_den % q == 0:
-            return False
-
-        m_cand_mod_q = (m_candidate_val_num * m_candidate_val_den.inverse_mod(q)) % q
-
-        allowed_m_residues = residue_map_for_filter.get(q)
-
-        # Skip primes not in filter map
-        if allowed_m_residues is None:
-            continue
-
-        # If empty set, this prime forbids ALL residues -> reject
-        if not allowed_m_residues:
-            if verbose:
-                print(f"Filter fail: Prime {q} has empty allowed residue set (forbids all)")
-            return False
-
-        if m_cand_mod_q not in allowed_m_residues:
-            if verbose:
-                pass
-            return False
-
-        # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
-        try:
-            x_mod_q = 0
-
-            if r_m_linear:
-                slope, intercept = r_m_linear
-                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(q)) % q
-                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(q)) % q
-                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(q)) % q
-                x_mod_q = (slope_mod * m_cand_mod_q + icept_mod - shift_mod) % q
-            else:
-                x_val = r_m_sym.subs({var('m'): m_candidate}) - shift
-                x_val = QQ(x_val)
-                x_mod_q = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(q)) % q
-
-            RHS_mod_q = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(q)) % q
-            for coeff in coeffs_genus2[1:]:
-                coeff_mod_q = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(q)) % q
-                RHS_mod_q = (RHS_mod_q * x_mod_q + coeff_mod_q) % q
-
-            if RHS_mod_q < 0:
-                RHS_mod_q = RHS_mod_q + q
-
-            if kronecker(RHS_mod_q, q) == -1:
-                if verbose:
-                    print(f"Filter fail (rational m, y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
-                return False
-
-        except Exception:
-            if verbose:
-                print(f"Warning: Modular reduction/y-sieve failed for q={q}. Skipping y-sieve.")
-            continue
-
-    return True
-
-# seems of limited value
-
 def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
                                 coeffs_genus2: list[QQ], shift: QQ,
                                 r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
@@ -1331,7 +811,6 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
     When x-coordinate filters are empty (all primes have set()), only y-coordinate
     Kronecker check is performed.
     """
-    return True
     m_candidate_val_num = ZZ(m_candidate.numerator())
     m_candidate_val_den = ZZ(m_candidate.denominator())
 
@@ -1393,28 +872,5 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
 
     return True
 
-def check_specific_t_value(t_candidate, m0, M, residue_map_for_filter, extra_primes, verbose=False, coeffs_genus2=None, shift=None, r_m_linear=None, r_m_sym=None):
-    """
-    Checks if a *single* integer t is valid against the extra prime constraints.
-    """
-    m0 = int(m0)
-    M = int(M)
-    t_candidate = int(t_candidate)
 
-    for q in extra_primes:
-        allowed_m_residues = residue_map_for_filter.get(q)
-
-        if not allowed_m_residues:
-            if verbose:
-                print(f"Filter fail: Prime {q} has no allowed m-residues.")
-            return False
-
-        m_cand_mod_q = (m0 + t_candidate * M) % q
-
-        if m_cand_mod_q not in allowed_m_residues:
-            if verbose: print(f"Filter fail: t={t_candidate} -> m={m_cand_mod_q} (mod {q}) not in allowed set.")
-            return False
-
-    if verbose: print(f"Filter pass: t={t_candidate} is valid.")
-    return True
 

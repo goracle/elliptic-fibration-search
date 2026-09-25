@@ -1,5 +1,11 @@
 from sage.all import QQ, ZZ, Integer, PolynomialRing, lcm, gcd, GF
 from collections import Counter
+# [fix] math.log is used in prove_modulus_sufficiency below (and in
+# compute_lll_constant's docstring-adjacent code), but the only `import math`
+# in this file was local to compute_lll_constant -- a function-local import
+# doesn't leak into other functions or module scope, so prove_modulus_sufficiency
+# hit NameError: name 'math' is not defined the first time it actually ran.
+import math
 
 # ---------------------------
 # Helper / sanity utilities

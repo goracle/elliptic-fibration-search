@@ -899,7 +899,8 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
         iter_stats = SearchStats()
         return newly_found_x, new_sections, iter_stats
 
-    num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
+    num_prime_subsets = NUM_PRIME_SUBSETS
+    #num_prime_subsets = int(sconf['NUM_PRIME_SUBSETS'])
 
     if USE_CONSENSUS_FILTER and fibrations and not FINITE_FIELD:
         all_precomputed_residues, all_fibration_geometries = precompute_consensus_residues(
@@ -1453,7 +1454,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     iteration = 0
     H = None
     all_newly_found_transformed_x = set()
-    height_bound = sconf['HEIGHT_BOUND']
+    height_bound = HEIGHT_BOUND
 
     while True:
         print(f"\n--- Search Iteration {iteration} with {len(current_sections)} sections ---")
@@ -1534,11 +1535,12 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
         if len(all_known_x) >= TERMINATE_WHEN_6 and not FINITE_FIELD:
             break
 
+        break
         if not new_sections:
             break
 
         print("Augmenting Mordell-Weil basis with new sections.")
-        current_sections.extend(new_sections)
+        #current_sections.extend(new_sections)
         current_sections = lll_reduce_mw_basis(cd, list(set(current_sections)))
         iteration += 1
 
