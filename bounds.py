@@ -2,7 +2,7 @@ import math, random, subprocess, tempfile, os, shlex, multiprocessing, time, tra
 from sage.all import *
 from functools import lru_cache, reduce
 from operator import mul
-from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD, is_good_prime_for_surface
 from math import gcd
 from collections import Counter
 

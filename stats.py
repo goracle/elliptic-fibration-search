@@ -607,6 +607,11 @@ class CurveComplexityPredictor:
         zero_ratio = sum(1 for r in residue_counts.values() if r == 0) / len(residue_counts)
 
         # Signal 4: Canonical height pairing matrix condition number
+        if H is None:
+            raise ValueError(
+                "assess_curve_difficulty: H is None -- caller must supply a "
+                "real height-pairing matrix (including the 1x1 case), not None."
+            )
         try:
             # We must import numpy locally or rely on global
             matrix_data = np.array(H.change_ring(RDF))

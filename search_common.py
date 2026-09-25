@@ -15,404 +15,134 @@ _IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # local modules
 
 #### BEGIN USER CONFIG
+# ============================================================================
+# ACTIVE CURVE
+# ============================================================================
+# Hindes' curve, rational point search mode.
+# y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
+COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 3           # stop once this many distinct rational x-coords are known
 
-# Input curve coefficients (starting curve coefficients)
-A1 = QQ(8)
-A2 = QQ(-3)
-A3 = QQ(-14)
-A4 = QQ(3)
-A5 = QQ(6)
-A6 = QQ(1)
-
-# Starting rational data points (starting rational point list)
-DATA_PTS = [(QQ(1)/QQ(2), QQ(7)/QQ(4)), (QQ(3), QQ(37)), (QQ(-1), QQ(1))]
-
-# TEST CURVE 1
-# --- Configuration, deg x = 5---
-A1 = 4
-A2 = 8
-A3 = 20
-A4 = -4
-A5 = -4
-A6 = 1
+# Legacy genus-1 fields, kept for modules that still import A1..A6/COEFFS/DATA_PTS.
+A1, A2, A3, A4, A5, A6 = QQ(8), QQ(-3), QQ(-14), QQ(3), QQ(6), QQ(1)
 COEFFS = [A1, A2, A3, A4, A5, A6]
-DATA_PTS = [(QQ(0), QQ(1))] # finds all known rational points
+DATA_PTS = [(QQ(0), QQ(1))]
 TERMINATE_WHEN = 4
 
-##### TEST CURVES (from lmfdb.org) ######
+# Past curves this file has been pointed at are archived in curve_archive.py
+# (git history / CURVE_ARCHIVE below) rather than left as dead reassignments
+# here. To switch curves, edit COEFFS_GENUS2 / DATA_PTS_GENUS2 / TERMINATE_WHEN_6
+# above, or pull an entry from CURVE_ARCHIVE.
 
-# --- Configuration, deg x = 6---
-# y^2 = a0*x^6 + a1*x^5 + ... + a6
-# old curves
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(5), QQ(6), QQ(5), QQ(2), QQ(1)]
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(7), QQ(6), QQ(-3), QQ(-8), QQ(-4)]
+# ============================================================================
+# MODE FLAGS
+# ============================================================================
+# Exactly one of these should be truthy/True at a time; see README for what
+# each mode does.
+FINITE_FIELD = None        # int -> HECC DLP / index calculus mode over GF(FINITE_FIELD); None -> QQ mode
+MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search instead of point search
 
-# old curve, the OG
-#x^7 - 10 x^5 + 15 x + 5
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(-2), QQ(-18), QQ(1), QQ(38), QQ(25)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
+# ============================================================================
+# STATIC CONFIG
+# ============================================================================
+NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
+HEIGHT_BOUND = 6 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
 
-# # doesn't find y=0 point... added a special function to find these...maybe ok...
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(12), QQ(16), QQ(-12), QQ(-20), QQ(12)]
-DATA_PTS_GENUS2 = [QQ(-2)] # just the x values lol
-TERMINATE_WHEN_6 = 2
+# magic prime settings, chosen empirically. All primes < 100, excluding 2, 3.
+PRIME_POOL = list(primes(100))
 
-COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-12), QQ(-4), QQ(12), QQ(8), QQ(-7)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
+# --- cryptography-related params (FINITE_FIELD mode only) ---
+MAXN = 80                  # no notion of height in FF mode; max n for section multiple [n]P
+SECRET_KEY = 800           # multiples of base genus-2 divisor used to derive the target divisor
+BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None  # constructed below if FINITE_FIELD
+BLOCK_WIEDEMANN = True     # use block Wiedemann in the final solve
 
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(-11), QQ(-12), QQ(56), QQ(16), QQ(-116)]
-DATA_PTS_GENUS2 = [QQ(-3)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(1), QQ(-6), QQ(2), QQ(8), QQ(-7)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(-16), QQ(24), QQ(-16), QQ(5)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-18), QQ(21), QQ(-10), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
-COEFFS_GENUS2 = [QQ(1), QQ(6), QQ(10), QQ(7), QQ(1), QQ(0)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(1), QQ(2), QQ(3), QQ(2), QQ(5), QQ(8), QQ(-4)]
-DATA_PTS_GENUS2 = [QQ(-5)/QQ(3)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-# deg 5
-COEFFS_GENUS2 = [QQ(4), QQ(4), QQ(-16), QQ(-19), QQ(16), QQ(20)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-# genus 3 test curve
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(0), QQ(0), QQ(2), QQ(0), QQ(-4), QQ(0), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4 # only 3 points, but set to 4 to demonstrate the search
-
-#Y² = -20x^7 - 15x^6 - 10x^5 - 5x^4 + 4x^3 + 3x^2 + 2x + 1
-COEFFS_GENUS2 = [QQ(-20), QQ(-15), QQ(-10), QQ(-5), QQ(4), QQ(3), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4 # only 3 points, but set to 4 to demonstrate the search
-
-#db_entry = '9995456:2498864:[2*x^7-4*x^6-5*x^5+10*x^4+5*x^3-8*x^2-3*x+1,x^2+x]'
-db_entry = '9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]' # first number is disc, second number is conductor
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 5
-
-db_entry='10000000:2000000:[-5*x^7-4*x^6-3*x^5-2*x^4,x^3+x^2+x+1]'
-db_entry='9999936:1249992:[x^6+3*x^5+5*x^4+5*x^3+4*x^2+2*x,x^4+x^3+x^2+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9999899:769223:[-2*x^8-3*x^7-x^6-5*x^5-2*x^4-x^3-3*x^2-1,x+1]'
-db_entry = '9999875:9999875:[x^8+3*x^7-6*x^5-4*x^4,x^4+x^3+x+1]'
-db_entry = '9999872:4999936:[x^7-x^4+x^3-x^2,x^2+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9999868:4999934:[2*x^5+6*x^4+5*x^3+x^2+x+1,x^4+x^3+x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4
-
-db_entry = '9999609:9999609:[-3*x^6-6*x^5-8*x^4-4*x^3-x^2+x,x^4+x^2+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 1
-
-db_entry = '9999469:9999469:[-x^7+2*x^6+x^5-5*x^4+x^3+2*x^2-2*x,x^3+x^2+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values
-TERMINATE_WHEN_6 = 1
-
-db_entry = '9998993:9998993:[x^7+x^6-4*x^5+x^4+4*x^3-3*x^2-x+1,x^2]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9998809:9998809:[x^7-3*x^6-3*x^5+5*x^4-2*x^3-4*x^2+2*x-1,x^2+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry='9998659:9998659:[-x^6+3*x^4-7*x^2-12*x-9,x^4+x^3+x^2+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-db_entry = '9998263:9998263:[3*x^7+x^6-3*x^5-2*x^4+10*x^3-12*x^2+5*x-1,x^4+x^2+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9998039:9998039:[x^4+2*x^3+x^2+x+1,x^4+x^3+x^2]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9997256:9997256:[x^7+x^6-2*x^5-5*x^4-x^3+2*x^2-1,x^4+x^2+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9997199:9997199:[3*x^3+x^2-2*x,x^4+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-db_entry = '9996680:2499170:[-x^7-x^6+8*x^5-13*x^4+12*x^3-6*x^2+x,x^4+x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9996392:2499098:[x^8+3*x^7-2*x^6-8*x^5+3*x^4+7*x^3-5*x^2-2*x+1,x^3+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9995673:9995673:[-x^7+4*x^6-7*x^5+4*x^4-x^3-2*x^2,x^3+x+1]'
-db_entry = '9996294:9996294:[2*x^8+x^6-6*x^5+2*x^2-2*x,x^3+x+1]'
-db_entry = '9995549:9995549:[x^8+3*x^7+2*x^6+x^5+3*x^4+x^3+x,x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-db_entry = '9995167:9995167:[-x^7+5*x^6-4*x^5-12*x^4+6*x^3+8*x^2+2*x,x^3+x+1]'
-db_entry = '9995087:9995087:[-x^7-x^6-2*x^5+x^2,x^4+x^3+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-db_entry = '9995008:4997504:[-x^8+5*x^6-x^5-8*x^4+4*x^3+4*x^2-4*x,x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 1
-
-db_entry = '9995008:624688:[x^7-x^6-3*x^5+x^4-x^2,x^3+x^2+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 2
-
-db_entry = '9997263:3332421:[x^7+x^6-4*x^5-2*x^4+x^3-x,x^4+x^3+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4
-
-db_entry = '9994635:3331545:[x^7+2*x^6-x^5+8*x^3+3*x^2-5*x-2,x^4+x^3+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 4
-
-db_entry = '9996912:3332304:[x^5+2*x^4+x^3-x^2-2*x-1,x^4+x^3+x^2]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-db_entry = '9995456:2498864:[2*x^7-4*x^6-5*x^5+10*x^4+5*x^3-8*x^2-3*x+1,x^2+x]'
-db_entry = '9995408:2498852:[x^8-x^6+x^3+2*x^2+x,x^2+x+1]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 5
-
-db_entry = '9996352:312386:[-2*x^6-6*x^5+x^4+18*x^3+10*x^2-17*x-15,x^4+x^3+x]'
-COEFFS_GENUS2 = parse_hyperelliptic_db_entry(db_entry)
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(2), QQ(-30), QQ(33), QQ(-10), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-4), QQ(10), QQ(-24), QQ(24), QQ(-7)]
-DATA_PTS_GENUS2 = [QQ(2)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(4), QQ(-8), QQ(-20), QQ(0), QQ(16), QQ(8), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
-
-COEFFS_GENUS2 = [QQ(1), QQ(4), QQ(4), QQ(4), QQ(8), QQ(-8), QQ(-12)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(4), QQ(-4), QQ(-36), QQ(5), QQ(96), QQ(64)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 4
-
-# $y^2 = 4x^6 + 9x^4 - 4x^3 + 2x^2 - 4x + 1$ # rank 2
-COEFFS_GENUS2 = [QQ(4), QQ(0), QQ(9), QQ(-4), QQ(2), QQ(-4), QQ(1)] # rank 2
-DATA_PTS_GENUS2 = [QQ(0)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-# $y^2 = 4x^6 - 12x^5 + 16x^4 - 8x^3 - 3x^2 + 4x$ # rank 2
-COEFFS_GENUS2 = [QQ(4), QQ(-12), QQ(16), QQ(-8), QQ(-3), QQ(4), QQ(0)] # rank 2
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 3
-
-COEFFS_GENUS2 = [QQ(1), QQ(-12), QQ(30), QQ(2), QQ(-15), QQ(2), QQ(1)] # rank 4
-DATA_PTS_GENUS2 = [QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 12
-
-# prestige curve lol, rank 4
-COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)] # just the x values lol
-TERMINATE_WHEN_6 = 11
-
-# attack curve, i guess
-#y² = 8x⁵ + 16x⁴ - 60x³ + 69x² - 36x + 8
-COEFFS_GENUS2 = [QQ(8), QQ(16), QQ(-60), QQ(69), QQ(-36), QQ(8)]
-DATA_PTS_GENUS2 = [QQ(1)/QQ(2)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-# claude generated this curve, not in the lmfdb as of Jan 3 2026
-# y² = -3x⁶ + 11x⁵ + 6x⁴ - 9x³ + 2x² + x + 25
-COEFFS_GENUS2 = [QQ(-3), QQ(11), QQ(6), QQ(-9), QQ(2), QQ(1), QQ(25)]
-DATA_PTS_GENUS2 = [QQ(0)/QQ(1)] # just the x values lol
-TERMINATE_WHEN_6 = 2
-
-# $$y^2 = x^5 + x + 2$$
-COEFFS_GENUS2 = [QQ(1), QQ(0),QQ(0),QQ(0),QQ(1),QQ(7)]
-#DATA_PTS_GENUS2 = [QQ(1)/QQ(1)] # just the x values lol
-DATA_PTS_GENUS2 = None # placeholder for random.
-DATA_PTS_GENUS2 = [QQ(10598399)]
-DATA_PTS_GENUS2 = [QQ(15998132)] # 1
-DATA_PTS_GENUS2 = [QQ(12862063)] # 2
-DATA_PTS_GENUS2 = [QQ(366)]
-DATA_PTS_GENUS2 = [QQ(1)]
-TERMINATE_WHEN_6 = 30
-
-# y^2 = x^5 + 3x^3 + 2x^2 + 5x + 4
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(3), QQ(2), QQ(5), QQ(4)]
-DATA_PTS_GENUS2 = [QQ(1)/QQ(1)]
-DATA_PTS_GENUS2 = [3]
-TERMINATE_WHEN_6 = 3
-
-##### END TEST CURVES ######
-
-# BEGIN STATIC CONFIG (default config; mostly deprecated)
-
-NUM_DOUBLINGS = 10 # for mumford height pairing independence test
-HEIGHT_BOUND = 6*370 # not that important, mostly, it seems
-# prime config
-# magic prime settings, chosen empirically.
-#PRIME_POOL = [5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
-#PRIME_POOL = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
-PRIME_POOL = list(primes(590))  # All primes less than N, excluding 2,3; >=50 should be good... might need more for high height points!
-
-# CRYPTOGRAPHY RELATED PARAMS
-FINITE_FIELD = None
-FINITE_FIELD = next_prime(2**14)
-MAXN = 80 # since there is no notion of height on finite field mode, this serves as the max n for section multiple [n]P
-SECRET_KEY = 800 # how many multiples of base genus 2 divisor to use to obtain the target starting from the base divisor from DATA_PTS_GENUS2[0]
-BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None # constructed below, here for reference
-BLOCK_WIEDEMANN = False   # set True to always use block Wiedemann in the final solve
-BLOCK_WIEDEMANN = True   # set True to always use block Wiedemann in the final solve
-
-# 1) Generate the random point if requested
+# 1) Generate a random seed point if requested.
 if DATA_PTS_GENUS2 is None:
-    # Ensure we use the prime currently active in your pool
-    _p_init = FINITE_FIELD
+    _p_init = FINITE_FIELD  # use the prime currently active in the pool, if any
     DATA_PTS_GENUS2 = [get_random_x_on_hyperelliptic(COEFFS_GENUS2, _p_init)]
     if _IS_MAIN_PROCESS:
         print("after random:", DATA_PTS_GENUS2)
 
 if FINITE_FIELD:
-    # Use only the field characteristic as our "prime"
-    PRIME_POOL = [FINITE_FIELD]
+    PRIME_POOL = [FINITE_FIELD]  # in FF mode the field characteristic is the only "prime" that matters
 
-NUM_PRIME_SUBSETS = 500 # important for stability under different seeds, must be large enough >= 250 should be good...
+NUM_PRIME_SUBSETS = 500            # important for stability under different seeds; >= 250 recommended
+VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
-VERIFY_INDEPENDENCE_MOD_P = False # verify mumford_search divisors mod a prime of good reduction
-VERIFY_INDEPENDENCE_MOD_P = True # verify mumford_search divisors mod a prime of good reduction
+MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
+MIN_MAX_PRIME_SUBSET_SIZE = 9      # safe range is 7-9; above 15 is too stringent
+MAX_MODULUS = 10**9
+NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
-MIN_PRIME_SUBSET_SIZE = 3 # just keep this at 3
-MIN_MAX_PRIME_SUBSET_SIZE = 9 # safe is 7-9; above 15 is too stringent
-MAX_MODULUS = 10**9# idk
-NUM_SAMPLES_HEIGHT_MAT = 10 # seems not important
-HEIGHT_BOUND_NON_MINIMAL = 2*HEIGHT_BOUND # New bound for non-minimal models, just double the minimal one lol  # 420 blaze it
-HENSEL_SLOPPY = False
-HENSEL_SLOPPY = True # goes fast, but hensel filtering is really only saying we only expect solutions at simple roots, which may not always be true, but this rarely loses information.
-TORSION_SLOPPY = True # an even more unmotivated filter; filter out small ord_p residues for some reason.
-MAX_TORSION_ORDER_TO_FILTER = -1 # what ord_p max to filter out.  -1 means only filter out singularity specialization. (N.B. does not turn TORSION_SLOPPY off!)
+HENSEL_SLOPPY = True
+# HENSEL filtering assumes solutions occur only at simple roots. That's not
+# always true, but skipping the sloppy shortcut rarely loses real solutions
+# and is much slower, so we leave it on.
+
 TORSION_SLOPPY = False
-###### END STATIC CONFIG
+# An additional (largely unmotivated) filter that drops small ord_p residues.
+# Off by default: MAX_TORSION_ORDER_TO_FILTER below still controls the one
+# filter that's always active regardless of this flag.
+MAX_TORSION_ORDER_TO_FILTER = -1   # -1 => only filter out singularity specialization
 
-# random seed for reproducibility.
+print("finite field =", FINITE_FIELD)
+
+# random seed for reproducibility
 SEED_INT = random.randint(-10**6, 10**6)
-ANCHOR_SEED = SEED_INT           # Seed for reproducible anchor point generation
+ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
 
-DEBUG = False
 DEBUG = True
-TARGETED_X = QQ(182)/QQ(141) # sample value used to debug
-TARGETED_X = None # only set to numeric value to debug; None by default
+TARGETED_X = None                  # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 
-USE_MINIMAL_MODEL = False # uses the generic fiber
-USE_MINIMAL_MODEL = True # more correct, and more slow
-SYMBOLIC_SEARCH = True   # the search over Q (often slower, usually doesn't find anything)
-SYMBOLIC_SEARCH = False   # mod p search (usually faster; the default)
-MOBIUS_TRANS = True # search after applying a mobius transformation to x to attempt to improve the prime content.  generally worse.
-MOBIUS_TRANS = False
-MUMFORD_SEARCH = False # look for elements of J(C); only supports genus 2 right now.
-MUMFORD_SEARCH = True # look for elements of J(C); only supports genus 2 right now.
+USE_MINIMAL_MODEL = True           # more correct, and slower, than the generic fiber
+SYMBOLIC_SEARCH = False            # mod-p search (fast, default); True = search over QQ directly (slow)
+MOBIUS_TRANS = False               # apply a Mobius transform to x to try to improve prime content (generally worse)
+# MUMFORD_SEARCH and FINITE_FIELD are set above, in MODE FLAGS.
 
-AVOID = {2,3,5,7,11,13,17,19}   # tweak as you like, for MOBIUS_TRANS mode, avoid primes
-PREFER =  {31,37,41,43,47,53}   # or {23,29} if you want to force primes upward, for MOBIUS_TRANS
+AVOID = {2, 3, 5, 7, 11, 13, 17, 19}    # primes to avoid, for MOBIUS_TRANS mode
+PREFER = {31, 37, 41, 43, 47, 53}       # primes to prefer, for MOBIUS_TRANS mode ({23, 29} pushes primes upward)
 
-# Add to search_common.py or search_config.py
-USE_CONSENSUS_FILTER = True  # Toggle for multi-fibration consensus
-USE_CONSENSUS_FILTER = False  # Toggle for multi-fibration consensus
-NUM_CONSENSUS_FIBRATIONS = 4  # How many independent fibrations to use
-CONSENSUS_THRESHOLD = 0.5     # Fraction of fibrations that must agree (0.8 = 80%)
-
-# Add these constants near the top of tower.sage (with other config constants)
+USE_CONSENSUS_FILTER = False       # toggle for multi-fibration consensus
+NUM_CONSENSUS_FIBRATIONS = 4       # how many independent fibrations to use
+CONSENSUS_THRESHOLD = 0.5          # fraction of fibrations that must agree (0.8 = 80%)
 
 # === ANCHOR POINT MODE CONFIGURATION ===
-USE_ANCHOR_POINTS = False  # Toggle: True = use random anchor points, False = use tangency
-USE_ANCHOR_POINTS = True  # Toggle: True = use random anchor points, False = use tangency
+# True = use random anchor points, False = use tangency.
+# In QQ mode this always tracks USE_CONSENSUS_FILTER (below); in FF mode it's
+# fixed at False.
+USE_ANCHOR_POINTS = False
 if not FINITE_FIELD:
     USE_ANCHOR_POINTS = USE_CONSENSUS_FILTER
-NUM_ANCHOR_POINTS = 2      # How many anchor points to use (only when USE_ANCHOR_POINTS=True)
+NUM_ANCHOR_POINTS = 2               # number of anchor points to use, when USE_ANCHOR_POINTS=True
 
 # === RAIL LINEARITY CONFIGURATION ===
 # RLINEAR = True:  classic linear rail    r(m) = xi - m
-#                  guarantees curve embedding; used for rational point finding
+#                  guarantees curve embedding; used for rational point finding (default).
 # RLINEAR = False: quadratic rail         r(m) = xi - m + RLINEAR_C * m^2
-#                  breaks the relations-lattice spanning issue for DLP:
-#                  the rail no longer lies in the linear subspace, so the
+#                  breaks the relations-lattice spanning issue for DLP: the
+#                  rail no longer lies in the linear subspace, so the
 #                  fibration samples genuinely new directions in the Jacobian.
-RLINEAR = False # experimental
-RLINEAR = True  # default
+#                  Experimental; used only in FINITE_FIELD mode.
+RLINEAR = True
 
-# Coefficient of the m^2 term when RLINEAR=False.
-# We want C = 1/4 in both the QQ and FF paths:
-#   QQ mode (FINITE_FIELD is None/False): use exact rational QQ(1)/QQ(4)
-#   FF mode (FINITE_FIELD = p):           use GF(p)(1) / GF(p)(4) = 4^{-1} mod p
-# GF(p)(4).inverse_of_unit() would also work, but division is cleaner to read.
+# Coefficient of the m^2 term when RLINEAR=False. We want C = 1/4 in both the
+# QQ and FF paths: QQ mode uses exact QQ(1)/QQ(4); FF mode uses GF(p)(1)/GF(p)(4).
 if FINITE_FIELD:
     RLINEAR_C = GF(FINITE_FIELD)(1) / GF(FINITE_FIELD)(4)
 else:
     RLINEAR_C = QQ(1) / QQ(4)
 
-# generates relations involving target and base divisor atoms
-GENERATE_MIXED_RELATIONS = RLINEAR # RLINEAR needs to be True for this to be True
-GENERATE_MIXED_RELATIONS = False #
+GENERATE_MIXED_RELATIONS = False   # generates relations involving target and base divisor atoms; requires RLINEAR=True
 
-# project into mod ell subgroup to remove torsion/cofactor complications
-# project into mod ell subgroup to remove torsion/cofactor complications
+# project into mod-ell subgroup to remove torsion/cofactor complications
 COFACTOR = None
+GROUP_MODULUS, BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS, SECRET_KEY, COFACTOR = None, None, None, None, None, None
 if FINITE_FIELD is not None:
-
-    # Fix: Force deterministic generation of the cryptosystem parameters (G, Q)
-    # so they are identical across all worker processes.
+    # Force deterministic generation of the cryptosystem parameters (G, Q) so
+    # they are identical across all worker processes.
     set_random_seed(12345)
 
     GROUP_MODULUS, DATA_PTS_GENUS2, BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS, SECRET_KEY, COFACTOR = \
@@ -450,13 +180,12 @@ if FINITE_FIELD is not None:
         COFACTOR, GROUP_MODULUS
     )
     assert len(PREFERRED_X_COORDS) == 4, PREFERRED_X_COORDS
-    assert BASE_DIVISOR*SECRET_KEY == TARGET_DIVISOR, (BASE_DIVISOR*SECRET_KEY, TARGET_DIVISOR)
+    assert BASE_DIVISOR * SECRET_KEY == TARGET_DIVISOR, (BASE_DIVISOR * SECRET_KEY, TARGET_DIVISOR)
     assert (GROUP_MODULUS * BASE_DIVISOR).is_zero()
     assert (GROUP_MODULUS * TARGET_DIVISOR).is_zero()
 
-    # Re-randomize the seed so that subsequent operations (like random walks in workers)
-    # are not identical across processes.
-
+    # Re-randomize the seed so subsequent operations (e.g. random walks in
+    # worker processes) are not identical across processes.
     set_random_seed()
 else:
     BASE_DIVISOR = TARGET_DIVISOR = PREFERRED_X_COORDS = None
@@ -3428,3 +3157,5 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
         return "INF"
 
     return X_sub / Z_sub
+
+

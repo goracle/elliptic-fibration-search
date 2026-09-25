@@ -902,11 +902,10 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             all_precomputed_residues, all_fibration_geometries, prime_pool, r_m, shift
         )
 
-        newly_found_x, new_sections, _, iter_stats = search_lattice_modp_unified_parallel(
+        result = search_lattice_modp_unified_parallel(
             cd,
             current_sections,
             prime_pool,
-            height_bound,
             vecs,
             search_rhs_list,
             r_m,
@@ -921,11 +920,21 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             shifted_coeffs=shifted_coeffs,
             markov_mode=False
         )
+        # search_lattice_modp_unified_parallel returns a 4-tuple in Mumford
+        # mode (found_xs, new_sections, precomputed_residues, stats) but a
+        # result dict in standard-lattice mode (see run_standard_lattice_search);
+        # normalize both to the same local names here.
+        if isinstance(result, dict):
+            newly_found_x = result["candidate_xs"]
+            new_sections = result["new_sections"]
+            iter_stats = result["stats"]
+        else:
+            newly_found_x, new_sections, _, iter_stats = result
 
         iter_stats.consensus_filter_stats = consensus_stats
     else:
 
-        newly_found_x, new_sections, precomputed_residues, iter_stats = search_lattice_modp_unified_parallel(
+        result = search_lattice_modp_unified_parallel(
             cd,
             current_sections,
             prime_pool,
@@ -943,6 +952,13 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             shifted_coeffs=shifted_coeffs,
             markov_mode=False
         )
+        if isinstance(result, dict):
+            newly_found_x = result["candidate_xs"]
+            new_sections = result["new_sections"]
+            precomputed_residues = result["precomputed_residues"]
+            iter_stats = result["stats"]
+        else:
+            newly_found_x, new_sections, precomputed_residues, iter_stats = result
 
     return newly_found_x, new_sections, iter_stats
 
@@ -1446,6 +1462,23 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             print("Warning: Section basis is linearly dependent. Stopping search.")
             break
 
+        # check_independence intentionally returns H=None for a single section
+        # (nothing to test independence against). That's still a valid 1x1
+        # height-pairing matrix <P,P> for downstream consumers -- compute it
+        # explicitly rather than letting None reach assess_curve_difficulty.
+        if H is None:
+            if len(current_sections) != 1:
+                raise RuntimeError(
+                    f"check_independence returned H=None for {len(current_sections)} "
+                    f"sections; None is only expected for the n==1 case."
+                )
+            H = compute_canonical_height_matrix(current_sections, cd) if USE_MINIMAL_MODEL \
+                else compute_coarse_height_matrix_serializable(cd, current_sections)
+            if H is None or H.nrows() != 1:
+                raise RuntimeError(
+                    "Failed to compute 1x1 height matrix for the single current section."
+                )
+
         print("Height Pairing Matrix H:\n", H)
 
         if not FINITE_FIELD:
@@ -1526,5 +1559,5 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
     return new_points_original_coords, cumulative_stats
 
-if globals().get("__name__", None) == "__main__" and not MARKOV:
+if globals().get("__name__", None) == "__main__":
     main_genus2()

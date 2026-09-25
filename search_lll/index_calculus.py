@@ -41,7 +41,9 @@ global _GLOBAL_F_POLY # can't create this under multiprocessing, segfault
 _GLOBAL_F_POLY = None
 _GLOBAL_OFFSET_CACHE = None
 
-K = GF(FINITE_FIELD)
+K = None
+if FINITE_FIELD:
+    K = GF(FINITE_FIELD)
 # Tunable threshold for lazy reduction
 _LAZY_LIMIT = (1 << 61) - 1  # safe headroom for Python ints
 

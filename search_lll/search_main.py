@@ -16,7 +16,8 @@ from .riemann_roch_localization import *
 from search_common import *
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
-from .lp_incidence_dlp import *
+if FINITE_FIELD:
+    from .lp_incidence_dlp import *
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
 
 _OSCAR_AVAILABLE = True
@@ -470,7 +471,6 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
     """
     USE_MUMFORD = globals().get('MUMFORD_SEARCH', False) and tower_data is not None and not markov_mode
     print("USE_MUMFORD", USE_MUMFORD)
-    assert USE_MUMFORD
     assert len(vecs) > 1, vecs
 
     if USE_MUMFORD:

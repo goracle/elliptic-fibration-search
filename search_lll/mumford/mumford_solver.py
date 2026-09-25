@@ -6,7 +6,8 @@ from .mumford_verification import verify_mumford_pair
 from random import randrange
 from prime_subgroup_projection import *
 
-assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
+if FINITE_FIELD:
+    assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
 
 # ============================================================
 # Mumford Doubling (STRICT)
@@ -241,8 +242,6 @@ def project_and_extract_mumford(u_poly, v_poly, C, J, h):
 # ============================================================================
 # COMPLETE mumford_solver.py with dead code removed and assertions added
 # ============================================================================
-
-assert PREFERRED_X_COORDS, "PREFERRED_X_COORDS must be nonempty"
 
 # ============================================================================
 # Square Root Cache (Small Primes Only)
