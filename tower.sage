@@ -1349,10 +1349,34 @@ def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
     except Exception as e:
         raise RuntimeError(f"SR linear solve failed: {e}")
 
+    def _sr_to_Fm(expr_sr, ctx):
+        """Coerce an SR expression (plain rational number OR rational
+        function of m) into ctx['Fm'] = Frac(QQ['m']) explicitly, rather
+        than relying on hasattr(c, 'denominator') (true for every SR
+        fraction, numeric or not) or an implicit Fm(SR expr) conversion
+        (which can silently fail depending on how the expression is
+        represented internally)."""
+        expr_sr = SR(expr_sr).simplify_full()
+        m_sr = ctx['m_sym']
+        if not expr_sr.has(m_sr):
+            return ctx['Fm'](QQ(expr_sr))
+        num_sr = expr_sr.numerator().expand()
+        den_sr = expr_sr.denominator().expand()
+        PR_m = ctx['PR_m']
+        num_poly = PR_m([QQ(c) for c in num_sr.coefficients(m_sr, sparse=False)])
+        den_poly = PR_m([QQ(c) for c in den_sr.coefficients(m_sr, sparse=False)])
+        return ctx['Fm'](num_poly) / ctx['Fm'](den_poly)
+
     rest_coeffs_Fm = []
     for s in rest_coeff_syms:
         rest_coeffs_Fm.append(sol[s])
-    rest_poly_Fm = ctx['R_xm']([QQ(c) if hasattr(c, 'denominator') else c for c in rest_coeffs_Fm])
+    # sol[s] is generally a rational FUNCTION of m (an SR expression), not a
+    # rational NUMBER — every SR fraction exposes .denominator() whether or
+    # not it's numeric, so the old `hasattr(c, 'denominator')` check wrongly
+    # routed m-dependent coefficients through QQ(c), which fails once m
+    # genuinely appears (as it now correctly does after the f_i fix above).
+    rest_coeffs_Fm_native = [_sr_to_Fm(c, ctx) for c in rest_coeffs_Fm]
+    rest_poly_Fm = ctx['R_xm'](rest_coeffs_Fm_native)
 
     # Substitute the SOLVED coefficients back into rest_poly_SR (previously this
     # used the still-symbolic rest_poly_SR with free b_rest_i unknowns, and

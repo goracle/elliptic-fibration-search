@@ -630,7 +630,15 @@ def extract_geometry_from_tower(primary_tower, Fm):
             SR(E_rhs_m_symbolic).coefficient(xSR, i)
             for i in range(SR(E_rhs_m_symbolic).degree(xSR) + 1)
         ]
-        coeffs_in_Fm = [Fm(c.subs({mSR: Fm.base_ring().gen()})) for c in coeffs_in_m]
+        # BUG (fixed): Fm.base_ring() for Fm = Frac(QQ['m']) is QQ, not QQ['m'],
+        # so Fm.base_ring().gen() returned QQ's multiplicative generator (the
+        # constant 1) rather than the polynomial variable m. Every coefficient
+        # was getting mSR substituted with 1, collapsing all m-dependence to
+        # plain rationals before E_rhs_m was even built. Use Fm.gen() instead,
+        # which is the correct way to get m as an element of Fm (matching the
+        # pattern used everywhere else in the codebase, e.g. search_common.py).
+        m_in_Fm = Fm.gen()
+        coeffs_in_Fm = [Fm(c.subs({mSR: m_in_Fm})) for c in coeffs_in_m]
         E_rhs_m = R_x_m(coeffs_in_Fm)
 
         return E_rhs_m, r_m, roots
@@ -964,7 +972,7 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
 
 @PROFILE
 def run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_known_x, r_m, shift,
-                           real_pts, base_pts, T, current_sections, precomputed_residues=None):
+                           real_pts, base_pts, T, current_sections, cd, precomputed_residues=None):
     """Run all post-search diagnostics for QQ mode."""
     xtest = base_pts[0][0]
     xtest_unshifted = real_pts[0][0]
@@ -1538,7 +1546,7 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
     if not FINITE_FIELD:
         run_qq_mode_diagnostics(cumulative_stats, prime_pool, height_bound, all_known_x,
                                r_m, shift, field_data['real_pts'], base_pts, T, current_sections,
-                               precomputed_residues=locals().get('precomputed_residues'))
+                               cd, precomputed_residues=locals().get('precomputed_residues'))
 
     # Fibration geometry diagnostics (both modes)
     run_fibration_geometry_diagnostics(cd, current_sections, cd.a4.parent().gen(), singfibs)
