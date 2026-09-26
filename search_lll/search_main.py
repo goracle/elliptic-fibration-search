@@ -893,203 +893,393 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
     num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
 
-    stats.start_phase('gen_subsets')
-    prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
-        prime_pool=prime_pool,
-        precomputed_residues=precomputed_residues,
-        vecs=vecs_list,
-        rhs_list=rhs_list,
-        num_subsets=num_subsets_to_use,
-        min_size=min_prime_subset_size,
-        max_size=min_max_prime_subset_size,
-        combo_cap=combo_cap,
-        seed=SEED_INT,
-        force_full_pool=False,
-        debug=debug,
-        use_qc_bias=True,
-        target_qc_ratio=target_qc_ratio
-    )
+    # ------------------------------------------------------------------
+    # ANOMALOUS-RESIDUE SWEEP (outer loop)
+    #
+    # Round 0 runs the subset search exactly as before. After each round we
+    # ask analyze_unused_residue_orders() whether the rational points found
+    # so far account for every residue observed in the prime pool. If they
+    # do, we're done. If not, we pick -- for each prime that still has
+    # unexplained residues -- the single unexplained residue with the
+    # highest multiplicity (ties broken by origin_count), and force that
+    # prime into *every* subset for the next round, so the CRT search is
+    # guaranteed to probe combinations touching the anomalous residues.
+    # We keep looping (accumulating found points/sections across rounds)
+    # until either everything is explained or we hit MAX_ANOMALOUS_SWEEP_ROUNDS.
+    # ------------------------------------------------------------------
+    forced_primes = set()
+    all_candidate_records = []
+    all_candidate_xs = set()
+    all_new_sections_raw = []
+    all_final_rational_pairs = []
+    all_processed_m_vals = {}
+    analysis = None
 
-    stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
+    for sweep_round in range(MAX_ANOMALOUS_SWEEP_ROUNDS):
+        print(f"\n{'='*70}")
+        print(f"[anomalous-sweep] Round {sweep_round}"
+              + (f" | forcing primes {sorted(forced_primes)} into every subset" if forced_primes else " | baseline (no forced primes yet)"))
+        print(f"{'='*70}")
 
-    filtered_subsets = []
-    for subset in prime_subsets_initial:
-        est = 1
-        is_viable = True
-        for p in subset:
-            residues_set = residues_by_prime_numeric.get(p, set())
-            roots_count = len(residues_set)
-            if roots_count == 0:
-                is_viable = False
-                break
-            if roots_count > roots_threshold:
-                est *= roots_count
-                if est > combo_cap:
-                    is_viable = False
-                    break
-            else:
-                est *= max(1, roots_count)
-                if est > combo_cap:
-                    is_viable = False
-                    break
-        if is_viable and est <= combo_cap:
-            filtered_subsets.append(subset)
+        stats.start_phase('gen_subsets')
+        prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
+            prime_pool=prime_pool,
+            precomputed_residues=precomputed_residues,
+            vecs=vecs_list,
+            rhs_list=rhs_list,
+            num_subsets=num_subsets_to_use,
+            min_size=min_prime_subset_size,
+            max_size=min_max_prime_subset_size,
+            combo_cap=combo_cap,
+            seed=SEED_INT + sweep_round,
+            force_full_pool=False,
+            debug=debug,
+            use_qc_bias=True,
+            target_qc_ratio=target_qc_ratio
+        )
 
-    filtered_out_count = len(prime_subsets_initial) - len(filtered_subsets)
-    stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
-    if debug:
-        print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
+        stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
 
-    prime_subsets_to_process = filtered_subsets
-    stats.prime_subsets = prime_subsets_to_process
-
-    if TARGETED_X:
-        assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
-
-    count_subsets = {}
-    for subset in prime_subsets_to_process:
-        key = len(subset)
-        if key in count_subsets:
-            count_subsets[key] += 1
-        else:
-            count_subsets[key] = 0
-
-    for key in sorted(list(count_subsets)):
-        print("using", count_subsets[key], "subsets of len =", key)
-
-    if not prime_subsets_to_process:
-        if debug:
-            print("[fallback] coverage-based filtering removed all subsets. Building deterministic fallback subsets.")
-        fallback = []
-        max_k = min(6, len(prime_pool))
-        for k in range(3, max_k + 1):
-            for comb in combinations(prime_pool, k):
-                good = True
-                for p in comb:
-                    if not residues_by_prime_numeric.get(p):
-                        good = False
-                        break
-                if not good:
+        # Ensure every subset touches at least one anomalous prime from a
+        # prior round. We don't stack all forced primes into every subset
+        # (that's needlessly explosive and starves combo_cap) -- one
+        # anomalous prime per subset is enough to guarantee the CRT search
+        # probes it. Round-robin across forced_primes so different subsets
+        # pick up different anomalous primes rather than piling onto one.
+        if forced_primes:
+            forced_list = sorted(forced_primes)
+            spliced = []
+            for i, subset in enumerate(prime_subsets_initial):
+                subset_set = set(subset)
+                if subset_set & forced_primes:
+                    # already touches at least one forced prime
+                    spliced.append(subset)
                     continue
-                est = 1
-                for p in comb:
-                    est *= max(1, len(residues_by_prime_numeric[p]))
+                anomalous_pick = forced_list[i % len(forced_list)]
+                augmented = list(subset) + [anomalous_pick]
+                if len(augmented) > min_max_prime_subset_size:
+                    # drop one non-forced prime to make room, never the pick itself
+                    non_forced = [p for p in subset if p != anomalous_pick]
+                    augmented = non_forced[:min_max_prime_subset_size - 1] + [anomalous_pick]
+                spliced.append(tuple(sorted(set(augmented))))
+            prime_subsets_initial = spliced
+
+        filtered_subsets = []
+        for subset in prime_subsets_initial:
+            est = 1
+            is_viable = True
+            for p in subset:
+                residues_set = residues_by_prime_numeric.get(p, set())
+                roots_count = len(residues_set)
+                if roots_count == 0:
+                    is_viable = False
+                    break
+                if roots_count > roots_threshold:
+                    est *= roots_count
                     if est > combo_cap:
-                        good = False
+                        is_viable = False
                         break
-                if good:
-                    fallback.append(list(comb))
+                else:
+                    est *= max(1, roots_count)
+                    if est > combo_cap:
+                        is_viable = False
+                        break
+            if is_viable and est <= combo_cap:
+                filtered_subsets.append(subset)
+
+        filtered_out_count = len(prime_subsets_initial) - len(filtered_subsets)
+        stats.incr('subsets_filtered_out_combo', n=filtered_out_count)
+        if debug:
+            print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
+
+        prime_subsets_to_process = filtered_subsets
+        stats.prime_subsets = list(stats.prime_subsets) + list(prime_subsets_to_process)
+
+        if TARGETED_X:
+            assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
+
+        count_subsets = {}
+        for subset in prime_subsets_to_process:
+            key = len(subset)
+            if key in count_subsets:
+                count_subsets[key] += 1
+            else:
+                count_subsets[key] = 0
+
+        for key in sorted(list(count_subsets)):
+            print("using", count_subsets[key], "subsets of len =", key)
+
+        if not prime_subsets_to_process:
+            if debug:
+                print("[fallback] coverage-based filtering removed all subsets. Building deterministic fallback subsets.")
+            fallback = []
+            max_k = min(6, len(prime_pool))
+            for k in range(3, max_k + 1):
+                for comb in combinations(prime_pool, k):
+                    if forced_primes and not (forced_primes & set(comb)):
+                        continue
+                    good = True
+                    for p in comb:
+                        if not residues_by_prime_numeric.get(p):
+                            good = False
+                            break
+                    if not good:
+                        continue
+                    est = 1
+                    for p in comb:
+                        est *= max(1, len(residues_by_prime_numeric[p]))
+                        if est > combo_cap:
+                            good = False
+                            break
+                    if good:
+                        fallback.append(list(comb))
+                    if len(fallback) >= max(1, num_subsets):
+                        break
                 if len(fallback) >= max(1, num_subsets):
                     break
-            if len(fallback) >= max(1, num_subsets):
-                break
-        if fallback:
-            prime_subsets_to_process = fallback[:num_subsets]
-            if debug:
-                print(f"[fallback] Using {len(prime_subsets_to_process)} deterministic fallback subsets.")
-        else:
-            print("No viable prime subsets generated or remaining after filtering. Aborting.")
-            stats.end_phase('gen_subsets')
-            print("\n--- Search Statistics (No Subsets) ---")
-            print(stats.summary_string())
-            return {
-                "candidates": [],
-                "candidate_xs": set(),
-                "new_sections": [],
-                "precomputed_residues": precomputed_residues,
-                "stats": stats,
-                "final_rational_pairs": [],
-            }
+            if fallback:
+                prime_subsets_to_process = fallback[:num_subsets]
+                if debug:
+                    print(f"[fallback] Using {len(prime_subsets_to_process)} deterministic fallback subsets.")
+            else:
+                print("No viable prime subsets generated or remaining after filtering. Aborting.")
+                stats.end_phase('gen_subsets')
+                print("\n--- Search Statistics (No Subsets) ---")
+                print(stats.summary_string())
+                return {
+                    "candidates": all_candidate_records,
+                    "candidate_xs": all_candidate_xs,
+                    "new_sections": list({s: None for s in all_new_sections_raw}.keys()),
+                    "precomputed_residues": precomputed_residues,
+                    "stats": stats,
+                    "final_rational_pairs": all_final_rational_pairs,
+                }
 
-    stats.end_phase('gen_subsets')
+        stats.end_phase('gen_subsets')
 
-    stats.start_phase('search_subsets_and_check')
-    worker_func = partial(
-        process_prime_subset_precomputed,
-        vecs=search_vecs,
-        r_m=r_m,
-        shift=shift,
-        tmax=tmax,
-        combo_cap=combo_cap,
-        precomputed_residues=precomputed_residues,
-        prime_pool=prime_pool,
-        num_rhs_fns=len(rhs_list),
-        coeffs_genus2=coeffs_genus2
-    )
-
-    subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
-        prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
-    )
-
-    stats.crt_classes_tested = all_crt_classes
-    coverage_estimator.tested_classes = all_crt_classes
-    coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
-
-    if debug:
-        print("\n--- Coverage Estimate ---")
-        if coverage_report.get('direct_coverage') is not None:
-            print(f"  Direct coverage: {100 * coverage_report['direct_coverage']:.2f}%")
-        if coverage_report.get('birthday_coverage') is not None:
-            print(f"  Birthday estimate: {100 * coverage_report['birthday_coverage']:.2f}%")
-        print(f"  Heuristic (density): {100 * coverage_report.get('heuristic_coverage', 0):.4f}%")
-        print(f"  CRT classes tested: {coverage_report.get('classes_tested', 0):,}")
-        print(f"  Search space size: ~{coverage_report.get('space_size_estimate', 0):.2e}")
-        additional_runs = coverage_estimator.recommend_additional_runs(prime_subsets_to_process, target_coverage=0.95)
-        if additional_runs > 0:
-            print(f"  ⚠️  Recommend {additional_runs} more run(s) to reach 95% coverage")
-
-    stats.merge_dict(worker_stats_dict)
-    stats.incr('subsets_processed', n=len(subset_results_list))
-
-    overall_found_candidates_from_workers = set()
-    productive_subsets_data = []
-    for subset, candidates_set, _ in subset_results_list:
-        overall_found_candidates_from_workers.update(candidates_set)
-        if candidates_set:
-            productive_subsets_data.append({
-                'primes': subset,
-                'size': len(subset),
-                'candidates': len(candidates_set)
-            })
-
-    stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
-
-    print(f"\nChecking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
-    final_rational_candidates = set()
-    candidate_list = list(overall_found_candidates_from_workers)
-    if not candidate_list:
-        stats.end_phase('search_subsets_and_check')
-        print("\n--- Search Statistics (No Points Found) ---")
-        print(stats.summary_string())
-        return {
-            "candidates": [],
-            "candidate_xs": set(),
-            "new_sections": [],
-            "precomputed_residues": precomputed_residues,
-            "stats": stats,
-            "final_rational_pairs": [],
-        }
-
-    batch_size = max(1, floor(0.05 * len(candidate_list)))
-    for i in range(0, len(candidate_list), batch_size):
-        batch = candidate_list[i:i + batch_size]
-        newly_rational = _batch_check_rationality(
-            batch, r_m, shift, rationality_test_func, current_sections, stats
+        stats.start_phase('search_subsets_and_check')
+        worker_func = partial(
+            process_prime_subset_precomputed,
+            vecs=search_vecs,
+            r_m=r_m,
+            shift=shift,
+            tmax=tmax,
+            combo_cap=combo_cap,
+            precomputed_residues=precomputed_residues,
+            prime_pool=prime_pool,
+            num_rhs_fns=len(rhs_list),
+            coeffs_genus2=coeffs_genus2
         )
-        final_rational_candidates.update(newly_rational)
+
+        subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
+            prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
+        )
+
+        stats.crt_classes_tested = set(stats.crt_classes_tested) | set(all_crt_classes)
+        coverage_estimator.tested_classes = stats.crt_classes_tested
+        coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
+
         if debug:
-            print(f"[batch check] processed {min(i + batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
+            print("\n--- Coverage Estimate ---")
+            if coverage_report.get('direct_coverage') is not None:
+                print(f"  Direct coverage: {100 * coverage_report['direct_coverage']:.2f}%")
+            if coverage_report.get('birthday_coverage') is not None:
+                print(f"  Birthday estimate: {100 * coverage_report['birthday_coverage']:.2f}%")
+            print(f"  Heuristic (density): {100 * coverage_report.get('heuristic_coverage', 0):.4f}%")
+            print(f"  CRT classes tested: {coverage_report.get('classes_tested', 0):,}")
+            print(f"  Search space size: ~{coverage_report.get('space_size_estimate', 0):.2e}")
+            additional_runs = coverage_estimator.recommend_additional_runs(prime_subsets_to_process, target_coverage=0.95)
+            if additional_runs > 0:
+                print(f"  ⚠️  Recommend {additional_runs} more run(s) to reach 95% coverage")
 
-    stats.end_phase('search_subsets_and_check')
+        stats.merge_dict(worker_stats_dict)
+        stats.incr('subsets_processed', n=len(subset_results_list))
 
-    try:
-        print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
-    except Exception as e:
+        overall_found_candidates_from_workers = set()
+        productive_subsets_data = []
+        for subset, candidates_set, _ in subset_results_list:
+            overall_found_candidates_from_workers.update(candidates_set)
+            if candidates_set:
+                productive_subsets_data.append({
+                    'primes': subset,
+                    'size': len(subset),
+                    'candidates': len(candidates_set)
+                })
+
+        stats.incr('crt_candidates_found', n=len(overall_found_candidates_from_workers))
+
+        print(f"\n[anomalous-sweep] Round {sweep_round}: checking rationality for {len(overall_found_candidates_from_workers)} unique candidates...")
+        final_rational_candidates = set()
+        candidate_list = list(overall_found_candidates_from_workers)
+        if candidate_list:
+            batch_size = max(1, floor(0.05 * len(candidate_list)))
+            for i in range(0, len(candidate_list), batch_size):
+                batch = candidate_list[i:i + batch_size]
+                newly_rational = _batch_check_rationality(
+                    batch, r_m, shift, rationality_test_func, current_sections, stats
+                )
+                final_rational_candidates.update(newly_rational)
+                if debug:
+                    print(f"[batch check] processed {min(i + batch_size, len(candidate_list))}/{len(candidate_list)}, found {len(final_rational_candidates)} rational so far")
+
+        stats.end_phase('search_subsets_and_check')
+
+        try:
+            print_subset_productivity_stats(productive_subsets_data, prime_subsets_to_process)
+        except Exception as e:
+            if debug:
+                print(f"Failed to print productivity stats: {e}")
+            raise
+
+        all_final_rational_pairs.extend(final_rational_candidates)
+
+        if final_rational_candidates:
+            print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
+
+            stats.start_phase('post_process')
+
+            # Snapshot what was known *before* this round touches anything.
+            # is_new_x below must compare against this frozen snapshot, not
+            # the live all_candidate_xs -- otherwise the first occurrence of
+            # a point within this very round marks it "known", and a second
+            # (m, v) pair in the SAME round landing on the same x gets
+            # miscategorized as "refound from an earlier round" when it's
+            # really just a duplicate discovered twice in one round.
+            known_x_before_round = set(all_candidate_xs)
+
+            round_new_points = []      # (x_val_q, y_val) newly discovered this round
+            round_repeat_points = []   # (x_val_q, y_val) rediscovered this round (already known)
+            round_resolve_failures = 0  # pairs that failed the rationality re-check (shouldn't normally happen here)
+
+            for m_val, v_tuple in final_rational_candidates:
+                already_processed_m = m_val in all_processed_m_vals
+                try:
+                    x_val = r_m(m=m_val) - shift
+                    y_val = rationality_test_func(x_val)
+                    if y_val is None:
+                        round_resolve_failures += 1
+                        continue
+
+                    x_val_q = QQ(x_val)
+                    is_new_x = x_val_q not in known_x_before_round
+
+                    if is_new_x:
+                        round_new_points.append((x_val_q, y_val))
+                    else:
+                        round_repeat_points.append((x_val_q, y_val))
+
+                    if already_processed_m:
+                        # Same m rediscovered -- point is already recorded,
+                        # nothing new to append, but it still counts as
+                        # "resolved this round" for reporting purposes above.
+                        continue
+
+                    v = vector(QQ, v_tuple)
+                    all_candidate_records.append({
+                        "m": m_val,
+                        "xj": x_val_q,
+                        "y": y_val,
+                        "v": tuple(v_tuple),
+                        "section": None,
+                    })
+                    all_processed_m_vals[m_val] = v
+                    all_candidate_xs.add(x_val_q)
+                    if any(c != 0 for c in v) and False: #this section hangs for some reason
+                        new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                        all_new_sections_raw.append(new_sec)
+                        all_candidate_records[-1]["section"] = new_sec
+                except (TypeError, ZeroDivisionError, ArithmeticError):
+                    raise
+
+            # --- Report exactly what this round's subset search turned up ---
+            round_resolved_total = len(round_new_points) + len(round_repeat_points)
+            print(f"[anomalous-sweep] Round {sweep_round} affine points: "
+                  f"{round_resolved_total} resolved from {len(final_rational_candidates)} (m, vector) pair(s)"
+                  + (f" ({round_resolve_failures} failed re-check)" if round_resolve_failures else "") + ".")
+
+            if round_new_points:
+                pts_str = ", ".join(f"({x}, {y})" for x, y in sorted(set(round_new_points)))
+                print(f"[anomalous-sweep] Round {sweep_round}: {len(set(round_new_points))} NEW point(s): {pts_str}")
+            else:
+                print(f"[anomalous-sweep] Round {sweep_round}: 0 new points.")
+
+            if round_repeat_points:
+                pts_str = ", ".join(f"({x}, {y})" for x, y in sorted(set(round_repeat_points)))
+                print(f"[anomalous-sweep] Round {sweep_round}: {len(set(round_repeat_points))} point(s) REFOUND (already known): {pts_str}")
+            else:
+                print(f"[anomalous-sweep] Round {sweep_round}: 0 points refound.")
+
+            stats.end_phase('post_process')
+        else:
+            print(f"[anomalous-sweep] Round {sweep_round} affine points: 0 (no (m, vector) pairs survived the rationality check).")
+            print("\n--- No new rational points this round ---")
+
+
+        # --- Decide whether to terminate or sweep again on anomalous residues ---
+        analysis = analyze_unused_residue_orders(
+            precomputed_residues=precomputed_residues,
+            rhs_list=rhs_list,
+            found_m_set=all_processed_m_vals,
+            prime_pool=prime_pool,
+            max_lift_k=3,
+            Delta_pr=Delta_pr,
+            Ep_dict=Ep_dict
+        )
+
+        print_residue_analysis(analysis)
+
+        total_unused = analysis['global']['total_unused_residues']
+        if total_unused == 0:
+            print(f"\n[anomalous-sweep] All residues explained by known rational points after round {sweep_round}. Terminating sweep.")
+            break
+
+        # Rank primes by the strength of their single most-anomalous unused
+        # residue (highest multiplicity, origin_count as tiebreak), and only
+        # force the top few into next round's subsets. Forcing *every* prime
+        # with any unused residue at all is pointless -- with a sparse used
+        # set, that's nearly the whole pool -- and it starves combo_cap /
+        # min_max_prime_subset_size. One unexplained residue touched per
+        # subset is enough; we don't need every anomalous prime everywhere.
+        candidates_ranked = []
+        for p, info in analysis['per_prime'].items():
+            unused = info['unused_residues']
+            if not unused:
+                continue
+            multiplicity = info['multiplicity']
+            best_r = max(
+                unused,
+                key=lambda r: (multiplicity.get(r, 0), len(info['origins'].get(r, [])))
+            )
+            score = (multiplicity.get(best_r, 0), len(info['origins'].get(best_r, [])))
+            candidates_ranked.append((p, best_r, score))
+
+        if not candidates_ranked:
+            # Shouldn't happen given total_unused > 0, but guard against an
+            # infinite loop if it somehow does.
+            print("[anomalous-sweep] total_unused > 0 but no prime yielded a forced residue; stopping to avoid an infinite loop.")
+            break
+
+        candidates_ranked.sort(key=lambda item: item[2], reverse=True)
+        top_k = min(ANOMALOUS_PRIMES_PER_ROUND, len(candidates_ranked))
+        newly_forced = {p for p, _, _ in candidates_ranked[:top_k]}
+
         if debug:
-            print(f"Failed to print productivity stats: {e}")
-        raise
+            for p, best_r, score in candidates_ranked[:top_k]:
+                print(f"[anomalous-sweep] prime={p}: most anomalous unused residue={best_r} "
+                      f"(multiplicity={score[0]}, origin_count={score[1]})")
 
-    if not final_rational_candidates:
+        if newly_forced.issubset(forced_primes):
+            print(f"\n[anomalous-sweep] {total_unused} residue(s) remain unexplained, but the anomalous prime set "
+                  f"{sorted(newly_forced)} was already forced last round with no new points found. Stopping sweep.")
+            break
+
+        forced_primes |= newly_forced
+        print(f"\n[anomalous-sweep] {total_unused} residue(s) still unexplained. "
+              f"Forcing primes {sorted(forced_primes)} (one per subset, round-robin) for round {sweep_round + 1}.")
+    else:
+        print(f"\n[anomalous-sweep] Reached MAX_ANOMALOUS_SWEEP_ROUNDS ({MAX_ANOMALOUS_SWEEP_ROUNDS}) without explaining all residues. Stopping.")
+
+    if not all_candidate_xs:
         print("\n--- Search Statistics (No Points Found) ---")
         print(stats.summary_string())
         return {
@@ -1101,68 +1291,20 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             "final_rational_pairs": [],
         }
 
-    print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
-
-    stats.start_phase('post_process')
-
-    candidate_records = []
-    candidate_xs = set()
-    new_sections_raw = []
-    processed_m_vals = {}
-
-    for m_val, v_tuple in final_rational_candidates:
-        if m_val in processed_m_vals:
-            continue
-        try:
-            x_val = r_m(m=m_val) - shift
-            y_val = rationality_test_func(x_val)
-            if y_val is not None:
-                x_val_q = QQ(x_val)
-                v = vector(QQ, v_tuple)
-                candidate_records.append({
-                    "m": m_val,
-                    "xj": x_val_q,
-                    "y": y_val,
-                    "v": tuple(v_tuple),
-                    "section": None,
-                })
-                processed_m_vals[m_val] = v
-                candidate_xs.add(x_val_q)
-                if any(c != 0 for c in v) and False: #this section hangs for some reason
-                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                    new_sections_raw.append(new_sec)
-                    candidate_records[-1]["section"] = new_sec
-        except (TypeError, ZeroDivisionError, ArithmeticError):
-            raise
-            continue
-
-    analysis = analyze_unused_residue_orders(
-        precomputed_residues=precomputed_residues,
-        rhs_list=rhs_list,
-        found_m_set=processed_m_vals,
-        prime_pool=prime_pool,
-        max_lift_k=3,
-        Delta_pr=Delta_pr,
-        Ep_dict=Ep_dict
-    )
-
-    print_residue_analysis(analysis)
-
-    new_sections = list({s: None for s in new_sections_raw}.keys())
-    stats.incr('rational_points_unique', n=len(candidate_xs))
+    new_sections = list({s: None for s in all_new_sections_raw}.keys())
+    stats.incr('rational_points_unique', n=len(all_candidate_xs))
     stats.incr('new_sections_unique', n=len(new_sections))
-    stats.end_phase('post_process')
 
     print("\n--- Search Statistics ---")
     print(stats.summary_string())
 
     return {
-        "candidates": candidate_records,
-        "candidate_xs": candidate_xs,
+        "candidates": all_candidate_records,
+        "candidate_xs": all_candidate_xs,
         "new_sections": new_sections,
         "precomputed_residues": precomputed_residues,
         "stats": stats,
-        "final_rational_pairs": list(final_rational_candidates),
+        "final_rational_pairs": all_final_rational_pairs,
     }
 
 def run_mumford_search(cd, current_sections, prime_pool, vecs, rhs_list, shift,

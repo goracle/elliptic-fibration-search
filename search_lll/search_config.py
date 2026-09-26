@@ -78,6 +78,10 @@ EXTRA_PRIME_SAMPLE_SIZE = 300       # sample vectors for stats
 EXTRA_PRIME_MIN_R = 1e-4            # ignore primes with r_p < this
 EXTRA_PRIME_MAX_R = 0.9             # ignore primes with r_p > this
 
+# Anomalous-residue sweep (run_standard_lattice_search inner loop)
+MAX_ANOMALOUS_SWEEP_ROUNDS = 8       # hard cap on rounds of "force in an anomalous prime" before giving up
+ANOMALOUS_PRIMES_PER_ROUND = 3       # how many top-ranked anomalous primes to add to forced_primes each round
+
 # === 6. Custom Exception Classes ===
 class EllipticCurveSearchError(Exception):
     """Base exception for errors in the search process."""

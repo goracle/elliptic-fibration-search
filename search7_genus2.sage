@@ -57,13 +57,28 @@ def main_genus2():
 
     if FINITE_FIELD is not None:
         F = GF(FINITE_FIELD)
-        known_pts = {(F(x), get_y_unshifted_genus2(F(x)))
-                     for x in initial_xs
-                     if get_y_unshifted_genus2(F(x)) is not None}
+        known_pts = set()
+        for x in initial_xs:
+            y = get_y_unshifted_genus2(F(x))
+            if y is None:
+                continue
+            known_pts.add((F(x), y))
+            if y != 0:
+                # The genus-2 curve is y^2 = G(x), so (x, -y) is a rational
+                # point on the curve too whenever (x, y) is and y != 0. The
+                # search doesn't rediscover this "for free" -- it already
+                # knows this x-coordinate, so no (m, vector) candidate will
+                # ever surface it -- so it has to be added by hand here.
+                known_pts.add((F(x), -y))
     else:
-        known_pts = {(QQ(x), get_y_unshifted_genus2(x))
-                     for x in initial_xs
-                     if get_y_unshifted_genus2(x) is not None}
+        known_pts = set()
+        for x in initial_xs:
+            y = get_y_unshifted_genus2(x)
+            if y is None:
+                continue
+            known_pts.add((QQ(x), y))
+            if y != 0:
+                known_pts.add((QQ(x), -y))
 
     known_pts = add_y_zero_points_to_known(known_pts, COEFFS_GENUS2)
 

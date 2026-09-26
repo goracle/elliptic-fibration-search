@@ -53,6 +53,7 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
 HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
+NUM_PRIME_SUBSETS = 20            # important for stability under different seeds; >= 250 recommended
 
 # magic prime settings, chosen empirically. All primes < 100, excluding 2, 3.
 PRIME_POOL = list(primes(100))
@@ -73,7 +74,6 @@ if DATA_PTS_GENUS2 is None:
 if FINITE_FIELD:
     PRIME_POOL = [FINITE_FIELD]  # in FF mode the field characteristic is the only "prime" that matters
 
-NUM_PRIME_SUBSETS = 500            # important for stability under different seeds; >= 250 recommended
 VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
 MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
