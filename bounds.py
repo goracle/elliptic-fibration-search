@@ -2,7 +2,7 @@ import math, random, subprocess, tempfile, os, shlex, multiprocessing, time, tra
 from sage.all import *
 from functools import lru_cache, reduce
 from operator import mul
-from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD, is_good_prime_for_surface
+from search_common import SEED_INT, DEBUG, NUM_PRIME_SUBSETS, PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE, MAX_MODULUS, USE_CONSENSUS_FILTER, FINITE_FIELD, is_good_prime_for_surface, HEIGHT_BOUND as CONFIGURED_HEIGHT_BOUND
 from math import gcd
 from collections import Counter
 
@@ -1868,18 +1868,20 @@ def auto_configure_search(cd, known_pts, prime_pool=None,
     h_x = naive_x_height_from_pts(known_pts)
     h_can = estimate_canonical_height_from_xheight(h_x, None, fudge=1.5)
 
+    # Auto-tuning heuristic (base + scale*exp(h_can/4), capped at 2500) is
+    # disabled: it was derived from known seed-point heights only, has no
+    # way to express a *target* height, and its 2500 cap makes it useless
+    # for deliberately large-height runs (e.g. rank-1 MW searches pushed out
+    # toward naive x-heights around 10^100). When height_bound is None we now
+    # just take search_common.HEIGHT_BOUND verbatim -- set that directly if
+    # you want a different bound, rather than relying on this function to
+    # derive one.
     if height_bound is None:
-        if h_can > 0.1:
-            # Heuristic scaling: base + scale * exp(h_can / dampener)
-            base_val = 300
-            scale = 100.0
-            val = base_val + scale * exp(h_can / 4.0)
-            height_bound = int(min(val, 2500))
-        else:
-            height_bound = 300
+        height_bound = CONFIGURED_HEIGHT_BOUND
 
     if debug and not FINITE_FIELD:
-        print(f"[auto_cfg] Height Bound: {height_bound} (derived from h_can={h_can})")
+        print(f"[auto_cfg] Height Bound: {height_bound} (from search_common.HEIGHT_BOUND; "
+              f"auto-tuning heuristic disabled; h_can={h_can} shown for reference only)")
 
     # 3. Residue Counts
     # compute_residue_counts_for_primes also uses the cached build_split_poly_from_cd

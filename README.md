@@ -101,6 +101,14 @@ See `example.txt` through `example7.txt` for logs from real runs.
 
 ## How It Works
 
+> **Working specifically on rational point search?** See
+> [`RATIONAL_POINT_SEARCH_README.md`](./RATIONAL_POINT_SEARCH_README.md) for a
+> log-driven walkthrough of the pipeline (tower construction → minimal model →
+> auto-config → LLL vectors → the anomalous-residue sweep → post-search
+> diagnostics), the real file locations under `search_lll/` (which differ from
+> the flat names in the Module Reference table below), and notes on which
+> log output is rigorous versus heuristic.
+
 ### 1. Fibration Tower Construction
 
 Given a curve *C: y² = f(x)* and a seed rational point *P = (x₀, y₀)*, the system constructs an iterated fibration tower that steps down one degree at a time until reaching a genus-1 quartic fiber:
@@ -179,6 +187,12 @@ CurveDataExt(
 ```
 
 ### Module Reference
+
+> Note: several modules below (e.g. `search_main.py`, `ll_utilities.py`,
+> `index_calculus.py`, `arakelov.py`, `homology.py`, `walker.py`) actually
+> live under `search_lll/`, not the repo root. See
+> [`RATIONAL_POINT_SEARCH_README.md`](./RATIONAL_POINT_SEARCH_README.md) for
+> the real package layout.
 
 | Module | Role |
 |--------|------|

@@ -179,8 +179,19 @@ def main_genus2():
     else:
         print("\n--- Rational Point Search Results ---")
         print(f"Final list of known points ({len(known_pts)} total):")
+        max_h_x = 0.0
+        max_h_x_pt = None
         for pt in sorted(list(known_pts)):
-            print(f"  {pt}")
+            h_x = naive_height_of_rational(pt[0])
+            print(f"  {pt}   (naive x-height h(x) ≈ {h_x:.2f}, ~10^{log10_of_naive_height(h_x):.1f} digits)")
+            if h_x > max_h_x:
+                max_h_x = h_x
+                max_h_x_pt = pt
+        if max_h_x_pt is not None:
+            print(f"\nMax naive x-height reached this run: h(x) ≈ {max_h_x:.2f} "
+                  f"(~10^{log10_of_naive_height(max_h_x):.1f} digits), at point {max_h_x_pt}. "
+                  f"This is the honest 'how far out did we actually search' number -- "
+                  f"it reflects only points found, not what HEIGHT_BOUND nominally allows.")
 
         if len(known_pts) >= terminate_when:
             print(f"\n✓ Reached termination threshold ({terminate_when} points)")
@@ -1520,6 +1531,37 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
 
         vecs = canonicalize_by_sign(vecs)
         print(f"Searching {len(vecs)} vectors up to height {height_bound}...")
+
+        if not FINITE_FIELD:
+            # --- Height-bound certification print ---
+            # Rank-1 only: vecs are the enumerated multiplier vectors (n,)
+            # after compute_search_vectors + canonicalize_by_sign. The
+            # largest n actually enumerated is the one unambiguous, code-
+            # verified fact about "how far out did this run search" -- no
+            # formula translating it into a canonical- or naive-height number
+            # is included here, because doing that correctly requires
+            # matching Sage's QuadraticForm.short_vector_list_up_to_length
+            # scaling exactly, which was not independently verified when this
+            # print was added. Trust n_max itself, not any derived height
+            # estimate; the ACTUAL naive x-height of every point found is
+            # printed as it's found (search for "[height]" in the log), which
+            # is ground truth rather than a formula.
+            try:
+                if H.nrows() == 1 and len(current_sections) == 1:
+                    n_values = [abs(int(v[0])) for v in vecs if len(v) == 1]
+                    n_max = max(n_values) if n_values else 0
+                    print(f"[height-bound certification] HEIGHT_BOUND={height_bound} -> enumerating "
+                          f"multiples of the base section P up to n = ±{n_max} this iteration "
+                          f"({len(vecs)} distinct multiplier(s) after sign-canonicalization). "
+                          f"See per-point '[height]' lines below for the actual naive x-height reached "
+                          f"by each candidate found at these multiples.")
+                else:
+                    print(f"[height-bound certification] Skipped: rank != 1 ({H.nrows()} sections) -- "
+                          f"'height_bound' does not correspond to a single multiplier in this case.")
+            except Exception as e:
+                print(f"[height-bound certification] Could not compute: {e}")
+
+
 
         if not vecs:
             print("No search vectors found within height bound. Stopping.")

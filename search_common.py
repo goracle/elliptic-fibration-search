@@ -78,7 +78,14 @@ VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime 
 
 MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
 MIN_MAX_PRIME_SUBSET_SIZE = 12      # safe range is 7-9; above 15 is too stringent
-MAX_MODULUS = 10**100
+# The formal completeness proof (brauer.py: prove_modulus_sufficiency) requires
+# log(M) > log(2*C_lll) + HEIGHT_BOUND, i.e. M needs to be roughly e^HEIGHT_BOUND,
+# not just >= the naive x-height you're targeting (10^100 in x-height terms is
+# log(x) ~= 230; with the h_can ~ h_x/2 relation and rank-1 C_lll ~= 1, that's
+# HEIGHT_BOUND on the order of a few hundred, needing M ~ 10^(HEIGHT_BOUND/ln10)).
+# Raised well past the old 10**100 so the proof doesn't just cap out and silently
+# under-certify -- re-check against whatever HEIGHT_BOUND is actually set to below.
+MAX_MODULUS = 10**500
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
 HENSEL_SLOPPY = True

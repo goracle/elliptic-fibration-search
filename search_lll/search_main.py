@@ -1,4 +1,4 @@
-import numpy as np, os as _os
+import numpy as np, os as _os, math
 from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
@@ -33,6 +33,33 @@ if FINITE_FIELD:
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
 
 _OSCAR_AVAILABLE = False
+
+
+def naive_height_of_rational(q):
+    """
+    log(max(|numerator|, |denominator|)) of a rational number q, in lowest
+    terms. This is the standard "naive height" h(q) used throughout the
+    completeness-proof machinery (bounds.py's h_x / h_can) -- NOT the
+    canonical height on the section lattice. Returns 0.0 for q == 0.
+    Accepts anything QQ() can coerce.
+    """
+    try:
+        qv = QQ(q)
+    except Exception:
+        return float('nan')
+    if qv == 0:
+        return 0.0
+    n = abs(qv.numerator())
+    d = abs(qv.denominator())
+    return float(log(max(int(n), int(d))))
+
+
+def log10_of_naive_height(h):
+    """Convert a natural-log naive height h(q) into an approximate number
+    of base-10 digits of max(|numerator|, |denominator|), i.e. log10(q)."""
+    return h / math.log(10.0)
+
+
 def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                    rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size,
                    section_poly_dict=None):
@@ -1176,6 +1203,10 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                         continue
 
                     v = vector(QQ, v_tuple)
+                    if is_new_x:
+                        h_x = naive_height_of_rational(x_val_q)
+                        print(f"[height] new point x={x_val_q}  (naive x-height h(x) ≈ {h_x:.2f}, "
+                              f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, multiplier v={tuple(v_tuple)}")
                     all_candidate_records.append({
                         "m": m_val,
                         "xj": x_val_q,
