@@ -31,14 +31,46 @@ from .fiber_augment import *
 from . import height_bound as _hb_mod
 
 
-def _resolve_height_bound(cd, current_sections, search_vecs, sconf):
+def _resolve_height_bound(cd, current_sections, search_vecs, sconf, height_pairing_H=None,
+                           known_vectors_and_m=None):
     """
-    Build the per-vector {v_orig_tuple: bound} dict from the Mordell-Weil
-    canonical height pairing (search_lll/height_bound.py), falling back to
-    the old flat sconf['HEIGHT_BOUND'] constant if anything about that
-    computation fails (e.g. sections not independent, curve not over QQ,
-    height computation errors out) so a live search can't hard-crash on
-    this.
+    Build the per-vector {v_orig_tuple: bound} dict from the Shioda-Tate
+    canonical height pairing on the elliptic surface (search_lll/height_bound.py),
+    falling back to the old flat sconf['HEIGHT_BOUND'] constant if a real H
+    isn't available, there's no calibration data yet, or the derived bound
+    can't be trusted for this vector set.
+
+    known_vectors_and_m: list of (v_orig_tuple, m_value) pairs already
+    CONFIRMED rational by a prior round of this same search (e.g.
+    all_final_rational_pairs from earlier anomalous-sweep rounds). Used to
+    calibrate the naive-vs-canonical height discrepancy constant c
+    empirically (see height_bound.empirical_c_from_known_points) -- there
+    is no closed-form Silverman-style bound available for a curve over a
+    function field, so this MUST come from real data. None or empty means
+    no calibration data exists yet (e.g. round 0 of a fresh search, or
+    markov mode, which has no such accumulator at all) -- correctly falls
+    back to the flat bound rather than guessing c=0, which is exactly the
+    UNDER-estimate that would silently drop real points. The filter
+    therefore activates progressively: it's inert on the very first round
+    and switches on automatically once that round has found anything to
+    calibrate against.
+
+    *** WHY THIS NO LONGER CALLS E.height_pairing_matrix() ***
+    cd.E_weier is an EllipticCurve over the function field Frac(QQ[m]) (this
+    is a fibration -- m is the base coordinate), not over QQ or a number
+    field. Sage's E.height_pairing_matrix()/E.silverman_height_bound() only
+    exist for EllipticCurve_rational_field / EllipticCurve_number_field, so
+    calling them here always raised AttributeError and silently fell back
+    to the flat bound -- i.e. the per-vector filter was never actually
+    active, despite being fully wired into modularthread.py's Stage 2
+    prefilter and acceptance path. The real analogue for a fibration is the
+    Shioda-Tate height pairing <P_i, P_j> = chi + (P.O) + (Q.O) - (P.Q) -
+    sum_v contr_v(P,Q), which the driver loop already computes every
+    iteration via check_independence -> compute_canonical_height_matrix
+    (that's the "Height Pairing Matrix H:" print) and uses to build the
+    search lattice itself (compute_search_vectors(H, height_bound)). H is
+    now passed straight through here instead of being (impossibly)
+    recomputed via a QQ-only Sage API.
 
     m_map_height_factor=1: valid for the linear/shift-only r_m seen so far
     in this codebase (e.g. r_m = -m-1) -- a linear map x = m + b has
@@ -47,19 +79,56 @@ def _resolve_height_bound(cd, current_sections, search_vecs, sconf):
     coefficients or any higher-degree r_m -- if a fibration using either
     of those is run through this, the resulting bound is not proven and
     should be re-derived (see height_bound.py's module docstring) before
-    being trusted, same as everything else here should be checked against
-    known points before being fully trusted.
+    being trusted.
     """
     flat_fallback = sconf.get('HEIGHT_BOUND')
+
+    if height_pairing_H is None:
+        print("[height_bound] no Shioda-Tate H supplied for this iteration; "
+              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
+        return flat_fallback
+
     try:
-        E = cd.E_weier
-        return _hb_mod.build_vector_height_bounds(
-            E, current_sections, search_vecs, m_map_height_factor=1
+        n = height_pairing_H.nrows()
+    except Exception as e:
+        print(f"[height_bound] supplied H is not a matrix ({e}); "
+              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
+        return flat_fallback
+
+    if n != len(current_sections):
+        print(f"[height_bound] H is {n}x{n} but current_sections has "
+              f"{len(current_sections)} entries -- ordering mismatch, "
+              f"refusing to use it. Falling back to flat HEIGHT_BOUND="
+              f"{flat_fallback}")
+        return flat_fallback
+
+    try:
+        bounds = _hb_mod.build_vector_height_bounds_from_matrix(
+            height_pairing_H, search_vecs, m_map_height_factor=1
         )
     except Exception as e:
         print(f"[height_bound] per-vector bound computation failed ({e}); "
               f"falling back to flat HEIGHT_BOUND={flat_fallback}")
         return flat_fallback
+
+    # Validate against every known point before trusting this to reject
+    # anything (see height_bound.py's module docstring). all_found_x/known
+    # m-values aren't threaded into this helper's args, so this checks the
+    # cheap invariant we *can* check here -- that no bound came out
+    # non-positive/degenerate, which would indicate H itself is bad (e.g.
+    # not positive definite for the sections given) -- and defers the
+    # against-known-points check to validate_height_bound_or_raise, called
+    # once per iteration right after new points are found (see
+    # run_qq_mode_diagnostics / the call added in search7_genus2.sage).
+    for v_tuple, b in bounds.items():
+        if b is not None and b <= 0:
+            print(f"[height_bound] degenerate non-positive bound {b} for "
+                  f"vector {v_tuple} -- H is likely not positive definite "
+                  f"for these sections. Falling back to flat HEIGHT_BOUND="
+                  f"{flat_fallback}")
+            return flat_fallback
+
+    return bounds
 if FINITE_FIELD:
     from .lp_incidence_dlp import *
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
@@ -535,12 +604,18 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
                                          num_workers=PARALLEL_PRIME_WORKERS, debug=False,
                                          precomputed_residues=None,
                                          x_b=None, shifted_coeffs=None,
-                                         markov_mode=False):
+                                         markov_mode=False,
+                                         height_pairing_H=None):
     """
     Unified parallel search router.
 
     If markov_mode=True, always use the lightweight standard-lattice path and
     return candidate pools early, skipping expensive downstream attack logic.
+
+    height_pairing_H: Shioda-Tate height-pairing matrix for current_sections
+    (see run_standard_lattice_search / _resolve_height_bound). Not used on
+    the Mumford/finite-field branch -- that mode works over a finite field,
+    where this QQ-height machinery doesn't apply.
     """
     USE_MUMFORD = globals().get('MUMFORD_SEARCH', False) and tower_data is not None and not markov_mode
     print("USE_MUMFORD", USE_MUMFORD)
@@ -557,13 +632,14 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
             cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
             all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
             num_workers, debug, precomputed_residues,
-            markov_mode=markov_mode
+            markov_mode=markov_mode,
+            height_pairing_H=height_pairing_H,
         )
 
 def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list, r_m, shift,
                                  all_found_x, num_subsets, rationality_test_func, sconf, coeffs_genus2,
                                  num_workers, debug, precomputed_residues,
-                                 markov_mode=False):
+                                 markov_mode=False, height_pairing_H=None):
     """
     Standard lattice search.
 
@@ -730,7 +806,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             prime_pool=prime_pool,
             num_rhs_fns=len(rhs_list),
             coeffs_genus2=coeffs_genus2,
-            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf),
+            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf, height_pairing_H),
             bad_primes=frozenset(int(p) for p in getattr(cd, 'bad_primes', []) or []),
         )
 
@@ -1166,7 +1242,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             prime_pool=prime_pool,
             num_rhs_fns=len(rhs_list),
             coeffs_genus2=coeffs_genus2,
-            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf),
+            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf, height_pairing_H),
             bad_primes=frozenset(int(p) for p in getattr(cd, 'bad_primes', []) or []),
         )
 

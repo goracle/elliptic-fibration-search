@@ -241,6 +241,135 @@ def build_vector_height_bounds(E, sections, vecs, m_map_height_factor):
     return bounds
 
 
+def canonical_height_of_vector_matrix(v, H):
+    """
+    Same as canonical_height_of_vector, but takes H as anything indexable
+    H[i][j] (a Sage matrix, as produced by compute_canonical_height_matrix
+    in search_common.py for an elliptic *surface* / fibration). Kept as a
+    separate name so it's clear this is the entry point that does NOT
+    assume E.height_pairing_matrix()'s number-field convention.
+    """
+    return canonical_height_of_vector(v, H)
+
+
+def empirical_c_from_known_points(H, known_vectors_and_m):
+    """
+    Derive the additive constant c bridging canonical height (v^T H v) and
+    naive height (log(max(|num|,|den|)) of the numeric value of m) for this
+    specific fibration, EMPIRICALLY from points already found -- rather
+    than guessing a number, or assuming Silverman's number-field bound
+    applies (it doesn't: cd.E_weier is a curve over the function field
+    Frac(QQ[m]), not over QQ, so E.silverman_height_bound() doesn't exist
+    and wouldn't mean the same thing here if it did -- that constant is
+    specific to a fixed elliptic curve over a number field, not to a
+    varying fiber of a surface).
+
+    For an elliptic surface the naive-vs-canonical height discrepancy is
+    still bounded (this is the content of the relevant height-comparison
+    theorems for elliptic surfaces), but the bound depends on the surface's
+    bad-fiber data in a way this module does not attempt to derive in
+    closed form. Instead: take every known (v_orig, m_value) pair already
+    found by the search, compute naive_height(m_value) - v^T H v for each,
+    and use the max observed value (plus a safety margin) as c. This is
+    honest about being an empirical lower bound on the true c, not a proof
+    -- exactly like validate_against_known_points below, a clean result
+    here is "no known counterexample", not "proven correct". It also means
+    this function is USELESS until you have at least one or two known
+    points to calibrate against (raises if given none), which is the
+    correct failure mode: refusing to guess c out of thin air rather than
+    silently defaulting to 0 (which would UNDER-estimate the true bound and
+    risk rejecting real points, the same failure class this whole module
+    exists to avoid).
+
+    Args:
+        H: height_pairing matrix (Shioda-Tate, from
+           compute_canonical_height_matrix), same ordering as the vectors
+           in known_vectors_and_m.
+        known_vectors_and_m: list of (v_orig_tuple, m_value) pairs, each a
+            point this search has already found and confirmed rational.
+
+    Returns:
+        (c, margin_used): c is the constant to pass to
+        naive_height_bound_for_point / vector_height_bound_for_m; margin
+        used is reported for logging/debugging.
+
+    Raises:
+        ValueError if known_vectors_and_m is empty -- there is nothing to
+        calibrate against, so refuse rather than default to 0.
+    """
+    if not known_vectors_and_m:
+        raise ValueError(
+            "empirical_c_from_known_points: no known points supplied -- "
+            "cannot calibrate c without at least one confirmed rational "
+            "point for this fibration. Do not default this to 0; that "
+            "would silently produce a too-tight bound (c=0 assumes the "
+            "canonical height already dominates the naive height, which "
+            "is not proven here) and risks rejecting real points, exactly "
+            "the failure this module exists to prevent."
+        )
+
+    from sage.all import QQ as _QQ
+
+    discrepancies = []
+    for v_tuple, m_value in known_vectors_and_m:
+        m_q = _QQ(m_value)
+        if m_q == 0:
+            naive_h = 0.0
+        else:
+            naive_h = float(log(max(abs(int(m_q.numerator())), abs(int(m_q.denominator())))))
+        can_h = float(canonical_height_of_vector(v_tuple, H))
+        discrepancies.append(naive_h - can_h)
+
+    max_discrepancy = max(discrepancies)
+    # Safety margin: known points are the only calibration data we have:
+    # pad generously so a slightly-larger not-yet-found point doesn't get
+    # rejected by an underestimated c. This is still not a proof (see
+    # docstring above) -- it just makes an accidental too-tight bound less
+    # likely for the *next* point of similar size, not for arbitrarily
+    # larger ones.
+    margin = max(1.0, 0.5 * abs(max_discrepancy))
+    c = max_discrepancy + margin
+    return c, margin
+
+
+def build_vector_height_bounds_from_matrix(H, vecs, m_map_height_factor,
+                                            known_vectors_and_m=None, c=None):
+    """
+    Like build_vector_height_bounds, but takes H directly (e.g. the
+    Shioda-Tate matrix from compute_canonical_height_matrix) instead of an
+    EllipticCurve to call .height_pairing_matrix()/.silverman_height_bound()
+    on -- those Sage methods don't exist for a curve over a function field,
+    which is what cd.E_weier actually is in this codebase's fibration
+    search (see search_lll/search_main.py's _resolve_height_bound).
+
+    Exactly one of `c` or `known_vectors_and_m` must be supplied:
+      - Pass `c` directly if you've already derived/validated it.
+      - Pass `known_vectors_and_m` to derive c empirically via
+        empirical_c_from_known_points (see that function's docstring for
+        why this refuses to run with zero known points rather than
+        defaulting c to 0).
+
+    Returns:
+        dict {v_orig_tuple: bound}, same shape as build_vector_height_bounds.
+    """
+    if (c is None) == (known_vectors_and_m is None):
+        raise ValueError(
+            "build_vector_height_bounds_from_matrix: pass exactly one of "
+            "c= or known_vectors_and_m= (not both, not neither) -- see "
+            "docstring."
+        )
+    if c is None:
+        c, _margin = empirical_c_from_known_points(H, known_vectors_and_m)
+
+    bounds = {}
+    for v in vecs:
+        v_tuple = tuple(int(x) for x in v)
+        bounds[v_tuple] = vector_height_bound_for_m(
+            v_tuple, H, c, m_map_height_factor=m_map_height_factor
+        )
+    return bounds
+
+
 def validate_against_known_points(bounds_dict, known_m_values):
     """
     Sanity check to run BEFORE trusting bounds_dict for anything that

@@ -908,8 +908,17 @@ def apply_consensus_filter(all_precomputed_residues, all_fibration_geometries, p
 def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, prime_pool, sconf,
                                 vecs, search_rhs_list, r_m, shift, all_known_x, testfunc,
                                 tower_for_mumford, sextic_coeffs, fibrations, base_pts, primary_tower,
-                                x_b=None, shifted_coeffs=None):
-    """Run a single iteration of the search loop."""
+                                x_b=None, shifted_coeffs=None, height_pairing_H=None):
+    """Run a single iteration of the search loop.
+
+    height_pairing_H: the Shioda-Tate height-pairing matrix H for
+    current_sections (H[i][j] = <P_i, P_j>, same ordering as
+    current_sections/vecs), if available. Threaded through to the modp
+    search so it can build a real per-vector height bound
+    (n^2 * height(P) generalized to v^T H v) instead of the flat
+    HEIGHT_BOUND constant. None in FINITE_FIELD mode or if the caller
+    doesn't have one.
+    """
     if SYMBOLIC_SEARCH and not FINITE_FIELD:
         newly_found_x, new_sections = search_lattice_symbolic(
             cd,
@@ -953,7 +962,8 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             precomputed_residues=precomputed_residues,
             x_b=x_b,
             shifted_coeffs=shifted_coeffs,
-            markov_mode=False
+            markov_mode=False,
+            height_pairing_H=height_pairing_H,
         )
         # search_lattice_modp_unified_parallel returns a 4-tuple in Mumford
         # mode (found_xs, new_sections, precomputed_residues, stats) but a
@@ -985,7 +995,8 @@ def run_single_search_iteration(cd, current_sections, E_curve_m, height_bound, p
             tower_for_mumford,           # Pass positionally
             x_b=x_b,
             shifted_coeffs=shifted_coeffs,
-            markov_mode=False
+            markov_mode=False,
+            height_pairing_H=height_pairing_H,
         )
         if isinstance(result, dict):
             newly_found_x = result["candidate_xs"]
@@ -1577,7 +1588,22 @@ def doloop_genus2(data_pts, sextic_coeffs, all_known_x, cumulative_stats):
             cd, current_sections, cd.E_weier, height_bound, prime_pool, sconf,
             vecs, search_rhs_list, r_m, shift, all_known_x, testfunc,
             tower_for_mumford, sextic_coeffs, fibrations, base_pts, primary_tower,
-            x_b=x_b_for_aug, shifted_coeffs=shifted_coeffs_for_aug
+            x_b=x_b_for_aug, shifted_coeffs=shifted_coeffs_for_aug,
+            # Pass the Shioda-Tate height pairing matrix H computed above
+            # (compute_canonical_height_matrix / check_independence, printed
+            # as "Height Pairing Matrix H:") straight through to the
+            # per-vector height filter, instead of letting
+            # search_lll._resolve_height_bound try to recompute it via
+            # Sage's E.height_pairing_matrix() -- that method doesn't exist
+            # on cd.E_weier (an elliptic curve over the function field
+            # Frac(QQ[m]), not over QQ/a number field), so that path always
+            # threw and silently fell back to the flat HEIGHT_BOUND. H here
+            # is already correct and already matches current_sections'
+            # ordering (it's exactly what compute_search_vectors(H, ...)
+            # used to build `vecs` a few lines up), so this is passing
+            # through a value that already exists rather than deriving a
+            # new one.
+            height_pairing_H=H,
         )
 
         all_newly_found_transformed_x.update(list(newly_found_x))
