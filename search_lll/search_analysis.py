@@ -32,11 +32,18 @@ def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=
     return stats
 
 def choose_extra_primes(stats, target_density=EXTRA_PRIME_TARGET_DENSITY, max_extra=EXTRA_PRIME_MAX, skip_small=EXTRA_PRIME_SKIP):
-    """Select extra primes based on measured r_p values."""
+    """Select extra primes based on measured r_p values.
+
+    Kept in sync with ll_utilities.choose_extra_primes (which wins the
+    actual import-shadow in search_lll/__init__.py and search_main.py --
+    see the note there): sort primarily by prime size descending, with the
+    entropy-like r*(1-r) term only as a tiebreaker, so this doesn't
+    silently prefer small, weakly-discriminating primes the way the
+    original size-blind sort did.
+    """
     cand = [(p, r) for p, r in stats.items()
             if p not in skip_small and EXTRA_PRIME_MIN_R < r < EXTRA_PRIME_MAX_R]
-    # sort by discriminatory power (entropy-like)
-    cand.sort(key=lambda t: -(t[1] * (1 - t[1])))
+    cand.sort(key=lambda t: (-t[0], -(t[1] * (1 - t[1]))))
     chosen, prod = [], 1.0
     for p, r in cand:
         if len(chosen) >= max_extra:

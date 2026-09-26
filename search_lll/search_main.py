@@ -28,6 +28,38 @@ from search_common import *
 from bounds import predict_qc_distribution
 from .fiber_augment_hdf5 import build_fiber_augmented_relations as _orig_bfar
 from .fiber_augment import *
+from . import height_bound as _hb_mod
+
+
+def _resolve_height_bound(cd, current_sections, search_vecs, sconf):
+    """
+    Build the per-vector {v_orig_tuple: bound} dict from the Mordell-Weil
+    canonical height pairing (search_lll/height_bound.py), falling back to
+    the old flat sconf['HEIGHT_BOUND'] constant if anything about that
+    computation fails (e.g. sections not independent, curve not over QQ,
+    height computation errors out) so a live search can't hard-crash on
+    this.
+
+    m_map_height_factor=1: valid for the linear/shift-only r_m seen so far
+    in this codebase (e.g. r_m = -m-1) -- a linear map x = m + b has
+    numerator/denominator growth bounded by a factor of 1 relative to its
+    argument's. THIS IS NOT VALID for a Mobius transform T with nontrivial
+    coefficients or any higher-degree r_m -- if a fibration using either
+    of those is run through this, the resulting bound is not proven and
+    should be re-derived (see height_bound.py's module docstring) before
+    being trusted, same as everything else here should be checked against
+    known points before being fully trusted.
+    """
+    flat_fallback = sconf.get('HEIGHT_BOUND')
+    try:
+        E = cd.E_weier
+        return _hb_mod.build_vector_height_bounds(
+            E, current_sections, search_vecs, m_map_height_factor=1
+        )
+    except Exception as e:
+        print(f"[height_bound] per-vector bound computation failed ({e}); "
+              f"falling back to flat HEIGHT_BOUND={flat_fallback}")
+        return flat_fallback
 if FINITE_FIELD:
     from .lp_incidence_dlp import *
 from markov.mumford_oscar_bridge import mumford_precompute_residues_oscar as _oscar_residues
@@ -500,7 +532,7 @@ def search_lattice_modp_unified_parallel(cd, current_sections, prime_pool, vecs,
                                          all_found_x, num_subsets, rationality_test_func,
                                          sconf, coeffs_genus2,
                                          tower_data=None,
-                                         num_workers=20, debug=False,
+                                         num_workers=PARALLEL_PRIME_WORKERS, debug=False,
                                          precomputed_residues=None,
                                          x_b=None, shifted_coeffs=None,
                                          markov_mode=False):
@@ -564,10 +596,6 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # === STATS: INIT ===
     stats = SearchStats()
 
-    prime_pool.append(2)
-    prime_pool.append(3)
-    prime_pool.append(5)
-    prime_pool.append(58189)
     print("prime pool used for search:", prime_pool)
 
     # === PHASE: PREP MOD DATA ===
@@ -701,7 +729,9 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             precomputed_residues=precomputed_residues,
             prime_pool=prime_pool,
             num_rhs_fns=len(rhs_list),
-            coeffs_genus2=coeffs_genus2
+            coeffs_genus2=coeffs_genus2,
+            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf),
+            bad_primes=frozenset(int(p) for p in getattr(cd, 'bad_primes', []) or []),
         )
 
         subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
@@ -865,7 +895,30 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     extra_primes_for_filtering = auto_extra_primes
     stats.end_phase('autotune_primes')
 
-    combo_cap = ceil(50000**(7*min_prime_subset_size/3))
+    # combo_cap: a sanity ceiling on the estimated number of CRT residue
+    # combinations for a subset (product of per-prime root counts), used to
+    # skip subsets that would blow up itertools.product. The growth law is
+    # unchanged from the original design (~7/3 decimal digits of headroom per
+    # prime in the subset, matching 50000**(7*k/3)), but the EXPONENT is now
+    # clamped rather than computed directly with float ** float.
+    #
+    # Bug found in practice: with min_prime_subset_size raised well past its
+    # old 3-12 range (to reach large CRT moduli for high naive-height
+    # targets -- see search_common.py), 50000**(7*min_prime_subset_size/3)
+    # is float**float with a triple-digit exponent and raises OverflowError
+    # (50000**151.7 vastly exceeds float's ~1.8e308 range) before ceil() ever
+    # runs. Separately, even switched to safe big-int exponentiation, letting
+    # the exponent keep growing linearly with subset size produces a
+    # combo_cap with thousands of decimal digits at subset sizes in the
+    # 60-80 range -- which defeats the point of the guard (it would never
+    # trigger) and makes every `est > combo_cap` bigint comparison pointless
+    # overhead. Real per-prime root-count products observed for these
+    # fibrations are small (avg_roots ~ 1-3 per prime per the
+    # [galois/empirical] log lines), so a plateaued ceiling around 10^188 is
+    # still enormous headroom relative to any realistic est, while staying a
+    # meaningful (and cheap) bound.
+    _combo_cap_exponent = min(40, (7 * int(min_prime_subset_size)) // 3)
+    combo_cap = 50000 ** _combo_cap_exponent
     roots_threshold = ROOTS_THRESHOLD
     if debug:
         print("combo_cap:", combo_cap, "roots_threshold:", roots_threshold)
@@ -924,18 +977,23 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # ------------------------------------------------------------------
     # ANOMALOUS-RESIDUE SWEEP (outer loop)
     #
-    # Round 0 runs the subset search exactly as before. After each round we
-    # ask analyze_unused_residue_orders() whether the rational points found
-    # so far account for every residue observed in the prime pool. If they
-    # do, we're done. If not, we pick -- for each prime that still has
-    # unexplained residues -- the single unexplained residue with the
-    # highest multiplicity (ties broken by origin_count), and force that
-    # prime into *every* subset for the next round, so the CRT search is
-    # guaranteed to probe combinations touching the anomalous residues.
-    # We keep looping (accumulating found points/sections across rounds)
-    # until either everything is explained or we hit MAX_ANOMALOUS_SWEEP_ROUNDS.
+    # Every round re-runs exactly the same search over the same full
+    # prime_pool, with the same subset-generation and worker machinery as
+    # round 0 -- the only thing that changes between rounds is that roots in
+    # precomputed_residues which reduce to an already-found m (mod p) are
+    # pruned out first (prune_explained_residues), so already-explained
+    # residues can't keep re-surfacing as "anomalous" or get re-discovered.
+    # There is no separate "forced primes" pool and no restriction of which
+    # primes subsets are drawn from -- that was a previous, incorrect design
+    # (it silently and permanently excluded anomalous primes outside a
+    # top-N cutoff from every future round). Nothing else about the search
+    # differs round to round.
+    #
+    # Termination: stop when either (a) total_unused_residues reaches 0 --
+    # every observed residue is explained by a known point -- or (b) a round
+    # finds no new points at all (no further progress is possible without
+    # something else changing), or (c) MAX_ANOMALOUS_SWEEP_ROUNDS is hit.
     # ------------------------------------------------------------------
-    forced_primes = set()
     all_candidate_records = []
     all_candidate_xs = set()
     all_new_sections_raw = []
@@ -944,20 +1002,52 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     analysis = None
 
     for sweep_round in range(MAX_ANOMALOUS_SWEEP_ROUNDS):
+        # Same pool every round -- always the full prime_pool, exactly as in
+        # round 0. Only precomputed_residues (pruned below) changes.
+        subset_source_pool = prime_pool
+
+        # Prune residues already explained by a found rational point before
+        # generating subsets or handing residues to the workers, so this
+        # round's search is identical to round 0's except that explained
+        # residues are gone.
+        residues_this_round = prune_explained_residues(
+            precomputed_residues, all_processed_m_vals, prime_pool=prime_pool
+        )
+
+        # Recompute the numeric residue-count view (used below for subset
+        # viability filtering and the fallback path) from this round's
+        # pruned residues, not the original unpruned one computed before the
+        # loop -- otherwise a subset whose only residues were just explained
+        # would still look viable.
+        residues_by_prime_numeric_this_round = {}
+        for p, mapping in residues_this_round.items():
+            residues_set = set()
+            for vtuple, rhs_lists in mapping.items():
+                for rl in rhs_lists:
+                    for r in rl:
+                        if isinstance(r, int):
+                            residues_set.add(r)
+            residues_by_prime_numeric_this_round[p] = residues_set
+
+        residues_remaining = sum(len(s) for s in residues_by_prime_numeric_this_round.values())
+
         print(f"\n{'='*70}")
         print(f"[anomalous-sweep] Round {sweep_round}"
-              + (f" | forcing primes {sorted(forced_primes)} into every subset" if forced_primes else " | baseline (no forced primes yet)"))
+              + (f" | re-running full prime_pool with {len(all_processed_m_vals)} known m-value(s) pruned from residues "
+                 f"({residues_remaining} residue(s) remaining across the pool)"
+                 if all_processed_m_vals else f" | baseline (round 0: nothing found yet, no pruning; {residues_remaining} residue(s) in the pool)"))
         print(f"{'='*70}")
 
         stats.start_phase('gen_subsets')
+
         prime_subsets_initial = generate_biased_prime_subsets_by_coverage_v2(
-            prime_pool=prime_pool,
-            precomputed_residues=precomputed_residues,
+            prime_pool=subset_source_pool,
+            precomputed_residues=residues_this_round,
             vecs=vecs_list,
             rhs_list=rhs_list,
             num_subsets=num_subsets_to_use,
             min_size=min_prime_subset_size,
-            max_size=min_max_prime_subset_size,
+            max_size=min(min_max_prime_subset_size, len(subset_source_pool)),
             combo_cap=combo_cap,
             seed=SEED_INT + sweep_round,
             force_full_pool=False,
@@ -968,36 +1058,12 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
         stats.incr('subsets_generated_initial', n=len(prime_subsets_initial))
 
-        # Ensure every subset touches at least one anomalous prime from a
-        # prior round. We don't stack all forced primes into every subset
-        # (that's needlessly explosive and starves combo_cap) -- one
-        # anomalous prime per subset is enough to guarantee the CRT search
-        # probes it. Round-robin across forced_primes so different subsets
-        # pick up different anomalous primes rather than piling onto one.
-        if forced_primes:
-            forced_list = sorted(forced_primes)
-            spliced = []
-            for i, subset in enumerate(prime_subsets_initial):
-                subset_set = set(subset)
-                if subset_set & forced_primes:
-                    # already touches at least one forced prime
-                    spliced.append(subset)
-                    continue
-                anomalous_pick = forced_list[i % len(forced_list)]
-                augmented = list(subset) + [anomalous_pick]
-                if len(augmented) > min_max_prime_subset_size:
-                    # drop one non-forced prime to make room, never the pick itself
-                    non_forced = [p for p in subset if p != anomalous_pick]
-                    augmented = non_forced[:min_max_prime_subset_size - 1] + [anomalous_pick]
-                spliced.append(tuple(sorted(set(augmented))))
-            prime_subsets_initial = spliced
-
         filtered_subsets = []
         for subset in prime_subsets_initial:
             est = 1
             is_viable = True
             for p in subset:
-                residues_set = residues_by_prime_numeric.get(p, set())
+                residues_set = residues_by_prime_numeric_this_round.get(p, set())
                 roots_count = len(residues_set)
                 if roots_count == 0:
                     is_viable = False
@@ -1021,7 +1087,12 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             print("Generated", len(prime_subsets_initial), "prime_subsets -> filtered to", len(filtered_subsets))
 
         prime_subsets_to_process = filtered_subsets
-        stats.prime_subsets = list(stats.prime_subsets) + list(prime_subsets_to_process)
+        # in-place extend instead of list(...) + list(...): the old form
+        # copied the entire growing history every round (O(n^2) over the
+        # sweep), which also meant a second full transient copy of the list
+        # sat in memory during the rebuild each round -- extend() just
+        # appends onto the existing list.
+        stats.prime_subsets.extend(prime_subsets_to_process)
 
         if TARGETED_X:
             assert matched_subset is None or matched_subset in prime_subsets_to_process, (prime_subsets_to_process, matched_subset)
@@ -1044,18 +1115,16 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             max_k = min(6, len(prime_pool))
             for k in range(3, max_k + 1):
                 for comb in combinations(prime_pool, k):
-                    if forced_primes and not (forced_primes & set(comb)):
-                        continue
                     good = True
                     for p in comb:
-                        if not residues_by_prime_numeric.get(p):
+                        if not residues_by_prime_numeric_this_round.get(p):
                             good = False
                             break
                     if not good:
                         continue
                     est = 1
                     for p in comb:
-                        est *= max(1, len(residues_by_prime_numeric[p]))
+                        est *= max(1, len(residues_by_prime_numeric_this_round[p]))
                         if est > combo_cap:
                             good = False
                             break
@@ -1093,17 +1162,23 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             shift=shift,
             tmax=tmax,
             combo_cap=combo_cap,
-            precomputed_residues=precomputed_residues,
+            precomputed_residues=residues_this_round,
             prime_pool=prime_pool,
             num_rhs_fns=len(rhs_list),
-            coeffs_genus2=coeffs_genus2
+            coeffs_genus2=coeffs_genus2,
+            height_bound=_resolve_height_bound(cd, current_sections, search_vecs, sconf),
+            bad_primes=frozenset(int(p) for p in getattr(cd, 'bad_primes', []) or []),
         )
 
         subset_results_list, worker_stats_dict, all_crt_classes = search_prime_subsets_unified(
             prime_subsets_to_process, worker_func, num_workers=num_workers, debug=debug
         )
 
-        stats.crt_classes_tested = set(stats.crt_classes_tested) | set(all_crt_classes)
+        # in-place union instead of set(...) | set(...): the old form made a
+        # full copy of the entire accumulated set every round just to
+        # rebuild an equivalent set, doubling peak memory for this
+        # structure on every round of an already-large accumulation.
+        stats.crt_classes_tested |= set(all_crt_classes)
         coverage_estimator.tested_classes = stats.crt_classes_tested
         coverage_report = coverage_estimator.estimate_coverage(prime_subsets_to_process)
 
@@ -1161,6 +1236,8 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
         all_final_rational_pairs.extend(final_rational_candidates)
 
+        round_new_points = []      # (x_val_q, y_val) newly discovered this round; stays [] if no candidates at all
+
         if final_rational_candidates:
             print(f"\nFound {len(final_rational_candidates)} rational (m, vector) pairs after checking.")
 
@@ -1175,7 +1252,6 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             # really just a duplicate discovered twice in one round.
             known_x_before_round = set(all_candidate_xs)
 
-            round_new_points = []      # (x_val_q, y_val) newly discovered this round
             round_repeat_points = []   # (x_val_q, y_val) rediscovered this round (already known)
             round_resolve_failures = 0  # pairs that failed the rationality re-check (shouldn't normally happen here)
 
@@ -1265,49 +1341,18 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             print(f"\n[anomalous-sweep] All residues explained by known rational points after round {sweep_round}. Terminating sweep.")
             break
 
-        # Rank primes by the strength of their single most-anomalous unused
-        # residue (highest multiplicity, origin_count as tiebreak), and only
-        # force the top few into next round's subsets. Forcing *every* prime
-        # with any unused residue at all is pointless -- with a sparse used
-        # set, that's nearly the whole pool -- and it starves combo_cap /
-        # min_max_prime_subset_size. One unexplained residue touched per
-        # subset is enough; we don't need every anomalous prime everywhere.
-        candidates_ranked = []
-        for p, info in analysis['per_prime'].items():
-            unused = info['unused_residues']
-            if not unused:
-                continue
-            multiplicity = info['multiplicity']
-            best_r = max(
-                unused,
-                key=lambda r: (multiplicity.get(r, 0), len(info['origins'].get(r, [])))
-            )
-            score = (multiplicity.get(best_r, 0), len(info['origins'].get(best_r, [])))
-            candidates_ranked.append((p, best_r, score))
-
-        if not candidates_ranked:
-            # Shouldn't happen given total_unused > 0, but guard against an
-            # infinite loop if it somehow does.
-            print("[anomalous-sweep] total_unused > 0 but no prime yielded a forced residue; stopping to avoid an infinite loop.")
+        # No progress this round (nothing new found even after pruning the
+        # explained residues out) -- re-running again would search the exact
+        # same (still-pruned-the-same-way) space and find nothing new, so
+        # stop rather than spin for MAX_ANOMALOUS_SWEEP_ROUNDS.
+        if not round_new_points:
+            print(f"\n[anomalous-sweep] {total_unused} residue(s) remain unexplained, but round {sweep_round} found no new "
+                  "points even with previously-explained residues pruned out. Stopping sweep.")
             break
 
-        candidates_ranked.sort(key=lambda item: item[2], reverse=True)
-        top_k = min(ANOMALOUS_PRIMES_PER_ROUND, len(candidates_ranked))
-        newly_forced = {p for p, _, _ in candidates_ranked[:top_k]}
-
-        if debug:
-            for p, best_r, score in candidates_ranked[:top_k]:
-                print(f"[anomalous-sweep] prime={p}: most anomalous unused residue={best_r} "
-                      f"(multiplicity={score[0]}, origin_count={score[1]})")
-
-        if newly_forced.issubset(forced_primes):
-            print(f"\n[anomalous-sweep] {total_unused} residue(s) remain unexplained, but the anomalous prime set "
-                  f"{sorted(newly_forced)} was already forced last round with no new points found. Stopping sweep.")
-            break
-
-        forced_primes |= newly_forced
-        print(f"\n[anomalous-sweep] {total_unused} residue(s) still unexplained. "
-              f"Forcing primes {sorted(forced_primes)} (one per subset, round-robin) for round {sweep_round + 1}.")
+        print(f"\n[anomalous-sweep] {total_unused} residue(s) still unexplained after round {sweep_round}. "
+              f"Re-running round {sweep_round + 1} over the full prime pool with all {len(all_processed_m_vals)} "
+              "known m-value(s) pruned from the residues.")
     else:
         print(f"\n[anomalous-sweep] Reached MAX_ANOMALOUS_SWEEP_ROUNDS ({MAX_ANOMALOUS_SWEEP_ROUNDS}) without explaining all residues. Stopping.")
 

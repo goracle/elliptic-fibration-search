@@ -1156,11 +1156,31 @@ def estimate_prime_stats(prime_pool, precomputed_residues, sample_vecs, num_rhs=
     return stats
 
 def choose_extra_primes(stats, target_density=1e-5, max_extra=6, skip_small={2,3,5}):
-    """Select extra primes based on measured r_p values."""
+    """Select extra primes based on measured r_p values.
+
+    *** TUNING FIX: the previous sort key was purely
+    -(r*(1-r)) -- an entropy-like "how discriminating is this single prime
+    in isolation" score with NO preference for prime size at all. Since
+    r_p (survival ratio) doesn't vary hugely across the pool, this let
+    ties/near-ties get broken by dict/iteration order, which in practice
+    meant small primes from the low end of PRIME_POOL (e.g. 5, 7, 11, 13,
+    17 -- see the [auto-tune] log line reporting exactly this) were chosen
+    just as often as large ones, even though a small prime q contributes
+    much less real rejecting power once combined with other filters (see
+    the parallel fix in modularthread.py's extra_primes_for_filtering for
+    the fuller explanation: small q's are both weaker per-prime
+    discriminators and more likely to be degenerate for the curve).
+
+    Now the primary sort key is prime size (descending) and the entropy
+    term (t[1]*(1-t[1])) only breaks ties among primes of the same
+    magnitude, so choose_extra_primes actually prefers large, informative
+    primes the way its docstring always implied it should.
+    """
     cand = [(p, r) for p, r in stats.items()
             if p not in skip_small and EXTRA_PRIME_MIN_R < r < EXTRA_PRIME_MAX_R]
-    # sort by discriminatory power (entropy-like)
-    cand.sort(key=lambda t: -(t[1] * (1 - t[1])))
+    # sort by prime size first (larger = more independent/discriminating),
+    # then by discriminatory power (entropy-like) as a tiebreaker
+    cand.sort(key=lambda t: (-t[0], -(t[1] * (1 - t[1]))))
     chosen, prod = [], 1.0
     for p, r in cand:
         if len(chosen) >= max_extra:
@@ -1608,6 +1628,68 @@ def print_residue_analysis(analysis):
                     print(f"  {feature}: diff={max_diff:.3f} at '{best_cat}' (used={used_pct:.1f}%, unused={unused_pct:.1f}%)")
 
     print("="*70)
+
+def prune_explained_residues(precomputed_residues, found_m_set, prime_pool=None):
+    """
+    Return a copy of precomputed_residues with every root that reduces to an
+    already-found m (mod p) removed from each vector's per-RHS roots list.
+
+    This is the "re-run the same search with explained residues gone" step:
+    subsequent anomalous-sweep rounds should search over the exact same
+    prime_pool / subset machinery as round 0, just with roots that are
+    already accounted for by a known rational point taken out of the
+    candidate pool, so they can't keep re-surfacing as "still unexplained"
+    or wastefully re-discovered.
+
+    Uses the identical "reduce m mod p" logic as analyze_unused_residue_orders
+    (proper rational reduction a/b mod p = a * b^{-1} mod p, skipping primes
+    dividing m's denominator) so a residue counts as explained here iff it
+    would be counted as "used" there.
+
+    Does not mutate the input; returns a new dict. Vectors/RHS slots whose
+    roots all get pruned are kept as empty sets/lists (not deleted), so
+    downstream code that indexes by vector/rhs_idx keeps working.
+    """
+    if not found_m_set:
+        # Nothing found yet -- nothing to prune away.
+        return precomputed_residues
+
+    if prime_pool is None:
+        prime_list = sorted(precomputed_residues.keys())
+    else:
+        prime_list = [p for p in prime_pool if p in precomputed_residues]
+
+    # found_residues_by_prime[p] = set of m mod p for every found m that
+    # doesn't have a pole at p -- same computation as in
+    # analyze_unused_residue_orders, kept in sync deliberately.
+    found_residues_by_prime = defaultdict(set)
+    for m in found_m_set:
+        m_qq = QQ(m)
+        for p in prime_list:
+            denom = m_qq.denominator()
+            if denom % p == 0:
+                continue
+            Fp = GF(p)
+            m_mod_p = int(Fp(m_qq.numerator()) / Fp(denom))
+            found_residues_by_prime[p].add(m_mod_p)
+
+    pruned = {}
+    for p, mapping in precomputed_residues.items():
+        used = found_residues_by_prime.get(p, set())
+        if not used:
+            # Nothing explained at this prime -- keep it untouched.
+            pruned[p] = mapping
+            continue
+        new_mapping = {}
+        for vtuple, rhs_lists in mapping.items():
+            new_rhs_lists = []
+            for rl in rhs_lists:
+                new_rhs_lists.append([r for r in rl if not (isinstance(r, int) and int(r % p) in used)])
+            new_mapping[vtuple] = new_rhs_lists
+        pruned[p] = new_mapping
+
+    return pruned
+
 
 def analyze_unused_residue_orders(precomputed_residues,
                                   rhs_list,

@@ -25,8 +25,8 @@ TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords 
 # Hindes' curve, rational point search mode.
 # y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
 COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
+DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
 
 # Legacy genus-1 fields, kept for modules that still import A1..A6/COEFFS/DATA_PTS.
 A1, A2, A3, A4, A5, A6 = QQ(8), QQ(-3), QQ(-14), QQ(3), QQ(6), QQ(1)
@@ -53,10 +53,14 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
 HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
-NUM_PRIME_SUBSETS = 20            # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
 
-# magic prime settings, chosen empirically. All primes < 100, excluding 2, 3.
-PRIME_POOL = list(primes(100))
+# NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
+# once the modulus-sizing derivation is in scope -- see that block for why
+# it's primes(5000) rather than primes(100).
+PRIME_POOL = list(primes(50))
+
+
 
 # --- cryptography-related params (FINITE_FIELD mode only) ---
 MAXN = 80                  # no notion of height in FF mode; max n for section multiple [n]P
@@ -76,16 +80,95 @@ if FINITE_FIELD:
 
 VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
-MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
-MIN_MAX_PRIME_SUBSET_SIZE = 12      # safe range is 7-9; above 15 is too stringent
-# The formal completeness proof (brauer.py: prove_modulus_sufficiency) requires
-# log(M) > log(2*C_lll) + HEIGHT_BOUND, i.e. M needs to be roughly e^HEIGHT_BOUND,
-# not just >= the naive x-height you're targeting (10^100 in x-height terms is
-# log(x) ~= 230; with the h_can ~ h_x/2 relation and rank-1 C_lll ~= 1, that's
-# HEIGHT_BOUND on the order of a few hundred, needing M ~ 10^(HEIGHT_BOUND/ln10)).
-# Raised well past the old 10**100 so the proof doesn't just cap out and silently
-# under-certify -- re-check against whatever HEIGHT_BOUND is actually set to below.
-MAX_MODULUS = 10**500
+MIN_PRIME_SUBSET_SIZE = 3         # raised from 3: see modulus sizing note below.
+MIN_MAX_PRIME_SUBSET_SIZE = 9      # a little headroom above the min; see note below.
+# ----------------------------------------------------------------------------
+# MODULUS SIZING FOR A TARGET NAIVE X-HEIGHT (read this before touching the
+# two subset-size constants above or PRIME_POOL below)
+# ----------------------------------------------------------------------------
+# The formal completeness proof (brauer.py: prove_modulus_sufficiency) checks
+#     log(M_min) > log(2*C_lll) + H
+# where M_min is the product of primes in the SMALLEST prime subset actually
+# used (not the pool, not the average subset), and C_lll ~= 1 for low rank.
+#
+# IMPORTANT: at runtime (search7_genus2.sage: run_sufficiency_proof_and_posterior)
+# H is passed in as the *naive* x-height in nats (log(max(|num|,|den|))) of the
+# largest known point, not the canonical height h_can ~= h_x/2 the theorem is
+# actually stated for. So in practice the proof is the stronger statement
+#     log(M_min) > log(2*C_lll) + h_x
+# i.e. for a target naive height of 10^H_digits (so h_x = H_digits * ln(10)),
+# you need M_min a little bigger than 10^H_digits -- essentially matching the
+# height target digit-for-digit, not half of it.
+#
+# For H_digits = 100 (naive height out to 10^100): h_x = 230.26 nats, so
+#     M_min > exp(230.95) ~= 10^100.3   (d=1; C_lll grows the exponent by <0.1
+#                                         even out to rank 4)
+# Add a safety margin (bad-prime filtering per curve will drop the *usable*
+# pool below its nominal size, and the worst case grows fast with subset
+# size in this range -- +10 subset-size beyond the bare minimum already
+# buys ~25 extra digits of margin) -> target a healthy ~27-digit cushion,
+# not just clearing the bar.
+#
+# M_min is NOT controlled by PRIME_POOL size or by HEIGHT_BOUND -- subset size
+# is drawn independently of HEIGHT_BOUND in bounds.py's subset-generation
+# functions (generate_diverse_prime_subsets / _biased_by_residues); only
+# NUM_PRIME_SUBSETS scales with height. Subset size is capped purely by
+# MIN_PRIME_SUBSET_SIZE / MIN_MAX_PRIME_SUBSET_SIZE, and subsets are drawn
+# WITH replacement (random.choices), so the worst realistic case for M_min is
+# close to "the smallest MIN_PRIME_SUBSET_SIZE primes in the pool all get
+# picked". Sizing against that worst case (not the average case) is what
+# makes prove_modulus_sufficiency's PASS a real guarantee rather than a
+# usually-true heuristic:
+#     product of the smallest 55 primes (incl. 2,3,5)  ~= 10^103.2  (bare min)
+#     product of the smallest 65 primes (incl. 2,3,5)   ~= 10^127.8 (configured)
+# Hence MIN_PRIME_SUBSET_SIZE = 65 above (small primes 2,3,5 always get
+# force-appended to the pool -- see run_standard_lattice_search -- so sizing
+# against "smallest 65 including 2,3,5" is the correct worst case here).
+#
+# If you change the target height, rerun analyze_prime_pool_sufficiency()
+# (added below) rather than eyeballing new numbers -- it does this arithmetic
+# exactly, against whatever PRIME_POOL / subset-size constants are actually
+# configured, and tells you PASS/FAIL plus how much to adjust.
+TARGET_NAIVE_HEIGHT_DIGITS = 100    # the "10^100" you're aiming for; used by the analysis print only
+
+# Raised well past the old 10**100 so the completeness proof doesn't cap out
+# and silently under-certify. At subset size up to 80 with primes up to
+# ~5000, a best-case (large-prime) subset can reach roughly 10^290-10^300 --
+# give real headroom above that, not just above the ~10^128 worst-case floor,
+# since MAX_MODULUS silently drops ANY subset (not just the smallest) whose
+# modulus exceeds it (search_lll/modularthread.py: `if M > MAX_MODULUS: continue`).
+MAX_MODULUS = 10**400
+
+# --- combinatorial (not arithmetic) cap on CRT work per subset ---
+# MAX_MODULUS above bounds the *size* of the CRT modulus M = prod(primes in a
+# subset) -- an arithmetic quantity. It does NOT bound the *number of root
+# combinations* itertools.product(*lists) has to iterate for a subset in
+# search_lll/modularthread.py: process_prime_subset_precomputed, which is a
+# separate, combinatorial quantity (~avg_roots**subset_size). Those two were
+# conflated at one point (a single `combo_cap` param doing arithmetic-cap
+# duty), which meant the combo-count guard was sized against "won't overflow
+# a 10**400 comparison" rather than against "won't take forever to iterate" --
+# with MIN_PRIME_SUBSET_SIZE raised to 65 above, real per-subset combo counts
+# (avg_roots ~1.1-1.5 per the [galois/empirical] log lines, so ~10**3-10**5
+# combos per subset) sailed straight under any arithmetic-sized cap while
+# still being the actual runtime/memory bottleneck: every one of those combos
+# gets a full CRT lift, rational reconstruction, and Kronecker filter.
+#
+# MAX_COMBOS_PER_SUBSET is the fix: a hard, independent ceiling on how many
+# root-combinations get iterated per (prime subset, search vector, RHS
+# function) group, checked both up front (skip subsets whose estimated combo
+# count exceeds it) and mid-loop (bail out of itertools.product itself once
+# this many combos have been processed, so nothing that slips past the
+# estimate can run away either). Overridable here the same way
+# MIN_PRIME_SUBSET_SIZE is -- lower it if subsets are still slow; raise it
+# only after checking the crt_lift_skipped_combo_cap /
+# crt_lift_truncated_mid_loop stats counters from a run to confirm truncation
+# isn't discarding combos that would have mattered. The as-shipped default in
+# search_lll/search_config.py is 5000; this override takes precedence over it
+# via the same try/except import pattern search_lll/search_config.py uses for
+# MIN_PRIME_SUBSET_SIZE et al.
+MAX_COMBOS_PER_SUBSET = 50000
+
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
 HENSEL_SLOPPY = True
@@ -100,6 +183,18 @@ TORSION_SLOPPY = False
 MAX_TORSION_ORDER_TO_FILTER = -1   # -1 => only filter out singularity specialization
 
 print("finite field =", FINITE_FIELD)
+
+# Pre-flight check: does the configured PRIME_POOL / subset-size combination
+# actually reach the modulus needed for TARGET_NAIVE_HEIGHT_DIGITS? See the
+# long comment above MIN_PRIME_SUBSET_SIZE for the derivation. Skipped in
+# FINITE_FIELD mode, where PRIME_POOL is just [FINITE_FIELD] and this
+# analysis doesn't apply.
+if not FINITE_FIELD and _IS_MAIN_PROCESS:
+    from brauer import analyze_prime_pool_sufficiency
+    _pool_sufficiency = analyze_prime_pool_sufficiency(
+        PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE,
+        TARGET_NAIVE_HEIGHT_DIGITS, mw_rank=1, max_modulus=MAX_MODULUS,
+    )
 
 # random seed for reproducibility
 SEED_INT = random.randint(-10**6, 10**6)

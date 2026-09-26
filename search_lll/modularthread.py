@@ -4,8 +4,8 @@ from functools import reduce, partial
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from collections import namedtuple, Counter
 from sage.all import QQ, ZZ, GF, EllipticCurve, Integer, vector, PolynomialRing, var, matrix, identity_matrix, lcm, SR, Zmod
-from .search_config import DEBUG, MIN_PRIME_SUBSET_SIZE, MAX_MODULUS, ROOTS_THRESHOLD, MAX_K_ABS, LLL_DELTA, BKZ_BLOCK, TRUNCATE_MAX_DEG, TMAX, HENSEL_SLOPPY, TORSION_SLOPPY, MAX_TORSION_ORDER_TO_FILTER
-from .rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError
+from .search_config import DEBUG, MIN_PRIME_SUBSET_SIZE, MAX_MODULUS, ROOTS_THRESHOLD, MAX_K_ABS, LLL_DELTA, BKZ_BLOCK, TRUNCATE_MAX_DEG, TMAX, HENSEL_SLOPPY, TORSION_SLOPPY, MAX_TORSION_ORDER_TO_FILTER, MAX_COMBOS_PER_SUBSET
+from .rational_arithmetic import crt_cached, rational_reconstruct, RationalReconstructionError, lattice_rational_lift_exists, modulus_is_informative
 from .ll_utilities import _trim_poly_coeffs, _compute_column_norms, _scale_matrix_columns_int, _compute_integer_scales_for_columns
 from .archimedean_optim import minimize_archimedean_t_linear_const
 
@@ -670,12 +670,199 @@ def _batch_check_rationality(candidates, r_m, shift, rationality_test_func, curr
 
     return rational_candidates
 
-def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None):
+def _kronecker_prefilter_domain(p, residues_p, coeffs_genus2, shift, r_m_linear, r_m_sym, stats_counter=None):
+    """
+    Single-prime y-coordinate (Kronecker/QR) prefilter, applied directly to a
+    prime's own residue domain before any CRT happens at all.
+
+    This is the cheapest possible check in the pipeline: for m = a (mod p),
+    the induced x = r_m(a) - shift (mod p) and thus G(x) (mod p) -- where
+    G is the curve's RHS polynomial -- depend only on `a` and `p`, not on
+    any other prime or on a fully-reconstructed rational m. So instead of
+    waiting until a candidate is fully CRT'd (across the whole subset) and
+    rationally reconstructed before ever checking whether G(x) is even a
+    quadratic residue mod p, we can kill non-residue `a` values right here,
+    one prime at a time, before they ever reach itertools.product.
+
+    This duplicates the y-coordinate half of _check_rational_m_candidate's
+    per-extra-prime loop, but keyed by residue instead of by candidate: it's
+    the same math (Kronecker symbol of G(x) mod q), just run mod p itself
+    against p's own domain rather than mod each extra prime against a
+    finished candidate. The x-coordinate half of that check needs a real
+    filter-prime residue *set* to compare against and isn't meaningful here
+    (there's nothing to compare `a` against except itself), so only the
+    y-coordinate/Kronecker half applies at this stage.
+
+    If stats_counter is given, every residue that hits the except-and-keep
+    path increments 'arc_consistency_kronecker_exceptions' -- if that number
+    equals len(residues_p) summed across a run, this prefilter is silently
+    keeping everything (as opposed to genuinely finding every residue a
+    quadratic residue, which the exception path is NOT testing for).
+
+    Returns the subset of residues_p that pass (same type as residues_p).
+    """
+    survivors = set()
+    for a in residues_p:
+        try:
+            a_mod_p = int(a) % p
+            if r_m_linear:
+                slope, intercept = r_m_linear
+                slope_mod = ZZ(slope.numerator() * slope.denominator().inverse_mod(p)) % p
+                icept_mod = ZZ(intercept.numerator() * intercept.denominator().inverse_mod(p)) % p
+                shift_mod = ZZ(shift.numerator() * shift.denominator().inverse_mod(p)) % p
+                x_mod_p = (slope_mod * a_mod_p + icept_mod - shift_mod) % p
+            else:
+                # NOTE: must substitute a genuine QQ value here, not a bare
+                # Python int. _check_rational_m_candidate's identical branch
+                # (the only other caller of this .subs(...) pattern) always
+                # substitutes a QQ m_candidate and that's known to work --
+                # substituting plain `a_mod_p` (a Python int) here silently
+                # produced an SR expression that QQ(...) couldn't coerce
+                # cleanly, so every residue fell through to `except: pass`
+                # and this whole prefilter was a no-op (0 pruned every run).
+                x_val = r_m_sym.subs({var('m'): QQ(a_mod_p)}) - shift
+                x_val = QQ(x_val)
+                x_mod_p = ZZ(x_val.numerator() * x_val.denominator().inverse_mod(p)) % p
+
+            RHS_mod_p = ZZ(coeffs_genus2[0].numerator() * coeffs_genus2[0].denominator().inverse_mod(p)) % p
+            for coeff in coeffs_genus2[1:]:
+                coeff_mod_p = ZZ(coeff.numerator() * coeff.denominator().inverse_mod(p)) % p
+                RHS_mod_p = (RHS_mod_p * x_mod_p + coeff_mod_p) % p
+
+            if RHS_mod_p < 0:
+                RHS_mod_p = RHS_mod_p + p
+
+            if kronecker(RHS_mod_p, p) == -1:
+                continue  # a is killed: G(x) is a non-residue mod p
+        except Exception:
+            # Modular reduction failed for this residue (e.g. denominator
+            # divisible by p) -- can't rule it out cheaply, so keep it and
+            # let the existing downstream checks handle it as before.
+            if stats_counter is not None:
+                stats_counter['arc_consistency_kronecker_exceptions'] += 1
+        survivors.add(a)
+    return survivors
+
+
+def _pairwise_crt_survivors(anchor_modulus, residues_anchor, q, residues_q, height_bound, stats_counter=None):
+    """
+    Arc-consistency-style pairwise prune: for each residue class `a` mod
+    anchor_modulus, check whether ANY residue `b` in D_q CRTs (mod
+    anchor_modulus*q) to a class that could contain a small-height rational
+    -- i.e. whether the CRT class admits a lattice point (r, s) with
+    |r| <= height_bound AND |s| <= height_bound (the CRT-then-lattice-
+    reduction test: see lattice_rational_lift_exists). If no b works for a
+    given a, that a cannot participate in any global small-height solution
+    and is dropped.
+
+    NOTE on anchor_modulus: this is no longer required to be a single
+    prime -- the caller (process_prime_subset_precomputed) chains several
+    partner primes into a running product, CRT-ing them into the anchor's
+    modulus one at a time, precisely so the modulus can grow past the
+    "uninformative" regime a single prime pair sits in (see
+    modulus_is_informative below). anchor_modulus and q just need to be
+    coprime, which holds automatically since primes_for_crt only ever
+    contains distinct primes from the pool. residues_anchor is therefore a
+    set of residues mod anchor_modulus (a genuine composite modulus after
+    the first fold), not mod a single prime -- crt_cached and the `% `
+    reductions below work identically either way.
+
+    *** WHY THIS REPLACED THE OLD rational_reconstruct(max_den=height_bound)
+    CALL ***
+
+    That version only bounded the reconstructed DENOMINATOR against
+    height_bound and let the numerator be anything under the modulus M.
+    For a two-small-prime modulus (M = p*q, typically a few thousand, vs.
+    height_bound in the tens of thousands), M < height_bound essentially
+    always -- so a small-denominator representative exists for nearly
+    every residue trivially (there just aren't very many classes mod M to
+    begin with, and height_bound was bigger than M itself). Measured
+    directly: for M = 97*89 = 8633 and height_bound = 37000, ALL 8633
+    residues reconstructed "successfully", which is exactly why
+    arc_consistency_pairwise_pruned sat at 0 -- the test had no power.
+
+    The fix is three-fold:
+      1. Bound BOTH r and s (the fraction's numerator and denominator), not
+         just s -- lattice_rational_lift_exists walks every convergent of
+         the continued-fraction chain and requires |r| <= H and |s| <= H
+         simultaneously.
+      2. Only trust the test once the modulus M is actually large enough
+         relative to height_bound that "no small lift exists" is a real
+         statement and not just pigeonhole overflow (see
+         modulus_is_informative).
+      3. Chain multiple partner primes into a growing anchor_modulus
+         (handled by the caller) instead of testing pairs at a permanently
+         small fixed modulus, so informativeness is actually reachable.
+
+    Returns the subset of residues_anchor that have at least one compatible
+    b in residues_q.
+    """
+    anchor_modulus = int(anchor_modulus)
+    q = int(q)
+    M = anchor_modulus * q
+    informative = modulus_is_informative(M, height_bound)
+    if stats_counter is not None and not informative:
+        stats_counter['arc_consistency_pairwise_uninformative_modulus'] += 1
+
+    survivors = set()
+    for a in residues_anchor:
+        a_int = int(a) % anchor_modulus
+        found_partner = False
+        for b in residues_q:
+            b_int = int(b) % q
+            c = crt_cached((a_int, b_int), (anchor_modulus, q))
+            if lattice_rational_lift_exists(int(c) % M, M, int(height_bound)):
+                found_partner = True
+                break
+        if found_partner:
+            survivors.add(a)
+    return survivors
+
+
+def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap, precomputed_residues, prime_pool, num_rhs_fns, coeffs_genus2=None, height_bound=None, bad_primes=frozenset()):
     """
     Worker function to find m-candidates for a single subset of primes.
     This version processes each RHS function independently.
 
+    *** height_bound may now be EITHER a flat int/float (old behavior,
+    same bound for every vector) OR a dict {v_orig_tuple: bound} produced
+    by height_bound.build_vector_height_bounds -- a real, per-vector bound
+    derived from the Mordell-Weil canonical height pairing rather than the
+    old flat HEIGHT_BOUND=37000 constant. See search_lll/height_bound.py
+    for the derivation and the validation step that MUST be run before
+    trusting a dict here to reject anything (i.e. before this actually
+    prunes in Stage 2 below). Passing the flat scalar still works
+    unchanged for anyone not ready to switch over. ***
+
     *** MODIFIED to add a guard against combo_cap explosion ***
+
+    NOTE on `combo_cap` (the parameter): kept for backward compatibility with
+    callers (search_main.py passes its own locally-computed combo_cap here),
+    but it is NOT what actually bounds combinatorial work inside this
+    function anymore -- that's MAX_COMBOS_PER_SUBSET (search_config.py),
+    which is sized against real iteration cost rather than against "won't
+    overflow / won't spuriously reject a subset". See the comment at
+    MAX_COMBOS_PER_SUBSET's definition and the guard below for why the
+    caller's combo_cap alone wasn't catching this.
+
+    *** MODIFIED to prune residue domains before the full CRT product ***
+
+    Before building the n-prime itertools.product over all of p_subset,
+    each prime's residue domain is pruned in two cheap passes:
+      1. A per-prime Kronecker/QR prefilter (_kronecker_prefilter_domain) --
+         kills residues that can never yield a rational point regardless of
+         any other prime, using only that one prime.
+      2. A pairwise CRT/height-compatibility prefilter
+         (_pairwise_crt_survivors), against one anchor prime from the
+         subset -- kills residues that have no partner residue anywhere in
+         the anchor's domain compatible with a small-height rational lift.
+    Only the survivors feed the existing n-prime CRT search below. This is
+    the "arc consistency" sieve: cheap pairwise/single-prime tests remove
+    the vast majority of dead residues before they reach the expensive
+    full-subset combinatorial stage, rather than after (which is what the
+    existing extra-primes / Kronecker filter in _check_rational_m_candidate
+    was doing -- correct, but only after the expensive work was already
+    done).
     """
     if not p_subset:
         return set(), Counter(), set()
@@ -694,14 +881,54 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
         if est > combo_cap and DEBUG:
             print("[heavy subset]", p_subset, "estimated combos:", est)
 
-    num_extra_primes = 4
-    offset = 2
-    extra_primes_for_filtering = [p for p in prime_pool if p not in p_subset][offset:num_extra_primes+offset]
+    # --- SELECT EXTRA (FILTERING) PRIMES ---
+    #
+    # These are primes NOT in p_subset itself, used purely as independent
+    # cross-checks (y-coordinate Kronecker/QR test; x-coordinate check is
+    # currently a no-op, see _check_rational_m_candidate below) that a
+    # candidate m must pass before being accepted.
+    #
+    # *** TUNING: using more extra primes is cheap (each is just one more
+    # Kronecker-symbol computation per candidate), so it's tempting to just
+    # grab more/larger ones. The earlier attempt at this (sorting purely by
+    # prime size, including primes up to and past 97) was reverted because
+    # it cost real rational points: a prime that's simply LARGE is not
+    # necessarily a GOOD prime for this curve -- if `q` divides the
+    # discriminant, makes a4/a6's denominator vanish, or otherwise gives a
+    # degenerate reduction, the Kronecker/QR test at q is not a valid
+    # filter at all, and _check_rational_m_candidate's hard `return False`
+    # on a failed y-coordinate check will silently reject true points along
+    # with false ones.
+    #
+    # The actual fix: filter candidate_extra_primes down to primes already
+    # known-good for this surface (bad_primes, computed once at curve-build
+    # time via is_good_prime_for_surface -- see search_common.py) BEFORE
+    # doing anything else, then take as many of the largest good primes as
+    # we want (this is where "more filtering is cheap" is true and safe to
+    # act on, since every one of them is a prime the reduction is actually
+    # valid at). If bad_primes wasn't supplied (empty default), this
+    # degrades to the previous behavior of not excluding anything by
+    # goodness -- pass bad_primes from the caller to get the safety benefit.
+    good_candidate_extra_primes = [p for p in prime_pool if p not in p_subset and p not in bad_primes]
+    num_extra_primes = 8 if bad_primes else 4
+    extra_primes_for_filtering = sorted(good_candidate_extra_primes, reverse=True)[:num_extra_primes]
 
     for v_orig in vecs:
         if len(vecs) > 1 and all(c == 0 for c in v_orig):
             continue
         v_orig_tuple = tuple(v_orig)
+
+        # Resolve this vector's height bound. If height_bound is a dict
+        # (the new per-vector bounds from height_bound.py), look up this
+        # v_orig_tuple specifically -- a vector missing from the dict is
+        # treated as "no bound available" (None) rather than silently
+        # falling back to some other vector's bound, since bounds are not
+        # interchangeable across vectors (that's the entire point of
+        # making this per-vector in the first place).
+        if isinstance(height_bound, dict):
+            vector_height_bound = height_bound.get(v_orig_tuple)
+        else:
+            vector_height_bound = height_bound
 
         for rhs_idx in range(num_rhs_fns):
 
@@ -719,43 +946,201 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
                 else:
                     residue_map_for_filter[p] = set()
 
-            filter_primes_keys = list(residue_map_for_filter.keys())
+            # --- DO NOT REBUILD residue_map_for_filter HERE! ---
+            # (This was the bug - second construction was overwriting the first)
 
             # --- BUILD CRT MAP ---
+            # primes_for_crt must stay a concrete tuple: it's re-iterated once
+            # per combo below (crt_cached needs the moduli tuple every time)
+            # and once up front for M and the combo-count guard, so there's
+            # nothing to gain by deferring it -- but residue_map_for_crt's
+            # values feed itertools.product as a generator (no `lists` copy),
+            # and residue_map_for_filter's keys are passed as a plain dict
+            # keys view (`.keys()`) instead of a list, since both are only
+            # ever walked once per use, in order.
             residue_map_for_crt = {}
             for p in p_subset:
                 roots_for_this_rhs = precomputed_residues.get(p, {}).get(v_orig_tuple, [])
                 if rhs_idx < len(roots_for_this_rhs) and roots_for_this_rhs[rhs_idx]:
                     residue_map_for_crt[p] = roots_for_this_rhs[rhs_idx]
 
-            primes_for_crt = list(residue_map_for_crt.keys())
+            primes_for_crt = tuple(residue_map_for_crt.keys())
             if len(primes_for_crt) < MIN_PRIME_SUBSET_SIZE:
                 continue
 
-            # --- DO NOT REBUILD residue_map_for_filter HERE! ---
-            # (This was the bug - second construction was overwriting the first)
+            # --- ARC-CONSISTENCY SIEVE (before the full CRT product) ---
+            # Stage 1: per-prime Kronecker/QR prefilter. Cheap (no CRT), and
+            # applies independently to every prime's domain.
+            r_m_linear = None  # matches _check_rational_m_candidate's own default; r_m below is passed as r_m_sym
+            if coeffs_genus2 is not None:
+                for p in primes_for_crt:
+                    before = residue_map_for_crt[p]
+                    if not before:
+                        continue
+                    after = _kronecker_prefilter_domain(
+                        p, before, coeffs_genus2, shift, r_m_linear, r_m, stats_counter=stats_counter
+                    )
+                    stats_counter['arc_consistency_kronecker_pruned'] += (len(before) - len(after))
+                    residue_map_for_crt[p] = after
 
-            lists = [residue_map_for_crt[p] for p in primes_for_crt]
+            # Stage 2: CRT-then-lattice-reduction prefilter against an
+            # anchor prime.
+            #
+            # *** RE-ENABLED, against vector_height_bound instead of the
+            # old flat height_bound constant. WHY IT WAS DISABLED BEFORE:
+            # this test enforces |r| <= H AND |s| <= H on the CRT-lifted
+            # class, but the pipeline's downstream acceptance path
+            # (rational_reconstruct(m0 % M, M) further below) previously
+            # called with NO max_den argument -- defaulting to sqrt(M/2)
+            # instead of the same H -- so a genuine point could reconstruct
+            # successfully downstream at a size this sieve didn't allow,
+            # and get thrown away here first. That is fixed by (a) using
+            # vector_height_bound here, derived per-vector from the
+            # Mordell-Weil canonical height pairing (see
+            # search_lll/height_bound.py) rather than a flat guessed
+            # constant, and (b) passing that SAME value as max_den to the
+            # rational_reconstruct call in the acceptance path below, so
+            # both stages test the identical bound instead of two
+            # different ones.
+            #
+            # *** THIS MUST NOT BE TRUSTED UNTIL VALIDATED: before relying
+            # on this to reject anything in a real search run, run
+            # height_bound.validate_against_known_points against every
+            # known rational point in your test curves and confirm none
+            # of them exceed their vector's computed bound. A wrong
+            # (too-tight) bound here silently drops real points exactly
+            # like the old flat-constant bug did, just via a new route --
+            # see height_bound.py's module docstring for the full caveat,
+            # including the m_map_height_factor gap (the bound derived
+            # there is proven for x([v]P)'s numerator/denominator, not yet
+            # for m itself, unless r_m/shift/T's height distortion has
+            # been folded in and validated). ***
+            if vector_height_bound is not None and len(primes_for_crt) > 1:
+                anchor = min(primes_for_crt, key=lambda p: len(residue_map_for_crt[p]))
+                anchor_domain = residue_map_for_crt[anchor]
+                partners_sorted = sorted(
+                    (p for p in primes_for_crt if p != anchor and residue_map_for_crt[p]),
+                    key=lambda p: len(residue_map_for_crt[p]),
+                )
 
-            # Check for combinatorial explosion BEFORE itertools.product
+                if anchor_domain and partners_sorted:
+                    # Grow the partner group until anchor*partner_modulus
+                    # clears the informative threshold (or we run out of
+                    # partners).
+                    partner_group = []
+                    partner_modulus = 1
+                    for p in partners_sorted:
+                        partner_group.append(p)
+                        partner_modulus *= int(p)
+                        if modulus_is_informative(int(anchor) * partner_modulus, vector_height_bound):
+                            break
+
+                    combined_modulus = int(anchor) * partner_modulus
+                    partner_combo_count = 1
+                    for p in partner_group:
+                        partner_combo_count *= max(1, len(residue_map_for_crt[p]))
+
+                    if modulus_is_informative(combined_modulus, vector_height_bound) and partner_combo_count <= MAX_COMBOS_PER_SUBSET:
+                        # Build the joint CRT domain over the partner group:
+                        # every tuple of partner residues, combined via CRT
+                        # into a single residue mod partner_modulus. This is
+                        # the same O(prod |D_q|) cost the final n-prime
+                        # product would pay for just this sub-group, but
+                        # sub-groups here are the 1-2 smallest-domain
+                        # partners, so it stays cheap, and it only runs once
+                        # per anchor instead of once per full subset combo.
+                        # Guarded against MAX_COMBOS_PER_SUBSET the same way
+                        # the main product loop is, in case the smallest
+                        # partner domains still happen to be large.
+                        partner_domains = [residue_map_for_crt[p] for p in partner_group]
+                        partner_moduli = tuple(int(p) for p in partner_group)
+                        joint_partner_residues = set()
+                        for combo in itertools.product(*partner_domains):
+                            combo_ints = tuple(int(b) % pm for b, pm in zip(combo, partner_moduli))
+                            joint_partner_residues.add(crt_cached(combo_ints, partner_moduli))
+
+                        before = anchor_domain
+                        after = _pairwise_crt_survivors(
+                            int(anchor), before, partner_modulus, joint_partner_residues,
+                            vector_height_bound, stats_counter=stats_counter,
+                        )
+                        stats_counter['arc_consistency_pairwise_pruned'] += (len(before) - len(after))
+                        stats_counter['arc_consistency_pairwise_informative_hits'] += 1
+                        residue_map_for_crt[anchor] = after
+                    else:
+                        # Either the combined modulus never cleared the
+                        # informative threshold even using every partner
+                        # prime in the subset (Stage 2 has no reliable
+                        # signal here), or the joint partner-residue combo
+                        # count was too large to build cheaply -- either
+                        # way, leave the anchor's domain untouched rather
+                        # than act on a pigeonhole-driven false pass or pay
+                        # for an expensive joint CRT build.
+                        stats_counter['arc_consistency_pairwise_uninformative_skip'] += 1
+
+            # Re-check subset size and combo count now that domains have
+            # shrunk -- a subset that looked viable before pruning may not
+            # be worth (or even eligible for) the full product anymore.
+            if any(not residue_map_for_crt[p] for p in primes_for_crt):
+                stats_counter['arc_consistency_subset_emptied'] += 1
+                continue
+
+            # --- Combinatorial explosion guard ---
+            # This is a COUNT of root-combinations (roughly
+            # avg_roots**len(primes_for_crt)). The `combo_cap` parameter this
+            # function receives is an upstream estimate-vs-cap check tuned to
+            # never spuriously reject a subset (at subset size 65+ it clamps
+            # to 50000**40 ~= 10**188 -- see search_config.py's
+            # MAX_COMBOS_PER_SUBSET comment for the full explanation) -- it
+            # passes through real per-subset combo counts of ~10**3-10**5
+            # without complaint, which is exactly the case that was making
+            # every subset here slow. Compare against MAX_COMBOS_PER_SUBSET
+            # instead, which is sized against actual iteration cost, not
+            # against "won't overflow".
+            #
+            # No intermediate `lists = [residue_map_for_crt[p] for p in ...]`
+            # here -- iterate primes_for_crt directly and look each set up on
+            # the fly; the sets already live in residue_map_for_crt, so that
+            # list was just a second, throwaway container of the same values.
+            # (Domains here are the arc-consistency survivors, not the raw
+            # precomputed residues -- this count is now post-pruning.)
             num_combos = 1
-            for l in lists:
-                num_combos *= max(1, len(l))
-                if num_combos > combo_cap:
+            for p in primes_for_crt:
+                num_combos *= max(1, len(residue_map_for_crt[p]))
+                if num_combos > MAX_COMBOS_PER_SUBSET:
                     break
 
-            if num_combos > combo_cap:
+            if num_combos > MAX_COMBOS_PER_SUBSET:
                 stats_counter['crt_lift_skipped_combo_cap'] += 1
                 continue
 
-            for combo in itertools.product(*lists):
-                stats_counter['crt_lift_attempts'] += 1
-                M = 1
-                for p in primes_for_crt:
-                    M *= int(p)
+            # Precompute M once per (vector, rhs) -- it's the same for every
+            # combo in this inner loop (primes_for_crt doesn't change), so
+            # recomputing it inside the loop below was pure waste.
+            M = 1
+            for p in primes_for_crt:
+                M *= int(p)
+            if M > MAX_MODULUS:
+                stats_counter['crt_lift_skipped_modulus_cap'] += 1
+                continue
 
-                if M > MAX_MODULUS:
-                    continue
+            combos_processed_this_group = 0
+            for combo in itertools.product(*(residue_map_for_crt[p] for p in primes_for_crt)):
+                # --- Hard runtime bailout ---
+                # The up-front num_combos estimate above is exact for this
+                # loop shape (it's the same product-of-lengths itertools.product
+                # will emit), so in practice this should never trigger once the
+                # up-front check passed. It's kept as a defense-in-depth cutoff
+                # (not just an estimate) in case residue_map_for_crt is ever
+                # mutated, contains duplicate-but-distinct entries, or this
+                # function's call sites change -- we never again want "the
+                # loop just keeps going" to be possible regardless of what fed it.
+                if combos_processed_this_group >= MAX_COMBOS_PER_SUBSET:
+                    stats_counter['crt_lift_truncated_mid_loop'] += 1
+                    break
+                combos_processed_this_group += 1
+
+                stats_counter['crt_lift_attempts'] += 1
 
                 m0 = crt_cached(combo, tuple(primes_for_crt))
                 tested_crt_classes.add((int(m0) % int(M), int(M)))
@@ -769,28 +1154,44 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
                 for t_cand, m_cand, _, _ in best_ms:
                     # [fix] check_specific_t_value was never defined anywhere in the
                     # codebase (dead call, NameError at runtime). Its argument shape
-                    # (residue_map_for_filter, filter_primes_keys, coeffs_genus2, shift,
+                    # (residue_map_for_filter, residue_map_for_filter.keys(), coeffs_genus2, shift,
                     # r_m_linear, r_m_sym) is identical to _check_rational_m_candidate
                     # below, just keyed by (t_cand, m0, M) instead of a single
                     # pre-combined m_candidate -- m_cand from best_ms is exactly that
                     # combined value, already unused elsewhere in this branch. Route
                     # Path 1 through the same filter Path 2 uses.
                     if _check_rational_m_candidate(QQ(m_cand), residue_map_for_filter,
-                                                    filter_primes_keys,
+                                                    residue_map_for_filter.keys(),
                                                     coeffs_genus2=coeffs_genus2, shift=shift,
-                                                    r_m_linear=None, r_m_sym=r_m):
+                                                    r_m_linear=None, r_m_sym=r_m,
+                                                    stats_counter=stats_counter):
                         found_candidates_for_subset.add((QQ(m_cand), v_orig_tuple))
 
                 # Path 2: Rational Reconstruction
+                #
+                # *** max_den is now vector_height_bound when available,
+                # instead of always falling back to rational_reconstruct's
+                # default (floor(sqrt(M/2))). This is the other half of
+                # the Stage-2 reconciliation above: both the prefilter and
+                # this acceptance step now test the SAME bound for this
+                # v_orig, so Stage 2 can only ever reject a candidate that
+                # this step would also reject. When vector_height_bound is
+                # None (old flat-height_bound callers, or a vector missing
+                # from a per-vector dict), this keeps the previous
+                # unbounded-default behavior exactly as before. ***
                 stats_counter['rational_recon_attempts_worker'] += 1
                 try:
-                    a, b = rational_reconstruct(m0 % M, M)
+                    if vector_height_bound is not None:
+                        a, b = rational_reconstruct(m0 % M, M, max_den=int(vector_height_bound))
+                    else:
+                        a, b = rational_reconstruct(m0 % M, M)
                     m_val_rational = QQ(a) / QQ(b)
 
                     if _check_rational_m_candidate(m_val_rational, residue_map_for_filter,
-                                                    filter_primes_keys,
+                                                    residue_map_for_filter.keys(),
                                                     coeffs_genus2=coeffs_genus2, shift=shift,
-                                                    r_m_linear=None, r_m_sym=r_m):
+                                                    r_m_linear=None, r_m_sym=r_m,
+                                                    stats_counter=stats_counter):
                         found_candidates_for_subset.add((m_val_rational, v_orig_tuple))
                         stats_counter['rational_recon_success_worker'] += 1
                     else:
@@ -803,7 +1204,8 @@ def process_prime_subset_precomputed(p_subset, vecs, r_m, shift, tmax, combo_cap
 
 def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, extra_primes: list,
                                 coeffs_genus2: list[QQ], shift: QQ,
-                                r_m_linear=None, r_m_sym=None, verbose=False) -> bool:
+                                r_m_linear=None, r_m_sym=None, verbose=False,
+                                stats_counter=None) -> bool:
     """
     Applies consistency checks for a rational m_candidate.
     Returns False if any constraint is violated, True otherwise.
@@ -829,12 +1231,29 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
         if allowed_m_residues is None or not allowed_m_residues:
             pass  # Continue to y-coordinate check below
         elif m_cand_mod_q not in allowed_m_residues:
-            # x-coordinate constraint violated
-            #print("here", m_cand_mod_q, allowed_m_residues)
+            # x-coordinate constraint violated.
+            #
+            # *** REVERTED: this was briefly changed to `return False` on
+            # the theory that the commented-out reject was simply a bug.
+            # It was reverted back to `pass` because doing so was found to
+            # discard genuine rational points, not just bad candidates --
+            # residue_map_for_filter[q] is built from ONE specific
+            # (v_orig_tuple, rhs_idx) branch (see the "BUILD FILTER MAP
+            # ONCE" block above in process_prime_subset_precomputed), so a
+            # true point's m need only satisfy this residue constraint for
+            # the branch it actually came from, not for every extra prime
+            # q's precomputed roots under that same branch label -- q's
+            # roots can be incomplete, keyed to a different RHS choice, or
+            # otherwise not a valid constraint on m in general. Treating a
+            # mismatch here as a hard rejection was cutting real points,
+            # not just false ones (we were losing points, not residues).
+            # Left as a no-op/diagnostic print, exactly as the original
+            # code (with its "pass  #return False" comment) had it -- only
+            # the y-coordinate Kronecker check below is trusted enough to
+            # actually reject a candidate. ***
             if verbose:
                 print(f"Filter fail (rational m, x-coord): m={m_cand_mod_q} (mod {q}) not in allowed set.")
             pass
-            #return False
 
         # --- UNIFIED MODULAR CHECK (y-coordinate Kronecker) ---
         # Always run this check, even if x-check was skipped
@@ -863,6 +1282,8 @@ def _check_rational_m_candidate(m_candidate: QQ, residue_map_for_filter: dict, e
             if kronecker(RHS_mod_q, q) == -1:
                 if verbose:
                     print(f"Filter fail (rational m, y-coord twist): G(x)={RHS_mod_q} (mod {q}) is a non-residue.")
+                if stats_counter is not None:
+                    stats_counter['extra_prime_y_coord_rejects'] += 1
                 return False
 
         except Exception:

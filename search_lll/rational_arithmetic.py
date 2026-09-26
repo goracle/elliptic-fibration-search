@@ -54,6 +54,108 @@ def rational_reconstruct(c, N, max_den=None):
     g = gcd(abs(a), abs(b))
     return int(a // g), int(b // g)
 
+@lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
+def lattice_rational_lift_exists(c, M, H):
+    """
+    CRT-then-lattice-reduction small-rational test.
+
+    Decide whether there EXISTS a rational r/s with |r| <= H and |s| <= H
+    such that r - c*s == k*M for some integer k -- i.e. whether the
+    residue class c (mod M) can contain a small-height rational at all.
+
+    This is the two-integer lattice problem from the "CRT then lattice
+    reduction" scheme: r - c*s is a vector in the 2D lattice
+        L = { (r,s) : r - c*s in M*Z }
+    spanned by (M, 0) and (c, 1). We want to know if L contains a nonzero
+    point inside the box [-H,H] x [-H,H] (nonzero because (0,0) is the
+    trivial/uninformative solution). The standard tool for this is the
+    Euclidean algorithm on (M, c), which for a rank-2 lattice IS lattice
+    reduction (it's the 2D case of LLL): each convergent (r_i, s_i) of the
+    continued fraction expansion of c/M is, up to the usual optimality
+    theorem for rational approximation, the shortest lattice vector once
+    |r_i| drops below the previous |r_{i-1}|. So unlike rational_reconstruct
+    (which only bounds s and lets r float free), this walks the full
+    Euclidean chain and checks EVERY convergent's (r, s) pair against BOTH
+    bounds, and reports failure unless some convergent satisfies both.
+
+    Contrast with the old rational_reconstruct(c, M, max_den=H) sieve: that
+    call only enforces |s| <= H and then accepts whatever |r| < M falls out
+    of the terminating step -- so whenever M itself is small (which it
+    always is for a 2-3 small-prime CRT modulus), nearly every residue
+    passes trivially, because "some numerator under M" is not a real
+    constraint. This function is only meaningful, i.e. only actually
+    rejects a nontrivial fraction of residues, once M is large enough that
+    a generic class mod M has no representative with BOTH |r|,|s| <= H --
+    which requires M to comfortably exceed H (2*H^2 is the standard bound
+    for guaranteed uniqueness of a small-height representative, but the
+    filter is still informative, just not exhaustive/unique, well below
+    that -- see require_informative_modulus below for the recommended
+    minimum to bother calling this at all).
+
+    Returns True iff some convergent (r, s), including the endpoints
+    (M, 0) and (c mod M, 1), satisfies |r| <= H and |s| <= H and r != 0
+    (excluding only the fully-degenerate all-zero case, which can't arise
+    here since r0 starts at M > 0).
+
+    Both r and s are checked -- this is the fix for the numerator gap in
+    rational_reconstruct.
+    """
+    if M <= 0:
+        raise ValueError(f"lattice_rational_lift_exists requires M > 0, got M={M}")
+    if H < 0:
+        raise ValueError(f"lattice_rational_lift_exists requires H >= 0, got H={H}")
+
+    c = int(c) % int(M)
+    M = int(M)
+    H = int(H)
+
+    # Continued-fraction / Euclidean chain on (M, c): (r0,s0)=(M,0),
+    # (r1,s1)=(c,1), r_{i+1} = r_{i-1} - q*r_i, s_{i+1} = s_{i-1} - q*s_i.
+    # Every (r_i, s_i) satisfies r_i - c*s_i ≡ 0 (mod M) by construction,
+    # and |r_i| is strictly decreasing while |s_i| is strictly increasing,
+    # so this sweeps out exactly the lattice's successive minima -- we only
+    # need to test each one against the box, not search further.
+    r_prev, r_cur = M, c
+    s_prev, s_cur = 0, 1
+
+    if r_prev <= H and abs(s_prev) <= H:
+        return True  # (M, 0): trivially the "k*M" solution; only relevant if H >= M
+
+    while r_cur != 0:
+        if abs(r_cur) <= H and abs(s_cur) <= H:
+            return True
+        q = r_prev // r_cur
+        r_prev, r_cur = r_cur, r_prev - q * r_cur
+        s_prev, s_cur = s_cur, s_prev - q * s_cur
+
+    # r_cur == 0 means s_cur is the full period; c divides evenly into a
+    # multiple of M already captured above -- nothing further to check.
+    return False
+
+
+def modulus_is_informative(M, H):
+    """
+    Whether M is large enough for lattice_rational_lift_exists(., M, H) to
+    be a *meaningful* filter rather than a near-tautology.
+
+    lattice_rational_lift_exists always succeeds once M <= 2*H^2 for a
+    *generic* residue is no longer guaranteed, but the closer M is to H (or
+    below it), the more residues admit a small lift for the trivial reason
+    that the box [-H,H]x[-H,H] alone already contains ~ (2H+1)^2 lattice
+    points out of only M distinct classes -- by pigeonhole, once
+    (2H+1)^2 >> M, most classes have a representative in the box for free,
+    independent of any real number-theoretic structure. We only want to
+    spend time on the pairwise sieve once M is comfortably above H, so
+    that "found a small lift" is doing real work.
+
+    This returns True once M > H (the minimum for the box to not trivially
+    cover the whole modulus many times over); callers wanting the stronger
+    *uniqueness* guarantee should instead require M > 2*H*H, matching the
+    classical rational-reconstruction bound.
+    """
+    return M > H
+
+
 def find_minimal_abs_representative(t_mod_Q, Q, T):
     """
     Find if there exists k such that |t_mod_Q + k*Q| <= T

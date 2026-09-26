@@ -136,6 +136,169 @@ def run_sufficiency_proof(height_bound, prime_subsets, mw_rank):
 
     print("="*70)
 
+def analyze_prime_pool_sufficiency(prime_pool, min_subset_size, max_subset_size,
+                                    target_naive_height_digits, mw_rank=1,
+                                    max_modulus=None, verbose=True):
+    """
+    Pre-flight check: is the CONFIGURED prime pool / subset-size combination
+    actually capable of clearing the modulus the completeness proof will
+    demand for a target naive x-height, before you spend hours searching?
+
+    This mirrors exactly what run_sufficiency_proof / prove_modulus_sufficiency
+    check at the end of a run, but runs it up front against the worst case
+    subset the sampler in bounds.py can draw, so you get a PASS/FAIL and a
+    concrete "raise MIN_PRIME_SUBSET_SIZE to N" recommendation instead of
+    finding out after the search that M_min was too small.
+
+    Why worst case, not average case: subsets are drawn as
+    random.choices(prime_pool, weights=..., k=size) -- i.e. WITH replacement,
+    weighted toward high-root-count primes but not guaranteed to avoid small
+    primes. A single subset that happens to land on mostly-small primes (or
+    on few distinct primes due to replacement) can be the M_min that
+    run_sufficiency_proof reports on, since that function scans ALL generated
+    subsets for the smallest modulus. Sizing against "smallest possible
+    subset size, smallest available primes" is what makes a PASS here a real
+    guarantee.
+
+    Also mirrors a real runtime gate: search_lll/modularthread.py drops any
+    CRT lift with M > MAX_MODULUS (`if M > MAX_MODULUS: continue`), silently.
+    So this also flags subsets whose modulus would be usable in principle but
+    gets discarded at runtime because MAX_MODULUS is set too low.
+
+    Args:
+        prime_pool: the configured PRIME_POOL (list of ints/Sage primes).
+        min_subset_size: MIN_PRIME_SUBSET_SIZE.
+        max_subset_size: MIN_MAX_PRIME_SUBSET_SIZE.
+        target_naive_height_digits: target naive x-height as "10^D" -- pass D.
+            (Matches how the runtime proof actually compares against naive
+            x-height in nats, not canonical height -- see the note in
+            search_common.py above MIN_PRIME_SUBSET_SIZE.)
+        mw_rank: Mordell-Weil rank / number of sections, for C_lll. Only
+            weakly affects the threshold (C_lll enters as a log, so even
+            rank 10 barely moves the required digit count).
+        max_modulus: MAX_MODULUS; if the worst-case M exceeds this, those CRT
+            lifts get silently skipped at runtime regardless of the proof.
+            Defaults to the module-level MAX_MODULUS if available.
+        verbose: print a human-readable report.
+
+    Returns:
+        dict with keys: 'pass', 'log10_M_worst', 'log10_M_best',
+        'log10_threshold', 'recommended_min_subset_size',
+        'worst_case_primes_used', 'max_modulus_ok'.
+    """
+    if max_modulus is None:
+        max_modulus = globals().get('MAX_MODULUS', 10**500)
+
+    pool_sorted = sorted(int(p) for p in prime_pool)
+    if not pool_sorted:
+        if verbose:
+            print("analyze_prime_pool_sufficiency: PRIME_POOL is empty, cannot analyze.")
+        return {'pass': False, 'error': 'empty prime pool'}
+
+    # --- Required threshold (mirrors prove_modulus_sufficiency exactly) ---
+    d = max(1, int(mw_rank))
+    C_lll = compute_lll_constant(delta=0.98, d=d)
+    h_x = float(target_naive_height_digits) * math.log(10.0)
+    log10_threshold = (math.log(2.0) + math.log(C_lll) + h_x) / math.log(10.0)
+
+    # --- Worst-case subset: the MIN_PRIME_SUBSET_SIZE smallest primes in the
+    #     pool (this is what the sampler in bounds.py *could* draw, and what
+    #     run_sufficiency_proof scans for as M_min across all subsets) ---
+    k_worst = min(int(min_subset_size), len(pool_sorted))
+    worst_primes = pool_sorted[:k_worst]
+    log10_M_worst = sum(math.log10(p) for p in worst_primes)
+
+    # --- Typical/best-case subset for context: max_subset_size LARGEST
+    #     primes, representing a favorably-drawn subset, so you can see the
+    #     spread between worst and best case ---
+    k_best = min(int(max_subset_size), len(pool_sorted))
+    best_primes = pool_sorted[-k_best:]
+    log10_M_best = sum(math.log10(p) for p in best_primes)
+
+    passes = log10_M_worst > log10_threshold
+
+    # --- MAX_MODULUS sanity: does the runtime hard-cap silently discard the
+    #     very moduli we're relying on? ---
+    log10_max_modulus = math.log10(max_modulus) if max_modulus > 0 else 0.0
+    max_modulus_ok = log10_max_modulus > log10_M_best + 1.0  # 1 extra digit of margin
+
+    # --- Recommended MIN_PRIME_SUBSET_SIZE if it currently fails ---
+    recommended_min_subset_size = k_worst
+    if not passes:
+        cum = 0.0
+        recommended_min_subset_size = None  # pool itself too small even at full size
+        for i, p in enumerate(pool_sorted):
+            cum += math.log10(p)
+            if cum > log10_threshold:
+                recommended_min_subset_size = i + 1
+                break
+
+    if verbose:
+        print("\n" + "=" * 70)
+        print("PRIME POOL / SUBSET SIZE SUFFICIENCY ANALYSIS")
+        print("=" * 70)
+        print(f"Target naive x-height: 10^{target_naive_height_digits}  "
+              f"(h_x = {h_x:.2f} nats)")
+        print(f"MW rank used for C_lll: d={d}  (C_lll={C_lll:.4f})")
+        print(f"Required: log10(M) > {log10_threshold:.2f}  "
+              f"i.e. M > 10^{log10_threshold:.2f}")
+        print("-" * 70)
+        print(f"PRIME_POOL: {len(pool_sorted)} primes, "
+              f"range [{pool_sorted[0]}, {pool_sorted[-1]}]")
+        print(f"MIN_PRIME_SUBSET_SIZE = {min_subset_size}, "
+              f"MIN_MAX_PRIME_SUBSET_SIZE = {max_subset_size}")
+        print("-" * 70)
+        print(f"WORST-CASE subset (smallest {k_worst} primes in pool, i.e. what "
+              f"the weighted-with-replacement sampler could draw):")
+        print(f"  primes: {worst_primes[:8]}{'...' if len(worst_primes) > 8 else ''}")
+        print(f"  log10(M_worst) = {log10_M_worst:.2f}  "
+              f"(M_worst ~ 10^{log10_M_worst:.2f})")
+        print(f"BEST-CASE subset (largest {k_best} primes in pool):")
+        print(f"  log10(M_best)  = {log10_M_best:.2f}  "
+              f"(M_best  ~ 10^{log10_M_best:.2f})")
+        print("-" * 70)
+        if passes:
+            print(f"*** PASS *** worst-case subset modulus (10^{log10_M_worst:.2f}) "
+                  f"clears the requirement (10^{log10_threshold:.2f}) with "
+                  f"{log10_M_worst - log10_threshold:.1f} digits of margin.")
+            print("Even a pessimistically-drawn subset should certify completeness")
+            print(f"up to naive x-height 10^{target_naive_height_digits}.")
+        else:
+            print(f"*** FAIL *** worst-case subset modulus (10^{log10_M_worst:.2f}) "
+                  f"does NOT clear the requirement (10^{log10_threshold:.2f}).")
+            print(f"Shortfall: {log10_threshold - log10_M_worst:.1f} digits.")
+            if recommended_min_subset_size is not None:
+                print(f"RECOMMENDATION: raise MIN_PRIME_SUBSET_SIZE to >= "
+                      f"{recommended_min_subset_size} (currently {min_subset_size}), "
+                      f"and raise MIN_MAX_PRIME_SUBSET_SIZE to stay >= that.")
+            else:
+                print("RECOMMENDATION: the pool is too small even using every prime "
+                      "in it as one subset -- widen PRIME_POOL (e.g. primes(N) for "
+                      "larger N) as well as raising MIN_PRIME_SUBSET_SIZE.")
+        print("-" * 70)
+        if max_modulus_ok:
+            print(f"MAX_MODULUS = 10^{log10_max_modulus:.0f} has headroom above the "
+                  f"best-case subset modulus (10^{log10_M_best:.2f}) -- CRT lifts "
+                  "won't be silently dropped by the `M > MAX_MODULUS` runtime gate.")
+        else:
+            print(f"*** MAX_MODULUS = 10^{log10_max_modulus:.0f} is too close to "
+                  f"or below the best-case subset modulus (10^{log10_M_best:.2f}) ***")
+            print("search_lll/modularthread.py silently skips any CRT lift with")
+            print("M > MAX_MODULUS, regardless of whether the completeness proof")
+            print("would otherwise pass. RECOMMENDATION: raise MAX_MODULUS well")
+            print(f"above 10^{log10_M_best:.2f} (e.g. 10^{int(log10_M_best) + 50}).")
+        print("=" * 70)
+
+    return {
+        'pass': passes,
+        'max_modulus_ok': max_modulus_ok,
+        'log10_M_worst': log10_M_worst,
+        'log10_M_best': log10_M_best,
+        'log10_threshold': log10_threshold,
+        'recommended_min_subset_size': recommended_min_subset_size,
+        'worst_case_primes_used': worst_primes,
+    }
+
 def _coerce_rational(m):
     """
     Coerce m to QQ cleanly. Accepts (a,b) tuple, Python Fraction, Sage QQ, int.
