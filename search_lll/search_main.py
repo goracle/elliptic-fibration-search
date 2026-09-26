@@ -537,6 +537,10 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # === STATS: INIT ===
     stats = SearchStats()
 
+    prime_pool.append(2)
+    prime_pool.append(3)
+    prime_pool.append(5)
+    prime_pool.append(58189)
     print("prime pool used for search:", prime_pool)
 
     # === PHASE: PREP MOD DATA ===
@@ -1124,7 +1128,7 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                 })
                 processed_m_vals[m_val] = v
                 candidate_xs.add(x_val_q)
-                if any(c != 0 for c in v) and False: #this section hangs for some reason, turned off
+                if any(c != 0 for c in v) and False: #this section hangs for some reason
                     new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
                     new_sections_raw.append(new_sec)
                     candidate_records[-1]["section"] = new_sec

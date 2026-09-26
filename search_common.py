@@ -18,11 +18,15 @@ _IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # ============================================================================
 # ACTIVE CURVE
 # ============================================================================
+COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
+DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
+
 # Hindes' curve, rational point search mode.
 # y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
 COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 3           # stop once this many distinct rational x-coords are known
+TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
 
 # Legacy genus-1 fields, kept for modules that still import A1..A6/COEFFS/DATA_PTS.
 A1, A2, A3, A4, A5, A6 = QQ(8), QQ(-3), QQ(-14), QQ(3), QQ(6), QQ(1)
@@ -51,7 +55,7 @@ HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
 
 # magic prime settings, chosen empirically. All primes < 100, excluding 2, 3.
-PRIME_POOL = list(primes(6000))
+PRIME_POOL = list(primes(100))
 
 # --- cryptography-related params (FINITE_FIELD mode only) ---
 MAXN = 80                  # no notion of height in FF mode; max n for section multiple [n]P
@@ -69,7 +73,7 @@ if DATA_PTS_GENUS2 is None:
 if FINITE_FIELD:
     PRIME_POOL = [FINITE_FIELD]  # in FF mode the field characteristic is the only "prime" that matters
 
-NUM_PRIME_SUBSETS = 2000            # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 500            # important for stability under different seeds; >= 250 recommended
 VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
 MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
