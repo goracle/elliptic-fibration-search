@@ -891,7 +891,8 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     print(f"[Adaptive] Empirical density: {empirical_density:.4f}")
     print(f"[Adaptive] Recommended NUM_SUBSETS: {num_subsets_adaptive} (configured: {num_subsets})")
 
-    num_subsets_to_use = max(num_subsets, num_subsets_adaptive)
+    #num_subsets_to_use = max(num_subsets, num_subsets_adaptive) # doesn't respect user choices, commented out
+    num_subsets_to_use = num_subsets
 
     # ------------------------------------------------------------------
     # ANOMALOUS-RESIDUE SWEEP (outer loop)

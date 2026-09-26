@@ -77,7 +77,7 @@ if FINITE_FIELD:
 VERIFY_INDEPENDENCE_MOD_P = True   # verify mumford_search divisors mod a prime of good reduction
 
 MIN_PRIME_SUBSET_SIZE = 3          # keep at 3
-MIN_MAX_PRIME_SUBSET_SIZE = 9      # safe range is 7-9; above 15 is too stringent
+MIN_MAX_PRIME_SUBSET_SIZE = 12      # safe range is 7-9; above 15 is too stringent
 MAX_MODULUS = 10**100
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
