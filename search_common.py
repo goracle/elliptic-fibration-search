@@ -61,14 +61,14 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # STATIC CONFIG
 # ============================================================================
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
-HEIGHT_BOUND = 1000 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
 NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(60000))[-10000::100]
+PRIME_POOL = list(primes(6000))[-1000::10]
 
 
 
