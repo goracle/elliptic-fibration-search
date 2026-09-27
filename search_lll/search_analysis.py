@@ -503,16 +503,49 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
             print(f"  component {i}: primes={row['primes']} "
                   f"(#primes={row['num_primes']}, #nodes={row['num_nodes']})")
 
-    candidates = []
-    for comp, comp_primes in zip(graph['components'][:top_k], graph['component_primes'][:top_k]):
-        if len(comp_primes) < 2:
-            continue
-        reconstructions = rcg.reconstruct_candidates_from_component(comp, height_bound=H)
-        candidates.append({
-            'primes': sorted(comp_primes),
-            'num_nodes': len(comp),
-            'reconstructions': reconstructions,
-        })
+    # Candidates come from confirmed_chains, not graph['components']: a
+    # component is the union-find closure over EVERY chain that was ever
+    # confirmed, so two unrelated local solutions that happen to share
+    # one node (e.g. both touch prime 89) get merged into one blob, and
+    # reconstructing "the" m from that blob is ambiguous -- there can
+    # genuinely be several distinct local points tangled into a single
+    # component. Real solutions here are local (a handful of primes
+    # gluing together into one point) rather than global (one point
+    # agreeing across most of the pool) -- trying too many primes at
+    # once breaks the glue rather than reinforcing it -- so each
+    # confirmed chain is already exactly one candidate m on its own,
+    # with no ambiguity and no search needed to extract it.
+    if 'confirmed_chains' in graph:
+        # top_k is NOT applied here: unlike a component (one blob you'd
+        # otherwise want to sample from), every confirmed chain is
+        # already its own distinct candidate, cheap to reconstruct and
+        # cheap to test for curve membership downstream (a few thousand
+        # chains is instantaneous to check), so there's no reason to
+        # throw most of them away before the caller even sees them.
+        candidates = []
+        for chain in graph['confirmed_chains']:
+            recon = rcg.reconstruct_candidate_from_chain(chain, height_bound=H)
+            if recon is None:
+                continue
+            candidates.append({
+                'primes': chain['primes'],
+                'num_nodes': len(chain['node_keys']),
+                'reconstructions': [recon],
+            })
+    else:
+        # build_residue_graph (k_needed == 2 path) has no chain concept,
+        # only components -- fall back to the old component-based
+        # reconstruction there.
+        candidates = []
+        for comp, comp_primes in zip(graph['components'][:top_k], graph['component_primes'][:top_k]):
+            if len(comp_primes) < 2:
+                continue
+            reconstructions = rcg.reconstruct_candidates_from_component(comp, height_bound=H)
+            candidates.append({
+                'primes': sorted(comp_primes),
+                'num_nodes': len(comp),
+                'reconstructions': reconstructions,
+            })
 
     return {'k_used': k_needed, 'graph': graph, 'candidates': candidates}
 

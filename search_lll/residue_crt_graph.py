@@ -826,7 +826,24 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
     edges_kept = 0
     chains_confirmed = 0
     generation = 1
-    generation_log = [] 
+    generation_log = []
+
+    # Confirmed chains, recorded directly rather than only inferred from
+    # the union-find components after the fact. This is the actual fix
+    # for candidates going missing: a component built by transitive
+    # closure over ALL confirmed chains merges any two chains that
+    # happen to share even one node (e.g. two independent, unrelated
+    # local 3-clique solutions that both touch prime 89), so
+    # reconstruct_candidates_from_component then walks a blob containing
+    # residues from several unrelated candidate points and returns
+    # whichever internally-consistent combination its bounded search
+    # happens to hit first -- not "the" point for that component,
+    # because there often isn't just one. Each entry here is instead one
+    # specific chain's own (used_primes, M, c) at confirmation time, so
+    # it reconstructs to exactly one m with no ambiguity and no search:
+    # M, c are already the fully-reduced CRT accumulation for THIS
+    # chain's own node sequence, nothing else's.
+    confirmed_chains = []
 
     if progress:
         print(f"[residue_graph_incremental] start: {len(chains)} gen-1 chains "
@@ -952,6 +969,12 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
                         for other in node_keys[1:]:
                             union(first, other)
                         chains_confirmed += 1
+                        confirmed_chains.append({
+                            'primes': sorted(used_primes),
+                            'modulus': M,
+                            'residue': c,
+                            'node_keys': list(node_keys),
+                        })
                         continue
 
                     if len(used_primes) >= max_clique_size:
@@ -1156,6 +1179,7 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
         'nodes': len(all_nodes),
         'max_generation_reached': generation,
         'chains_confirmed': chains_confirmed,
+        'confirmed_chains': confirmed_chains,
         'generation_log': generation_log,
     }
 
@@ -1313,6 +1337,29 @@ def refine_component_chained(comp, height_bound, stats_counter=None):
         'modulus_reached': best_modulus_reached,
         'primes_used': [],
     }
+
+
+def reconstruct_candidate_from_chain(chain, height_bound, max_den=None):
+    """
+    Reconstruct the single m implied by one confirmed chain (as recorded
+    in build_residue_graph_incremental's 'confirmed_chains'). Unlike
+    reconstruct_candidates_from_component, there is no search here --
+    M and c are already the fully-reduced CRT accumulation over exactly
+    this chain's own primes, so it's one rational_reconstruct call.
+    Returns a single {'m_num', 'm_den', 'primes', 'modulus'} dict, or
+    None if reconstruction fails (e.g. no a/b within max_den survives
+    the height bound -- can happen for a chain that was confirmed via
+    the M > threshold path rather than clique size, on primes that
+    don't actually carry a real point).
+    """
+    H = int(height_bound)
+    M = chain['modulus']
+    c = chain['residue']
+    try:
+        a, b = rational_reconstruct(int(c) % M, M, max_den=max_den or H)
+        return {'m_num': a, 'm_den': b, 'primes': chain['primes'], 'modulus': M}
+    except Exception:
+        return None
 
 
 def reconstruct_candidates_from_component(comp, height_bound, max_den=None,
