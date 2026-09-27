@@ -424,7 +424,99 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
 
     return {}
 
-def rational_reconstruct(m0, M):
+def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, height_bound,
+                                           v_tuple=None, top_k=10, debug=True,
+                                           max_tuples=2_000_000):
+    """
+    Bottom-up candidate discovery via the cross-prime residue CRT graph
+    (search_lll/residue_crt_graph.py), as an alternative/complement to
+    diagnose_missed_point's top-down "given target x, is it findable"
+    check and compute_residue_coverage_for_m's "given target m, which
+    primes agree" check.
+
+    Unlike both of those, this takes NO target m or x -- it builds the
+    graph of which residues at DIFFERENT primes are pairwise/k-wise
+    mutually CRT-consistent (see residue_crt_graph.build_residue_graph /
+    build_residue_graph_ktuple), reads off the largest connected
+    components as candidates, and attempts rational reconstruction on
+    each. This is meant to be run instead of (or alongside) picking a
+    random prime subset and hoping -- the graph tells you directly which
+    residues could plausibly be the same underlying rational point.
+
+    *** height_bound must be an actual usable bound for the primes in
+    prime_pool, not the flat legacy constant, or min_tuple_size_for_margin
+    may come back None (see its docstring: the smallest k primes' product
+    has to clear a real margin over (2*height_bound+1)^2, and if the pool
+    is too small / height_bound too large, no k works -- you'd need more
+    or larger primes in the pool first). ***
+
+    Returns:
+        {
+          'k_used': int or None,       # tuple size actually used for edges
+          'graph': dict,                # raw build_residue_graph[_ktuple] result
+          'candidates': [               # top_k components, each reconstructed
+             {'primes': [...], 'num_nodes': int, 'reconstructions': [...]}
+             , ...
+          ]
+        }
+    If k_used is None, the pool/height_bound combination can't support a
+    trustworthy edge test at all yet -- prints a message and returns
+    candidates=[] rather than silently building an untrustworthy graph.
+    """
+    from . import residue_crt_graph as rcg
+
+    H = int(height_bound)
+    k_needed = rcg.min_tuple_size_for_margin(prime_pool, height_bound=H)
+
+    if debug:
+        box = (2 * H + 1) ** 2
+        print(f"[residue_graph] height_bound={H}, box=(2H+1)^2={box}, "
+              f"min tuple size for trustworthy edges: k={k_needed}")
+
+    if k_needed is None:
+        if debug:
+            print("[residue_graph] prime_pool too small / height_bound too "
+                  "large for ANY tuple size in this pool to clear the "
+                  "margin -- add more/larger primes to the pool or tighten "
+                  "height_bound before trusting this. Returning no candidates.")
+        return {'k_used': None, 'graph': None, 'candidates': []}
+
+    if k_needed == 2:
+        graph = rcg.build_residue_graph(
+            precomputed_residues, prime_pool, height_bound=H, v_tuple=v_tuple,
+        )
+    else:
+        cost = rcg.estimate_ktuple_cost(prime_pool, k_needed)
+        if debug:
+            from .search_config import PARALLEL_PRIME_WORKERS
+            print(f"[residue_graph] k={k_needed}: C(pool,k)={cost} tuples "
+                  f"(max_tuples cap={max_tuples}, workers={PARALLEL_PRIME_WORKERS})")
+        graph = rcg.build_residue_graph_ktuple(
+            precomputed_residues, prime_pool, height_bound=H, k=k_needed, v_tuple=v_tuple,
+            max_tuples=max_tuples,
+        )
+
+    if debug:
+        print(f"[residue_graph] k={k_needed}: nodes={graph['nodes']} "
+              f"edges_tested={graph['edges_tested']} edges_kept={graph['edges_kept']}")
+        for i, row in enumerate(rcg.summarize_components(graph, top_k=top_k)):
+            print(f"  component {i}: primes={row['primes']} "
+                  f"(#primes={row['num_primes']}, #nodes={row['num_nodes']})")
+
+    candidates = []
+    for comp, comp_primes in zip(graph['components'][:top_k], graph['component_primes'][:top_k]):
+        if len(comp_primes) < 2:
+            continue
+        reconstructions = rcg.reconstruct_candidates_from_component(comp, height_bound=H)
+        candidates.append({
+            'primes': sorted(comp_primes),
+            'num_nodes': len(comp),
+            'reconstructions': reconstructions,
+        })
+
+    return {'k_used': k_needed, 'graph': graph, 'candidates': candidates}
+
+
     """Wrapper for rational reconstruction."""
     from sage.all import QQ, ZZ
     try:

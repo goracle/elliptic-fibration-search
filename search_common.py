@@ -13,28 +13,10 @@ from brauer import m_is_locally_allowed
 _IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # === imports ===
 
+
 # local modules
 
 #### BEGIN USER CONFIG
-# ============================================================================
-# ACTIVE CURVE
-# ============================================================================
-COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
-DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
-
-# Hindes' curve, rational point search mode.
-# y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
-COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
-
-
-
-COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
-
 
 
 
@@ -57,10 +39,35 @@ TERMINATE_WHEN = 4
 FINITE_FIELD = None        # int -> HECC DLP / index calculus mode over GF(FINITE_FIELD); None -> QQ mode
 MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search instead of point search
 
+
+
+
+
+# ============================================================================
+# ACTIVE CURVE
+# ============================================================================
+COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
+DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
+
+# Hindes' curve, rational point search mode.
+
+
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
+
+# y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
+COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
+
+
+
 # ============================================================================
 # STATIC CONFIG
 # ============================================================================
-NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
+
 HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
 NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
@@ -68,12 +75,13 @@ NUM_PRIME_SUBSETS = 100           # important for stability under different seed
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(6000))[-1000::10]
+PRIME_POOL = list(primes(100))
 
 
 
 # --- cryptography-related params (FINITE_FIELD mode only) ---
 MAXN = 80                  # no notion of height in FF mode; max n for section multiple [n]P
+NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
 SECRET_KEY = 800           # multiples of base genus-2 divisor used to derive the target divisor
 BASE_DIVISOR, TARGET_DIVISOR, PREFERRED_X_COORDS = None, None, None  # constructed below if FINITE_FIELD
 BLOCK_WIEDEMANN = True     # use block Wiedemann in the final solve
@@ -212,6 +220,7 @@ ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generati
 
 DEBUG = True
 TARGETED_X = 10**20 # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = None 
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes

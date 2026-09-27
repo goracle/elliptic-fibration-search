@@ -921,6 +921,35 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
     stats.end_phase('brauer')
 
+
+    # ------------------------------------------------------------------
+    # Bottom-up candidate discovery via the residue CRT-consistency
+    # graph (search_lll/residue_crt_graph.py) -- unlike diagnose_missed_point
+    # and cov1 above, this does NOT take mtarget/TARGETED_X as input at
+    # all. It only looks at precomputed_residues and PRIME_POOL, builds
+    # the cross-prime consistency graph, and reports whatever candidate
+    # m's fall out as connected components. Comparing its output against
+    # mtarget here is a validation check while this approach is being
+    # tried out -- see chat: the point is that this should eventually
+    # replace picking random prime subsets, not that it needs to already
+    # know mtarget to run.
+    try:
+        rg_result = discover_candidates_via_residue_graph(
+            precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND, debug=True,
+        )
+        print(f"[residue_graph] k_used={rg_result['k_used']}, "
+                f"{len(rg_result['candidates'])} candidate component(s)")
+        for i, cand in enumerate(rg_result['candidates']):
+            recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
+            hit = mtarget in recon_ms
+            print(f"  candidate {i}: primes={cand['primes']} "
+                    f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
+    except Exception as e:
+        print(f"[residue_graph] discovery failed (non-fatal, diagnostic only): {e}")
+        raise
+
+
+
     if TARGETED_X:
         ret = diagnose_missed_point(TARGETED_X, r_m, shift, precomputed_residues, prime_pool, vecs)
         matched_subset = None
