@@ -949,9 +949,21 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                 f"{len(rg_result['candidates'])} candidate component(s)")
         for i, cand in enumerate(rg_result['candidates']):
             recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
+            for m_val in recon_ms:
+                try:
+                    x_val = r_m(m=m_val) - shift
+                    y_val = rationality_test_func(x_val)
+                    if y_val is None:
+                        continue
+                    print("")
+                    print("x,y=", x_val, y_val)
+                    print("")
+                except Exception:
+                    raise
             hit = _mtarget_known is not None and _mtarget_known in recon_ms
-            print(f"  candidate {i}: primes={cand['primes']} "
-                    f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
+            
+            #print(f"  candidate {i}: primes={cand['primes']} "
+            #        f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
 
         if _mtarget_known is not None:
             from .residue_crt_graph import trace_target_through_arc_consistency
