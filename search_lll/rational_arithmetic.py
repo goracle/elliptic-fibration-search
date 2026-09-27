@@ -1,4 +1,4 @@
-from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt
+from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt, Integer
 
 """
 rational_arithmetic.py: Core number theory utilities.
@@ -6,8 +6,20 @@ rational_arithmetic.py: Core number theory utilities.
 
 @lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
 def crt_cached(residues, moduli):
-    """Cached Chinese Remainder Theorem computation."""
-    return crt(list(residues), list(moduli))
+    """
+    Cached Chinese Remainder Theorem computation.
+
+    residues/moduli arrive here as plain Python ints (they're built up via
+    native int arithmetic -- M * q, etc. -- all over residue_crt_graph.py,
+    never wrapped back into Sage Integers). Sage's crt() -> CRT_list ->
+    xgcd() calls .xgcd() directly on its arguments rather than coercing
+    them first, so a plain int blows up with
+    "AttributeError: 'int' object has no attribute 'xgcd'" the moment
+    XGCD hits a native-int/native-int pair. Wrap in Integer(...) here,
+    once, at the single chokepoint every caller already goes through,
+    instead of hunting down every construction site.
+    """
+    return crt([Integer(r) for r in residues], [Integer(m) for m in moduli])
 
 @lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
 def rational_reconstruct(c, N, max_den=None):

@@ -934,6 +934,14 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # replace picking random prime subsets, not that it needs to already
     # know mtarget to run.
     try:
+        # mtarget is only known once the TARGETED_X debug block below has run
+        # (and only if TARGETED_X is set at all). Compute it here, ahead of
+        # that block, purely so this diagnostic can flag a match when a
+        # target is configured.
+        _mtarget_known = None
+        if TARGETED_X:
+            _mtarget_known = QQ(-1) * TARGETED_X + r_m(m=0)
+
         rg_result = discover_candidates_via_residue_graph(
             precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND, debug=True,
         )
@@ -941,9 +949,18 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                 f"{len(rg_result['candidates'])} candidate component(s)")
         for i, cand in enumerate(rg_result['candidates']):
             recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
-            hit = mtarget in recon_ms
+            hit = _mtarget_known is not None and _mtarget_known in recon_ms
             print(f"  candidate {i}: primes={cand['primes']} "
                     f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
+
+        if _mtarget_known is not None:
+            from .residue_crt_graph import trace_target_through_arc_consistency
+            print(f"[residue_graph] tracing known target mtarget={_mtarget_known} "
+                  f"through arc-consistency...")
+            trace_target_through_arc_consistency(
+                _mtarget_known, precomputed_residues, PRIME_POOL,
+                height_bound=HEIGHT_BOUND,
+            )
     except Exception as e:
         print(f"[residue_graph] discovery failed (non-fatal, diagnostic only): {e}")
         raise

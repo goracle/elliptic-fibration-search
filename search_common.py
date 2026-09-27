@@ -70,7 +70,7 @@ TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords
 
 HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
-NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 250           # important for stability under different seeds; >= 250 recommended
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
@@ -220,7 +220,7 @@ ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generati
 
 DEBUG = True
 TARGETED_X = 10**20 # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
-TARGETED_X = None 
+TARGETED_X = QQ(-6)/QQ(7)
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
