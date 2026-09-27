@@ -23,17 +23,17 @@ COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
 DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
 
-
-# does not work on laptop; not enough primes generateable
-COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
-DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
-TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
-
 # Hindes' curve, rational point search mode.
 # y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
 COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
+
+
+
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
 
 
 
@@ -61,14 +61,14 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # STATIC CONFIG
 # ============================================================================
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
-HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND = 1000 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
-NUM_PRIME_SUBSETS = 300           # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(100))
+PRIME_POOL = list(primes(60000))[-10000::100]
 
 
 
@@ -177,7 +177,7 @@ MAX_MODULUS = 10**400
 # search_lll/search_config.py is 5000; this override takes precedence over it
 # via the same try/except import pattern search_lll/search_config.py uses for
 # MIN_PRIME_SUBSET_SIZE et al.
-MAX_COMBOS_PER_SUBSET = 5000
+MAX_COMBOS_PER_SUBSET = 50000
 
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
@@ -212,7 +212,6 @@ ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generati
 
 DEBUG = True
 TARGETED_X = 10**20 # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
-TARGETED_X = None # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
@@ -220,6 +219,44 @@ TARGETED_X = None # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a
 # check -- see the CHEAT_FILTER_POOL_TO_TARGET_M block in search_main.py for
 # why a "success" here does not mean the search can find this point honestly).
 CHEAT_FILTER_POOL_TO_TARGET_M = False
+
+# How many primes (via primes(N), i.e. all primes below N) to use as the
+# CANDIDATE superset when CHEAT_FILTER_POOL_TO_TARGET_M is on. This must be
+# large enough that enough primes coincidentally match TARGETED_X's m to
+# clear the required log10(M) digit count -- see the capacity check printed
+# at cheat-time. Start here and raise it (10x at a time) if the cheat path
+# reports the pool still can't clear the requirement. Larger bounds mean
+# recomputing residues over more primes, which costs real time.
+CHEAT_CANDIDATE_PRIME_BOUND = 2_000_000
+
+# Measure (don't assume) how the compatible-prime rate q behaves as prime
+# size grows, by running the real residue precompute over successive prime
+# bands and reporting q = compatible/candidates per band. Use this BEFORE
+# trusting any extrapolated CHEAT_CANDIDATE_PRIME_BOUND -- one data point
+# (e.g. 1/100 at primes ~5e4) does not establish whether q is constant,
+# ~1/p, ~1/p^2, or something else, and the required candidate-pool size
+# differs by many orders of magnitude depending on which law holds.
+MEASURE_COMPATIBLE_PRIME_RATE_BY_BAND = False # broken, most bands OOM
+MEASURE_COMPATIBLE_PRIME_RATE_BANDS = [
+    (50_000, 100_000),
+    (100_000, 200_000),
+    (200_000, 500_000),
+    (500_000, 1_000_000),
+    (1_000_000, 2_000_000),
+]
+
+# prepare_modular_data_lll's per-prime preparation (curve construction, LLL
+# reduction, point-multiple computation) is independent per prime and runs in
+# parallel via ProcessPoolExecutor once the candidate pool is at least this
+# large; below this it stays serial in-process (not worth pool startup cost
+# for the normal ~100-prime honest search). Wide cheat/band-sweep candidate
+# sets (thousands to hundreds of thousands of primes) are exactly the case
+# this exists for -- the serial loop was the actual blocker there, not
+# missing residue-step parallelism downstream.
+PARALLEL_MODULAR_DATA_MIN_PRIMES = 200
+# None = use os.cpu_count(). Lower this if per-worker Sage/EllipticCurve
+# construction uses enough RAM that cpu_count() workers would thrash.
+PARALLEL_MODULAR_DATA_MAX_WORKERS = None
 
 USE_MINIMAL_MODEL = True           # more correct, and slower, than the generic fiber
 SYMBOLIC_SEARCH = False            # mod-p search (fast, default); True = search over QQ directly (slow)

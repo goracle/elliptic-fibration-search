@@ -937,24 +937,96 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         # ------------------------------------------------------------------
         # DEBUG-ONLY CHEAT: "spike the ball" pipeline sanity check.
         #
-        # This restricts prime_pool to ONLY the primes whose residue for
-        # mtarget was already found to match (cov1['matched_primes']).
-        # This is circular by construction: it can ONLY tell you whether the
-        # CRT-lift / lattice-reduction / rational-reconstruction machinery is
-        # *capable* of recovering mtarget when handed a pool that is
-        # guaranteed compatible with it. It tells you NOTHING about whether
-        # the library can find this point in an honest, un-cheated search --
-        # any m would show a similar "success" once the pool is filtered by
-        # that same m. Never treat a positive result from this branch as a
+        # v1 of this (filtering the existing ~100-prime prime_pool down to
+        # cov1['matched_primes']) is USELESS for large targets: with only
+        # ~100 candidate primes in the 5000-6000 range, at most a handful
+        # will ever coincidentally match a given target m, and
+        # log10(product of a handful of ~5000-6000 primes) tops out around
+        # 15 -- nowhere near the 40+ digits a 10^20-10^100 scale target
+        # needs. Filtering can only SHRINK a pool; it can't manufacture more
+        # compatible primes than exist in the candidate set. That's exactly
+        # why the first version of this cheat still reported NOT FINDABLE
+        # even with the filter wired in.
+        #
+        # v2 fixes this by widening the CANDIDATE set before filtering: build
+        # residues over a much larger prime superset (CHEAT_CANDIDATE_PRIME_BOUND
+        # candidates, not just the original 100-prime PRIME_POOL), so there is
+        # enough raw material for enough matches to actually clear the
+        # required log10(M) digit count.
+        #
+        # This remains circular by construction: it can ONLY tell you whether
+        # the CRT-lift / lattice-reduction / rational-reconstruction machinery
+        # is *capable* of recovering mtarget when handed a pool guaranteed
+        # compatible with it. It tells you NOTHING about whether the library
+        # can find this point in an honest, un-cheated search -- any m would
+        # show similar "success" once enough candidate primes are searched
+        # for matches. Never treat a positive result from this branch as a
         # real discovery.
         # ------------------------------------------------------------------
         if CHEAT_FILTER_POOL_TO_TARGET_M:
-            cheat_pool = cov1['matched_primes']
-            print(f"[CHEAT] Restricting prime_pool from {len(prime_pool)} to "
-                  f"{len(cheat_pool)} primes matching target m (circular sanity check only).")
-            if not cheat_pool:
-                print("[CHEAT] No primes matched target m even in the full pool -- "
-                      "cannot construct a cheat pool. Aborting cheat path.")
+            log_M_required = math.log10(2 * max(abs(QQ(mtarget).numerator()), abs(QQ(mtarget).denominator()))**2)
+            print(f"[CHEAT] Target requires log10(M) > {log_M_required:.2f}. "
+                  f"Widening candidate pool to bound={CHEAT_CANDIDATE_PRIME_BOUND} "
+                  f"before filtering (the original {len(prime_pool)}-prime pool cannot supply enough matches).")
+
+            candidate_primes = list(primes(CHEAT_CANDIDATE_PRIME_BOUND))
+            # Drop primes already covered by precomputed_residues so we don't
+            # recompute work we already have.
+            new_candidates = [p for p in candidate_primes if p not in precomputed_residues]
+
+            print(f"[CHEAT] Computing residues for {len(new_candidates)} additional candidate primes "
+                  f"(this reuses the normal precompute machinery -- may take a while for a large bound).")
+
+            wide_Ep_dict, wide_rhs_modp_list, wide_mult_lll, wide_vecs_lll, _ = prepare_modular_data_lll(
+                cd, current_sections, new_candidates, rhs_list, vecs, stats, search_primes=new_candidates
+            )
+
+            wide_precomputed_residues = dict(precomputed_residues)
+            wide_primes_to_compute = list(wide_Ep_dict.keys())
+            wide_args_list = [
+                (
+                    p,
+                    wide_Ep_dict[p],
+                    wide_mult_lll.get(p, {}),
+                    wide_vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+                    vecs_list,
+                    wide_rhs_modp_list,
+                    len(rhs_list),
+                    stats
+                )
+                for p in wide_primes_to_compute
+            ]
+            try:
+                ctx = multiprocessing.get_context("fork")
+                exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+            except Exception:
+                exec_kwargs = {"max_workers": num_workers}
+            with ProcessPoolExecutor(**exec_kwargs) as executor:
+                if TORSION_SLOPPY:
+                    wide_futures = {executor.submit(compute_residues_for_prime_worker, args): args[0] for args in wide_args_list}
+                else:
+                    wide_futures = {executor.submit(compute_residues_for_prime_worker_old, args): args[0] for args in wide_args_list}
+                for future in tqdm(as_completed(wide_futures), total=len(wide_futures), desc="[CHEAT] Pre-computing residues over widened candidate pool"):
+                    p = wide_futures[future]
+                    try:
+                        p_ret, mapping, _ = future.result()
+                        wide_precomputed_residues[p_ret] = mapping or {}
+                    except Exception as e:
+                        print(f"[CHEAT precompute fail] p={p}: {e}")
+                        wide_precomputed_residues[p] = {}
+
+            cheat_pool = build_cheat_prime_pool(
+                mtarget, wide_precomputed_residues, candidate_primes, debug=True
+            )
+
+            log_M_cheat = sum(math.log10(p) for p in cheat_pool) if cheat_pool else 0.0
+            print(f"[CHEAT] Cheat pool capacity: log10(M) = {log_M_cheat:.2f} "
+                  f"(required > {log_M_required:.2f})")
+
+            if not cheat_pool or log_M_cheat <= log_M_required:
+                print(f"[CHEAT] *** Cheat pool still cannot clear the requirement even with "
+                      f"bound={CHEAT_CANDIDATE_PRIME_BOUND}. Raise CHEAT_CANDIDATE_PRIME_BOUND "
+                      f"and re-run before concluding anything about the pipeline. Aborting cheat path. ***")
                 return {
                     "candidates": [],
                     "candidate_xs": set(),
@@ -963,8 +1035,87 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
                     "stats": stats,
                     "final_rational_pairs": [],
                 }
+
+            print(f"[CHEAT] Restricting prime_pool from {len(prime_pool)} to "
+                  f"{len(cheat_pool)} primes matching target m (circular sanity check only).")
             prime_pool = cheat_pool
-            precomputed_residues = {p: precomputed_residues[p] for p in cheat_pool if p in precomputed_residues}
+            precomputed_residues = {p: wide_precomputed_residues[p] for p in cheat_pool if p in wide_precomputed_residues}
+
+        # ------------------------------------------------------------------
+        # MEASUREMENT (not a cheat): empirically measure how the compatible-
+        # prime rate q = compatible/candidates behaves as prime size grows,
+        # instead of assuming a decay law (constant, 1/p, 1/p^2, ...).
+        #
+        # The one data point we have so far (1/100 compatible in [5113,5987])
+        # is NOT enough to justify extrapolating out to CHEAT_CANDIDATE_PRIME_BOUND
+        # = millions/billions of primes. This runs the real residue-precompute
+        # over successive prime bands and reports q per band, so the decay
+        # law (if any) is measured rather than assumed.
+        # ------------------------------------------------------------------
+        if MEASURE_COMPATIBLE_PRIME_RATE_BY_BAND:
+            bands = MEASURE_COMPATIBLE_PRIME_RATE_BANDS
+            print(f"[BAND SWEEP] Measuring compatible-prime rate q across {len(bands)} bands: {bands}")
+            band_results = []
+            for (lo, hi) in bands:
+                band_primes = [p for p in primes(lo, hi)]
+                if not band_primes:
+                    print(f"[BAND SWEEP] band [{lo},{hi}) has no primes, skipping")
+                    continue
+                band_Ep_dict, band_rhs_modp_list, band_mult_lll, band_vecs_lll, _ = prepare_modular_data_lll(
+                    cd, current_sections, band_primes, rhs_list, vecs, stats, search_primes=band_primes
+                )
+                band_precomputed_residues = {}
+                band_primes_to_compute = list(band_Ep_dict.keys())
+                band_args_list = [
+                    (
+                        p,
+                        band_Ep_dict[p],
+                        band_mult_lll.get(p, {}),
+                        band_vecs_lll.get(p, [tuple([0] * len(current_sections)) for _ in vecs_list]),
+                        vecs_list,
+                        band_rhs_modp_list,
+                        len(rhs_list),
+                        stats
+                    )
+                    for p in band_primes_to_compute
+                ]
+                try:
+                    ctx = multiprocessing.get_context("fork")
+                    exec_kwargs = {"max_workers": num_workers, "mp_context": ctx}
+                except Exception:
+                    exec_kwargs = {"max_workers": num_workers}
+                with ProcessPoolExecutor(**exec_kwargs) as executor:
+                    if TORSION_SLOPPY:
+                        band_futures = {executor.submit(compute_residues_for_prime_worker, args): args[0] for args in band_args_list}
+                    else:
+                        band_futures = {executor.submit(compute_residues_for_prime_worker_old, args): args[0] for args in band_args_list}
+                    for future in tqdm(as_completed(band_futures), total=len(band_futures), desc=f"[BAND SWEEP] band [{lo},{hi})"):
+                        p = band_futures[future]
+                        try:
+                            p_ret, mapping, _ = future.result()
+                            band_precomputed_residues[p_ret] = mapping or {}
+                        except Exception as e:
+                            print(f"[BAND SWEEP precompute fail] p={p}: {e}")
+                            band_precomputed_residues[p] = {}
+
+                # 'good' primes: ones we actually got residue data for (excludes
+                # denom_zero/no_data cases so q isn't diluted by unrelated failures)
+                cov_band = compute_residue_coverage_for_m(mtarget, band_precomputed_residues, band_primes)
+                good = [p for p in band_primes if cov_band['per_prime'].get(int(p), {}).get('status') in ('matched', 'unseen')]
+                compatible = cov_band['matched_primes']
+                q = (len(compatible) / len(good)) if good else float('nan')
+                print(f"[BAND SWEEP] band [{lo},{hi}): candidates={len(band_primes)} good={len(good)} "
+                      f"compatible={len(compatible)} q={q:.6g}")
+                band_results.append({
+                    'lo': lo, 'hi': hi, 'candidates': len(band_primes), 'good': len(good),
+                    'compatible': len(compatible), 'q': q, 'matched_primes': compatible
+                })
+
+            print("[BAND SWEEP] summary (band, q):")
+            for r in band_results:
+                print(f"  [{r['lo']},{r['hi']}): q={r['q']:.6g}  ({r['compatible']}/{r['good']})")
+            print("[BAND SWEEP] Compare q across bands to see whether it's roughly constant, ~1/p, ~1/p^2, or "
+                  "something else -- do NOT extrapolate a required candidate-pool size until this is measured.")
 
     residues_by_prime_numeric = {}
     for p, mapping in precomputed_residues.items():

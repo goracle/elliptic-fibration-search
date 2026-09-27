@@ -1,4 +1,4 @@
-import math, random, statistics, numpy as np
+import math, random, statistics, numpy as np, multiprocessing, os
 from sage.all import ZZ, diagonal_matrix, QQ, Integer, PolynomialRing, GF, gcd, Zmod, var, SR, EllipticCurve, identity_matrix, vector, matrix, kronecker, Integer as SageInteger
 from .search_config import *
 from search_common import *
@@ -90,327 +90,425 @@ def _scale_matrix_columns_int(M, scales):
 
 # Robust RHS decomposition helper (works for QQ(m)/SR and for Fp(m) elements)
 
-def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None):
+def _prepare_modular_data_lll_one_prime(p, a4, a6, current_sections, processed_rhs_list, vecs, r):
+    """
+    Do the real per-prime work for ONE prime p: build Ep_local, rhs_modp_for_p,
+    multiplies/vecs (or Julia payload), or a rejection reason.
+
+    Takes a4/a6 directly (plain Sage QQ(m)-fraction objects) rather than the
+    whole CurveDataExt cd -- cd.E_curve carries a cached live Singular
+    interface handle (Sage keeps a pexpect subprocess connection around for
+    polynomial ring operations), and pickling that handle to send cd into a
+    worker process is NOT fork-safe: it crashes with a "'NoneType' object has
+    no attribute 'group'" AttributeError deep in Sage's singular interface
+    when the pexpect regex match fails against the forked-but-not-really-
+    connected subprocess. a4/a6 alone never touch that cached state. See the
+    docstring on prepare_modular_data_lll for the full failure chain.
+    """
+    PR_m = PolynomialRing(QQ, 'm')
+    a4_num, a4_den = PR_m(a4.numerator()), PR_m(a4.denominator())
+    a6_num, a6_den = PR_m(a6.numerator()), PR_m(a6.denominator())
+
+    local_stats_counts = Counter()
+
+    class _LocalStatsShim:
+        """Picklable-safe stand-in for the shared SearchStats object inside a
+        worker process. Real .incr() calls elsewhere in this per-prime body
+        (inside compute_all_mults_for_section) land here instead of the
+        shared stats object; the caller merges local_stats_counts back into
+        the real stats after the worker returns."""
+        def incr(self, key, amount=1):
+            local_stats_counts[key] += amount
+
+    stats = _LocalStatsShim()
+
+    try:
+        # Skip primes dividing denominators of a4/a6 coefficients
+        if any(int(QQ(c).denominator()) % p == 0 for c in a4_num.coefficients(sparse=False)):
+            if DEBUG:
+                print(f"[prepare_modular_data_lll] skip p={p}: a4 numerator has coeff with denom divisible by p")
+            return {'p': p, 'status': 'rejected', 'reason': 'a4_denom_divisible', 'stats': local_stats_counts}
+        if any(int(QQ(c).denominator()) % p == 0 for c in a6_num.coefficients(sparse=False)):
+            if DEBUG:
+                print(f"[prepare_modular_data_lll] skip p={p}: a6 numerator has coeff with denom divisible by p")
+            return {'p': p, 'status': 'rejected', 'reason': 'a6_denom_divisible', 'stats': local_stats_counts}
+
+        Rp = PolynomialRing(GF(p), 'm')
+        Fp_m = Rp.fraction_field()
+
+        try:
+            if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
+                if DEBUG:
+                    print(f"[prepare_modular_data_lll] skip p={p}: a4/a6 denominator zero mod p")
+                return {'p': p, 'status': 'rejected', 'reason': 'a4_a6_denom_zero', 'stats': local_stats_counts}
+        except Exception:
+            if DEBUG:
+                print(f"[prepare_modular_data_lll] skip p={p}: denominator coercion error")
+            raise
+
+        a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
+        a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
+
+        # Diagnostic block for p=3 (optional, keep if useful)
+        if p == 3 and DEBUG:
+            print("\n" + "="*70)
+            print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
+            print(f"Analyzing surface: y^2 = x^3 + a4_mod{p}(m)*x + a6_mod{p}(m)")
+            try:
+                mod_p_fiber_report = find_singular_fibers(a4=a4_modp, a6=a6_modp, verbose=True)
+                print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
+            except Exception as e_diag:
+                print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
+                raise
+            print("="*70 + "\n")
+
+        # Check discriminant (singular curve)
+        try:
+            disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
+            if disc_modp.is_zero():
+                if DEBUG:
+                    print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
+                return {'p': p, 'status': 'rejected', 'reason': 'singular_discriminant', 'stats': local_stats_counts}
+        except Exception:
+            if DEBUG:
+                print(f"[prepare_modular_data_lll] discriminant check failed at p={p}; skipping")
+            raise
+
+        # *** CRITICAL: Fiber collision check ***
+        try:
+            Delta_poly = -16 * (4 * a4**3 + 27 * a6**2)
+            if hasattr(Delta_poly, 'numerator'):
+                Delta_poly = Delta_poly.numerator()
+            if not FINITE_FIELD:
+                Delta_pr = PR_m(SR(Delta_poly))
+            else:
+                Delta_pr = PR_m(Delta_poly)
+
+            has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
+
+            if has_collision:
+                deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
+                if FINITE_FIELD:
+                    if DEBUG:
+                        print(f"⚠️  Ignoring fiber collision deg {deg} at p={p} because we are in FF mode. Proceeding.")
+                    # Do NOT reject the prime; we must search the generic fiber!
+                else:
+                    if DEBUG:
+                        print(f"Skipping prime {p}: fiber collision detected (gcd degree={deg})")
+                    return {'p': p, 'status': 'rejected', 'reason': f'fiber_collision_deg_{deg}', 'stats': local_stats_counts}
+
+        except Exception as e:
+            if DEBUG:
+                print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
+            raise
+
+        # Construct elliptic curve with FALLBACK for large primes
+        try:
+            Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
+        except (OverflowError, ValueError) as e:
+            # Catch Singular overflow for large primes
+            if DEBUG:
+                print(f"Warning: EllipticCurve construction failed for p={p} ({e}). using LargePrimeMockCurve.")
+            Ep_local = LargePrimeMockCurve(Fp_m, a4_modp, a6_modp)
+        except ArithmeticError as e:
+            if DEBUG:
+                print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
+            raise
+
+        # Build rhs_modp for this prime.
+        rhs_modp_for_p = {}
+        for i, rhs_data in enumerate(processed_rhs_list):
+            try:
+                if 'raw_ffrac' in rhs_data:
+                    raw = rhs_data['raw_ffrac']
+                    raw_num = raw.numerator()
+                    raw_den = raw.denominator()
+                    den_modp = Fp_m.ring()(raw_den)
+                    if den_modp.is_zero():
+                        if DEBUG:
+                            print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: raw_ffrac denominator zero mod p")
+                        continue
+                    rhs_modp_for_p[i] = Fp_m(raw_num) / Fp_m(raw_den)
+                else:
+                    if rhs_data['den'].change_ring(GF(p)).is_zero():
+                        if DEBUG:
+                            print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: denominator zero mod p")
+                        continue
+                    rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
+            except Exception:
+                if DEBUG:
+                    print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
+                raise
+
+        # Run LLL reduction
+        try:
+            new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
+        except Exception as e:
+            if DEBUG: print(f"LLL reduction failed for p={p} ({e}), skipping LLL")
+            new_basis, Uinv = None, None
+            raise
+
+        # Fallback for Uinv
+        if Uinv is None:
+            Uinv_mat = identity_matrix(ZZ, r)
+        else:
+            try:
+                nonint = False
+                for i_row in range(Uinv.nrows()):
+                    for j_col in range(Uinv.ncols()):
+                        entry = Uinv[i_row, j_col]
+                        if hasattr(entry, 'denominator'):
+                            if int(entry.denominator()) != 1:
+                                nonint = True
+                                break
+                        else:
+                            if QQ(entry) != Integer(entry):
+                                nonint = True
+                                break
+                    if nonint:
+                        break
+                if nonint:
+                    Uinv_mat = identity_matrix(ZZ, r)
+                else:
+                    Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
+            except Exception:
+                Uinv_mat = identity_matrix(ZZ, r)
+                raise
+
+        # Transform vecs
+        vecs_transformed_for_p = []
+        for v in vecs:
+            try:
+                vZ = vector(ZZ, [int(c) for c in v])
+                transformed = vZ * Uinv_mat
+                vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
+            except Exception:
+                try:
+                    vecs_transformed_for_p.append(tuple(int(c) for c in v))
+                except Exception:
+                    vecs_transformed_for_p.append(None)
+                    raise
+                raise
+
+        # Build required multiplier indices
+        required_ks_per_section = [set() for _ in range(r)]
+        for v_trans in vecs_transformed_for_p:
+            if v_trans is None:
+                continue
+            for j, coeff in enumerate(v_trans):
+                required_ks_per_section[j].add(int(coeff))
+
+        # Compute multipliers + build section poly payload for Julia
+        mults = [{} for _ in range(r)]
+        sec_poly_for_p = []
+        any_mult_error = False
+        rejection_reason = None
+        for i_sec in range(r):
+            Pi = new_basis[i_sec] if new_basis else None
+            if Pi is None:
+                Pi = reduce_point_hom(Ep_local, current_sections[i_sec], p)
+
+            required_ks = required_ks_per_section[i_sec]
+            max_k = max((abs(k) for k in required_ks), default=1)
+            if not required_ks:
+                required_ks = {-1, 0, 1}
+
+            if USE_JULIA_LADDER:
+                mults[i_sec] = {}
+            else:
+                mults_i = compute_all_mults_for_section(
+                    Pi, required_ks, stats,
+                    max_k=max((abs(k) for k in required_ks), default=1),
+                    debug=(r > 1)
+                )
+                if mults_i is None:
+                    any_mult_error = True
+                    rejection_reason = f"multiplier_computation_failed_sec_{i_sec}"
+                    break
+                mults[i_sec] = mults_i
+
+            payload = prepare_section_poly_payload(Pi, a4_modp, a6_modp, int(p), D=max_k)
+            if payload is None:
+                raise RuntimeError(f"p={p}: section {i_sec} serialization returned None")
+            sec_poly_for_p.append(payload)
+
+            if USE_JULIA_LADDER:
+                if DEBUG:
+                    print(f"[prepare_modular_data_lll] p={p}: using Julia ladder with {len(sec_poly_for_p)} sections")
+
+        if any_mult_error:
+            return {'p': p, 'status': 'rejected', 'reason': rejection_reason, 'stats': local_stats_counts}
+
+        if USE_JULIA_LADDER:
+            if any(x is None for x in sec_poly_for_p):
+                if DEBUG:
+                    print(f"[prepare_modular_data_lll] p={p}: missing section payload → skipping prime")
+                return {'p': p, 'status': 'rejected', 'reason': 'missing_section_payload', 'stats': local_stats_counts}
+            return {
+                'p': p, 'status': 'ok', 'Ep_local': Ep_local, 'rhs_modp_for_p': rhs_modp_for_p,
+                'section_poly': sec_poly_for_p, 'vecs_transformed': vecs_transformed_for_p,
+                'mults': None, 'stats': local_stats_counts,
+            }
+        else:
+            return {
+                'p': p, 'status': 'ok', 'Ep_local': Ep_local, 'rhs_modp_for_p': rhs_modp_for_p,
+                'section_poly': None, 'vecs_transformed': vecs_transformed_for_p,
+                'mults': mults, 'stats': local_stats_counts,
+            }
+
+    except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
+        if DEBUG and (p not in (2, 5)):
+            print(f"Skipping prime {p} due to error during preparation: {e}")
+        return {'p': p, 'status': 'rejected', 'reason': f'exception_{type(e).__name__}', 'stats': local_stats_counts}
+
+
+def _prepare_modular_data_lll_one_prime_worker(args):
+    """Picklable top-level wrapper for ProcessPoolExecutor (must be a plain
+    function taking one argument, not a closure/lambda, and importable by name
+    in the worker process)."""
+    p, a4, a6, current_sections, processed_rhs_list, vecs, r = args
+    try:
+        return _prepare_modular_data_lll_one_prime(p, a4, a6, current_sections, processed_rhs_list, vecs, r)
+    except Exception:
+        # Capture the full traceback as a string HERE, inside the worker,
+        # before the exception crosses the process boundary -- once it's
+        # re-raised by future.result() in the parent process, the original
+        # traceback frames (which live in the worker) are gone; only the
+        # exception's str() survives pickling in a useful form. Stash the
+        # real traceback as data so the parent can print exactly where this
+        # failed instead of just the bare exception message.
+        import traceback
+        tb_str = traceback.format_exc()
+        return {'p': p, 'status': 'rejected', 'reason': f'worker_exception_with_traceback',
+                'stats': Counter(), '_worker_traceback': tb_str}
+
+
+def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, stats, search_primes=None,
+                              parallel=None, max_workers=None):
     """
     Prepare modular data for LLL-based search across multiple primes.
     NOW RECORDS REJECTED PRIMES IN STATS FOR POSTERIOR ADJUSTMENT.
+
+    Runs each prime's preparation independently (no cross-prime state), in
+    parallel via ProcessPoolExecutor by default once there are enough primes
+    to make the pool startup cost worth it. Falls back to the original serial
+    loop for small pools, FINITE_FIELD mode, or if parallel=False, or if
+    multiprocessing setup itself fails for any reason (e.g. restricted
+    environments) -- correctness must never depend on parallelism succeeding.
     """
 
     if search_primes is None:
         search_primes = prime_pool
 
-    # === NEW: FINITE FIELD MODE SHORTCUT ===
+    # === FINITE FIELD MODE SHORTCUT: always serial, single prime, unchanged ===
     if FINITE_FIELD:
-        # In FF mode, only process the field characteristic
         if FINITE_FIELD not in search_primes:
             print(f"ERROR: FINITE_FIELD={FINITE_FIELD} not in search_primes")
             return {}, [], {}, {}
-
-        # Force single-prime processing
         search_primes = [FINITE_FIELD]
         print(f"[FF MODE] Forcing search to single prime: {FINITE_FIELD}")
-    # === END NEW ===
 
     r = len(current_sections)
     if r == 0:
         return {}, [], {}, {}
 
     Ep_dict, rhs_modp_list, multiplies_lll, vecs_lll = {}, [{} for _ in rhs_list], {}, {}
-    multiplies_lll, vecs_lll = {}, {}
-    section_poly_dict = {}   # p -> [payload_per_section] for Julia ladder
-    rejected_primes = []  # Track (prime, reason) tuples
+    section_poly_dict = {}
+    rejected_primes = []
+
+    # Extract ONLY a4/a6 from cd for the per-prime workers. cd.E_curve (the
+    # AffinePlaneCurve) carries a cached live Singular pexpect-subprocess
+    # handle that is not safe to pickle across a process boundary -- passing
+    # the whole cd object into ProcessPoolExecutor crashes with a
+    # "'NoneType' object has no attribute 'group'" AttributeError deep in
+    # Sage's singular interface. a4/a6 alone are plain QQ(m) fraction-field
+    # elements and don't carry that state.
+    a4, a6 = cd.a4, cd.a6
 
     PR_m = PolynomialRing(QQ, 'm')
-    var_sym = var('m')
 
-    # Now build processed_rhs_list using robust helper.
-    # Two entry kinds:
-    #   {'num': PR_m_poly, 'den': PR_m_poly}          -- characteristic-zero path
-    #   {'raw_ffrac': sage_frac_field_element}         -- FINITE_FIELD path (already in Frac(Fp[m]))
     processed_rhs_list = []
     for rhs in rhs_list:
         try:
             n_pr, d_pr = _decompose_rhs_to_PRm(rhs)
             processed_rhs_list.append({'num': n_pr, 'den': d_pr})
         except TypeError:
-            # FINITE_FIELD mode: rhs is already a Frac(Fp[m]) element.
-            # Stash it for prime-level coercion below.
             processed_rhs_list.append({'raw_ffrac': rhs})
-            # do not raise!
         except Exception as e:
             print(f"[prepare_modular_data_lll] Skipping RHS={rhs}: {e}")
             continue
 
-    a4_num, a4_den = PR_m(cd.a4.numerator()), PR_m(cd.a4.denominator())
-    a6_num, a6_den = PR_m(cd.a6.numerator()), PR_m(cd.a6.denominator())
+    use_parallel = parallel
+    if use_parallel is None:
+        # Not worth spinning up a process pool for a handful of primes; the
+        # 100-prime honest-search default stays on the original serial path
+        # unless the caller (or a wide cheat/band-sweep candidate set) asks
+        # for more, in which case parallelism is the whole point.
+        use_parallel = len(search_primes) >= PARALLEL_MODULAR_DATA_MIN_PRIMES
 
-    for p in search_primes:
+    results = None
+    if use_parallel:
         try:
-            # Skip primes dividing denominators of a4/a6 coefficients
-            if any(int(QQ(c).denominator()) % p == 0 for c in a4_num.coefficients(sparse=False)):
-                if DEBUG:
-                    print(f"[prepare_modular_data_lll] skip p={p}: a4 numerator has coeff with denom divisible by p")
-                rejected_primes.append((p, "a4_denom_divisible"))
-                continue
-            if any(int(QQ(c).denominator()) % p == 0 for c in a6_num.coefficients(sparse=False)):
-                if DEBUG:
-                    print(f"[prepare_modular_data_lll] skip p={p}: a6 numerator has coeff with denom divisible by p")
-                rejected_primes.append((p, "a6_denom_divisible"))
-                continue
-
-            Rp = PolynomialRing(GF(p), 'm')
-            Fp_m = Rp.fraction_field()
-
+            worker_args = [(p, a4, a6, current_sections, processed_rhs_list, vecs, r) for p in search_primes]
+            workers = max_workers or PARALLEL_MODULAR_DATA_MAX_WORKERS or os.cpu_count() or 1
             try:
-                if a4_den.change_ring(GF(p)).is_zero() or a6_den.change_ring(GF(p)).is_zero():
-                    if DEBUG:
-                        print(f"[prepare_modular_data_lll] skip p={p}: a4/a6 denominator zero mod p")
-                    rejected_primes.append((p, "a4_a6_denom_zero"))
-                    continue
+                ctx = multiprocessing.get_context("fork")
+                exec_kwargs = {"max_workers": workers, "mp_context": ctx}
             except Exception:
-                if DEBUG:
-                    print(f"[prepare_modular_data_lll] skip p={p}: denominator coercion error")
-                rejected_primes.append((p, "denom_coercion_failed"))
-                raise
-                continue
-
-            a4_modp = Fp_m(a4_num) / Fp_m(a4_den)
-            a6_modp = Fp_m(a6_num) / Fp_m(a6_den)
-
-            # Diagnostic block for p=3 (optional, keep if useful)
-            if p == 3 and DEBUG:
-                print("\n" + "="*70)
-                print(f"--- RUNNING MOD-{p} GEOMETRIC ANALYSIS (from diagnostics2.py) ---")
-                print(f"Analyzing surface: y^2 = x^3 + a4_mod{p}(m)*x + a6_mod{p}(m)")
-                try:
-                    mod_p_fiber_report = find_singular_fibers(a4=a4_modp, a6=a6_modp, verbose=True)
-                    print(f"--- MOD-{p} ANALYSIS COMPLETE ---")
-                except Exception as e_diag:
-                    print(f"--- MOD-{p} ANALYSIS FAILED: {e_diag} ---")
-                    raise
-                print("="*70 + "\n")
-
-            # Check discriminant (singular curve)
-            try:
-                disc_modp = -16 * (4 * a4_modp**3 + 27 * a6_modp**2)
-                if disc_modp.is_zero():
-                    if DEBUG:
-                        print(f"Skipping prime {p}: resulting curve is singular (discriminant = 0 mod {p})")
-                    rejected_primes.append((p, "singular_discriminant"))
-                    continue
-            except Exception:
-                if DEBUG:
-                    print(f"[prepare_modular_data_lll] discriminant check failed at p={p}; skipping")
-                rejected_primes.append((p, "discriminant_check_failed"))
-                raise
-                continue
-
-            # *** CRITICAL: Fiber collision check ***
-            try:
-                Delta_poly = -16 * (4 * cd.a4**3 + 27 * cd.a6**2)
-                if hasattr(Delta_poly, 'numerator'):
-                    Delta_poly = Delta_poly.numerator()
-                if not FINITE_FIELD:
-                    Delta_pr = PR_m(SR(Delta_poly))
-                else:
-                    Delta_pr = PR_m(Delta_poly)
-
-                has_collision, gcd_poly = detect_fiber_collision(Delta_pr, p, debug=DEBUG)
-
-                if has_collision:
-                    deg = gcd_poly.degree() if gcd_poly is not None else "N/A"
-                    if FINITE_FIELD:
-                        if DEBUG:
-                            print(f"⚠️  Ignoring fiber collision deg {deg} at p={p} because we are in FF mode. Proceeding.")
-                        # Do NOT reject the prime; we must search the generic fiber!
-                    else:
-                        if DEBUG:
-                            print(f"Skipping prime {p}: fiber collision detected (gcd degree={deg})")
-                        rejected_primes.append((p, f"fiber_collision_deg_{deg}"))
-                        continue
-
-            except Exception as e:
-                if DEBUG:
-                    print(f"[fiber_collision_check] p={p}: error {e} -- continuing cautiously")
-                raise
-
-            # Construct elliptic curve with FALLBACK for large primes
-            try:
-                Ep_local = EllipticCurve(Fp_m, [0, 0, 0, a4_modp, a6_modp])
-            except (OverflowError, ValueError) as e:
-                # Catch Singular overflow for large primes
-                if DEBUG:
-                    print(f"Warning: EllipticCurve construction failed for p={p} ({e}). using LargePrimeMockCurve.")
-                Ep_local = LargePrimeMockCurve(Fp_m, a4_modp, a6_modp)
-            except ArithmeticError as e:
-                if DEBUG:
-                    print(f"Skipping prime {p}: EllipticCurve construction failed: {e}")
-                rejected_primes.append((p, "elliptic_curve_construction_failed"))
-                raise
-                continue
-
-            # Build rhs_modp for this prime.
-            # Handles two entry kinds from processed_rhs_list:
-            #   {'num': QQ[m], 'den': QQ[m]}       -- reduce mod p via change_ring
-            #   {'raw_ffrac': Frac(Fp'[m])}         -- coerce directly into Fp_m
-            rhs_modp_for_p = {}
-            for i, rhs_data in enumerate(processed_rhs_list):
-                try:
-                    if 'raw_ffrac' in rhs_data:
-                        # FINITE_FIELD path: rhs already lives in some Frac(Fp'[m]).
-                        # Coerce numerator and denominator into the current Fp_m.
-                        raw = rhs_data['raw_ffrac']
-                        raw_num = raw.numerator()
-                        raw_den = raw.denominator()
-                        # Check for pole (denominator zero mod p)
-                        den_modp = Fp_m.ring()(raw_den)
-                        if den_modp.is_zero():
-                            if DEBUG:
-                                print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: raw_ffrac denominator zero mod p")
-                            continue
-                        rhs_modp_for_p[i] = Fp_m(raw_num) / Fp_m(raw_den)
-                    else:
-                        if rhs_data['den'].change_ring(GF(p)).is_zero():
-                            if DEBUG:
-                                print(f"[prepare_modular_data_lll] skip RHS#{i} at p={p}: denominator zero mod p")
-                            continue
-                        rhs_modp_for_p[i] = Fp_m(rhs_data['num']) / Fp_m(rhs_data['den'])
-                except Exception:
-                    if DEBUG:
-                        print(f"[prepare_modular_data_lll] RHS#{i} reduction failed at p={p}")
-                    raise
-
-            # Run LLL reduction
-            # Note: lll_reduce_basis_modp needs to work with MockCurve if used.
-            # If it fails, we fall back to identity.
-            try:
-                new_basis, Uinv = lll_reduce_basis_modp(p, current_sections, Ep_local)
-            except Exception as e:
-                if DEBUG: print(f"LLL reduction failed for p={p} ({e}), skipping LLL")
-                new_basis, Uinv = None, None
-                raise
-
-            # Fallback for Uinv
-            if Uinv is None:
-                Uinv_mat = identity_matrix(ZZ, r)
-            else:
-                try:
-                    nonint = False
-                    for i_row in range(Uinv.nrows()):
-                        for j_col in range(Uinv.ncols()):
-                            entry = Uinv[i_row, j_col]
-                            if hasattr(entry, 'denominator'):
-                                if int(entry.denominator()) != 1:
-                                    nonint = True
-                                    break
-                            else:
-                                if QQ(entry) != Integer(entry):
-                                    nonint = True
-                                    break
-                        if nonint:
-                            break
-                    if nonint:
-                        Uinv_mat = identity_matrix(ZZ, r)
-                    else:
-                        Uinv_mat = matrix(ZZ, [[int(Uinv[i, j]) for j in range(Uinv.ncols())] for i in range(Uinv.nrows())])
-                except Exception:
-                    Uinv_mat = identity_matrix(ZZ, r)
-                    raise
-
-            # Transform vecs
-            vecs_transformed_for_p = []
-            for v in vecs:
-                try:
-                    vZ = vector(ZZ, [int(c) for c in v])
-                    transformed = vZ * Uinv_mat
-                    vecs_transformed_for_p.append(tuple(int(transformed[i]) for i in range(len(transformed))))
-                except Exception:
+                exec_kwargs = {"max_workers": workers}
+            results = []
+            with ProcessPoolExecutor(**exec_kwargs) as executor:
+                futures = {executor.submit(_prepare_modular_data_lll_one_prime_worker, args): args[0] for args in worker_args}
+                iterator = as_completed(futures)
+                if len(search_primes) > 20:
+                    iterator = tqdm(iterator, total=len(futures), desc="[prepare_modular_data_lll] preparing primes (parallel)")
+                for future in iterator:
+                    p = futures[future]
                     try:
-                        vecs_transformed_for_p.append(tuple(int(c) for c in v))
-                    except Exception:
-                        vecs_transformed_for_p.append(None)
-                        raise
-                    raise
+                        res = future.result()
+                        if isinstance(res, dict) and res.get('_worker_traceback'):
+                            print(f"[prepare_modular_data_lll] p={p} worker exception full traceback:\n{res['_worker_traceback']}")
+                        results.append(res)
+                    except Exception as e:
+                        # This branch now only catches failures OUTSIDE the
+                        # worker's own try/except (e.g. genuine pickling
+                        # failures transporting args/result across the
+                        # process boundary) -- the worker itself now catches
+                        # and reports its own exceptions with a traceback.
+                        err_repr = f"{type(e).__name__}: {e}"
+                        print(f"[prepare_modular_data_lll] p={p} future.result() itself raised (likely transport/pickling, not per-prime math): {err_repr}")
+                        results.append({'p': p, 'status': 'rejected', 'reason': f'worker_transport_exception_{err_repr}', 'stats': Counter()})
+        except Exception as e:
+            import traceback
+            print(f"[prepare_modular_data_lll] parallel dispatch failed ({type(e).__name__}: {e}); falling back to serial.")
+            traceback.print_exc()
+            results = None
 
-            # Build required multiplier indices
-            required_ks_per_section = [set() for _ in range(r)]
-            for v_trans in vecs_transformed_for_p:
-                if v_trans is None:
-                    continue
-                for j, coeff in enumerate(v_trans):
-                    required_ks_per_section[j].add(int(coeff))
+    if results is None:
+        # Serial fallback: identical per-prime logic, just called in-process one at a time.
+        results = [_prepare_modular_data_lll_one_prime(p, a4, a6, current_sections, processed_rhs_list, vecs, r)
+                   for p in search_primes]
 
-            # Compute multipliers + build section poly payload for Julia
-            mults = [{} for _ in range(r)]
-            sec_poly_for_p = []   # one entry per section, for Julia ladder
-            any_mult_error = False
-            for i_sec in range(r):
-                # Use new_basis if available, otherwise original sections
-                Pi = new_basis[i_sec] if new_basis else None
-                if Pi is None:
-                    # Fallback to original section reduced mod p
-                    Pi = reduce_point_hom(Ep_local, current_sections[i_sec], p)
+    for res in results:
+        p = res['p']
+        if stats is not None and res.get('stats'):
+            for k, v in res['stats'].items():
+                stats.incr(k, v)
 
-                required_ks = required_ks_per_section[i_sec]
-                max_k = max((abs(k) for k in required_ks), default=1)
-                if not required_ks:
-                    required_ks = {-1, 0, 1}
-
-                if USE_JULIA_LADDER:
-                    mults[i_sec] = {}   # or just skip entirely
-                else:
-                    mults_i = compute_all_mults_for_section(
-                        Pi, required_ks, stats,
-                        max_k=max((abs(k) for k in required_ks), default=1),
-                        debug=(r > 1)
-                    )
-                    if mults_i is None:
-                        any_mult_error = True
-                        break
-                    mults[i_sec] = mults_i
-
-                    if mults_i is None:
-                        any_mult_error = True
-                        if DEBUG:
-                            print(f"[prepare_modular_data_lll] p={p}: Failed to compute multipliers for basis section {i_sec}")
-                        rejected_primes.append((p, f"multiplier_computation_failed_sec_{i_sec}"))
-                        break
-
-                # Serialise Pi for Julia iff a4/a6 have non-constant denoms
-                # (otherwise the fast numpy path runs and Julia isn't needed).
-                payload = prepare_section_poly_payload(Pi, a4_modp, a6_modp, int(p), D=max_k)
-                if payload is None:
-                    raise RuntimeError(f"p={p}: section {i_sec} serialization returned None")
-                sec_poly_for_p.append(payload)
-
-                if USE_JULIA_LADDER:
-                    print(f"[prepare_modular_data_lll] p={p}: using Julia ladder with {len(sec_poly_for_p)} sections")
-
-            if any_mult_error:
-                continue
-
-            # Success - publish data for this prime
-            Ep_dict[p] = Ep_local
-            for i, rhs_p_val in rhs_modp_for_p.items():
-                rhs_modp_list[i][p] = rhs_p_val
-
-            if USE_JULIA_LADDER:
-                if any(x is None for x in sec_poly_for_p):
-                    if DEBUG:
-                        print(f"[prepare_modular_data_lll] p={p}: missing section payload → skipping prime")
-                    continue
-                section_poly_dict[p] = sec_poly_for_p
-                vecs_lll[p] = vecs_transformed_for_p   # ✅ KEEP THIS
-            else:
-                multiplies_lll[p] = mults
-                vecs_lll[p] = vecs_transformed_for_p
-
-        except (ZeroDivisionError, TypeError, ValueError, ArithmeticError) as e:
-            if DEBUG and (p not in (2, 5)):
-                print(f"Skipping prime {p} due to error during preparation: {e}")
-            rejected_primes.append((p, f"exception_{type(e).__name__}"))
-            raise
+        if res['status'] == 'rejected':
+            rejected_primes.append((p, res['reason']))
             continue
+
+        Ep_dict[p] = res['Ep_local']
+        for i, rhs_p_val in res['rhs_modp_for_p'].items():
+            rhs_modp_list[i][p] = rhs_p_val
+
+        if USE_JULIA_LADDER:
+            section_poly_dict[p] = res['section_poly']
+            vecs_lll[p] = res['vecs_transformed']
+        else:
+            multiplies_lll[p] = res['mults']
+            vecs_lll[p] = res['vecs_transformed']
 
     # *** CRITICAL: Record rejected primes in stats ***
     if stats is not None:
@@ -423,11 +521,11 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             for p, reason in rejected_primes:
                 print(f"  p={p}: {reason}")
 
-                ram_locus = compute_ramification_locus(cd)
-                detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
-                if not USE_CONSENSUS_FILTER: # this assert is currently broken for this mixed geometry mode
-                    assert detected_collisions.issubset(ram_locus), \
-                        f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
+            ram_locus = compute_ramification_locus(cd)
+            detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
+            if not USE_CONSENSUS_FILTER:
+                assert detected_collisions.issubset(ram_locus), \
+                    f"Detected collisions {detected_collisions} not in ramification locus {ram_locus}"
 
     if USE_JULIA_LADDER:
         for p in section_poly_dict:
