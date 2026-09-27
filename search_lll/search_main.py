@@ -934,6 +934,38 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])
         print("cov1: matched primes:", cov1['matched_primes'])
 
+        # ------------------------------------------------------------------
+        # DEBUG-ONLY CHEAT: "spike the ball" pipeline sanity check.
+        #
+        # This restricts prime_pool to ONLY the primes whose residue for
+        # mtarget was already found to match (cov1['matched_primes']).
+        # This is circular by construction: it can ONLY tell you whether the
+        # CRT-lift / lattice-reduction / rational-reconstruction machinery is
+        # *capable* of recovering mtarget when handed a pool that is
+        # guaranteed compatible with it. It tells you NOTHING about whether
+        # the library can find this point in an honest, un-cheated search --
+        # any m would show a similar "success" once the pool is filtered by
+        # that same m. Never treat a positive result from this branch as a
+        # real discovery.
+        # ------------------------------------------------------------------
+        if CHEAT_FILTER_POOL_TO_TARGET_M:
+            cheat_pool = cov1['matched_primes']
+            print(f"[CHEAT] Restricting prime_pool from {len(prime_pool)} to "
+                  f"{len(cheat_pool)} primes matching target m (circular sanity check only).")
+            if not cheat_pool:
+                print("[CHEAT] No primes matched target m even in the full pool -- "
+                      "cannot construct a cheat pool. Aborting cheat path.")
+                return {
+                    "candidates": [],
+                    "candidate_xs": set(),
+                    "new_sections": [],
+                    "precomputed_residues": precomputed_residues,
+                    "stats": stats,
+                    "final_rational_pairs": [],
+                }
+            prime_pool = cheat_pool
+            precomputed_residues = {p: precomputed_residues[p] for p in cheat_pool if p in precomputed_residues}
+
     residues_by_prime_numeric = {}
     for p, mapping in precomputed_residues.items():
         residues_set = set()

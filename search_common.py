@@ -8,6 +8,7 @@ from cysignals.signals import SignalError
 from prime_subgroup_projection import *
 from parse_genus3 import *
 from tate import *
+from brauer import m_is_locally_allowed
 
 _IS_MAIN_PROCESS = multiprocessing.current_process().name == 'MainProcess'
 # === imports ===
@@ -22,11 +23,20 @@ COEFFS_GENUS2 = [QQ(1), QQ(0), QQ(-3), QQ(-1), QQ(3), QQ(0), QQ(3)]
 DATA_PTS_GENUS2 = [QQ(-58189)/QQ(209040)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 5           # stop once this many distinct rational x-coords are known
 
+
+# does not work on laptop; not enough primes generateable
+COEFFS_GENUS2 = [QQ(0), QQ(1), QQ(0), QQ(0), QQ(0), QQ(2*10**30), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the search
+TERMINATE_WHEN_6 = 4          # stop once this many distinct rational x-coords are known
+
 # Hindes' curve, rational point search mode.
 # y^2 = x^6 + 3x^5 + 3x^4 + 3x^3 + 2x^2 + 1
 COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
+
+
+
 
 # Legacy genus-1 fields, kept for modules that still import A1..A6/COEFFS/DATA_PTS.
 A1, A2, A3, A4, A5, A6 = QQ(8), QQ(-3), QQ(-14), QQ(3), QQ(6), QQ(1)
@@ -51,9 +61,9 @@ MUMFORD_SEARCH = False      # True -> Jacobian rank / Mumford basis search inste
 # STATIC CONFIG
 # ============================================================================
 NUM_DOUBLINGS = 10                     # for mumford height pairing independence test
-HEIGHT_BOUND = 100 * 370                 # not that important, mostly, it seems
+HEIGHT_BOUND = 10 * 370                 # not that important, mostly, it seems
 HEIGHT_BOUND_NON_MINIMAL = 2 * HEIGHT_BOUND  # doubled bound used for non-minimal models
-NUM_PRIME_SUBSETS = 100           # important for stability under different seeds; >= 250 recommended
+NUM_PRIME_SUBSETS = 300           # important for stability under different seeds; >= 250 recommended
 
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
@@ -167,7 +177,7 @@ MAX_MODULUS = 10**400
 # search_lll/search_config.py is 5000; this override takes precedence over it
 # via the same try/except import pattern search_lll/search_config.py uses for
 # MIN_PRIME_SUBSET_SIZE et al.
-MAX_COMBOS_PER_SUBSET = 50000
+MAX_COMBOS_PER_SUBSET = 5000
 
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
@@ -201,7 +211,15 @@ SEED_INT = random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
 
 DEBUG = True
-TARGETED_X = None                  # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = 10**20 # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = None # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+
+# DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
+# is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
+# whose residue for TARGETED_X's m already matched (a circular pipeline sanity
+# check -- see the CHEAT_FILTER_POOL_TO_TARGET_M block in search_main.py for
+# why a "success" here does not mean the search can find this point honestly).
+CHEAT_FILTER_POOL_TO_TARGET_M = False
 
 USE_MINIMAL_MODEL = True           # more correct, and slower, than the generic fiber
 SYMBOLIC_SEARCH = False            # mod-p search (fast, default); True = search over QQ directly (slow)
@@ -3325,5 +3343,97 @@ def get_phi_x(one, two, three, x_coord_func, quartic_rhs):
         return "INF"
 
     return X_sub / Z_sub
+
+
+# ============================================================================
+# CHEAT MODE -- targeted prime-pool construction (DEBUG / SANITY-CHECK ONLY)
+# ============================================================================
+#
+# WARNING: this is a diagnostic backdoor, not a search strategy. It does not
+# find a rational point -- it takes one you ALREADY know (or are hypothesizing)
+# and stacks the deck in its favor, by discarding every prime in the pool that
+# doesn't already carry a residue consistent with that specific point.
+#
+# Use case: "can the pipeline even recover an obvious, large-height point when
+# we cheat as hard as possible?" If the answer is still no with a pool built
+# this way, the bug is upstream of prime selection (residue computation,
+# CRT/lift logic, the rationality check, etc.) -- not something a better
+# subset-sampling heuristic or a bigger honest PRIME_POOL would ever fix.
+# If the answer is yes, that tells you nothing about whether the pipeline can
+# find a point it *doesn't* already know -- any target m will have *some*
+# primes that happen to match it, so a pool built this way is worthless (and
+# actively misleading) for an honest search.
+#
+# Do not leave this wired into a real search run. It should only be used to
+# build a throwaway PRIME_POOL for this specific sanity check, then discarded.
+
+def build_cheat_prime_pool(target_m, precomputed_residues, candidate_primes,
+                            v_tuple=None, min_pool_size=None, debug=True):
+    """
+    Filter candidate_primes down to only those primes p for which
+    target_m (mod p) is already present among precomputed_residues[p]'s
+    reachable residues -- i.e. primes that CANNOT locally rule out
+    target_m being the point we're looking for.
+
+    Args:
+        target_m: the known/hypothesized rational value of m to cheat towards
+                  (QQ or coercible to QQ).
+        precomputed_residues: residue dict for candidate_primes, built the
+                  normal way (e.g. via prepare_modular_data_lll + the usual
+                  per-prime residue precompute loop in search_main.py) --
+                  NOT derived from target_m. This function only filters an
+                  already-computed pool; it does not compute residues itself.
+        candidate_primes: the superset of primes to filter (typically wider
+                  than your normal PRIME_POOL, e.g. list(primes(5000)), so
+                  there's more to find a match in).
+        v_tuple: optional, restrict the residue match to one section-vector
+                  key rather than any vector (passed through to
+                  m_is_locally_allowed).
+        min_pool_size: if given, raise if fewer than this many primes survive
+                  the filter -- catches "cheated pool is too small to even
+                  reach the target's height bound" early and loudly, rather
+                  than failing later with a confusing capacity-check message.
+        debug: print a summary of what was kept/dropped.
+
+    Returns:
+        List of primes (subset of candidate_primes) compatible with target_m.
+        Assign this directly to PRIME_POOL (or pass as auto_configure_search's
+        prime_pool= argument) for the cheat run.
+    """
+    target_m = QQ(target_m)
+
+    allowed_overall, details = m_is_locally_allowed(
+        target_m, precomputed_residues, candidate_primes, v_tuple=v_tuple
+    )
+
+    kept = [p for p in candidate_primes if details.get(int(p), {}).get('status') == 'matched']
+    dropped_unseen = [p for p in candidate_primes if details.get(int(p), {}).get('status') == 'unseen']
+    dropped_no_data = [p for p in candidate_primes if details.get(int(p), {}).get('status') == 'no_data']
+    dropped_denom_zero = [p for p in candidate_primes if details.get(int(p), {}).get('status') == 'denom_zero']
+
+    if debug:
+        print(f"[CHEAT POOL] target_m={target_m}")
+        print(f"[CHEAT POOL] candidates checked: {len(candidate_primes)}")
+        print(f"[CHEAT POOL] kept (residue matched): {len(kept)}")
+        print(f"[CHEAT POOL] dropped (unseen -- would locally block target_m): {len(dropped_unseen)}")
+        if dropped_no_data:
+            print(f"[CHEAT POOL] dropped (no precomputed data for prime): {len(dropped_no_data)}")
+        if dropped_denom_zero:
+            print(f"[CHEAT POOL] dropped (denominator vanishes mod p): {len(dropped_denom_zero)}")
+        if not kept:
+            print("[CHEAT POOL] *** nothing survived -- either target_m is genuinely "
+                  "unreachable with this residue data, or precomputed_residues wasn't "
+                  "actually built over candidate_primes. Check that first. ***")
+
+    if min_pool_size is not None and len(kept) < min_pool_size:
+        raise RuntimeError(
+            f"build_cheat_prime_pool: only {len(kept)} primes matched target_m "
+            f"(need >= {min_pool_size}). Even fully cheated, this pool can't "
+            f"reach the modulus this target needs -- widen candidate_primes, "
+            f"not the honest search's PRIME_POOL."
+        )
+
+    return kept
+
 
 

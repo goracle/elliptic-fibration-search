@@ -1341,48 +1341,88 @@ def _solve_build_one_qq(fx_SR, Qpoly_field, xs_chosen, degQ, f0, parameter_m,
             row.append(coeff_u)
         rows.append(row)
 
-    try:
-        rows_SR = matrix(SR, rows)
-        rhs_SR = vector(SR, rhs_vec)
-        sol_vec = rows_SR.solve_right(rhs_SR)
-        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
-    except Exception as e:
-        raise RuntimeError(f"SR linear solve failed: {e}")
-
-    def _sr_to_Fm(expr_sr, ctx):
-        """Coerce an SR expression (plain rational number OR rational
-        function of m) into ctx['Fm'] = Frac(QQ['m']) explicitly, rather
-        than relying on hasattr(c, 'denominator') (true for every SR
-        fraction, numeric or not) or an implicit Fm(SR expr) conversion
-        (which can silently fail depending on how the expression is
-        represented internally)."""
-        expr_sr = SR(expr_sr).simplify_full()
+    def _sr_poly_in_m_to_PRm(expr_sr, ctx):
+        """Coerce an SR expression that is a plain polynomial in m (with
+        numeric, possibly huge, rational coefficients -- no other free
+        symbols) into ctx['PR_m'] = QQ['m']."""
+        expr_sr = SR(expr_sr).expand()
         m_sr = ctx['m_sym']
-        if not expr_sr.has(m_sr):
-            return ctx['Fm'](QQ(expr_sr))
-        num_sr = expr_sr.numerator().expand()
-        den_sr = expr_sr.denominator().expand()
         PR_m = ctx['PR_m']
-        num_poly = PR_m([QQ(c) for c in num_sr.coefficients(m_sr, sparse=False)])
-        den_poly = PR_m([QQ(c) for c in den_sr.coefficients(m_sr, sparse=False)])
-        return ctx['Fm'](num_poly) / ctx['Fm'](den_poly)
+        if not expr_sr.has(m_sr):
+            return PR_m(QQ(expr_sr))
+        return PR_m([QQ(c) for c in expr_sr.coefficients(m_sr, sparse=False)])
 
-    rest_coeffs_Fm = []
-    for s in rest_coeff_syms:
-        rest_coeffs_Fm.append(sol[s])
-    # sol[s] is generally a rational FUNCTION of m (an SR expression), not a
-    # rational NUMBER — every SR fraction exposes .denominator() whether or
-    # not it's numeric, so the old `hasattr(c, 'denominator')` check wrongly
-    # routed m-dependent coefficients through QQ(c), which fails once m
-    # genuinely appears (as it now correctly does after the f_i fix above).
-    rest_coeffs_Fm_native = [_sr_to_Fm(c, ctx) for c in rest_coeffs_Fm]
+    # Solve over Fm = Frac(QQ['m']) rather than the generic symbolic ring
+    # SR. Every entry of rows/rhs_vec here is, by construction, a plain
+    # polynomial in m with (possibly huge) rational coefficients -- no
+    # other free symbols remain once xSR has been substituted away. Doing
+    # the linear algebra directly over Fm means every division is an exact
+    # fraction-field reduction (automatic polynomial GCD cancellation), so
+    # a ratio like m**6/m**6 is *guaranteed* to collapse to 1.
+    #
+    # This replaces an earlier attempt that solved over SR (via
+    # solve_right, then via SR-level Cramer's rule): SR division does not
+    # automatically cancel common polynomial factors, and simplify_full()
+    # is not guaranteed to spot the cancellation either -- especially with
+    # the huge integer coefficients this search produces -- so both of
+    # those approaches could leave a spurious, uncancelled m in the result
+    # even though the true solution has none.
+    try:
+        PR_m = ctx['PR_m']
+        Fm = ctx['Fm']
+        rows_Fm = [[_sr_poly_in_m_to_PRm(c, ctx) for c in row] for row in rows]
+        rhs_Fm = [_sr_poly_in_m_to_PRm(c, ctx) for c in rhs_vec]
+
+        rows_M = matrix(PR_m, rows_Fm)
+        det_M = rows_M.determinant()  # exact element of QQ['m']
+        if det_M.is_zero():
+            raise RuntimeError(
+                f"singular system: coefficient matrix has det=0 "
+                f"(system is genuinely rank-deficient for this choice of "
+                f"xs_chosen/tangency points, not just an unsolved parametric case)"
+            )
+
+        cols = rows_M.columns()
+        sol_vec = []
+        for i in range(len(unknowns)):
+            cols_i = cols[:i] + [vector(PR_m, rhs_Fm)] + cols[i+1:]
+            Mi = matrix(PR_m, cols_i).transpose()
+            # Fm division: exact fraction-field reduction, so a common
+            # factor between Mi.determinant() and det_M cancels for real.
+            sol_vec.append(Fm(Mi.determinant()) / Fm(det_M))
+        sol = {u: sol_vec[i] for i, u in enumerate(unknowns)}
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Fm linear solve failed: {e}")
+
+    # Defense in depth: 'sol' values are now genuine Fm = Frac(QQ['m'])
+    # elements (not SR) with automatic exact cancellation -- no free-symbol
+    # contamination is possible by construction. Downstream code still
+    # needs an SR-compatible copy of the solution to substitute into the
+    # symbolic fibration expression (rest_poly_SR.subs(...) below), so
+    # convert each Fm element to SR exactly, preserving the already-reduced
+    # numerator/denominator pair rather than re-deriving it from an SR
+    # expression (which is what let the earlier, buggier SR-only approach
+    # fail to cancel in the first place).
+    def _Fm_to_sr(fm_elt, ctx):
+        m_sr = ctx['m_sym']
+        num_poly = fm_elt.numerator()
+        den_poly = fm_elt.denominator()
+        num_sr = sum(QQ(c) * m_sr**i for i, c in enumerate(num_poly.list()))
+        den_sr = sum(QQ(c) * m_sr**i for i, c in enumerate(den_poly.list()))
+        return SR(num_sr) / SR(den_sr) if den_sr != 0 else SR(num_sr)
+
+    sol_sr = {s: _Fm_to_sr(sol[s], ctx) for s in rest_coeff_syms}
+
+    rest_coeffs_Fm_native = [sol[s] for s in rest_coeff_syms]
     rest_poly_Fm = ctx['R_xm'](rest_coeffs_Fm_native)
 
     # Substitute the SOLVED coefficients back into rest_poly_SR (previously this
     # used the still-symbolic rest_poly_SR with free b_rest_i unknowns, and
     # additionally subtracted from fx_SR instead of reconstructing Q^2 + prod*rest.
     # That produced a fibration with no real m-dependence, matching the observed bug.)
-    rest_poly_solved_SR = rest_poly_SR.subs(sol)
+    rest_poly_solved_SR = rest_poly_SR.subs(sol_sr)
     fibration_Fm = (SR(Q_SR)**2 + SR(prod1) * rest_poly_solved_SR).expand()
     return {
         'f_i': fibration_Fm,
@@ -2314,8 +2354,16 @@ def verify_y2_consistency_on_rail(tower, x1, m_vals):
     Tests at specific m values.
     """
     assert tower, "verify_y2_consistency: empty tower"
-    assert len(tower) > 1, "verify_y2_consistency: need at least 2 layers to check consistency"
     assert m_vals, "verify_y2_consistency: empty m_vals list"
+
+    if len(tower) < 2:
+        # Nothing to compare a single layer against -- there are no
+        # consecutive-layer transitions to check, so this is trivially
+        # consistent (this is the normal case for a degree-5 curve,
+        # which only needs one tower step to reach degree 4).
+        print(f"[verify_y2_consistency] Only 1 layer in tower; no transitions to check, skipping")
+        sys.stdout.flush()
+        return True
 
     ff_mode = (FINITE_FIELD is not None)
 
