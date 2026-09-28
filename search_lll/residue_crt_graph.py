@@ -1,25 +1,37 @@
 """
-search_lll/residue_crt_graph.py
-
 Cross-prime residue consistency search.
 
-For a fixed vector v, each prime p contributes a set of candidate residues
-(roots of the fibration equation mod p).  A true rational point m = a/b with
-|a|, |b| <= H reduces to one residue at every prime where it is defined, so its
-residues glue under CRT into a class that contains a small-height rational.
-This module searches for such glued classes without being told the target m.
+This module searches for small-height rational points by gluing residue classes
+across primes with CRT and testing whether the resulting class can contain a
+rational of bounded height.
 
-A "chain" is a set of primes together with one residue per prime and the CRT
-combination of those residues.  A chain is confirmed once it spans enough primes
-(min_clique_size) or its modulus clears the informative threshold, and each
-confirmed chain is reconstructed to a single candidate m.  Only a small clique
-of primes needs to agree for a chain to be confirmed; agreement across the whole
-pool is not required.
+The implementation is deliberately organized around the expensive operation
+`lattice_rational_lift_exists`.  The old version repeatedly recomputed the
+same liftability questions and could spend a very long time constructing a
+single generation before yielding any observable progress.  This version adds:
+
+* a bounded LRU cache for liftability tests;
+* a round-robin chain work queue, so one huge residue domain cannot monopolize
+  a generation;
+* hard per-generation and optional total/time budgets;
+* randomized, information-per-branching "prime mixing" to diversify CRT
+  orders without giving up eventual coverage of the pool;
+* state deduplication for equivalent CRT states;
+* shared search statistics and cache statistics;
+* a small Union-Find implementation instead of repeated nested closures.
+
+The public entry points from the original module are retained.
 """
 
-from collections import defaultdict
+from __future__ import annotations
+
+from collections import defaultdict, OrderedDict, deque
+from dataclasses import dataclass
 import itertools
+import math
+import random
 import time
+
 from tqdm import tqdm
 
 from .rational_arithmetic import (
@@ -28,123 +40,282 @@ from .rational_arithmetic import (
     modulus_is_informative,
     rational_reconstruct,
 )
+
 try:
     from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
 except ImportError:
-    print("[residue_crt_graph] WARNING: could not import MIN_PRIME_SUBSET_SIZE/"
-          "MIN_MAX_PRIME_SUBSET_SIZE from search_common (path issue?); "
-          "falling back to 3/9.")
+    print(
+        "[residue_crt_graph] WARNING: could not import "
+        "MIN_PRIME_SUBSET_SIZE/MIN_MAX_PRIME_SUBSET_SIZE from search_common; "
+        "falling back to 3/9."
+    )
     MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE = 3, 9
-import math
+
+
+MIN_MARGIN_OVER_BOX = 15
+_STRONG_INFORMATIVE_MARGIN = 50
+
+
+# ---------------------------------------------------------------------------
+# Small infrastructure
+# ---------------------------------------------------------------------------
+
+class _UnionFind:
+    """Tiny path-compressing / union-by-size disjoint-set structure."""
+
+    __slots__ = ("parent", "size")
+
+    def __init__(self):
+        self.parent = {}
+        self.size = {}
+
+    def add(self, x):
+        if x not in self.parent:
+            self.parent[x] = x
+            self.size[x] = 1
+
+    def find(self, x):
+        self.add(x)
+        root = x
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[x] != x:
+            nxt = self.parent[x]
+            self.parent[x] = root
+            x = nxt
+        return root
+
+    def union(self, x, y):
+        rx = self.find(x)
+        ry = self.find(y)
+        if rx == ry:
+            return False
+        if self.size[rx] < self.size[ry]:
+            rx, ry = ry, rx
+        self.parent[ry] = rx
+        self.size[rx] += self.size[ry]
+        return True
+
+
+class _LiftCache:
+    """
+    Bounded LRU cache for lattice_rational_lift_exists.
+
+    The result depends only on (c mod M, M, H), so this is a very high-value
+    cache for this search: many different chains reach the same CRT state.
+    """
+
+    __slots__ = ("maxsize", "_data", "hits", "misses")
+
+    def __init__(self, maxsize=250_000):
+        self.maxsize = max(0, int(maxsize))
+        self._data = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+
+    def __call__(self, c, M, H):
+        M = int(M)
+        H = int(H)
+        if M <= 0:
+            return False
+
+        c = int(c) % M
+        key = (M, c, H)
+
+        cached = self._data.get(key)
+        if cached is not None:
+            self.hits += 1
+            self._data.move_to_end(key)
+            return cached
+
+        self.misses += 1
+        value = bool(lattice_rational_lift_exists(c, M, H))
+
+        if self.maxsize:
+            self._data[key] = value
+            self._data.move_to_end(key)
+            while len(self._data) > self.maxsize:
+                self._data.popitem(last=False)
+
+        return value
+
+    def stats(self):
+        return {
+            "lift_cache_hits": self.hits,
+            "lift_cache_misses": self.misses,
+            "lift_cache_size": len(self._data),
+            "lift_cache_maxsize": self.maxsize,
+        }
+
+
+@dataclass
+class _ChainTask:
+    """
+    Partially expanded chain.
+
+    `prime_pos` and `node_pos` are resumable cursors, so hitting the generation
+    budget no longer means throwing away all the work done on the chain and
+    restarting its Cartesian product next generation.
+    """
+
+    used_primes: frozenset
+    modulus: int
+    residue: int
+    node_keys: tuple
+    prime_order: tuple
+    prime_start: int = 0
+    prime_pos: int = 0
+    node_pos: int = 0
+    calls_this_generation: int = 0
+    primes_this_generation: int = 0
+
+
+def _iter_residue_nodes(precomputed_residues, prime_pool, v_tuple=None):
+    """Yield `(p, (v_tuple, rhs_idx), residue)` triples."""
+    for p in prime_pool:
+        p_map = precomputed_residues.get(p, {})
+        if not p_map:
+            continue
+
+        if v_tuple is None:
+            items = p_map.items()
+        elif v_tuple in p_map:
+            items = ((v_tuple, p_map[v_tuple]),)
+        else:
+            continue
+
+        for vt, roots_lists in items:
+            for rhs_idx, roots in enumerate(roots_lists):
+                for r in roots:
+                    yield p, (vt, rhs_idx), int(r) % int(p)
+
+
+def _nodes_by_prime(precomputed_residues, prime_pool, v_tuple=None):
+    nodes = defaultdict(list)
+    for p, node_id, r in _iter_residue_nodes(
+        precomputed_residues, prime_pool, v_tuple=v_tuple
+    ):
+        nodes[p].append((p, node_id, r))
+    return nodes
+
+
+def _component_map(all_nodes, uf):
+    comp_map = defaultdict(list)
+    for nk in all_nodes:
+        comp_map[uf.find(nk)].append(nk)
+    return comp_map
+
+
+def _union_paths(uf, path_a, path_b):
+    """
+    Merge equivalent CRT paths prime-by-prime.
+
+    This is used only when two search states have the same `(used_primes, CRT
+    residue)`; they therefore represent the same residue at every used prime.
+    """
+    by_prime_a = {nk[0]: nk for nk in path_a}
+    by_prime_b = {nk[0]: nk for nk in path_b}
+    for p in by_prime_a.keys() & by_prime_b.keys():
+        uf.union(by_prime_a[p], by_prime_b[p])
+
+
+def _cache_lift_from_optional(cache, c, M, H):
+    return cache(c, M, H) if cache is not None else lattice_rational_lift_exists(
+        int(c) % int(M), int(M), int(H)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cheap helpers / diagnostics
+# ---------------------------------------------------------------------------
 
 def estimate_ktuple_cost(prime_pool, k):
-    """
-    Satisfies search_analysis.py's logging requirement before it hits 
-    the intercepted build_residue_graph_ktuple method.
-    """
+    """Return the combinatorial number of k-subsets of the supplied pool."""
     n = len(prime_pool)
     if k > n or k < 0:
         return 0
     return math.comb(n, k)
 
-def _iter_residue_nodes(precomputed_residues, prime_pool, v_tuple=None):
-    """
-    Flatten precomputed_residues into (p, v_tuple, rhs_idx, r) node tuples.
-    """
-    for p in prime_pool:
-        p_map = precomputed_residues.get(p, {})
-        if not p_map:
-            continue
-        items = p_map.items() if v_tuple is None else (
-            [(v_tuple, p_map[v_tuple])] if v_tuple in p_map else []
-        )
-        for vt, roots_lists in items:
-            for rhs_idx, roots in enumerate(roots_lists):
-                for r in roots:
-                    yield p, (vt, rhs_idx), int(r) % p
-
 
 def false_lift_rate(M, H, num_samples=2000, seed=0):
     """
-    Empirically measure what fraction of residues mod M admit SOME small
-    lift under lattice_rational_lift_exists(c, M, H).
+    Empirically estimate the fraction of residues mod M admitting a small
+    rational lift.
     """
-    import random
     M, H = int(M), int(H)
     if M <= 2 * H + 1:
         return 1.0
+
     rng = random.Random(seed)
     if M <= num_samples * 5:
-        hits = sum(1 for c in range(M) if lattice_rational_lift_exists(c, M, H))
+        hits = sum(
+            1 for c in range(M) if lattice_rational_lift_exists(c, M, H)
+        )
         return hits / M
-    sample = [rng.randrange(M) for _ in range(num_samples)]
-    hits = sum(1 for c in sample if lattice_rational_lift_exists(c, M, H))
+
+    hits = sum(
+        1
+        for _ in range(num_samples)
+        if lattice_rational_lift_exists(rng.randrange(M), M, H)
+    )
     return hits / num_samples
 
 
-MIN_MARGIN_OVER_BOX = 15
-
-_STRONG_INFORMATIVE_MARGIN = 50
-
-
-def _min_attempts_for_informative(primes_with_data, H, p=None,
-                                   margin=_STRONG_INFORMATIVE_MARGIN):
-    """
-    Minimum number of partner primes a witness chain must try before its
-    success rate is trusted.
-
-    Returns the smallest count of primes (largest first, excluding p) whose
-    product exceeds margin * H^2, i.e. enough modulus for a lattice-lift
-    success to be informative.  Falls back to all available partners if the
-    product never gets there.
-    """
+def _min_attempts_for_informative(
+    primes_with_data, H, p=None, margin=_STRONG_INFORMATIVE_MARGIN
+):
+    """Smallest number of largest partner primes whose product beats margin*H²."""
     H = int(H)
-    threshold = margin * H * H
+    threshold = int(margin) * H * H
     others = sorted((int(q) for q in primes_with_data if q != p), reverse=True)
-    prod = 1
+
+    product = 1
     for i, q in enumerate(others, 1):
-        prod *= q
-        if prod > threshold:
+        product *= q
+        if product > threshold:
             return i
     return len(others)
 
 
-def _has_witness_chain(p, r_p, nodes_by_prime, primes_with_data, H, sample_cap=None,
-                        rng=None, min_success_rate=0.8, min_attempts=6,
-                        beam_width=4, max_calls_per_prime_step=32):
+# ---------------------------------------------------------------------------
+# Witness / arc consistency
+# ---------------------------------------------------------------------------
+
+def _has_witness_chain(
+    p,
+    r_p,
+    nodes_by_prime,
+    primes_with_data,
+    H,
+    sample_cap=None,
+    rng=None,
+    min_success_rate=0.8,
+    min_attempts=6,
+    beam_width=4,
+    max_calls_per_prime_step=32,
+    lift_cache=None,
+):
     """
-    Decide whether residue r_p at prime p is supported by a chain through
-    the other primes.
+    Decide whether residue `r_p` at `p` has support through other primes.
 
-    Starting from the single class (p, r_p), the primes in primes_with_data
-    are visited one at a time (optionally shuffled/truncated by rng and
-    sample_cap).  At each prime q, every residue of q is combined with each
-    live accumulator by CRT, and the result is kept if
-    lattice_rational_lift_exists says its class can still contain a rational
-    of height <= H.  At most beam_width accumulators (smallest modulus first)
-    survive a step, and at most max_calls_per_prime_step CRT/lift calls are
-    spent per step (scaled up when a prime has many residues).
-
-    A step counts as a success if at least one child survives.  The residue is
-    rejected as soon as, after min_attempts steps, the success rate falls below
-    min_success_rate; it is accepted as soon as the rate is at least
-    min_success_rate and some accumulator's modulus exceeds
-    _STRONG_INFORMATIVE_MARGIN * H^2.  If all primes are exhausted without
-    either, the final success rate decides.
+    This retains the original beam-search idea but routes every lift test through
+    the shared cache when one is supplied.
     """
     others = [q for q in primes_with_data if q != p]
     if rng is not None:
-        others = list(others)
         rng.shuffle(others)
     if sample_cap is not None:
-        others = others[:sample_cap]
+        others = others[: int(sample_cap)]
 
-    min_attempts = max(min_attempts, _min_attempts_for_informative(primes_with_data, H, p=p))
+    min_attempts = max(
+        int(min_attempts),
+        _min_attempts_for_informative(primes_with_data, H, p=p),
+    )
 
-    # Beam of live accumulator states: list of (M, c).
-    beam = [(p, r_p)]
+    beam = [(int(p), int(r_p) % int(p))]
     attempts = 0
     successes = 0
+
     for q in others:
         q_nodes = nodes_by_prime.get(q)
         if not q_nodes:
@@ -152,72 +323,85 @@ def _has_witness_chain(p, r_p, nodes_by_prime, primes_with_data, H, sample_cap=N
 
         attempts += 1
         children = []
-        calls_this_step = 0
         q_nodes_this_step = list(q_nodes)
         if rng is not None:
             rng.shuffle(q_nodes_this_step)
-        effective_cap = max(max_calls_per_prime_step, 4 * len(q_nodes_this_step) // max(1, len(beam)))
-        for (M, c) in beam:
-            new_M = M * q
+
+        effective_cap = max(
+            int(max_calls_per_prime_step),
+            4 * len(q_nodes_this_step) // max(1, len(beam)),
+        )
+
+        calls_this_step = 0
+        for M, c in beam:
+            new_M = M * int(q)
             for nk_q in q_nodes_this_step:
                 if calls_this_step >= effective_cap:
                     break
+
                 r_q = nk_q[2]
                 calls_this_step += 1
                 new_c = crt_cached((c, r_q), (M, q))
-                if lattice_rational_lift_exists(int(new_c) % new_M, new_M, H):
+
+                if _cache_lift_from_optional(
+                    lift_cache, int(new_c) % new_M, new_M, H
+                ):
                     children.append((new_M, new_c))
+
             if calls_this_step >= effective_cap:
                 break
 
         if children:
             successes += 1
             uniq = {}
-            for (M2, c2) in children:
-                uniq[(M2, c2)] = None  # dedupe exact repeats
-            beam = sorted(uniq.keys(), key=lambda mc: mc[0])[:beam_width]
+            for state in children:
+                uniq[state] = None
+            beam = sorted(uniq.keys(), key=lambda mc: mc[0])[: int(beam_width)]
 
         if attempts >= min_attempts and successes / attempts < min_success_rate:
-            return False  # failing badly enough that more attempts can't recover it
+            return False
 
-        if attempts >= min_attempts and successes / attempts >= min_success_rate \
-                and any(M > _STRONG_INFORMATIVE_MARGIN * H * H for (M, _c) in beam):
+        if (
+            attempts >= min_attempts
+            and successes / attempts >= min_success_rate
+            and any(M > _STRONG_INFORMATIVE_MARGIN * H * H for M, _ in beam)
+        ):
             return True
 
-    if attempts == 0:
-        return False
-    return successes / attempts >= min_success_rate
+    return attempts > 0 and successes / attempts >= min_success_rate
 
 
-def arc_consistency_prune_domains(precomputed_residues, prime_pool, height_bound,
-                                   v_tuple=None, max_rounds=None, stats_counter=None,
-                                   progress=True, witness_sample_cap=None, seed=0,
-                                   witness_beam_width=4, witness_max_calls_per_prime_step=32,
-                                   witness_min_success_rate=0.8, witness_min_attempts=6):
+def arc_consistency_prune_domains(
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    v_tuple=None,
+    max_rounds=None,
+    stats_counter=None,
+    progress=True,
+    witness_sample_cap=None,
+    seed=0,
+    witness_beam_width=4,
+    witness_max_calls_per_prime_step=32,
+    witness_min_success_rate=0.8,
+    witness_min_attempts=6,
+    lift_cache_size=250_000,
+):
     """
-    Iteratively prune each prime's residue domain to residues that have a
-    witness chain (see _has_witness_chain).
+    Iteratively remove residue nodes that lack a cross-prime witness.
 
-    Every round re-tests all remaining residues against the current domains
-    and drops those without a witness; rounds repeat until nothing is dropped
-    or max_rounds is reached.  v_tuple restricts the domains to one vector's
-    residues (None pools all vectors).  Dropped residues are counted in
-    stats_counter['residue_graph_arc_consistency_dropped'].
-
-    Returns (nodes_by_prime, rounds_run), where nodes_by_prime maps each prime
-    to its surviving (p, node_id, r) nodes.
+    Returns `(nodes_by_prime, rounds_run)`.
     """
-    import random
-    rng = random.Random(seed)
-
     pool = sorted(int(p) for p in prime_pool)
     H = int(height_bound)
+    rng = random.Random(seed)
+    lift_cache = _LiftCache(lift_cache_size)
 
-    nodes_by_prime = defaultdict(list)
-    for p, node_id, r in _iter_residue_nodes(precomputed_residues, pool, v_tuple=v_tuple):
-        nodes_by_prime[p].append((p, node_id, r))
-
+    nodes_by_prime = _nodes_by_prime(
+        precomputed_residues, pool, v_tuple=v_tuple
+    )
     primes_with_data = [p for p in pool if nodes_by_prime.get(p)]
+
     if len(primes_with_data) < 2:
         return nodes_by_prime, 0
 
@@ -226,50 +410,63 @@ def arc_consistency_prune_domains(precomputed_residues, prime_pool, height_bound
 
     while True:
         round_num += 1
-        if max_rounds is not None and round_num > max_rounds:
+        if max_rounds is not None and round_num > int(max_rounds):
             round_num -= 1
             break
 
         any_dropped = False
-        new_nodes_by_prime = {}
-        residues_checked_this_round = 0
-        checkpoint_start = time.time()
+        new_nodes_by_prime = defaultdict(list)
+        checked = 0
+        checkpoint_start = time.monotonic()
 
         for p in primes_with_data:
-            p_nodes = nodes_by_prime[p]
-            if not p_nodes:
-                new_nodes_by_prime[p] = []
-                continue
-
-            survivors = []
-            for nk in p_nodes:
-                r_p = nk[2]
-                if _has_witness_chain(p, r_p, nodes_by_prime, primes_with_data, H,
-                                       sample_cap=witness_sample_cap, rng=rng,
-                                       beam_width=witness_beam_width,
-                                       max_calls_per_prime_step=witness_max_calls_per_prime_step,
-                                       min_success_rate=witness_min_success_rate,
-                                       min_attempts=witness_min_attempts):
-                    survivors.append(nk)
+            for nk in nodes_by_prime[p]:
+                ok = _has_witness_chain(
+                    p,
+                    nk[2],
+                    nodes_by_prime,
+                    primes_with_data,
+                    H,
+                    sample_cap=witness_sample_cap,
+                    rng=rng,
+                    beam_width=witness_beam_width,
+                    max_calls_per_prime_step=witness_max_calls_per_prime_step,
+                    min_success_rate=witness_min_success_rate,
+                    min_attempts=witness_min_attempts,
+                    lift_cache=lift_cache,
+                )
+                if ok:
+                    new_nodes_by_prime[p].append(nk)
                 else:
                     any_dropped = True
                     if stats_counter is not None:
-                        stats_counter['residue_graph_arc_consistency_dropped'] += 1
-                residues_checked_this_round += 1
-                if progress and residues_checked_this_round % 200 == 0:
-                    elapsed = time.time() - checkpoint_start
-                    rate = residues_checked_this_round / elapsed if elapsed > 0 else 0
-                    print(f"  [residue_graph_arc_consistency] round {round_num} progress: "
-                          f"{residues_checked_this_round}/{total_before} residues checked "
-                          f"({rate:.1f}/sec)", flush=True)
-            new_nodes_by_prime[p] = survivors
+                        stats_counter[
+                            "residue_graph_arc_consistency_dropped"
+                        ] += 1
+
+                checked += 1
+                if progress and checked % 200 == 0:
+                    elapsed = max(time.monotonic() - checkpoint_start, 1e-9)
+                    rate = checked / elapsed
+                    print(
+                        "[residue_graph_arc_consistency] "
+                        f"round {round_num} progress: {checked}/{total_before} "
+                        f"({rate:.1f}/sec)",
+                        flush=True,
+                    )
 
         nodes_by_prime = new_nodes_by_prime
 
         if progress:
             total_now = sum(len(v) for v in nodes_by_prime.values())
-            print(f"[residue_graph_arc_consistency] round {round_num}: "
-                  f"{total_now} residues survive (of {total_before} originally)")
+            cache_stats = lift_cache.stats()
+            print(
+                "[residue_graph_arc_consistency] "
+                f"round {round_num}: {total_now} residues survive "
+                f"(of {total_before} originally); "
+                f"lift-cache hits={cache_stats['lift_cache_hits']:,}, "
+                f"misses={cache_stats['lift_cache_misses']:,}"
+            )
 
         if not any_dropped:
             break
@@ -277,90 +474,112 @@ def arc_consistency_prune_domains(precomputed_residues, prime_pool, height_bound
     return nodes_by_prime, round_num
 
 
-def trace_target_through_arc_consistency(target_m, precomputed_residues, prime_pool,
-                                          height_bound, v_tuple=None, max_rounds=None,
-                                          witness_sample_cap=None, seed=0):
+def trace_target_through_arc_consistency(
+    target_m,
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    v_tuple=None,
+    max_rounds=None,
+    witness_sample_cap=None,
+    seed=0,
+):
     """
-    Diagnostic: given a KNOWN target rational m (e.g. from a point you found
-    some other way, like the anomalous-sweep fallback), report whether m's
-    true residue at each prime is even present in precomputed_residues, and
-    if so, whether it survives each round of arc_consistency_prune_domains
-    -- and if it's dropped, at which round.
-
-    This never feeds target_m into the graph-building itself (the point of
-    this module is to work without a target); it's purely an after-the-fact
-    check on the pruning, to answer "did arc-consistency wrongly kill the
-    real answer's residues, and when".
-
-    Returns a dict: {prime: {'residue': r_or_None, 'in_domain': bool,
-                              'survived_round': last round it was seen alive,
-                              'dropped_round': round it disappeared, or None}}
+    Diagnostic: trace a known target through the same pruning procedure.
     """
     from sage.all import QQ, Zmod
 
     pool = sorted(int(p) for p in prime_pool)
     H = int(height_bound)
     target_m = QQ(target_m)
-
-    nodes_by_prime = defaultdict(list)
-    for p, node_id, r in _iter_residue_nodes(precomputed_residues, pool, v_tuple=v_tuple):
-        nodes_by_prime[p].append((p, node_id, r))
+    nodes_by_prime = _nodes_by_prime(
+        precomputed_residues, pool, v_tuple=v_tuple
+    )
 
     report = {}
     for p in pool:
         num, den = target_m.numerator(), target_m.denominator()
         if den % p == 0:
-            report[p] = {'residue': None, 'in_domain': False,
-                          'note': 'target has a pole mod p (den divisible by p)'}
+            report[p] = {
+                "residue": None,
+                "in_domain": False,
+                "note": "target has a pole mod p (den divisible by p)",
+            }
             continue
+
         true_r = int(Zmod(p)(num) / Zmod(p)(den))
-        present = any(r == true_r for (_p, _nid, r) in nodes_by_prime.get(p, []))
-        report[p] = {'residue': true_r, 'in_domain': present,
-                      'survived_round': None, 'dropped_round': None}
+        present = any(
+            r == true_r for (_p, _nid, r) in nodes_by_prime.get(p, [])
+        )
+        report[p] = {
+            "residue": true_r,
+            "in_domain": present,
+            "survived_round": None,
+            "dropped_round": None,
+        }
 
     print(f"[trace_target] target m={target_m}")
     for p in pool:
         info = report[p]
-        if info.get('in_domain') is False and 'note' in info:
+        if info.get("in_domain") is False and "note" in info:
             print(f"  p={p}: {info['note']}")
         else:
-            tag = "PRESENT in precomputed_residues" if info['in_domain'] else \
-                  "*** MISSING from precomputed_residues entirely (never a candidate) ***"
-            print(f"  p={p}: true residue={info['residue']}  {tag}")
+            tag = (
+                "PRESENT in precomputed_residues"
+                if info["in_domain"]
+                else "*** MISSING from precomputed_residues entirely "
+                "(never a candidate) ***"
+            )
+            print(
+                f"  p={p}: true residue={info['residue']}  {tag}"
+            )
 
     primes_with_data = [p for p in pool if nodes_by_prime.get(p)]
     if len(primes_with_data) < 2:
         return report
 
-    import random
     rng = random.Random(seed)
+    lift_cache = _LiftCache()
     round_num = 0
+
     while True:
         round_num += 1
-        if max_rounds is not None and round_num > max_rounds:
+        if max_rounds is not None and round_num > int(max_rounds):
             round_num -= 1
             break
+
         any_dropped = False
-        new_nodes_by_prime = {}
+        new_nodes_by_prime = defaultdict(list)
+
         for p in primes_with_data:
-            p_nodes = nodes_by_prime[p]
-            survivors = []
-            for nk in p_nodes:
+            for nk in nodes_by_prime[p]:
                 r_p = nk[2]
-                ok = _has_witness_chain(p, r_p, nodes_by_prime, primes_with_data, H,
-                                         sample_cap=witness_sample_cap, rng=rng)
+                ok = _has_witness_chain(
+                    p,
+                    r_p,
+                    nodes_by_prime,
+                    primes_with_data,
+                    H,
+                    sample_cap=witness_sample_cap,
+                    rng=rng,
+                    lift_cache=lift_cache,
+                )
                 if ok:
-                    survivors.append(nk)
-                    if report.get(p, {}).get('residue') == r_p:
-                        report[p]['survived_round'] = round_num
+                    new_nodes_by_prime[p].append(nk)
+                    if report.get(p, {}).get("residue") == r_p:
+                        report[p]["survived_round"] = round_num
                 else:
                     any_dropped = True
-                    if report.get(p, {}).get('residue') == r_p and \
-                            report[p].get('dropped_round') is None:
-                        report[p]['dropped_round'] = round_num
-                        print(f"[trace_target]   *** p={p} true residue r={r_p} "
-                              f"DROPPED at arc-consistency round {round_num} ***")
-            new_nodes_by_prime[p] = survivors
+                    if (
+                        report.get(p, {}).get("residue") == r_p
+                        and report[p].get("dropped_round") is None
+                    ):
+                        report[p]["dropped_round"] = round_num
+                        print(
+                            f"[trace_target]   *** p={p} true residue r={r_p} "
+                            f"DROPPED at arc-consistency round {round_num} ***"
+                        )
+
         nodes_by_prime = new_nodes_by_prime
         if not any_dropped:
             break
@@ -368,451 +587,855 @@ def trace_target_through_arc_consistency(target_m, precomputed_residues, prime_p
     print(f"[trace_target] finished after {round_num} round(s). Summary:")
     for p in pool:
         info = report[p]
-        if 'note' in info:
+        if "note" in info:
             continue
-        status = ("still alive" if info.get('dropped_round') is None
-                   and info.get('in_domain') else
-                   f"dropped at round {info.get('dropped_round')}" if info.get('dropped_round')
-                   else "never in domain")
+
+        if info.get("dropped_round") is None and info.get("in_domain"):
+            status = "still alive"
+        elif info.get("dropped_round"):
+            status = f"dropped at round {info['dropped_round']}"
+        else:
+            status = "never in domain"
         print(f"  p={p}: {status}")
+
     return report
 
 
-def min_tuple_size_for_margin(prime_pool, height_bound, margin=MIN_MARGIN_OVER_BOX):
-    """
-    Smallest k such that the product of the k smallest primes in prime_pool
-    exceeds margin * (2H+1)^2, i.e. the fewest primes whose CRT modulus is
-    informative for a height bound H.  Returns None if the whole pool is not
-    enough.
-    """
+# ---------------------------------------------------------------------------
+# Prime selection / mixed beam search
+# ---------------------------------------------------------------------------
+
+def min_tuple_size_for_margin(
+    prime_pool, height_bound, margin=MIN_MARGIN_OVER_BOX
+):
+    """Smallest k whose k smallest primes have product > margin*(2H+1)^2."""
     H = int(height_bound)
-    box = (2 * H + 1) ** 2
-    threshold = margin * box
-    sorted_primes = sorted(int(p) for p in prime_pool)
-    prod = 1
-    for i, p in enumerate(sorted_primes):
-        prod *= p
-        if prod > threshold:
-            return i + 1
+    threshold = int(margin) * (2 * H + 1) ** 2
+
+    product = 1
+    for i, p in enumerate(sorted(int(p) for p in prime_pool), 1):
+        product *= p
+        if product > threshold:
+            return i
     return None
 
 
-def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bound,
-                                     v_tuple=None, margin=MIN_MARGIN_OVER_BOX,
-                                     max_chains=None, stats_counter=None,
-                                     progress=True, use_arc_consistency=False,
-                                     arc_consistency_max_rounds=None,
-                                     max_calls_per_generation=2_000_000,
-                                     min_clique_size=MIN_PRIME_SUBSET_SIZE,
-                                     max_clique_size=MIN_MAX_PRIME_SUBSET_SIZE,
-                                     reconcile_components=False,
-                                     max_reconcile_pairs=2_000_000):
+def _mixed_prime_order(
+    primes,
+    nodes_by_prime,
+    rng,
+    temperature=0.35,
+    branch_penalty=0.5,
+):
     """
-    Build the residue graph for one vector by growing CRT chains a prime at a
-    time (beam search).
+    Produce one shared randomized ranking of primes.
 
-    Generation 1 has one chain per residue.  Each generation extends every
-    still-growing chain by one unused prime, trying every residue of that
-    prime; the extension survives if the CRT class still admits a rational of
-    height <= H (lattice_rational_lift_exists).  A chain stops growing, and is
-    recorded as confirmed, once it uses at least min_clique_size primes or its
-    modulus exceeds margin * (2H+1)^2.  Chains that reach max_clique_size
-    without being confirmed are dropped as overgrown.  Because only a small
-    clique of primes has to agree, chains are extended into any unused prime
-    in any order.
-
-    Parameters:
-        precomputed_residues: {p: {v_tuple: [roots per rhs index]}}.
-        prime_pool: primes to draw residues from.
-        height_bound: H, bound on numerator and denominator of the target.
-        v_tuple: restrict to this vector's residues (None pools all vectors).
-        margin: confirmation threshold is margin * (2H+1)^2.
-        max_chains: if set, keep at most this many chains per generation,
-            preferring deeper (more primes) and then larger modulus.
-        stats_counter: optional Counter for bookkeeping.
-        progress: print per-generation progress.
-        use_arc_consistency: prune residue domains with
-            arc_consistency_prune_domains before building chains.
-        arc_consistency_max_rounds: round cap for that pruning.
-        max_calls_per_generation: soft cap on CRT/lift calls per generation;
-            chains that do not fit are carried forward to the next one.
-        min_clique_size / max_clique_size: confirmation and overgrowth limits
-            on the number of primes in a chain.
-        reconcile_components: after chaining, try merging components that
-            share no prime by CRT-combining one representative of each.
-        max_reconcile_pairs: budget for that reconciliation pass.
-
-    Returns a dict with 'components', 'component_primes', 'edges_tested',
-    'edges_kept', 'nodes', 'max_generation_reached', 'chains_confirmed',
-    'confirmed_chains' (each with 'primes', 'modulus', 'residue',
-    'node_keys') and 'generation_log'.
+    The score rewards large modulus gain and penalizes large residue domains.
+    A single tuple is shared by every chain; each chain gets a different random
+    starting offset, so we get N-way mixing without storing N copies of the
+    permutation.
     """
-    pool = sorted(int(p) for p in prime_pool)
+    scored = []
+    temperature = max(0.0, float(temperature))
+    branch_penalty = max(0.0, float(branch_penalty))
+
+    for p in primes:
+        p = int(p)
+        domain = max(1, len(nodes_by_prime.get(p, ())))
+        information = math.log1p(p)
+        branch_cost = domain ** branch_penalty
+        jitter = (
+            math.exp(temperature * (rng.random() - 0.5))
+            if temperature
+            else 1.0
+        )
+        scored.append(
+            (information / branch_cost * jitter, p)
+        )
+
+    scored.sort(reverse=True)
+    return tuple(p for _score, p in scored)
+
+
+def _advance_task(task, nodes_by_prime, used_limit=None):
+    """
+    Consume one candidate edge from a resumable task.
+
+    Returns `(p_next, node)` or `None` if the task has no remaining work.
+    """
+    if used_limit is not None and task.primes_this_generation >= used_limit:
+        return None
+
+    order_len = len(task.prime_order)
+    while task.prime_pos < order_len:
+        p_next = task.prime_order[
+            (task.prime_start + task.prime_pos) % order_len
+        ]
+        p_nodes = nodes_by_prime.get(p_next, [])
+
+        if p_next in task.used_primes:
+            task.prime_pos += 1
+            task.node_pos = 0
+            continue
+
+        if task.node_pos >= len(p_nodes):
+            task.prime_pos += 1
+            task.node_pos = 0
+            continue
+
+        nk = p_nodes[task.node_pos]
+        task.node_pos += 1
+        task.calls_this_generation += 1
+
+        if task.node_pos == 1:
+            task.primes_this_generation += 1
+
+        # Keep the cursor canonical: once a prime's domain is exhausted, move
+        # immediately to the next prime so the hot-path "do I have more work?"
+        # check does not rescan the exhausted domain.
+        if task.node_pos >= len(p_nodes):
+            task.prime_pos += 1
+            task.node_pos = 0
+
+        return p_next, nk
+
+    return None
+
+
+def _task_has_more_work(task, nodes_by_prime):
+    order_len = len(task.prime_order)
+    pos = task.prime_pos
+    node_pos = task.node_pos
+
+    while pos < order_len:
+        p = task.prime_order[
+            (task.prime_start + pos) % order_len
+        ]
+        if p in task.used_primes:
+            pos += 1
+            node_pos = 0
+            continue
+
+        if node_pos < len(nodes_by_prime.get(p, ())):
+            return True
+
+        pos += 1
+        node_pos = 0
+
+    return False
+
+
+def _make_component_primes(components):
+    return [set(p for p, _node_id, _r in comp) for comp in components]
+
+
+# ---------------------------------------------------------------------------
+# Main incremental graph builder
+# ---------------------------------------------------------------------------
+
+def build_residue_graph_incremental(
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    v_tuple=None,
+    margin=MIN_MARGIN_OVER_BOX,
+    max_chains=None,
+    stats_counter=None,
+    progress=True,
+    use_arc_consistency=False,
+    arc_consistency_max_rounds=None,
+    max_calls_per_generation=2_000_000,
+    min_clique_size=MIN_PRIME_SUBSET_SIZE,
+    max_clique_size=MIN_MAX_PRIME_SUBSET_SIZE,
+    reconcile_components=False,
+    max_reconcile_pairs=2_000_000,
+    *,
+    seed=0,
+    prime_mix_temperature=0.35,
+    prime_mix_branch_penalty=0.5,
+    max_prime_choices_per_chain_generation=8,
+    max_chain_calls_per_generation=256,
+    lift_cache_size=500_000,
+    max_total_calls=None,
+    time_budget_sec=None,
+    **_compat_kwargs,
+):
+    """
+    Build a residue graph using a budgeted, mixed-order incremental CRT search.
+
+    Important behavioral changes from the old implementation:
+
+    1. The generation budget is a *hard call budget*.  We do not first compute
+       an enormous projected fanout and then wait for it before doing useful
+       work.
+    2. Chain work is round-robin and resumable.  A giant residue domain cannot
+       monopolize the process.
+    3. Equivalent CRT states are deduplicated.
+    4. Liftability tests are cached.
+    5. Prime order is mixed using an information/branching score plus seeded
+       randomization.
+    6. `max_total_calls` and `time_budget_sec` provide hard global escape hatches.
+
+    Defaults preserve the existing public thresholds while making the search
+    substantially less repetitive.
+    """
+    # Defensive compatibility boundary: some older callers may still pass
+    # diagnostic-only keywords directly to this low-level builder.  They have
+    # no effect on the CRT search, so consume them here rather than crashing
+    # inside worker processes.
+    _compat_kwargs.pop("known_m", None)
+    _compat_kwargs.pop("label", None)
+    _compat_kwargs.pop("debug", None)
+    _compat_kwargs.pop("verbose", None)
+    _compat_kwargs.pop("print_header", None)
+
+    pool = sorted({int(p) for p in prime_pool})
     H = int(height_bound)
     box = (2 * H + 1) ** 2
-    threshold = margin * box
+    threshold = int(margin) * box
+    rng = random.Random(seed)
 
+    if int(max_calls_per_generation) <= 0:
+        raise ValueError("max_calls_per_generation must be positive")
+    if int(max_prime_choices_per_chain_generation) <= 0:
+        raise ValueError("max_prime_choices_per_chain_generation must be positive")
+    if int(max_chain_calls_per_generation) <= 0:
+        raise ValueError("max_chain_calls_per_generation must be positive")
+    if int(min_clique_size) < 1:
+        raise ValueError("min_clique_size must be >= 1")
+    if int(max_clique_size) < int(min_clique_size):
+        raise ValueError("max_clique_size must be >= min_clique_size")
+
+    lift_cache = _LiftCache(lift_cache_size)
+
+    # ------------------------------------------------------------------
+    # Build / optionally prune residue domains.
+    # ------------------------------------------------------------------
     if use_arc_consistency:
-        _tmp_nodes = defaultdict(list)
-        for p, node_id, r in _iter_residue_nodes(precomputed_residues, pool, v_tuple=v_tuple):
-            _tmp_nodes[p].append((p, node_id, r))
-        _primes_with_data = [p for p in pool if _tmp_nodes.get(p)]
-        avg_roots_observed = (sum(len(v) for v in _tmp_nodes.values()) / len(_primes_with_data)
-                              if _primes_with_data else 1.0)
-        # Fixed rate: the average root count per prime is not a reliable
-        # proxy for how many partner primes should support a given residue.
-        auto_min_success_rate = 0.35
-        if progress:
-            print(f"[residue_graph_arc_consistency] observed avg_roots={avg_roots_observed:.2f} "
-                  f"over {len(_primes_with_data)} primes with data -> "
-                  f"using witness_min_success_rate={auto_min_success_rate}")
-
         nodes_by_prime, ac_rounds = arc_consistency_prune_domains(
-            precomputed_residues, pool, H, v_tuple=v_tuple,
+            precomputed_residues,
+            pool,
+            H,
+            v_tuple=v_tuple,
             max_rounds=arc_consistency_max_rounds,
-            stats_counter=stats_counter, progress=progress,
-            witness_min_success_rate=auto_min_success_rate)
+            stats_counter=stats_counter,
+            progress=progress,
+            seed=seed,
+            lift_cache_size=lift_cache_size,
+        )
         nodes_by_prime = defaultdict(list, nodes_by_prime)
     else:
-        nodes_by_prime = defaultdict(list)
-        for p, node_id, r in _iter_residue_nodes(precomputed_residues, pool, v_tuple=v_tuple):
-            nodes_by_prime[p].append((p, node_id, r))
+        nodes_by_prime = _nodes_by_prime(
+            precomputed_residues, pool, v_tuple=v_tuple
+        )
+        ac_rounds = 0
 
-    all_nodes = [nk for lst in nodes_by_prime.values() for nk in lst]
+    all_nodes = [
+        nk
+        for p in pool
+        for nk in nodes_by_prime.get(p, ())
+    ]
 
-    parent = {}
-
-    def find(x):
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(x, y):
-        rx, ry = find(x), find(y)
-        if rx != ry:
-            parent[rx] = ry
-
+    uf = _UnionFind()
     for nk in all_nodes:
-        find(nk)
+        uf.add(nk)
 
-    primes_with_data = [p for p in pool if nodes_by_prime.get(p)]
-    prime_set = frozenset(primes_with_data)
+    primes_with_data = [
+        p for p in pool if nodes_by_prime.get(p)
+    ]
 
-    # Chains are keyed by the FROZENSET of primes already used, not by a
-    # sorted-order index -- this is what lets a chain extend into any
-    # remaining prime, in any order, rather than only "the next one".
-    chains = []
+    if progress:
+        print(
+            f"[residue_graph_incremental] start: {len(all_nodes):,} nodes, "
+            f"{len(primes_with_data)} primes, threshold={threshold:,}, "
+            f"lift-cache={lift_cache.maxsize:,}"
+        )
+
+    if len(primes_with_data) < 2:
+        return {
+            "components": [[nk] for nk in all_nodes],
+            "component_primes": [{nk[0]} for nk in all_nodes],
+            "edges_tested": 0,
+            "edges_kept": 0,
+            "nodes": len(all_nodes),
+            "max_generation_reached": 0,
+            "chains_confirmed": 0,
+            "confirmed_chains": [],
+            "generation_log": [],
+            "cache_stats": lift_cache.stats(),
+            "arc_consistency_rounds": ac_rounds,
+        }
+
+    mixed_prime_order = _mixed_prime_order(
+        primes_with_data,
+        nodes_by_prime,
+        rng=rng,
+        temperature=prime_mix_temperature,
+        branch_penalty=prime_mix_branch_penalty,
+    )
+
+    def make_task(p, nk):
+        return _ChainTask(
+            used_primes=frozenset((p,)),
+            modulus=int(p),
+            residue=int(nk[2]) % int(p),
+            node_keys=(nk,),
+            prime_order=mixed_prime_order,
+            prime_start=(
+                rng.randrange(len(mixed_prime_order))
+                if mixed_prime_order
+                else 0
+            ),
+        )
+
+    work = deque()
     for p in primes_with_data:
         for nk in nodes_by_prime[p]:
-            chains.append((frozenset((p,)), p, nk[2], [nk]))
+            work.append(make_task(p, nk))
 
     edges_tested = 0
     edges_kept = 0
     chains_confirmed = 0
     generation = 1
+    total_calls = 0
     generation_log = []
-
     confirmed_chains = []
+    start_wall = time.monotonic()
 
-    if progress:
-        print(f"[residue_graph_incremental] start: {len(chains)} gen-1 chains "
-              f"over {len(primes_with_data)} primes, threshold={threshold:.3g}")
+    # Deduplication keyed by the complete CRT state.  Same state means the same
+    # residue at every used prime, so one representative path is enough for the
+    # expensive search.  Equivalent paths are still unioned immediately.
+    generated_state_seen = set()
+    confirmed_state_seen = set()
+
+    stopped_reason = None
+
+    pbar = None
 
     try:
-        while chains:
+        while work:
             gen_start = time.monotonic()
-
-            if max_chains is not None and len(chains) > max_chains:
-                chains.sort(key=lambda ch: (len(ch[0]), ch[1]), reverse=True)
-                dropped = len(chains) - max_chains
-                chains = chains[:max_chains]
-                if stats_counter is not None:
-                    stats_counter['residue_graph_incremental_beam_capped'] += dropped
-                if progress:
-                    print(f"[residue_graph_incremental] gen {generation}: beam capped, "
-                          f"dropped {dropped} chains (kept {max_chains} deepest-then-widest)")
-
-            still_growing = [ch for ch in chains
-                             if ch[1] <= threshold
-                             and len(ch[0]) < min_clique_size
-                             and len(ch[0]) < max_clique_size]
-            already_confirmed_this_gen = len(chains) - len(still_growing)
-
-            def _fanout_cost(ch):
-                used_primes = ch[0]
-                return sum(len(nodes_by_prime[p_remaining])
-                           for p_remaining in primes_with_data
-                           if p_remaining not in used_primes)
-
-            inner_total = sum(_fanout_cost(ch) for ch in still_growing)
-
-            deferred = []
-            if inner_total > max_calls_per_generation:
-                still_growing.sort(key=lambda ch: (len(ch[0]), ch[1]), reverse=True)
-                budget = max_calls_per_generation
-                affordable = []
-                for ch in still_growing:
-                    cost = _fanout_cost(ch)
-                    if cost <= budget:
-                        affordable.append(ch)
-                        budget -= cost
-                    else:
-                        deferred.append(ch)
-                if progress:
-                    print(f"[residue_graph_incremental] gen {generation}: projected "
-                          f"{inner_total} calls exceeds max_calls_per_generation="
-                          f"{max_calls_per_generation}; extending {len(affordable)} "
-                          f"chains this generation, deferring {len(deferred)} to next")
-                still_growing = affordable
-                inner_total = sum(_fanout_cost(ch) for ch in still_growing)
-                if stats_counter is not None:
-                    stats_counter['residue_graph_incremental_generation_deferred'] += len(deferred)
-
-            if progress:
-                print(f"[residue_graph_incremental] gen {generation}: "
-                      f"{len(chains)} live chains ({already_confirmed_this_gen} already "
-                      f"confirmed-or-overgrown, {len(still_growing)} extending this round, "
-                      f"{len(deferred)} deferred) "
-                      f"-> {inner_total} CRT/lift calls this generation")
-
-            next_chains = []
-            any_extended = False
-
-            deferred_ids = {id(ch) for ch in deferred}
-
-            inner_pbar = tqdm(total=inner_total, desc=f"  gen {generation} extend",
-                               disable=not progress, leave=False)
-            try:
-                for ch in chains:
-                    used_primes, M, c, node_keys = ch
-                    if len(used_primes) >= min_clique_size or M > threshold:
-                        first = node_keys[0]
-                        for other in node_keys[1:]:
-                            union(first, other)
-                        chains_confirmed += 1
-                        confirmed_chains.append({
-                            'primes': sorted(used_primes),
-                            'modulus': M,
-                            'residue': c,
-                            'node_keys': list(node_keys),
-                        })
-                        continue
-
-                    if len(used_primes) >= max_clique_size:
-                        if stats_counter is not None:
-                            stats_counter['residue_graph_incremental_overgrown_dropped'] += 1
-                        continue
-
-                    if id(ch) in deferred_ids:
-                        # Over the per-generation call budget: carry the chain
-                        # forward unextended so it is first in line (same
-                        # depth-first ordering) next generation.
-                        next_chains.append(ch)
-                        continue
-
-                    for p_next in primes_with_data:
-                        if p_next in used_primes:
-                            continue
-                        for nk in nodes_by_prime[p_next]:
-                            r_next = nk[2]
-                            new_M = M * p_next
-                            new_c = crt_cached((c, r_next), (M, p_next))
-                            edges_tested += 1
-                            inner_pbar.update(1)
-                            if lattice_rational_lift_exists(int(new_c) % new_M, new_M, H):
-                                edges_kept += 1
-                                any_extended = True
-                                next_chains.append((used_primes | {p_next}, new_M, new_c, node_keys + [nk]))
-                            elif stats_counter is not None:
-                                stats_counter['residue_graph_incremental_pruned'] += 1
-            finally:
-                inner_pbar.close()
-
-            gen_elapsed = time.monotonic() - gen_start
-            generation_log.append({
-                'generation': generation,
-                'chains_in': len(chains),
-                'chains_confirmed_this_gen': already_confirmed_this_gen,
-                'chains_out': len(next_chains),
-                'inner_calls': inner_total,
-                'elapsed_sec': gen_elapsed,
-            })
-            if progress:
-                rate = inner_total / gen_elapsed if gen_elapsed > 0 else float('inf')
-                print(f"[residue_graph_incremental] gen {generation} done in "
-                      f"{gen_elapsed:.2f}s ({rate:.0f} calls/sec) -> "
-                      f"{len(next_chains)} chains survive to gen {generation + 1}")
-
-            if not any_extended:
+            gen_start_calls = total_calls
+            if (
+                time_budget_sec is not None
+                and time.monotonic() - start_wall >= float(time_budget_sec)
+            ):
+                stopped_reason = "time_budget"
                 break
 
-            chains = next_chains
+            # Beam cap is applied to tasks before expansion.
+            if max_chains is not None and len(work) > int(max_chains):
+                work_list = list(work)
+
+                def beam_key(task):
+                    # Prefer deeper chains, then larger modulus, then smaller
+                    # residue-domain cost.
+                    remaining_cost = sum(
+                        len(nodes_by_prime.get(p, ()))
+                        for p in task.prime_order
+                        if p not in task.used_primes
+                    )
+                    return (
+                        len(task.used_primes),
+                        task.modulus,
+                        -remaining_cost,
+                    )
+
+                work_list.sort(key=beam_key, reverse=True)
+                dropped = len(work_list) - int(max_chains)
+                work = deque(work_list[: int(max_chains)])
+
+                if stats_counter is not None:
+                    stats_counter[
+                        "residue_graph_incremental_beam_capped"
+                    ] += dropped
+
+                if progress:
+                    print(
+                        f"[residue_graph_incremental] gen {generation}: "
+                        f"beam capped; dropped {dropped:,}, kept "
+                        f"{len(work):,}"
+                    )
+
+            # Confirmed / overgrown tasks can be peeled before doing any calls.
+            pending = deque()
+            already_done = 0
+
+            while work:
+                task = work.popleft()
+                used_count = len(task.used_primes)
+
+                if (
+                    used_count >= int(min_clique_size)
+                    or task.modulus > threshold
+                ):
+                    first = task.node_keys[0]
+                    for other in task.node_keys[1:]:
+                        uf.union(first, other)
+
+                    chains_confirmed += 1
+                    confirmed_chains.append(
+                        {
+                            "primes": sorted(task.used_primes),
+                            "modulus": task.modulus,
+                            "residue": task.residue,
+                            "node_keys": list(task.node_keys),
+                        }
+                    )
+                    already_done += 1
+                    continue
+
+                if used_count >= int(max_clique_size):
+                    if stats_counter is not None:
+                        stats_counter[
+                            "residue_graph_incremental_overgrown_dropped"
+                        ] += 1
+                    continue
+
+                # Reset generation-local fairness counters.
+                task.calls_this_generation = 0
+                task.primes_this_generation = 0
+                pending.append(task)
+
+            work = pending
+
+            calls_budget = int(max_calls_per_generation)
+            pbar = tqdm(
+                total=calls_budget,
+                desc=f"  gen {generation} CRT/lift",
+                disable=not progress,
+                leave=False,
+                mininterval=0.5,
+            )
+
+            next_state = {}
+
+            # Round-robin at the individual edge/candidate level.  This is the
+            # main change that prevents a single enormous fanout from looking
+            # like the program has frozen.
+            while work:
+                if (
+                    max_total_calls is not None
+                    and total_calls >= int(max_total_calls)
+                ):
+                    stopped_reason = "max_total_calls"
+                    break
+
+                if total_calls - gen_start_calls >= calls_budget:
+                    break
+
+                if (
+                    time_budget_sec is not None
+                    and time.monotonic() - start_wall >= float(time_budget_sec)
+                ):
+                    stopped_reason = "time_budget"
+                    break
+
+                task = work.popleft()
+
+                edge = _advance_task(
+                    task,
+                    nodes_by_prime,
+                    used_limit=max_prime_choices_per_chain_generation,
+                )
+
+                if edge is None:
+                    continue
+
+                p_next, nk = edge
+                r_next = nk[2]
+                new_M = task.modulus * int(p_next)
+                new_c = crt_cached(
+                    (task.residue, r_next),
+                    (task.modulus, int(p_next)),
+                )
+
+                edges_tested += 1
+                total_calls += 1
+                pbar.update(1)
+
+                if _cache_lift_from_optional(
+                    lift_cache, int(new_c) % new_M, new_M, H
+                ):
+                    edges_kept += 1
+
+                    child_used = task.used_primes | {int(p_next)}
+                    state_key = (child_used, int(new_c) % new_M)
+
+                    child_path = task.node_keys + (nk,)
+
+                    old_path = next_state.get(state_key)
+                    if old_path is None:
+                        next_state[state_key] = child_path
+                    else:
+                        _union_paths(uf, old_path, child_path)
+
+                    # Keep growing the parent task too, unless its prime search
+                    # is exhausted.  It is resumed fairly in the same generation
+                    # if budget remains.
+                elif stats_counter is not None:
+                    stats_counter[
+                        "residue_graph_incremental_pruned"
+                    ] += 1
+
+                if (
+                    task.calls_this_generation
+                    < int(max_chain_calls_per_generation)
+                    and _task_has_more_work(task, nodes_by_prime)
+                ):
+                    work.append(task)
+
+                if (
+                    max_total_calls is not None
+                    and total_calls >= int(max_total_calls)
+                ):
+                    stopped_reason = "max_total_calls"
+                    break
+
+            if stopped_reason is None:
+                # Budget exhaustion is represented by unfinished `work`; those
+                # tasks are resumed next generation rather than restarted.
+                if work:
+                    next_work = deque(work)
+                else:
+                    next_work = deque()
+            else:
+                next_work = deque(work)
+
+            # Add the children created this generation.  Confirm immediately
+            # when a child already satisfies the stopping criterion; this avoids
+            # making the user wait for an otherwise-empty next generation.
+            for (used, c), node_keys in next_state.items():
+                modulus = 1
+                for p in used:
+                    modulus *= int(p)
+                residue = int(c) % modulus
+                dedup_key = (frozenset(used), residue)
+
+                if (
+                    len(used) >= int(min_clique_size)
+                    or modulus > threshold
+                ):
+                    if dedup_key not in confirmed_state_seen:
+                        confirmed_state_seen.add(dedup_key)
+                        first = node_keys[0]
+                        for other in node_keys[1:]:
+                            uf.union(first, other)
+                        chains_confirmed += 1
+                        confirmed_chains.append(
+                            {
+                                "primes": sorted(used),
+                                "modulus": modulus,
+                                "residue": residue,
+                                "node_keys": list(node_keys),
+                            }
+                        )
+                    continue
+
+                if dedup_key in generated_state_seen:
+                    continue
+                generated_state_seen.add(dedup_key)
+
+                next_work.append(
+                    _ChainTask(
+                        used_primes=frozenset(used),
+                        modulus=modulus,
+                        residue=residue,
+                        node_keys=tuple(node_keys),
+                        prime_order=mixed_prime_order,
+                        prime_start=(
+                            rng.randrange(len(mixed_prime_order))
+                            if mixed_prime_order
+                            else 0
+                        ),
+                    )
+                )
+
+            pbar.close()
+            pbar = None
+
+            gen_elapsed = time.monotonic() - gen_start
+            generation_calls = total_calls - gen_start_calls
+
+            # If no child and no resumable parent remain, search is done.
+            generation_log.append(
+                {
+                    "generation": generation,
+                    "chains_in": len(next_work),
+                    "chains_confirmed_this_gen": already_done,
+                    "chains_out": len(next_work),
+                    "inner_calls": generation_calls,
+                    "elapsed_sec": gen_elapsed,
+                    "total_calls": total_calls,
+                    "lift_cache_hits": lift_cache.hits,
+                    "lift_cache_misses": lift_cache.misses,
+                    "stopped_reason": stopped_reason,
+                }
+            )
+
+            if progress:
+                rate = (
+                    generation_calls / gen_elapsed
+                    if gen_elapsed > 0
+                    else float("inf")
+                )
+                print(
+                    f"[residue_graph_incremental] gen {generation}: "
+                    f"{generation_calls:,} calls in {gen_elapsed:.2f}s "
+                    f"({rate:,.0f}/sec), "
+                    f"next frontier={len(next_work):,}, "
+                    f"children={len(next_state):,}, "
+                    f"confirmed_total={chains_confirmed:,}, "
+                    f"cache_hits={lift_cache.hits:,}"
+                )
+
+            if stopped_reason is not None:
+                break
+
+            work = next_work
+            if not work:
+                break
+
             generation += 1
+
     except KeyboardInterrupt:
+        stopped_reason = "keyboard_interrupt"
         if progress:
-            print(f"[residue_graph_incremental] INTERRUPTED at gen {generation}: "
-                  f"{len(chains)} chains were live, "
-                  f"see generation_log below for where time went")
-            for row in generation_log:
-                print(f"    {row}")
-        raise
+            print(
+                f"[residue_graph_incremental] INTERRUPTED at gen {generation}: "
+                f"{len(work):,} work items remain"
+            )
+    finally:
+        if pbar is not None:
+            pbar.close()
 
-    comp_map = defaultdict(list)
-    for nk in all_nodes:
-        comp_map[find(nk)].append(nk)
-
+    # ------------------------------------------------------------------
+    # Optional component reconciliation.
+    # ------------------------------------------------------------------
+    comp_map = _component_map(all_nodes, uf)
     components_pre_reconcile = list(comp_map.values())
 
     if reconcile_components and len(components_pre_reconcile) > 1:
         reconciled = 0
         pairs_checked = 0
         budget_hit = False
-        # Use one representative (arbitrary) node per component; if a
-        # component spans several primes already, fold its own residues
-        # into a single running (M, c) first so the cross-component check
-        # is informative on the first try where possible.
+
         def component_modulus_and_residue(comp):
             by_prime = defaultdict(list)
             for (p, _vt, r) in comp:
                 by_prime[p].append(r)
+
             primes_here = sorted(by_prime.keys())
-            M, c = primes_here[0], by_prime[primes_here[0]][0]
+            M = primes_here[0]
+            c = by_prime[primes_here[0]][0]
+
             for p in primes_here[1:]:
                 r = by_prime[p][0]
-                new_M = M * p
                 c = crt_cached((c, r), (M, p))
-                M = new_M
+                M *= p
+
             return M, c, set(primes_here)
 
-        comp_reps = [component_modulus_and_residue(comp) for comp in components_pre_reconcile]
+        comp_reps = [
+            component_modulus_and_residue(comp)
+            for comp in components_pre_reconcile
+        ]
 
         for i in range(len(components_pre_reconcile)):
             if budget_hit:
                 break
+
             M_i, c_i, primes_i = comp_reps[i]
             for j in range(i + 1, len(components_pre_reconcile)):
-                if pairs_checked >= max_reconcile_pairs:
+                if pairs_checked >= int(max_reconcile_pairs):
                     budget_hit = True
                     if stats_counter is not None:
-                        stats_counter['residue_graph_reconcile_budget_exhausted'] += 1
+                        stats_counter[
+                            "residue_graph_reconcile_budget_exhausted"
+                        ] += 1
                     break
+
                 pairs_checked += 1
                 M_j, c_j, primes_j = comp_reps[j]
                 if primes_i & primes_j:
-                    continue  # already shared a prime; beam loop already compared these
+                    continue
+
                 M_ij = M_i * M_j
                 c_ij = crt_cached((c_i, c_j), (M_i, M_j))
-                if lattice_rational_lift_exists(int(c_ij) % M_ij, M_ij, H):
-                    union(components_pre_reconcile[i][0], components_pre_reconcile[j][0])
+                if lift_cache(c_ij, M_ij, H):
+                    uf.union(
+                        components_pre_reconcile[i][0],
+                        components_pre_reconcile[j][0],
+                    )
                     reconciled += 1
                     if stats_counter is not None:
-                        stats_counter['residue_graph_reconciled_components'] += 1
+                        stats_counter[
+                            "residue_graph_reconciled_components"
+                        ] += 1
+
         if progress and budget_hit:
-            print(f"[residue_graph_incremental] reconciliation pass: "
-                  f"stopped early, max_reconcile_pairs={max_reconcile_pairs} exhausted "
-                  f"({reconciled} merges done so far)")
+            print(
+                "[residue_graph_incremental] reconciliation pass stopped early: "
+                f"max_reconcile_pairs={max_reconcile_pairs:,}"
+            )
         if progress and reconciled:
-            print(f"[residue_graph_incremental] reconciliation pass: "
-                  f"merged {reconciled} disjoint-prime component pair(s)")
+            print(
+                "[residue_graph_incremental] reconciliation pass: "
+                f"merged {reconciled} component pair(s)"
+            )
 
-    comp_map = defaultdict(list)
-    for nk in all_nodes:
-        comp_map[find(nk)].append(nk)
-
+    comp_map = _component_map(all_nodes, uf)
     components = sorted(comp_map.values(), key=len, reverse=True)
-    component_primes = [set(p for (p, _vt, _r) in comp) for comp in components]
+    component_primes = _make_component_primes(components)
 
-    return {
-        'components': components,
-        'component_primes': component_primes,
-        'edges_tested': edges_tested,
-        'edges_kept': edges_kept,
-        'nodes': len(all_nodes),
-        'max_generation_reached': generation,
-        'chains_confirmed': chains_confirmed,
-        'confirmed_chains': confirmed_chains,
-        'generation_log': generation_log,
+    if stopped_reason and progress:
+        print(
+            f"[residue_graph_incremental] stopped early: {stopped_reason}; "
+            f"frontier={len(work):,}, total_calls={total_calls:,}"
+        )
+
+    result = {
+        "components": components,
+        "component_primes": component_primes,
+        "edges_tested": edges_tested,
+        "edges_kept": edges_kept,
+        "nodes": len(all_nodes),
+        "max_generation_reached": generation,
+        "chains_confirmed": chains_confirmed,
+        "confirmed_chains": confirmed_chains,
+        "generation_log": generation_log,
+        "cache_stats": lift_cache.stats(),
+        "arc_consistency_rounds": ac_rounds,
+        "total_calls": total_calls,
+        "stopped_reason": stopped_reason,
+        "seed": seed,
+        "prime_mix_temperature": prime_mix_temperature,
+        "prime_mix_branch_penalty": prime_mix_branch_penalty,
     }
+    return result
 
 
-def build_residue_graph_ktuple(precomputed_residues, prime_pool, height_bound,
-                                k=None, v_tuple=None, margin=MIN_MARGIN_OVER_BOX,
-                                max_tuples=None, stats_counter=None, progress=False,
-                                **kwargs):
+def build_residue_graph_ktuple(
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    k=None,
+    v_tuple=None,
+    margin=MIN_MARGIN_OVER_BOX,
+    max_tuples=None,
+    stats_counter=None,
+    progress=False,
+    **kwargs,
+):
     """
-    Build the residue graph for one vector using the incremental beam search
-    (build_residue_graph_incremental), capped at 20000 chains per generation.
+    Compatibility entry point.
 
-    Kept as the entry point used by discover_candidates_via_residue_graph;
-    k, max_tuples and any extra keyword arguments are accepted for signature
-    compatibility and are not used.
-
-    progress defaults to False because this is called once per vector, and
-    per-generation lines for every vector would drown out the one-line
-    per-vector summaries.  Enable it for a single vector when inspecting the
-    beam search.
+    Historically this function was intercepted by the search-analysis layer;
+    keep its broad signature while routing to the refactored incremental search.
     """
+    # This entry point is intentionally permissive because the surrounding
+    # search stack has historically passed diagnostic/compatibility keywords
+    # such as `known_m`, `label`, and `debug`.  They are meaningful to the
+    # caller/diagnostics, but they are not search parameters for the low-level
+    # incremental builder and must not leak into its signature.
+    kwargs = dict(kwargs)
+    kwargs.pop("k", None)
+    kwargs.pop("max_tuples", None)
+    compatibility_only = {
+        "known_m",
+        "label",
+        "debug",
+        "verbose",
+        "print_header",
+    }
+    for key in compatibility_only:
+        kwargs.pop(key, None)
+
+    # Only forward parameters explicitly understood by the incremental
+    # implementation.  Silently ignoring unknown kwargs preserves the old
+    # k-tuple API's compatibility behavior instead of turning an otherwise
+    # successful graph search into a TypeError.
+    incremental_keys = {
+        "max_chains",
+        "use_arc_consistency",
+        "arc_consistency_max_rounds",
+        "max_calls_per_generation",
+        "min_clique_size",
+        "max_clique_size",
+        "reconcile_components",
+        "max_reconcile_pairs",
+        "seed",
+        "prime_mix_temperature",
+        "prime_mix_branch_penalty",
+        "max_prime_choices_per_chain_generation",
+        "max_chain_calls_per_generation",
+        "lift_cache_size",
+        "max_total_calls",
+        "time_budget_sec",
+    }
+    forward = {key: kwargs.pop(key) for key in list(kwargs) if key in incremental_keys}
+
     return build_residue_graph_incremental(
         precomputed_residues=precomputed_residues,
         prime_pool=prime_pool,
         height_bound=height_bound,
         v_tuple=v_tuple,
         margin=margin,
-        max_chains=20000, 
+        max_chains=forward.pop("max_chains", 20_000),
         stats_counter=stats_counter,
         progress=progress,
+        **forward,
     )
 
 
-def build_residue_graph(precomputed_residues, prime_pool, height_bound,
-                         v_tuple=None, require_unique_modulus=False,
-                         require_margin_over_box=True,
-                         max_primes=None, stats_counter=None):
-    """
-    Build the pairwise CRT-compatibility graph over all residues at all
-    primes in prime_pool.
+# ---------------------------------------------------------------------------
+# Legacy pairwise graph builder
+# ---------------------------------------------------------------------------
 
-    Two residues at different primes are joined by an edge when their CRT
-    class mod p*q admits a rational of height <= H; pairs of primes whose
-    product is not informative for H are skipped.  Connected components are
-    found with union-find.  Suitable only when two primes already give an
-    informative modulus; otherwise use build_residue_graph_incremental.
-
-    Returns a dict with 'components', 'component_primes', 'edges_tested',
-    'edges_kept' and 'nodes'.
+def build_residue_graph(
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    v_tuple=None,
+    require_unique_modulus=False,
+    require_margin_over_box=True,
+    max_primes=None,
+    stats_counter=None,
+):
     """
-    pool = list(prime_pool) if max_primes is None else list(prime_pool)[:max_primes]
+    Build the legacy pairwise CRT-compatibility graph.
+
+    This path is retained for callers that specifically want pairwise edges.
+    """
+    pool = (
+        list(prime_pool)
+        if max_primes is None
+        else list(prime_pool)[: int(max_primes)]
+    )
     H = int(height_bound)
-
     nodes_by_prime = defaultdict(list)
-    for p, node_id, r in _iter_residue_nodes(precomputed_residues, pool, v_tuple=v_tuple):
-        node_key = (p, node_id, r)
-        nodes_by_prime[p].append((node_key, r))
 
-    all_nodes = [nk for lst in nodes_by_prime.values() for nk, _ in lst]
+    for p, node_id, r in _iter_residue_nodes(
+        precomputed_residues, pool, v_tuple=v_tuple
+    ):
+        nodes_by_prime[p].append(((p, node_id, r), r))
 
-    parent = {}
+    all_nodes = [
+        nk
+        for lst in nodes_by_prime.values()
+        for nk, _ in lst
+    ]
 
-    def find(x):
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(x, y):
-        rx, ry = find(x), find(y)
-        if rx != ry:
-            parent[rx] = ry
-
+    uf = _UnionFind()
     for nk in all_nodes:
-        find(nk)
+        uf.add(nk)
 
+    lift_cache = _LiftCache()
     primes_sorted = sorted(nodes_by_prime.keys())
+
     edges_tested = 0
     edges_kept = 0
+    box = (2 * H + 1) ** 2
 
     for i, p in enumerate(primes_sorted):
         p_nodes = nodes_by_prime[p]
@@ -820,16 +1443,17 @@ def build_residue_graph(precomputed_residues, prime_pool, height_bound,
             q_nodes = nodes_by_prime[q]
             if not p_nodes or not q_nodes:
                 continue
-            M = p * q
+
+            M = int(p) * int(q)
             if require_margin_over_box:
-                box = (2 * H + 1) ** 2
                 informative = M > MIN_MARGIN_OVER_BOX * box
             elif require_unique_modulus:
                 informative = M > 2 * H * H
             else:
                 informative = modulus_is_informative(M, H)
+
             if stats_counter is not None and not informative:
-                stats_counter['residue_graph_uninformative_pair'] += 1
+                stats_counter["residue_graph_uninformative_pair"] += 1
             if not informative:
                 continue
 
@@ -837,175 +1461,238 @@ def build_residue_graph(precomputed_residues, prime_pool, height_bound,
                 for nk_q, r_q in q_nodes:
                     edges_tested += 1
                     c = crt_cached((r_p, r_q), (p, q))
-                    if lattice_rational_lift_exists(int(c) % M, M, H):
+                    if lift_cache(c, M, H):
                         edges_kept += 1
-                        union(nk_p, nk_q)
+                        uf.union(nk_p, nk_q)
 
-    comp_map = defaultdict(list)
-    for nk in all_nodes:
-        comp_map[find(nk)].append(nk)
-
-    components = sorted(comp_map.values(), key=len, reverse=True)
-    component_primes = [set(p for (p, _vt, _r) in comp) for comp in components]
+    components = sorted(
+        _component_map(all_nodes, uf).values(),
+        key=len,
+        reverse=True,
+    )
+    component_primes = _make_component_primes(components)
 
     return {
-        'components': components,
-        'component_primes': component_primes,
-        'edges_tested': edges_tested,
-        'edges_kept': edges_kept,
-        'nodes': len(all_nodes),
+        "components": components,
+        "component_primes": component_primes,
+        "edges_tested": edges_tested,
+        "edges_kept": edges_kept,
+        "nodes": len(all_nodes),
+        "cache_stats": lift_cache.stats(),
     }
 
 
+# ---------------------------------------------------------------------------
+# Component summaries / reconstruction
+# ---------------------------------------------------------------------------
+
 def summarize_components(graph_result, top_k=10):
-    """
-    Summarize the top_k largest components of a graph result as dicts with
-    'num_nodes', 'num_primes' and the sorted 'primes' involved.
-    """
+    """Return compact rows for the largest components."""
     rows = []
-    for comp, comp_primes in zip(graph_result['components'][:top_k],
-                                  graph_result['component_primes'][:top_k]):
-        rows.append({
-            'num_nodes': len(comp),
-            'num_primes': len(comp_primes),
-            'primes': sorted(comp_primes),
-        })
+    for comp, comp_primes in zip(
+        graph_result["components"][: int(top_k)],
+        graph_result["component_primes"][: int(top_k)],
+    ):
+        rows.append(
+            {
+                "num_nodes": len(comp),
+                "num_primes": len(comp_primes),
+                "primes": sorted(comp_primes),
+            }
+        )
     return rows
 
 
-def refine_component_chained(comp, height_bound, stats_counter=None):
+def refine_component_chained(
+    comp,
+    height_bound,
+    stats_counter=None,
+    lift_cache_size=250_000,
+):
     """
-    Check whether a component contains a full consistent chain.
-
-    Tries every choice of one residue per prime, CRT-combining prime by prime
-    and abandoning a choice as soon as the partial class admits no rational of
-    height <= H.  Confirmed when some complete chain has modulus above 2*H^2.
-
-    Returns {'confirmed': bool, 'modulus_reached': int, 'primes_used': list}.
+    Check whether a component contains a full CRT-consistent chain.
     """
     H = int(height_bound)
     by_prime = defaultdict(list)
-    for (p, node_id, r) in comp:
+    for p, _node_id, r in comp:
         by_prime[p].append(r)
 
     primes = sorted(by_prime.keys())
     if len(primes) < 2:
-        return {'confirmed': False, 'modulus_reached': 0, 'primes_used': []}
+        return {
+            "confirmed": False,
+            "modulus_reached": 0,
+            "primes_used": [],
+        }
 
+    lift_cache = _LiftCache(lift_cache_size)
     best_modulus_reached = 0
 
     for combo in itertools.product(*(by_prime[p] for p in primes)):
-        modulus = primes[0]
-        residue = combo[0] % modulus
+        modulus = int(primes[0])
+        residue = int(combo[0]) % modulus
         chain_ok = True
+
         for p, r in zip(primes[1:], combo[1:]):
-            new_modulus = modulus * p
-            residue = crt_cached((residue, r), (modulus, p))
+            new_modulus = modulus * int(p)
+            residue = crt_cached(
+                (residue, r),
+                (modulus, int(p)),
+            )
             modulus = new_modulus
-            if not lattice_rational_lift_exists(int(residue) % modulus, modulus, H):
+
+            if not lift_cache(residue, modulus, H):
                 chain_ok = False
                 if stats_counter is not None:
-                    stats_counter['residue_graph_chain_broke'] += 1
+                    stats_counter["residue_graph_chain_broke"] += 1
                 break
-        best_modulus_reached = max(best_modulus_reached, modulus if chain_ok else 0)
+
+        best_modulus_reached = max(
+            best_modulus_reached,
+            modulus if chain_ok else 0,
+        )
+
         if chain_ok and modulus > 2 * H * H:
             return {
-                'confirmed': True,
-                'modulus_reached': modulus,
-                'primes_used': list(primes),
+                "confirmed": True,
+                "modulus_reached": modulus,
+                "primes_used": list(primes),
+                "cache_stats": lift_cache.stats(),
             }
 
     return {
-        'confirmed': False,
-        'modulus_reached': best_modulus_reached,
-        'primes_used': [],
+        "confirmed": False,
+        "modulus_reached": best_modulus_reached,
+        "primes_used": [],
+        "cache_stats": lift_cache.stats(),
     }
 
 
-def reconstruct_candidate_from_chain(chain, height_bound, max_den=None):
-    """
-    Reconstruct the single m implied by one confirmed chain (as recorded
-    in build_residue_graph_incremental's 'confirmed_chains'). Unlike
-    reconstruct_candidates_from_component, there is no search here --
-    M and c are already the fully-reduced CRT accumulation over exactly
-    this chain's own primes, so it's one rational_reconstruct call.
-    Returns a single {'m_num', 'm_den', 'primes', 'modulus'} dict, or
-    None if reconstruction fails (e.g. no a/b within max_den survives
-    the height bound -- can happen for a chain that was confirmed via
-    the M > threshold path rather than clique size, on primes that
-    don't actually carry a real point).
-    """
+def reconstruct_candidate_from_chain(
+    chain,
+    height_bound,
+    max_den=None,
+):
+    """Reconstruct one rational from an already-confirmed CRT chain."""
     H = int(height_bound)
-    M = chain['modulus']
-    c = chain['residue']
+    M = int(chain["modulus"])
+    c = int(chain["residue"])
+
     try:
-        a, b = rational_reconstruct(int(c) % M, M, max_den=max_den or H)
-        return {'m_num': a, 'm_den': b, 'primes': chain['primes'], 'modulus': M}
+        a, b = rational_reconstruct(
+            c % M,
+            M,
+            max_den=max_den or H,
+        )
+        return {
+            "m_num": a,
+            "m_den": b,
+            "primes": chain["primes"],
+            "modulus": M,
+        }
     except Exception:
         return None
 
 
-def reconstruct_candidates_from_component(comp, height_bound, max_den=None,
-                                           max_results=5, stats_counter=None,
-                                           max_visits=2_000_000):
+def reconstruct_candidates_from_component(
+    comp,
+    height_bound,
+    max_den=None,
+    max_results=5,
+    stats_counter=None,
+    max_visits=2_000_000,
+    lift_cache_size=250_000,
+):
     """
-    Reconstruct candidate rationals from one connected component of the graph.
+    Enumerate bounded CRT-consistent candidates from one component.
 
-    Depth-first over the component's primes (fewest residues first), combining
-    one residue per prime by CRT and pruning any partial combination whose
-    class admits no rational of height <= H.  Each complete combination is
-    rational-reconstructed with denominator bound max_den (default H).
-
-    Stops after max_results candidates or max_visits search nodes
-    (counted in stats_counter['reconstruct_visit_budget_exhausted'] when the
-    visit budget is hit).  Returns a list of dicts with 'm_num', 'm_den',
-    'primes' and 'modulus'.
+    The component's primes are visited from smallest residue domain to largest.
     """
     by_prime = defaultdict(list)
-    for (p, node_id, r) in comp:
+    for p, _node_id, r in comp:
         by_prime[p].append(r)
 
-    primes = sorted(by_prime.keys(), key=lambda p: len(by_prime[p]))
+    primes = sorted(
+        by_prime.keys(),
+        key=lambda p: len(by_prime[p]),
+    )
     if len(primes) < 2:
         return []
 
     H = int(height_bound)
     results = []
-    visits = [0]
-    budget_exhausted = [False]
+    visits = 0
+    budget_exhausted = False
+    lift_cache = _LiftCache(lift_cache_size)
 
     def recurse(idx, modulus, residue):
-        if budget_exhausted[0] or (max_results is not None and len(results) >= max_results):
+        nonlocal visits, budget_exhausted
+
+        if budget_exhausted:
             return
-        visits[0] += 1
-        if visits[0] > max_visits:
-            budget_exhausted[0] = True
+        if max_results is not None and len(results) >= int(max_results):
+            return
+
+        visits += 1
+        if max_visits is not None and visits > int(max_visits):
+            budget_exhausted = True
             if stats_counter is not None:
-                stats_counter['reconstruct_visit_budget_exhausted'] += 1
+                stats_counter[
+                    "reconstruct_visit_budget_exhausted"
+                ] += 1
             return
+
         if idx == len(primes):
             try:
-                a, b = rational_reconstruct(int(residue) % modulus, modulus,
-                                             max_den=max_den or H)
-                results.append({'m_num': a, 'm_den': b, 'primes': primes,
-                                 'modulus': modulus})
+                a, b = rational_reconstruct(
+                    int(residue) % int(modulus),
+                    int(modulus),
+                    max_den=max_den or H,
+                )
             except Exception:
-                pass
+                return
+
+            results.append(
+                {
+                    "m_num": a,
+                    "m_den": b,
+                    "primes": primes,
+                    "modulus": modulus,
+                }
+            )
             return
-        p = primes[idx]
+
+        p = int(primes[idx])
+
         for r in by_prime[p]:
             if idx == 0:
-                new_modulus, new_residue = p, r % p
+                new_modulus = p
+                new_residue = int(r) % p
             else:
                 new_modulus = modulus * p
-                new_residue = crt_cached((residue, r), (modulus, p))
-            if not lattice_rational_lift_exists(int(new_residue) % new_modulus, new_modulus, H):
+                new_residue = crt_cached(
+                    (residue, r),
+                    (modulus, p),
+                )
+
+            if not lift_cache(new_residue, new_modulus, H):
                 if stats_counter is not None:
-                    stats_counter['reconstruct_branch_pruned'] += 1
+                    stats_counter[
+                        "reconstruct_branch_pruned"
+                    ] += 1
                 continue
-            recurse(idx + 1, new_modulus, new_residue)
-            if budget_exhausted[0] or (max_results is not None and len(results) >= max_results):
+
+            recurse(
+                idx + 1,
+                new_modulus,
+                new_residue,
+            )
+            if budget_exhausted or (
+                max_results is not None
+                and len(results) >= int(max_results)
+            ):
                 return
 
     recurse(0, 1, 0)
+
     return results

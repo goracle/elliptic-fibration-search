@@ -62,6 +62,10 @@ COEFFS_GENUS2 = [QQ(1), QQ(3), QQ(3), QQ(3), QQ(2), QQ(0), QQ(1)]
 DATA_PTS_GENUS2 = [QQ(-1)]      # known rational x-coordinate(s) to seed the search
 TERMINATE_WHEN_6 = 10           # stop once this many distinct rational x-coords are known
 
+COEFFS_GENUS2 =  [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)]
+TERMINATE_WHEN_6 =  22
+
 
 
 # ============================================================================
@@ -185,7 +189,7 @@ MAX_MODULUS = 10**400
 # search_lll/search_config.py is 5000; this override takes precedence over it
 # via the same try/except import pattern search_lll/search_config.py uses for
 # MIN_PRIME_SUBSET_SIZE et al.
-MAX_COMBOS_PER_SUBSET = 50000
+MAX_COMBOS_PER_SUBSET = 500000
 
 NUM_SAMPLES_HEIGHT_MAT = 10        # not very sensitive
 
@@ -219,8 +223,9 @@ SEED_INT = random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
 
 DEBUG = True
-TARGETED_X = 10**20 # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = QQ(10**20) # set to a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
 TARGETED_X = QQ(-6)/QQ(7)
+TARGETED_X = None
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
