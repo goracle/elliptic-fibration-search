@@ -161,6 +161,66 @@ def log10_of_naive_height(h):
     return h / math.log(10.0)
 
 
+def _record_rational_candidate(m_val, v_tuple, r_m, shift, rationality_test_func,
+                                all_candidate_records, all_processed_m_vals,
+                                all_candidate_xs, known_x_before=None):
+    """
+    Resolve a single (m_val, v_tuple) candidate into a rational point and,
+    if genuinely new, append it to the shared accumulators threaded through
+    run_standard_lattice_search (all_candidate_records / all_processed_m_vals
+    / all_candidate_xs).
+
+    This is the single place a candidate pair actually "joins the results":
+    it's called both from the residue-CRT-graph discovery step (which finds
+    candidates before round 0 of the anomalous-sweep even starts) and from
+    the per-round anomalous-sweep resolve loop, so points found either way
+    land in exactly the same bookkeeping -- section reconstruction, x-height
+    stats, completeness-proof accounting -- rather than the graph's finds
+    being printed once and then discarded. See chat.
+
+    known_x_before, if given, is compared against instead of the live
+    all_candidate_xs -- lets a caller (like the per-round sweep loop) freeze
+    "known before this round" for correct new-vs-repeat bookkeeping while
+    still writing into the live set.
+
+    Returns None if the pair fails the rationality re-check (shouldn't
+    normally happen -- callers should already have confirmed rationality --
+    but m_val alone doesn't carry y, so it's re-derived and re-checked here
+    defensively). Otherwise returns a dict:
+        {'x': x_val_q, 'y': y_val, 'is_new_x': bool, 'already_known_m': bool}
+    """
+    already_known_m = m_val in all_processed_m_vals
+    try:
+        x_val = r_m(m=m_val) - shift
+        y_val = rationality_test_func(x_val)
+    except (TypeError, ZeroDivisionError, ArithmeticError):
+        return None
+    if y_val is None:
+        return None
+
+    x_val_q = QQ(x_val)
+    compare_against = known_x_before if known_x_before is not None else all_candidate_xs
+    is_new_x = x_val_q not in compare_against
+
+    if already_known_m:
+        # Same m rediscovered from a different source -- point is already
+        # recorded, nothing new to append, but the caller still wants to
+        # know x/y and new-vs-repeat status for its own reporting.
+        return {'x': x_val_q, 'y': y_val, 'is_new_x': is_new_x, 'already_known_m': True}
+
+    v = vector(QQ, v_tuple)
+    all_candidate_records.append({
+        "m": m_val,
+        "xj": x_val_q,
+        "y": y_val,
+        "v": tuple(v_tuple),
+        "section": None,
+    })
+    all_processed_m_vals[m_val] = v
+    all_candidate_xs.add(x_val_q)
+    return {'x': x_val_q, 'y': y_val, 'is_new_x': is_new_x, 'already_known_m': False}
+
+
 def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
                    rhs_modp_list, vecs_list, num_workers, debug, pool, chunk_size,
                    section_poly_dict=None):
@@ -923,6 +983,22 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
 
     # ------------------------------------------------------------------
+    # Shared accumulators for every rational (m, v_tuple) candidate found
+    # by ANY method below -- the residue-CRT-graph discovery step right
+    # after this comment, and the per-round anomalous-sweep loop further
+    # down. Initialized here (rather than immediately before the sweep
+    # loop, where they used to live) so the graph-discovery step can
+    # write into them too and have its finds actually join the same
+    # results, instead of being resolved/printed and then dropped on the
+    # floor. See _record_rational_candidate and chat.
+    # ------------------------------------------------------------------
+    all_candidate_records = []
+    all_candidate_xs = set()
+    all_new_sections_raw = []
+    all_final_rational_pairs = []
+    all_processed_m_vals = {}
+
+    # ------------------------------------------------------------------
     # Bottom-up candidate discovery via the residue CRT-consistency
     # graph (search_lll/residue_crt_graph.py) -- unlike diagnose_missed_point
     # and cov1 above, this does NOT take mtarget/TARGETED_X as input at
@@ -932,7 +1008,11 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # mtarget here is a validation check while this approach is being
     # tried out -- see chat: the point is that this should eventually
     # replace picking random prime subsets, not that it needs to already
-    # know mtarget to run.
+    # know mtarget to run. Its confirmed finds are now recorded into the
+    # shared accumulators above via _record_rational_candidate, so they
+    # feed into the same section/coverage/completeness bookkeeping as
+    # anomalous-sweep finds, and get pruned from precomputed_residues
+    # before round 0 like any other already-known point.
     try:
         # mtarget is only known once the TARGETED_X debug block below has run
         # (and only if TARGETED_X is set at all). Compute it here, ahead of
@@ -942,37 +1022,71 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         if TARGETED_X:
             _mtarget_known = QQ(-1) * TARGETED_X + r_m(m=0)
 
-        rg_result = discover_candidates_via_residue_graph(
-            precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND, debug=True,
-        )
-        print(f"[residue_graph] k_used={rg_result['k_used']}, "
-                f"{len(rg_result['candidates'])} candidate component(s)")
-        for i, cand in enumerate(rg_result['candidates']):
-            recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
-            for m_val in recon_ms:
-                try:
-                    x_val = r_m(m=m_val) - shift
-                    y_val = rationality_test_func(x_val)
-                    if y_val is None:
+        # *** FIX (n-mixing bug): discover_candidates_via_residue_graph must
+        # be called ONCE PER VECTOR (v_orig_tuple), never with v_tuple=None.
+        # precomputed_residues[p][v_orig_tuple] holds the candidate m mod p
+        # roots for THAT SPECIFIC vector v_orig (i.e. that specific
+        # candidate multiplier/section n) -- it is not a residue of "m in
+        # general". A chain that CRTs prime p's residue for vector v1 with
+        # prime q's residue for vector v2 doesn't correspond to any real
+        # candidate point at all: it's numerically-coincidental agreement
+        # between two unrelated n's, not evidence about either one. This is
+        # exactly what modularthread.process_prime_subset_precomputed does
+        # right (it fixes v_orig for the whole inner CRT loop, per prime
+        # subset) and what this diagnostic was doing wrong by pooling every
+        # vector's residues into one graph via v_tuple=None. See chat.
+        _mtarget_hits = []
+        for v_orig in vecs_list:
+            if len(vecs_list) > 1 and all(c == 0 for c in v_orig):
+                continue
+            v_orig_tuple = tuple(v_orig)
+
+            rg_result = discover_candidates_via_residue_graph(
+                precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND,
+                v_tuple=v_orig_tuple, debug=True,
+            )
+            print(f"[residue_graph] vector={v_orig_tuple}: k_used={rg_result['k_used']}, "
+                    f"{len(rg_result['candidates'])} candidate component(s)")
+            for i, cand in enumerate(rg_result['candidates']):
+                recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
+                for m_val in recon_ms:
+                    rec = _record_rational_candidate(
+                        m_val, v_orig_tuple, r_m, shift, rationality_test_func,
+                        all_candidate_records, all_processed_m_vals, all_candidate_xs,
+                    )
+                    if rec is None:
                         continue
-                    print("")
-                    print("x,y=", x_val, y_val)
-                    print("")
-                except Exception:
-                    raise
-            hit = _mtarget_known is not None and _mtarget_known in recon_ms
-            
-            #print(f"  candidate {i}: primes={cand['primes']} "
-            #        f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
+                    all_final_rational_pairs.append((m_val, v_orig_tuple))
+                    if rec['is_new_x']:
+                        h_x = naive_height_of_rational(rec['x'])
+                        print(f"[residue_graph] new point x={rec['x']}  (naive x-height h(x) ≈ {h_x:.2f}, "
+                              f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, "
+                              f"vector={v_orig_tuple}")
+                hit = _mtarget_known is not None and _mtarget_known in recon_ms
+                if hit:
+                    _mtarget_hits.append(v_orig_tuple)
+
+                #print(f"  candidate {i}: primes={cand['primes']} "
+                #        f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
 
         if _mtarget_known is not None:
             from .residue_crt_graph import trace_target_through_arc_consistency
-            print(f"[residue_graph] tracing known target mtarget={_mtarget_known} "
-                  f"through arc-consistency...")
-            trace_target_through_arc_consistency(
-                _mtarget_known, precomputed_residues, PRIME_POOL,
-                height_bound=HEIGHT_BOUND,
-            )
+            if _mtarget_hits:
+                print(f"[residue_graph] mtarget={_mtarget_known} matched via vector(s): {_mtarget_hits}")
+            else:
+                # Trace against every vector, not just vector-blind (None),
+                # since which vector's residue domain the target's true
+                # residues live in is exactly what we're checking.
+                for v_orig in vecs_list:
+                    if len(vecs_list) > 1 and all(c == 0 for c in v_orig):
+                        continue
+                    v_orig_tuple = tuple(v_orig)
+                    print(f"[residue_graph] tracing known target mtarget={_mtarget_known} "
+                          f"through arc-consistency (vector={v_orig_tuple})...")
+                    trace_target_through_arc_consistency(
+                        _mtarget_known, precomputed_residues, PRIME_POOL,
+                        height_bound=HEIGHT_BOUND, v_tuple=v_orig_tuple,
+                    )
     except Exception as e:
         print(f"[residue_graph] discovery failed (non-fatal, diagnostic only): {e}")
         raise
@@ -1311,11 +1425,10 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     # finds no new points at all (no further progress is possible without
     # something else changing), or (c) MAX_ANOMALOUS_SWEEP_ROUNDS is hit.
     # ------------------------------------------------------------------
-    all_candidate_records = []
-    all_candidate_xs = set()
-    all_new_sections_raw = []
-    all_final_rational_pairs = []
-    all_processed_m_vals = {}
+    # (all_candidate_records / all_candidate_xs / all_new_sections_raw /
+    # all_final_rational_pairs / all_processed_m_vals were initialized
+    # earlier, before the residue-graph discovery step, so its finds are
+    # already folded in here -- see the comment there.)
     analysis = None
 
     for sweep_round in range(MAX_ANOMALOUS_SWEEP_ROUNDS):
@@ -1573,48 +1686,37 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
             round_resolve_failures = 0  # pairs that failed the rationality re-check (shouldn't normally happen here)
 
             for m_val, v_tuple in final_rational_candidates:
-                already_processed_m = m_val in all_processed_m_vals
-                try:
-                    x_val = r_m(m=m_val) - shift
-                    y_val = rationality_test_func(x_val)
-                    if y_val is None:
-                        round_resolve_failures += 1
-                        continue
+                rec = _record_rational_candidate(
+                    m_val, v_tuple, r_m, shift, rationality_test_func,
+                    all_candidate_records, all_processed_m_vals, all_candidate_xs,
+                    known_x_before=known_x_before_round,
+                )
+                if rec is None:
+                    round_resolve_failures += 1
+                    continue
 
-                    x_val_q = QQ(x_val)
-                    is_new_x = x_val_q not in known_x_before_round
+                x_val_q, y_val, is_new_x = rec['x'], rec['y'], rec['is_new_x']
+                if is_new_x:
+                    round_new_points.append((x_val_q, y_val))
+                else:
+                    round_repeat_points.append((x_val_q, y_val))
 
-                    if is_new_x:
-                        round_new_points.append((x_val_q, y_val))
-                    else:
-                        round_repeat_points.append((x_val_q, y_val))
+                if rec['already_known_m']:
+                    # Same m rediscovered (possibly by the residue-graph step
+                    # before round 0, or an earlier round) -- point is already
+                    # recorded, nothing new to append, but it still counts as
+                    # "resolved this round" for reporting purposes above.
+                    continue
 
-                    if already_processed_m:
-                        # Same m rediscovered -- point is already recorded,
-                        # nothing new to append, but it still counts as
-                        # "resolved this round" for reporting purposes above.
-                        continue
-
-                    v = vector(QQ, v_tuple)
-                    if is_new_x:
-                        h_x = naive_height_of_rational(x_val_q)
-                        print(f"[height] new point x={x_val_q}  (naive x-height h(x) ≈ {h_x:.2f}, "
-                              f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, multiplier v={tuple(v_tuple)}")
-                    all_candidate_records.append({
-                        "m": m_val,
-                        "xj": x_val_q,
-                        "y": y_val,
-                        "v": tuple(v_tuple),
-                        "section": None,
-                    })
-                    all_processed_m_vals[m_val] = v
-                    all_candidate_xs.add(x_val_q)
-                    if any(c != 0 for c in v) and False: #this section hangs for some reason
-                        new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
-                        all_new_sections_raw.append(new_sec)
-                        all_candidate_records[-1]["section"] = new_sec
-                except (TypeError, ZeroDivisionError, ArithmeticError):
-                    raise
+                if is_new_x:
+                    h_x = naive_height_of_rational(x_val_q)
+                    print(f"[height] new point x={x_val_q}  (naive x-height h(x) ≈ {h_x:.2f}, "
+                          f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, multiplier v={tuple(v_tuple)}")
+                v = vector(QQ, v_tuple)
+                if any(c != 0 for c in v) and False: #this section hangs for some reason
+                    new_sec = sum(v[i] * current_sections[i] for i in range(len(current_sections)))
+                    all_new_sections_raw.append(new_sec)
+                    all_candidate_records[-1]["section"] = new_sec
 
             # --- Report exactly what this round's subset search turned up ---
             round_resolved_total = len(round_new_points) + len(round_repeat_points)
