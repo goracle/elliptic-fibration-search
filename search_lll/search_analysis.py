@@ -426,7 +426,8 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
 
 def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, height_bound,
                                            v_tuple=None, top_k=10, debug=True,
-                                           max_tuples=2_000_000):
+                                           max_tuples=2_000_000, known_m=None,
+                                           verbose_graph=False, max_chains=None):
     """
     Bottom-up candidate discovery via the cross-prime residue CRT graph
     (search_lll/residue_crt_graph.py), as an alternative/complement to
@@ -493,15 +494,28 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
                   f"(max_tuples cap={max_tuples}, workers={PARALLEL_PRIME_WORKERS})")
         graph = rcg.build_residue_graph_ktuple(
             precomputed_residues, prime_pool, height_bound=H, k=k_needed, v_tuple=v_tuple,
-            max_tuples=max_tuples,
+            max_tuples=max_tuples, progress=verbose_graph, known_m=known_m,
+            max_chains=max_chains, label=f"v={v_tuple}",
         )
 
     if debug:
-        print(f"[residue_graph] k={k_needed}: nodes={graph['nodes']} "
-              f"edges_tested={graph['edges_tested']} edges_kept={graph['edges_kept']}")
-        for i, row in enumerate(rcg.summarize_components(graph, top_k=top_k)):
-            print(f"  component {i}: primes={row['primes']} "
-                  f"(#primes={row['num_primes']}, #nodes={row['num_nodes']})")
+        _keep = 100.0 * graph['edges_kept'] / graph['edges_tested'] if graph['edges_tested'] else 0.0
+        _ctr = graph.get('counters', {})
+        print(f"[residue_graph] v={v_tuple} k={k_needed}: nodes={graph['nodes']} "
+              f"edges_tested={graph['edges_tested']} edges_kept={graph['edges_kept']} ({_keep:.1f}%) "
+              f"confirmed_chains={graph.get('chains_confirmed', 'n/a')} "
+              f"max_gen={graph.get('max_generation_reached', 'n/a')} "
+              f"cap_dropped={_ctr.get('cap_dropped', 'n/a')} deferred={_ctr.get('deferred', 'n/a')} "
+              f"dead_end_chains={_ctr.get('dead_end_dropped', 'n/a')}")
+        for t in graph.get('trace', []):
+            print(f"[residue_graph] v={v_tuple} trace m={t['m']}: "
+                  + (f"CONFIRMED at gen {t['confirmed_gen']}" if t.get('confirmed_gen') is not None
+                     else "alive at end but never confirmed" if t['lost_gen'] is None
+                     else f"LOST at gen {t['lost_gen']} ({t['lost_why']})"))
+        if 'confirmed_chains' not in graph:
+            for i, row in enumerate(rcg.summarize_components(graph, top_k=top_k)):
+                print(f"  component {i}: primes={row['primes']} "
+                      f"(#primes={row['num_primes']}, #nodes={row['num_nodes']})")
 
     # Candidates come from confirmed_chains, not graph['components']: a
     # component is the union-find closure over EVERY chain that was ever

@@ -1,4 +1,4 @@
-import numpy as np, os as _os, math
+import numpy as np, os as _os, math, time
 from .search_config import *
 from .archimedean_optim import *
 from .rational_arithmetic import *
@@ -1036,38 +1036,111 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         # subset) and what this diagnostic was doing wrong by pooling every
         # vector's residues into one graph via v_tuple=None. See chat.
         _mtarget_hits = []
-        for v_orig in vecs_list:
-            if len(vecs_list) > 1 and all(c == 0 for c in v_orig):
-                continue
-            v_orig_tuple = tuple(v_orig)
+
+        # ---- Known-point tracing (reporting only; never steers the search) ----
+        # Every x already known before the graph runs (the seed, plus anything
+        # found earlier) maps to an m via the same linear convention used for
+        # TARGETED_X above (m = -x + r_m(0), valid because r_m is linear here --
+        # see the m_map_height_factor note in _resolve_height_bound). The graph
+        # builder is told these m's and reports, per vector, whether a chain
+        # through their true residues survives each generation and WHY it dies
+        # if it doesn't. This is how you find out whether a point is missed
+        # because its residues aren't in the domain, because the lattice test
+        # rejected it, or because a frontier cap dropped it.
+        _trace_ms = []
+        try:
+            _r_m0 = r_m(m=0)
+            for _kx in list(all_found_x):
+                _trace_ms.append(QQ(-1) * QQ(_kx) + _r_m0)
+        except Exception as _e:
+            print(f"[residue_graph] could not derive m for known x's ({_e}); tracing disabled")
+        if _mtarget_known is not None and _mtarget_known not in _trace_ms:
+            _trace_ms.append(_mtarget_known)
+        _trace_ms = list(dict.fromkeys(_trace_ms))
+        print(f"[residue_graph] tracing {len(_trace_ms)} known m-value(s): {_trace_ms}")
+
+        _graph_vecs = [tuple(v) for v in vecs_list
+                       if not (len(vecs_list) > 1 and all(c == 0 for c in v))]
+        _t_graph0 = time.time()
+        _per_vector_secs = []
+        _found_by_vector = {}      # x -> [vectors that produced it]
+        _all_found_this_phase = {}  # x -> (m, vector) first seen
+        _trace_summary = {}         # (m, vector) -> lost_gen / None
+
+        for _vi, v_orig_tuple in enumerate(_graph_vecs, 1):
+            _t_v0 = time.time()
+            if _per_vector_secs:
+                _avg = sum(_per_vector_secs) / len(_per_vector_secs)
+                _eta = _avg * (len(_graph_vecs) - _vi + 1)
+                print(f"[residue_graph] === vector {_vi}/{len(_graph_vecs)} {v_orig_tuple} "
+                      f"| elapsed {time.time() - _t_graph0:.0f}s "
+                      f"| avg {_avg:.1f}s/vector | ETA ~{_eta:.0f}s ===")
+            else:
+                print(f"[residue_graph] === vector {_vi}/{len(_graph_vecs)} {v_orig_tuple} ===")
 
             rg_result = discover_candidates_via_residue_graph(
                 precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND,
                 v_tuple=v_orig_tuple, debug=True,
+                known_m=_trace_ms or None,
+                # Per-generation lines only for the first vector (to see the
+                # shape once) -- everything else gets the one-line summary.
+                verbose_graph=(_vi == 1),
             )
-            print(f"[residue_graph] vector={v_orig_tuple}: k_used={rg_result['k_used']}, "
-                    f"{len(rg_result['candidates'])} candidate component(s)")
+            _ncand = len(rg_result['candidates'])
+            _n_lifted = 0
+            _n_on_curve = 0
             for i, cand in enumerate(rg_result['candidates']):
                 recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
                 for m_val in recon_ms:
+                    _n_lifted += 1
                     rec = _record_rational_candidate(
                         m_val, v_orig_tuple, r_m, shift, rationality_test_func,
                         all_candidate_records, all_processed_m_vals, all_candidate_xs,
                     )
                     if rec is None:
                         continue
+                    _n_on_curve += 1
                     all_final_rational_pairs.append((m_val, v_orig_tuple))
+                    _found_by_vector.setdefault(rec['x'], []).append(v_orig_tuple)
                     if rec['is_new_x']:
                         h_x = naive_height_of_rational(rec['x'])
-                        print(f"[residue_graph] new point x={rec['x']}  (naive x-height h(x) ≈ {h_x:.2f}, "
+                        _all_found_this_phase.setdefault(rec['x'], (m_val, v_orig_tuple))
+                        print(f"[residue_graph] *** NEW POINT x={rec['x']}  (naive x-height h(x) ≈ {h_x:.2f}, "
                               f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, "
-                              f"vector={v_orig_tuple}")
+                              f"vector={v_orig_tuple}  [t={time.time() - _t_graph0:.0f}s] ***")
                 hit = _mtarget_known is not None and _mtarget_known in recon_ms
                 if hit:
                     _mtarget_hits.append(v_orig_tuple)
 
-                #print(f"  candidate {i}: primes={cand['primes']} "
-                #        f"reconstructions={recon_ms}{'  <-- MATCHES mtarget' if hit else ''}")
+            for t in (rg_result.get('graph') or {}).get('trace', []):
+                _trace_summary[(t['m'], v_orig_tuple)] = (
+                    ('confirmed', t['confirmed_gen']) if t.get('confirmed_gen') is not None
+                    else ('lost', t['lost_gen']) if t['lost_gen'] is not None
+                    else ('unconfirmed', None))
+
+            _dt = time.time() - _t_v0
+            _per_vector_secs.append(_dt)
+            print(f"[residue_graph] v={v_orig_tuple} done in {_dt:.1f}s: "
+                  f"{_ncand} confirmed chain(s) -> {_n_lifted} reconstructed m -> "
+                  f"{_n_on_curve} on the curve (y rational)")
+
+        # ---- Scoreboard: which vectors recovered which known m --------------
+        print(f"\n[residue_graph] ===== SCOREBOARD ({time.time() - _t_graph0:.0f}s total) =====")
+        print(f"[residue_graph] points recovered by the graph (x -> vectors): "
+              f"{ {str(k): v for k, v in _found_by_vector.items()} }")
+        for _m in _trace_ms:
+            _rows = [(v, _trace_summary[(_m, v)]) for v in _graph_vecs if (_m, v) in _trace_summary]
+            _conf = [v for v, (st, _) in _rows if st == 'confirmed']
+            _unconf = [v for v, (st, _) in _rows if st == 'unconfirmed']
+            _lost = {}
+            for v, (st, g) in _rows:
+                if st == 'lost':
+                    _lost.setdefault(g, []).append(v)
+            print(f"[residue_graph]   m={_m}: confirmed in {len(_conf)}/{len(_rows)} vectors"
+                  + (f" {_conf[:8]}{'...' if len(_conf) > 8 else ''}" if _conf else "")
+                  + (f"; alive-but-unconfirmed in {len(_unconf)}" if _unconf else "")
+                  + (f"; lost at gen: { {g: len(vs) for g, vs in sorted(_lost.items())} }" if _lost else ""))
+        print(f"[residue_graph] ===================================================\n")
 
         if _mtarget_known is not None:
             from .residue_crt_graph import trace_target_through_arc_consistency

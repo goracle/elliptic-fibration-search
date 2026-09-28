@@ -140,9 +140,60 @@ def lattice_rational_lift_exists(c, M, H):
         r_prev, r_cur = r_cur, r_prev - q * r_cur
         s_prev, s_cur = s_cur, s_prev - q * s_cur
 
-    # r_cur == 0 means s_cur is the full period; c divides evenly into a
-    # multiple of M already captured above -- nothing further to check.
+    # The loop above stops the moment r_cur == 0, so it never tests the LAST
+    # Euclid vector (0, s_cur). That vector is a perfectly good nonzero
+    # lattice point (0 - c*s_cur = -c*s_cur is a multiple of M): it is the
+    # small rational 0/s. In particular for c == 0 (the true point m = 0)
+    # the very first (r_cur, s_cur) is (0, 1) and, before this check, was
+    # skipped, so the lift was reported as impossible for every M > H and a
+    # chain following the true point m = 0 died as soon as M exceeded H.
+    # (Found by brute force: every true point a/b with a != 0 was already
+    # accepted; every rejected true point had a == 0.)
+    if abs(s_cur) <= H:
+        return True
     return False
+
+
+def lattice_small_rational(c, M, H):
+    """
+    Return the small rational a/b (as a pair (a, b), b > 0, gcd(a, b) = 1)
+    with |a|, |b| <= H, gcd(b, M) = 1 and a == c*b (mod M), or None.
+
+    Same Euclidean walk as lattice_rational_lift_exists, but it returns the
+    vector instead of a bool and insists gcd(b, M) = 1. That second condition
+    matters: a lattice vector (r, s) whose s shares a factor with M makes the
+    plain bool test pass, but r/s does NOT reduce to c modulo that shared
+    prime, so it is not a lift of the CRT residue at all.
+
+    UNIQUENESS: if M > 2*H^2 there is at most one such fraction (two of them,
+    a1/b1 != a2/b2, would give a nonzero integer a1*b2 - a2*b1 of size
+    <= 2*H^2 divisible by M, impossible). So for M > 2*H^2 this is THE
+    candidate rational, which is what lets the caller verify it against the
+    other primes and stop the chain.
+    """
+    if M <= 0:
+        raise ValueError(f"lattice_small_rational requires M > 0, got M={M}")
+    c, M, H = int(c) % int(M), int(M), int(H)
+
+    def _accept(r, s):
+        if s < 0:
+            r, s = -r, -s
+        if s == 0 or s > H or abs(r) > H or gcd(s, M) != 1:
+            return None
+        g = gcd(abs(r), s)
+        return (r // g, s // g)
+
+    r_prev, r_cur = M, c
+    s_prev, s_cur = 0, 1
+    while True:
+        hit = _accept(r_cur, s_cur)         # includes the final (0, s) vector
+        if hit is not None:
+            return hit
+        if r_cur == 0:
+            return None
+        q = r_prev // r_cur
+        r_prev, r_cur = r_cur, r_prev - q * r_cur
+        s_prev, s_cur = s_cur, s_prev - q * s_cur
 
 
 def modulus_is_informative(M, H):
