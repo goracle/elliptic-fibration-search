@@ -1315,6 +1315,111 @@ def build_residue_graph_incremental(
     return result
 
 
+def build_residue_chains_ordered(
+    precomputed_residues,
+    prime_pool,
+    height_bound,
+    v_tuple=None,
+    margin=MIN_MARGIN_OVER_BOX,
+    max_chains=None,
+    stats_counter=None,
+    progress=True,
+    windows=12,
+    max_states_per_layer=2_000_000,
+    lift_cache_size=500_000,
+    **_ignored,
+):
+    """
+    Fixed-order layered CRT sieve (largest primes first).
+
+    Each window starts one prime further down the descending prime list and
+    multiplies residue domains layer by layer until the modulus exceeds
+    margin*(2H+1)^2, so only as many primes are used as are needed to make
+    the lift test informative (typically ~5 large primes, not k smallest).
+    Layers whose modulus is still <= box are not lift-tested (the test is a
+    tautology there).  A prime with no true residue kills every window that
+    spans it; more windows = more robustness to bad primes, at linear cost.
+
+    Returns a dict shaped like build_residue_graph_incremental's result
+    (`confirmed_chains` holds one chain per surviving CRT state).
+    """
+    pool = sorted({int(p) for p in prime_pool})
+    H = int(height_bound)
+    box = (2 * H + 1) ** 2
+    threshold = int(margin) * box
+    nodes_by_prime = _nodes_by_prime(precomputed_residues, pool, v_tuple=v_tuple)
+    order = sorted((p for p in pool if nodes_by_prime.get(p)), reverse=True)
+    n_nodes = sum(len(v) for v in nodes_by_prime.values())
+    lift_cache = _LiftCache(lift_cache_size)
+
+    tested = kept = 0
+    chains, seen = [], set()
+    stopped_reason = None
+
+    for w in range(min(int(windows), len(order))):
+        frontier = [(1, 0, ())]
+        reached = False
+        for p in order[w:]:
+            nxt = []
+            for (M, c, path) in frontier:
+                inv = pow(M, -1, p)
+                M2 = M * p
+                for nk in nodes_by_prime[p]:
+                    c2 = c + M * (((nk[2] - c) * inv) % p)
+                    tested += 1
+                    if M2 <= box or lift_cache(c2, M2, H):
+                        kept += 1
+                        nxt.append((M2, c2, path + (nk,)))
+            frontier = nxt
+            if not frontier:
+                break
+            if len(frontier) > int(max_states_per_layer):
+                stopped_reason = "max_states_per_layer"
+                break
+            if frontier[0][0] > threshold:
+                reached = True
+                break
+        if reached:
+            for (M, c, path) in frontier:
+                key = (M, c)
+                if key in seen:
+                    continue
+                seen.add(key)
+                chains.append({
+                    "primes": sorted(k[0] for k in path),
+                    "modulus": M,
+                    "residue": c,
+                    "node_keys": list(path),
+                })
+        if max_chains is not None and len(chains) >= int(max_chains):
+            stopped_reason = "max_chains"
+            break
+
+    if progress:
+        print(
+            f"[residue_graph_ordered] {n_nodes:,} nodes, {len(order)} primes, "
+            f"windows={min(int(windows), len(order))}, tested={tested:,}, "
+            f"kept={kept:,}, chains={len(chains):,}"
+            + (f", stopped: {stopped_reason}" if stopped_reason else "")
+        )
+
+    return {
+        "components": [],
+        "component_primes": [],
+        "edges_tested": tested,
+        "edges_kept": kept,
+        "nodes": n_nodes,
+        "max_generation_reached": 0,
+        "chains_confirmed": len(chains),
+        "confirmed_chains": chains,
+        "generation_log": [],
+        "cache_stats": lift_cache.stats(),
+        "stopped_reason": stopped_reason,
+        "strategy": "ordered",
+    }
+
+
+
 def build_residue_graph_ktuple(
     precomputed_residues,
     prime_pool,
@@ -1339,6 +1444,9 @@ def build_residue_graph_ktuple(
     # caller/diagnostics, but they are not search parameters for the low-level
     # incremental builder and must not leak into its signature.
     kwargs = dict(kwargs)
+    strategy = kwargs.pop("strategy", "incremental")
+    honor_k = bool(kwargs.pop("honor_k", False))
+    k_needed = k if k is not None else kwargs.pop("k", None)
     kwargs.pop("k", None)
     kwargs.pop("max_tuples", None)
     compatibility_only = {
@@ -1355,6 +1463,21 @@ def build_residue_graph_ktuple(
     # implementation.  Silently ignoring unknown kwargs preserves the old
     # k-tuple API's compatibility behavior instead of turning an otherwise
     # successful graph search into a TypeError.
+    ordered_keys = {"max_chains", "windows", "max_states_per_layer", "lift_cache_size"}
+    if strategy == "ordered":
+        fwd = {key: kwargs[key] for key in ordered_keys if key in kwargs}
+        fwd.setdefault("max_chains", 20_000)
+        return build_residue_chains_ordered(
+            precomputed_residues=precomputed_residues,
+            prime_pool=prime_pool,
+            height_bound=height_bound,
+            v_tuple=v_tuple,
+            margin=margin,
+            stats_counter=stats_counter,
+            progress=progress,
+            **fwd,
+        )
+
     incremental_keys = {
         "max_chains",
         "use_arc_consistency",
@@ -1374,6 +1497,16 @@ def build_residue_graph_ktuple(
         "time_budget_sec",
     }
     forward = {key: kwargs.pop(key) for key in list(kwargs) if key in incremental_keys}
+    # OPT-IN (honor_k=True): `k` has always been dropped here, so chains are
+    # confirmed at min_clique_size (default 3) and the exact on-curve check
+    # does the real filtering.  That is what finds points present at only a
+    # few primes; requiring k primes needs the point at >= k primes.
+    if honor_k and k_needed is not None:
+        forward.setdefault("min_clique_size", int(k_needed))
+        forward["max_clique_size"] = max(
+            int(forward.get("max_clique_size", MIN_MAX_PRIME_SUBSET_SIZE)),
+            int(forward["min_clique_size"]),
+        )
 
     return build_residue_graph_incremental(
         precomputed_residues=precomputed_residues,
