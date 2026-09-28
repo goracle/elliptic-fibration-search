@@ -170,13 +170,11 @@ def _record_rational_candidate(m_val, v_tuple, r_m, shift, rationality_test_func
     run_standard_lattice_search (all_candidate_records / all_processed_m_vals
     / all_candidate_xs).
 
-    This is the single place a candidate pair actually "joins the results":
-    it's called both from the residue-CRT-graph discovery step (which finds
-    candidates before round 0 of the anomalous-sweep even starts) and from
-    the per-round anomalous-sweep resolve loop, so points found either way
-    land in exactly the same bookkeeping -- section reconstruction, x-height
-    stats, completeness-proof accounting -- rather than the graph's finds
-    being printed once and then discarded. See chat.
+    This is the single place a candidate pair joins the results.  It is called
+    both from the residue-CRT-graph discovery step (which runs before round 0
+    of the anomalous sweep) and from the per-round anomalous-sweep resolve
+    loop, so points found either way land in the same bookkeeping: section
+    reconstruction, x-height stats and completeness-proof accounting.
 
     known_x_before, if given, is compared against instead of the live
     all_candidate_xs -- lets a caller (like the per-round sweep loop) freeze
@@ -219,6 +217,71 @@ def _record_rational_candidate(m_val, v_tuple, r_m, shift, rationality_test_func
     all_processed_m_vals[m_val] = v
     all_candidate_xs.add(x_val_q)
     return {'x': x_val_q, 'y': y_val, 'is_new_x': is_new_x, 'already_known_m': False}
+
+
+# State inherited by forked graph workers.  It is filled in by the parent
+# immediately before the pool is created, so workers read it through fork's
+# copy-on-write memory instead of receiving it by pickling.
+_GRAPH_WORKER_STATE = {}
+
+
+def _graph_vector_worker(task):
+    """
+    Run the residue-graph discovery for one vector and return plain data.
+
+    task is (index, v_tuple, verbose).  Everything the worker needs beyond
+    that comes from _GRAPH_WORKER_STATE.  Output printed during discovery is
+    captured and returned as 'log' so the parent can replay it in vector
+    order rather than interleaved across processes.
+
+    Returns a dict with:
+        'index', 'v'  : the task index and vector
+        'ncand'       : number of confirmed chains
+        'ms'          : list of (m_num, m_den), one per reconstruction
+        'trace'       : the graph's known-m trace entries
+        'log'         : captured stdout
+        'secs'        : wall time for this vector
+    """
+    import contextlib
+    import io
+    index, v_tuple, verbose = task
+    st = _GRAPH_WORKER_STATE
+    t0 = time.time()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rg_result = discover_candidates_via_residue_graph(
+            st['residues'], st['prime_pool'], height_bound=st['height_bound'],
+            v_tuple=v_tuple, debug=True, known_m=st['trace_ms'],
+            verbose_graph=verbose, print_header=(index == 1),
+        )
+    ms = [(r['m_num'], r['m_den'])
+          for cand in rg_result['candidates'] for r in cand['reconstructions']]
+    return {
+        'index': index,
+        'v': v_tuple,
+        'ncand': len(rg_result['candidates']),
+        'ms': ms,
+        'trace': (rg_result.get('graph') or {}).get('trace', []),
+        'log': buf.getvalue(),
+        'secs': time.time() - t0,
+    }
+
+
+def _run_graph_vectors(tasks, num_workers):
+    """
+    Yield _graph_vector_worker results for tasks in task order.
+
+    Uses a fork-based process pool when there is more than one task and more
+    than one worker, and runs inline otherwise.
+    """
+    n_workers = max(1, min(int(num_workers), len(tasks)))
+    if n_workers == 1:
+        for task in tasks:
+            yield _graph_vector_worker(task)
+        return
+    ctx = multiprocessing.get_context("fork")
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
+        yield from executor.map(_graph_vector_worker, tasks)
 
 
 def _call_residues(eqs_dict, prime_list, Ep_dict, mult_lll, vecs_lll,
@@ -983,14 +1046,10 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
 
 
     # ------------------------------------------------------------------
-    # Shared accumulators for every rational (m, v_tuple) candidate found
-    # by ANY method below -- the residue-CRT-graph discovery step right
-    # after this comment, and the per-round anomalous-sweep loop further
-    # down. Initialized here (rather than immediately before the sweep
-    # loop, where they used to live) so the graph-discovery step can
-    # write into them too and have its finds actually join the same
-    # results, instead of being resolved/printed and then dropped on the
-    # floor. See _record_rational_candidate and chat.
+    # Shared accumulators for every rational (m, v_tuple) candidate found by
+    # any method below: the residue-CRT-graph discovery step that follows and
+    # the per-round anomalous-sweep loop further down.  Both record into these
+    # through _record_rational_candidate.
     # ------------------------------------------------------------------
     all_candidate_records = []
     all_candidate_xs = set()
@@ -999,20 +1058,17 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
     all_processed_m_vals = {}
 
     # ------------------------------------------------------------------
-    # Bottom-up candidate discovery via the residue CRT-consistency
-    # graph (search_lll/residue_crt_graph.py) -- unlike diagnose_missed_point
-    # and cov1 above, this does NOT take mtarget/TARGETED_X as input at
-    # all. It only looks at precomputed_residues and PRIME_POOL, builds
-    # the cross-prime consistency graph, and reports whatever candidate
-    # m's fall out as connected components. Comparing its output against
-    # mtarget here is a validation check while this approach is being
-    # tried out -- see chat: the point is that this should eventually
-    # replace picking random prime subsets, not that it needs to already
-    # know mtarget to run. Its confirmed finds are now recorded into the
-    # shared accumulators above via _record_rational_candidate, so they
-    # feed into the same section/coverage/completeness bookkeeping as
-    # anomalous-sweep finds, and get pruned from precomputed_residues
-    # before round 0 like any other already-known point.
+    # Bottom-up candidate discovery via the residue CRT-consistency graph
+    # (search_lll/residue_crt_graph.py).  Unlike diagnose_missed_point and
+    # cov1 above, this takes no mtarget/TARGETED_X: it only looks at
+    # precomputed_residues and PRIME_POOL, builds the cross-prime consistency
+    # graph for each vector, and reports the candidate m values that fall out.
+    # When a target is configured, its m is compared against the output as a
+    # validation check.  Confirmed finds are recorded into the shared
+    # accumulators above via _record_rational_candidate, so they feed the same
+    # section/coverage/completeness bookkeeping as anomalous-sweep finds and
+    # are pruned from precomputed_residues before round 0 like any other
+    # known point.
     try:
         # mtarget is only known once the TARGETED_X debug block below has run
         # (and only if TARGETED_X is set at all). Compute it here, ahead of
@@ -1022,19 +1078,14 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         if TARGETED_X:
             _mtarget_known = QQ(-1) * TARGETED_X + r_m(m=0)
 
-        # *** FIX (n-mixing bug): discover_candidates_via_residue_graph must
-        # be called ONCE PER VECTOR (v_orig_tuple), never with v_tuple=None.
-        # precomputed_residues[p][v_orig_tuple] holds the candidate m mod p
-        # roots for THAT SPECIFIC vector v_orig (i.e. that specific
-        # candidate multiplier/section n) -- it is not a residue of "m in
-        # general". A chain that CRTs prime p's residue for vector v1 with
-        # prime q's residue for vector v2 doesn't correspond to any real
-        # candidate point at all: it's numerically-coincidental agreement
-        # between two unrelated n's, not evidence about either one. This is
-        # exactly what modularthread.process_prime_subset_precomputed does
-        # right (it fixes v_orig for the whole inner CRT loop, per prime
-        # subset) and what this diagnostic was doing wrong by pooling every
-        # vector's residues into one graph via v_tuple=None. See chat.
+        # discover_candidates_via_residue_graph is called once per vector
+        # (v_orig_tuple), never with v_tuple=None.  precomputed_residues[p]
+        # [v_orig_tuple] holds the candidate m mod p roots for that specific
+        # vector, i.e. that specific multiplier n.  CRT-combining prime p's
+        # residue for one vector with prime q's residue for another would
+        # give numerically coincidental agreement that says nothing about
+        # either.  This matches modularthread.process_prime_subset_precomputed,
+        # which fixes v_orig for the whole inner CRT loop of a prime subset.
         _mtarget_hits = []
 
         # ---- Known-point tracing (reporting only; never steers the search) ----
@@ -1062,72 +1113,74 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         _graph_vecs = [tuple(v) for v in vecs_list
                        if not (len(vecs_list) > 1 and all(c == 0 for c in v))]
         _t_graph0 = time.time()
-        _per_vector_secs = []
         _found_by_vector = {}      # x -> [vectors that produced it]
         _all_found_this_phase = {}  # x -> (m, vector) first seen
         _trace_summary = {}         # (m, vector) -> lost_gen / None
 
-        for _vi, v_orig_tuple in enumerate(_graph_vecs, 1):
-            _t_v0 = time.time()
-            if _per_vector_secs:
-                _avg = sum(_per_vector_secs) / len(_per_vector_secs)
-                _eta = _avg * (len(_graph_vecs) - _vi + 1)
-                print(f"[residue_graph] === vector {_vi}/{len(_graph_vecs)} {v_orig_tuple} "
-                      f"| elapsed {time.time() - _t_graph0:.0f}s "
-                      f"| avg {_avg:.1f}s/vector | ETA ~{_eta:.0f}s ===")
-            else:
-                print(f"[residue_graph] === vector {_vi}/{len(_graph_vecs)} {v_orig_tuple} ===")
+        # Vectors are independent, read-only graph builds, so they run in
+        # parallel.  Workers only compute; all recording into the shared
+        # accumulators happens here, in vector order.
+        _GRAPH_WORKER_STATE.clear()
+        _GRAPH_WORKER_STATE.update({
+            'residues': precomputed_residues,
+            'prime_pool': PRIME_POOL,
+            'height_bound': HEIGHT_BOUND,
+            'trace_ms': _trace_ms or None,
+        })
+        _graph_tasks = [(_vi, v, _vi == 1) for _vi, v in enumerate(_graph_vecs, 1)]
+        _graph_workers = max(1, min(PARALLEL_PRIME_WORKERS, len(_graph_tasks)))
+        print(f"[residue_graph] scanning {len(_graph_tasks)} vector(s) "
+              f"with {_graph_workers} worker(s)")
 
-            rg_result = discover_candidates_via_residue_graph(
-                precomputed_residues, PRIME_POOL, height_bound=HEIGHT_BOUND,
-                v_tuple=v_orig_tuple, debug=True,
-                known_m=_trace_ms or None,
-                # Per-generation lines only for the first vector (to see the
-                # shape once) -- everything else gets the one-line summary.
-                verbose_graph=(_vi == 1),
-            )
-            _ncand = len(rg_result['candidates'])
+        for _res in _run_graph_vectors(_graph_tasks, _graph_workers):
+            _vi = _res['index']
+            v_orig_tuple = _res['v']
+            _elapsed = time.time() - _t_graph0
+            _eta = _elapsed / _vi * (len(_graph_vecs) - _vi)
+            print(f"[residue_graph] === vector {_vi}/{len(_graph_vecs)} {v_orig_tuple} "
+                  f"| elapsed {_elapsed:.0f}s | ETA ~{_eta:.0f}s ===")
+            print(_res['log'], end="")
+
             _n_lifted = 0
             _n_on_curve = 0
-            for i, cand in enumerate(rg_result['candidates']):
-                recon_ms = [QQ(r['m_num']) / QQ(r['m_den']) for r in cand['reconstructions']]
-                for m_val in recon_ms:
-                    _n_lifted += 1
-                    rec = _record_rational_candidate(
-                        m_val, v_orig_tuple, r_m, shift, rationality_test_func,
-                        all_candidate_records, all_processed_m_vals, all_candidate_xs,
-                    )
-                    if rec is None:
-                        continue
-                    _n_on_curve += 1
-                    all_final_rational_pairs.append((m_val, v_orig_tuple))
-                    _found_by_vector.setdefault(rec['x'], []).append(v_orig_tuple)
-                    if rec['is_new_x']:
-                        h_x = naive_height_of_rational(rec['x'])
-                        _all_found_this_phase.setdefault(rec['x'], (m_val, v_orig_tuple))
-                        print(f"[residue_graph] *** NEW POINT x={rec['x']}  (naive x-height h(x) ≈ {h_x:.2f}, "
-                              f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, "
-                              f"vector={v_orig_tuple}  [t={time.time() - _t_graph0:.0f}s] ***")
-                hit = _mtarget_known is not None and _mtarget_known in recon_ms
-                if hit:
+            for _num, _den in _res['ms']:
+                m_val = QQ(_num) / QQ(_den)
+                _n_lifted += 1
+                rec = _record_rational_candidate(
+                    m_val, v_orig_tuple, r_m, shift, rationality_test_func,
+                    all_candidate_records, all_processed_m_vals, all_candidate_xs,
+                )
+                if rec is None:
+                    continue
+                _n_on_curve += 1
+                all_final_rational_pairs.append((m_val, v_orig_tuple))
+                _found_by_vector.setdefault(rec['x'], []).append(v_orig_tuple)
+                if rec['is_new_x']:
+                    h_x = naive_height_of_rational(rec['x'])
+                    _all_found_this_phase.setdefault(rec['x'], (m_val, v_orig_tuple))
+                    print(f"[residue_graph] *** NEW POINT x={rec['x']}  (naive x-height h(x) ≈ {h_x:.2f}, "
+                          f"~10^{log10_of_naive_height(h_x):.1f} digits)  from m={m_val}, "
+                          f"vector={v_orig_tuple}  [t={_elapsed:.0f}s] ***")
+                if _mtarget_known is not None and m_val == _mtarget_known:
                     _mtarget_hits.append(v_orig_tuple)
 
-            for t in (rg_result.get('graph') or {}).get('trace', []):
+            for t in _res['trace']:
                 _trace_summary[(t['m'], v_orig_tuple)] = (
                     ('confirmed', t['confirmed_gen']) if t.get('confirmed_gen') is not None
                     else ('lost', t['lost_gen']) if t['lost_gen'] is not None
                     else ('unconfirmed', None))
 
-            _dt = time.time() - _t_v0
-            _per_vector_secs.append(_dt)
-            print(f"[residue_graph] v={v_orig_tuple} done in {_dt:.1f}s: "
-                  f"{_ncand} confirmed chain(s) -> {_n_lifted} reconstructed m -> "
+            print(f"[residue_graph] v={v_orig_tuple} done in {_res['secs']:.1f}s: "
+                  f"{_res['ncand']} confirmed chain(s) -> {_n_lifted} reconstructed m -> "
                   f"{_n_on_curve} on the curve (y rational)")
 
         # ---- Scoreboard: which vectors recovered which known m --------------
         print(f"\n[residue_graph] ===== SCOREBOARD ({time.time() - _t_graph0:.0f}s total) =====")
-        print(f"[residue_graph] points recovered by the graph (x -> vectors): "
-              f"{ {str(k): v for k, v in _found_by_vector.items()} }")
+        print("[residue_graph] points recovered by the graph:")
+        for _x, _vs in _found_by_vector.items():
+            _uniq = list(dict.fromkeys(_vs))
+            print(f"[residue_graph]   x={_x}: {len(_vs)} chain hit(s) across "
+                  f"{len(_uniq)} vector(s) {_uniq[:8]}{'...' if len(_uniq) > 8 else ''}")
         for _m in _trace_ms:
             _rows = [(v, _trace_summary[(_m, v)]) for v in _graph_vecs if (_m, v) in _trace_summary]
             _conf = [v for v, (st, _) in _rows if st == 'confirmed']
@@ -1145,7 +1198,8 @@ def run_standard_lattice_search(cd, current_sections, prime_pool, vecs, rhs_list
         if _mtarget_known is not None:
             from .residue_crt_graph import trace_target_through_arc_consistency
             if _mtarget_hits:
-                print(f"[residue_graph] mtarget={_mtarget_known} matched via vector(s): {_mtarget_hits}")
+                _hit_vs = list(dict.fromkeys(_mtarget_hits))
+                print(f"[residue_graph] mtarget={_mtarget_known} matched via vector(s): {_hit_vs}")
             else:
                 # Trace against every vector, not just vector-blind (None),
                 # since which vector's residue domain the target's true

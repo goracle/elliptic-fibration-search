@@ -1,7 +1,20 @@
 """
 search_lll/residue_crt_graph.py
 
-try again.
+Cross-prime residue consistency search.
+
+For a fixed vector v, each prime p contributes a set of candidate residues
+(roots of the fibration equation mod p).  A true rational point m = a/b with
+|a|, |b| <= H reduces to one residue at every prime where it is defined, so its
+residues glue under CRT into a class that contains a small-height rational.
+This module searches for such glued classes without being told the target m.
+
+A "chain" is a set of primes together with one residue per prime and the CRT
+combination of those residues.  A chain is confirmed once it spans enough primes
+(min_clique_size) or its modulus clears the informative threshold, and each
+confirmed chain is reconstructed to a single candidate m.  Only a small clique
+of primes needs to agree for a chain to be confirmed; agreement across the whole
+pool is not required.
 """
 
 from collections import defaultdict
@@ -77,7 +90,13 @@ _STRONG_INFORMATIVE_MARGIN = 50
 def _min_attempts_for_informative(primes_with_data, H, p=None,
                                    margin=_STRONG_INFORMATIVE_MARGIN):
     """
-    no
+    Minimum number of partner primes a witness chain must try before its
+    success rate is trusted.
+
+    Returns the smallest count of primes (largest first, excluding p) whose
+    product exceeds margin * H^2, i.e. enough modulus for a lattice-lift
+    success to be informative.  Falls back to all available partners if the
+    product never gets there.
     """
     H = int(H)
     threshold = margin * H * H
@@ -94,7 +113,24 @@ def _has_witness_chain(p, r_p, nodes_by_prime, primes_with_data, H, sample_cap=N
                         rng=None, min_success_rate=0.8, min_attempts=6,
                         beam_width=4, max_calls_per_prime_step=32):
     """
-    learn to write docs lol
+    Decide whether residue r_p at prime p is supported by a chain through
+    the other primes.
+
+    Starting from the single class (p, r_p), the primes in primes_with_data
+    are visited one at a time (optionally shuffled/truncated by rng and
+    sample_cap).  At each prime q, every residue of q is combined with each
+    live accumulator by CRT, and the result is kept if
+    lattice_rational_lift_exists says its class can still contain a rational
+    of height <= H.  At most beam_width accumulators (smallest modulus first)
+    survive a step, and at most max_calls_per_prime_step CRT/lift calls are
+    spent per step (scaled up when a prime has many residues).
+
+    A step counts as a success if at least one child survives.  The residue is
+    rejected as soon as, after min_attempts steps, the success rate falls below
+    min_success_rate; it is accepted as soon as the rate is at least
+    min_success_rate and some accumulator's modulus exceeds
+    _STRONG_INFORMATIVE_MARGIN * H^2.  If all primes are exhausted without
+    either, the final success rate decides.
     """
     others = [q for q in primes_with_data if q != p]
     if rng is not None:
@@ -159,7 +195,17 @@ def arc_consistency_prune_domains(precomputed_residues, prime_pool, height_bound
                                    witness_beam_width=4, witness_max_calls_per_prime_step=32,
                                    witness_min_success_rate=0.8, witness_min_attempts=6):
     """
-    figure it out lol
+    Iteratively prune each prime's residue domain to residues that have a
+    witness chain (see _has_witness_chain).
+
+    Every round re-tests all remaining residues against the current domains
+    and drops those without a witness; rounds repeat until nothing is dropped
+    or max_rounds is reached.  v_tuple restricts the domains to one vector's
+    residues (None pools all vectors).  Dropped residues are counted in
+    stats_counter['residue_graph_arc_consistency_dropped'].
+
+    Returns (nodes_by_prime, rounds_run), where nodes_by_prime maps each prime
+    to its surviving (p, node_id, r) nodes.
     """
     import random
     rng = random.Random(seed)
@@ -333,6 +379,12 @@ def trace_target_through_arc_consistency(target_m, precomputed_residues, prime_p
 
 
 def min_tuple_size_for_margin(prime_pool, height_bound, margin=MIN_MARGIN_OVER_BOX):
+    """
+    Smallest k such that the product of the k smallest primes in prime_pool
+    exceeds margin * (2H+1)^2, i.e. the fewest primes whose CRT modulus is
+    informative for a height bound H.  Returns None if the whole pool is not
+    enough.
+    """
     H = int(height_bound)
     box = (2 * H + 1) ** 2
     threshold = margin * box
@@ -356,7 +408,44 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
                                      reconcile_components=False,
                                      max_reconcile_pairs=2_000_000):
     """
-    verbose much lol.  i deleted the docs here because it was just a list of bug fixes
+    Build the residue graph for one vector by growing CRT chains a prime at a
+    time (beam search).
+
+    Generation 1 has one chain per residue.  Each generation extends every
+    still-growing chain by one unused prime, trying every residue of that
+    prime; the extension survives if the CRT class still admits a rational of
+    height <= H (lattice_rational_lift_exists).  A chain stops growing, and is
+    recorded as confirmed, once it uses at least min_clique_size primes or its
+    modulus exceeds margin * (2H+1)^2.  Chains that reach max_clique_size
+    without being confirmed are dropped as overgrown.  Because only a small
+    clique of primes has to agree, chains are extended into any unused prime
+    in any order.
+
+    Parameters:
+        precomputed_residues: {p: {v_tuple: [roots per rhs index]}}.
+        prime_pool: primes to draw residues from.
+        height_bound: H, bound on numerator and denominator of the target.
+        v_tuple: restrict to this vector's residues (None pools all vectors).
+        margin: confirmation threshold is margin * (2H+1)^2.
+        max_chains: if set, keep at most this many chains per generation,
+            preferring deeper (more primes) and then larger modulus.
+        stats_counter: optional Counter for bookkeeping.
+        progress: print per-generation progress.
+        use_arc_consistency: prune residue domains with
+            arc_consistency_prune_domains before building chains.
+        arc_consistency_max_rounds: round cap for that pruning.
+        max_calls_per_generation: soft cap on CRT/lift calls per generation;
+            chains that do not fit are carried forward to the next one.
+        min_clique_size / max_clique_size: confirmation and overgrowth limits
+            on the number of primes in a chain.
+        reconcile_components: after chaining, try merging components that
+            share no prime by CRT-combining one representative of each.
+        max_reconcile_pairs: budget for that reconciliation pass.
+
+    Returns a dict with 'components', 'component_primes', 'edges_tested',
+    'edges_kept', 'nodes', 'max_generation_reached', 'chains_confirmed',
+    'confirmed_chains' (each with 'primes', 'modulus', 'residue',
+    'node_keys') and 'generation_log'.
     """
     pool = sorted(int(p) for p in prime_pool)
     H = int(height_bound)
@@ -370,12 +459,13 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
         _primes_with_data = [p for p in pool if _tmp_nodes.get(p)]
         avg_roots_observed = (sum(len(v) for v in _tmp_nodes.values()) / len(_primes_with_data)
                               if _primes_with_data else 1.0)
+        # Fixed rate: the average root count per prime is not a reliable
+        # proxy for how many partner primes should support a given residue.
         auto_min_success_rate = 0.35
         if progress:
             print(f"[residue_graph_arc_consistency] observed avg_roots={avg_roots_observed:.2f} "
                   f"over {len(_primes_with_data)} primes with data -> "
-                  f"using fixed witness_min_success_rate={auto_min_success_rate} "
-                  f"(avg_roots is not a reliable proxy for per-residue coverage; see SEVENTH BUG note)")
+                  f"using witness_min_success_rate={auto_min_success_rate}")
 
         nodes_by_prime, ac_rounds = arc_consistency_prune_domains(
             precomputed_residues, pool, H, v_tuple=v_tuple,
@@ -516,10 +606,9 @@ def build_residue_graph_incremental(precomputed_residues, prime_pool, height_bou
                         continue
 
                     if id(ch) in deferred_ids:
-                        # Deferred this generation (EIGHTH BUG fix): carry
-                        # forward unextended so it gets first priority
-                        # (by the same depth-first ordering) next round,
-                        # rather than losing the work already invested.
+                        # Over the per-generation call budget: carry the chain
+                        # forward unextended so it is first in line (same
+                        # depth-first ordering) next generation.
                         next_chains.append(ch)
                         continue
 
@@ -653,20 +742,18 @@ def build_residue_graph_ktuple(precomputed_residues, prime_pool, height_bound,
                                 max_tuples=None, stats_counter=None, progress=False,
                                 **kwargs):
     """
-    The combinatorial k-tuple generator was ripped out due to massive stalling.
-    This now automatically routes to the incremental beam-search method so you
-    don't have to alter caller signatures elsewhere.
+    Build the residue graph for one vector using the incremental beam search
+    (build_residue_graph_incremental), capped at 20000 chains per generation.
 
-    progress defaults to False: this is called once PER VECTOR by
-    discover_candidates_via_residue_graph (see search_analysis.py), and with
-    dozens of vectors in play, per-generation beam-search progress lines
-    multiply into an unreadable wall of near-identical output. Pass
-    progress=True only when you're debugging a single vector's beam search
-    specifically (e.g. temporarily, for one known-target vector) -- not as
-    the default for a full multi-vector scan.
+    Kept as the entry point used by discover_candidates_via_residue_graph;
+    k, max_tuples and any extra keyword arguments are accepted for signature
+    compatibility and are not used.
+
+    progress defaults to False because this is called once per vector, and
+    per-generation lines for every vector would drown out the one-line
+    per-vector summaries.  Enable it for a single vector when inspecting the
+    beam search.
     """
-    if progress:
-        print(f"\n[residue_graph] WARNING: build_residue_graph_ktuple intercepted. Routing to incremental beam search to avoid combinatorial explosion...")
     return build_residue_graph_incremental(
         precomputed_residues=precomputed_residues,
         prime_pool=prime_pool,
@@ -684,8 +771,17 @@ def build_residue_graph(precomputed_residues, prime_pool, height_bound,
                          require_margin_over_box=True,
                          max_primes=None, stats_counter=None):
     """
-    Build the pairwise CRT-compatibility graph over ALL residues at ALL
+    Build the pairwise CRT-compatibility graph over all residues at all
     primes in prime_pool.
+
+    Two residues at different primes are joined by an edge when their CRT
+    class mod p*q admits a rational of height <= H; pairs of primes whose
+    product is not informative for H are skipped.  Connected components are
+    found with union-find.  Suitable only when two primes already give an
+    informative modulus; otherwise use build_residue_graph_incremental.
+
+    Returns a dict with 'components', 'component_primes', 'edges_tested',
+    'edges_kept' and 'nodes'.
     """
     pool = list(prime_pool) if max_primes is None else list(prime_pool)[:max_primes]
     H = int(height_bound)
@@ -762,6 +858,10 @@ def build_residue_graph(precomputed_residues, prime_pool, height_bound,
 
 
 def summarize_components(graph_result, top_k=10):
+    """
+    Summarize the top_k largest components of a graph result as dicts with
+    'num_nodes', 'num_primes' and the sorted 'primes' involved.
+    """
     rows = []
     for comp, comp_primes in zip(graph_result['components'][:top_k],
                                   graph_result['component_primes'][:top_k]):
@@ -774,6 +874,15 @@ def summarize_components(graph_result, top_k=10):
 
 
 def refine_component_chained(comp, height_bound, stats_counter=None):
+    """
+    Check whether a component contains a full consistent chain.
+
+    Tries every choice of one residue per prime, CRT-combining prime by prime
+    and abandoning a choice as soon as the partial class admits no rational of
+    height <= H.  Confirmed when some complete chain has modulus above 2*H^2.
+
+    Returns {'confirmed': bool, 'modulus_reached': int, 'primes_used': list}.
+    """
     H = int(height_bound)
     by_prime = defaultdict(list)
     for (p, node_id, r) in comp:
@@ -840,7 +949,17 @@ def reconstruct_candidates_from_component(comp, height_bound, max_den=None,
                                            max_results=5, stats_counter=None,
                                            max_visits=2_000_000):
     """
-    write better docs and then i won't delete them all, claude
+    Reconstruct candidate rationals from one connected component of the graph.
+
+    Depth-first over the component's primes (fewest residues first), combining
+    one residue per prime by CRT and pruning any partial combination whose
+    class admits no rational of height <= H.  Each complete combination is
+    rational-reconstructed with denominator bound max_den (default H).
+
+    Stops after max_results candidates or max_visits search nodes
+    (counted in stats_counter['reconstruct_visit_budget_exhausted'] when the
+    visit budget is hit).  Returns a list of dicts with 'm_num', 'm_den',
+    'primes' and 'modulus'.
     """
     by_prime = defaultdict(list)
     for (p, node_id, r) in comp:

@@ -205,3 +205,50 @@ When handed a new log from this pipeline, the fastest orientation path is:
   rather than trusting the `[Adaptive] Recommended` log line.
 - Multi-point fibrations (2+ seed points) are unstable / may hang — this is
   a documented limitation, not a bug to chase if you hit it.
+
+## Residue-graph candidate discovery
+
+Before the prime-subset sweep, the search runs a bottom-up pass over the
+residues it has already computed (`search_lll/residue_crt_graph.py`). It needs
+no target point.
+
+For each vector `v` in the search, every prime `p` in `PRIME_POOL` contributes
+a set of residues (roots of the fibration equation mod `p`). A true rational
+point `m = a/b` with `|a|, |b| <= HEIGHT_BOUND` reduces to one residue at each
+prime where it is defined, so its residues combine under CRT into a class that
+contains a small-height rational. The pass grows chains of residues one prime
+at a time and keeps a chain only while its CRT class still admits such a
+rational (`lattice_rational_lift_exists`).
+
+- **Only a small clique of primes has to agree.** A chain is confirmed once it
+  uses `MIN_PRIME_SUBSET_SIZE` primes or its modulus clears the informative
+  threshold; agreement across the whole pool is neither expected nor required.
+- **One candidate per confirmed chain.** Each confirmed chain is reconstructed
+  to a single `m`, which is tested for a rational `y` on the curve.
+- **Vectors are independent.** Residues for different vectors are never
+  combined. The vectors are scanned in parallel on a fork-based process pool of
+  `PARALLEL_PRIME_WORKERS` workers (`search_lll/search_config.py`; by default
+  `min(8, cpu_count // 2)`). Workers only compute; new points are recorded in
+  the parent in vector order, and each vector's output is printed as a block so
+  the log stays readable. With one worker (or one vector) the scan runs inline.
+
+### Reading the log
+
+```
+[residue_graph] scanning 43 vector(s) with 8 worker(s)
+[residue_graph] === vector 2/43 (2,) | elapsed 2s | ETA ~38s ===
+[residue_graph] v=(2,): nodes=28 edges=17032/17032 kept (100.0%) chains=16320 gens=3
+[residue_graph] *** NEW POINT x=-2 (...) from m=1, vector=(2,) [t=2s] ***
+[residue_graph] v=(2,) done in 0.6s: 16320 confirmed chain(s) -> 16320 reconstructed m -> 528 on the curve (y rational)
+```
+
+- `nodes` is the number of residues in the vector's domain; `edges` counts CRT
+  extensions that were tested and kept.
+- `chains` is the number of confirmed chains; `gens` is how many extension
+  generations the beam search ran. `cap_dropped`, `deferred` and `dead_ends`
+  appear only when non-zero.
+- The final line separates chains that reconstruct to some rational, from those
+  where that rational also lies on the curve with rational `y`.
+- The scoreboard at the end lists, per recovered `x`, how many chains hit it
+  and across which vectors.
+

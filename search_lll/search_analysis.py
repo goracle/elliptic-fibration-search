@@ -427,29 +427,33 @@ def diagnose_missed_point(target_x, r_m_callable, shift, precomputed_residues, p
 def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, height_bound,
                                            v_tuple=None, top_k=10, debug=True,
                                            max_tuples=2_000_000, known_m=None,
-                                           verbose_graph=False, max_chains=None):
+                                           verbose_graph=False, max_chains=None,
+                                           print_header=True):
     """
     Bottom-up candidate discovery via the cross-prime residue CRT graph
-    (search_lll/residue_crt_graph.py), as an alternative/complement to
-    diagnose_missed_point's top-down "given target x, is it findable"
-    check and compute_residue_coverage_for_m's "given target m, which
-    primes agree" check.
+    (search_lll/residue_crt_graph.py) for a single vector.
 
-    Unlike both of those, this takes NO target m or x -- it builds the
-    graph of which residues at DIFFERENT primes are pairwise/k-wise
-    mutually CRT-consistent (see residue_crt_graph.build_residue_graph /
-    build_residue_graph_ktuple), reads off the largest connected
-    components as candidates, and attempts rational reconstruction on
-    each. This is meant to be run instead of (or alongside) picking a
-    random prime subset and hoping -- the graph tells you directly which
-    residues could plausibly be the same underlying rational point.
+    No target m or x is needed.  The graph links residues at different primes
+    that are mutually CRT-consistent with a rational of height <= height_bound
+    (see residue_crt_graph.build_residue_graph and
+    build_residue_graph_ktuple), and each confirmed chain of primes is
+    reconstructed to one candidate m.  This complements diagnose_missed_point
+    ("given a target x, is it findable") and compute_residue_coverage_for_m
+    ("given a target m, which primes agree"), and can stand in for sampling
+    random prime subsets.
 
-    *** height_bound must be an actual usable bound for the primes in
-    prime_pool, not the flat legacy constant, or min_tuple_size_for_margin
-    may come back None (see its docstring: the smallest k primes' product
-    has to clear a real margin over (2*height_bound+1)^2, and if the pool
-    is too small / height_bound too large, no k works -- you'd need more
-    or larger primes in the pool first). ***
+    Call this once per vector (v_tuple): precomputed_residues[p][v_tuple] holds
+    the roots for that vector only, so residues belonging to different vectors
+    must not be combined.
+
+    height_bound must be a usable bound for the primes in prime_pool: the
+    smallest k primes must have a product that clears a margin over
+    (2*height_bound+1)^2, otherwise min_tuple_size_for_margin returns None and
+    no candidates are produced.  Add more or larger primes to the pool, or
+    tighten height_bound, in that case.
+
+    print_header suppresses the parameter summary lines that are identical for
+    every vector, so a multi-vector scan can print them once.
 
     Returns:
         {
@@ -469,10 +473,10 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
     H = int(height_bound)
     k_needed = rcg.min_tuple_size_for_margin(prime_pool, height_bound=H)
 
-    if debug:
+    if debug and print_header:
         box = (2 * H + 1) ** 2
-        print(f"[residue_graph] height_bound={H}, box=(2H+1)^2={box}, "
-              f"min tuple size for trustworthy edges: k={k_needed}")
+        print(f"[residue_graph] H={H}, box=(2H+1)^2={box}, "
+              f"min clique size for informative edges: k={k_needed}")
 
     if k_needed is None:
         if debug:
@@ -488,10 +492,10 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
         )
     else:
         cost = rcg.estimate_ktuple_cost(prime_pool, k_needed)
-        if debug:
+        if debug and print_header:
             from .search_config import PARALLEL_PRIME_WORKERS
             print(f"[residue_graph] k={k_needed}: C(pool,k)={cost} tuples "
-                  f"(max_tuples cap={max_tuples}, workers={PARALLEL_PRIME_WORKERS})")
+                  f"(max_tuples={max_tuples}, workers={PARALLEL_PRIME_WORKERS})")
         graph = rcg.build_residue_graph_ktuple(
             precomputed_residues, prime_pool, height_bound=H, k=k_needed, v_tuple=v_tuple,
             max_tuples=max_tuples, progress=verbose_graph, known_m=known_m,
@@ -501,12 +505,15 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
     if debug:
         _keep = 100.0 * graph['edges_kept'] / graph['edges_tested'] if graph['edges_tested'] else 0.0
         _ctr = graph.get('counters', {})
-        print(f"[residue_graph] v={v_tuple} k={k_needed}: nodes={graph['nodes']} "
-              f"edges_tested={graph['edges_tested']} edges_kept={graph['edges_kept']} ({_keep:.1f}%) "
-              f"confirmed_chains={graph.get('chains_confirmed', 'n/a')} "
-              f"max_gen={graph.get('max_generation_reached', 'n/a')} "
-              f"cap_dropped={_ctr.get('cap_dropped', 'n/a')} deferred={_ctr.get('deferred', 'n/a')} "
-              f"dead_end_chains={_ctr.get('dead_end_dropped', 'n/a')}")
+        _extra = "".join(f" {name}={_ctr[key]}"
+                         for name, key in (("cap_dropped", "cap_dropped"),
+                                           ("deferred", "deferred"),
+                                           ("dead_ends", "dead_end_dropped"))
+                         if key in _ctr)
+        print(f"[residue_graph] v={v_tuple}: nodes={graph['nodes']} "
+              f"edges={graph['edges_kept']}/{graph['edges_tested']} kept ({_keep:.1f}%) "
+              f"chains={graph.get('chains_confirmed', 'n/a')} "
+              f"gens={graph.get('max_generation_reached', 'n/a')}{_extra}")
         for t in graph.get('trace', []):
             print(f"[residue_graph] v={v_tuple} trace m={t['m']}: "
                   + (f"CONFIRMED at gen {t['confirmed_gen']}" if t.get('confirmed_gen') is not None
@@ -517,25 +524,17 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
                 print(f"  component {i}: primes={row['primes']} "
                       f"(#primes={row['num_primes']}, #nodes={row['num_nodes']})")
 
-    # Candidates come from confirmed_chains, not graph['components']: a
-    # component is the union-find closure over EVERY chain that was ever
-    # confirmed, so two unrelated local solutions that happen to share
-    # one node (e.g. both touch prime 89) get merged into one blob, and
-    # reconstructing "the" m from that blob is ambiguous -- there can
-    # genuinely be several distinct local points tangled into a single
-    # component. Real solutions here are local (a handful of primes
-    # gluing together into one point) rather than global (one point
-    # agreeing across most of the pool) -- trying too many primes at
-    # once breaks the glue rather than reinforcing it -- so each
-    # confirmed chain is already exactly one candidate m on its own,
-    # with no ambiguity and no search needed to extract it.
+    # Candidates come from confirmed_chains rather than graph['components'].
+    # A component is the union-find closure over every confirmed chain, so two
+    # distinct points that share a single node (say both use prime 89) merge
+    # into one component and the m to reconstruct becomes ambiguous.  A real
+    # point is supported by a small clique of primes, not the whole pool, so
+    # each confirmed chain is by itself exactly one candidate m and needs no
+    # search to extract.
     if 'confirmed_chains' in graph:
-        # top_k is NOT applied here: unlike a component (one blob you'd
-        # otherwise want to sample from), every confirmed chain is
-        # already its own distinct candidate, cheap to reconstruct and
-        # cheap to test for curve membership downstream (a few thousand
-        # chains is instantaneous to check), so there's no reason to
-        # throw most of them away before the caller even sees them.
+        # top_k is not applied: every confirmed chain is a distinct candidate
+        # that is cheap to reconstruct and to test for curve membership, so
+        # none are discarded before the caller sees them.
         candidates = []
         for chain in graph['confirmed_chains']:
             recon = rcg.reconstruct_candidate_from_chain(chain, height_bound=H)
@@ -547,9 +546,8 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
                 'reconstructions': [recon],
             })
     else:
-        # build_residue_graph (k_needed == 2 path) has no chain concept,
-        # only components -- fall back to the old component-based
-        # reconstruction there.
+        # build_residue_graph (the k_needed == 2 path) has no chains, only
+        # components, so reconstruct from the top_k components instead.
         candidates = []
         for comp, comp_primes in zip(graph['components'][:top_k], graph['component_primes'][:top_k]):
             if len(comp_primes) < 2:
@@ -562,14 +560,3 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
             })
 
     return {'k_used': k_needed, 'graph': graph, 'candidates': candidates}
-
-
-    """Wrapper for rational reconstruction."""
-    from sage.all import QQ, ZZ
-    try:
-        ret = ZZ(m0).rational_reconstruction(ZZ(M))
-        if ret is None:
-            raise ValueError("Reconstruction failed")
-        return ret
-    except:
-        raise ValueError("Reconstruction failed")
