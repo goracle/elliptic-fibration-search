@@ -542,7 +542,7 @@ def probe_algebraic_brauer_obstructions(precomputed_residues, prime_pool,
     }
     return result
 
-def compute_ramification_locus(cd, verbose=False):
+def compute_ramification_locus(cd, verbose=False, extra_primes=None):
     """
     Compute the ramification locus for an elliptic fibration:
     - primes dividing denominators of a4, a6 (in their coefficients)
@@ -719,7 +719,13 @@ def compute_ramification_locus(cd, verbose=False):
     # We check the primes typically used in the pool to ensure consistency with search_lll
     small_primes_scan = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113]
 
-    for p in small_primes_scan:
+    # extra_primes: the caller's actual prime pool.  The hardcoded list above
+    # stops at 113, so collisions at larger pool primes (e.g. 263) were never
+    # looked for and tripped the collision-subset assertion in
+    # prepare_modular_data_lll.
+    scan_set = sorted(set(small_primes_scan) | {int(q) for q in (extra_primes or ())})
+
+    for p in scan_set:
         try:
             # If Delta_prim vanishes or drops degree significantly, it's ramified
             # (Use leading_coefficient() to be safe across Sage versions)

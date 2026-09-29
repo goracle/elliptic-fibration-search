@@ -521,7 +521,7 @@ def prepare_modular_data_lll(cd, current_sections, prime_pool, rhs_list, vecs, s
             for p, reason in rejected_primes:
                 print(f"  p={p}: {reason}")
 
-            ram_locus = compute_ramification_locus(cd)
+            ram_locus = compute_ramification_locus(cd, extra_primes=prime_pool)
             detected_collisions = set(p for p, reason in rejected_primes if 'collision' in str(reason))
             if not USE_CONSENSUS_FILTER:
                 assert detected_collisions.issubset(ram_locus), \
