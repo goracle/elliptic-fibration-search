@@ -419,7 +419,7 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
                                            v_tuple=None, top_k=10, debug=True,
                                            max_tuples=2_000_000, known_m=None,
                                            verbose_graph=False, max_chains=None,
-                                           print_header=True):
+                                           print_header=True, square_den=False):
     """
     Bottom-up candidate discovery via the cross-prime residue CRT graph
     (search_lll/residue_crt_graph.py) for a single vector.
@@ -462,12 +462,12 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
     from . import residue_crt_graph as rcg
 
     H = int(height_bound)
-    k_needed = rcg.min_tuple_size_for_margin(prime_pool, height_bound=H)
+    square_den = bool(square_den)
+    k_needed = rcg.min_tuple_size_for_margin(prime_pool, height_bound=H, square_den=square_den)
 
     if debug and print_header:
-        box = (2 * H + 1) ** 2
-        print(f"[residue_graph] H={H}, box=(2H+1)^2={box}, "
-              f"min clique size for informative edges: k={k_needed}")
+        from crt_bounds import describe
+        print(f"[residue_graph] {describe(prime_pool, H, rcg.MIN_MARGIN_OVER_BOX, square_den)}")
 
     if k_needed is None:
         if debug:
@@ -490,7 +490,7 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
         graph = rcg.build_residue_graph_ktuple(
             precomputed_residues, prime_pool, height_bound=H, k=k_needed, v_tuple=v_tuple,
             max_tuples=max_tuples, progress=verbose_graph, known_m=known_m,
-            max_chains=max_chains, label=f"v={v_tuple}",
+            max_chains=max_chains, label=f"v={v_tuple}", square_den=square_den,
         )
 
     if debug:
@@ -528,13 +528,18 @@ def discover_candidates_via_residue_graph(precomputed_residues, prime_pool, heig
         # none are discarded before the caller sees them.
         candidates = []
         for chain in graph['confirmed_chains']:
-            recon = rcg.reconstruct_candidate_from_chain(chain, height_bound=H)
-            if recon is None:
+            if square_den:
+                # exhaustive over d <= sqrt(H); may yield several fractions
+                recons = rcg.reconstruct_candidates_from_chain_square(chain, height_bound=chain.get('height', H))
+            else:
+                recon = rcg.reconstruct_candidate_from_chain(chain, height_bound=chain.get('height', H))
+                recons = [] if recon is None else [recon]
+            if not recons:
                 continue
             candidates.append({
                 'primes': chain['primes'],
                 'num_nodes': len(chain['node_keys']),
-                'reconstructions': [recon],
+                'reconstructions': recons,
             })
     else:
         # build_residue_graph (the k_needed == 2 path) has no chains, only

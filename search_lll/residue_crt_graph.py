@@ -37,11 +37,14 @@ from tqdm import tqdm
 from .rational_arithmetic import (
     crt_cached,
     lattice_rational_lift_exists,
+    lattice_square_den_lift_exists,
+    square_den_small_rationals,
     modulus_is_informative,
     rational_reconstruct,
 )
 from .search_config import RationalReconstructionError
 from search_common import MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE
+from crt_bounds import box_slots, informative_threshold, clique_size_bounds
 
 
 MIN_MARGIN_OVER_BOX = 15
@@ -97,10 +100,14 @@ class _LiftCache:
     cache for this search: many different chains reach the same CRT state.
     """
 
-    __slots__ = ("maxsize", "_data", "hits", "misses")
+    __slots__ = ("maxsize", "_data", "hits", "misses", "square_den")
 
-    def __init__(self, maxsize=250_000):
+    def __init__(self, maxsize=250_000, square_den=False):
         self.maxsize = max(0, int(maxsize))
+        # square_den: only fractions a/d^2 count as small rationals (see
+        # crt_bounds.py for when that is justified).  Fixed per cache, so it
+        # needs no place in the key.
+        self.square_den = bool(square_den)
         self._data = OrderedDict()
         self.hits = 0
         self.misses = 0
@@ -121,7 +128,9 @@ class _LiftCache:
             return cached
 
         self.misses += 1
-        value = bool(lattice_rational_lift_exists(c, M, H))
+        _lift = (lattice_square_den_lift_exists if self.square_den
+                 else lattice_rational_lift_exists)
+        value = bool(_lift(c, M, H))
 
         if self.maxsize:
             self._data[key] = value
@@ -598,18 +607,17 @@ def trace_target_through_arc_consistency(
 # ---------------------------------------------------------------------------
 
 def min_tuple_size_for_margin(
-    prime_pool, height_bound, margin=MIN_MARGIN_OVER_BOX
+    prime_pool, height_bound, margin=MIN_MARGIN_OVER_BOX, square_den=False
 ):
-    """Smallest k whose k smallest primes have product > margin*(2H+1)^2."""
-    H = int(height_bound)
-    threshold = int(margin) * (2 * H + 1) ** 2
-
-    product = 1
-    for i, p in enumerate(sorted(int(p) for p in prime_pool), 1):
-        product *= p
-        if product > threshold:
-            return i
-    return None
+    """
+    Guaranteed clique size: smallest k such that ANY k primes of the pool have
+    a product above informative_threshold (= the k smallest primes suffice).
+    None if even the whole pool falls short.  See crt_bounds.clique_size_bounds
+    for the matching best case (k largest primes).
+    """
+    return clique_size_bounds(
+        prime_pool, height_bound, margin, square_den
+    )["k_worst"]
 
 
 def _mixed_prime_order(
@@ -737,12 +745,13 @@ def build_residue_graph_incremental(
     use_arc_consistency=False,
     arc_consistency_max_rounds=None,
     max_calls_per_generation=2_000_000,
-    min_clique_size=MIN_PRIME_SUBSET_SIZE,
-    max_clique_size=MIN_MAX_PRIME_SUBSET_SIZE,
+    min_clique_size=None,
+    max_clique_size=None,
     reconcile_components=False,
     max_reconcile_pairs=2_000_000,
     *,
     seed=0,
+    square_den=False,
     prime_mix_temperature=0.35,
     prime_mix_branch_penalty=0.5,
     max_prime_choices_per_chain_generation=8,
@@ -770,6 +779,13 @@ def build_residue_graph_incremental(
 
     Defaults preserve the existing public thresholds while making the search
     substantially less repetitive.
+
+    WARNING: this enumerates *subsets* of primes, so the number of distinct
+    (used_primes, residue) states grows like C(#primes_with_data, k) with
+    k ~ 10 when the primes are small (gen ~11 at H~4e4).  `next_state` and
+    `generated_state_seen` hold all of them, which exhausts memory.  It is no
+    longer the default; use strategy="ordered" (build_residue_chains_ordered)
+    unless you specifically need the component/union-find graph.
     """
     # Defensive compatibility boundary: some older callers may still pass
     # diagnostic-only keywords directly to this low-level builder.  They have
@@ -783,8 +799,9 @@ def build_residue_graph_incremental(
 
     pool = sorted({int(p) for p in prime_pool})
     H = int(height_bound)
-    box = (2 * H + 1) ** 2
-    threshold = int(margin) * box
+    square_den = bool(square_den)
+    box = box_slots(H, square_den)
+    threshold = informative_threshold(H, margin, square_den)
     rng = random.Random(seed)
 
     if int(max_calls_per_generation) <= 0:
@@ -793,12 +810,31 @@ def build_residue_graph_incremental(
         raise ValueError("max_prime_choices_per_chain_generation must be positive")
     if int(max_chain_calls_per_generation) <= 0:
         raise ValueError("max_chain_calls_per_generation must be positive")
-    if int(min_clique_size) < 1:
+    # The clique-size rule.  A chain is confirmed as soon as its modulus
+    # exceeds `threshold` (crt_bounds.informative_threshold), so the size of
+    # a clique is whatever that takes: about k_best primes if they are large,
+    # at most k_worst whatever they are.  min_clique_size / max_clique_size
+    # are OPTIONAL overrides (None = let the modulus bound decide); the old
+    # defaults (3 and 9) confirmed chains at ~10^5 and dropped chains at 9
+    # primes, i.e. before the modulus bound could ever be reached.
+    if min_clique_size is not None and int(min_clique_size) < 1:
         raise ValueError("min_clique_size must be >= 1")
-    if int(max_clique_size) < int(min_clique_size):
+    if (
+        min_clique_size is not None
+        and max_clique_size is not None
+        and int(max_clique_size) < int(min_clique_size)
+    ):
         raise ValueError("max_clique_size must be >= min_clique_size")
 
-    lift_cache = _LiftCache(lift_cache_size)
+    clique_sizes = clique_size_bounds(pool, H, margin, square_den)
+
+    def _confirmed(used_count, modulus):
+        return modulus > threshold or (
+            min_clique_size is not None
+            and used_count >= int(min_clique_size)
+        )
+
+    lift_cache = _LiftCache(lift_cache_size, square_den=square_den)
 
     # ------------------------------------------------------------------
     # Build / optionally prune residue domains.
@@ -840,7 +876,8 @@ def build_residue_graph_incremental(
         print(
             f"[residue_graph_incremental] start: {len(all_nodes):,} nodes, "
             f"{len(primes_with_data)} primes, threshold={threshold:,}, "
-            f"lift-cache={lift_cache.maxsize:,}"
+            f"clique size {clique_sizes['k_best']}..{clique_sizes['k_worst']}, "
+            f"square_den={square_den}, lift-cache={lift_cache.maxsize:,}"
         )
 
     if len(primes_with_data) < 2:
@@ -957,10 +994,7 @@ def build_residue_graph_incremental(
                 task = work.popleft()
                 used_count = len(task.used_primes)
 
-                if (
-                    used_count >= int(min_clique_size)
-                    or task.modulus > threshold
-                ):
+                if _confirmed(used_count, task.modulus):
                     first = task.node_keys[0]
                     for other in task.node_keys[1:]:
                         uf.union(first, other)
@@ -977,7 +1011,10 @@ def build_residue_graph_incremental(
                     already_done += 1
                     continue
 
-                if used_count >= int(max_clique_size):
+                if (
+                    max_clique_size is not None
+                    and used_count >= int(max_clique_size)
+                ):
                     if stats_counter is not None:
                         stats_counter[
                             "residue_graph_incremental_overgrown_dropped"
@@ -1104,10 +1141,7 @@ def build_residue_graph_incremental(
                 residue = int(c) % modulus
                 dedup_key = (frozenset(used), residue)
 
-                if (
-                    len(used) >= int(min_clique_size)
-                    or modulus > threshold
-                ):
+                if _confirmed(len(used), modulus):
                     if dedup_key not in confirmed_state_seen:
                         confirmed_state_seen.add(dedup_key)
                         first = node_keys[0]
@@ -1307,6 +1341,113 @@ def build_residue_graph_incremental(
     return result
 
 
+def _gain_prime_scores(nodes_by_prime, primes):
+    """
+    log(p / domain size) per prime: modulus gain minus branching cost.
+
+    A prime with a one-element domain is a free constraint; a prime with a
+    big domain multiplies the number of CRT states.  Skipping a prime is
+    always safe for recall (a true point survives at every prime where it has
+    a residue), so the order only affects speed.
+    """
+    return {
+        p: math.log(p) - math.log(max(1, len(nodes_by_prime.get(p, ()))))
+        for p in primes
+    }
+
+
+def _num_den(m):
+    """(numerator, denominator) of an int / Fraction / Sage rational."""
+    try:
+        return int(m.numerator()), int(m.denominator())
+    except TypeError:
+        return int(m.numerator), int(m.denominator)
+    except AttributeError:
+        return int(m), 1
+
+
+def _trace_known_m(known_m, order, nodes_by_prime, chains, window_of_chain):
+    """
+    For each known m: was it confirmed by some chain, and if not, at which
+    primes does this vector have no residue for it?
+
+    A prime where m mod p is absent from the vector's residue domain kills
+    every window that uses that prime, so this list is exactly what decides
+    whether the sieve can recover m.  (For a vector that does not produce m
+    at all, expect many missing primes: that is normal.)
+    """
+    if known_m is None:
+        return []
+    if not isinstance(known_m, (list, tuple, set)):
+        known_m = [known_m]
+    dom = {p: {int(nk[2]) for nk in nodes_by_prime[p]} for p in order}
+    out = []
+    for m in known_m:
+        try:
+            num, den = _num_den(m)
+        except Exception:
+            continue
+        confirmed_win = None
+        for ch, w in zip(chains, window_of_chain):
+            M = int(ch["modulus"])
+            if math.gcd(den, M) != 1:
+                continue
+            if (num * pow(den, -1, M) - int(ch["residue"])) % M == 0:
+                confirmed_win = w
+                break
+        missing, den_bad = [], []
+        for p in order:
+            if den % p == 0:
+                den_bad.append(p)
+            elif (num * pow(den, -1, p)) % p not in dom[p]:
+                missing.append(p)
+        if confirmed_win is not None:
+            out.append({"m": m, "confirmed_gen": confirmed_win,  # = #primes in the confirming chain
+                        "lost_gen": None, "lost_why": ""})
+        elif missing:
+            out.append({"m": m, "confirmed_gen": None,
+                        "lost_gen": len(missing),
+                        "lost_why": f"no residue at {len(missing)}/{len(order)} "
+                                    f"primes, e.g. {missing[:12]}"})
+        else:
+            out.append({"m": m, "confirmed_gen": None, "lost_gen": None,
+                        "lost_why": "residue present at every prime; "
+                                    "search never assembled it"})
+    return out
+
+
+def _height_scales(H, min_scale=128, ratio=8):
+    """Ascending height scales ending at H: 128, 1024, 8192, ..., H."""
+    H = int(H)
+    scales, h = [], max(2, int(min_scale))
+    while h < H:
+        scales.append(h)
+        h *= max(2, int(ratio))
+    scales.append(H)
+    return scales
+
+
+def _pick_span(order, threshold, budget=300_000, cap=24):
+    """
+    How many of the ranked primes to enumerate subsets over at one scale.
+
+    A chain needs about k primes to pass `threshold`; we look at subsets one
+    layer deeper (k+1), so the number of subsets is ~C(L, k+1).  Use every
+    prime while that is affordable (small scales: k is 3-4, so all ~40 primes
+    fit), and fall back to the best `cap` primes when it is not (the top
+    scale, k ~ 6).
+    """
+    n = len(order)
+    if n == 0:
+        return 0
+    med = sorted(order)[n // 2]
+    k = max(1, math.ceil(math.log(max(threshold, 2)) / math.log(max(med, 2)))) + 1
+    L = n
+    while L > min(n, cap) and math.comb(L, k) * 3 > budget:
+        L -= 1
+    return max(1, L)
+
+
 def build_residue_chains_ordered(
     precomputed_residues,
     prime_pool,
@@ -1316,82 +1457,157 @@ def build_residue_chains_ordered(
     max_chains=None,
     stats_counter=None,
     progress=True,
-    windows=12,
-    max_states_per_layer=2_000_000,
+    subset_span=24,
+    max_tests=400_000,
+    min_scale=128,
+    scale_ratio=8,
+    known_m=None,
     lift_cache_size=500_000,
+    square_den=False,
+    prime_order="gain",
     **_ignored,
 ):
     """
-    Fixed-order layered CRT sieve (largest primes first).
+    Multi-scale canonical-order subset search (default strategy).
 
-    Each window starts one prime further down the descending prime list and
-    multiplies residue domains layer by layer until the modulus exceeds
-    margin*(2H+1)^2, so only as many primes are used as are needed to make
-    the lift test informative (typically ~5 large primes, not k smallest).
-    Layers whose modulus is still <= box are not lift-tested (the test is a
-    tautology there).  A prime with no true residue kills every window that
-    spans it; more windows = more robustness to bad primes, at linear cost.
+    Two facts drive the design.
 
-    Returns a dict shaped like build_residue_graph_incremental's result
-    (`confirmed_chains` holds one chain per surviving CRT state).
+    1. A point can be visible at only a FEW primes for a given vector.  (In
+       the x=100 run, m=-100 sits at 5 of 104 primes for v=89; the point most
+       likely belongs to a multiplier outside the enumerated range and shows
+       up in v=89 only where the group order divides the multiplier gap.)  So
+       we enumerate SUBSETS of primes, not one fixed prime window.
+
+    2. The height bound H (here 37000, meaning (2H+1)^2 ~ 5.5e9 slots) is far
+       larger than the height of the points we actually want first.  Confirming
+       a chain needs modulus > margin*box(H), which is 8.2e10 at H=37000 --
+       more than 5 good primes can supply -- but only ~1e6 at H=128.  So we
+       "zoom": run the same search at heights 128, 1024, 8192, ..., H,
+       smallest first.  Small scales are cheap (3-4 primes per chain, all
+       primes usable) and catch small points; H is the final, expensive
+       backstop.  Each chain remembers the scale it was confirmed at
+       (chain["height"]) and must be reconstructed at THAT bound.
+
+    Per scale: depth-first over strictly increasing prime rank (each subset
+    once, memory O(depth)); rank is log(p/domain) (`prime_order="gain"`, or
+    "largest"); a chain ends once its modulus exceeds margin*box(scale);
+    prefixes above box(scale) are lift-tested at that scale; prefixes that
+    cannot reach the threshold even with every remaining span prime are cut;
+    `max_tests` caps CRT steps per scale.  Chains are de-duplicated by the
+    rational they reconstruct to, so one true point yields one chain, not one
+    per prime subset.
+
+    Returns a dict shaped like build_residue_graph_incremental's result plus
+    'trace' (see _trace_known_m).
     """
     pool = sorted({int(p) for p in prime_pool})
     H = int(height_bound)
-    box = (2 * H + 1) ** 2
-    threshold = int(margin) * box
+    square_den = bool(square_den)
     nodes_by_prime = _nodes_by_prime(precomputed_residues, pool, v_tuple=v_tuple)
-    order = sorted((p for p in pool if nodes_by_prime.get(p)), reverse=True)
+    with_data = [p for p in pool if nodes_by_prime.get(p)]
+    scores = _gain_prime_scores(nodes_by_prime, with_data)
+    if prime_order == "largest":
+        order = sorted(with_data, reverse=True)
+    else:
+        order = sorted(with_data, key=lambda q: (scores[q], q), reverse=True)
     n_nodes = sum(len(v) for v in nodes_by_prime.values())
-    lift_cache = _LiftCache(lift_cache_size)
+    lift_cache = _LiftCache(lift_cache_size, square_den=square_den)
 
     tested = kept = 0
-    chains, seen = [], set()
+    chains, chain_len = [], []
     stopped_reason = None
+    seen_key = set()
+    seen_m = set()
+    per_scale = []
 
-    for w in range(min(int(windows), len(order))):
-        frontier = [(1, 0, ())]
-        reached = False
-        for p in order[w:]:
-            nxt = []
-            for (M, c, path) in frontier:
+    for Hs in (_height_scales(H, min_scale, scale_ratio) if order else []):
+        box = box_slots(Hs, square_den)
+        threshold = informative_threshold(Hs, margin, square_den)
+        L = _pick_span(order, threshold, cap=int(subset_span))
+        # extend the span if even all of it could not comfortably clear threshold
+        prod = 1
+        for q in order[:L]:
+            prod *= q
+        while L < len(order) and prod <= threshold * 1000:
+            prod *= order[L]
+            L += 1
+        span = order[:L]
+        suffix = [1] * (L + 1)
+        for j in range(L - 1, -1, -1):
+            suffix[j] = suffix[j + 1] * span[j]
+
+        scale_tests = 0
+        scale_chains = 0
+        scale_stop = None
+
+        def dfs(start, M, c, path):
+            nonlocal tested, kept, scale_tests, scale_chains, scale_stop, stopped_reason
+            for j in range(start, L):
+                if scale_stop or stopped_reason:
+                    return
+                if M * suffix[j] <= threshold:
+                    return      # even every remaining prime cannot get there
+                p = span[j]
                 inv = pow(M, -1, p)
                 M2 = M * p
                 for nk in nodes_by_prime[p]:
+                    if scale_tests >= int(max_tests):
+                        scale_stop = "max_tests"
+                        return
                     c2 = c + M * (((nk[2] - c) * inv) % p)
                     tested += 1
-                    if M2 <= box or lift_cache(c2, M2, H):
-                        kept += 1
-                        nxt.append((M2, c2, path + (nk,)))
-            frontier = nxt
-            if not frontier:
-                break
-            if len(frontier) > int(max_states_per_layer):
-                stopped_reason = "max_states_per_layer"
-                break
-            if frontier[0][0] > threshold:
-                reached = True
-                break
-        if reached:
-            for (M, c, path) in frontier:
-                key = (M, c)
-                if key in seen:
-                    continue
-                seen.add(key)
-                chains.append({
-                    "primes": sorted(k[0] for k in path),
-                    "modulus": M,
-                    "residue": c,
-                    "node_keys": list(path),
-                })
-        if max_chains is not None and len(chains) >= int(max_chains):
-            stopped_reason = "max_chains"
+                    scale_tests += 1
+                    if M2 > box and not lift_cache(c2, M2, Hs):
+                        continue
+                    kept += 1
+                    if M2 > threshold:
+                        if square_den:
+                            key = (M2, c2)
+                        else:
+                            try:
+                                a, b = rational_reconstruct(c2 % M2, M2, max_den=Hs)
+                            except RationalReconstructionError:
+                                continue
+                            key = (int(a), int(b))
+                        seen = seen_key if square_den else seen_m
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        chains.append({
+                            "primes": sorted(k[0] for k in path) + [p],
+                            "modulus": M2,
+                            "residue": c2,
+                            "node_keys": list(path) + [nk],
+                            "height": Hs,
+                        })
+                        chain_len.append(len(path) + 1)
+                        scale_chains += 1
+                        if max_chains is not None and len(chains) >= int(max_chains):
+                            stopped_reason = "max_chains"
+                            return
+                    else:
+                        dfs(j + 1, M2, c2, path + (nk,))
+                        if scale_stop or stopped_reason:
+                            return
+
+        if span:
+            dfs(0, 1, 0, ())
+        per_scale.append((Hs, L, scale_tests, scale_chains, scale_stop))
+        if scale_stop and stopped_reason is None:
+            stopped_reason = f"max_tests@H={Hs}" if Hs == H else stopped_reason
+        if stopped_reason == "max_chains":
             break
 
+    trace = _trace_known_m(known_m, with_data, nodes_by_prime, chains, chain_len)
+
     if progress:
+        sc = ", ".join(
+            f"H={h}:span{l}/{t:,}t/{c}c" + (f"({r})" if r else "")
+            for h, l, t, c, r in per_scale
+        )
         print(
-            f"[residue_graph_ordered] {n_nodes:,} nodes, {len(order)} primes, "
-            f"windows={min(int(windows), len(order))}, tested={tested:,}, "
-            f"kept={kept:,}, chains={len(chains):,}"
+            f"[residue_graph_ordered] {n_nodes:,} nodes, {len(with_data)} primes; "
+            f"scales [{sc}]; tested={tested:,}, kept={kept:,}, chains={len(chains):,}"
             + (f", stopped: {stopped_reason}" if stopped_reason else "")
         )
 
@@ -1408,6 +1624,7 @@ def build_residue_chains_ordered(
         "cache_stats": lift_cache.stats(),
         "stopped_reason": stopped_reason,
         "strategy": "ordered",
+        "trace": trace,
     }
 
 
@@ -1436,13 +1653,13 @@ def build_residue_graph_ktuple(
     # caller/diagnostics, but they are not search parameters for the low-level
     # incremental builder and must not leak into its signature.
     kwargs = dict(kwargs)
-    strategy = kwargs.pop("strategy", "incremental")
+    strategy = kwargs.pop("strategy", "ordered")
     honor_k = bool(kwargs.pop("honor_k", False))
     k_needed = k if k is not None else kwargs.pop("k", None)
     kwargs.pop("k", None)
     kwargs.pop("max_tuples", None)
+    known_m = kwargs.pop("known_m", None)
     compatibility_only = {
-        "known_m",
         "label",
         "debug",
         "verbose",
@@ -1455,7 +1672,8 @@ def build_residue_graph_ktuple(
     # implementation.  Silently ignoring unknown kwargs preserves the old
     # k-tuple API's compatibility behavior instead of turning an otherwise
     # successful graph search into a TypeError.
-    ordered_keys = {"max_chains", "windows", "max_states_per_layer", "lift_cache_size"}
+    ordered_keys = {"max_chains", "subset_span", "max_tests", "min_scale",
+                    "scale_ratio", "lift_cache_size", "square_den", "prime_order"}
     if strategy == "ordered":
         fwd = {key: kwargs[key] for key in ordered_keys if key in kwargs}
         fwd.setdefault("max_chains", 20_000)
@@ -1467,6 +1685,7 @@ def build_residue_graph_ktuple(
             margin=margin,
             stats_counter=stats_counter,
             progress=progress,
+            known_m=known_m,
             **fwd,
         )
 
@@ -1487,12 +1706,15 @@ def build_residue_graph_ktuple(
         "lift_cache_size",
         "max_total_calls",
         "time_budget_sec",
+        "square_den",
     }
     forward = {key: kwargs.pop(key) for key in list(kwargs) if key in incremental_keys}
-    # OPT-IN (honor_k=True): `k` has always been dropped here, so chains are
-    # confirmed at min_clique_size (default 3) and the exact on-curve check
-    # does the real filtering.  That is what finds points present at only a
-    # few primes; requiring k primes needs the point at >= k primes.
+    # honor_k is now redundant: build_residue_graph_incremental confirms a
+    # chain once its modulus exceeds crt_bounds.informative_threshold, which
+    # is what the guaranteed clique size k is derived from.  (Before, the
+    # default min_clique_size=3 confirmed chains at M ~ 10^5 and
+    # max_clique_size=9 dropped chains before the bound could be reached, so
+    # the bound was dead code.)  honor_k=True still pins min_clique_size=k.
     if honor_k and k_needed is not None:
         forward.setdefault("min_clique_size", int(k_needed))
         forward["max_clique_size"] = max(
@@ -1717,6 +1939,26 @@ def reconstruct_candidate_from_chain(
         }
     except RationalReconstructionError:
         return None
+
+
+def reconstruct_candidates_from_chain_square(chain, height_bound):
+    """
+    All reduced fractions a/d^2 in the box that lie in a confirmed chain's
+    class, as reconstruction dicts (possibly several, possibly none).
+    Exhaustive in d <= sqrt(H); see rational_arithmetic.square_den_small_rationals.
+    """
+    H = int(height_bound)
+    M = int(chain["modulus"])
+    c = int(chain["residue"]) % M
+    return [
+        {
+            "m_num": a,
+            "m_den": s,
+            "primes": chain["primes"],
+            "modulus": M,
+        }
+        for a, s in square_den_small_rationals(c, M, H)
+    ]
 
 
 def reconstruct_candidates_from_component(

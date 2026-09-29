@@ -471,13 +471,14 @@ def _report_brauer_estimates(precomputed_residues, stats):
 
 def _known_point_trace_ms(inp, mtarget_known):
     """
-    m-values of every already-known x (m = -x + r_m(0), valid because r_m is
+    m-values of every already-known x (m = -x + r_m(0) - shift, valid because r_m is
     linear here -- see the m_map_height_factor note in _resolve_height_bound),
     plus the configured target's m.  Reporting only; never steers the search.
     """
     trace_ms = []
     try:
-        r_m0 = inp.r_m(m=0)
+        # x = r_m(m) - shift with r_m linear of slope -1, so m = r_m(0) - shift - x.
+        r_m0 = QQ(inp.r_m(m=0)) - QQ(inp.shift)
         for kx in list(inp.all_found_x):
             trace_ms.append(QQ(-1) * QQ(kx) + r_m0)
     except Exception as e:
@@ -512,6 +513,76 @@ def _print_graph_scoreboard(t_graph0, found_by_vector, trace_ms, trace_summary, 
     print("[residue_graph] ===================================================\n")
 
 
+def _square_den_applicable(inp):
+    """
+    True iff every rational m the residue graph can meet has a perfect-square
+    reduced denominator, so the graph may use the square-denominator lift test
+    and bound (crt_bounds.py).  Requires (all checked here, failing closed):
+      * SQUARE_DENOMINATORS on, RLINEAR (x = xi - m - shift), no Mobius map;
+      * xi = r_m(0) and shift integers (with a non-integral xi, xi - x can
+        have a non-square denominator: 1/9 + 2/9 = 1/3);
+      * the curve polynomial (inp.coeffs_genus2) integral, monic, odd degree.
+    A wrong "True" would silently drop real points, so if this ever looks
+    suspicious watch the known-m trace: a real point shows up as
+    "LOST at gen ..." instead of CONFIRMED.
+    """
+    from search_common import SQUARE_DENOMINATORS, RLINEAR, MOBIUS_TRANS
+    if not SQUARE_DENOMINATORS or not RLINEAR or MOBIUS_TRANS:
+        return False
+    try:
+        xi = QQ(inp.r_m(m=0))
+        sh = QQ(inp.shift)
+        cs = [QQ(c) for c in inp.coeffs_genus2]
+        return bool(
+            xi.denominator() == 1 and sh.denominator() == 1
+            and all(c.denominator() == 1 for c in cs)
+            and cs and cs[0] == 1 and (len(cs) - 1) % 2 == 1
+        )
+    except Exception:
+        return False
+
+
+def _report_rail_effect(raw, filt, trace_ms, graph_vecs, top=3):
+    """
+    For each known m and vector: at how many primes is m mod p in the RAW
+    residue domain vs. after the rail_ok filter?  raw > filtered means the
+    filter is deleting true residues (it must never do that); raw < #primes
+    means the residue computation itself has no root for m at those primes.
+    Only the top few vectors per m are printed.
+    """
+    def dom(res, p, v):
+        out = set()
+        for rl in (res.get(p) or {}).get(v, []):
+            out.update(int(a) % p for a in rl)
+        return out
+    for m in trace_ms or []:
+        try:
+            num, den = int(m.numerator()), int(m.denominator())
+        except Exception:
+            continue
+        rows = []
+        for v in graph_vecs:
+            n_raw = n_filt = n_tot = 0
+            dropped = []
+            for p in raw:
+                if den % p == 0:
+                    continue
+                n_tot += 1
+                a = (num * pow(den, -1, p)) % p
+                in_raw = a in dom(raw, p, v)
+                in_filt = a in dom(filt, p, v)
+                n_raw += in_raw
+                n_filt += in_filt
+                if in_raw and not in_filt:
+                    dropped.append(p)
+            rows.append((n_raw, n_filt, n_tot, v, dropped))
+        rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
+        for n_raw, n_filt, n_tot, v, dropped in rows[:top]:
+            print(f"[rail_ok] m={m} v={v}: residue present at {n_raw}/{n_tot} primes raw, "
+                  f"{n_filt}/{n_tot} after filter"
+                  + (f"  !! FILTER DROPPED TRUE RESIDUE at {dropped[:12]}" if dropped else ""))
+
+
 def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
     """
     Bottom-up candidate discovery via the residue CRT-consistency graph
@@ -530,7 +601,7 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
     # mtarget is only used to flag a match when a target is configured.
     mtarget_known = None
     if TARGETED_X:
-        mtarget_known = QQ(-1) * TARGETED_X + inp.r_m(m=0)
+        mtarget_known = QQ(-1) * TARGETED_X + QQ(inp.r_m(m=0)) - QQ(inp.shift)
 
     trace_ms = _known_point_trace_ms(inp, mtarget_known)
 
@@ -544,6 +615,8 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
     # Workers only compute; all recording into `acc` happens here, in vector order.
     # (_GRAPH_WORKER_STATE is search_main's dict; forked workers read it via COW.)
     _GRAPH_WORKER_STATE.clear()
+    square_den = _square_den_applicable(inp)
+    print(f"[residue_graph] square-denominator mode: {square_den}")
     # rail_ok: drop residues whose induced x can't carry a rational y
     # (G(x) a non-residue mod p).  Real points always survive; ~half of
     # everything else goes, which shrinks every clique the graph builds.
@@ -554,7 +627,9 @@ def _discover_via_residue_graph(inp, acc, vecs_list, precomputed_residues):
         'prime_pool': PRIME_POOL,
         'height_bound': HEIGHT_BOUND,
         'trace_ms': trace_ms or None,
+        'square_den': square_den,
     })
+    _report_rail_effect(precomputed_residues, graph_residues, trace_ms, graph_vecs)
     graph_tasks = [(vi, v, vi == 1) for vi, v in enumerate(graph_vecs, 1)]
     graph_workers = max(1, min(PARALLEL_PRIME_WORKERS, len(graph_tasks)))
     print(f"[residue_graph] scanning {len(graph_tasks)} vector(s) "
@@ -739,7 +814,7 @@ def _run_targeted_diagnostics(inp, stats, prime_pool, precomputed_residues):
     ret = diagnose_missed_point(TARGETED_X, inp.r_m, inp.shift, precomputed_residues, prime_pool, inp.vecs)
     matched_subset = ret['matched_primes'] if 'matched_primes' in ret else None
 
-    mtarget = QQ(-1) * TARGETED_X + inp.r_m(m=0)
+    mtarget = QQ(-1) * TARGETED_X + QQ(inp.r_m(m=0)) - QQ(inp.shift)
 
     cov1 = compute_residue_coverage_for_m(mtarget, precomputed_residues, PRIME_POOL)
     print("cov1: m = ", mtarget, " coverage:", cov1['coverage_fraction'])

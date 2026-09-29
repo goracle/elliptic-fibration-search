@@ -702,9 +702,6 @@ def configure_search_parameters(cd, all_known_x, base_pts, base_field):
     sconf = bounds.auto_configure_search(cd, known_pts_for_height, height_bound=None, debug=True)
     print_conf(sconf)
 
-    if not FINITE_FIELD:
-        _ = bounds.modulus_needed_from_canonical_height(370, scale_const=2.0, max_modulus=MAX_MODULUS, debug=True)
-
     prime_pool = sconf['PRIME_POOL']
     if not FINITE_FIELD:
         prime_pool = bounds.recommend_and_update_prime_pool(cd, run_heavy=True, grh_fudge=10, debug=True)

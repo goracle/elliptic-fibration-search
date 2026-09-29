@@ -261,6 +261,7 @@ def _graph_vector_worker(task):
             st['residues'], st['prime_pool'], height_bound=st['height_bound'],
             v_tuple=v_tuple, debug=True, known_m=st['trace_ms'],
             verbose_graph=verbose, print_header=(index == 1),
+            square_den=st.get('square_den', False),
         )
     ms = [(r['m_num'], r['m_den'])
           for cand in rg_result['candidates'] for r in cand['reconstructions']]

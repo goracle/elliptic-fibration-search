@@ -52,6 +52,12 @@ DATA_PTS_GENUS2 = [QQ(0)]      # known rational x-coordinate(s) to seed the sear
 TERMINATE_WHEN_6 = 6          # stop once this many distinct rational x-coords are known
 
 
+COEFFS_GENUS2 = [QQ(1), QQ(8), QQ(10), QQ(-10), QQ(-11), QQ(2), QQ(1)]
+DATA_PTS_GENUS2 = [QQ(-1)]
+TERMINATE_WHEN_6 = 22
+
+
+
 # ============================================================================
 # STATIC CONFIG
 # ============================================================================
@@ -135,7 +141,9 @@ MIN_MAX_PRIME_SUBSET_SIZE = 9      # a little headroom above the min; see note b
 # (added below) rather than eyeballing new numbers -- it does this arithmetic
 # exactly, against whatever PRIME_POOL / subset-size constants are actually
 # configured, and tells you PASS/FAIL plus how much to adjust.
-TARGET_NAIVE_HEIGHT_DIGITS = 100    # the "10^100" you're aiming for; used by the analysis print only
+TARGET_NAIVE_HEIGHT_DIGITS = None   # None = don't run the 10^D completeness pre-flight below (set e.g. 4 or 10 to see it).
+# The graph-crt clique size is NOT driven by this: it comes from HEIGHT_BOUND
+# via crt_bounds.informative_threshold / clique_size_bounds.
 
 # Raised well past the old 10**100 so the completeness proof doesn't cap out
 # and silently under-certify. At subset size up to 80 with primes up to
@@ -195,7 +203,7 @@ print("finite field =", FINITE_FIELD)
 # long comment above MIN_PRIME_SUBSET_SIZE for the derivation. Skipped in
 # FINITE_FIELD mode, where PRIME_POOL is just [FINITE_FIELD] and this
 # analysis doesn't apply.
-if not FINITE_FIELD and _IS_MAIN_PROCESS:
+if not FINITE_FIELD and _IS_MAIN_PROCESS and TARGET_NAIVE_HEIGHT_DIGITS is not None:
     from brauer import analyze_prime_pool_sufficiency
     _pool_sufficiency = analyze_prime_pool_sufficiency(
         PRIME_POOL, MIN_PRIME_SUBSET_SIZE, MIN_MAX_PRIME_SUBSET_SIZE,
@@ -207,7 +215,8 @@ SEED_INT = random.randint(-10**6, 10**6)
 ANCHOR_SEED = SEED_INT             # seed for reproducible anchor point generation
 
 DEBUG = True
-TARGETED_X = QQ(1000)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = QQ(100)   # None to disable; or a specific QQ value (e.g. QQ(182)/QQ(141)) to debug a target
+TARGETED_X = QQ(182)/QQ(141)
 
 # DEBUG-ONLY CHEAT, do not leave on for real searches: when True, and TARGETED_X
 # is set, run_standard_lattice_search restricts prime_pool to ONLY the primes
@@ -291,6 +300,14 @@ if FINITE_FIELD:
     RLINEAR_C = GF(FINITE_FIELD)(1) / GF(FINITE_FIELD)(4)
 else:
     RLINEAR_C = QQ(1) / QQ(4)
+
+# Residue-graph (graph crt) only: assume every rational m has a square reduced
+# denominator, which holds when the curve is monic of odd degree, xi/shift are
+# integers, RLINEAR and no Mobius map (standard_search._square_den_applicable
+# re-checks all of that at run time and turns this off if it fails).  Shrinks
+# the false-lift rate by ~sqrt(H) and the clique size by ~1-2 primes at
+# H=37000.  See crt_bounds.py.
+SQUARE_DENOMINATORS = True
 
 GENERATE_MIXED_RELATIONS = False   # generates relations involving target and base divisor atoms; requires RLINEAR=True
 

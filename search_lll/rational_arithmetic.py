@@ -1,6 +1,7 @@
 """
 rational_arithmetic.py: Core number theory utilities.
 """
+import math
 from .search_config import gcd, lru_cache, RationalReconstructionError, DEFAULT_MAX_CACHE_SIZE, floor, sqrt, QQ, crt, Integer
 
 @lru_cache(maxsize=DEFAULT_MAX_CACHE_SIZE)
@@ -193,6 +194,64 @@ def lattice_small_rational(c, M, H):
         q = r_prev // r_cur
         r_prev, r_cur = r_cur, r_prev - q * r_cur
         s_prev, s_cur = s_cur, s_prev - q * s_cur
+
+
+def square_den_small_rationals(c, M, H):
+    """
+    All reduced fractions a/d^2 (d >= 1, d^2 <= H, |a| <= H, gcd(a, d) = 1,
+    gcd(d, M) = 1) with a == c*d^2 (mod M), as a sorted list of (a, d*d).
+
+    This is the square-denominator analogue of lattice_small_rational.  It is
+    EXHAUSTIVE (one modular multiply per d <= sqrt(H)), so unlike the
+    Euclidean walk it also finds hits that are not lattice minimal points,
+    and it does not need M > 2*H^2 for the answer to be the complete list.
+
+    Valid only when every true m is known to have the form a/d^2 (monic
+    integral curve, RLINEAR, integral xi and shift; see crt_bounds.py).
+    gcd(a, d) = 1 forces the reduced denominator to be exactly d^2, and
+    gcd(d, M) = 1 discards d divisible by a prime of the clique (a true m
+    with p | d has no finite residue at p, so it is never a node there).
+    """
+    M, H = int(M), int(H)
+    if M <= 0:
+        raise ValueError(f"square_den_small_rationals requires M > 0, got M={M}")
+    c %= M
+    half = M // 2
+    out = []
+    for d in range(1, math.isqrt(H) + 1):
+        s = d * d
+        a = (c * s) % M
+        if a > half:
+            a -= M
+        if abs(a) > H:
+            continue
+        if math.gcd(abs(a), d) != 1 or math.gcd(d, M) != 1:
+            continue
+        out.append((a, s))
+    return out
+
+
+def lattice_square_den_lift_exists(c, M, H):
+    """
+    Like lattice_rational_lift_exists, but the denominator must be a perfect
+    square d^2 <= H (and the fraction reduced, coprime to M).  Strictly
+    stronger than the plain test; used only when square denominators are
+    justified (see crt_bounds.py).
+
+    Fast paths: M <= 2H+1 -> d = 1 always works (centered residue fits);
+    otherwise the O(log) convergent test is a necessary condition (a hit is
+    a box vector, and the convergents contain a dominating vector for every
+    box vector), so most classes are rejected before the O(sqrt(H)) scan.
+    """
+    if M <= 0:
+        raise ValueError(f"lattice_square_den_lift_exists requires M > 0, got M={M}")
+    M, H = int(M), int(H)
+    c = int(c) % M
+    if M <= 2 * H + 1:
+        return True
+    if not lattice_rational_lift_exists(c, M, H):
+        return False
+    return bool(square_den_small_rationals(c, M, H))
 
 
 def modulus_is_informative(M, H):
