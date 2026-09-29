@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from collections import defaultdict, OrderedDict, deque
 from dataclasses import dataclass
+import heapq
 import itertools
 import math
 import random
@@ -37,6 +38,7 @@ from tqdm import tqdm
 from .rational_arithmetic import (
     crt_cached,
     lattice_rational_lift_exists,
+    lattice_small_rational,
     lattice_square_den_lift_exists,
     square_den_small_rationals,
     modulus_is_informative,
@@ -1416,36 +1418,31 @@ def _trace_known_m(known_m, order, nodes_by_prime, chains, window_of_chain):
     return out
 
 
-def _height_scales(H, min_scale=128, ratio=8):
-    """Ascending height scales ending at H: 128, 1024, 8192, ..., H."""
+def _confirm_height(M, H, margin, square_den=False):
+    """
+    The height that modulus M can certify: the largest h <= H with
+    margin * box_slots(h) < M, or 0 if there is none.
+
+    This is the single place where "how big is M" turns into "how tall a
+    point can M confirm".  It replaces the fixed height ladder: every CRT
+    state is tested at its own H(M), which varies continuously with M.
+    """
+    M = int(M)
+    margin = int(margin)
     H = int(H)
-    scales, h = [], max(2, int(min_scale))
-    while h < H:
-        scales.append(h)
-        h *= max(2, int(ratio))
-    scales.append(H)
-    return scales
-
-
-def _pick_span(order, threshold, budget=300_000, cap=24):
-    """
-    How many of the ranked primes to enumerate subsets over at one scale.
-
-    A chain needs about k primes to pass `threshold`; we look at subsets one
-    layer deeper (k+1), so the number of subsets is ~C(L, k+1).  Use every
-    prime while that is affordable (small scales: k is 3-4, so all ~40 primes
-    fit), and fall back to the best `cap` primes when it is not (the top
-    scale, k ~ 6).
-    """
-    n = len(order)
-    if n == 0:
+    if not square_den:
+        t = math.isqrt((M - 1) // margin) if M > 1 else 0   # (2h+1)^2 <= t^2
+        return 0 if t < 3 else max(0, min(H, (t - 1) // 2))
+    if margin * box_slots(1, True) >= M:
         return 0
-    med = sorted(order)[n // 2]
-    k = max(1, math.ceil(math.log(max(threshold, 2)) / math.log(max(med, 2)))) + 1
-    L = n
-    while L > min(n, cap) and math.comb(L, k) * 3 > budget:
-        L -= 1
-    return max(1, L)
+    lo, hi = 1, H                       # box_slots is monotone in h
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if margin * box_slots(mid, True) < M:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
 
 
 def build_residue_chains_ordered(
@@ -1458,9 +1455,7 @@ def build_residue_chains_ordered(
     stats_counter=None,
     progress=True,
     subset_span=24,
-    max_tests=400_000,
-    min_scale=128,
-    scale_ratio=8,
+    max_tests=1_600_000,
     known_m=None,
     lift_cache_size=500_000,
     square_den=False,
@@ -1468,40 +1463,55 @@ def build_residue_chains_ordered(
     **_ignored,
 ):
     """
-    Multi-scale canonical-order subset search (default strategy).
+    Best-first CRT subset search with a continuously varying height.
 
-    Two facts drive the design.
+    Model.  A chain is a set of primes (taken in a fixed rank order, each
+    subset once) plus one residue per prime.  Its CRT state is a class c
+    mod M = product of the primes.  A point of height h is *certifiable*
+    from a state once M > margin * box(h) (crt_bounds.box_slots), because
+    then a random class has a height-h representative with probability
+    < 1/margin.  So a state with modulus M certifies exactly the heights
 
-    1. A point can be visible at only a FEW primes for a given vector.  (In
-       the x=100 run, m=-100 sits at 5 of 104 primes for v=89; the point most
-       likely belongs to a multiplier outside the enumerated range and shows
-       up in v=89 only where the group order divides the multiplier gap.)  So
-       we enumerate SUBSETS of primes, not one fixed prime window.
+        H(M) = max{ h <= height_bound : margin * box(h) < M }
 
-    2. The height bound H (here 37000, meaning (2H+1)^2 ~ 5.5e9 slots) is far
-       larger than the height of the points we actually want first.  Confirming
-       a chain needs modulus > margin*box(H), which is 8.2e10 at H=37000 --
-       more than 5 good primes can supply -- but only ~1e6 at H=128.  So we
-       "zoom": run the same search at heights 128, 1024, 8192, ..., H,
-       smallest first.  Small scales are cheap (3-4 primes per chain, all
-       primes usable) and catch small points; H is the final, expensive
-       backstop.  Each chain remembers the scale it was confirmed at
-       (chain["height"]) and must be reconstructed at THAT bound.
+    which grows continuously with M.  Every state is tested at its own
+    H(M): if it holds a rational of height <= H(M) (lattice_small_rational,
+    unique because M > 2 H(M)^2) that rational is a confirmed chain.  There
+    is no list of scales.  (This replaces the old 128/1024/8192/... ladder,
+    which made a point of height 141 wait for the 1024 tier, i.e. ~50x more
+    modulus than it needs, and made the result depend on where the tiers
+    happened to fall.)
 
-    Per scale: depth-first over strictly increasing prime rank (each subset
-    once, memory O(depth)); rank is log(p/domain) (`prime_order="gain"`, or
-    "largest"); a chain ends once its modulus exceeds margin*box(scale);
-    prefixes above box(scale) are lift-tested at that scale; prefixes that
-    cannot reach the threshold even with every remaining span prime are cut;
-    `max_tests` caps CRT steps per scale.  Chains are de-duplicated by the
-    rational they reconstruct to, so one true point yields one chain, not one
-    per prime subset.
+    Search order.  States are expanded in increasing M (a heap).  With a
+    budget of `max_tests` CRT steps the search therefore covers every state
+    below some frontier modulus M*, and so every point whose height satisfies
+    margin * box(h) <~ M* -- the reach grows with the budget instead of being
+    fixed by a tier, and a deep lexicographic branch can no longer use up the
+    budget before broad, cheap states are tried.  `stopped_reason` and the
+    progress line report M* and the height it corresponds to; if the heap
+    empties the search was exhaustive over the span.
+
+    Pruning.  A state is dropped when M > box(height_bound) and it holds no
+    rational of height <= height_bound (sound: descendants only shrink the
+    lattice).  A confirmed state is NOT dropped at once, because at M below
+    margin * box(true height) a state on a genuine chain can pass the test
+    with a random small rational (probability ~1/margin); stopping there
+    would lose the genuine chain.  It is expanded one more level and dropped
+    only when a child still contains the same rational (the point is stable).
+    States confirmed at the full height_bound (M > 2 H^2 uniqueness) and
+    square_den states are terminal immediately.
+
+    `min_scale` / `scale_ratio` (old ladder parameters) are accepted and
+    ignored.  `max_tests` is now the TOTAL budget per call (it used to be per
+    scale, with four scales at the default bound).
 
     Returns a dict shaped like build_residue_graph_incremental's result plus
-    'trace' (see _trace_known_m).
+    'trace' (see _trace_known_m).  chain["height"] is the H(M) the chain was
+    confirmed at; reconstruct at that bound.
     """
     pool = sorted({int(p) for p in prime_pool})
     H = int(height_bound)
+    margin_i = int(margin)
     square_den = bool(square_den)
     nodes_by_prime = _nodes_by_prime(precomputed_residues, pool, v_tuple=v_tuple)
     with_data = [p for p in pool if nodes_by_prime.get(p)]
@@ -1511,103 +1521,99 @@ def build_residue_chains_ordered(
     else:
         order = sorted(with_data, key=lambda q: (scores[q], q), reverse=True)
     n_nodes = sum(len(v) for v in nodes_by_prime.values())
-    lift_cache = _LiftCache(lift_cache_size, square_den=square_den)
+    lift_cache = _LiftCache(0, square_den=square_den)   # stats only: states are unique
 
-    tested = kept = 0
+    box_H = box_slots(H, square_den)
+    thr_H = informative_threshold(H, margin, square_den)
+    lift_full = lattice_square_den_lift_exists if square_den else lattice_rational_lift_exists
+    max_tests = int(max_tests)
+
+    # span: the best `subset_span` primes, extended until their product can
+    # clear the top threshold with room to spare
+    L = min(len(order), int(subset_span))
+    prod = 1
+    for q in order[:L]:
+        prod *= q
+    while L < len(order) and prod <= thr_H * 1000:
+        prod *= order[L]
+        L += 1
+    span = order[:L]
+
+    tested = kept = stable_stops = 0
     chains, chain_len = [], []
+    seen = set()
     stopped_reason = None
-    seen_key = set()
-    seen_m = set()
-    per_scale = []
+    frontier = 0                       # every state with M < frontier was expanded
+    tie = itertools.count()
+    heap = [(1, next(tie), 0, 0, None, ())] if (span and H >= 1) else []
 
-    for Hs in (_height_scales(H, min_scale, scale_ratio) if order else []):
-        box = box_slots(Hs, square_den)
-        threshold = informative_threshold(Hs, margin, square_den)
-        L = _pick_span(order, threshold, cap=int(subset_span))
-        # extend the span if even all of it could not comfortably clear threshold
-        prod = 1
-        for q in order[:L]:
-            prod *= q
-        while L < len(order) and prod <= threshold * 1000:
-            prod *= order[L]
-            L += 1
-        span = order[:L]
-        suffix = [1] * (L + 1)
-        for j in range(L - 1, -1, -1):
-            suffix[j] = suffix[j + 1] * span[j]
-
-        scale_tests = 0
-        scale_chains = 0
-        scale_stop = None
-
-        def dfs(start, M, c, path):
-            nonlocal tested, kept, scale_tests, scale_chains, scale_stop, stopped_reason
-            for j in range(start, L):
-                if scale_stop or stopped_reason:
-                    return
-                if M * suffix[j] <= threshold:
-                    return      # even every remaining prime cannot get there
-                p = span[j]
-                inv = pow(M, -1, p)
-                M2 = M * p
-                for nk in nodes_by_prime[p]:
-                    if scale_tests >= int(max_tests):
-                        scale_stop = "max_tests"
-                        return
-                    c2 = c + M * (((nk[2] - c) * inv) % p)
-                    tested += 1
-                    scale_tests += 1
-                    if M2 > box and not lift_cache(c2, M2, Hs):
-                        continue
+    while heap and stopped_reason is None:
+        M, _, c, start, q, path = heapq.heappop(heap)
+        frontier = M
+        for j in range(start, L):
+            p = span[j]
+            inv = pow(M, -1, p)
+            M2 = M * p
+            Hc = _confirm_height(M2, H, margin_i, square_den)
+            for nk in nodes_by_prime[p]:
+                if tested >= max_tests:
+                    stopped_reason = f"max_tests@M~{M:.2e}"
+                    break
+                c2 = c + M * (((nk[2] - c) * inv) % p)
+                tested += 1
+                if q is not None and (q[0] - c2 * q[1]) % M2 == 0:
+                    stable_stops += 1            # same rational survives: genuine
+                    continue
+                new_q = None
+                confirmed = False
+                if Hc >= 1:
+                    if square_den:
+                        if lift_full(c2, M2, Hc):
+                            confirmed, key = True, (M2, c2)
+                    else:
+                        hit = lattice_small_rational(c2, M2, Hc)
+                        if hit is not None:
+                            confirmed, key, new_q = True, (int(hit[0]), int(hit[1])), (int(hit[0]), int(hit[1]))
+                if confirmed:
                     kept += 1
-                    if M2 > threshold:
-                        if square_den:
-                            key = (M2, c2)
-                        else:
-                            try:
-                                a, b = rational_reconstruct(c2 % M2, M2, max_den=Hs)
-                            except RationalReconstructionError:
-                                continue
-                            key = (int(a), int(b))
-                        seen = seen_key if square_den else seen_m
-                        if key in seen:
-                            continue
+                    if key not in seen:
                         seen.add(key)
                         chains.append({
                             "primes": sorted(k[0] for k in path) + [p],
                             "modulus": M2,
                             "residue": c2,
                             "node_keys": list(path) + [nk],
-                            "height": Hs,
+                            "height": Hc,
                         })
                         chain_len.append(len(path) + 1)
-                        scale_chains += 1
                         if max_chains is not None and len(chains) >= int(max_chains):
                             stopped_reason = "max_chains"
-                            return
-                    else:
-                        dfs(j + 1, M2, c2, path + (nk,))
-                        if scale_stop or stopped_reason:
-                            return
+                            break
+                    if Hc >= H or square_den:
+                        continue                  # terminal (see docstring)
+                else:
+                    if Hc >= H:
+                        continue                  # M2 > thr_H and no lift: dead
+                    if M2 > box_H and not lift_full(c2, M2, H):
+                        continue                  # no height-<=H rational: dead
+                    kept += 1
+                heapq.heappush(heap, (M2, next(tie), c2, j + 1, new_q, path + (nk,)))
+            if stopped_reason is not None:
+                break
 
-        if span:
-            dfs(0, 1, 0, ())
-        per_scale.append((Hs, L, scale_tests, scale_chains, scale_stop))
-        if scale_stop and stopped_reason is None:
-            stopped_reason = f"max_tests@H={Hs}" if Hs == H else stopped_reason
-        if stopped_reason == "max_chains":
-            break
+    if stopped_reason is None:
+        frontier = 0                               # heap empty: exhaustive over the span
+    reach = H if frontier == 0 else _confirm_height(frontier, H, margin_i, square_den)
 
     trace = _trace_known_m(known_m, with_data, nodes_by_prime, chains, chain_len)
 
     if progress:
-        sc = ", ".join(
-            f"H={h}:span{l}/{t:,}t/{c}c" + (f"({r})" if r else "")
-            for h, l, t, c, r in per_scale
-        )
         print(
             f"[residue_graph_ordered] {n_nodes:,} nodes, {len(with_data)} primes; "
-            f"scales [{sc}]; tested={tested:,}, kept={kept:,}, chains={len(chains):,}"
+            f"continuous H(M), best-first; tested={tested:,}, kept={kept:,}, "
+            f"chains={len(chains):,}, stable={stable_stops:,}; "
+            + ("exhaustive over span" if frontier == 0 else
+               f"all states with M<{frontier:.2e} expanded (certifies heights <= {reach:,})")
             + (f", stopped: {stopped_reason}" if stopped_reason else "")
         )
 
@@ -1623,10 +1629,11 @@ def build_residue_chains_ordered(
         "generation_log": [],
         "cache_stats": lift_cache.stats(),
         "stopped_reason": stopped_reason,
+        "frontier_modulus": frontier,
+        "height_reached": reach,
         "strategy": "ordered",
         "trace": trace,
     }
-
 
 
 def build_residue_graph_ktuple(

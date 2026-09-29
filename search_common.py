@@ -69,7 +69,7 @@ NUM_PRIME_SUBSETS = 1000           # important for stability under different see
 # NOTE: PRIME_POOL is set for real further down (after MIN_PRIME_SUBSET_SIZE),
 # once the modulus-sizing derivation is in scope -- see that block for why
 # it's primes(5000) rather than primes(100).
-PRIME_POOL = list(primes(300))
+PRIME_POOL = list(primes(100))
 
 
 

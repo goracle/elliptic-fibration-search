@@ -1,0 +1,113 @@
+GNU gdb (GDB) 17.2
+Copyright (C) 2025 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-pc-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word".
+[New LWP 2269410]
+[New LWP 2269409]
+[New LWP 2269194]
+[New LWP 2269097]
+[New LWP 2269096]
+[New LWP 2269095]
+[New LWP 2269094]
+[New LWP 2269093]
+[New LWP 2269092]
+[New LWP 2269091]
+[New LWP 2269090]
+[New LWP 2269089]
+[New LWP 2269088]
+[New LWP 2269087]
+[New LWP 2269086]
+[New LWP 2269085]
+[New LWP 2269084]
+[New LWP 2269083]
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.archlinux.org>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x00007fee9faa08f2 in ?? () from /usr/lib/libc.so.6
+
+Stack backtrace
+---------------
+No symbol table info available.
+#1  0x00007fee9fa94c79 in ?? () from /usr/lib/libc.so.6
+No symbol table info available.
+#2  0x00007fee9faa0800 in ?? () from /usr/lib/libc.so.6
+No symbol table info available.
+#3  0x00007feea013c415 in _PySemaphore_Wait ()
+   from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#4  0x00007feea013c314 in _PyParkingLot_Park ()
+   from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#5  0x00007feea00ddfce in _PyMutex_LockTimed ()
+   from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#6  0x00007feea0116c17 in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#7  0x00007fee9ffe0734 in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#8  0x00007fee9fe69935 in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#9  0x00007fee9ffb9172 in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#10 0x00007feea00bc2a4 in PyEval_EvalCode () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#11 0x00007feea010571f in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#12 0x00007feea0105d7e in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#13 0x00007feea0104dfb in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#14 0x00007feea0104c07 in ?? () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#15 0x00007feea00a9fde in Py_RunMain () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#16 0x00007feea00a3efc in Py_BytesMain () from /usr/lib/libpython3.14.so.1.0
+No symbol table info available.
+#17 0x00007fee9fa27781 in ?? () from /usr/lib/libc.so.6
+No symbol table info available.
+#18 0x00007fee9fa278b9 in __libc_start_main () from /usr/lib/libc.so.6
+No symbol table info available.
+#19 0x000055ebfcacf045 in _start ()
+No symbol table info available.
+
+
+Cython backtrace
+----------------
+#0  0x0000000000000000 in ?? ()
+#1  0x0000000000000000 in ?? ()
+#2  0x0000000000000000 in ?? ()
+#3  0x00007feea013c3e0 in _PySemaphore_Wait ()
+#4  0x00007feea013c1e0 in _PyParkingLot_Park ()
+#5  0x00007feea00ddea0 in _PyMutex_LockTimed ()
+#6  0x0000000000000000 in ?? ()
+#7  0x0000000000000000 in ?? ()
+#8  0x0000000000000000 in ?? ()
+#9  0x0000000000000000 in ?? ()
+#10 0x00007feea00bc1f0 in PyEval_EvalCode ()
+#11 0x0000000000000000 in ?? ()
+#12 0x0000000000000000 in ?? ()
+#13 0x0000000000000000 in ?? ()
+#14 0x0000000000000000 in ?? ()
+#15 0x00007feea00a9cc0 in Py_RunMain ()
+#16 0x00007feea00a3ec0 in Py_BytesMain ()
+#17 0x0000000000000000 in ?? ()
+#18 0x00007fee9fa27830 in __libc_start_main ()
+#19 0x000055ebfcacf020 in _start ()
+
+[Inferior 1 (process 2269057) detached]
